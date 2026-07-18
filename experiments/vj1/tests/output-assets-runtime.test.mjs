@@ -271,6 +271,38 @@ test("media-library preview URLs are leased once and released as a group", async
   }
 });
 
+test("model media produces a bounded SVG preview only when demanded", async () => {
+  const previousCreateUrl = URL.createObjectURL;
+  const previousRevokeUrl = URL.revokeObjectURL;
+  const created = [];
+  const revoked = [];
+  URL.createObjectURL = (value) => {
+    created.push(value);
+    return `blob:model-preview-${created.length}`;
+  };
+  URL.revokeObjectURL = (url) => revoked.push(url);
+  try {
+    const library = createMediaLibrary();
+    const text = `solid preview\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid preview`;
+    const bytes = new TextEncoder().encode(text);
+    const file = {
+      name: "shape.stl",
+      size: bytes.byteLength,
+      arrayBuffer: async () => bytes.buffer,
+    };
+    await library.importFiles([file]);
+    assert.equal(created.length, 0, "import remains metadata-only");
+    assert.equal(await library.acquirePreviewUrl("shape.stl"), "blob:model-preview-1");
+    assert.equal(created.length, 1);
+    assert.equal(created[0].type, "image/svg+xml");
+    library.releasePreviewUrl("shape.stl");
+    assert.deepEqual(revoked, ["blob:model-preview-1"]);
+  } finally {
+    URL.createObjectURL = previousCreateUrl;
+    URL.revokeObjectURL = previousRevokeUrl;
+  }
+});
+
 test("video import stays metadata-only until an active render acquires it", () => {
   const previousCreateVideo = globalThis.createVideo;
   const previousCreateUrl = URL.createObjectURL;

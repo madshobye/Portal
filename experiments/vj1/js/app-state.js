@@ -26,6 +26,7 @@ import { pasteClipboardPayload } from "./domain/clipboard.js?v=clipboard-routing
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());
+  let pendingEditBaseline = null;
   refreshLiveSelectedSceneSnapshot(state);
   const listeners = new Set();
 
@@ -45,7 +46,8 @@ export function createAppState(initial = null) {
 
   function replace(next, change = "replace") {
     const event = createChangeEvent(change);
-    const previous = state;
+    const previous = pendingEditBaseline || state;
+    pendingEditBaseline = null;
     const normalized = sanitizeState(next);
     state = event.projectRestore ? normalized : stampChangedProjectItems(previous, normalized);
     if (event.scope !== "live") reconcileLiveOverridesWithPersistentEdits(previous, state);
@@ -54,6 +56,17 @@ export function createAppState(initial = null) {
   }
 
   function update(recipe, change = "update") {
+    const event = createChangeEvent(change);
+    if (event.scope === "project" && (event.phase === "scrub" || event.phase === "edit")) {
+      // A gesture is one transaction. Preserve a single pre-gesture baseline
+      // for activity/Live reconciliation, but do not deep-clone, sanitize, and
+      // stable-diff the complete project for every pointer/keyboard sample.
+      pendingEditBaseline ||= getState();
+      recipe(state);
+      refreshLiveSelectedSceneSnapshot(state);
+      emit(event);
+      return;
+    }
     const draft = getState();
     recipe(draft);
     replace(draft, change);

@@ -22,11 +22,48 @@ test("Component and Canvas chain presentation lives outside the control orchestr
   assert.match(componentHtml, /class="component-frame-controls"/);
   assert.match(componentHtml, /data-chain-reorder-list/);
   assert.match(settingsHtml, /class="ui-section focus-panel chain-settings-panel"/);
+  assert.match(settingsHtml, />Content<\/label>|>Primary<\/label>/);
+  assert.match(settingsHtml, />Transform<\/label>/);
+  assert.ok(settingsHtml.indexOf("ui-section-header rail-title") < settingsHtml.indexOf("chain-param-views"));
+  assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.transform\.x"/);
+  assert.match(settingsHtml, /data-param-context-path="components\.[0-9]+\.chain\.0\.transform\.scale"/);
   assert.match(canvasHtml, /data-update="components\.[0-9]+\.canvas\.width"/);
-  assert.match(controller, /from "\.\/component-view\.js\?v=terrain-mesh-near-1"/);
+  assert.match(controller, /from "\.\/component-view\.js\?v=canvas-component-placement-1"/);
   assert.doesNotMatch(controller, /function componentTemplate\(/);
   assert.doesNotMatch(controller, /function componentUnifiedChainTemplate\(/);
   assert.doesNotMatch(controller, /function sourcePickerTemplate\(/);
+});
+
+test("Canvas component placements render selected settings without a redundant source selector", () => {
+  const state = createInitialState();
+  const referenced = state.components.find((item) => item.type !== "canvas");
+  const placement = {
+    id: "canvas-placement",
+    kind: "source",
+    name: "Placed component",
+    enabled: true,
+    source: { type: "component", componentId: referenced.id },
+    transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+    blend: "normal",
+    opacity: 1,
+  };
+  const canvas = {
+    id: "canvas-settings-test",
+    name: "Canvas settings test",
+    type: "canvas",
+    canvas: { width: 1920, height: 1080 },
+    chain: [placement],
+  };
+  const canvasState = {
+    ...state,
+    components: [...state.components, canvas],
+    ui: { ...state.ui, selectedChainItemId: placement.id },
+  };
+
+  const html = componentSelectedChainSettingsTemplate(canvas, canvasState);
+  assert.match(html, new RegExp(`>${referenced.name}<\\/span>`));
+  assert.doesNotMatch(html, /<label class="field">Component /);
+  assert.match(html, /data-update="components\.[0-9]+\.chain\.0\.opacity"/);
 });
 
 test("persistent and Live source editors share one media-model control schema", () => {

@@ -789,7 +789,7 @@ test("live source controls use dynamic param metadata", () => {
   const source = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path)"));
+  assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path, viewParams)"));
   assert.ok(source.includes("getGeneratorComponent(source.generatorId || \"testPattern\").params"));
   assert.ok(source.includes("MODEL_SOURCE_PARAMS"));
   assert.ok(source.includes("paramControlsTemplate(params,"));
@@ -916,7 +916,7 @@ test("component preview follows the shared preview toggle", () => {
   assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(component)"));
 });
 
-test("output playback control is persistent and pauses renderer and video clocks", () => {
+test("output playback control pauses output clocks while the editor preview remains live", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
@@ -930,7 +930,8 @@ test("output playback control is persistent and pauses renderer and video clocks
   assert.ok(controllerSource.includes('outputPlaying ? "pause" : "play_arrow"'));
   assert.ok(rendererSource.includes("this.visualDeltaSeconds = playing ? dt * timeScale : 0"));
   assert.ok(rendererSource.includes("if (!playing) return"));
-  assert.ok(rendererSource.includes("this.state?.global?.playing === false ? 0 : 1"));
+  assert.ok(rendererSource.includes('return this.mode !== "output" || this.state?.global?.playing !== false'));
+  assert.ok(rendererSource.includes("this.isPlaybackActive() ? 1 : 0"));
   assert.equal((rendererSource.match(/globalVisualTimeScale\(this\.state\?\.global\).*Number\(source\.speed\)/g) || []).length, 2);
   assert.ok(bridgeSource.includes("const clientWatchdog = setInterval"));
 });

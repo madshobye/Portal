@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
 import { canvasComponents, ordinaryComponents } from "../js/control/control-selectors.js";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveScenePillTemplate, scenePillTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "../js/control/scene-live-view.js";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveScenePillTemplate, prioritizeSelectedSource, scenePillTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "../js/control/scene-live-view.js";
 import { createSceneFromState, createInitialState } from "../js/domain/models.js?v=render-coordinate-scope-3";
 
 function stateWithScene() {
@@ -28,9 +28,24 @@ test("Scene and Live presentation lives outside the control orchestrator", () =>
   assert.match(surfaceTemplate, /class="sculpt-card"/);
   assert.match(surfaceTemplate, /data-set-route-source-node=""/);
   assert.match(surfaceTemplate, />Empty</);
-  assert.match(controller, /from "\.\/scene-live-view\.js\?v=terrain-mesh-near-1"/);
+  assert.match(controller, /from "\.\/scene-live-view\.js\?v=live-source-labels-1"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
   assert.doesNotMatch(controller, /function sceneSurfaceTemplate\(/);
+});
+
+test("Scene surface source catalogs put the assigned source first without disturbing the remainder", () => {
+  const sources = [
+    { id: "", name: "Empty" },
+    { id: "component:a", name: "A" },
+    { id: "component:b", name: "B" },
+    { id: "component:c", name: "C" },
+  ];
+
+  assert.deepEqual(
+    prioritizeSelectedSource(sources, "component:b").map((item) => item.id),
+    ["component:b", "", "component:a", "component:c"]
+  );
+  assert.deepEqual(sources.map((item) => item.id), ["", "component:a", "component:b", "component:c"]);
 });
 
 test("catalog presentation and component selectors have single owners", () => {
@@ -55,4 +70,44 @@ test("Live navigates components by thumbnail and Scene exposes marked significan
   assert.match(picker, /component-thumbnail/);
   assert.match(significant, /Significant/);
   assert.match(significant, /components\.0\.chain\.0\.params\.renderQuality/);
+});
+
+test("Live component-source rows resolve user-facing component names", () => {
+  const { state, scene } = stateWithScene();
+  const owner = state.components[0];
+  const referenced = {
+    ...owner,
+    id: "component-internal-id",
+    name: "User facing component",
+    chain: [],
+  };
+  state.components.push(referenced);
+  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(owner.id)}`;
+  scene.snapshot.surfaces[0].componentId = owner.id;
+  owner.chain.unshift({
+    id: "nested-component",
+    kind: "source",
+    name: referenced.id,
+    enabled: true,
+    source: { type: "component", componentId: referenced.id },
+    transform: {},
+    blend: "normal",
+    opacity: 1,
+  });
+  state.ui.live.selectedComponentId = owner.id;
+
+  const html = liveInspectorTemplate(state);
+  assert.match(html, new RegExp(`>${referenced.name}<\\/span>`));
+  assert.doesNotMatch(html, new RegExp(`>${referenced.id}<\\/span>`));
+});
+
+test("Scene significant controls include generic chain transforms", () => {
+  const { state } = stateWithScene();
+  const component = state.components[0];
+  component.chain[0].transform = { x: 0.4, y: 0, scale: 1, rotation: 0 };
+  component.significantParams = ["chain.0.transform.x"];
+
+  const significant = sceneSignificantComponentTemplate(component, state);
+  assert.match(significant, /components\.0\.chain\.0\.transform\.x/);
+  assert.match(significant, /value="0\.4"/);
 });

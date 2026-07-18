@@ -112,6 +112,24 @@ test("Live slider updates use the lightweight live-only state path", () => {
   assert.equal(store.getLiveRenderState().components.find((item) => item.id === componentId).opacity, 0.35);
 });
 
+test("persistent scrubs retain one baseline and reconcile Live truth on commit", () => {
+  const state = createInitialState();
+  const component = state.components[0];
+  component.opacity = 1;
+  state.ui.live.componentOverrides[component.id] = { opacity: 0.25 };
+  state.ui.live.sceneOverrides[state.ui.live.selectedSceneId] = state.ui.live.componentOverrides;
+  const store = createAppState(state);
+
+  store.update((draft) => { draft.components[0].opacity = 0.8; }, "scrub:components.0.opacity");
+  store.update((draft) => { draft.components[0].opacity = 0.6; }, "scrub:components.0.opacity");
+  assert.equal(store.getState().components[0].opacity, 0.6);
+  assert.equal(store.getState().ui.live.componentOverrides[component.id].opacity, 0.25);
+
+  store.update((draft) => { draft.components[0].opacity = 0.6; }, "update:components.0.opacity");
+  assert.equal(store.getState().components[0].opacity, 0.6);
+  assert.equal(store.getState().ui.live.componentOverrides[component.id]?.opacity, undefined);
+});
+
 test("render state uses selected scene in scene workspace and live scene in live workspace", () => {
   const state = createInitialState();
   const sceneComponent = createDefaultComponent(0);

@@ -21,8 +21,10 @@ export function createModalController({
   let settingsOpen = false;
   let settingsTab = "outputs";
   let mediaPreviewObserver = null;
-  const mediaPreviewUnloadTimers = new Map();
   const activeMediaPreviews = new Set();
+  const visibleMediaPreviews = new WeakSet();
+  const mediaPreviewActivationTokens = new WeakMap();
+  const maxRetainedMediaPreviews = 500;
   let reportedPreviewObserverFallback = false;
 
   function render(state = getState()) {
@@ -147,7 +149,6 @@ export function createModalController({
       const trigger = preview.closest?.("button") || preview;
       trigger.addEventListener("pointerenter", () => activateMediaPreview(preview));
       trigger.addEventListener("focus", () => activateMediaPreview(preview));
-      trigger.addEventListener("pointerleave", () => scheduleMediaPreviewUnload(preview));
     }
     if (typeof IntersectionObserver !== "function") {
       previews.slice(0, 24).forEach(activateMediaPreview);
@@ -162,18 +163,33 @@ export function createModalController({
     }
     mediaPreviewObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) activateMediaPreview(entry.target);
-        else scheduleMediaPreviewUnload(entry.target);
+        if (entry.isIntersecting) {
+          visibleMediaPreviews.add(entry.target);
+          activateMediaPreview(entry.target);
+        } else {
+          visibleMediaPreviews.delete(entry.target);
+        }
       }
+      enforceMediaPreviewRetentionLimit();
     }, { rootMargin: "360px 0px" });
     previews.forEach((preview) => mediaPreviewObserver.observe(preview));
   }
 
-  function activateMediaPreview(preview) {
-    clearMediaPreviewUnload(preview);
-    if (!preview || preview.dataset.mediaPreviewLoaded === "true") return;
+  async function activateMediaPreview(preview) {
+    if (!preview) return;
+    if (preview.dataset.mediaPreviewLoaded === "true") {
+      activeMediaPreviews.delete(preview);
+      activeMediaPreviews.add(preview);
+      return;
+    }
     const mediaId = preview.dataset.mediaPreviewId || "";
-    const url = mediaLibrary.acquirePreviewUrl?.(mediaId) || "";
+    const token = Symbol(mediaId);
+    mediaPreviewActivationTokens.set(preview, token);
+    preview.dataset.mediaPreviewLoading = "true";
+    activeMediaPreviews.add(preview);
+    const url = await Promise.resolve(mediaLibrary.acquirePreviewUrl?.(mediaId) || "");
+    if (mediaPreviewActivationTokens.get(preview) !== token || !preview.isConnected) return;
+    delete preview.dataset.mediaPreviewLoading;
     if (!url) return;
     preview.src = url;
     preview.dataset.mediaPreviewLoaded = "true";
@@ -182,24 +198,23 @@ export function createModalController({
       preview.preload = "metadata";
       preview.load?.();
     }
+    enforceMediaPreviewRetentionLimit();
   }
 
-  function scheduleMediaPreviewUnload(preview) {
-    if (!preview || preview.dataset.mediaPreviewLoaded !== "true" || mediaPreviewUnloadTimers.has(preview)) return;
-    const timeout = setTimeout(() => unloadMediaPreview(preview), 3000);
-    mediaPreviewUnloadTimers.set(preview, timeout);
-  }
-
-  function clearMediaPreviewUnload(preview) {
-    const timeout = mediaPreviewUnloadTimers.get(preview);
-    if (timeout !== undefined) clearTimeout(timeout);
-    mediaPreviewUnloadTimers.delete(preview);
+  function enforceMediaPreviewRetentionLimit() {
+    if (activeMediaPreviews.size <= maxRetainedMediaPreviews) return;
+    for (const preview of activeMediaPreviews) {
+      if (activeMediaPreviews.size <= maxRetainedMediaPreviews) break;
+      if (visibleMediaPreviews.has(preview)) continue;
+      unloadMediaPreview(preview);
+    }
   }
 
   function unloadMediaPreview(preview) {
-    clearMediaPreviewUnload(preview);
-    if (!preview || preview.dataset.mediaPreviewLoaded !== "true") return;
+    if (!preview || (preview.dataset.mediaPreviewLoaded !== "true" && preview.dataset.mediaPreviewLoading !== "true")) return;
     const mediaId = preview.dataset.mediaPreviewId || "";
+    mediaPreviewActivationTokens.delete(preview);
+    delete preview.dataset.mediaPreviewLoading;
     preview.pause?.();
     preview.removeAttribute("src");
     if (preview.tagName === "VIDEO") {
@@ -214,9 +229,8 @@ export function createModalController({
   function resetDemandMediaPreviews() {
     mediaPreviewObserver?.disconnect?.();
     mediaPreviewObserver = null;
-    for (const timeout of mediaPreviewUnloadTimers.values()) clearTimeout(timeout);
-    mediaPreviewUnloadTimers.clear();
     for (const preview of activeMediaPreviews) {
+      mediaPreviewActivationTokens.delete(preview);
       preview.pause?.();
       preview.removeAttribute?.("src");
       if (preview.tagName === "VIDEO") {

@@ -1,11 +1,28 @@
 import { getGeneratorComponent } from "../graph/generator-registry.js";
 
+const standbyStateByTarget = new WeakMap();
+
 // p5 is intentionally limited to import/diagnostic utilities and the two
 // calibration primitives below. Production visual generators live in the
 // shader registry or an explicit specialized raw-WebGL runtime.
-export function drawStandby(pg, label, { visible = true } = {}) {
+export function drawStandby(pg, label, { visible = true, frame = null, graceMs = 0, now = null } = {}) {
   pg.clear();
   if (!visible) return;
+  const currentTime = Number.isFinite(now)
+    ? now
+    : typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+  const previous = standbyStateByTarget.get(pg);
+  const continuous = previous && previous.label === label && (
+    Number.isFinite(frame) && Number.isFinite(previous.frame)
+      ? frame === previous.frame + 1
+      : currentTime - previous.at < 250
+  );
+  const since = continuous ? previous.since : currentTime;
+  standbyStateByTarget.set(pg, { label, frame, since, at: currentTime });
+  if (graceMs > 0 && currentTime - since < graceMs) {
+    pg.background("#000000");
+    return;
+  }
   pg.background("#080a0e");
   pg.noStroke();
   pg.fill("#171d25");

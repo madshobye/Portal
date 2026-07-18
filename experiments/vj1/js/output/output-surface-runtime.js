@@ -1,7 +1,7 @@
 import { clamp01 } from "../domain/models.js?v=render-coordinate-scope-3";
 import { componentInstanceTime } from "./render-runtime-math.js?v=render-coordinate-scope-3";
 import { applyBlend } from "./blend-utils.js";
-import { drawStandby } from "./generators.js?v=adaptive-component-demand-29";
+import { drawStandby } from "./generators.js?v=standby-grace-1";
 import {
   applyBlendGlobal,
   cornersRect,
@@ -401,8 +401,11 @@ export class OutputSurfaceRuntime {
       const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, thumbnail.img);
       drawSampleRect(target, thumbnail.img, sampleRect, 0, 0, target.width, target.height);
     } else {
-      drawStandby(target, component?.thumbnail ? "loading thumbnail" : "no thumbnail", {
+      const isLoading = !!component?.thumbnail;
+      drawStandby(target, isLoading ? "loading thumbnail" : "no thumbnail", {
         visible: renderer.state?.ui?.debugPreview !== false,
+        frame: renderer.frameIndex,
+        graceMs: isLoading ? 1000 : 0,
       });
     }
     target.noTint();

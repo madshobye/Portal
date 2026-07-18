@@ -192,9 +192,13 @@ export function canvasPreviewRenderRequest(component = {}, viewportWidth = 1, vi
   const width = Math.max(1, Math.round(Number(canvas.width) || VJ1.canvasWidth));
   const height = Math.max(1, Math.round(Number(canvas.height) || VJ1.canvasHeight));
   const quality = ["auto", "low", "full"].includes(canvas.previewQuality) ? canvas.previewQuality : "auto";
+  const resolutionScale = Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1));
   const fitScale = Math.min(Math.max(1, Number(viewportWidth) || 1) / width, Math.max(1, Number(viewportHeight) || 1) / height, 1);
-  const scale = quality === "full" ? 1 : quality === "low" ? fitScale * 0.5 : fitScale;
-  return createRenderRequest("texture", { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) }, meta);
+  const scale = (quality === "full" ? 1 : quality === "low" ? fitScale * 0.5 : fitScale) * resolutionScale;
+  return createRenderRequest("texture", {
+    width: Math.max(1, Math.min(8192, Math.round(width * scale))),
+    height: Math.max(1, Math.min(8192, Math.round(height * scale))),
+  }, meta);
 }
 
 export function routeSourceLookupKey(componentId = "", outputFrameId = "") {
@@ -213,10 +217,10 @@ export function componentSourceView(render = {}, component = {}, surface = {}, r
     return {
       logicalSize,
       sampleRect: recordingFrame || { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height },
-      maxRasterSize: canvasMaxRasterSize(render, logicalSize),
-      samplingScale: recordingFrame
+      maxRasterSize: canvasMaxRasterSize(render, logicalSize, component.resolutionScale),
+      samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (recordingFrame
         ? Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE))
-        : 1,
+        : 1),
     };
   }
   const metrics = componentFrameMetrics(render, component);
@@ -236,13 +240,14 @@ export function componentAdaptiveRasterLimit(logicalSize = {}) {
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
-export function canvasMaxRasterSize(render = {}, logicalSize = {}) {
+export function canvasMaxRasterSize(render = {}, logicalSize = {}, resolutionScale = 1) {
   const width = Math.max(1, Number(logicalSize.width) || VJ1.canvasWidth);
   const height = Math.max(1, Number(logicalSize.height) || VJ1.canvasHeight);
+  const componentScale = Math.max(0.5, Math.min(2, Number(resolutionScale) || 1));
   const limitToLogicalSize = render.sampling?.limitCanvasToLogicalSize !== false;
   const density = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
   const frameScale = Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE));
-  const scale = limitToLogicalSize ? 1 : Math.max(1, frameScale, density);
+  const scale = (limitToLogicalSize ? 1 : Math.max(1, frameScale, density)) * componentScale;
   return { width: Math.min(8192, Math.max(1, Math.round(width * scale))), height: Math.min(8192, Math.max(1, Math.round(height * scale))) };
 }
 

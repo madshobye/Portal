@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=render-coordinate-scope-3";
-import { createControlShell } from "./control/control-shell-controller.js?v=media-demand-6";
+import { createAppState } from "./app-state.js?v=madstodo-4";
+import { createControlShell } from "./control/control-shell-controller.js?v=madstodo-10";
 import { getInitialWorkspace, getClientMode, persistWorkspace } from "./view-routing.js?v=adaptive-component-demand-29";
-import { createMediaLibrary } from "./services/media-library-service.js?v=media-demand-6";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=asset-only-refresh-1";
+import { createMediaLibrary } from "./services/media-library-service.js?v=madstodo-4";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=live-scene-persistence-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=media-resource-disposal-1";
-import { installOutputApp } from "./output/output-app.js?v=media-demand-6";
+import { installOutputApp } from "./output/output-app.js?v=cache-maintenance-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();

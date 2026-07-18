@@ -99,7 +99,9 @@ export function createClipboardController({ root, store, getState, getInspector,
     const serialized = JSON.stringify(payload);
     try {
       event.clipboardData?.setData(VJ1_CLIPBOARD_TYPE, serialized);
-    } catch {}
+    } catch (error) {
+      console.warn("[VJ1_CLIPBOARD_CUSTOM_FORMAT_FAILED]", { fallback: "plain-text VJ1 clipboard payload", message: error?.message || String(error) });
+    }
     event.clipboardData?.setData("text/plain", `${VJ1_CLIPBOARD_TEXT_PREFIX}${serialized}`);
     event.preventDefault();
   }
@@ -155,7 +157,8 @@ export function createClipboardController({ root, store, getState, getInspector,
     try {
       const externalText = (plainText && !plainText.startsWith(VJ1_CLIPBOARD_TEXT_PREFIX) ? plainText : "") || event.clipboardData?.getData("text/html") || "";
       payload = serialized ? JSON.parse(serialized) : externalText ? null : internalClipboard;
-    } catch {
+    } catch (error) {
+      console.warn("[VJ1_CLIPBOARD_PAYLOAD_PARSE_FAILED]", { fallback: "most recent internal clipboard item", message: error?.message || String(error) });
       payload = internalClipboard;
     }
     if (!payload) return;

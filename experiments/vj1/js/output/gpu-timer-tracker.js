@@ -10,6 +10,7 @@ export class GpuTimerTracker {
     this.sampleInterval = Math.max(1, Math.floor(Number(sampleInterval) || 1));
     this.maxPending = Math.max(1, Math.floor(Number(maxPending) || 1));
     this.maxQueryAgeFrames = Math.max(1, Math.floor(Number(maxQueryAgeFrames) || 1));
+    this.reportedFailures = new Set();
   }
 
   begin(target, frameId) {
@@ -21,7 +22,8 @@ export class GpuTimerTracker {
     if (!query) return null;
     try {
       api.begin(query);
-    } catch {
+    } catch (error) {
+      this.reportFailure("begin", error, "skip GPU timing sample");
       api.deleteQuery(query);
       return null;
     }
@@ -36,7 +38,8 @@ export class GpuTimerTracker {
     try {
       token.api.end();
       this.pending.push(token);
-    } catch {
+    } catch (error) {
+      this.reportFailure("end", error, "discard GPU timing sample");
       const frame = this.frameRecord(token.frameId);
       frame.resolved++;
       frame.invalid = true;
@@ -57,7 +60,8 @@ export class GpuTimerTracker {
       let available = false;
       try {
         available = token.api.available(token.query);
-      } catch {
+      } catch (error) {
+        this.reportFailure("availability", error, "discard GPU timing query as invalid");
         available = true;
       }
       if (!available && currentFrame - token.frameId < this.maxQueryAgeFrames) continue;
@@ -66,7 +70,8 @@ export class GpuTimerTracker {
         if (available && !token.api.disjoint()) {
           frame.queryNs.push(Number(token.api.result(token.query)) || 0);
         } else frame.invalid = true;
-      } catch {
+      } catch (error) {
+        this.reportFailure("result", error, "discard GPU timing query as invalid");
         frame.invalid = true;
       }
       frame.resolved++;
@@ -74,6 +79,12 @@ export class GpuTimerTracker {
       this.pending.splice(index, 1);
     }
     this.resolveFrames();
+  }
+
+  reportFailure(operation, error, fallback) {
+    if (this.reportedFailures.has(operation)) return;
+    this.reportedFailures.add(operation);
+    console.warn("[VJ1_GPU_TIMER_QUERY_FAILED]", { operation, fallback, message: error?.message || String(error) });
   }
 
   apiFor(gl) {

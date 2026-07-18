@@ -388,7 +388,8 @@ function terrainSurfaceResourcesValid(gl, resources) {
   try {
     return gl.isProgram(resources.program) && gl.getProgramParameter(resources.program, gl.LINK_STATUS) &&
       gl.isBuffer(resources.vertexBuffer) && gl.isBuffer(resources.indexBuffer);
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_TERRAIN_SURFACE_RESOURCE_CHECK_FAILED]", { fallback: "recreate terrain surface resources", message: error?.message || String(error) });
     return false;
   }
 }
@@ -534,7 +535,8 @@ function terrainWireResourcesValid(gl, resources) {
     return gl.isProgram(resources.program) &&
       gl.getProgramParameter(resources.program, gl.LINK_STATUS) &&
       gl.isBuffer(resources.vertexBuffer);
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_TERRAIN_WIRE_RESOURCE_CHECK_FAILED]", { fallback: "recreate terrain wire resources", message: error?.message || String(error) });
     return false;
   }
 }

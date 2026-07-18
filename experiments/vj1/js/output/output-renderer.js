@@ -7,10 +7,10 @@ import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=shader-component-catalog-extraction-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=group-composite-59";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=madstodo-4";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=render-core-contract-1";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=generator-shader-catalog-extraction-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=shader-component-catalog-extraction-1";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=madstodo-4";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=madstodo-4";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
@@ -18,19 +18,19 @@ import {
   unwrapRenderTarget,
 } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
-import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=adaptive-component-demand-29";
-import { drawGenerator, drawStandby } from "./generators.js?v=adaptive-component-demand-29";
+import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
+import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-active-ownership-1";
 import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=render-stability-2";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams, withSourceInstance } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=media-demand-6";
-import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=media-demand-6";
+import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=madstodo-4";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=output-assets-runtime-extraction-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=transition-route-scope-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=standby-grace-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
 import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=render-core-contract-1";
-import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=transform-hit-contract-3";
+import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=drag-lookup-1";
 import { drawBuffer, withShaderInstancePrefix } from "./render-draw-utils.js?v=render-diagnostics-1";
 import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
 import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=render-coordinate-scope-3";
@@ -49,7 +49,7 @@ import {
 } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { VjMapper } from "./vj-mapper.js?v=render-diagnostics-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=media-demand-6";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=standby-grace-1";
 import {
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,
@@ -67,14 +67,14 @@ import {
   sharedComponentRenderRequests,
 } from "./component-render-layout.js?v=instance-sync-60";
 
-export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=adaptive-component-demand-29";
+export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 export { parseObjMesh } from "./specialized/model-parsers.js?v=adaptive-component-demand-29";
 export { modelDepthCutoff, transformedModelDepthRange } from "./specialized/model-render-math.js?v=model-render-math-extraction-1";
 export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
 export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=render-coordinate-scope-3";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
-export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=media-demand-6";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=madstodo-4";
 export {
   terrainExpandedGridWireVertices,
   terrainExpandedWireVertices,
@@ -191,11 +191,14 @@ export class OutputRenderer {
     this.frameProfile = createEmptyFrameProfile();
     this.lastFrameProfile = createEmptyFrameProfile();
     this.componentProfileDepth = 0;
+    this.lastRenderCachePruneFrame = -RENDER_CACHE_MAINTENANCE_FRAMES;
+    this.lastComponentTimePruneFrame = -COMPONENT_TIME_MAINTENANCE_FRAMES;
     this.lastTickMs = 0;
     this.frameDeltaSeconds = 0;
     this.visualDeltaSeconds = 0;
     this.visualTime = 0;
     this.frameIndex = 0;
+    this.collectDetailedProfile = false;
     this.outputMediaStatus = createMediaReadinessStatus();
     this.scheduledEvents = [];
     this.manualScheduler = createManualScheduler();
@@ -548,6 +551,18 @@ export class OutputRenderer {
     ]));
   }
 
+  refreshComponentLookup(componentId) {
+    const component = this.state?.components?.find((item) => item.id === componentId);
+    if (component) this.componentById.set(componentId, component);
+    else this.componentById.delete(componentId);
+  }
+
+  refreshRecordingFrameLookup(frameId) {
+    const frame = this.state?.recordingFrames?.find((item) => item.id === frameId);
+    if (frame) this.recordingFrameById.set(frameId, frame);
+    else this.recordingFrameById.delete(frameId);
+  }
+
   resolveRouteSourceNode(surface = {}) {
     return this.routeSourceNodeById.get(surface.sourceNodeId) ||
       this.routeSourceNodeByLegacyKey.get(routeSourceLookupKey(surface.componentId, surface.outputFrameId)) ||
@@ -626,7 +641,8 @@ export class OutputRenderer {
   currentMappingSignature() {
     try {
       return JSON.stringify(this.state?.mappings?.local || null);
-    } catch {
+    } catch (error) {
+      console.warn("[VJ1_MAPPING_SIGNATURE_FAILED]", { fallback: "mapping acknowledgement disabled for invalid state", message: error?.message || String(error) });
       return "";
     }
   }
@@ -755,6 +771,10 @@ export class OutputRenderer {
     this.frameProfile = createEmptyFrameProfile();
     this.componentProfileDepth = 0;
     this.frameIndex++;
+    // Detailed pass attribution is diagnostic sampling, not render work. Six
+    // frames provide 10 Hz detail at 60 fps while the full-frame CPU clock and
+    // GPU query tracker continue to update normally.
+    this.collectDetailedProfile = this.frameIndex % 6 === 0;
     this.tickClock(this.frameStart);
     this.outputMediaStatus = this.outputMediaReadiness();
     this.scheduledEvents = this.state.scheduler?.manualLane === false
@@ -805,19 +825,29 @@ export class OutputRenderer {
     const dt = Math.min(0.1, Math.max(0, (nowMs - this.lastTickMs) / 1000));
     this.frameDeltaSeconds = dt;
     this.lastTickMs = nowMs;
-    const playing = this.state?.global?.playing !== false;
+    const playing = this.isPlaybackActive();
     const timeScale = globalVisualTimeScale(this.state?.global);
     this.visualDeltaSeconds = playing ? dt * timeScale : 0;
     if (!playing) return;
     this.visualTime += this.visualDeltaSeconds;
-    const liveComponentIds = new Set((this.state.components || []).map((component) => component.id));
-    for (const id of this.componentTimes.keys()) {
-      if (!liveComponentIds.has(id)) this.componentTimes.delete(id);
+    if (this.frameIndex - this.lastComponentTimePruneFrame >= COMPONENT_TIME_MAINTENANCE_FRAMES) {
+      const liveComponentIds = new Set();
+      for (const component of this.state.components || []) liveComponentIds.add(component.id);
+      for (const id of this.componentTimes.keys()) {
+        if (!liveComponentIds.has(id)) this.componentTimes.delete(id);
+      }
+      this.lastComponentTimePruneFrame = this.frameIndex;
     }
     for (const component of this.state.components || []) {
       const speed = Math.max(0, Number(component.speed) || 0);
       this.componentTimes.set(component.id, (this.componentTimes.get(component.id) || 0) + this.visualDeltaSeconds * speed);
     }
+  }
+
+  isPlaybackActive() {
+    // Playback is an output transport command. The editor preview remains a
+    // live monitor even while connected output windows are intentionally held.
+    return this.mode !== "output" || this.state?.global?.playing !== false;
   }
 
   renderSelectedSurfaceOverlay() {
@@ -1402,7 +1432,7 @@ export class OutputRenderer {
       const playback = {
           start: source.start,
           end: source.end,
-          speed: (this.state?.global?.playing === false ? 0 : 1) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
+          speed: (this.isPlaybackActive() ? 1 : 0) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
       };
       const media = this.acquireMedia(source.mediaId, { playback, width: renderRequest.width });
       if (media?.video && isDrawableMedia(media.video)) {
@@ -1658,7 +1688,7 @@ export class OutputRenderer {
     return {
       time: Number(time) || 0,
       frame: this.frameIndex,
-      playing: this.state?.global?.playing !== false,
+      playing: this.isPlaybackActive(),
     };
   }
 
@@ -1990,7 +2020,7 @@ export class OutputRenderer {
       const playback = {
           start: source.start,
           end: source.end,
-          speed: (this.state?.global?.playing === false ? 0 : 1) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
+          speed: (this.isPlaybackActive() ? 1 : 0) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
       };
       const item = this.acquireMedia(source.mediaId, { playback, width: pg.width });
       if (item?.video && isDrawableMedia(item.video)) {
@@ -2063,7 +2093,12 @@ export class OutputRenderer {
   }
 
   drawStandby(target, label) {
-    drawStandby(target, label, { visible: this.state?.ui?.debugPreview !== false });
+    const transient = /loading|checking|preparing|matching|finding|not loaded/i.test(String(label || ""));
+    drawStandby(target, label, {
+      visible: this.state?.ui?.debugPreview !== false,
+      frame: this.frameIndex,
+      graceMs: transient ? 1000 : 0,
+    });
   }
 
   componentHasPendingAssets(component, seen = new Set()) {
@@ -2208,15 +2243,15 @@ export class OutputRenderer {
       ? this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`, componentTime, rate)
       : componentTime;
     const shaderParams = rateParam ? { ...qualityParams, [rateParam]: 1 } : qualityParams;
-    const started = performance.now();
-    const sample = {
+    const started = this.collectDetailedProfile ? performance.now() : 0;
+    const sample = this.collectDetailedProfile ? {
       type: "shader-generator",
       passId: generatorId,
       passName: component.name || generatorId,
       width: renderRequest.width,
       height: renderRequest.height,
       ms: 0,
-    };
+    } : null;
     const gpuToken = this.gpuTimer.begin(target, this.frameIndex);
     try {
       drawShaderTarget(target, () => {
@@ -2256,8 +2291,10 @@ export class OutputRenderer {
       });
     } finally {
       this.gpuTimer.end(gpuToken);
-      sample.ms = roundMetric(performance.now() - started);
-      this.frameProfile.passSamples.push(sample);
+      if (sample) {
+        sample.ms = roundMetric(performance.now() - started);
+        this.frameProfile.passSamples.push(sample);
+      }
     }
     return target;
   }
@@ -2372,20 +2409,25 @@ export class OutputRenderer {
   }
 
   pruneRenderCaches() {
+    const underPressure = this.componentSourceUse.size > COMPONENT_SOURCE_CACHE_LIMIT ||
+      this.componentBufferUse.size > COMPONENT_BUFFER_CACHE_LIMIT ||
+      this.componentGpuBufferUse.size > COMPONENT_GPU_BUFFER_CACHE_LIMIT;
+    if (!underPressure && this.frameIndex - this.lastRenderCachePruneFrame < RENDER_CACHE_MAINTENANCE_FRAMES) return;
+    this.lastRenderCachePruneFrame = this.frameIndex;
     pruneGraphicsMap(this.componentSource, this.componentSourceUse, {
-      maxItems: 48,
+      maxItems: COMPONENT_SOURCE_CACHE_LIMIT,
       currentFrame: this.frameIndex,
-      idleFrames: 900,
+      idleFrames: RENDER_CACHE_IDLE_FRAMES,
     });
     pruneGraphicsMap(this.componentBuffer, this.componentBufferUse, {
-      maxItems: 48,
+      maxItems: COMPONENT_BUFFER_CACHE_LIMIT,
       currentFrame: this.frameIndex,
-      idleFrames: 900,
+      idleFrames: RENDER_CACHE_IDLE_FRAMES,
     });
     pruneGraphicsMap(this.componentGpuBuffer, this.componentGpuBufferUse, {
-      maxItems: 64,
+      maxItems: COMPONENT_GPU_BUFFER_CACHE_LIMIT,
       currentFrame: this.frameIndex,
-      idleFrames: 900,
+      idleFrames: RENDER_CACHE_IDLE_FRAMES,
     });
     for (const key of Array.from(this.stableComponentSignatures.keys())) {
       const hasCpuEntry = Array.from(this.componentBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
@@ -2539,6 +2581,9 @@ export class OutputRenderer {
   }
 
   measureShaderPass(pass, component, renderRequest, meta, target, drawPass) {
+    this.frameProfile.shaderPasses++;
+    if (meta.handoff) this.frameProfile.shaderHandoffs++;
+    if (!this.collectDetailedProfile) return this.measureGpu(target, drawPass);
     const item = {
       type: "shader-pass",
       passId: pass.id || "",
@@ -2551,8 +2596,6 @@ export class OutputRenderer {
       handoff: !!meta.handoff,
       ms: 0,
     };
-    this.frameProfile.shaderPasses++;
-    if (meta.handoff) this.frameProfile.shaderHandoffs++;
     const started = performance.now();
     const result = this.measureGpu(target, drawPass);
     item.ms = performance.now() - started;
@@ -2562,6 +2605,7 @@ export class OutputRenderer {
   }
 
   measureProfile(bucket, meta, fn) {
+    if (!this.collectDetailedProfile) return fn();
     const started = performance.now();
     const result = fn();
     const ms = performance.now() - started;
@@ -2571,6 +2615,7 @@ export class OutputRenderer {
   }
 
   measureComponentProfile(meta, fn) {
+    if (!this.collectDetailedProfile) return fn();
     const started = performance.now();
     const outermost = this.componentProfileDepth === 0;
     this.componentProfileDepth++;
@@ -2589,6 +2634,7 @@ export class OutputRenderer {
   }
 
   finishFrameProfile() {
+    if (!this.collectDetailedProfile) return;
     const profile = {
       ...this.frameProfile,
       totalMs: performance.now() - this.frameStart,
@@ -2972,7 +3018,7 @@ export class OutputRenderer {
 
   updateHudAndMetrics() {
     this.gpuTimer.poll(this.frameIndex);
-    const frameMs = Math.max(0, Number(this.lastFrameProfile?.totalMs) || (performance.now() - this.frameStart));
+    const frameMs = Math.max(0, performance.now() - this.frameStart);
     const fps = frameRate();
     const renderCost = frameMs / (1000 / 120);
     this.updateSmoothedMetrics({ fps, frameMs, renderCost });
@@ -3052,7 +3098,8 @@ function formatDensity(value = 1) {
 function mappingSignature(mapping) {
   try {
     return JSON.stringify(mapping || null);
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_MAPPING_SIGNATURE_FAILED]", { fallback: "empty mapping signature", message: error?.message || String(error) });
     return "";
   }
 }
@@ -3206,6 +3253,16 @@ function createEmptyFrameProfile() {
     passSamples: [],
   };
 }
+
+// Cache membership changes slowly during ordinary playback. Enforce hard size
+// limits immediately, but batch age-based bookkeeping so the hot frame path
+// does not allocate and sort several cache snapshots sixty times per second.
+const COMPONENT_SOURCE_CACHE_LIMIT = 48;
+const COMPONENT_BUFFER_CACHE_LIMIT = 48;
+const COMPONENT_GPU_BUFFER_CACHE_LIMIT = 64;
+const RENDER_CACHE_IDLE_FRAMES = 900;
+const RENDER_CACHE_MAINTENANCE_FRAMES = 120;
+const COMPONENT_TIME_MAINTENANCE_FRAMES = 120;
 
 function nextFxTargetSlot(targets = [], current = null) {
   return targets[0] === current ? 1 : 0;

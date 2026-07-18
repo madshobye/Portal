@@ -1,17 +1,57 @@
 import { normalizeParamValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
+import { createNumberParam } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=slider-values-70";
 
 export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
-  if (!component?.params?.length) return "";
+  const params = options.params || component?.params || [];
+  if (!params.length) return "";
   return `
     <div class="chain-param-list">
-      ${paramControlsTemplate(component.params, {
+      ${paramControlsTemplate(params, {
         pathFor: (param) => `${basePath}.params.${param.id}`,
         valueFor: (param) => paramCurrentValue(component, pass, param),
         isSignificant: options.isSignificant,
       })}
     </div>
   `;
+}
+
+// Parameter declarations are ordered by authorial relevance. The common
+// Render quality control and overflow controls belong to Details; the first
+// six authored controls form the immediate performance surface. Components
+// may override either set with `primaryParamIds` / `detailParamIds` without
+// requiring a custom inspector.
+export function componentParamViews(component = {}) {
+  const visible = (component.params || []).filter((param) => param?.id !== "seed");
+  const explicitPrimary = new Set(component.primaryParamIds || []);
+  const explicitDetails = new Set(component.detailParamIds || []);
+  if (explicitPrimary.size || explicitDetails.size) {
+    const primary = visible.filter((param) => explicitPrimary.has(param.id) || (!explicitDetails.has(param.id) && param.id !== "renderQuality"));
+    const details = visible.filter((param) => explicitDetails.has(param.id) || (param.id === "renderQuality" && !explicitPrimary.has(param.id)));
+    return { primary, details };
+  }
+  const authored = visible.filter((param) => param.id !== "renderQuality");
+  if (authored.length <= 6) return { primary: visible, details: [] };
+  return {
+    primary: authored.slice(0, 6),
+    details: [...authored.slice(6), ...visible.filter((param) => param.id === "renderQuality")],
+  };
+}
+
+export const CHAIN_TRANSFORM_PARAMS = Object.freeze([
+  Object.freeze(createNumberParam("x", "Position X", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
+  Object.freeze(createNumberParam("y", "Position Y", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
+  Object.freeze(createNumberParam("scale", "Scale", { min: 0.05, max: 8, step: 0.001, defaultValue: 1, scale: "log" })),
+  Object.freeze(createNumberParam("rotation", "Rotation", { min: -3.1416, max: 3.1416, step: 0.001, defaultValue: 0 })),
+]);
+
+export function chainTransformControlsTemplate(transform = {}, basePath, options = {}) {
+  return `<div class="chain-param-list chain-transform-param-list">${paramControlsTemplate(CHAIN_TRANSFORM_PARAMS, {
+    pathFor: (param) => `${basePath}.${param.id}`,
+    valueFor: (param) => normalizeParamValue(param, transform?.[param.id]),
+    attrs: options.attrs || "data-update",
+    isSignificant: options.isSignificant || (() => false),
+  })}</div>`;
 }
 
 export function paramControlsTemplate(params = [], {

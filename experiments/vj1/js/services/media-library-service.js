@@ -1,5 +1,6 @@
 import { uid } from "../domain/models.js?v=render-coordinate-scope-3";
-import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js?v=media-rendition-revision-1";
+import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
+import { createModelPreviewUrl } from "./model-preview-service.js?v=model-preview-1";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
@@ -12,10 +13,12 @@ export function createMediaLibrary() {
   const previewUrls = new Map();
 
   function releasePreviewUrl(id) {
-    const url = previewUrls.get(id);
-    if (!url) return;
-    URL.revokeObjectURL(url);
+    const entry = previewUrls.get(id);
+    if (!entry) return;
     previewUrls.delete(id);
+    entry.released = true;
+    if (entry.url) URL.revokeObjectURL(entry.url);
+    else entry.promise?.then((url) => URL.revokeObjectURL(url)).catch(() => {});
   }
 
   function releasePreviewUrls() {
@@ -58,12 +61,30 @@ export function createMediaLibrary() {
       return files.get(id) || null;
     },
     acquirePreviewUrl(id) {
-      if (previewUrls.has(id)) return previewUrls.get(id);
+      const existing = previewUrls.get(id);
+      if (existing) return existing.url || existing.promise;
       const file = files.get(id);
       if (!file) return "";
-      const url = URL.createObjectURL(file);
-      previewUrls.set(id, url);
-      return url;
+      if (!MODEL_RE.test(id)) {
+        const url = URL.createObjectURL(file);
+        previewUrls.set(id, { url, promise: null, released: false });
+        return url;
+      }
+      const entry = { url: "", promise: null, released: false };
+      entry.promise = createModelPreviewUrl(file).then((url) => {
+        entry.url = url;
+        return url;
+      }).catch((error) => {
+        previewUrls.delete(id);
+        console.warn("[VJ1_MODEL_PREVIEW_FAILED]", {
+          mediaId: id,
+          fallback: "show model placeholder icon",
+          message: error?.message || String(error),
+        });
+        return "";
+      });
+      previewUrls.set(id, entry);
+      return entry.promise;
     },
     releasePreviewUrl,
     releasePreviewUrls,
@@ -106,11 +127,15 @@ export async function collectFilesFromDirectory(dirHandle, prefix = "") {
         const file = await handle.getFile();
         Object.defineProperty(file, "relativePath", { value: path, configurable: true });
         files.push(file);
-      } catch {}
+      } catch (error) {
+        console.warn("[VJ1_MEDIA_FILE_SKIPPED]", { path, fallback: "omit unreadable file from library", message: error?.message || String(error) });
+      }
     } else if (handle.kind === "directory") {
       try {
         files.push(...(await collectFilesFromDirectory(handle, path)));
-      } catch {}
+      } catch (error) {
+        console.warn("[VJ1_MEDIA_DIRECTORY_SKIPPED]", { path, fallback: "omit unreadable directory from library", message: error?.message || String(error) });
+      }
     }
   }
   return files;

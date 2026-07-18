@@ -21,7 +21,6 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
       </nav>
       <div class="settings-modal-body">
         <section class="ui-section element-section" data-settings-panel="outputs" ${visiblePanel("outputs", activeTab)}>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">crop_16_9</span><span>Outputs</span></div>
           <div class="settings-preset-row">
             <button type="button" data-render-preset="wide">960 x 540</button>
             <button type="button" data-render-preset="xga" title="1024 x 768">XGA</button>
@@ -39,7 +38,6 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="soft-note">Outputs are arranged side by side in the Scene mapping workspace.</div>
         </section>
         <section class="ui-section element-section" data-settings-panel="camera" ${visiblePanel("camera", activeTab)}>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">photo_camera</span><span>Camera</span></div>
           <div class="settings-preset-row">
             <button type="button" data-camera-preset="sd">640 x 480</button>
             <button type="button" data-camera-preset="hd">HD</button>
@@ -60,16 +58,17 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           ${settingsToggle("Use maximum supported resolution", "render.camera.maxResolution", camera.maxResolution)}
           <div class="soft-note">The browser chooses the closest supported mode. Changing Camera settings restarts an active capture.</div>
         </section>
-        <section class="ui-section element-section" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component initial size</span></div>
+        <section class="ui-section element-section settings-rendering-panel" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
+          <div class="settings-group">
+          <div class="settings-group-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component initial size</span></div>
           <div class="field-pair">
             <label class="field">Width <input type="number" min="64" max="8192" step="1" data-settings-update="render.componentTexture.width" value="${render.componentTexture.width}" /></label>
             <label class="field">Height <input type="number" min="64" max="8192" step="1" data-settings-update="render.componentTexture.height" value="${render.componentTexture.height}" /></label>
           </div>
           <div class="soft-note">Defines the starting frame geometry and aspect. Runtime texture resolution follows the largest visible render demand.</div>
-        </section>
-        <section class="ui-section element-section" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">texture</span><span>Surface texture</span></div>
+          </div>
+          <div class="settings-group">
+          <div class="settings-group-title"><span class="material-symbols-rounded">texture</span><span>Surface texture</span></div>
           <label class="field">Resolution policy
             <select data-settings-update="render.surfaceTexture.mode">
               <option value="auto" ${render.surfaceTexture.mode === "auto" ? "selected" : ""}>Auto · projected pixel demand</option>
@@ -81,28 +80,28 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
             <label class="field">Max height <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceTexture.maxHeight" value="${render.surfaceTexture.maxHeight}" /></label>
           </div>
           <div class="soft-note">Auto follows visible projected-pixel demand. Manual only limits the final per-surface raster; it never changes component dimensions.</div>
-        </section>
-        <section class="ui-section element-section" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">speed</span><span>Performance</span></div>
+          </div>
+          <div class="settings-group">
+          <div class="settings-group-title"><span class="material-symbols-rounded">speed</span><span>Performance</span></div>
           <label class="field">Pixel density <input type="number" min="0.5" max="2" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
-        </section>
-        <section class="ui-section element-section" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">tune</span><span>Advanced sampling</span></div>
+          </div>
+          <div class="settings-group">
+          <div class="settings-group-title"><span class="material-symbols-rounded">tune</span><span>Advanced sampling</span></div>
           <div class="field-pair">
             <label class="field">Surface overscan <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.surfaceOverscan" value="${render.sampling.surfaceOverscan}" /></label>
             <label class="field">Recording frame <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.recordingFrameScale" value="${render.sampling.recordingFrameScale}" /></label>
           </div>
           ${settingsToggle("Limit Canvas raster to logical size", "render.sampling.limitCanvasToLogicalSize", render.sampling.limitCanvasToLogicalSize)}
           <div class="soft-note">Independent raster-demand multipliers. Both default to 1×; recording frames can be lowered to 0.5× for lower Canvas cost.</div>
-        </section>
-        <section class="ui-section element-section" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">high_quality</span><span>Component upscaling</span></div>
+          </div>
+          <div class="settings-group">
+          <div class="settings-group-title"><span class="material-symbols-rounded">high_quality</span><span>Component upscaling</span></div>
           ${settingsToggle("Enable upscaling pipeline", "render.upscaling.enabled", render.upscaling.enabled)}
           ${percentRange("Internal render amount", "render.upscaling.amount", render.upscaling.amount, 0.35, 1, 0.01, "upscaling-amount")}
           <div class="soft-note">Renders each chain component at this fraction, then applies one fast edge-aware upscale before projection.</div>
-        </section>
-        <section class="ui-section element-section" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">grain</span><span>Post processing</span></div>
+          </div>
+          <div class="settings-group">
+          <div class="settings-group-title"><span class="material-symbols-rounded">grain</span><span>Post processing</span></div>
           ${settingsToggle("Grayscale", "render.postProcessing.grayscaleEnabled", render.postProcessing.grayscaleEnabled)}
           ${percentRange("Grayscale amount", "render.postProcessing.grayscaleAmount", render.postProcessing.grayscaleAmount, 0, 1, 0.05, "grayscale-amount")}
           ${settingsToggle("Monochrome noise", "render.postProcessing.noiseEnabled", render.postProcessing.noiseEnabled)}
@@ -112,6 +111,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
             <input type="range" min="0" max="0.2" step="0.005" data-range-format="percent" data-display-step="0.1" data-settings-update="render.postProcessing.noiseAmount" value="${render.postProcessing.noiseAmount}" />
           </label>
           <div class="soft-note">These filters run at the component’s full target resolution after upscaling.</div>
+          </div>
         </section>
       </div>
     </section>

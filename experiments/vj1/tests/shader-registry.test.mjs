@@ -179,6 +179,23 @@ test("shared procedural hashes avoid shader trig", () => {
   assert.ok(!fallbackGeneratorSource.includes("Math.sin(x * 127.1"));
 });
 
+test("Plasma generator and effect expose controllable motion with a true steady mode", () => {
+  const generator = getGeneratorComponent("plasma");
+  const effect = getShaderComponent("plasma");
+  const generatorShader = getGeneratorShaderComponent("plasma").code;
+  const expected = ["motionMode", "speed", "direction", "frequency", "complexity", "distortion", "colorSpeed", "hueShift"];
+
+  for (const component of [generator, effect]) {
+    const ids = component.params.map((param) => param.id);
+    for (const id of expected) assert.ok(ids.includes(id), `${component.id} is missing ${id}`);
+    assert.equal(component.runtime.timeDependent({ motionMode: "steady", speed: 4, colorSpeed: 2 }), false);
+    assert.equal(component.runtime.timeDependent({ motionMode: "orbit", speed: 0.5, colorSpeed: 0 }), true);
+  }
+  assert.ok(generator.params.some((param) => param.id === "frequency" && param.label === "Cell scale"));
+  assert.ok(generatorShader.includes("motionMode < 0.5 ? 0.0"));
+  assert.ok(effect.code.includes("motionMode < 0.5 ? 0.0"));
+});
+
 test("eyeball keeps frame-constant animation out of per-pixel work", () => {
   const code = getGeneratorShaderComponent("eyeball").code;
 

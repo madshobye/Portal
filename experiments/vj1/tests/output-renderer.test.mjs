@@ -29,6 +29,24 @@ test("local transform overlays path-copy store-owned component and frame state",
   assert.equal(framed.components[0].chain[0].id, group.id);
 });
 
+test("local drag overlays refresh only the changed lookup entry", () => {
+  const component = { id: "component", chain: [{ id: "item", kind: "source", transform: {} }] };
+  const frame = { id: "frame", x: 0, y: 0, width: 100, height: 100 };
+  const renderer = new OutputRenderer({ mode: "component" });
+  renderer.state = { components: [component], recordingFrames: [frame], surfaces: [], render: {}, ui: {} };
+  renderer.rebuildRouteLookups();
+  let fullRebuilds = 0;
+  renderer.rebuildRouteLookups = () => { fullRebuilds++; };
+  const interaction = new ComponentPreviewInteraction(renderer);
+
+  interaction.applyLocalChainTransform(component.id, "item", { x: 0.25 });
+  interaction.applyLocalCanvasFrame(frame.id, { y: 20 });
+
+  assert.equal(fullRebuilds, 0);
+  assert.equal(renderer.componentById.get(component.id).chain[0].transform.x, 0.25);
+  assert.equal(renderer.recordingFrameById.get(frame.id).y, 20);
+});
+
 test("preview transform ownership survives stale state until an exact acknowledgement", () => {
   const transform = { x: 0.4, y: -0.2, scale: 1.5, rotation: 0.3 };
   const rect = { x: 30, y: 40, width: 120, height: 80 };
@@ -225,8 +243,8 @@ test("releasing a direct element drag commits one undoable transform", () => {
   assert.deepEqual(changes[1].transform, changes[0].transform);
 });
 
-test("global time stretch changes visual clock rate without changing its phase", () => {
-  const renderer = new OutputRenderer({ mode: "component" });
+test("global time stretch changes output clock rate without changing its phase", () => {
+  const renderer = new OutputRenderer({ mode: "output" });
   renderer.state = {
     global: { playing: true, timeStretch: -1 },
     components: [{ id: "component-a", speed: 1 }],
@@ -523,6 +541,14 @@ test("stable component cache refreshes the exact GPU buffer usage key", () => {
   assert.ok(lookup.includes("this.componentBuffer.get(stableGpuKey)"));
   assert.ok(lookup.includes("this.touchRenderCache(this.componentGpuBufferUse, stableGpuKey)"));
   assert.ok(lookup.includes("this.touchRenderCache(this.componentBufferUse, stableGpuKey)"));
+});
+
+test("render-cache maintenance is periodic unless a hard cache limit is exceeded", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.match(source, /this\.frameIndex - this\.lastRenderCachePruneFrame < RENDER_CACHE_MAINTENANCE_FRAMES/);
+  assert.match(source, /this\.componentGpuBufferUse\.size > COMPONENT_GPU_BUFFER_CACHE_LIMIT/);
+  assert.match(source, /const RENDER_CACHE_MAINTENANCE_FRAMES = 120;/);
+  assert.match(source, /this\.frameIndex - this\.lastComponentTimePruneFrame >= COMPONENT_TIME_MAINTENANCE_FRAMES/);
 });
 
 test("component pipeline lowers physical render pixels but preserves logical output dimensions", () => {
@@ -1159,6 +1185,14 @@ test("Canvas preview requests follow the viewport with auto low and full quality
   assert.deepEqual(
     pickRequestSize(canvasPreviewRenderRequest({ canvas: { width: 3840, height: 2160, previewQuality: "full" } }, 1200, 800)),
     { width: 3840, height: 2160 }
+  );
+  assert.deepEqual(
+    pickRequestSize(canvasPreviewRenderRequest({ resolutionScale: 2, canvas: { width: 1920, height: 1080, previewQuality: "full" } }, 1200, 800)),
+    { width: 3840, height: 2160 }
+  );
+  assert.deepEqual(
+    pickRequestSize(canvasPreviewRenderRequest({ resolutionScale: 0.5, canvas: { width: 1920, height: 1080, previewQuality: "full" } }, 1200, 800)),
+    { width: 960, height: 540 }
   );
 });
 

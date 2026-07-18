@@ -30,7 +30,8 @@ export function parseMediaRenditionPath(path = "") {
       key: mediaRenditionKey(decodeURIComponent(match[1]), match[2], match[3], sourceRevision),
       path,
     };
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_MEDIA_RENDITION_PATH_REJECTED]", { path, fallback: "ignore malformed rendition", message: error?.message || String(error) });
     return null;
   }
 }

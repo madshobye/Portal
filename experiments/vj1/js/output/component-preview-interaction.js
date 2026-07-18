@@ -249,7 +249,7 @@ export class ComponentPreviewInteraction {
   applyLocalCanvasFrame(frameId, rect) {
     const renderer = this.renderer;
     renderer.state = stateWithCanvasFrameRect(renderer.state, frameId, rect);
-    renderer.rebuildRouteLookups?.();
+    renderer.refreshRecordingFrameLookup?.(frameId);
   }
 
   selectedTransformableChainItem() {
@@ -427,7 +427,7 @@ export class ComponentPreviewInteraction {
   applyLocalChainTransform(componentId, itemId, transform) {
     const renderer = this.renderer;
     renderer.state = stateWithChainItemTransform(renderer.state, componentId, itemId, transform);
-    renderer.rebuildRouteLookups?.();
+    renderer.refreshComponentLookup?.(componentId);
   }
 
   reconcileIncomingState(nextState) {

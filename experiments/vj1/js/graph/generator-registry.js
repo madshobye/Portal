@@ -68,7 +68,22 @@ const RAW_GENERATORS = Object.freeze({
     id: "plasma",
     name: "Plasma",
     category: "color",
-    runtime: ALWAYS_TIME_RUNTIME,
+    runtime: {
+      timeDependent: (params = {}) => params.motionMode !== "steady" && (
+        Math.abs(Number(params.speed) || 0) > 0.0001 ||
+        Math.abs(Number(params.colorSpeed) || 0) > 0.0001
+      ),
+    },
+    params: [
+      createEnumParam("motionMode", "Motion", ["steady", "drift", "orbit", "turbulence"], "drift"),
+      createNumberParam("speed", "Motion speed", { min: 0, max: 4, step: 0.01, defaultValue: 0.65 }),
+      createNumberParam("direction", "Direction", { min: -3.14, max: 3.14, step: 0.01, defaultValue: 0.65 }),
+      createNumberParam("frequency", "Cell scale", { min: 1, max: 24, step: 0.01, defaultValue: 8 }),
+      createNumberParam("complexity", "Complexity", { min: 0, max: 1, step: 0.01, defaultValue: 0.7 }),
+      createNumberParam("distortion", "Distortion", { min: 0, max: 2, step: 0.01, defaultValue: 0.55 }),
+      createNumberParam("colorSpeed", "Color motion", { min: -2, max: 2, step: 0.01, defaultValue: 0.22 }),
+      createNumberParam("hueShift", "Hue shift", { min: 0, max: 1, step: 0.001, defaultValue: 0 }),
+    ],
   },
   gradient: {
     id: "gradient",

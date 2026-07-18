@@ -1,28 +1,39 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=terrain-mesh-near-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=shader-component-catalog-extraction-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=madstodo-4";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=madstodo-4";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
 import { generatorIcon } from "./picker-view.js?v=terrain-mesh-near-1";
-import { colorParamControlTemplate, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=render-coordinate-scope-3";
+import { chainTransformControlsTemplate, colorParamControlTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=param-hierarchy-1";
 import { MEDIA_FIT_MODES, MODEL_RENDER_MODES, MODEL_SURFACE_COLOR_PARAM, MODEL_WIRE_COLOR_PARAM } from "./source-control-schema.js?v=source-control-schema-extraction-1";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=slider-values-70";
 import { editableSectionTitleTemplate, enableToggleButton, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 
-const SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS = false;
 
 export function canvasInspectorTemplate(component, state) {
   const base = pathForComponent(state, component);
   const canvas = component.canvas || { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
   return `
     <article class="sculpt-card">
+      ${canvasResolutionControlsTemplate(component, base)}
       <div class="field-pair">
         <label class="field">Width <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.width" value="${canvas.width}" /></label>
         <label class="field">Height <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.height" value="${canvas.height}" /></label>
       </div>
       ${componentUnifiedChainTemplate(component, state, base)}
     </article>
+  `;
+}
+
+function canvasResolutionControlsTemplate(component, base) {
+  const scale = Number(component.resolutionScale) || 1;
+  return `
+    <div class="section-toolbar component-quick-toolbar" role="group" aria-label="Canvas resolution scale">
+      <div class="section-toolbar-group component-quick-group component-resolution-buttons">
+        ${[0.5, 1, 2].map((value) => `<button type="button" class="${scale === value ? "is-selected" : ""}" data-set-path="${base}.resolutionScale" data-set-value="${value}" data-set-value-type="number" aria-pressed="${scale === value}" title="${value}× Canvas resolution">${value}×</button>`).join("")}
+      </div>
+    </div>
   `;
 }
 
@@ -199,16 +210,65 @@ function chainItemRowTemplate(item, component, state, index, base, depth = 0, to
 }
 
 function selectedChainItemTemplate(item, component, state, base) {
-  if (item.kind === "source") return sourceChainItemTemplate(item, component, state, base);
-  if (item.kind === "group") return groupChainItemTemplate(item, component, state, base);
+  const title = selectedChainItemTitleTemplate(item, component, state, base);
+  const content = selectedChainItemContentTemplate(item, component, state, base, "primary");
+  const details = selectedChainItemContentTemplate(item, component, state, base, "details");
+  const tabName = `chain-param-view-${item.id}`;
+  const views = [
+    { id: "content", label: details ? "Primary" : "Content", html: content },
+    ...(details ? [{ id: "details", label: "Details", html: details }] : []),
+    {
+      id: "transform",
+      label: "Transform",
+      html: chainTransformControlsTemplate(item.transform, `${base}.transform`, {
+        isSignificant: (_param, path) => componentParamIsSignificant(component, state, path),
+      }),
+    },
+  ];
+  return `
+    ${title}
+    <div class="chain-param-views" style="--param-view-count: ${views.length};">
+      ${views.map((view, index) => `
+        <div class="chain-param-view-option">
+          <input class="chain-param-view-input" type="radio" name="${esc(tabName)}" id="${esc(tabName)}-${view.id}" ${index === 0 ? "checked" : ""} />
+          <label class="chain-param-view-tab" for="${esc(tabName)}-${view.id}">${view.label}</label>
+          <div class="chain-param-view-panel chain-param-view-${view.id}">${view.html}</div>
+        </div>
+      `).join("")}
+    </div>`;
+}
+
+function selectedChainItemTitleTemplate(item, component, state, base) {
+  if (item.kind === "effect") {
+    const effectComponent = getShaderComponent(item.componentId);
+    return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(effectComponent?.name || item.componentId)}</span></div>`;
+  }
+  if (item.kind === "group") return editableSectionTitleTemplate("account_tree", base + ".name", item.name || "Group");
+  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
+  const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
+  const displayName = sourceChainItemDisplayName(item, media, referencedComponent);
+  const staticTitle = component?.type === "canvas" && item.source?.type === "component";
+  return staticTitle
+    ? `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span></div>`
+    : editableSectionTitleTemplate(sourceIcon(item.source), base + ".name", displayName);
+}
+
+function selectedChainItemContentTemplate(item, component, state, base, paramView) {
+  if (item.kind === "source") return sourceChainItemTemplate(item, component, state, base, paramView);
+  if (item.kind === "group") return paramView === "primary" ? groupChainItemTemplate(item, component, state, base) : "";
+  return effectChainItemTemplate(item, component, state, base, paramView);
+}
+
+function effectChainItemTemplate(item, component, state, base, paramView = "primary") {
   const effectComponent = getShaderComponent(item.componentId);
+  const params = componentParamViews(effectComponent)[paramView] || [];
+  if (!params.length) return "";
   return `
     <section class="chain-item-editor">
-      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(effectComponent?.name || item.componentId)}</span></div>
       ${shaderParamControlsTemplate(effectComponent, item, base, {
+        params,
         isSignificant: (_param, path) => componentParamIsSignificant(component, state, path),
       })}
-      ${effectComponent?.spatial && SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? effectTransformControlsTemplate(item, base) : ""}
     </section>
   `;
 }
@@ -216,7 +276,6 @@ function selectedChainItemTemplate(item, component, state, base) {
 function groupChainItemTemplate(item, component, state, base) {
   return `
     <section class="chain-item-editor">
-      ${editableSectionTitleTemplate("account_tree", base + ".name", item.name || "Group")}
       <label class="field inline-param">
         <span>Collapsed</span>
         <input type="checkbox" data-update="${base}.collapsed" ${item.collapsed ? "checked" : ""} />
@@ -231,24 +290,23 @@ function groupChainItemTemplate(item, component, state, base) {
   `;
 }
 
-function sourceChainItemTemplate(item, ownerComponent, state, base) {
-  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
-  const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
-  const displayName = sourceChainItemDisplayName(item, media, referencedComponent);
+function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = "primary") {
   const isCanvasComponentPlacement = ownerComponent?.type === "canvas" && item.source?.type === "component";
+  if (paramView === "details" && item.source?.type !== "generator") return "";
+  if (paramView === "details") {
+    const generator = getGeneratorComponent(item.source?.generatorId || "testPattern");
+    if (!componentParamViews(generator).details.length) return "";
+    return `<section class="chain-item-editor">${sourcePickerTemplate(item, state, base, "details")}</section>`;
+  }
   return `
     <section class="chain-item-editor">
-      ${isCanvasComponentPlacement
-        ? `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span></div>`
-        : editableSectionTitleTemplate(sourceIcon(item.source), base + ".name", displayName)}
       ${item.source?.type === "component"
         ? (isCanvasComponentPlacement ? "" : `<label class="field">Component ${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
-        : sourcePickerTemplate(item, state, base)}
+        : sourcePickerTemplate(item, state, base, paramView)}
       <div class="chain-composite-controls">
         <label class="field"><span>Blend</span>${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend)}</label>
         ${rangeTemplate("Opacity", `${base}.opacity`, item.opacity)}
       </div>
-      ${SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? sourceTransformControlsTemplate(item, base) : ""}
     </section>
   `;
 }
@@ -263,30 +321,13 @@ function componentSelectTemplate(path, state, value, excludeId = "") {
   `;
 }
 
-function sourceTransformControlsTemplate(item, base) {
-  return `
-    <div class="field-pair">
-      ${rangeTemplate("X", `${base}.transform.x`, item.transform?.x || 0, -1, 1, 0.01)}
-      ${rangeTemplate("Y", `${base}.transform.y`, item.transform?.y || 0, -1, 1, 0.01)}
-    </div>
-    <div class="field-pair">
-      ${rangeTemplate("Scale", `${base}.transform.scale`, item.transform?.scale ?? 1, 0.1, 3, 0.01)}
-      ${rangeTemplate("Rotate", `${base}.transform.rotation`, item.transform?.rotation || 0, -3.14, 3.14, 0.01)}
-    </div>
-  `;
-}
-
-function effectTransformControlsTemplate(item, base) {
-  return sourceTransformControlsTemplate(item, base);
-}
-
 function selectedChainItemSelection(component, state) {
   const base = `${pathForComponent(state, component)}.chain`;
   const selected = findChainItemSelection(component.chain || [], state.ui.selectedChainItemId, base);
   return selected || firstChainItemSelection(component.chain || [], base);
 }
 
-function sourcePickerTemplate(component, state, base) {
+function sourcePickerTemplate(component, state, base, paramView = "primary") {
   const source = component.source || {};
   const media = state.media.find((item) => item.id === source.mediaId);
   return `
@@ -302,7 +343,7 @@ function sourcePickerTemplate(component, state, base) {
           ${icon("chevron_right")}
         </button>
       </div>`}
-      ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source, state) : ""}
+      ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source, state, paramView) : ""}
       ${source.type === "media" && !isModelMediaSource(source, media) ? mediaSourceFitControlsTemplate(`${base}.source`, source) : ""}
       ${source.type === "media" && isVideoMediaSource(source, media) ? videoSourceControlsTemplate(`${base}.source`, source, media) : ""}
       ${source.type === "media" && isModelMediaSource(source, media) ? modelSourceControlsTemplate(`${base}.source`, source) : ""}
@@ -449,9 +490,11 @@ function modelSourceControlsTemplate(base, source = {}) {
   `;
 }
 
-function generatorParamControlsTemplate(base, source = {}, state = {}) {
+function generatorParamControlsTemplate(base, source = {}, state = {}, paramView = "primary") {
   const component = getGeneratorComponent(source.generatorId || "testPattern");
   if (!component?.params?.length) return "";
+  const params = componentParamViews(component)[paramView] || [];
+  if (!params.length) return "";
   const mediaControls = component.id === "featureMorph" || component.id === "featureMorphV2"
     ? featureMorphMediaControlsTemplate(base, source, state, component.id === "featureMorphV2" ? {
         note: "MobileNet compares a grid of semantic image regions. Best with related subjects or layouts.",
@@ -462,8 +505,8 @@ function generatorParamControlsTemplate(base, source = {}, state = {}) {
       : "";
   return `
     <div class="chain-param-list">
-      ${mediaControls}
-      ${paramControlsTemplate(component.params, {
+      ${paramView === "primary" ? mediaControls : ""}
+      ${paramControlsTemplate(params, {
         pathFor: (param) => `${base}.params.${param.id}`,
         valueFor: (param) => paramCurrentValue(component, { params: source.params || {} }, param),
         isSignificant: (_param, path) => componentParamIsSignificant(

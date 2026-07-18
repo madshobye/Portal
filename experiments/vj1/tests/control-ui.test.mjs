@@ -6,7 +6,7 @@ import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-ut
 import { elementPickerTemplate } from "../js/control/picker-view.js";
 import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState } from "../js/domain/models.js";
-import { previewRasterDensity } from "../js/output/embedded-preview-app.js";
+import { previewFitSignature, previewRasterDensity } from "../js/output/embedded-preview-app.js";
 import { isPointerInteractionNode } from "../js/control/dom-utils.js";
 import { applyOptimisticToggleIntent } from "../js/control/input-controller.js";
 
@@ -48,7 +48,7 @@ test("preview presses defer UI rebuilding and draggable chain rows select on pre
   assert.ok(!previewSource.includes("canvas.mousePressed("));
 });
 
-test("media pickers defer image and video resources until cards approach the viewport", () => {
+test("media pickers defer image video and model resources until cards approach the viewport", () => {
   let previewAcquisitions = 0;
   const media = Array.from({ length: 100 }, (_, index) => ({
     id: `media/clip-${index}.mp4`,
@@ -75,6 +75,11 @@ test("media pickers defer image and video resources until cards approach the vie
   assert.match(modalSource, /new IntersectionObserver/);
   assert.match(modalSource, /rootMargin: "360px 0px"/);
   assert.match(modalSource, /mediaLibrary\.releasePreviewUrl\?\.\(mediaId\)/);
+  assert.match(modalSource, /mediaPreviewActivationTokens/);
+  assert.match(modalSource, /maxRetainedMediaPreviews = 500/);
+  assert.match(modalSource, /visibleMediaPreviews\.has\(preview\)/);
+  assert.doesNotMatch(modalSource, /scheduleMediaPreviewUnload|mediaPreviewUnloadTimers/);
+  assert.match(html, /class="media-preview-frame"/);
   assert.match(modalSource, /\[VJ1_MEDIA_PREVIEW_OBSERVER_UNAVAILABLE\]/);
 });
 
@@ -92,8 +97,14 @@ test("range params render their label and value above a full-width slider", () =
   assert.ok(styleSource.includes("grid-template-columns: auto minmax(0, 1fr);"));
   assert.match(styleSource, /\.range-value::before \{[\s\S]*?content: "\(";/);
   assert.match(styleSource, /\.range-value::after \{[\s\S]*?content: "\)";/);
+  assert.match(styleSource, /\.chain-param-view-tab \{[\s\S]*?grid-row: 1;/);
+  assert.match(styleSource, /\.chain-param-views \{[\s\S]*?column-gap: 6px;/);
+  assert.match(styleSource, /\.chain-param-view-input:checked \+ \.chain-param-view-tab \{[\s\S]*?background: var\(--accent-strong\);/);
+  assert.match(styleSource, /\.chain-param-view-panel \{[\s\S]*?grid-row: 2;/);
+  assert.match(styleSource, /\.chain-settings-panel \{ gap: 0; \}/);
+  assert.match(styleSource, /\.chain-param-view-panel \{[\s\S]*?padding: 14px 4px 4px;/);
   assert.ok(styleSource.includes("grid-column: 1 / -1;"));
-  assert.ok(styleSource.includes(".live-chain-pass > .chain-param-list"));
+  assert.ok(styleSource.includes(".live-chain-settings .chain-param-view-content"));
   assert.ok(styleSource.includes("grid-column: 1 / -1;"));
 });
 
@@ -107,7 +118,7 @@ test("Component Canvas and Live inspectors give range tracks their own full-widt
   assert.ok(!styleSource.includes(".live-chain-pass .range-field"));
   assert.ok(!styleSource.includes(".chain-pass .range-field"));
   assert.ok(!styleSource.includes(".live-chain-pass .chain-param-list"));
-  assert.ok(styleSource.includes(".live-chain-pass label:not(.range-field)"));
+  assert.ok(styleSource.includes(".live-chain-settings .field:not(.range-field)"));
   assert.ok(styleSource.includes("--range-stack-gap: 9px;"));
   assert.match(styleSource, /\.chain-param-list \{[\s\S]*?gap: var\(--range-stack-gap\);/);
 });
@@ -121,8 +132,8 @@ test("groups expose blend mode and alpha in persistent and Live inspectors", () 
     componentSource.indexOf("function sourceChainItemTemplate(")
   );
   const liveGroup = sceneLiveSource.slice(
-    sceneLiveSource.indexOf('if (item.kind === "group")', sceneLiveSource.indexOf("function liveChainItemTemplate(")),
-    sceneLiveSource.indexOf("const referencedComponent", sceneLiveSource.indexOf("function liveChainItemTemplate("))
+    sceneLiveSource.indexOf('if (item.kind === "group")', sceneLiveSource.indexOf("function liveChainItemContentTemplate(")),
+    sceneLiveSource.indexOf("function selectedLiveChainItem(")
   );
 
   assert.ok(groupEditor.includes('selectValuesTemplate(`${base}.blend`, BLEND_MODES'));
@@ -388,6 +399,29 @@ test("ordinary UI interactions do not wait through a fixed post-click quiet peri
   assert.match(source, /return active\?\.tagName !== "SELECT" && isTextEditingNode\(active\);/);
 });
 
+test("deferred UI frames consume current user truth instead of captured snapshots", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]*?deferRender\(latestState\)[\s\S]*?render\(latestState\)/);
+  assert.match(source, /function flushDeferredRender\(\)[\s\S]*?scheduleRenderNow\(latestState\)/);
+});
+
+test("Live parameter commits preserve inspector DOM identity and preview-owned drags avoid state echo", () => {
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.match(source, /if \(reason === "live:update"\) \{[\s\S]*?updatePreviewState\(state\);[\s\S]*?return;/);
+  assert.match(source, /reason !== "scrub:chain-transform" && reason !== "scrub:canvas-frame"/);
+});
+
+test("Live source labels clip before their visibility control and Transform remains selectable", () => {
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(style, /\.live-chain-outline-row \{[\s\S]*?min-width: 0;[\s\S]*?overflow: hidden;/);
+  assert.match(style, /\.live-chain-outline-select \{[\s\S]*?box-sizing: border-box;[\s\S]*?width: 100%;[\s\S]*?overflow: hidden;/);
+  assert.match(style, /\.live-chain-outline-select > span:not\(\.material-symbols-rounded\) \{[\s\S]*?max-width: 100%;[\s\S]*?text-overflow: ellipsis;/);
+  assert.doesNotMatch(style, /\.live-chain-settings \.chain-param-view-transform \{\s*display: none;/);
+});
+
 test("local UI controls use the UI-only state path", () => {
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const app = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
@@ -434,7 +468,7 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   assert.ok(source.includes('workspace === "component" || workspace === "canvas" ? "component"'));
   assert.ok(modalSource.includes("data-add-element-component"));
   assert.ok(modalSource.includes('type: "component"'));
-  assert.ok(componentSource.includes('ownerComponent?.type === "canvas" && item.source?.type === "component"'));
+  assert.ok(componentSource.includes('component?.type === "canvas" && item.source?.type === "component"'));
   assert.ok(componentSource.includes('isCanvasComponentPlacement ? "" : `<label class="field">Component'));
   assert.ok(componentSource.includes('if (item.source?.type === "component") return sourceTitle'));
   assert.ok(source.includes("data-preview-quality"));
@@ -467,6 +501,13 @@ test("Scene and Live preview resolution supports automatic low and full demand",
   assert.equal(previewRasterDensity({ ...options, quality: "full" }), 1.5);
 });
 
+test("preview resolution controls reserve invariant space while labels and metrics change", () => {
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(style, /\.preview-quality-tool \{[\s\S]*?flex: 0 0 48px;[\s\S]*?min-width: 48px;[\s\S]*?max-width: 48px;/);
+  assert.match(style, /\.preview-fps \{[\s\S]*?flex: 0 0 174px;[\s\S]*?min-width: 174px;[\s\S]*?max-width: 174px;/);
+});
+
 test("compact text lists share one full-width item generator", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
@@ -492,16 +533,39 @@ test("compact text lists share one full-width item generator", () => {
   assert.match(style, /\.chain-group-drop-zone\.is-drop-target \{[\s\S]*?border-color: rgba\(255, 255, 255, 0\.55\);[\s\S]*?background: rgba\(255, 255, 255, 0\.06\);/);
 });
 
-test("Live expands Canvas component placements into referenced element controls", () => {
+test("Live navigates referenced components separately and edits one selected nested element", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
-  assert.ok(sceneLiveSource.includes("live-referenced-component"));
   assert.match(controllerSource, /currentWorkspace\(state\) === "live"[\s\S]*?html = liveInspectorTemplate\(state\);/);
   assert.match(sceneLiveSource, /function liveComponentTemplate[\s\S]*?<article class="ui-section focus-panel live-component-card">[\s\S]*?<header class="ui-section-header panel-title live-component-head">/);
   assert.ok(!sceneLiveSource.includes('class="live-panel"'));
-  assert.ok(sceneLiveSource.includes("createLiveComponentView(referencedComponent, state)"));
-  assert.ok(sceneLiveSource.includes("liveUnifiedChainTemplate(referencedView.chain, referencedComponent.id, state, nextAncestry)"));
-  assert.ok(sceneLiveSource.includes("!ancestry.has(referencedComponent.id)"));
+  assert.ok(sceneLiveSource.includes("visit(state.components?.find"));
+  assert.ok(sceneLiveSource.includes("liveChainOutlineTemplate"));
+  assert.ok(sceneLiveSource.includes("liveSelectedChainSettingsTemplate"));
+  assert.ok(sceneLiveSource.includes("live-chain-outline-children"));
+  assert.ok(sceneLiveSource.includes("chainTransformControlsTemplate"));
+});
+
+test("preview fitting is invalidated only by layout viewport or output geometry", () => {
+  const base = {
+    mode: "preview",
+    size: { width: 900, height: 600 },
+    logical: { width: 1920, height: 1080 },
+    viewport: { fit: "manual", zoom: 1.2, x: 4, y: 8 },
+    render: { outputs: [{ id: "main", width: 1920, height: 1080 }] },
+  };
+  assert.equal(previewFitSignature(base), previewFitSignature({ ...base, unrelatedRenderState: { slider: 0.5 } }));
+  assert.notEqual(previewFitSignature(base), previewFitSignature({ ...base, viewport: { ...base.viewport, zoom: 1.3 } }));
+  assert.notEqual(previewFitSignature(base), previewFitSignature({ ...base, render: { outputs: [{ id: "main", width: 1280, height: 720 }] } }));
+});
+
+test("narrow layouts retain both control columns and disable the preview first", () => {
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  assert.match(styleSource, /@media \(max-width: 1100px\)[\s\S]*?\.studio-layout \{[\s\S]*?grid-template-columns: 190px 300px minmax\(0, 1fr\);[\s\S]*?\.studio-main \{[\s\S]*?display: none;/);
+  assert.ok(controller.includes('window.matchMedia("(max-width: 1100px)")'));
+  assert.ok(controller.includes("previewLayoutQuery?.matches"));
+  assert.match(styleSource, /@media \(max-width: 760px\)[\s\S]*?\.studio-inspector \{[\s\S]*?display: grid;/);
 });
 
 test("project settings expose component upscaling and native-resolution post filters", () => {
@@ -783,7 +847,8 @@ test("seed params stay internal and are not rendered as sliders", () => {
 
   assert.ok(parameterSource.includes('param?.id !== "seed"'));
   assert.ok(parameterSource.includes("const visible = visibleParamControls(params);"));
-  assert.ok(componentSource.includes("paramControlsTemplate(component.params"));
+  assert.ok(componentSource.includes("componentParamViews(component)"));
+  assert.ok(parameterSource.includes('filter((param) => param?.id !== "seed")'));
   assert.ok(sceneLiveSource.includes("paramControlsTemplate(params"));
 });
 

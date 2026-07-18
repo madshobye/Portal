@@ -1,4 +1,4 @@
-import { getShaderComponent } from "./shader-registry.js?v=shader-component-catalog-extraction-1";
+import { getShaderComponent } from "./shader-registry.js?v=madstodo-4";
 
 export function createShaderBuilder({ getCustomCode, onStatus }) {
   const cache = new Map();

@@ -1,6 +1,6 @@
 # VJ1 Project Handover
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 
 VJ1 is a build-free browser VJ, visual-component, and projection-mapping app in `experiments/vj1`. It uses p5.js and raw WebGL. A user-selected local folder is authoritative for `project.json`, media, shaders, mappings, revisions, and renditions.
 
@@ -43,7 +43,7 @@ Core files:
 
 - `js/app.js`, `js/app-state.js`, `js/domain/models.js`, `js/domain/render-settings.js`, `js/domain/scene-routing.js`: startup, state, aggregate model compatibility, focused render/output normalization, and Scene source-node routing.
 - `js/domain/change-event.js`, `js/domain/chain-operations.js`: structured state-change metadata and chain mutation rules.
-- `js/domain/project-migrations.js`: sequential project-schema migrations; current version is **17**.
+- `js/domain/project-migrations.js`: sequential project-schema migrations; current version is **18**.
 - `js/control/control-shell-controller.js`, `clipboard-controller.js`, `modal-controller.js`, `input-controller.js`, `path-input-utils.js`, `shell-view.js`, `settings-view.js`, `picker-view.js`, `component-view.js`, `scene-live-view.js`, `mapping-view.js`, `catalog-view.js`, `control-selectors.js`, `parameter-view.js`, `source-control-schema.js`, `view-primitives.js`, `style.css`: control orchestration, global clipboard/drop routing, modal/settings/picker lifecycle, inspector/rail mutation binding, shared path/input conversion, focused workspace views, reusable selectors and parameter/source controls, and shared catalog/section/list primitives.
 - `js/graph/render-scheduler.js`, `js/graph/placed-render-result.js`: graph compilation and placed-source contract.
 - `js/shaders/*`: generator/effect schemas, GLSL, fusion, and shader caching. `generator-shaders.js` is the stable generator facade over core 2D, spatial/sea, and atmospheric/organic catalogs. `shader-registry.js` is the stable effect facade over stylize, image/key, and motion/alpha catalogs; shared seed/time policy lives in `shader-component-common.js`.
@@ -78,6 +78,7 @@ Important recent migrations:
 - v15: enables a persisted default limit preventing Canvas rasters from exceeding logical Canvas dimensions.
 - v16: removes the obsolete global projection-edge softness setting and mapper shader path.
 - v17: persists independent Auto, Low, or Full embedded-preview resolution choices for Scene and Live.
+- v18: canonicalizes legacy source/shader chains, Canvas layers/frames, route aliases, time scale, and preview viewports so runtime code consumes one schema.
 
 The local project folder owns project state. `localStorage` is never authoritative. Autosave is debounced by 700 ms; revision files implement undo/redo, with repeated control edits coalesced for six seconds. UI-only state and metrics are excluded from history signatures. Folder refresh and media import update the authoritative asset snapshot without reloading `project.json`; otherwise a debounced, older disk snapshot can replace newer edits or valid selections.
 
@@ -115,7 +116,7 @@ Do not conflate logical geometry, physical render demand, sampling, and UI displ
 | Component logical frame | `render.componentTexture` plus `component.frameShape`; an initial size/aspect, not a raster ceiling. |
 | Component raster | Visible consumer demand × pixel density × resolution scale, aspect-preserving and bounded to 8192 per axis. |
 | Canvas logical frame | `component.canvas.width/height`; placement and recording-frame coordinate system. |
-| Canvas raster | Route demand may downscale freely; `render.sampling.limitCanvasToLogicalSize` prevents supersampling beyond logical dimensions by default. Editor `previewQuality` remains Auto, Low, or Full. |
+| Canvas raster | Route demand may downscale freely; Canvas `resolutionScale` is the explicit 0.5×/1×/2× demand and raster-cap multiplier. `render.sampling.limitCanvasToLogicalSize` prevents other implicit supersampling beyond that chosen scale by default. Editor `previewQuality` remains Auto, Low, or Full. |
 | Surface/recording-frame sampling | `render.sampling.surfaceOverscan` and `recordingFrameScale`; independent `0.5–2×` demand multipliers defaulting to `1×`. |
 | Surface texture | Materialized only for final surface effects, transitions, thumbnail fallback, or blackout. Auto follows demand; Manual only caps this intermediate. |
 | Projection | Fit and mapping sample the source; they never change source geometry. |
@@ -127,9 +128,11 @@ Mappings use shared-world coordinates and cached homographies. `defaultProjectSu
 
 Surface calibration is an acknowledged transaction, not a time-based race guard. While the mapper owns a drag, resize or state changes may update render state but must defer structural surface rebuilding. The final local mapping signature remains authoritative until the store echoes that exact signature. A deferred rebuild preserves the mapper's live corners before consulting persisted corners; only an explicit acknowledgement or a diagnosed acknowledgement timeout may release local ownership.
 
-Preview fit and manual navigation are workspace-semantic and stored independently in `ui.previewViewports`: Scene/Live fit the output world, while Component/Canvas fit their own frame. Switching workspaces must restore that workspace's zoom and pan without modifying the others. Preview-stage replacement must retarget observers and complete the settle-and-reveal transaction before showing the canvas.
+Preview fit and manual navigation are workspace-semantic and stored independently in `ui.previewViewports`: Scene/Live fit the output world, while Component/Canvas fit their own frame. Switching workspaces must restore that workspace's zoom and pan without modifying the others. DOM canvas fitting is invalidated only by stage geometry, logical canvas size, mode, viewport, or output-frame geometry; ordinary render-state and resolution-demand changes must not refit the canvas or flash a temporary full-frame view. Preview-stage replacement must retarget observers and complete the settle-and-reveal transaction before showing the canvas. At narrow desktop widths the Preview column is hidden and its render loop paused before either control column is removed; this keeps Scene/Live controls usable beside a separate output window.
 
 Preview transforms use direct Pointer Events on the p5 canvas with pointer capture; do not route drag continuity through p5's replaceable global mouse callbacks. The control shell holds DOM rebuilding for the full pointer sequence, and draggable chain rows select on `pointerdown` so a native drag cannot cancel selection before `click`.
+
+Deferred control renders are requests, not state authorities: when their animation frame runs they consume the newest store snapshot. Persistent slider and transform scrubs are one transaction with a single pre-gesture baseline, lightweight intermediate updates, and one normalized/history-aware release commit. This is the UI form of user truth; an older captured render snapshot must never reverse the latest command.
 
 The project store and the renderer never share mutable transform objects. A preview gesture path-copies only its targeted Component chain or recording frame into renderer-local state. The local value remains authoritative through pointer release and any stale incoming snapshots until the store echoes the exact committed transform/rectangle; acknowledgement then releases ownership without a timer. Selection overlays follow the same immutable state boundary. This transaction applies equally to nested Group children and Canvas recording frames.
 
@@ -165,6 +168,8 @@ Terrain solid and wire passes share p5's main WebGL context and therefore must r
 
 Do not add WebGL contexts casually, upload resizable WebGL canvases across contexts, allocate buffers every frame, perform unnecessary framebuffer `get()` readbacks, or assume JavaScript `async` moves rendering off-thread. GPU timer queries are bounded diagnostic samples, not total frame time.
 
+Detailed CPU pass attribution is sampled every six frames rather than wrapping every pass every frame. Full-frame CPU timing remains continuous, and GPU query cadence remains independently bounded. Profiling must measure the renderer without becoming a material part of its steady-state load.
+
 Render-path recovery must be observable. Shared-framebuffer unavailability, sampled-buffer draw fallback/failure, specialized presentation-shader failure, specialized-target recreation, media decoding/playback failure, and camera setup failure emit structured `VJ1` diagnostics. Repeating frame loops deduplicate identical diagnostics. A failed camera configuration retries on a bounded clock instead of restarting capture every frame or remaining permanently stuck.
 
 Thumbnail staleness must be checked before GPU readback. Thumbnail capture is live-preview-only and must be rejected while `ui.debugPreview` is false. Paused Canvas previews reconstruct lightweight thumbnail proxies without running child generators/effects.
@@ -178,6 +183,10 @@ Control and outputs communicate over `BroadcastChannel("vj1-output-bridge")`; fi
 Opening an output from Scene is the explicit exception: first select that Scene in Live, then open the popup. Existing and new outputs still receive the same Live-derived state.
 
 Live slider scrubs use the lightweight `updateLive` state path and are coalesced to one BroadcastChannel state per animation frame. The embedded Live preview remains at 60 fps when an output window is open; trusted in-app render snapshots bypass redundant full-project normalization, while fixtures and other external state still normalize at the renderer boundary.
+
+Live parameter editing mirrors Component editing: the selected scene exposes a thumbnail catalog of all directly and recursively referenced Components; the selected Component exposes one nested element outline; and only the selected element owns the separate Content/Transform settings section. Group indentation is structural rather than an attempt to indent an all-at-once parameter dump.
+
+The transport play/pause command applies only to renderers in `output` mode, including their video clocks. Embedded Component, Canvas, Scene, and Live previews remain active monitors while a connected output is held. The top-bar transport remains disabled when no output client is connected because there is then no transport target.
 
 Terrain camera parameters remain internal to the Terrain renderer. Camera-space Y is world-up and passes unchanged into WebGL clip Y; `placeTerrainInComposition()` is the one boundary that converts clip coordinates to the Composition's screen-down UV convention. Never negate camera Y before that boundary. The chain transform places projected surface and wire geometry inside the immutable Composition frame before rasterization; it never resamples the finished Terrain image or changes the frame allocation. Projected placement is a homogeneous affine transform: do not divide by `abs(w)` or otherwise normalize vertices before the GPU clips the camera and near planes, because behind-camera vertices would be mirrored into screen-spanning triangles. `terrainSafeNearDistance()` computes the configured-minimum versus tessellated-cell footprint once in testable CPU math; surface depth projection and explicit wire clipping consume that exact value through their shared near-plane uniform. This prevents a triangle closer than its own representable footprint from crossing the camera as a screen-spanning wedge. Terrain's coordinates are already screen-down after placement, but its raw framebuffer texture storage remains bottom-left; the target descriptor records that storage orientation and generated-target presentation owns the single normalization into the top-left compositor.
 
@@ -230,7 +239,7 @@ Before finishing renderer work:
 
 The implementation baseline is committed. Recent work centers on generic direct projection for Components, full Canvases, and recording-frame source rectangles; adaptive Component raster demand; demand-sized previews; shared 8192 bounds; static performance estimates; cache-busting imports; a local SuperPoint-powered two-image Feature Morph generator; and focused render-geometry/output tests. Surface textures remain only on explicit materialization paths.
 
-The handover reports **432 passing Node tests**. Imported images, live camera capture, Scene projection mapping, Feature Morph, and Component/Canvas selection, move, scale, and rotation controls have been confirmed in the running app. The transform-editor fix makes p5 logical canvas dimensions authoritative for pointer conversion instead of DOM backing-store dimensions. Real GLSL, imported-video playback, Terrain orientation after the latest raw-storage correction, and cross-window projection parity still require live smoke evidence; Feature Morph has its own inference-and-shader smoke fixture at `tests/browser/feature-morph-smoke.html`. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
+The handover reports **445 passing Node tests**. Imported images, live camera capture, Scene projection mapping, Feature Morph, and Component/Canvas selection, move, scale, and rotation controls have been confirmed in the running app. The transform-editor fix makes p5 logical canvas dimensions authoritative for pointer conversion instead of DOM backing-store dimensions. Real GLSL, imported-video playback, Terrain orientation after the latest raw-storage correction, cross-window projection parity, and the latest responsive/Live inspector presentation still require live smoke evidence; Feature Morph has its own inference-and-shader smoke fixture at `tests/browser/feature-morph-smoke.html`. The representative performance comparison is `metrics-results/runs/four-surface-show-gpu-architecture.*`.
 
 ## Change Discipline
 

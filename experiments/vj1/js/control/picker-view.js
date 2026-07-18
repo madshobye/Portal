@@ -296,13 +296,14 @@ function mediaPickerCardTemplate(item, picker, state, mediaLibrary) {
 
 function mediaPreviewElementTemplate(item) {
   const previewId = esc(item.id);
-  return item.type === "video"
+  const media = item.type === "video"
     ? `<video data-media-preview-id="${previewId}" muted playsinline preload="none"></video>`
     : `<img data-media-preview-id="${previewId}" alt="" loading="lazy" />`;
+  return `<div class="media-preview-frame"><div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>${media}</div>`;
 }
 
 function mediaHasLazyPreview(item, mediaLibrary) {
-  return (item.type === "image" || item.type === "video") && !!mediaLibrary.getFile?.(item.id);
+  return (item.type === "image" || item.type === "video" || item.type === "model") && !!mediaLibrary.getFile?.(item.id);
 }
 
 function mediaTypeIcon(type = "") {

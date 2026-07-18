@@ -56,6 +56,15 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes("if (projectLoadBlocked) return false"));
 });
 
+test("Live scene selection is autosaved so reload restores user truth", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  const skipBlock = source.match(/const skipAutosaveReasons = new Set\(\[([\s\S]*?)\]\);/)?.[1] || "";
+
+  assert.doesNotMatch(skipBlock, /"live:scene"/);
+  assert.match(skipBlock, /"live:update"/);
+  assert.match(source, /const delay = immediate \|\| reason === "live:scene" \? 0 : autosaveDelayMs;/);
+});
+
 test("project payload persists canonical render settings without derived geometry aliases", () => {
   const render = {
     outputs: [{ id: "main", width: 1920, height: 1080 }],

@@ -1,6 +1,6 @@
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=video-active-ownership-1";
-import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=media-rendition-revision-1";
+import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
 import { graphicsToPngBlob } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
 import { parseObjMesh, parseStlMesh } from "./specialized/model-parsers.js?v=model-geometry-fix-30";
 import { disposeRawModelItemResources } from "./specialized/raw-model-webgl-renderer.js?v=media-resource-disposal-1";
@@ -572,7 +572,8 @@ function getPortalWebcameraSetup() {
   if (typeof globalThis.setupWebcamera === "function") return globalThis.setupWebcamera;
   try {
     return Function("return typeof setupWebcamera === 'function' ? setupWebcamera : null")();
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_CAMERA_SETUP_LOOKUP_FAILED]", { fallback: "camera source unavailable", message: error?.message || String(error) });
     return null;
   }
 }

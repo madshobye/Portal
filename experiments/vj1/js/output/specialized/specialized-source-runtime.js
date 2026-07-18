@@ -1,6 +1,6 @@
 import { clamp01 } from "../../domain/models.js?v=render-coordinate-scope-3";
 import { createSharedFramebufferTarget, isSharedFramebufferTarget, unwrapRenderTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
-import { drawStandby } from "../generators.js?v=adaptive-component-demand-29";
+import { drawStandby } from "../generators.js?v=standby-grace-1";
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=instance-sync-60";
 import { contentTransformUvMatrices, isIdentityTransform, normalizedContentTransform } from "../content-coordinate-space.js?v=render-core-contract-1";
 import { markRenderTargetOrientation, renderTargetDescriptor, renderTargetNeedsPresentationFlip, RENDER_TEXTURE_ORIENTATION } from "../render-target-contract.js?v=render-core-contract-1";
@@ -12,7 +12,7 @@ import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-co
 import { modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "./model-render-math.js?v=model-render-math-extraction-1";
 import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "./model-mesh-cache.js?v=model-mesh-cache-extraction-1";
 import { disposeRawModelItemResources, drawRawParsedModelMode } from "./raw-model-webgl-renderer.js?v=media-resource-disposal-1";
-import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=terrain-near-contract-2";
+import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=madstodo-4";
 import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER, imageFitUniform } from "./feature-morph-shader.js?v=render-core-contract-1";
 import { mobileNetMorphFieldForStrategy, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-4";
 import { SuperPointPairService } from "./superpoint-service.js?v=surface-media-contract-4";
@@ -165,7 +165,12 @@ export class SpecializedSourceRuntime {
   }
 
   drawStandby(target, label) {
-    drawStandby(target, label, { visible: this.showDiagnostics() });
+    const transient = /loading|checking|preparing|matching|finding|not loaded/i.test(String(label || ""));
+    drawStandby(target, label, {
+      visible: this.showDiagnostics(),
+      frame: this.frameIndex(),
+      graceMs: transient ? 1000 : 0,
+    });
   }
 
   drawAnatomy(pg, source = {}, componentTime = 0, renderRequest = {}) {

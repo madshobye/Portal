@@ -19,8 +19,8 @@ test("parameter view owns reusable inspector controls outside the controller", (
   assert.match(range, /data-update="params\.gain"/);
   assert.doesNotMatch(controls, /Seed/);
   assert.match(controls, /Enabled/);
-  assert.match(componentView, /from "\.\/parameter-view\.js\?v=render-coordinate-scope-3"/);
-  assert.match(sceneLiveView, /from "\.\/parameter-view\.js\?v=render-coordinate-scope-3"/);
+  assert.match(componentView, /from "\.\/parameter-view\.js\?v=param-hierarchy-1"/);
+  assert.match(sceneLiveView, /from "\.\/parameter-view\.js\?v=param-hierarchy-1"/);
   assert.doesNotMatch(controller, /function paramControlTemplate\(/);
   assert.doesNotMatch(controller, /function paramControlsTemplate\(/);
 });

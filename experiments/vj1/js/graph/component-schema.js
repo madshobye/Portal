@@ -154,6 +154,8 @@ export function defineVisualComponent(definition = {}) {
     inlets: Object.freeze([...(definition.inlets || [])]),
     outlets: Object.freeze([...(definition.outlets || [])]),
     params: Object.freeze(params),
+    primaryParamIds: Object.freeze([...(definition.primaryParamIds || [])]),
+    detailParamIds: Object.freeze([...(definition.detailParamIds || [])]),
     render: textureRenderContract(definition.render || {}),
     code: definition.code ?? null,
     type: definition.type || "effect",

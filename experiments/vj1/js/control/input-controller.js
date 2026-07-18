@@ -1,7 +1,7 @@
 import { applySceneSourceNode, resolveSceneSourceNode } from "../domain/models.js?v=render-coordinate-scope-3";
 import { touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-29";
 import { bindReorderList } from "./reorder-list.js";
-import { formatTrimTime, roundTrimTime } from "./component-view.js?v=pointer-selection-runtime-2";
+import { formatTrimTime, roundTrimTime } from "./component-view.js?v=madstodo-4";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 
 export function createInputController({
@@ -227,7 +227,11 @@ export function createInputController({
     menu.querySelector("[data-param-reset]")?.addEventListener("click", () => {
       let value;
       try { value = JSON.parse(control.dataset.paramDefault); }
-      catch { value = undefined; }
+      catch (error) {
+        console.error("[VJ1_PARAM_DEFAULT_PARSE_FAILED]", { path, fallback: "leave parameter unchanged", message: error?.message || String(error) });
+        menu.remove();
+        return;
+      }
       store.update((draft) => {
         setByPathCreate(draft, path, value);
         syncSceneEdits(draft, path);

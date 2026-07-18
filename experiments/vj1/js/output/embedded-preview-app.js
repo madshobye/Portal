@@ -1,5 +1,5 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=media-demand-6";
+import { OutputRenderer } from "./output-renderer.js?v=cache-maintenance-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { createPreviewViewportController, fitPreviewCanvasElement, previewViewportForUi } from "./preview-viewport.js?v=render-coordinate-scope-3";
 import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
@@ -35,6 +35,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let pendingTransformCommit = null;
   let canvasCommitFrame = 0;
   let pendingCanvasCommit = null;
+  let canvasFitSignature = "";
 
   function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state }) {
     const modeChanged = !!renderer && pendingMode !== mode;
@@ -56,7 +57,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       renderer.mode = pendingMode;
       renderer.hud = hud;
       if (needsSettledReveal) hideCanvasUntilSettledDraw();
-      const resized = resizeToStage();
+      const resized = resizeToStage({ forceFit: modeChanged || stageChanged });
       if (!resized) renderer.setState(previewSizedState(), { normalized: true });
       importMediaFilesIfChanged();
       renderer.setCalibrate(pendingMode === "preview" && pendingState.global.calibrating);
@@ -229,19 +230,33 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     };
   }
 
-  function resizeToStage() {
+  function resizeToStage({ forceFit = false } = {}) {
     if (!canvas || !stage) return false;
     const size = stageSize();
     const logical = canvasLogicalSize();
     if (logical.width === canvasWidth && logical.height === canvasHeight) {
-      fitCanvasToStage(size);
+      fitCanvasToStageIfChanged(size, logical, forceFit);
       return false;
     }
     canvasWidth = logical.width;
     canvasHeight = logical.height;
     resizeCanvas(logical.width, logical.height);
-    fitCanvasToStage(size, logical);
+    fitCanvasToStageIfChanged(size, logical, true);
     renderer?.setState(previewSizedState(size), { normalized: true });
+    return true;
+  }
+
+  function fitCanvasToStageIfChanged(size, logical, force = false) {
+    const nextSignature = previewFitSignature({
+      mode: pendingMode,
+      size,
+      logical,
+      viewport: previewViewportForUi(pendingState?.ui),
+      render: pendingState?.render,
+    });
+    if (!force && nextSignature === canvasFitSignature) return false;
+    canvasFitSignature = nextSignature;
+    fitCanvasToStage(size, logical);
     return true;
   }
 
@@ -277,7 +292,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       settleResizeFrame = 0;
       layoutSettleActive = false;
       if (revealAfterDraw) revealCanvasAfterDraw = true;
-      resizeToStage(true);
+      resizeToStage({ forceFit: true });
     };
     settleResizeFrame = requestAnimationFrame(measure);
   }
@@ -524,6 +539,22 @@ export function previewRasterDensity({ configuredDensity = 1, displayScale = 1, 
   if (quality === "full") return configured;
   const automatic = Math.min(configured, Math.max(0.125, Number(displayScale) * Number(deviceScale) || 0.125));
   return quality === "low" ? Math.max(0.125, automatic * 0.5) : automatic;
+}
+
+export function previewFitSignature({ mode = "preview", size = {}, logical = {}, viewport = {}, render = {} } = {}) {
+  const outputs = (render?.outputs || []).map((output) => `${output.id || ""}:${output.width || 0}x${output.height || 0}`).join("|");
+  return [
+    mode,
+    Number(size.width) || 0,
+    Number(size.height) || 0,
+    Number(logical.width) || 0,
+    Number(logical.height) || 0,
+    viewport.fit || "world",
+    Number(viewport.zoom) || 1,
+    Number(viewport.x) || 0,
+    Number(viewport.y) || 0,
+    outputs,
+  ].join(":");
 }
 
 function findChainItemById(chain = [], id = "") {

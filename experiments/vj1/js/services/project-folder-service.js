@@ -1,5 +1,5 @@
 import { collectFilesFromDirectory, isMediaFile, isShaderFile } from "./media-library-service.js?v=media-rendition-revision-1";
-import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js?v=media-rendition-revision-1";
+import { RENDITION_DIR, RENDITION_ROOT, mediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
 import {
   canPersistDirectoryHandles,
   clearProjectDirectoryHandle,
@@ -46,7 +46,6 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     "project-history",
     "project-undo",
     "project-redo",
-    "live:scene",
     "live:update",
     ]);
 
@@ -277,10 +276,11 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     if (event.phase === "edit" || event.phase === "scrub") return;
     if (!dirHandle || isOpening || projectLoadBlocked || skipAutosaveReasons.has(reason)) return;
     if (autosaveTimer) clearTimeout(autosaveTimer);
+    const delay = immediate || reason === "live:scene" ? 0 : autosaveDelayMs;
     autosaveTimer = setTimeout(() => {
       autosaveTimer = null;
       flushAutoSave(reason);
-    }, immediate ? 0 : autosaveDelayMs);
+    }, delay);
   }
 
   async function flushAutoSave(reason = "change") {
@@ -324,7 +324,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     try {
       handle = await dirHandle.getFileHandle("project.json");
       previousText = await (await handle.getFile()).text();
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) console.warn("[VJ1_PROJECT_FILE_LOOKUP_FAILED]", { fallback: "attempt writable project handle", message: error?.message || String(error) });
       handle = await dirHandle.getFileHandle("project.json", { create: true });
     }
 
@@ -471,7 +472,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     if (!dirHandle) return null;
     try {
       return await dirHandle.getDirectoryHandle("revisions", { create });
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) console.warn("[VJ1_HISTORY_DIRECTORY_UNAVAILABLE]", { directory: "revisions", fallback: "history disabled", message: error?.message || String(error) });
       return null;
     }
   }
@@ -481,7 +483,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     if (!revisions) return null;
     try {
       return await revisions.getDirectoryHandle("redos", { create });
-    } catch {
+    } catch (error) {
+      if (!isNotFoundError(error)) console.warn("[VJ1_HISTORY_DIRECTORY_UNAVAILABLE]", { directory: "redos", fallback: "redo disabled", message: error?.message || String(error) });
       return null;
     }
   }
@@ -571,7 +574,8 @@ function shouldWriteHistoryRevision(previousText = "", nextPayload = {}, nextTex
 function parseProjectText(text = "") {
   try {
     return JSON.parse(text);
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_PROJECT_HISTORY_PARSE_FAILED]", { fallback: "preserve a conservative history revision", message: error?.message || String(error) });
     return null;
   }
 }
@@ -610,7 +614,8 @@ async function queryPermission(handle, mode) {
   if (!handle?.queryPermission) return "granted";
   try {
     return await handle.queryPermission({ mode });
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_PROJECT_PERMISSION_QUERY_FAILED]", { fallback: "request permission interactively", message: error?.message || String(error) });
     return "prompt";
   }
 }
@@ -621,7 +626,8 @@ async function verifyPermission(handle, mode, requestIfNeeded) {
   if (!requestIfNeeded || !handle?.requestPermission) return false;
   try {
     return await handle.requestPermission({ mode }) === "granted";
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_PROJECT_PERMISSION_REQUEST_FAILED]", { fallback: "leave project folder closed", message: error?.message || String(error) });
     return false;
   }
 }
@@ -687,9 +693,17 @@ async function fileExists(directory, filename) {
   try {
     await directory.getFileHandle(filename);
     return true;
-  } catch {
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      console.error("[VJ1_FILE_EXISTENCE_CHECK_FAILED]", { filename, fallback: "abort collision check", message: error?.message || String(error) });
+      throw error;
+    }
     return false;
   }
+}
+
+function isNotFoundError(error) {
+  return error?.name === "NotFoundError";
 }
 
 function safeFilename(value) {

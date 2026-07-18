@@ -1,7 +1,7 @@
 import { VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=render-coordinate-scope-3";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=media-demand-6";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=cache-maintenance-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project } from "../metrics/component-metrics.js?v=shader-component-catalog-extraction-1";
@@ -9,15 +9,15 @@ import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEdi
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-29";
 import { componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-view-extraction-1";
-import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=terrain-mesh-near-1";
+import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=canvas-component-placement-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=terrain-mesh-near-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=terrain-mesh-near-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=live-source-labels-1";
 import { componentCardBarTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
-import { createClipboardController } from "./clipboard-controller.js?v=clipboard-controller-extraction-1";
-import { createModalController } from "./modal-controller.js?v=media-demand-6";
-import { createInputController } from "./input-controller.js?v=render-coordinate-scope-3";
+import { createClipboardController } from "./clipboard-controller.js?v=madstodo-4";
+import { createModalController } from "./modal-controller.js?v=media-preview-retention-1";
+import { createInputController } from "./input-controller.js?v=madstodo-4";
 
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
   let refs = {};
@@ -30,6 +30,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let activeCatalogViewKey = "";
   let performanceProfile = null;
   let performanceProfileTimer = 0;
+  const previewLayoutQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
+    ? window.matchMedia("(max-width: 1100px)")
+    : null;
   const catalogOrderSnapshots = { component: [], scene: [] };
   const replaceHtmlIfChanged = createHtmlCache();
   const clipboard = createClipboardController({
@@ -74,6 +77,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     root.innerHTML = shellTemplate();
     refs = collectRefs(root);
     bindStaticEvents();
+    previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState));
     restorePreviewPreference();
     store.subscribe((state, reason, change) => {
       latestState = state;
@@ -87,13 +91,23 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         renderTopbar(state);
         return;
       }
+      if (reason === "live:update") {
+        // Native controls already display the commanded value. Rebuilding the
+        // complete Live inspector here destroys its scroll/tab/element DOM
+        // identity even though no structure changed.
+        updatePreviewState(state);
+        return;
+      }
       if (change.phase === "edit") {
         renderTopbar(state);
         updatePreviewState(state);
         return;
       }
       if (change.phase === "scrub") {
-        updatePreviewState(state);
+        // Component preview gestures own an immediate local state overlay.
+        // Feeding their store echo straight back into the same renderer makes
+        // it rebuild lookup state twice per pointer frame.
+        if (reason !== "scrub:chain-transform" && reason !== "scrub:canvas-frame") updatePreviewState(state);
         return;
       }
       if (change.phase === "color") {
@@ -123,10 +137,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderFrame = requestAnimationFrame(() => {
       renderFrame = 0;
       if (shouldDeferRender()) {
-        deferRender(state);
+        deferRender(latestState);
         return;
       }
-      render(state);
+      // A queued frame is only a request to render. Its captured snapshot is
+      // not an authority: rapid scrubs/toggles may have advanced the store
+      // before this callback runs.
+      render(latestState);
     });
   }
 
@@ -152,10 +169,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     // Pointerup/focusout schedules the next attempt. Do not poll while a user
     // is holding a control or editing text.
     if (shouldDeferRender()) return;
-    const state = deferredRenderState;
     deferredRenderState = null;
     renderPending = false;
-    scheduleRenderNow(state);
+    scheduleRenderNow(latestState);
   }
 
   function render(state) {
@@ -272,7 +288,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     let stored = "";
     try {
       stored = sessionStorage.getItem(VJ1.localPreviewKey) || "";
-    } catch {
+    } catch (error) {
+      console.warn("[VJ1_PREVIEW_PREFERENCE_READ_FAILED]", { fallback: "project default preview visibility", message: error?.message || String(error) });
       stored = "";
     }
     if (!stored) return;
@@ -284,7 +301,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function rememberPreviewPreference(value) {
     try {
       sessionStorage.setItem(VJ1.localPreviewKey, value ? "1" : "0");
-    } catch {
+    } catch (error) {
+      console.warn("[VJ1_PREVIEW_PREFERENCE_WRITE_FAILED]", { fallback: "current in-memory preview visibility", message: error?.message || String(error) });
       // This is only a tab preference; project data stays in the project folder.
     }
   }
@@ -752,6 +770,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (replaceHtmlIfChanged(refs.studio, html)) bindStudioEvents();
       return;
     }
+    if (previewLayoutQuery?.matches) {
+      embeddedPreview.pause();
+      return;
+    }
     if (!refs.studio.querySelector("[data-studio-stage]")) {
       refs.studio.innerHTML = `
       <section class="studio-stage" data-studio-stage>
@@ -770,7 +792,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function renderPreview(state) {
-    if (currentWorkspace(state) === "mapping") return;
+    if (currentWorkspace(state) === "mapping" || previewLayoutQuery?.matches) return;
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
     const workspace = currentWorkspace(state);
@@ -836,7 +858,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function updatePreviewState(state) {
     const workspace = currentWorkspace(state);
-    if (workspace === "mapping") return;
+    if (workspace === "mapping" || previewLayoutQuery?.matches) return;
     const kind = workspace === "component" || workspace === "canvas" ? "component" : "preview";
     embeddedPreview.setState(workspace === "live" ? createLiveRenderState(state) : state, kind);
   }
@@ -1011,6 +1033,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function bindInputs(scope) {
     inputs.bind(scope);
+    scope.querySelectorAll("[data-live-chain-item]").forEach((button) => {
+      button.addEventListener("click", () => updateUi((ui) => {
+        ui.live ||= {};
+        ui.live.selectedChainItemIds ||= {};
+        ui.live.selectedChainItemIds[button.dataset.liveComponentId] = button.dataset.liveChainItem;
+      }, "select-live-chain-item"));
+    });
   }
 
   function resetProjectMapping(surfaceId = "") {
