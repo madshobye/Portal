@@ -23,6 +23,7 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
       return shader;
     } catch (error) {
       onStatus?.("Shader compile failed", error?.message || String(error));
+      console.error("[VJ1_SHADER_COMPILE_FAILED]", { shader: pass.id, message: error?.message || String(error) });
       return null;
     }
   }
@@ -40,6 +41,10 @@ export function createShaderBuilder({ getCustomCode, onStatus }) {
       return shader;
     } catch (error) {
       onStatus?.("Fused shader compile failed", error?.message || String(error));
+      console.error("[VJ1_FUSED_SHADER_COMPILE_FAILED]", {
+        shaders: jobs.map((job) => job?.pass?.id || "unknown"),
+        message: error?.message || String(error),
+      });
       return null;
     }
   }
@@ -240,6 +245,10 @@ uniform float useContentTransform;
 uniform mat3 contentUvMatrix;
 
 vec2 vj1CompositionUv() {
+  // p5's aTexCoord varying is already top-left screen-oriented even though
+  // WebGL texture storage is bottom-left. Storage orientation is handled at
+  // target presentation, so content transforms apply directly in the shared
+  // +x right, +y down Composition coordinate space.
   vec2 transformedUv = (contentUvMatrix * vec3(vTexCoord, 1.0)).xy;
   return mix(vTexCoord, transformedUv, step(0.5, useContentTransform));
 }`;

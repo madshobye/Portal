@@ -28,6 +28,7 @@ export function createInputController({
     bindCanvasAndRouteButtons(scope);
     bindChainControls(scope);
     bindRemovalAndMappingButtons(scope);
+    bindParamContextMenus(scope);
   }
 
   function bindPersistentInputs(scope) {
@@ -195,6 +196,62 @@ export function createInputController({
     });
   }
 
+  function bindParamContextMenus(scope) {
+    scope.querySelectorAll("[data-param-context-path]").forEach((control) => {
+      control.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        openParamContextMenu(control, event.clientX, event.clientY);
+      });
+    });
+  }
+
+  function openParamContextMenu(control, x, y) {
+    document.querySelector("[data-param-context-menu]")?.remove();
+    const path = control.dataset.paramContextPath;
+    if (!path) return;
+    const componentMatch = /^components\.(\d+)\.(.+)$/.exec(path);
+    const state = getState();
+    const component = componentMatch ? state.components?.[Number(componentMatch[1])] : null;
+    const relativePath = componentMatch?.[2] || "";
+    const significant = !!component && (component.significantParams || []).includes(relativePath);
+    const menu = document.createElement("div");
+    menu.className = "param-context-menu";
+    menu.dataset.paramContextMenu = "true";
+    menu.style.left = `${Math.max(8, x)}px`;
+    menu.style.top = `${Math.max(8, y)}px`;
+    menu.innerHTML = `
+      <button type="button" data-param-reset>Reset to default</button>
+      <button type="button" data-param-significant>${significant ? "Remove from significant" : "Make significant"}</button>
+    `;
+    document.body.append(menu);
+    menu.querySelector("[data-param-reset]")?.addEventListener("click", () => {
+      let value;
+      try { value = JSON.parse(control.dataset.paramDefault); }
+      catch { value = undefined; }
+      store.update((draft) => {
+        setByPathCreate(draft, path, value);
+        syncSceneEdits(draft, path);
+      }, `update:${path}`);
+      menu.remove();
+    });
+    menu.querySelector("[data-param-significant]")?.addEventListener("click", () => {
+      if (!component || !relativePath) return menu.remove();
+      store.update((draft) => {
+        const target = draft.components?.[Number(componentMatch[1])];
+        if (!target) return;
+        const paths = new Set(target.significantParams || []);
+        if (paths.has(relativePath)) paths.delete(relativePath);
+        else paths.add(relativePath);
+        target.significantParams = [...paths];
+      }, "update:significant-param");
+      menu.remove();
+    });
+    const close = (event) => {
+      if (!menu.contains(event.target)) menu.remove();
+    };
+    setTimeout(() => window.addEventListener("pointerdown", close, { once: true, capture: true }), 0);
+  }
+
   function bindVideoTrimControl(control) {
     const startInput = control.querySelector("[data-video-trim-input='start']");
     const endInput = control.querySelector("[data-video-trim-input='end']");
@@ -318,12 +375,12 @@ export function createInputController({
   function togglePathFromButton(button, reason) {
     const path = button.dataset.togglePath;
     if (!path) return;
-    const nextValue = button.dataset.toggleValue !== "true";
+    const nextValue = applyOptimisticToggleIntent(button);
     store.update((draft) => {
       setByPath(draft, path, nextValue);
-      invalidateComponentPreviewAssets(draft, path);
       syncSceneEdits(draft, path);
     }, reason);
+    selectToggleTarget(button);
   }
 
   function updateLivePathFromInput(input, reason) {
@@ -339,7 +396,18 @@ export function createInputController({
     const componentId = button.dataset.liveComponentId;
     const path = button.dataset.liveToggle;
     if (!componentId || !path) return;
-    updateLiveAware(true, (draft) => setLiveOverride(draft, componentId, path, button.dataset.toggleValue !== "true"), reason);
+    const nextValue = applyOptimisticToggleIntent(button);
+    updateLiveAware(true, (draft) => setLiveOverride(draft, componentId, path, nextValue), reason);
+    selectToggleTarget(button);
+  }
+
+  function selectToggleTarget(button) {
+    const action = button.dataset.toggleSelectAction;
+    const id = button.dataset.toggleSelectId;
+    if (!id) return;
+    if (action === "data-select-surface") store.selectSurface(id);
+    else if (action === "data-select-component") store.selectComponent(id);
+    else if (action === "chain-item") store.selectChainItem(id);
   }
 
   function updateLiveAware(isLive, recipe, reason) {
@@ -359,6 +427,18 @@ export function createInputController({
   return { bind };
 }
 
+// A control's data attribute is the last user-commanded truth until the next
+// render acknowledges it. Rapid clicks therefore alternate intent even while
+// rendering/autosave/buffering is still reporting an older observed state.
+export function applyOptimisticToggleIntent(button) {
+  const nextValue = button?.dataset?.toggleValue !== "true";
+  if (!button?.dataset) return nextValue;
+  button.dataset.toggleValue = nextValue ? "true" : "false";
+  button.classList?.toggle?.("is-enabled", nextValue);
+  button.setAttribute?.("aria-pressed", String(nextValue));
+  return nextValue;
+}
+
 function setLiveOverride(state, componentId, path, value) {
   if (!componentId || !path) return;
   const overrides = activeLiveOverrideBank(state);
@@ -373,15 +453,6 @@ function activeLiveOverrideBank(state) {
   const sceneId = String(state.ui.live.selectedSceneId || "");
   if (sceneId) state.ui.live.sceneOverrides[sceneId] = state.ui.live.componentOverrides;
   return state.ui.live.componentOverrides;
-}
-
-function invalidateComponentPreviewAssets(state, path = "") {
-  const match = String(path).match(/^components\.(\d+)\.(chain|shaderChain|source|opacity|blend|speed|syncInstances)/);
-  if (!match) return;
-  const component = state.components?.[Number(match[1])];
-  if (!component) return;
-  component.thumbnail = "";
-  if (component.type === "canvas" && component.canvas) component.canvas.frameThumbnails = {};
 }
 
 function colorValueFromControl(control) {

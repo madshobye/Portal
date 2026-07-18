@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import {
   modelDepthCutoff,
+  modelImportBasis,
   modelRotation,
   modelViewportMetrics,
   modelWireThickness,
@@ -33,6 +34,8 @@ test("specialized model math owns viewport rotation depth and matrix calculation
   assert.deepEqual(transformedModelDepthRange(bounds), { min: -3, max: 7 });
   assert.equal(modelDepthCutoff({ visibleDepth: 0.5 }, bounds), 2);
   assert.equal(modelWireThickness({ wireThickness: 99 }), 12);
+  assert.deepEqual(modelImportBasis({ file: { name: "mesh.stl" } }), [0, 0, Math.PI]);
+  assert.deepEqual(modelImportBasis({ file: { name: "mesh.obj" } }), [0, 0, 0]);
   assert.match(renderer, /from "\.\/specialized\/model-render-math\.js\?v=model-render-math-extraction-1"/);
   assert.doesNotMatch(renderer, /function rawModelMatrices\(/);
   assert.doesNotMatch(renderer, /function transformedModelDepthRange\(/);

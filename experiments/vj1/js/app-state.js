@@ -377,6 +377,8 @@ export function createAppState(initial = null) {
             }
           : null;
         draft.ui.live.selectedSceneId = scene.id;
+        const activeComponentId = scene.snapshot?.surfaces?.find((surface) => surface.enabled !== false && surface.componentId)?.componentId || "";
+        draft.ui.live.selectedComponentId = activeComponentId;
         draft.ui.live.sceneSnapshot = clone(scene.snapshot);
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
       }, "live:scene");

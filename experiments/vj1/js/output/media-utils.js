@@ -147,7 +147,9 @@ export function syncVideoPlayback(video, options = {}) {
   if (hasSegment && (current < start - 0.04 || (end && current >= end - 0.035))) {
     try {
       elt.currentTime = start;
-    } catch {}
+    } catch (error) {
+      reportVideoPlaybackFailure(video, error, "seek");
+    }
   }
   if (speed <= 0.001) {
     pauseVideoPlayback(video);
@@ -157,7 +159,9 @@ export function syncVideoPlayback(video, options = {}) {
     try {
       if (typeof video.speed === "function") video.speed(speed);
       else elt.playbackRate = speed;
-    } catch {}
+    } catch (error) {
+      reportVideoPlaybackFailure(video, error, "speed");
+    }
   }
   elt.loop = !hasSegment;
   if (elt.paused) {
@@ -184,7 +188,7 @@ export function syncVideoSpeed(video, speedValue = 1) {
   syncVideoPlayback(video, { speed: speedValue });
 }
 
-function reportVideoPlaybackFailure(video, error) {
+function reportVideoPlaybackFailure(video, error, operation = "play") {
   const key = video?.elt || video;
   if (key && (typeof key === "object" || typeof key === "function")) {
     if (reportedVideoPlaybackFailures.has(key)) return;
@@ -192,6 +196,7 @@ function reportVideoPlaybackFailure(video, error) {
   }
   console.error("[VJ1_VIDEO_PLAYBACK_FAILED]", {
     source: mediaSourceKind(video),
+    operation,
     message: error?.message || String(error || "video playback failed"),
   });
 }

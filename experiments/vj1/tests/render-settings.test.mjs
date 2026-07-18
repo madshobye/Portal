@@ -22,8 +22,8 @@ test("render settings normalize independently from the aggregate domain model", 
   assert.deepEqual(normalizePreviewViewport({ fit: "invalid", zoom: 20 }), { fit: "frame", zoom: 6, x: 0, y: 0 });
 });
 
-test("legacy preview navigation migrates only into its active workspace", () => {
-  const viewports = normalizePreviewViewports({}, { fit: "manual", zoom: 2, x: 30, y: -10 }, "canvas");
+test("preview viewport normalization accepts only the canonical per-workspace map", () => {
+  const viewports = normalizePreviewViewports({ canvas: { fit: "manual", zoom: 2, x: 30, y: -10 } });
   assert.deepEqual(viewports.canvas, { fit: "manual", zoom: 2, x: 30, y: -10 });
   assert.deepEqual(viewports.component, { fit: "frame", zoom: 1, x: 0, y: 0 });
   assert.deepEqual(viewports.scene, { fit: "frame", zoom: 1, x: 0, y: 0 });

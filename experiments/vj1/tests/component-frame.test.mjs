@@ -309,7 +309,11 @@ test("ordinary components and recording frames share one Scene source-node abstr
   const canvas = createCanvasComponent(0, component.id);
   canvas.id = "canvas-a";
   canvas.name = "Wide Canvas";
-  const state = sanitizeState({ components: [component, canvas] });
+  const state = sanitizeState({
+    version: 18,
+    components: [component, canvas],
+    recordingFrames: [{ id: "frame-a", name: "Frame 1", x: 0, y: 0, width: 1920, height: 1080 }],
+  });
   const nodes = sceneSourceNodes(state);
   assert.deepEqual(nodes.map((node) => ({ type: node.type, name: node.name })), [
     { type: "component", name: "Visual A" },
@@ -321,7 +325,7 @@ test("ordinary components and recording frames share one Scene source-node abstr
   assert.equal(resolveSceneSourceNode(state, nodes[2].id).outputFrameId, state.recordingFrames[0].id);
 });
 
-test("stable Scene source IDs override stale legacy route fields", () => {
+test("stable Scene source IDs are the only runtime routing authority", () => {
   const first = createDefaultComponent(0);
   first.id = "component-first";
   const second = createDefaultComponent(1);
@@ -329,14 +333,8 @@ test("stable Scene source IDs override stale legacy route fields", () => {
   const state = sanitizeState({ components: [first, second] });
   const selectedId = `component:${encodeURIComponent(second.id)}`;
 
-  assert.equal(resolveSceneSourceNode(state, selectedId, {
-    componentId: first.id,
-    outputFrameId: "",
-  }).componentId, second.id);
-  assert.equal(resolveSceneSourceNode(state, "missing-source", {
-    componentId: first.id,
-    outputFrameId: "",
-  }).componentId, first.id, "legacy fields still recover routes without a valid stable ID");
+  assert.equal(resolveSceneSourceNode(state, selectedId).componentId, second.id);
+  assert.equal(resolveSceneSourceNode(state, "missing-source"), null);
 });
 
 test("recording-frame source nodes prefer their Canvas-specific cropped thumbnail", () => {

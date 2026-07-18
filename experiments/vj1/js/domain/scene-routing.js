@@ -41,16 +41,13 @@ export function sceneSourceNodes(state = {}) {
   });
 }
 
-export function resolveSceneSourceNode(state = {}, sourceNodeId = "", legacyRoute = {}) {
+export function resolveSceneSourceNode(state = {}, sourceNodeId = "") {
   const nodes = sceneSourceNodes(state);
-  const byId = nodes.find((node) => node.id === sourceNodeId);
-  const byLegacyRoute = nodes.find((node) => node.componentId === legacyRoute.componentId && node.outputFrameId === (legacyRoute.outputFrameId || ""));
-  const hasRoute = !!(sourceNodeId || legacyRoute.componentId || legacyRoute.outputFrameId);
-  if (!hasRoute) return null;
+  if (!sourceNodeId) return null;
   // An unresolved route is empty. Never substitute an unrelated first
   // component: that makes stale/blank assignments sample whichever texture
   // happened to be rendered first and violates the explicit Empty route.
-  return byId || byLegacyRoute || null;
+  return nodes.find((node) => node.id === sourceNodeId) || null;
 }
 
 export function applySceneSourceNode(route = {}, node = null) {

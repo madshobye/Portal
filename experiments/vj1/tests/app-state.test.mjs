@@ -123,8 +123,10 @@ test("render state uses selected scene in scene workspace and live scene in live
   state.components = [sceneComponent, liveComponent];
 
   state.surfaces[0].componentId = sceneComponent.id;
+  state.surfaces[0].sourceNodeId = sceneSourceNodeId(sceneComponent.id);
   const sceneSnapshot = createSceneFromState(state, "Scene Selected");
   state.surfaces[0].componentId = liveComponent.id;
+  state.surfaces[0].sourceNodeId = sceneSourceNodeId(liveComponent.id);
   const liveSnapshot = createSceneFromState(state, "Live Selected");
   state.scenes = [sceneSnapshot, liveSnapshot];
   state.ui.workspace = "scene";
@@ -146,8 +148,10 @@ test("edits refresh the scene selected by Live without changing Live's scene sel
   second.id = "component-second";
   state.components = [first, second];
   state.surfaces[0].componentId = first.id;
+  state.surfaces[0].sourceNodeId = sceneSourceNodeId(first.id);
   const firstScene = createSceneFromState(state, "First");
   state.surfaces[0].componentId = second.id;
+  state.surfaces[0].sourceNodeId = sceneSourceNodeId(second.id);
   const secondScene = createSceneFromState(state, "Second");
   state.scenes = [firstScene, secondScene];
   state.ui.live.selectedSceneId = firstScene.id;

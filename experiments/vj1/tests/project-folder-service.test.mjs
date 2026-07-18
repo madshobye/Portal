@@ -34,7 +34,7 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 17);
+  assert.equal(payload.version, 18);
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
@@ -50,7 +50,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes("workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds"));
   assert.ok(source.includes("catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes"));
   assert.ok(source.includes("previewQualities: projectUi?.previewQualities || currentUi.previewQualities"));
-  assert.ok(source.includes("const legacyRecordingFrames = Array.isArray(projectData.components)"));
+  assert.ok(!source.includes("legacyRecordingFrames"));
   assert.ok(source.includes("data = migrateProjectData(data)"));
   assert.ok(source.includes("projectLoadBlocked = true"));
   assert.ok(source.includes("if (projectLoadBlocked) return false"));

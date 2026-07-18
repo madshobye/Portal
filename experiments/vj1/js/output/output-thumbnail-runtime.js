@@ -8,10 +8,11 @@ import {
 } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
 
 export class OutputThumbnailRuntime {
-  constructor({ getState, getComponentOutput, shouldUseThumbnailPreview, sendThumbnail } = {}) {
+  constructor({ getState, getComponentOutput, shouldUseThumbnailPreview, isComponentReady, sendThumbnail } = {}) {
     this.getState = getState || (() => null);
     this.getComponentOutput = getComponentOutput || (() => null);
     this.shouldUseThumbnailPreview = shouldUseThumbnailPreview || (() => false);
+    this.isComponentReady = isComponentReady || (() => true);
     this.sendThumbnail = sendThumbnail;
     this.images = new Map();
     this.transformBaselines = new Map();
@@ -60,6 +61,10 @@ export class OutputThumbnailRuntime {
     const state = this.getState();
     const component = state?.components?.find((item) => item.id === state.ui?.selectedComponentId) || state?.components?.[0];
     if (!component) return;
+    // A rendered buffer is not necessarily content-ready: async media and AI
+    // generators deliberately render a transparent/debug standby frame while
+    // resolving. Never persist that transient frame as the component preview.
+    if (!this.isComponentReady(component)) return;
     const output = this.getComponentOutput(component.id);
     if (!output) return;
     const signature = componentThumbnailSignature(component);

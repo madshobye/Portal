@@ -31,6 +31,10 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let renderFont = null;
   let appliedFrameRate = 0;
   let mediaFilesSignature = "";
+  let transformCommitFrame = 0;
+  let pendingTransformCommit = null;
+  let canvasCommitFrame = 0;
+  let pendingCanvasCommit = null;
 
   function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state }) {
     const modeChanged = !!renderer && pendingMode !== mode;
@@ -87,6 +91,12 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   }
 
   function cleanup() {
+    if (transformCommitFrame) cancelAnimationFrame(transformCommitFrame);
+    if (canvasCommitFrame) cancelAnimationFrame(canvasCommitFrame);
+    transformCommitFrame = 0;
+    canvasCommitFrame = 0;
+    pendingTransformCommit = null;
+    pendingCanvasCommit = null;
     unbindCanvasPointerEvents?.();
     unbindCanvasPointerEvents = null;
     renderer?.dispose?.();
@@ -421,18 +431,56 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   }
 
   function updateChainTransform(componentId, itemId, transform, meta = {}) {
+    if (!meta.commit) {
+      pendingTransformCommit = { componentId, itemId, transform };
+      if (!transformCommitFrame) transformCommitFrame = requestAnimationFrame(flushPendingTransformCommit);
+      return;
+    }
+    if (transformCommitFrame) cancelAnimationFrame(transformCommitFrame);
+    transformCommitFrame = 0;
+    pendingTransformCommit = null;
+    commitChainTransform(componentId, itemId, transform, true);
+  }
+
+  function flushPendingTransformCommit() {
+    transformCommitFrame = 0;
+    const pending = pendingTransformCommit;
+    pendingTransformCommit = null;
+    if (pending) commitChainTransform(pending.componentId, pending.itemId, pending.transform, false);
+  }
+
+  function commitChainTransform(componentId, itemId, transform, commit) {
     store.update((draft) => {
       const component = draft.components.find((item) => item.id === componentId);
       const item = findChainItemById(component?.chain, itemId);
       if (item) item.transform = { ...item.transform, ...transform };
-    }, meta.commit ? "update:chain-transform" : "scrub:chain-transform");
+    }, commit ? "update:chain-transform" : "scrub:chain-transform");
   }
 
   function updateCanvasFrame(componentId, frameId, rect, meta = {}) {
+    if (!meta.commit) {
+      pendingCanvasCommit = { componentId, frameId, rect };
+      if (!canvasCommitFrame) canvasCommitFrame = requestAnimationFrame(flushPendingCanvasCommit);
+      return;
+    }
+    if (canvasCommitFrame) cancelAnimationFrame(canvasCommitFrame);
+    canvasCommitFrame = 0;
+    pendingCanvasCommit = null;
+    commitCanvasFrame(componentId, frameId, rect, true);
+  }
+
+  function flushPendingCanvasCommit() {
+    canvasCommitFrame = 0;
+    const pending = pendingCanvasCommit;
+    pendingCanvasCommit = null;
+    if (pending) commitCanvasFrame(pending.componentId, pending.frameId, pending.rect, false);
+  }
+
+  function commitCanvasFrame(componentId, frameId, rect, commit) {
     store.update((draft) => {
       const frame = draft.recordingFrames?.find((item) => item.id === frameId);
       if (frame) Object.assign(frame, rect);
-    }, meta.commit ? "update:canvas-frame" : "scrub:canvas-frame");
+    }, commit ? "update:canvas-frame" : "scrub:canvas-frame");
   }
 
   function selectSurface(surfaceId) {

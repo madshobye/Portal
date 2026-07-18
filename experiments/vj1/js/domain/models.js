@@ -243,6 +243,7 @@ export function createInitialState() {
       outputWindowOpen: false,
       live: {
         selectedSceneId: "",
+        selectedComponentId: "",
         sceneSnapshot: null,
         componentOverrides: {},
         sceneOverrides: {},
@@ -374,25 +375,11 @@ export function sanitizeState(input = {}) {
     shaders: { ...base.shaders, ...(input.shaders || {}) },
     metrics: { ...base.metrics, ...(input.metrics || {}) },
   };
-  const legacyTimeScale = Number(input.global?.timeScale);
-  const fallbackTimeStretch = Number.isFinite(legacyTimeScale)
-    ? Math.log2(Math.max(1 / 16, legacyTimeScale))
-    : 0;
-  const configuredTimeStretch = Object.hasOwn(input.global || {}, "timeStretch")
-    ? input.global.timeStretch
-    : fallbackTimeStretch;
-  next.global.timeStretch = clampNumber(configuredTimeStretch, -4, 4, fallbackTimeStretch);
-  delete next.global.timeScale;
+  next.global.timeStretch = clampNumber(input.global?.timeStretch, -4, 4, 0);
 
   next.components = normalizeComponents(input, base);
   const canvasFrameBounds = next.components.find((component) => component.type === "canvas")?.canvas || { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
-  const inputComponents = Array.isArray(input.components) ? input.components : [];
-  const legacyRecordingFrames = inputComponents.flatMap((component) =>
-    component?.type === "canvas" && Array.isArray(component.canvas?.frames) ? component.canvas.frames : []
-  );
-  const recordingFrames = Array.isArray(input.recordingFrames)
-    ? input.recordingFrames
-    : legacyRecordingFrames.length ? legacyRecordingFrames : base.recordingFrames;
+  const recordingFrames = Array.isArray(input.recordingFrames) ? input.recordingFrames : base.recordingFrames;
   const seenRecordingFrameIds = new Set();
   next.recordingFrames = recordingFrames
     .map((frame, index) => normalizeCanvasFrame(frame, index, canvasFrameBounds.width, canvasFrameBounds.height))
@@ -404,31 +391,9 @@ export function sanitizeState(input = {}) {
   next.surfaces = Array.isArray(input.surfaces) && input.surfaces.length
     ? input.surfaces.map((surface) => normalizeSurface(surface))
     : [createDefaultSurface(0), createDefaultSurface(1)];
-  next.render = normalizeRenderSettings(
-    Array.isArray(input.render?.outputs) && input.render.outputs.length
-      ? {
-          ...next.render,
-          componentTexture: input.render?.componentTexture,
-          surfaceTexture: input.render?.surfaceTexture,
-          surfaceWidth: input.render?.surfaceWidth,
-          surfaceHeight: input.render?.surfaceHeight,
-        }
-      : {
-          ...next.render,
-          outputs: undefined,
-          componentTexture: input.render?.componentTexture,
-          surfaceTexture: input.render?.surfaceTexture,
-          surfaceWidth: input.render?.surfaceWidth,
-          surfaceHeight: input.render?.surfaceHeight,
-        }
-  );
+  next.render = normalizeRenderSettings(input.render || {});
   next.surfaces = reconcileDirectOutputSurfaces(next.surfaces, next.render);
-  next.ui.previewViewports = normalizePreviewViewports(
-    input.ui?.previewViewports,
-    input.ui?.previewViewport,
-    next.ui.workspace
-  );
-  delete next.ui.previewViewport;
+  next.ui.previewViewports = normalizePreviewViewports(input.ui?.previewViewports);
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
   next.mappings = input.mappings && typeof input.mappings === "object" ? input.mappings : {};
   next.ui.selectedComponentId = next.components.some((component) => component.id === next.ui.selectedComponentId)
@@ -453,7 +418,7 @@ export function sanitizeState(input = {}) {
     componentId: !surface.componentId || next.components.some((component) => component.id === surface.componentId)
       ? surface.componentId || ""
       : next.components[0]?.id || "",
-  })).map((surface) => applySceneSourceNode(surface, resolveSceneSourceNode(next, surface.sourceNodeId, surface)));
+  })).map((surface) => applySceneSourceNode(surface, resolveSceneSourceNode(next, surface.sourceNodeId)));
   next.scenes = Array.isArray(input.scenes)
     ? input.scenes.map((scene) => normalizeScene(scene, next))
     : [];
@@ -625,6 +590,9 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     : null;
   return {
     selectedSceneId,
+    selectedComponentId: state.components?.some((component) => component.id === live.selectedComponentId)
+      ? live.selectedComponentId
+      : "",
     sceneSnapshot: live.sceneSnapshot
       ? normalizeSceneSnapshot(live.sceneSnapshot, state)
       : selectedScene?.snapshot ? clone(selectedScene.snapshot) : null,
@@ -677,36 +645,9 @@ export function normalizeComponent(component = {}) {
     mediaId: componentData.source?.mediaId || "",
     generatorId: componentData.source?.generatorId || fallback.source.generatorId,
   });
-  const shaderChain = Array.isArray(componentData.shaderChain)
-    ? componentData.shaderChain.map(normalizeShaderPass)
-    : [];
-  const legacyChain = Array.isArray(componentData.chain) && componentData.chain.length
-    ? [
-        ...componentData.chain.map(normalizeComponentChainItem),
-        ...shaderChain.map((pass) => normalizeComponentChainItem({
-          kind: "effect",
-          componentId: pass.id,
-          enabled: pass.enabled,
-          params: pass.params,
-          amount: pass.amount,
-        })),
-      ]
-    : legacyComponentChain(source, shaderChain);
+  const chain = Array.isArray(componentData.chain) ? componentData.chain.map(normalizeComponentChainItem) : [];
   const canvas = type === "canvas" ? normalizeCanvasComponentData(componentData.canvas, componentData.id) : null;
-  const canvasChain = type === "canvas"
-    ? (Array.isArray(componentData.chain) && componentData.chain.length
-      ? [
-          ...componentData.chain.map(normalizeCanvasChainItem),
-          ...shaderChain.map((pass) => normalizeComponentChainItem({
-            kind: "effect",
-            componentId: pass.id,
-            enabled: pass.enabled,
-            params: pass.params,
-            amount: pass.amount,
-          })),
-        ]
-      : (componentData.canvas?.layers || []).map((layer, index) => canvasLayerGroupFromLegacy(layer, index, componentData.id)))
-    : legacyChain;
+  const canvasChain = chain;
   return {
     ...fallback,
     ...componentData,
@@ -721,6 +662,7 @@ export function normalizeComponent(component = {}) {
     frameShape: normalizeComponentFrameShape(componentData.frameShape),
     resolutionScale: normalizeComponentResolutionScale(componentData.resolutionScale),
     thumbnail: typeof componentData.thumbnail === "string" ? componentData.thumbnail : "",
+    significantParams: Array.from(new Set((componentData.significantParams || []).filter((path) => typeof path === "string" && path))),
     activity: normalizeProjectActivity(componentData.activity, fallback.activity.createdAt),
     chain: canvasChain,
     shaderChain: [],
@@ -735,29 +677,6 @@ function normalizeCanvasComponentData(canvas = {}, selfId = "") {
   const frameThumbnails = Object.fromEntries(Object.entries(canvas.frameThumbnails || {})
     .filter(([frameId, thumbnail]) => frameId && typeof thumbnail === "string" && thumbnail));
   return { width, height, previewQuality, frameThumbnails };
-}
-
-function canvasLayerGroupFromLegacy(layer = {}, index = 0, selfId = "") {
-  const fallback = createComponentGroup(index);
-  const componentId = layer.componentId && layer.componentId !== selfId ? String(layer.componentId) : "";
-  return normalizeComponentChainItem({
-    ...fallback,
-    id: layer.id || uid("chain"),
-    kind: "group",
-    role: "group",
-    name: layer.name || fallback.name,
-    enabled: layer.enabled !== false,
-    opacity: clamp01(layer.opacity ?? fallback.opacity),
-    blend: layer.blend || fallback.blend,
-    chain: componentId ? [createComponentLayer(0, { type: "component", componentId })] : [],
-  });
-}
-
-function normalizeCanvasChainItem(item = {}) {
-  const normalized = normalizeComponentChainItem(item);
-  if (normalized.kind !== "group" || normalized.role !== "canvas-layer") return normalized;
-  const { layout, ...group } = normalized;
-  return { ...group, role: "group" };
 }
 
 function normalizeCanvasFrame(frame = {}, index = 0, canvasWidth = VJ1.canvasWidth, canvasHeight = VJ1.canvasHeight) {
@@ -799,13 +718,12 @@ export function normalizeComponentChainItem(item = {}) {
       id: item.id || uid("chain"),
       kind: "group",
       name: item.name || "Group",
-      role: item.role === "canvas-layer" ? "canvas-layer" : "group",
+      role: "group",
       enabled: item.enabled !== false,
       collapsed: !!item.collapsed,
       transform: normalizeTransform(item.transform),
       opacity: clamp01(item.opacity ?? 1),
       blend: item.blend || "normal",
-      ...(item.role === "canvas-layer" ? { layout: normalizeCanvasLayerLayout(item.layout) } : {}),
       chain: Array.isArray(item.chain) ? item.chain.map(normalizeComponentChainItem) : [],
     };
   }
@@ -860,15 +778,6 @@ function normalizeSurfaceDestination(destination = {}, mappingId = "") {
   return { type: "mapped", mappingId: destination?.mappingId || mappingId || "" };
 }
 
-function normalizeCanvasLayerLayout(layout = {}) {
-  return {
-    x: Number(layout.x) || 0,
-    y: Number(layout.y) || 0,
-    width: positiveInt(layout.width, 960, 1, 8192),
-    height: positiveInt(layout.height, 540, 1, 8192),
-  };
-}
-
 export function normalizeShaderPass(pass = {}) {
   const params = normalizeShaderPassParams(pass);
   return {
@@ -895,23 +804,10 @@ export function createComponentEffect(id = "ripple", params = {}) {
   });
 }
 
-function legacyComponentChain(source, shaderChain) {
-  return [
-    createComponentLayer(0, source),
-    ...shaderChain.map((pass) => normalizeComponentChainItem({
-      kind: "effect",
-      componentId: pass.id,
-      enabled: pass.enabled,
-      params: pass.params,
-      amount: pass.amount,
-    })),
-  ];
-}
-
 function normalizeSource(source = {}) {
   const speed = clampNumber(source.speed, 0, 8, 1);
-  const start = Math.max(0, Number(source.start ?? source.startTime) || 0);
-  const end = Math.max(0, Number(source.end ?? source.endTime) || 0);
+  const start = Math.max(0, Number(source.start) || 0);
+  const end = Math.max(0, Number(source.end) || 0);
   const params = source.params && typeof source.params === "object" ? { ...source.params } : {};
   const generatorSource = source.type === "generator" || !source.type
     ? createGeneratorSource(source.generatorId, params)
@@ -1113,7 +1009,7 @@ export function createSceneSurfaceSnapshot(surface = {}) {
 }
 
 export function normalizeSceneSurfaceSnapshot(surface = {}, state = createInitialState()) {
-  const route = applySceneSourceNode(surface, resolveSceneSourceNode(state, surface.sourceNodeId, surface));
+  const route = applySceneSourceNode(surface, resolveSceneSourceNode(state, surface.sourceNodeId));
   return {
     id: surface.id || "",
     enabled: surface.enabled !== false,

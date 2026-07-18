@@ -401,7 +401,9 @@ export class OutputSurfaceRuntime {
       const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, thumbnail.img);
       drawSampleRect(target, thumbnail.img, sampleRect, 0, 0, target.width, target.height);
     } else {
-      drawStandby(target, component?.thumbnail ? "loading thumbnail" : "no thumbnail");
+      drawStandby(target, component?.thumbnail ? "loading thumbnail" : "no thumbnail", {
+        visible: renderer.state?.ui?.debugPreview !== false,
+      });
     }
     target.noTint();
     target.blendMode(BLEND);

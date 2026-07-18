@@ -170,7 +170,8 @@ test("shared procedural hashes avoid shader trig", () => {
 
   assert.ok(shaderBuilderSource.includes("p3 += dot(p3, p3.yzx + 33.33);"));
   assert.ok(generatorShaderSource.includes("p3 += dot(p3, p3.yzx + 33.33);"));
-  assert.ok(fallbackGeneratorSource.includes("function fract(value)"));
+  assert.ok(fallbackGeneratorSource.includes("expectedRuntime: \"shader-or-specialized-webgl\""));
+  assert.ok(!fallbackGeneratorSource.includes("function drawNoise"));
   assert.ok(!shaderBuilderSource.includes("fract(sin"));
   for (const id of ["waves", "noise", "plasma", "gradient", "bezierStrokes", "fireflies", "eyeball", "swayingTrees"]) {
     assert.ok(!getGeneratorShaderComponent(id).code.includes("fract(sin"), `${id} regressed to a trig hash`);
@@ -259,6 +260,7 @@ test("generator transforms change UV coordinates without changing the render tar
 
   assert.ok(builderSource.includes("uniform mat3 contentUvMatrix;"));
   assert.ok(builderSource.includes("contentUvMatrix * vec3(vTexCoord, 1.0)"));
+  assert.ok(!builderSource.includes("vec2 compositionUv = vec2(vTexCoord.x, 1.0 - vTexCoord.y)"));
   assert.ok(builderSource.includes("return mix(vTexCoord, transformedUv"));
   assert.ok(builderSource.includes("contentUvMatrix * vec3(baseUv, 1.0)"));
   assert.ok(builderSource.includes("vTexCoord = aTexCoord;"));

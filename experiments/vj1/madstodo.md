@@ -1,30 +1,61 @@
+#new notes from mads (move these down to current notes when you have read them)
+
+the list of params for a component in live view is still not nice compared to components view.  then insert does not really work to show levels. 
 
 
-go through and review legacy code not used or debris with intention of handling legacy projects. this should not be necessary since we have a structure where projects are automatically migrated when they are opened and this shoul d be the only way to approach it.
 
-toggling visibility of a surface on should also select that element this is both surfaces in scenes, and components in either component and canvas view
+#current notes 
 
-the list of params in live view is a bloody mess. this is partly because of the restyling has not been done right there. and partly because as the complexity of the components grow there are simply too many params to list. as minimum rethink the styling so that it is similar to components param list in component view, but also rethink the way to navigate it. i suggest that underneath the scenes list and the scenes params in the first column list the components in the scene with thumbnails and the one can select a component and get its params. i am not sure this works with the complex herarchi of the canvas etc but this may be a solution
+move things around in a component still has the problem of jumping back. save with sliders. one has to change fast for it to happens or more precisely it seems link there is some internal render cycle or timing where when one hist right in that cycle a race condition occurs.
 
-i would like to be able to right click a param in a component and have a small popup appear. it could be something else than right click but something similar. this popup should have two options. reset the param to default and second make this param "significant" when the param is significant a border or a bg should be on it (maybe just the handle being orange) and the significant params should be shown in a list in scene view whenever those params are present.
+plasma effect is outdated in its params. i am missing better control over movement but other params may also be interesting. in general scaling can be done though the handles so that is not as attractive and it might also be relevant to rethink scaling on effects and generators that has it and maybe remove it and just let the handles do that? this brings me to another thought we have hidden the scaling, rotation and position as slider params but it may be relevant to have a multiple views on params and have those params in another view this way they can also be used as "significant" sliders.
 
-stl object generator is current showing the object rotated 180 degrees on the z axis it think this is a product of the many flipping of views that has happened around it. it can simple be solved with a rotate but it would be nicer if default was correct. 
-
-go through the system and review the architecture from a the point of view of hotfixes and quick solutions. if statements that are there to "fix" something like flipped rendering etc. where time has not been taken to properly think a generalised way of building the architecture. E.g. this is also in terms of how the nodes render and data is passed through. complex loops with extra logic to compensate for something that should be a generalised param. or it can be a alpha channel param that is manually coded into a few effects instead of being thought through as general param that all effects should have. etc. etc. 
-
-make an assessment of p5 implementation and consider if we have any hot fixes and tweaks to try to integrate with p5. the system has evolved beyond p5 and the primary architecture should be a lean and efficient shader based render engine and p5 can sneak in nasty limitations. it is better to clean up and convert to clean raw shader architecture also so we can secure further development does not do unintented things. e.g. noise from p5 is extremely slow and i think it is cpu bound so using noise seems simple but if it suddenly is used for everypixel then the whole system is struggling
+go through and verify that our profiling, state update, cpu load measurement etc. does not actually cause overload. small events here and there on central proxies can become a lot of processing.
 
 toggling the visibility button on an element over and over is good test to pinpoint the update glitch. in general it is much better but doing so still reveals that sometimes the toggle does not go through. it is as if e.g. turning visibility off quickly does it and then an internal update switches it back to on again. also moving an alement around seems to flood the event path and when letting go a previous position becomes the stored on and the element snaps back
 
-the x for deleting in lists that appear after a while has to be smaller and all the way to the top right to minimize risk of clicking
-
-moving the wave up is down and down is up
-
 go through all fall back code pieces and makes sure that they write in console
 
-Morphing thumbnails has a tendency to be created while it is loading the morphing so it is a snapshot of the debug "loading..." insteaf of the actual rendering. this is probably a general problem of thumbnails being too fast at being generated instead of just waiting a bit or getting a loaded signal from the elements.
 
-Although loading media messages are good for debug and feedback they are quite annyoing when running live output. i suggest that these message are replaced with a clean alpha channel whenever the debug toggle is off. one problem is that if one uses invert on the loading message one gets a bright white frame because loading has a black bg. 
 
 
 # DONE
+
+when toggling visibility on an element thumbnail on the overall component or canvas etc. does not need to return to no thumbnail.
+Solution: Thumbnail invalidation now keeps the last valid image visible while its content signature schedules a replacement capture. The old preview is replaced only after the new render is ready.
+
+moving eyeballs up moves them down. same with gradients.
+Solution: Standalone generator shaders now apply the canonical top-left Composition UV matrix directly. WebGL storage orientation is handled only at the render-target presentation boundary, so Eyeball, Gradient, and Waves share +Y-down movement.
+
+go through and review legacy code not used or debris with intention of handling legacy projects.
+Solution: Project version 18 migrates legacy source/shader chains, Canvas layers/frames, time scale, preview viewport, and route aliases on load. Runtime normalization, graph compilation, folder loading, preview navigation, and Scene routing now consume canonical fields rather than rediscovering legacy shapes.
+
+toggling visibility of a surface on should also select that element.
+Solution: Shared toggle controls carry an explicit selection target. Toggling a Scene surface, Component/Canvas chain item, or selectable pill selects that same physical element.
+
+the list of params in live view is a bloody mess; list the components in the scene with thumbnails and select one for params.
+Solution: Live’s first column now includes thumbnail navigation for direct and recursively referenced scene components. The inspector renders only the selected component rather than concatenating every parameter list.
+
+right click a param to reset it or make it significant, and show significant params in scene view.
+Solution: Persistent parameter controls open a compact context menu with Reset and Significant actions. Significant paths persist on the Component, use orange control styling, and appear in dedicated Scene and Live sections whenever that Component is routed.
+
+stl object generator is showing the object rotated 180 degrees on the z axis.
+Solution: STL import orientation is an explicit asset import-basis adapter shared by p5 and raw WebGL model paths. User rotation remains neutral at zero and OBJ assets retain their native basis.
+
+review architecture for hotfixes, flip fixes, node data flow, and general alpha handling.
+Solution: Added ARCHITECTURE_CLEANUP.md and enforced canonical Composition coordinates, render-target orientation metadata, stable Scene routes, premultiplied-alpha compositing, migration-only compatibility, and command-vs-observed runtime state. Removed legacy graph synthesis and Canvas-layer runtime conversion.
+
+assess p5 and make the primary architecture a lean shader engine.
+Solution: Removed CPU procedural generator implementations from the p5 generator runtime. Procedural sources now use cached shaders/shared framebuffers or specialized raw WebGL renderers; p5 is limited to lifecycle/import helpers, diagnostics, and basic utility sources. Missing shaders log and remain transparent instead of silently switching to CPU rendering.
+
+the x for deleting in lists has to be smaller and all the way to the top right.
+Solution: Thumbnail delete affordances are 18 px with a 14 px icon and sit 3 px from the top-right, retaining the delayed hover reveal.
+
+moving the wave up is down and down is up.
+Solution: Waves uses the same corrected standalone-generator Composition UV adapter as Eyeball and Gradient.
+
+Morphing thumbnails are sometimes captured while loading.
+Solution: Thumbnail capture now asks the renderer whether all nested media and generator analysis dependencies are content-ready. Loading/analysis standby frames are never persisted.
+
+loading media messages are annoying in live output and can flash white through invert when debug is off.
+Solution: Standby drawing is diagnostic-policy controlled. With debug off, media, camera, surfaces, and specialized generators clear to transparent alpha instead of rendering black-backed text.

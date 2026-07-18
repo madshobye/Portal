@@ -135,8 +135,7 @@ export function globalVisualTimeScale(global = {}) {
     const bounded = Math.max(-4, Math.min(4, stretch));
     return bounded <= -4 ? 0 : 2 ** bounded;
   }
-  const legacyScale = Number(global?.timeScale);
-  return Number.isFinite(legacyScale) ? Math.max(0, Math.min(16, legacyScale)) : 1;
+  return 1;
 }
 
 export function effectTransformUniforms(transform = {}) {

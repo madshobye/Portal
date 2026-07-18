@@ -12,7 +12,7 @@ import { componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCa
 import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=terrain-mesh-near-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=terrain-mesh-near-1";
-import { liveInspectorTemplate, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=terrain-mesh-near-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=terrain-mesh-near-1";
 import { componentCardBarTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=slider-values-70";
 import { createClipboardController } from "./clipboard-controller.js?v=clipboard-controller-extraction-1";
@@ -676,11 +676,19 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const transitionDuration = Math.max(0, Number(state.ui?.live?.transitionDuration) || 0);
     const timeStretch = Math.max(-4, Math.min(4, Number(state.global?.timeStretch) || 0));
     const timeScale = timeStretch <= -4 ? 0 : 2 ** timeStretch;
+    const liveScene = state.scenes.find((scene) => scene.id === (state.ui?.live?.selectedSceneId || state.scenes[0]?.id));
+    const components = liveNavigableComponents(liveScene, state);
     return `
       <div class="ui-section rail-section">
         <div class="ui-section-header rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live Scenes</span></div>
         <div class="scene-card-list live-scene-list">
           ${state.scenes.map((scene) => liveScenePillTemplate(scene, state)).join("") || emptyNote("Capture scenes first")}
+        </div>
+      </div>
+      <div class="ui-section rail-section">
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Scene components</span></div>
+        <div class="component-card-list live-component-picker-list">
+          ${components.map((component) => liveComponentPillTemplate(component, state)).join("") || emptyNote("No active components")}
         </div>
       </div>
       <div class="ui-section rail-section">
@@ -879,6 +887,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
       return;
     }
+    const selectedScene = getSelectedScene(state);
+    const selectedRoute = selectedScene?.snapshot?.surfaces?.find((surface) => surface.id === selectedSurface?.id);
+    const sceneComponent = state.components.find((component) => component.id === selectedRoute?.componentId);
     html = `
       ${panelTemplate("select_all", selectedSurface?.name || "Surface", selectedSurface ? sceneSurfaceTemplate(selectedSurface, state, {
         sources: catalogItemsInSnapshot("scene", sceneSourceNodes(state)),
@@ -886,6 +897,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }) : emptyNote("No surface"), selectedSurface && selectedSurface.destination?.type !== "direct"
         ? { titlePath: `${pathForSurface(state, selectedSurface)}.name` }
         : {})}
+      ${sceneSignificantComponentTemplate(sceneComponent, state)}
     `;
     if (replaceHtmlIfChanged(refs.inspector, html)) bindInputs(refs.inspector, state);
   }
@@ -908,6 +920,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
     refs.projectRail.querySelectorAll("[data-live-scene]").forEach((button) => {
       button.addEventListener("click", () => store.selectLiveScene(button.dataset.liveScene));
+    });
+    refs.projectRail.querySelectorAll("[data-live-component]").forEach((button) => {
+      button.addEventListener("click", () => updateUi((ui) => {
+        ui.live ||= {};
+        ui.live.selectedComponentId = button.dataset.liveComponent;
+      }, "select-live-component"));
     });
     refs.projectRail.querySelectorAll("[data-reset-live-scene]").forEach((button) => {
       button.addEventListener("click", (event) => {

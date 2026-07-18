@@ -1,4 +1,4 @@
-export const CURRENT_PROJECT_VERSION = 17;
+export const CURRENT_PROJECT_VERSION = 18;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -40,6 +40,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   14: migrateProjectV14ToV15,
   15: migrateProjectV15ToV16,
   16: migrateProjectV16ToV17,
+  17: migrateProjectV17ToV18,
 });
 
 export function migrateProjectData(project = {}) {
@@ -410,6 +411,119 @@ export function migrateProjectV16ToV17(project) {
       },
     },
   };
+}
+
+// v18 makes migration the only compatibility boundary. The active domain no
+// longer needs to rediscover old source/shader chains, Canvas layers/frames,
+// timeScale, or single-workspace viewport aliases during every state update.
+export function migrateProjectV17ToV18(project) {
+  const global = project.global && typeof project.global === "object" ? project.global : {};
+  const legacyScale = Number(global.timeScale);
+  const { timeScale: _timeScale, ...currentGlobal } = global;
+  const ui = project.ui && typeof project.ui === "object" ? project.ui : {};
+  const { previewViewport, ...currentUi } = ui;
+  const workspace = ["component", "canvas", "scene", "live"].includes(ui.workspace) ? ui.workspace : "component";
+  const previewViewports = ui.previewViewports && typeof ui.previewViewports === "object"
+    ? ui.previewViewports
+    : { [workspace]: previewViewport || {} };
+  const components = Array.isArray(project.components)
+    ? project.components.map(migrateCanonicalComponent)
+    : project.components;
+  const embeddedFrames = Array.isArray(project.components)
+    ? project.components.flatMap((component) => component?.type === "canvas" && Array.isArray(component.canvas?.frames) ? component.canvas.frames : [])
+    : [];
+  return {
+    ...project,
+    global: {
+      ...currentGlobal,
+      timeStretch: Number.isFinite(Number(global.timeStretch))
+        ? Number(global.timeStretch)
+        : Number.isFinite(legacyScale) ? Math.log2(Math.max(1 / 16, legacyScale)) : 0,
+    },
+    ui: { ...currentUi, previewViewports },
+    components,
+    recordingFrames: Array.isArray(project.recordingFrames) ? project.recordingFrames : embeddedFrames,
+    surfaces: migrateCanonicalRoutes(project.surfaces),
+    scenes: Array.isArray(project.scenes) ? project.scenes.map((scene) => ({
+      ...scene,
+      snapshot: scene?.snapshot ? { ...scene.snapshot, surfaces: migrateCanonicalRoutes(scene.snapshot.surfaces) } : scene?.snapshot,
+    })) : project.scenes,
+  };
+}
+
+function migrateCanonicalComponent(component = {}, componentIndex = 0) {
+  const id = component.id || `component-${componentIndex + 1}`;
+  const shaderChain = Array.isArray(component.shaderChain) ? component.shaderChain : [];
+  const hadChain = Array.isArray(component.chain);
+  let chain = hadChain ? component.chain : null;
+  if (!hadChain && component.type === "canvas" && Array.isArray(component.canvas?.layers)) {
+    chain = migratedLegacyCanvasLayers(component.canvas.layers);
+  }
+  if (!hadChain && component.type !== "canvas") {
+    chain = [migratedSourceChainItem(component.source, `${id}:source`)];
+  }
+  if (shaderChain.length) {
+    chain = [...(chain || []), ...shaderChain.map((pass, index) => ({
+      id: pass.id && pass.id !== pass.componentId ? pass.id : `${id}:effect:${index + 1}`,
+      kind: "effect",
+      componentId: pass.componentId || pass.id || "ripple",
+      name: pass.name || pass.componentId || pass.id || "Effect",
+      enabled: pass.enabled !== false,
+      params: pass.params || (pass.amount !== undefined ? { amount: pass.amount } : {}),
+      transform: pass.transform || { x: 0, y: 0, scale: 1, rotation: 0 },
+    }))];
+  }
+  const canvas = component.canvas && typeof component.canvas === "object"
+    ? Object.fromEntries(Object.entries(component.canvas).filter(([key]) => key !== "layers" && key !== "frames"))
+    : component.canvas;
+  const { shaderChain: _shaderChain, ...current } = component;
+  return {
+    ...current,
+    ...(component.type === "canvas" ? { canvas } : {}),
+    chain: (chain || []).map(migrateCanonicalChainItem),
+    significantParams: Array.isArray(component.significantParams) ? component.significantParams : [],
+  };
+}
+
+function migrateCanonicalChainItem(item = {}) {
+  if (item.kind === "group") {
+    const { layout: _legacyLayout, ...group } = item;
+    return { ...group, role: "group", chain: (item.chain || []).map(migrateCanonicalChainItem) };
+  }
+  if (item.kind === "source") return { ...item, source: migrateCanonicalSource(item.source) };
+  return item;
+}
+
+function migratedSourceChainItem(source = {}, id = "source") {
+  return {
+    id,
+    kind: "source",
+    name: source.mediaId || source.generatorId || source.componentId || source.type || "Source",
+    enabled: true,
+    opacity: 1,
+    blend: "normal",
+    transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+    source: migrateCanonicalSource(source),
+  };
+}
+
+function migrateCanonicalSource(source = {}) {
+  const { startTime, endTime, ...current } = source || {};
+  return {
+    ...current,
+    start: current.start ?? startTime ?? 0,
+    end: current.end ?? endTime ?? 0,
+  };
+}
+
+function migrateCanonicalRoutes(routes) {
+  if (!Array.isArray(routes)) return routes;
+  return routes.map((route) => {
+    if (!route || route.sourceNodeId || !route.componentId) return route;
+    const component = encodeURIComponent(route.componentId);
+    const frame = route.outputFrameId ? `:${encodeURIComponent(route.outputFrameId)}` : "";
+    return { ...route, sourceNodeId: `${route.outputFrameId ? "recording-frame" : "component"}:${component}${frame}` };
+  });
 }
 
 function migratedPreviewQuality(value) {

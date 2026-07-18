@@ -1,9 +1,17 @@
-export function modelRotation(params = {}, componentTime = 0) {
+export function modelRotation(params = {}, componentTime = 0, importBasis = [0, 0, 0]) {
   return [
-    (Number(params.rotationX) || 0) + componentTime * (Number(params.spinX) || 0),
-    (Number(params.rotationY) || 0) + componentTime * (Number(params.spinY) || 0),
-    (Number(params.rotationZ) || 0) + componentTime * (Number(params.spinZ) || 0),
+    (Number(importBasis[0]) || 0) + (Number(params.rotationX) || 0) + componentTime * (Number(params.spinX) || 0),
+    (Number(importBasis[1]) || 0) + (Number(params.rotationY) || 0) + componentTime * (Number(params.spinY) || 0),
+    (Number(importBasis[2]) || 0) + (Number(params.rotationZ) || 0) + componentTime * (Number(params.spinZ) || 0),
   ];
+}
+
+// STL has no camera/up-axis metadata. VJ1 therefore owns one documented
+// import-basis adapter instead of scattering compensating rotations through
+// raw WebGL, p5 geometry, previews, and output surfaces.
+export function modelImportBasis(item = {}) {
+  const path = String(item.file?.relativePath || item.file?.webkitRelativePath || item.file?.name || item.id || "");
+  return /\.stl$/i.test(path) ? [0, 0, Math.PI] : [0, 0, 0];
 }
 
 export function modelWireThickness(params = {}) {

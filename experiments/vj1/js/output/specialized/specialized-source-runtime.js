@@ -9,7 +9,7 @@ import { GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADE
 import { advanceRateClock, advanceSpatialScale, qualityComputeMultiplier } from "../render-runtime-math.js?v=render-coordinate-scope-3";
 import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.js?v=adaptive-component-demand-29";
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
-import { modelRotation, modelViewportMetrics, modelWireThickness } from "./model-render-math.js?v=model-render-math-extraction-1";
+import { modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "./model-render-math.js?v=model-render-math-extraction-1";
 import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "./model-mesh-cache.js?v=model-mesh-cache-extraction-1";
 import { disposeRawModelItemResources, drawRawParsedModelMode } from "./raw-model-webgl-renderer.js?v=media-resource-disposal-1";
 import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=terrain-near-contract-2";
@@ -28,6 +28,7 @@ export class SpecializedSourceRuntime {
     measureGpu,
     gpuTimer,
     frameIndex,
+    showDiagnostics,
   } = {}) {
     this.media = media || (() => new Map());
     this.acquireMedia = acquireMedia || ((id) => this.media().get(id));
@@ -37,6 +38,7 @@ export class SpecializedSourceRuntime {
     this.measureGpu = measureGpu || ((_target, draw) => draw());
     this.gpuTimer = gpuTimer || { begin: () => null, end: () => {} };
     this.frameIndex = frameIndex || (() => 0);
+    this.showDiagnostics = showDiagnostics || (() => true);
     this.targets = new Map();
     this.terrainSurfaceResources = new Map();
     this.terrainWireResources = new Map();
@@ -66,7 +68,7 @@ export class SpecializedSourceRuntime {
     const imageAId = params.imageAId || "";
     const imageBId = params.imageBId || "";
     if (!imageAId || !imageBId) {
-      drawStandby(pg, "choose two images");
+      this.drawStandby(pg, "choose two images");
       return;
     }
     const imageRequest = { width: Math.max(1024, Number(pg.width) || 0) };
@@ -75,7 +77,7 @@ export class SpecializedSourceRuntime {
     const missingIds = [!itemA ? imageAId : "", !itemB ? imageBId : ""].filter(Boolean);
     if (missingIds.length) this.requestMissingMediaBatch(missingIds);
     if (!itemA?.image || !itemB?.image) {
-      drawStandby(pg, itemA?.imageError || itemB?.imageError || "loading morph images");
+      this.drawStandby(pg, itemA?.imageError || itemB?.imageError || "loading morph images");
       return;
     }
     const entry = pairService.request(params, itemA.image, itemB.image, {
@@ -83,11 +85,11 @@ export class SpecializedSourceRuntime {
       imageBFile: itemB.file,
     });
     if (entry.status === "loading") {
-      drawStandby(pg, entry.detail || (isMobileNet ? "matching MobileNet regions" : "finding SuperPoint landmarks"));
+      this.drawStandby(pg, entry.detail || (isMobileNet ? "matching MobileNet regions" : "finding SuperPoint landmarks"));
       return;
     }
     if (entry.status === "error" || !entry.result?.field) {
-      drawStandby(pg, entry.error || (isMobileNet ? "semantic matching failed" : "feature matching failed"));
+      this.drawStandby(pg, entry.error || (isMobileNet ? "semantic matching failed" : "feature matching failed"));
       return;
     }
 
@@ -133,13 +135,13 @@ export class SpecializedSourceRuntime {
     const params = source.params || {};
     const imageId = params.imageId || "";
     if (!imageId) {
-      drawStandby(pg, "choose a tileable texture");
+      this.drawStandby(pg, "choose a tileable texture");
       return;
     }
     const item = this.acquireMedia(imageId, { width: pg.width });
     if (!item?.image) {
       if (!item) this.requestMissingMedia(imageId);
-      drawStandby(pg, item?.imageError || "loading tile texture");
+      this.drawStandby(pg, item?.imageError || "loading tile texture");
       return;
     }
     const target = this.getTarget("tileTexture", pg.width, pg.height, renderRequest.pixelDensity, {
@@ -160,6 +162,10 @@ export class SpecializedSourceRuntime {
       resetShaderTarget(target);
     });
     this.presentGeneratedTarget(pg, target);
+  }
+
+  drawStandby(target, label) {
+    drawStandby(target, label, { visible: this.showDiagnostics() });
   }
 
   drawAnatomy(pg, source = {}, componentTime = 0, renderRequest = {}) {
@@ -250,14 +256,15 @@ export class SpecializedSourceRuntime {
     const surfaceColor = modelColor(params.surfaceColor, [220, 225, 220, 255]);
     const wireColor = modelColor(params.wireColor, [20, 20, 20, 220]);
     const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(params), renderRequest);
-    const rotation = modelRotation(params, componentTime);
+    const importBasis = modelImportBasis(item);
+    const rotation = modelRotation(params, componentTime, importBasis);
     const gpuToken = this.gpuTimer.begin(target, this.frameIndex());
     try {
       target.push();
       target.clear();
       const scale = viewport.unitScale * modelScale;
       const rawParsedDrawn = item.modelData &&
-        drawRawParsedModelMode(target, item, params, componentTime, renderMode, surfaceColor, wireColor, pointBudget, viewport, source.contentTransform);
+        drawRawParsedModelMode(target, item, { ...params, __importBasis: importBasis }, componentTime, renderMode, surfaceColor, wireColor, pointBudget, viewport, source.contentTransform);
       if (!rawParsedDrawn) {
         target.perspective?.(Math.PI / 3, viewport.width / Math.max(1, viewport.height), 0.1, 5000);
         target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);

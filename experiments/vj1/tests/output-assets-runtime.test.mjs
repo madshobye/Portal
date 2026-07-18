@@ -352,12 +352,32 @@ test("video playback owns loop state and reports promise rejection once", async 
     assert.equal(element.loop, true);
     assert.deepEqual(errors[0], ["[VJ1_VIDEO_PLAYBACK_FAILED]", {
       source: "VIDEO",
+      operation: "play",
       message: "autoplay denied",
     }]);
     assert.equal(errors.length, 1);
   } finally {
     console.error = previousError;
   }
+});
+
+test("video buffering never rewrites commanded playback intent", async () => {
+  let attempts = 0;
+  const element = {
+    tagName: "VIDEO",
+    paused: true,
+    duration: Number.NaN,
+    readyState: 0,
+    currentTime: 0,
+    playbackRate: 1,
+    loop: false,
+  };
+  const video = { elt: element, play: () => { attempts += 1; return Promise.resolve(); } };
+  syncVideoPlayback(video, { speed: 1 });
+  syncVideoPlayback(video, { speed: 1 });
+  await Promise.resolve();
+  assert.equal(attempts, 2, "the runtime keeps converging toward Play while readiness is only observed state");
+  assert.equal(element.paused, true, "a browser-reported pause is not treated as a new user command");
 });
 
 test("media runtime pauses videos that are no longer claimed by the rendered frame", () => {

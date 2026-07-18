@@ -8,6 +8,24 @@ import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState } from "../js/domain/models.js";
 import { previewRasterDensity } from "../js/output/embedded-preview-app.js";
 import { isPointerInteractionNode } from "../js/control/dom-utils.js";
+import { applyOptimisticToggleIntent } from "../js/control/input-controller.js";
+
+test("rapid toggles preserve commanded user truth before render acknowledgement", () => {
+  const classes = new Set(["is-enabled"]);
+  const attributes = {};
+  const button = {
+    dataset: { toggleValue: "true" },
+    classList: { toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); } },
+    setAttribute(name, value) { attributes[name] = value; },
+  };
+  assert.equal(applyOptimisticToggleIntent(button), false);
+  assert.equal(button.dataset.toggleValue, "false");
+  assert.equal(classes.has("is-enabled"), false);
+  assert.equal(attributes["aria-pressed"], "false");
+  assert.equal(applyOptimisticToggleIntent(button), true);
+  assert.equal(button.dataset.toggleValue, "true");
+  assert.equal(classes.has("is-enabled"), true);
+});
 
 test("preview presses defer UI rebuilding and draggable chain rows select on press", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");

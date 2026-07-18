@@ -1,13 +1,14 @@
 import { normalizeParamValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
 import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=slider-values-70";
 
-export function shaderParamControlsTemplate(component, pass, basePath) {
+export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
   if (!component?.params?.length) return "";
   return `
     <div class="chain-param-list">
       ${paramControlsTemplate(component.params, {
         pathFor: (param) => `${basePath}.params.${param.id}`,
         valueFor: (param) => paramCurrentValue(component, pass, param),
+        isSignificant: options.isSignificant,
       })}
     </div>
   `;
@@ -17,6 +18,7 @@ export function paramControlsTemplate(params = [], {
   pathFor = (param) => param.id,
   valueFor = (param) => param.defaultValue,
   attrs = "data-update",
+  isSignificant = () => false,
 } = {}) {
   const visible = visibleParamControls(params);
   const byPair = new Map();
@@ -29,7 +31,10 @@ export function paramControlsTemplate(params = [], {
   }
   return visible.map((param) => {
     if (param.ui !== "range-pair" || !param.rangePair) {
-      return paramControlTemplate(param, pathFor(param), valueFor(param), attrs);
+      const path = pathFor(param);
+      return paramControlTemplate(param, path, valueFor(param), attrs, {
+        significant: isSignificant(param, path),
+      });
     }
     if (param.rangeRole === "max") return "";
     const pair = byPair.get(param.rangePair);
@@ -46,10 +51,14 @@ export function paramControlsTemplate(params = [], {
   }).join("");
 }
 
-export function paramControlTemplate(param, path, value, attrs = "data-update") {
+export function paramControlTemplate(param, path, value, attrs = "data-update", { significant = false } = {}) {
+  const contextAttrs = attrs === "data-update"
+    ? `data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}"`
+    : "";
+  const significantClass = significant ? " is-significant" : "";
   if (param.type === "boolean") {
     return `
-      <label class="field inline-param">
+      <label class="field inline-param param-context-target${significantClass}" ${contextAttrs}>
         <span>${esc(param.label || param.id)}</span>
         <input type="checkbox" ${attrs}="${esc(path)}" ${value ? "checked" : ""} />
       </label>
@@ -57,7 +66,7 @@ export function paramControlTemplate(param, path, value, attrs = "data-update") 
   }
   if (param.type === "enum") {
     return `
-      <label class="field chain-param">
+      <label class="field chain-param param-context-target${significantClass}" ${contextAttrs}>
         <span>${esc(param.label || param.id)}</span>
         <select ${attrs}="${esc(path)}">
           ${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
@@ -65,7 +74,7 @@ export function paramControlTemplate(param, path, value, attrs = "data-update") 
       </label>
     `;
   }
-  if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs);
+  if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs, { significant });
   const logarithmic = param.scale === "log" && Number(param.min) > 0 && Number(param.max) > Number(param.min);
   const sliderMin = logarithmic ? 0 : param.min ?? 0;
   const sliderMax = logarithmic ? 1 : param.max ?? 1;
@@ -78,7 +87,7 @@ export function paramControlTemplate(param, path, value, attrs = "data-update") 
     ? `data-number-scale="log" data-value-min="${param.min}" data-value-max="${param.max}"`
     : "";
   return `
-    <label class="field range-field chain-param">
+    <label class="field range-field chain-param param-context-target${significantClass}" ${contextAttrs}>
       <span>${esc(param.label || param.id)}</span>
       <output class="range-value" data-range-value>${formatRangeValue(safeValue, param.step ?? 0.01)}</output>
       <input type="range" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" data-display-step="${param.step ?? 0.01}" ${scaleAttrs} ${attrs}="${esc(path)}" value="${sliderValue}" />
@@ -86,7 +95,7 @@ export function paramControlTemplate(param, path, value, attrs = "data-update") 
   `;
 }
 
-export function colorParamControlTemplate(param, path, value, attrs = "data-update") {
+export function colorParamControlTemplate(param, path, value, attrs = "data-update", { significant = false } = {}) {
   const mode = attrs.includes("data-live-update") ? "live" : "state";
   const liveComponentMatch = /data-live-component-id="([^"]*)"/.exec(attrs);
   const liveComponentId = liveComponentMatch?.[1] || "";
@@ -94,7 +103,7 @@ export function colorParamControlTemplate(param, path, value, attrs = "data-upda
   const rgb = rgba.slice(0, 7);
   const alpha = colorAlphaFromHex(rgba);
   return `
-    <div class="field color-param chain-param" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""}>
+    <div class="field color-param chain-param param-context-target${significant ? " is-significant" : ""}" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${mode === "state" ? `data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}"` : ""} ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""}>
       <span>${esc(param.label || param.id)}</span>
       <div class="color-param-row">
         <input type="range" min="0" max="1" step="0.01" data-color-alpha value="${alpha}" aria-label="${esc(param.label || param.id)} alpha" />

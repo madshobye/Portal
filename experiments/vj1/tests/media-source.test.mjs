@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { generatorIcon } from "../js/control/picker-view.js";
 
-import { createCanvasComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState } from "../js/domain/models.js?v=world-frame-27";
+import { createCanvasComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState, sceneSourceNodeId } from "../js/domain/models.js?v=world-frame-27";
 import { normalizeParamValue, renderQualityScale } from "../js/graph/component-schema.js";
 import { getGeneratorComponent, listGeneratorComponents } from "../js/graph/generator-registry.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
@@ -820,7 +820,7 @@ test("output renderer blackouts while active media sources are missing or loadin
       createComponentLayer(0, { type: "media", mediaId: "clips/loop.mov" }),
     ];
     state.components = [component];
-    state.surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id }];
+    state.surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) }];
     const requested = [];
     const renderer = new OutputRenderer({
       mode: "output",
@@ -864,7 +864,7 @@ test("output readiness includes images referenced by media-backed generators", (
       createComponentLayer(2, { type: "generator", generatorId: "featureMorphV2", params: { imageAId: "c.png", imageBId: "d.png" } }),
     ];
     state.components = [component];
-    state.surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id }];
+    state.surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) }];
     const requested = [];
     const renderer = new OutputRenderer({ mode: "output", requestMediaFiles: (ids) => requested.push(ids) });
     renderer.state = sanitizeState(state);

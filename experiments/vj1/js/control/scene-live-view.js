@@ -109,9 +109,103 @@ export function liveScenePillTemplate(scene, state) {
 export function liveInspectorTemplate(state) {
   const scene = getLiveSelectedScene(state);
   if (!scene) return panelTemplate("tune", "Live", emptyNote("No scenes"));
-  const components = liveSceneComponents(scene, state);
-  return components.map((component) => liveComponentTemplate(component, state)).join("")
+  const components = liveNavigableComponents(scene, state);
+  const selected = components.find((component) => component.id === state.ui?.live?.selectedComponentId) || components[0];
+  const significant = components.map((component) => liveSignificantComponentTemplate(component, state)).filter(Boolean).join("");
+  return `${significant ? `<section class="ui-section focus-panel live-significant-panel"><header class="ui-section-header panel-title"><span class="material-symbols-rounded">star</span><span>Significant</span></header>${significant}</section>` : ""}${selected ? liveComponentTemplate(selected, state) : ""}`
     || panelTemplate("tune", scene.name, emptyNote("No components"));
+}
+
+export function liveComponentPillTemplate(component, state) {
+  const selected = (state.ui?.live?.selectedComponentId || "") === component.id;
+  return `
+    <button type="button" class="component-card live-component-picker ${selected ? "is-selected" : ""}" data-live-component="${esc(component.id)}">
+      ${thumbnailTemplate(component.thumbnail)}
+      ${componentCardBarTemplate(component.name)}
+    </button>
+  `;
+}
+
+export function liveNavigableComponents(scene, state) {
+  const result = [];
+  const seen = new Set();
+  const visit = (component) => {
+    if (!component || seen.has(component.id)) return;
+    seen.add(component.id);
+    result.push(component);
+    for (const item of nestedChainItems(component.chain || [])) {
+      if (item.kind !== "source" || item.source?.type !== "component") continue;
+      visit(state.components?.find((candidate) => candidate.id === item.source.componentId));
+    }
+  };
+  for (const component of liveSceneComponents(scene, state)) visit(component);
+  return result;
+}
+
+function liveSignificantComponentTemplate(component, state) {
+  const paths = new Set(component.significantParams || []);
+  if (!paths.size) return "";
+  const view = createLiveComponentView(component, state);
+  const controls = significantChainControls(view.chain || [], {
+    componentId: component.id,
+    relativeBase: "chain",
+    updateBase: "chain",
+    paths,
+    attrs: liveParamAttrs(component.id),
+  });
+  if (!controls) return "";
+  return `<div class="live-significant-component"><strong>${esc(component.name)}</strong>${controls}</div>`;
+}
+
+export function sceneSignificantComponentTemplate(component, state) {
+  const paths = new Set(component?.significantParams || []);
+  const componentIndex = state.components?.findIndex((candidate) => candidate.id === component?.id) ?? -1;
+  if (!component || componentIndex < 0 || !paths.size) return "";
+  const controls = significantChainControls(component.chain || [], {
+    componentId: component.id,
+    relativeBase: "chain",
+    updateBase: `components.${componentIndex}.chain`,
+    paths,
+    attrs: "data-update",
+  });
+  if (!controls) return "";
+  return `<section class="ui-section focus-panel scene-significant-panel"><header class="ui-section-header panel-title"><span class="material-symbols-rounded">star</span><span>Significant · ${esc(component.name)}</span></header>${controls}</section>`;
+}
+
+function significantChainControls(chain, options) {
+  const { componentId, relativeBase, updateBase, paths, attrs } = options;
+  return (chain || []).map((item, index) => {
+    const relativePath = `${relativeBase}.${index}`;
+    const updatePath = `${updateBase}.${index}`;
+    if (item.kind === "group") return significantChainControls(item.chain || [], {
+      ...options,
+      relativeBase: `${relativePath}.chain`,
+      updateBase: `${updatePath}.chain`,
+    });
+    const definitions = item.kind === "effect"
+      ? getShaderComponent(item.componentId)?.params || []
+      : sourceLiveParams(item.source || {});
+    const significant = definitions.filter((param) => paths.has(`${relativePath}.params.${param.id}`));
+    if (!significant.length) return "";
+    const values = item.kind === "effect"
+      ? item
+      : { params: { ...(item.source?.params || {}), ...(item.params || {}) } };
+    return `<div class="live-significant-group"><span>${esc(item.name || item.componentId || sourceChainItemDisplayName(item))}</span>${paramControlsTemplate(significant, {
+      pathFor: (param) => `${updatePath}.params.${param.id}`,
+      valueFor: (param) => item.kind === "effect"
+        ? paramCurrentValue(getShaderComponent(item.componentId), values, param)
+        : normalizeParamValue(param, values.params[param.id]),
+      attrs,
+      isSignificant: () => attrs === "data-update",
+    })}</div>`;
+  }).join("");
+}
+
+function* nestedChainItems(chain = []) {
+  for (const item of chain || []) {
+    yield item;
+    if (item?.kind === "group") yield* nestedChainItems(item.chain || []);
+  }
 }
 
 function liveComponentTemplate(component, state) {

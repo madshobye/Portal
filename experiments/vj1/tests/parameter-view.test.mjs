@@ -14,7 +14,8 @@ test("parameter view owns reusable inspector controls outside the controller", (
     { id: "enabled", label: "Enabled", type: "boolean", defaultValue: true },
   ]);
 
-  assert.match(range, /class="field range-field chain-param"/);
+  assert.match(range, /class="field range-field chain-param param-context-target"/);
+  assert.match(range, /data-param-context-path="params\.gain"/);
   assert.match(range, /data-update="params\.gain"/);
   assert.doesNotMatch(controls, /Seed/);
   assert.match(controls, /Enabled/);
@@ -32,4 +33,12 @@ test("color params place the shared slider label above an alpha track with the s
   assert.match(control, /<span>Sky<\/span>[\s\S]*?class="color-param-row"/);
   assert.ok(alphaIndex > 0);
   assert.ok(swatchIndex > alphaIndex);
+});
+
+test("persistent params expose reset and significant metadata while Live overrides do not", () => {
+  const persistent = paramControlTemplate({ id: "gain", label: "Gain", type: "number", min: 0, max: 2, defaultValue: 0.75 }, "components.0.chain.0.params.gain", 1, "data-update", { significant: true });
+  const live = paramControlTemplate({ id: "gain", label: "Gain", type: "number", min: 0, max: 2, defaultValue: 0.75 }, "chain.0.params.gain", 1, "data-live-update");
+  assert.match(persistent, /is-significant/);
+  assert.match(persistent, /data-param-default="0\.75"/);
+  assert.doesNotMatch(live, /data-param-context-path/);
 });

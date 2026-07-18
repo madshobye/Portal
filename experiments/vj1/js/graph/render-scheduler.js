@@ -5,9 +5,7 @@ import { getShaderComponent } from "../shaders/shader-registry.js?v=shader-compo
 export function compileComponentPatch(component = {}, renderRequest = {}) {
   const request = normalizePatchRenderRequest(renderRequest);
   const outputId = `${component.id || "component"}:output`;
-  const graph = Array.isArray(component.chain) && component.chain.length
-    ? graphForComponentChain(component, request, outputId)
-    : graphForLegacyComponent(component, request, outputId);
+  const graph = graphForComponentChain(component, request, outputId);
   const outputNode = {
     id: outputId,
     componentId: "output.texture",
@@ -78,49 +76,12 @@ export function flattenComponentChain(chain = []) {
   return flat;
 }
 
-function graphForLegacyComponent(component, request, outputId) {
-  const nodes = legacyNodesForComponent(component).map((node) => withRenderRequest(node, request));
-  const edges = [];
-  for (let i = 0; i < nodes.length - 1; i++) {
-    edges.push(textureEdge(nodes[i].id, nodes[i + 1].id));
-  }
-  if (nodes.length) edges.push(textureEdge(nodes[nodes.length - 1].id, outputId));
-  return {
-    nodes,
-    edges,
-    outputInlets: [textureInlet("texture-1", "Texture 1")],
-    branchCount: 1,
-    branches: nodes.length ? [{
-      index: 1,
-      inletId: "texture-1",
-      sourceNodeId: nodes[0]?.id || "",
-      terminalNodeId: nodes[nodes.length - 1]?.id || "",
-      layer: nodes[0]?.state?.layer || null,
-    }] : [],
-  };
-}
-
 function textureEdge(fromId, toId, outletId = "texture", inletId = "texture") {
   return {
     from: { nodeId: fromId, outletId },
     to: { nodeId: toId, inletId },
     type: "texture",
   };
-}
-
-function legacyNodesForComponent(component = {}) {
-  const sourceComponent = sourceComponentFor(component.source);
-  const sourceNode = createVisualNode(sourceComponent, {
-    id: `${component.id || "component"}:source`,
-    role: "source",
-    params: sourceParams(component.source),
-    state: {
-      source: component.source,
-      layer: defaultLayerState(`${component.id || "component"}:source`),
-    },
-  });
-  const effectNodes = (component.shaderChain || []).map((pass, index) => effectNodeForPass(component, pass, index));
-  return [sourceNode, ...effectNodes];
 }
 
 function chainNodeForItem(component, item, index) {

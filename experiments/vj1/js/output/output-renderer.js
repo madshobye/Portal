@@ -146,6 +146,7 @@ export class OutputRenderer {
       getState: () => this.state,
       getComponentOutput: (componentId) => this.componentOutput.get(componentId),
       shouldUseThumbnailPreview: () => this.shouldUseThumbnailPreview(),
+      isComponentReady: (component) => !this.componentHasPendingAssets(component),
       sendThumbnail: (...args) => this.sendThumbnail?.(...args),
     });
     // Specialized 3D sources render sequentially and are copied into the
@@ -183,6 +184,7 @@ export class OutputRenderer {
       measureGpu: (target, draw) => this.measureGpu(target, draw),
       gpuTimer: this.gpuTimer,
       frameIndex: () => this.frameIndex,
+      showDiagnostics: () => this.state?.ui?.debugPreview !== false,
     });
     this.lastPixelDensity = 0;
     this.frameStart = 0;
@@ -2009,12 +2011,12 @@ export class OutputRenderer {
       else if (item?.model || item?.modelData) {
         this.drawModelSource(pg, item, source, componentTime, renderRequest);
       }
-      else if (item?.loadError || item?.imageError) drawStandby(pg, item?.loadError || "image load failed");
-      else if (item?.modelError) drawStandby(pg, "model load failed");
-      else if (item) drawStandby(pg, "loading media");
+      else if (item?.loadError || item?.imageError) this.drawStandby(pg, item?.loadError || "image load failed");
+      else if (item?.modelError) this.drawStandby(pg, "model load failed");
+      else if (item) this.drawStandby(pg, "loading media");
       else {
         this.requestMissingMedia(source.mediaId);
-        drawStandby(pg, "media file not loaded");
+        this.drawStandby(pg, "media file not loaded");
       }
     } else if (source.type === "camera") {
       const camera = this.ensureCameraCapture();
@@ -2023,7 +2025,7 @@ export class OutputRenderer {
           drawCover(pg, camera, 0, 0, pg.width, pg.height);
         });
       }
-      else drawStandby(pg, this.cameraError || "camera");
+      else this.drawStandby(pg, this.cameraError || "camera");
     } else if (source.type === "black") {
       pg.background(0);
     } else {
@@ -2044,11 +2046,58 @@ export class OutputRenderer {
         this.drawTileTextureGenerator(pg, source, generatorTime, renderRequest);
         return;
       }
-      if (this.drawShaderGenerator(pg, source, generatorTime, renderRequest)) return;
+      const shaderGenerator = getGeneratorShaderComponent(getGeneratorComponent(source.generatorId || "testPattern").id);
+      if (shaderGenerator) {
+        if (this.drawShaderGenerator(pg, source, generatorTime, renderRequest)) return;
+        console.error("[VJ1_SHADER_GENERATOR_UNAVAILABLE]", {
+          generatorId: source.generatorId,
+          fallback: "transparent diagnostic standby",
+        });
+        this.drawStandby(pg, `shader unavailable: ${source.generatorId}`);
+        return;
+      }
       drawWithContentTransform(pg, source.contentTransform, () => {
         drawGenerator(pg, source.generatorId, generatorTime, source.params || {});
       });
     }
+  }
+
+  drawStandby(target, label) {
+    drawStandby(target, label, { visible: this.state?.ui?.debugPreview !== false });
+  }
+
+  componentHasPendingAssets(component, seen = new Set()) {
+    if (!component?.id || seen.has(component.id)) return false;
+    seen.add(component.id);
+    const pending = (component.chain || []).some((item) => this.chainItemHasPendingAssets(item, seen));
+    seen.delete(component.id);
+    return pending;
+  }
+
+  chainItemHasPendingAssets(item, seen) {
+    if (!item || item.enabled === false) return false;
+    if (item.kind === "group") return (item.chain || []).some((child) => this.chainItemHasPendingAssets(child, seen));
+    if (item.kind !== "source") return false;
+    const source = item.source || {};
+    if (source.type === "component") {
+      const dependency = this.state?.components?.find((component) => component.id === source.componentId);
+      return dependency ? this.componentHasPendingAssets(dependency, seen) : false;
+    }
+    if (source.type === "camera" || source.type === "media") {
+      return source.type === "camera"
+        ? !isDrawableMedia(this.cameraCapture)
+        : !isReadyMediaItem(this.acquireMedia(source.mediaId));
+    }
+    if (source.type !== "generator") return false;
+    const params = { ...(source.params || {}), ...(item.params || {}) };
+    if (source.generatorId === "tileTexture") return !!params.imageId && !isReadyMediaItem(this.acquireMedia(params.imageId));
+    const pairs = this.featureMorphPairService(source.generatorId);
+    if (!pairs) return false;
+    const imageA = this.acquireMedia(params.imageAId);
+    const imageB = this.acquireMedia(params.imageBId);
+    if (!isReadyMediaItem(imageA) || !isReadyMediaItem(imageB)) return true;
+    const status = pairs.status(params, { imageAFile: imageA.file, imageBFile: imageB.file });
+    return status === "idle" || status === "loading";
   }
 
   drawFeatureMorphGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {

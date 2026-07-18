@@ -202,14 +202,9 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     projectLoadBlocked = false;
     const { ui: projectUi, metrics: _projectMetrics, ...projectData } = data;
     const currentUi = store.getState().ui;
-    const legacyRecordingFrames = Array.isArray(projectData.components)
-      ? projectData.components.flatMap((component) =>
-          component?.type === "canvas" && Array.isArray(component.canvas?.frames) ? component.canvas.frames : []
-        )
-      : [];
     const recordingFrames = Array.isArray(projectData.recordingFrames)
       ? projectData.recordingFrames
-      : Array.isArray(projectData.components) ? legacyRecordingFrames : store.getState().recordingFrames;
+      : store.getState().recordingFrames;
     const nextState = {
       ...store.getState(),
       ...projectData,
@@ -585,7 +580,8 @@ async function loadStoredHandle() {
   if (!canPersistDirectoryHandles()) return null;
   try {
     return await loadProjectDirectoryHandle();
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_PROJECT_HANDLE_RESTORE_FAILED]", { fallback: "manual folder selection", message: error?.message || String(error) });
     return null;
   }
 }
@@ -594,7 +590,8 @@ async function saveStoredHandle(handle) {
   if (!handle || !canPersistDirectoryHandles()) return;
   try {
     await saveProjectDirectoryHandle(handle);
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_PROJECT_HANDLE_SAVE_FAILED]", { fallback: "current-session handle only", message: error?.message || String(error) });
     // The app can still run with the active handle; only refresh restore is lost.
   }
 }
@@ -603,7 +600,8 @@ async function clearStoredHandle() {
   if (!canPersistDirectoryHandles()) return;
   try {
     await clearProjectDirectoryHandle();
-  } catch {
+  } catch (error) {
+    console.warn("[VJ1_PROJECT_HANDLE_CLEAR_FAILED]", { fallback: "in-memory project close", message: error?.message || String(error) });
     // Closing the in-memory project is still valid if handle persistence cleanup fails.
   }
 }

@@ -62,7 +62,7 @@ function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode =
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
-    const rotation = modelRotation(params, componentTime);
+    const rotation = modelRotation(params, componentTime, params.__importBasis);
     const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
     const rgba = normalizedColor(color);
 
@@ -102,7 +102,7 @@ function drawRawParsedWire(target, item, params = {}, componentTime = 0, color =
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
-    const rotation = modelRotation(params, componentTime);
+    const rotation = modelRotation(params, componentTime, params.__importBasis);
     const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
     const stride = 8 * 4;
 
@@ -152,7 +152,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
-    const rotation = modelRotation(params, componentTime);
+    const rotation = modelRotation(params, componentTime, params.__importBasis);
     const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform);
     const stride = 6 * 4;
 

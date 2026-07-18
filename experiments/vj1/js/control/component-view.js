@@ -174,6 +174,8 @@ function chainItemRowTemplate(item, component, state, index, base, depth = 0, to
       value: item.enabled !== false,
       iconName,
       label,
+      selectAction: "chain-item",
+      selectId: item.id,
     }),
     label,
     meta: kindLabel,
@@ -203,7 +205,9 @@ function selectedChainItemTemplate(item, component, state, base) {
   return `
     <section class="chain-item-editor">
       <div class="ui-section-header rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(effectComponent?.name || item.componentId)}</span></div>
-      ${shaderParamControlsTemplate(effectComponent, item, base)}
+      ${shaderParamControlsTemplate(effectComponent, item, base, {
+        isSignificant: (_param, path) => componentParamIsSignificant(component, state, path),
+      })}
       ${effectComponent?.spatial && SHOW_CHAIN_ITEM_TRANSFORM_CONTROLS ? effectTransformControlsTemplate(item, base) : ""}
     </section>
   `;
@@ -462,6 +466,11 @@ function generatorParamControlsTemplate(base, source = {}, state = {}) {
       ${paramControlsTemplate(component.params, {
         pathFor: (param) => `${base}.params.${param.id}`,
         valueFor: (param) => paramCurrentValue(component, { params: source.params || {} }, param),
+        isSignificant: (_param, path) => componentParamIsSignificant(
+          state.components?.find((item) => path.startsWith(`components.${state.components.indexOf(item)}.`)),
+          state,
+          path
+        ),
       })}
     </div>
   `;
@@ -469,4 +478,11 @@ function generatorParamControlsTemplate(base, source = {}, state = {}) {
 
 function pathForComponent(state, component) {
   return `components.${state.components.findIndex((item) => item.id === component.id)}`;
+}
+
+function componentParamIsSignificant(component, state, path) {
+  if (!component) return false;
+  const base = `${pathForComponent(state, component)}.`;
+  const relativePath = String(path || "").startsWith(base) ? String(path).slice(base.length) : String(path || "");
+  return (component.significantParams || []).includes(relativePath);
 }

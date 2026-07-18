@@ -7,6 +7,7 @@ import {
   createDefaultComponent,
   createInitialState,
   createSceneFromState,
+  sceneSourceNodeId,
 } from "../js/domain/models.js?v=world-frame-27";
 
 test("analyzes component graph shape and missing media", () => {
@@ -24,6 +25,7 @@ test("analyzes component graph shape and missing media", () => {
   ];
   state.components = [component];
   state.surfaces[0].componentId = component.id;
+  state.surfaces[0].sourceNodeId = sceneSourceNodeId(component.id);
   state.surfaces[1].enabled = false;
   state.scenes = [createSceneFromState(state, "Scene 1")];
 

@@ -130,7 +130,8 @@ export function createSuperPointPersistentCache(database = globalThis.indexedDB)
         const store = await openCacheStore(database, "readonly");
         const record = await idbRequest(store.get(key));
         return normalizeCachedPair(record?.result);
-      } catch {
+      } catch (error) {
+        console.warn("[VJ1_SUPERPOINT_CACHE_READ_FAILED]", { fallback: "reanalyze image pair", message: error?.message || String(error) });
         return null;
       }
     },
@@ -141,7 +142,9 @@ export function createSuperPointPersistentCache(database = globalThis.indexedDB)
         const store = await openCacheStore(database, "readwrite");
         await idbRequest(store.put({ key, savedAt: Date.now(), result: normalized }));
         await prunePersistentCache(database);
-      } catch {}
+      } catch (error) {
+        console.warn("[VJ1_SUPERPOINT_CACHE_WRITE_FAILED]", { fallback: "memory cache only", message: error?.message || String(error) });
+      }
     },
   };
 }

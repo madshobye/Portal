@@ -85,7 +85,7 @@ export function previewViewportKey(workspace = "component") {
 
 export function previewViewportForUi(ui = {}) {
   const key = previewViewportKey(ui.workspace);
-  return ui.previewViewports?.[key] || ui.previewViewport || resetViewport();
+  return ui.previewViewports?.[key] || resetViewport();
 }
 
 export function updatePreviewViewportForUi(ui = {}, update) {

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
 import { canvasComponents, ordinaryComponents } from "../js/control/control-selectors.js";
-import { liveInspectorTemplate, liveScenePillTemplate, scenePillTemplate, sceneSurfaceTemplate } from "../js/control/scene-live-view.js";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveScenePillTemplate, scenePillTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "../js/control/scene-live-view.js";
 import { createSceneFromState, createInitialState } from "../js/domain/models.js?v=render-coordinate-scope-3";
 
 function stateWithScene() {
@@ -42,4 +42,17 @@ test("catalog presentation and component selectors have single owners", () => {
   assert.equal(ordinaryComponents(state).every((component) => component.type !== "canvas"), true);
   assert.equal(canvasComponents(state).every((component) => component.type === "canvas"), true);
   assert.equal(ordinaryComponents(state).length + canvasComponents(state).length, state.components.length);
+});
+
+test("Live navigates components by thumbnail and Scene exposes marked significant params", () => {
+  const { state } = stateWithScene();
+  const component = state.components[0];
+  component.significantParams = ["chain.0.params.renderQuality"];
+  state.ui.live.selectedComponentId = component.id;
+  const picker = liveComponentPillTemplate(component, state);
+  const significant = sceneSignificantComponentTemplate(component, state);
+  assert.match(picker, /data-live-component=/);
+  assert.match(picker, /component-thumbnail/);
+  assert.match(significant, /Significant/);
+  assert.match(significant, /components\.0\.chain\.0\.params\.renderQuality/);
 });

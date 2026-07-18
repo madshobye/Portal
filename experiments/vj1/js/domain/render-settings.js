@@ -11,8 +11,8 @@ export function createOutputDefinition(index = 0, width = VJ1.renderWidth, heigh
 }
 
 export function normalizeRenderSettings(render = {}) {
-  const frameWidth = positiveInt(render.frameWidth ?? render.width, VJ1.renderWidth, 128, 8192);
-  const frameHeight = positiveInt(render.frameHeight ?? render.height, VJ1.renderHeight, 128, 8192);
+  const frameWidth = positiveInt(render.width, VJ1.renderWidth, 128, 8192);
+  const frameHeight = positiveInt(render.height, VJ1.renderHeight, 128, 8192);
   const outputs = Array.isArray(render.outputs) && render.outputs.length
     ? render.outputs.map((output, index) => normalizeOutputDefinition(output, index, frameWidth, frameHeight))
     : [createOutputDefinition(0, frameWidth, frameHeight)];
@@ -23,19 +23,8 @@ export function normalizeRenderSettings(render = {}) {
   const marginY = Math.round(contentHeight * VJ1.outputWorldMarginRatio);
   const worldWidth = contentWidth + marginX * 2;
   const worldHeight = contentHeight + marginY * 2;
-  const migratedComponentTexture = render.componentTexture || {
-    width: render.surfaceWidth ?? render.surfaceTexture?.maxWidth ?? primary.width,
-    height: render.surfaceHeight ?? render.surfaceTexture?.maxHeight ?? primary.height,
-  };
-  const {
-    surfaceWidth: _legacySurfaceWidth,
-    surfaceHeight: _legacySurfaceHeight,
-    surfaceTextureMode: _legacySurfaceTextureMode,
-    edgeSoftness: _removedEdgeSoftness,
-    ...currentRender
-  } = render;
   return {
-    ...currentRender,
+    ...render,
     width: primary.width,
     height: primary.height,
     frameWidth: primary.width,
@@ -43,7 +32,7 @@ export function normalizeRenderSettings(render = {}) {
     outputs,
     worldWidth,
     worldHeight,
-    componentTexture: normalizeComponentTextureSettings(migratedComponentTexture, primary),
+    componentTexture: normalizeComponentTextureSettings(render.componentTexture, primary),
     surfaceTexture: normalizeSurfaceTextureSettings(render.surfaceTexture, primary),
     pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
     sampling: normalizeSamplingSettings(render.sampling),
@@ -97,14 +86,9 @@ export function normalizePreviewViewport(viewport = {}) {
   };
 }
 
-export function normalizePreviewViewports(viewports = {}, legacyViewport = {}, legacyWorkspace = "component") {
+export function normalizePreviewViewports(viewports = {}) {
   const keys = ["component", "canvas", "scene", "live"];
-  const hasViewports = viewports && typeof viewports === "object" && keys.some((key) => viewports[key]);
-  const normalized = Object.fromEntries(keys.map((key) => [key, normalizePreviewViewport(viewports?.[key] || {})]));
-  if (!hasViewports && keys.includes(legacyWorkspace)) {
-    normalized[legacyWorkspace] = normalizePreviewViewport(legacyViewport);
-  }
-  return normalized;
+  return Object.fromEntries(keys.map((key) => [key, normalizePreviewViewport(viewports?.[key] || {})]));
 }
 
 function normalizeOutputDefinition(output = {}, index = 0, fallbackWidth = VJ1.renderWidth, fallbackHeight = VJ1.renderHeight) {
@@ -112,8 +96,8 @@ function normalizeOutputDefinition(output = {}, index = 0, fallbackWidth = VJ1.r
   return {
     id: String(output.id || fallback.id),
     name: output.name || fallback.name,
-    width: positiveInt(output.width ?? output.frameWidth, fallback.width, 128, 8192),
-    height: positiveInt(output.height ?? output.frameHeight, fallback.height, 128, 8192),
+    width: positiveInt(output.width, fallback.width, 128, 8192),
+    height: positiveInt(output.height, fallback.height, 128, 8192),
   };
 }
 

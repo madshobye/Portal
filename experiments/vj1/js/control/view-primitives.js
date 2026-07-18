@@ -4,14 +4,14 @@ export function componentCardBarTemplate(label) {
   return `<div class="component-card-bar"><span>${esc(label)}</span></div>`;
 }
 
-export function enableToggleButton({ path = "", livePath = "", componentId = "", value = true, iconName = "power_settings_new", label = "" }) {
+export function enableToggleButton({ path = "", livePath = "", componentId = "", value = true, iconName = "power_settings_new", label = "", selectAction = "", selectId = "" }) {
   const enabled = value !== false;
   const toggleAttrs = livePath
     ? `data-live-component-id="${esc(componentId)}" data-live-toggle="${esc(livePath)}"`
     : `data-toggle-path="${esc(path)}"`;
   const action = enabled ? "Disable" : "Enable";
   return `
-    <button type="button" class="enable-toggle ${enabled ? "is-enabled" : ""}" ${toggleAttrs} data-toggle-value="${enabled ? "true" : "false"}" title="${action} ${esc(label)}" aria-label="${action} ${esc(label)}">
+    <button type="button" class="enable-toggle ${enabled ? "is-enabled" : ""}" ${toggleAttrs} ${selectAction ? `data-toggle-select-action="${esc(selectAction)}" data-toggle-select-id="${esc(selectId)}"` : ""} data-toggle-value="${enabled ? "true" : "false"}" title="${action} ${esc(label)}" aria-label="${action} ${esc(label)}">
       ${icon(enabled ? iconName : "hide_source")}
     </button>
   `;
@@ -27,6 +27,8 @@ export function selectablePillTemplate({ selected, action, id, iconName, label, 
       value: toggleValue,
       iconName,
       label,
+      selectAction: action,
+      selectId: id,
     }) : "",
     label,
     meta,

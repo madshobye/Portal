@@ -18,11 +18,12 @@ import {
   migrateProjectV14ToV15,
   migrateProjectV15ToV16,
   migrateProjectV16ToV17,
+  migrateProjectV17ToV18,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 17);
+  assert.equal(CURRENT_PROJECT_VERSION, 18);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -71,7 +72,7 @@ test("v7 to v8 migrates the Component workspace and remembered selections", () =
       workspaceCompositionIds: { compose: "comp-a", canvas: "canvas-a" },
     },
   });
-  assert.equal(migrated.version, 17);
+  assert.equal(migrated.version, CURRENT_PROJECT_VERSION);
   assert.equal(migrated.ui.workspace, "component");
   assert.deepEqual(migrated.ui.workspaceSelectionIds, { component: "comp-a", canvas: "canvas-a" });
   assert.equal(Object.hasOwn(migrated.ui, "workspaceCompositionIds"), false);
@@ -270,6 +271,27 @@ test("v16 to v17 adds independent Scene and Live preview resolution defaults", (
     ui: { previewQualities: { scene: "low", live: "invalid" } },
   });
   assert.deepEqual(migrated.ui.previewQualities, { scene: "low", live: "auto" });
+});
+
+test("v17 to v18 canonicalizes runtime aliases before normalization", () => {
+  const migrated = migrateProjectV17ToV18({
+    version: 17,
+    global: { timeScale: 2 },
+    ui: { workspace: "canvas", previewViewport: { zoom: 2 } },
+    components: [{
+      id: "component-a",
+      source: { type: "media", mediaId: "media-a", startTime: 1, endTime: 3 },
+      shaderChain: [{ id: "invert", amount: 0.5 }],
+    }],
+    surfaces: [{ componentId: "component-a" }],
+  });
+  assert.equal(migrated.global.timeStretch, 1);
+  assert.equal(Object.hasOwn(migrated.global, "timeScale"), false);
+  assert.equal(migrated.ui.previewViewports.canvas.zoom, 2);
+  assert.equal(Object.hasOwn(migrated.ui, "previewViewport"), false);
+  assert.deepEqual(migrated.components[0].chain.map((item) => item.kind), ["source", "effect"]);
+  assert.equal(migrated.components[0].chain[0].source.start, 1);
+  assert.equal(migrated.surfaces[0].sourceNodeId, "component:component-a");
 });
 
 test("migration runner applies every adjacent step in order", () => {

@@ -486,7 +486,8 @@ export function createMobileNetMorphPersistentCache(database = globalThis.indexe
         const store = await openCacheStore(database, "readonly");
         const record = await idbRequest(store.get(key));
         return normalizeCachedPair(record?.result);
-      } catch {
+      } catch (error) {
+        console.warn("[VJ1_MOBILENET_CACHE_READ_FAILED]", { fallback: "reanalyze image pair", message: error?.message || String(error) });
         return null;
       }
     },
@@ -497,7 +498,9 @@ export function createMobileNetMorphPersistentCache(database = globalThis.indexe
         const store = await openCacheStore(database, "readwrite");
         await idbRequest(store.put({ key, savedAt: Date.now(), result: normalized }));
         await prunePersistentCache(database);
-      } catch {}
+      } catch (error) {
+        console.warn("[VJ1_MOBILENET_CACHE_WRITE_FAILED]", { fallback: "memory cache only", message: error?.message || String(error) });
+      }
     },
   };
 }
@@ -510,6 +513,7 @@ async function extractMobileNetGrid(model, image, { gridSize, patchScale, fit },
     onProgress?.(spatialFeatures.length, spatialFeatures.length);
     return spatialFeatures;
   }
+  console.warn("[VJ1_MOBILENET_SPATIAL_FALLBACK]", { fallback: "batched patch descriptors" });
   const patch = createAnalysisCanvas();
   const context = patch.getContext("2d", { willReadFrequently: false });
   const features = [];
@@ -668,7 +672,9 @@ async function getMobileNetModel() {
       try {
         await globalThis.tf.setBackend("webgl");
         await globalThis.tf.ready();
-      } catch {}
+      } catch (error) {
+        console.warn("[VJ1_TFJS_WEBGL_BACKEND_FAILED]", { fallback: globalThis.tf.getBackend(), message: error?.message || String(error) });
+      }
     }
     await loadScript(MOBILENET_URL, () => globalThis.mobilenet);
     const model = await globalThis.mobilenet.load({ version: 2, alpha: 0.5 });
