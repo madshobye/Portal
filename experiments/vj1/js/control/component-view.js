@@ -8,7 +8,7 @@ import { generatorIcon } from "./picker-view.js?v=source-picker-filters-1";
 import { chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=text-style-controls-1";
 import { MEDIA_FIT_MODES, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=model-wire-detail-2";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=power-flicker-1";
-import { editableSectionTitleTemplate, enableToggleButton, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
+import { deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, textListItemTemplate } from "./view-primitives.js?v=deep-edit-navigation-1";
 
 
 export function canvasInspectorTemplate(component, state) {
@@ -194,6 +194,10 @@ function chainItemRowTemplate(item, component, state, index, base, depth = 0) {
     mainActionId: item.id,
     removeClass: "chain-item-remove",
     removeAttributes: `data-component-id="${esc(component.id)}" data-remove-chain-item="${esc(item.id)}"`,
+    actionHtml: referencedComponent ? deepEditButtonTemplate(referencedComponent.id, {
+      className: "text-list-edit",
+      label: `Edit ${referencedComponent.name}`,
+    }) : "",
   });
   return `
     <div class="chain-item-block ${item.kind === "group" ? "is-group" : ""}" style="--chain-depth: ${depth};">
@@ -239,7 +243,7 @@ function selectedChainItemTitleTemplate(item, component, state, base) {
   const displayName = sourceChainItemDisplayName(item, media, referencedComponent);
   const staticTitle = component?.type === "canvas" && item.source?.type === "component";
   return staticTitle
-    ? `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span></div>`
+    ? `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span>${deepEditButtonTemplate(referencedComponent?.id, { className: "header-edit-button", label: `Edit ${displayName}` })}</div>`
     : editableSectionTitleTemplate(sourceIcon(item.source), base + ".name", displayName);
 }
 

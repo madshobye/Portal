@@ -27,7 +27,7 @@ Open `experiments/vj1/metrics.html` in the same local server/origin as VJ1.
 - Choose a `project.json` file to run static analysis.
 - Click `Listen 10s Runtime` while a VJ1 control/preview/output page is open on the same origin to collect BroadcastChannel metric samples.
 - Download the JSON report and hand it back to Codex for deeper diagnosis.
-- In the main VJ1 UI, click the top-bar render-cost percentage to capture 10 seconds immediately. It downloads a `.profile.json` report containing separate Preview and Output samples plus static/runtime analysis, and stores the same report on `window.__vj1LastProfileReport`.
+- In the main VJ1 UI, click the top-bar render-cost percentage for a bounded current hotspot overview. Choose **Analyze 10 seconds** for renderer attribution plus UI rebuilds, main-thread long tasks, event-loop lag, state activity, transport, and optional heap data. The result modal can download a `.profile.json` report and stores the same report on `window.__vj1LastProfileReport`.
 
 For repeatable output-runtime sampling, open the output app directly with a fixture:
 

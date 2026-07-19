@@ -154,6 +154,7 @@ test("render recovery paths are observable and mapper overlays restore depth sta
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const terrainSource = readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8");
   const mediaRuntimeSource = readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8");
+  const inputRuntimeSource = readFileSync(new URL("../js/output/shared-input-runtime.js", import.meta.url), "utf8");
   const mediaLibrarySource = readFileSync(new URL("../js/services/media-library-service.js", import.meta.url), "utf8");
   const timerSource = readFileSync(new URL("../js/output/gpu-timer-tracker.js", import.meta.url), "utf8");
   const projectSource = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
@@ -166,7 +167,8 @@ test("render recovery paths are observable and mapper overlays restore depth sta
   assert.match(rendererSource, /\[VJ1_MAPPING_SIGNATURE_FAILED\]/);
   assert.match(terrainSource, /\[VJ1_TERRAIN_SURFACE_RESOURCE_CHECK_FAILED\]/);
   assert.match(terrainSource, /\[VJ1_TERRAIN_WIRE_RESOURCE_CHECK_FAILED\]/);
-  assert.match(mediaRuntimeSource, /\[VJ1_CAMERA_SETUP_LOOKUP_FAILED\]/);
+  assert.match(inputRuntimeSource, /\[VJ1_CAMERA_SETUP_LOOKUP_FAILED\]/);
+  assert.match(mediaRuntimeSource, /new SharedInputRuntime/);
   assert.match(mediaLibrarySource, /\[VJ1_MEDIA_FILE_SKIPPED\]/);
   assert.match(timerSource, /\[VJ1_GPU_TIMER_QUERY_FAILED\]/);
   assert.match(projectSource, /\[VJ1_PROJECT_HISTORY_PARSE_FAILED\]/);

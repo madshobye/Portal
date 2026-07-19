@@ -810,6 +810,13 @@ test("current component thumbnails bypass full WebGL framebuffer readback", () =
   assert.ok(capture.includes("this.lastCaptureAt = now;"));
 });
 
+test("sampled shader work retains its owning Component for deep performance links", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.ok(source.includes("this.componentProfileContext.push(meta)"));
+  assert.ok(source.includes("this.componentProfileContext.pop()"));
+  assert.ok(source.includes("...this.activeComponentProfileIdentity()"));
+});
+
 test("thumbnail capture is blocked while live preview rendering is disabled", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-thumbnail-runtime.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");

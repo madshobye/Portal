@@ -985,15 +985,15 @@ test("camera failures are reported once and retried on a bounded clock", async (
     const runtime = new OutputMediaRuntime({
       getRenderSettings: () => ({ frameWidth: 640, frameHeight: 480 }),
     });
-    runtime.ensureCameraCapture();
+    runtime.acquireCameraInput();
     await Promise.resolve();
     await Promise.resolve();
     assert.equal(runtime.cameraError, "permission denied");
     assert.equal(attempts, 1);
-    runtime.ensureCameraCapture();
+    runtime.acquireCameraInput();
     assert.equal(attempts, 1, "the render loop does not restart a failed camera every frame");
     now = 3200;
-    runtime.ensureCameraCapture();
+    runtime.acquireCameraInput();
     await Promise.resolve();
     await Promise.resolve();
     assert.equal(attempts, 2, "the same camera configuration remains recoverable");
@@ -1004,6 +1004,45 @@ test("camera failures are reported once and retried on a bounded clock", async (
     if (previousMillis === undefined) delete globalThis.millis;
     else globalThis.millis = previousMillis;
     console.error = previousError;
+  }
+});
+
+test("camera capture is shared by active consumers and released after demand ends", async () => {
+  const previousSetup = globalThis.setupWebcamera;
+  let setupCount = 0;
+  let removeCount = 0;
+  globalThis.setupWebcamera = async () => {
+    setupCount++;
+    return { width: 640, height: 480, remove() { removeCount++; } };
+  };
+  const runtime = new OutputMediaRuntime({
+    getRenderSettings: () => ({ frameWidth: 640, frameHeight: 480 }),
+    cameraIdleGraceMs: 5,
+  });
+  try {
+    runtime.beginFrame();
+    runtime.acquireCameraInput();
+    runtime.acquireCameraInput();
+    runtime.endFrame();
+    await Promise.resolve();
+    assert.equal(setupCount, 1, "identical active consumers share one capture");
+    assert.ok(runtime.cameraCapture);
+
+    runtime.beginFrame();
+    runtime.acquireCameraInput();
+    runtime.endFrame();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.ok(runtime.cameraCapture, "an active frame does not schedule capture disposal");
+
+    runtime.beginFrame();
+    runtime.endFrame();
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(runtime.cameraCapture, null);
+    assert.equal(removeCount, 1, "the last consumer disappearing closes capture after the grace period");
+  } finally {
+    runtime.dispose();
+    if (previousSetup === undefined) delete globalThis.setupWebcamera;
+    else globalThis.setupWebcamera = previousSetup;
   }
 });
 

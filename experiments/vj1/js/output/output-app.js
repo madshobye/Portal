@@ -3,7 +3,7 @@ import { sanitizeState } from "../domain/models.js?v=live-scene-authority-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=reconnect-media-ownership-1";
-import { OutputRenderer } from "./output-renderer.js?v=component-parent-placement-1";
+import { OutputRenderer } from "./output-renderer.js?v=profile-edit-identity-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 

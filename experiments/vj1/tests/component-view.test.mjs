@@ -63,6 +63,7 @@ test("Canvas component placements render selected settings without a redundant s
 
   const html = componentSelectedChainSettingsTemplate(canvas, canvasState);
   assert.match(html, new RegExp(`>${referenced.name}<\\/span>`));
+  assert.match(html, new RegExp(`data-edit-component="${referenced.id}"`));
   assert.doesNotMatch(html, /<label class="field">Component /);
   assert.match(html, /data-update="components\.[0-9]+\.chain\.0\.opacity"/);
 });

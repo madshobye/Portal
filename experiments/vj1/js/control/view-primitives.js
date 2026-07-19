@@ -4,6 +4,12 @@ export function componentCardBarTemplate(label) {
   return `<div class="component-card-bar"><span>${esc(label)}</span></div>`;
 }
 
+export function deepEditButtonTemplate(componentId, { chainItemId = "", className = "", label = "Edit component" } = {}) {
+  if (!componentId) return "";
+  const chainTarget = chainItemId ? ` data-edit-chain-item="${esc(chainItemId)}"` : "";
+  return `<button type="button" class="deep-edit-button ${esc(className)}" data-edit-component="${esc(componentId)}"${chainTarget} title="${esc(label)}" aria-label="${esc(label)}">${icon("edit")}</button>`;
+}
+
 export function enableToggleButton({ path = "", livePath = "", componentId = "", value = true, iconName = "power_settings_new", label = "", selectAction = "", selectId = "" }) {
   const enabled = value !== false;
   const toggleAttrs = livePath
@@ -58,6 +64,7 @@ export function textListItemTemplate({
   removeAttributes = "",
   removeTitle = "Remove",
   removeDisabled = false,
+  actionHtml = "",
 } = {}) {
   const hasRemove = Boolean(removeAction || removeAttributes);
   const mainClasses = ["text-list-main", mainClass, selected ? "is-selected" : ""].filter(Boolean).join(" ");
@@ -66,6 +73,7 @@ export function textListItemTemplate({
     rowClass,
     leadingHtml ? "has-leading" : "",
     hasRemove ? "has-remove" : "",
+    actionHtml ? "has-action" : "",
     selected ? "is-selected" : "",
   ].filter(Boolean).join(" ");
   const mainContent = `<span>${esc(label)}</span>${meta ? `<small>${esc(meta)}</small>` : ""}`;
@@ -79,6 +87,7 @@ export function textListItemTemplate({
     <div class="${rowClasses}" ${reorderId ? `data-reorder-id="${esc(reorderId)}"` : ""}>
       ${leadingHtml}
       ${main}
+      ${actionHtml}
       ${remove}
     </div>
   `;

@@ -1,10 +1,12 @@
-import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=video-active-ownership-1";
 import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
 import { graphicsToPngBlob } from "./thumbnail-utils.js?v=chain-only-authority-1";
 import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
 import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "./specialized/raw-model-webgl-renderer.js?v=model-wire-detail-2";
 import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
+import { SharedInputRuntime } from "./shared-input-runtime.js?v=camera-input-leases-1";
+
+export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 
 export class OutputMediaRuntime {
   constructor({
@@ -14,6 +16,7 @@ export class OutputMediaRuntime {
     applyGraphicsFont,
     maxCachedMedia = 12,
     maxCachedMediaBytes = 256 * 1024 * 1024,
+    cameraIdleGraceMs,
   } = {}) {
     this.getRenderSettings = getRenderSettings || (() => ({}));
     this.requestMediaFiles = requestMediaFiles;
@@ -22,13 +25,7 @@ export class OutputMediaRuntime {
     this.media = new Map();
     this.pendingRenditionSaves = new Set();
     this.lastMediaRequestAt = 0;
-    this.cameraCapture = null;
-    this.cameraRequested = false;
-    this.cameraError = "";
-    this.cameraCaptureSignature = "";
-    this.cameraRequestToken = 0;
-    this.cameraRetryAt = 0;
-    this.reportedCameraErrorKey = "";
+    this.inputRuntime = new SharedInputRuntime({ getRenderSettings: this.getRenderSettings, cameraIdleGraceMs });
     this.activeVideos = new Set();
     this.activeMediaItems = new Set();
     this.reservedMediaIds = new Set();
@@ -89,64 +86,20 @@ export class OutputMediaRuntime {
     item.persistedRenditions = incoming;
   }
 
-  ensureCameraCapture() {
-    const render = this.getRenderSettings();
-    const settings = cameraCaptureSettings(render);
-    const signature = cameraSettingsSignature(render);
-    if (this.cameraCapture && this.cameraCaptureSignature === signature) return this.cameraCapture;
-    if (this.cameraRequested && this.cameraCaptureSignature === signature) return null;
-    if (this.cameraError && this.cameraCaptureSignature === signature && runtimeMillis() < this.cameraRetryAt) return null;
-    if (this.cameraCapture || this.cameraRequested) this.releaseCameraCapture();
-    this.cameraRequested = true;
-    this.cameraError = "";
-    this.cameraCaptureSignature = signature;
-    const requestToken = ++this.cameraRequestToken;
-    const setupWebcamera = getPortalWebcameraSetup();
-    if (!setupWebcamera) {
-      this.setCameraError("camera unavailable", signature);
-      this.cameraRequested = false;
-      return null;
-    }
-    setupWebcamera(settings.front, settings.width, settings.height, settings.mirrored, settings.maxResolution)
-      .then((camera) => {
-        if (requestToken !== this.cameraRequestToken) {
-          camera?.remove?.();
-          return;
-        }
-        this.cameraCapture = camera;
-        this.cameraRequested = false;
-        this.cameraError = "";
-        this.cameraRetryAt = 0;
-        this.reportedCameraErrorKey = "";
-      })
-      .catch((error) => {
-        if (requestToken !== this.cameraRequestToken) return;
-        this.setCameraError(error?.message || "camera blocked", signature);
-        this.cameraRequested = false;
-      });
-    return null;
+  acquireCameraInput() {
+    return this.inputRuntime.acquireCamera();
   }
 
-  releaseCameraCapture() {
-    this.cameraRequestToken++;
-    this.cameraCapture?.remove?.();
-    this.cameraCapture = null;
-    this.cameraRequested = false;
-    this.cameraCaptureSignature = "";
-    this.cameraRetryAt = 0;
+  releaseCameraInput() {
+    this.inputRuntime.releaseCamera();
   }
 
-  setCameraError(message, signature = this.cameraCaptureSignature) {
-    this.cameraError = message || "camera unavailable";
-    this.cameraRetryAt = runtimeMillis() + 3000;
-    const key = `${signature}:${this.cameraError}`;
-    if (this.reportedCameraErrorKey === key) return;
-    this.reportedCameraErrorKey = key;
-    console.error("[VJ1_CAMERA_CAPTURE_FAILED]", {
-      signature,
-      message: this.cameraError,
-      retryMs: 3000,
-    });
+  get cameraCapture() {
+    return this.inputRuntime.cameraCapture;
+  }
+
+  get cameraError() {
+    return this.inputRuntime.cameraError;
   }
 
   requestMissingMedia(mediaId) {
@@ -154,6 +107,7 @@ export class OutputMediaRuntime {
   }
 
   beginFrame() {
+    this.inputRuntime.beginFrame();
     this.activeVideos.clear();
     this.activeMediaItems.clear();
   }
@@ -184,6 +138,7 @@ export class OutputMediaRuntime {
       if (item?.video && !this.activeVideos.has(item.video)) pauseVideoPlayback(item.video);
     }
     this.evictInactiveMedia();
+    this.inputRuntime.endFrame();
   }
 
   evictInactiveMedia() {
@@ -269,7 +224,7 @@ export class OutputMediaRuntime {
   }
 
   dispose() {
-    this.releaseCameraCapture();
+    this.inputRuntime.dispose();
     for (const item of this.media.values()) disposeMediaRuntimeItem(item);
     this.media.clear();
     this.pendingRenditionSaves.clear();
@@ -281,23 +236,6 @@ export class OutputMediaRuntime {
 
 function runtimeMillis() {
   return typeof globalThis.millis === "function" ? globalThis.millis() : Date.now();
-}
-
-export function cameraCaptureSettings(render = {}) {
-  const frame = frameSize(render);
-  const camera = render?.camera || {};
-  return {
-    width: Math.max(160, Math.min(7680, Math.floor(Number(camera.width) || frame.width))),
-    height: Math.max(120, Math.min(4320, Math.floor(Number(camera.height) || frame.height))),
-    front: camera.facingMode !== "environment",
-    mirrored: camera.mirrored === true,
-    maxResolution: camera.maxResolution === true,
-  };
-}
-
-export function cameraSettingsSignature(render = {}) {
-  const camera = cameraCaptureSettings(render);
-  return `${camera.width}x${camera.height}:${camera.front ? "front" : "rear"}:${camera.mirrored ? "mirror" : "normal"}:${camera.maxResolution ? "max" : "target"}`;
 }
 
 export function mediaFileFingerprint(file = {}) {
@@ -607,16 +545,6 @@ function ensurePersistedRenditionLoaded(item, key) {
     },
     () => releaseRenditionUrl(item, key, url)
   );
-}
-
-function getPortalWebcameraSetup() {
-  if (typeof globalThis.setupWebcamera === "function") return globalThis.setupWebcamera;
-  try {
-    return Function("return typeof setupWebcamera === 'function' ? setupWebcamera : null")();
-  } catch (error) {
-    console.warn("[VJ1_CAMERA_SETUP_LOOKUP_FAILED]", { fallback: "camera source unavailable", message: error?.message || String(error) });
-    return null;
-  }
 }
 
 function loadSvgImage(url, item, lifecycle) {

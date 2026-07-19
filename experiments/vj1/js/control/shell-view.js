@@ -22,11 +22,18 @@ export function shellTemplate() {
             <button type="button" data-workspace="scene" class="is-active" title="Scenes" aria-label="Scenes">${icon("auto_awesome")}</button>
             <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           </div>
+          <button id="return-from-deep-edit" class="icon-buttonish deep-edit-return is-hidden" type="button" title="Return" aria-label="Return">${icon("arrow_back")}</button>
         </div>
         <div class="top-actions">
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="toggle-labels" class="icon-buttonish" type="button" title="Debug overlays" aria-label="Debug overlays">${icon("bug_report")}</button>
           <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>
+          <div class="diagnostics-menu">
+            <button id="diagnostics-toggle" class="icon-buttonish diagnostics-toggle is-ok" type="button" title="Diagnostics: OK" aria-label="Open diagnostics, status OK" aria-expanded="false">${icon("check_circle")}</button>
+            <div id="diagnostics-summary" class="diagnostics-summary is-hidden" role="dialog" aria-label="Application diagnostics">
+              <div id="diagnostics-summary-content"></div>
+            </div>
+          </div>
           <button id="undo-project" class="icon-buttonish" type="button" title="Undo" aria-label="Undo" disabled>${icon("undo")}</button>
           <button id="redo-project" class="icon-buttonish" type="button" title="Redo" aria-label="Redo" disabled>${icon("redo")}</button>
           <button id="toggle-output-playback" class="icon-buttonish" type="button" title="Pause output" aria-label="Pause output" disabled>${icon("pause")}</button>
@@ -35,10 +42,20 @@ export function shellTemplate() {
             <summary class="icon-buttonish" title="Open output" aria-label="Open output">${icon("open_in_new")}</summary>
             <div id="output-menu-items" class="output-menu-items"></div>
           </details>
-          <button id="render-cost" class="status-pill cost-pill" type="button" title="Profile rendering for 10 seconds" aria-label="Profile rendering for 10 seconds"><span class="material-symbols-rounded">speed</span><span id="render-cost-text">0%</span></button>
-          <span id="cpu-time" class="status-pill work-time-pill" title="CPU render work"><span class="material-symbols-rounded">timer</span><span id="cpu-time-text">0.0 ms</span></span>
-          <span id="gpu-time" class="status-pill work-time-pill" title="GPU render work"><span class="material-symbols-rounded">memory</span><span id="gpu-time-text">--</span></span>
-          <span id="output-status" class="status-pill"><span class="status-dot"></span><span id="output-status-text">output</span></span>
+          <div class="performance-menu">
+            <button id="render-cost" class="performance-health-button" type="button" title="Open performance overview" aria-label="Open performance overview" aria-expanded="false">
+              <span class="performance-health-dots" aria-hidden="true">
+                <span id="render-cost-dot" class="performance-health-dot health-0"></span>
+                <span id="cpu-time-dot" class="performance-health-dot health-0"></span>
+                <span id="gpu-time-dot" class="performance-health-dot is-unknown"></span>
+              </span>
+              <span id="output-status" class="performance-output-status"><span id="output-status-text">-</span></span>
+            </button>
+            <div id="performance-summary" class="performance-summary is-hidden" role="dialog" aria-label="Current rendering performance">
+              <div id="performance-summary-content"></div>
+              <button id="performance-analyze" class="performance-analyze-button" type="button"><span class="material-symbols-rounded">query_stats</span><span>Analyze 10 seconds</span></button>
+            </div>
+          </div>
           <input id="import-files-main" class="hidden" type="file" multiple webkitdirectory data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
         </div>
       </header>
@@ -48,6 +65,7 @@ export function shellTemplate() {
         <main id="studio" class="studio-main"></main>
       </div>
       <div id="modal-host"></div>
+      <div id="performance-results-host"></div>
     </div>
   `;
 }
@@ -59,21 +77,27 @@ export function collectRefs(root) {
     outputStatus: root.querySelector("#output-status"),
     outputStatusText: root.querySelector("#output-status-text"),
     renderCost: root.querySelector("#render-cost"),
-    renderCostText: root.querySelector("#render-cost-text"),
-    cpuTime: root.querySelector("#cpu-time"),
-    cpuTimeText: root.querySelector("#cpu-time-text"),
-    gpuTime: root.querySelector("#gpu-time"),
-    gpuTimeText: root.querySelector("#gpu-time-text"),
+    renderCostDot: root.querySelector("#render-cost-dot"),
+    cpuTimeDot: root.querySelector("#cpu-time-dot"),
+    gpuTimeDot: root.querySelector("#gpu-time-dot"),
+    performanceSummary: root.querySelector("#performance-summary"),
+    performanceSummaryContent: root.querySelector("#performance-summary-content"),
+    performanceAnalyze: root.querySelector("#performance-analyze"),
+    performanceResultsHost: root.querySelector("#performance-results-host"),
     outputMenu: root.querySelector("#output-menu"),
     outputMenuItems: root.querySelector("#output-menu-items"),
     togglePreview: root.querySelector("#toggle-preview"),
     toggleLabels: root.querySelector("#toggle-labels"),
     openSettings: root.querySelector("#open-settings"),
+    diagnosticsToggle: root.querySelector("#diagnostics-toggle"),
+    diagnosticsSummary: root.querySelector("#diagnostics-summary"),
+    diagnosticsSummaryContent: root.querySelector("#diagnostics-summary-content"),
     undo: root.querySelector("#undo-project"),
     redo: root.querySelector("#redo-project"),
     toggleOutputPlayback: root.querySelector("#toggle-output-playback"),
     blackout: root.querySelector("#blackout-main"),
     workspaceButtons: root.querySelectorAll("[data-workspace]"),
+    returnFromDeepEdit: root.querySelector("#return-from-deep-edit"),
     openFolder: root.querySelector("#open-folder-main"),
     closeProject: root.querySelector("#close-project"),
     importFiles: root.querySelector("#import-files-main"),

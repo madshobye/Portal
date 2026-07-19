@@ -9,7 +9,7 @@ import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneC
 import { CHAIN_TRANSFORM_PARAMS, chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=text-style-controls-1";
 import { MEDIA_FIT_PARAM, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=model-wire-detail-2";
 import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
-import { componentCardBarTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, selectablePillTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
+import { componentCardBarTemplate, deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, selectablePillTemplate } from "./view-primitives.js?v=deep-edit-navigation-1";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
@@ -156,7 +156,7 @@ export function sceneSignificantComponentTemplate(component, state) {
     attrs: "data-update",
   });
   if (!controls) return "";
-  return `<section class="ui-section focus-panel scene-significant-panel"><header class="ui-section-header panel-title"><span class="material-symbols-rounded">star</span><span>Significant · ${esc(component.name)}</span></header>${controls}</section>`;
+  return `<section class="ui-section focus-panel scene-significant-panel"><header class="ui-section-header panel-title"><span class="material-symbols-rounded">star</span><span>Significant · ${esc(component.name)}</span>${deepEditButtonTemplate(component.id, { className: "header-edit-button", label: `Edit ${component.name}` })}</header>${controls}</section>`;
 }
 
 function significantChainControls(chain, options) {
@@ -237,6 +237,7 @@ function liveComponentTemplate(component, view, selectedElement, state, componen
       <header class="ui-section-header panel-title live-component-head">
         ${thumbnailTemplate(component.thumbnail)}
         <strong>${esc(component.name)}</strong>
+        ${deepEditButtonTemplate(component.id, { className: "header-edit-button", label: `Edit ${component.name}` })}
       </header>
       <div class="live-component-view-tabs" role="group" aria-label="Live Component view">
         <button type="button" class="live-component-view-tab ${componentView === "controls" ? "is-selected" : ""}" data-live-component-view="controls" aria-pressed="${componentView === "controls"}">${icon("tune")} Controls${publishedControlCount ? ` (${publishedControlCount})` : ""}</button>
@@ -460,6 +461,7 @@ function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {})
       <div class="component-card assignment-selected-card is-selected" data-selected-route-source="${esc(selectedNode.id)}" aria-label="Selected component: ${esc(selectedNode.name)}">
         ${thumbnailTemplate(selectedNode.thumbnail, selectedNode.type === "empty" ? "hide_image" : selectedNode.type === "recording-frame" ? "select_all" : "account_tree")}
         ${componentCardBarTemplate(selectedNode.name)}
+        ${deepEditButtonTemplate(selectedNode.componentId, { className: "component-card-edit", label: `Edit ${selectedNode.name}` })}
       </div>
       <div class="component-card-list assignment-card-list">
         ${options.map((node) => {

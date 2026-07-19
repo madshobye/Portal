@@ -45,9 +45,9 @@ test("Live Scene reset is absent until temporary parameters exist", () => {
 test("Scene surface source catalogs show a full-width selection without reordering the three-column list", () => {
   const { state, scene } = stateWithScene();
   const sources = [
-    { id: "component:a", type: "component", name: "A", thumbnail: "a.png" },
-    { id: "component:b", type: "component", name: "B", thumbnail: "b.png" },
-    { id: "component:c", type: "component", name: "C", thumbnail: "c.png" },
+    { id: "component:a", type: "component", name: "A", thumbnail: "a.png", componentId: "a" },
+    { id: "component:b", type: "component", name: "B", thumbnail: "b.png", componentId: "b" },
+    { id: "component:c", type: "component", name: "C", thumbnail: "c.png", componentId: "c" },
   ];
   const sceneSurface = scene.snapshot.surfaces[0];
   sceneSurface.sourceNodeId = "component:b";
@@ -56,6 +56,7 @@ test("Scene surface source catalogs show a full-width selection without reorderi
   const styles = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.match(html, /class="component-card assignment-selected-card is-selected" data-selected-route-source="component:b"/);
+  assert.match(html, /data-edit-component="b"/);
   assert.equal((html.match(/data-set-route-source-node="component:b"/g) || []).length, 1, "selected source remains in the catalog");
   assert.ok(list.indexOf('data-set-route-source-node=""') < list.indexOf('data-set-route-source-node="component:a"'));
   assert.ok(list.indexOf('data-set-route-source-node="component:a"') < list.indexOf('data-set-route-source-node="component:b"'));
@@ -85,6 +86,7 @@ test("Live navigates components by thumbnail and Scene exposes marked significan
   assert.match(picker, /data-live-component=/);
   assert.match(picker, /component-thumbnail/);
   assert.match(significant, /Significant/);
+  assert.match(significant, new RegExp(`data-edit-component="${component.id}"`));
   assert.match(significant, /components\.0\.chain\.0\.source\.params\.renderQuality/);
 });
 

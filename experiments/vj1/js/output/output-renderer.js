@@ -26,7 +26,8 @@ import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=vid
 import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=component-parent-placement-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-only-authority-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=chain-only-authority-1";
-import { OutputMediaRuntime, cameraSettingsSignature } from "./output-media-runtime.js?v=model-import-status-1";
+import { OutputMediaRuntime } from "./output-media-runtime.js?v=camera-input-leases-1";
+import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=output-assets-runtime-extraction-1";
 import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=component-parent-placement-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
@@ -76,7 +77,7 @@ export { chainTransformDragScale, pointInTransformedRect } from "./preview-inter
 export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=sun-rays-1";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-only-authority-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=chain-only-authority-1";
-export { cameraCaptureSettings, cameraSettingsSignature } from "./output-media-runtime.js?v=model-import-status-1";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {
   terrainExpandedGridWireVertices,
   terrainExpandedWireVertices,
@@ -199,6 +200,7 @@ export class OutputRenderer {
     this.frameProfile = createEmptyFrameProfile();
     this.lastFrameProfile = createEmptyFrameProfile();
     this.componentProfileDepth = 0;
+    this.componentProfileContext = [];
     this.lastRenderCachePruneFrame = -RENDER_CACHE_MAINTENANCE_FRAMES;
     this.lastComponentTimePruneFrame = -COMPONENT_TIME_MAINTENANCE_FRAMES;
     this.lastTickMs = 0;
@@ -519,7 +521,7 @@ export class OutputRenderer {
     this.state = this.previewInteraction?.reconcileIncomingState(preparedState) || preparedState;
     this.rebuildRouteLookups();
     const nextCameraSignature = cameraSettingsSignature(this.state.render);
-    if (previousCameraSignature && previousCameraSignature !== nextCameraSignature) this.releaseCameraCapture();
+    if (previousCameraSignature && previousCameraSignature !== nextCameraSignature) this.releaseCameraInput();
     const isThumbnailPreview = this.shouldUseThumbnailPreview();
     if (isThumbnailPreview && !wasThumbnailPreview) this.captureThumbnailEditTransformBaselines();
     if (!isThumbnailPreview && wasThumbnailPreview) this.thumbnailEditTransformBaselines.clear();
@@ -824,12 +826,12 @@ export class OutputRenderer {
     this.mediaRuntime.importRenditions(item, renditions);
   }
 
-  ensureCameraCapture() {
-    return this.mediaRuntime.ensureCameraCapture();
+  acquireCameraInput() {
+    return this.mediaRuntime.acquireCameraInput();
   }
 
-  releaseCameraCapture() {
-    this.mediaRuntime.releaseCameraCapture();
+  releaseCameraInput() {
+    this.mediaRuntime.releaseCameraInput();
   }
 
   get cameraCapture() {
@@ -857,6 +859,7 @@ export class OutputRenderer {
     this.frameStart = performance.now();
     this.frameProfile = createEmptyFrameProfile();
     this.componentProfileDepth = 0;
+    this.componentProfileContext.length = 0;
     this.frameIndex++;
     // Detailed pass attribution is diagnostic sampling, not render work. Six
     // frames provide 10 Hz detail at 60 fps while the full-frame CPU clock and
@@ -1330,6 +1333,8 @@ export class OutputRenderer {
         componentId: component.id,
         componentName: component.name || component.id || "Component",
         passId: node.componentId || node.id,
+        chainItemId: node.id || sourceState.instanceId || "",
+        implementationId: sourceState.generatorId || sourceState.type || node.componentId || "",
         passName: layer.name || node.componentId || node.id,
         width: renderRequest.width,
         height: renderRequest.height,
@@ -1346,6 +1351,8 @@ export class OutputRenderer {
       componentId: component.id,
       componentName: component.name || component.id || "Component",
       passId: node.componentId || node.id,
+      chainItemId: node.id || sourceState.instanceId || "",
+      implementationId: sourceState.generatorId || sourceState.type || node.componentId || "",
       passName: layer.name || node.componentId || node.id,
       width: renderRequest.width,
       height: renderRequest.height,
@@ -1448,6 +1455,7 @@ export class OutputRenderer {
       ? this.state?.components?.find((component) => component.id === source.componentId)
       : null;
     const media = source.type === "media" ? this.acquireMedia(source.mediaId, { width: renderRequest.width }) : null;
+    const camera = source.type === "camera" ? this.acquireCameraInput() : null;
     return !!directPlacementKind({
       source,
       blend: item.blend || "normal",
@@ -1457,7 +1465,7 @@ export class OutputRenderer {
         (media.image && isDrawableMedia(media.image))
       ),
       mediaIsModel: !!(media?.model || media?.modelData),
-      cameraDrawable: !!this.cameraCapture && isDrawableMedia(this.cameraCapture),
+      cameraDrawable: !!camera && isDrawableMedia(camera),
     });
   }
 
@@ -1541,8 +1549,10 @@ export class OutputRenderer {
       }
       return null;
     }
-    if (source.type === "camera" && this.cameraCapture && isDrawableMedia(this.cameraCapture)) {
-      return createPlacedRenderResult(this.cameraCapture, {
+    if (source.type === "camera") {
+      const camera = this.acquireCameraInput();
+      if (!camera || !isDrawableMedia(camera)) return null;
+      return createPlacedRenderResult(camera, {
         destinationRect: fullTargetRect(target),
         fit: "cover",
         transform: source.contentTransform,
@@ -2108,7 +2118,7 @@ export class OutputRenderer {
         this.drawStandby(pg, "media file not loaded");
       }
     } else if (source.type === "camera") {
-      const camera = this.ensureCameraCapture();
+      const camera = this.acquireCameraInput();
       if (camera && isDrawableMedia(camera)) {
         drawWithContentTransform(pg, source.contentTransform, () => {
           drawCover(pg, camera, 0, 0, pg.width, pg.height);
@@ -2188,7 +2198,7 @@ export class OutputRenderer {
     }
     if (source.type === "camera" || source.type === "media") {
       return source.type === "camera"
-        ? !isDrawableMedia(this.cameraCapture)
+        ? !isDrawableMedia(this.acquireCameraInput())
         : !isReadyMediaItem(this.acquireMedia(source.mediaId));
     }
     if (source.type !== "generator") return false;
@@ -2341,6 +2351,7 @@ export class OutputRenderer {
       type: "shader-generator",
       passId: generatorId,
       passName: component.name || generatorId,
+      ...this.activeComponentProfileIdentity(),
       width: renderRequest.width,
       height: renderRequest.height,
       ms: 0,
@@ -2702,7 +2713,10 @@ export class OutputRenderer {
     const item = {
       type: "shader-pass",
       passId: pass.id || "",
+      chainItemId: pass.instanceId || "",
+      implementationId: pass.id || "",
       passName: component?.name || pass.id || "Shader",
+      ...this.activeComponentProfileIdentity(),
       width: renderRequest.width,
       height: renderRequest.height,
       pixels: renderRequest.width * renderRequest.height,
@@ -2734,10 +2748,12 @@ export class OutputRenderer {
     const started = performance.now();
     const outermost = this.componentProfileDepth === 0;
     this.componentProfileDepth++;
+    this.componentProfileContext.push(meta);
     let result;
     try {
       result = fn();
     } finally {
+      this.componentProfileContext.pop();
       this.componentProfileDepth--;
       const ms = performance.now() - started;
       this.frameProfile.componentMs += ms;
@@ -2746,6 +2762,14 @@ export class OutputRenderer {
       this.frameProfile.passSamples.push({ ...meta, ms });
     }
     return result;
+  }
+
+  activeComponentProfileIdentity() {
+    const context = this.componentProfileContext[this.componentProfileContext.length - 1];
+    return context?.componentId ? {
+      componentId: context.componentId,
+      componentName: context.componentName || context.componentId,
+    } : {};
   }
 
   finishFrameProfile() {

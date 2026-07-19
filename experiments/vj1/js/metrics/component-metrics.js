@@ -61,6 +61,9 @@ export function reportVj1MetricsMarkdown(metrics = {}) {
   lines.push(`- Estimated render work: ${formatNumber(metrics.aggregate?.estimatedWork, 2)}`);
   if (metrics.runtime?.sampleCount) {
     lines.push(`- Runtime samples: ${metrics.runtime.sampleCount}, fps avg ${formatNumber(metrics.runtime.fpsAvg, 1)}, frame p95 ${formatNumber(metrics.runtime.frameMsP95, 1)} ms`);
+    if (metrics.runtime.gpuSampleCount) {
+      lines.push(`- GPU timer: ${formatNumber(metrics.runtime.gpuMsAvg, 1)} ms avg, ${formatNumber(metrics.runtime.gpuMsP95, 1)} ms p95 (${metrics.runtime.gpuSampleCount} completed samples)`);
+    }
     if (metrics.runtime.steady?.sampleCount && metrics.runtime.warmupSampleCount) {
       lines.push(`- Runtime steady: ${metrics.runtime.steady.sampleCount} samples after ${metrics.runtime.warmupSampleCount} warm-up, fps avg ${formatNumber(metrics.runtime.steady.fpsAvg, 1)}, frame p95 ${formatNumber(metrics.runtime.steady.frameMsP95, 1)} ms`);
     }
@@ -77,6 +80,14 @@ export function reportVj1MetricsMarkdown(metrics = {}) {
     lines.push("");
     for (const item of metrics.runtime.profile.slowPasses.slice(0, 8)) {
       lines.push(`- ${item.passName || item.type}: ${formatNumber(item.ms, 2)} ms (${item.width || "?"}x${item.height || "?"}, ${item.source || item.type || "unknown"})`);
+    }
+    lines.push("");
+  }
+  if (metrics.runtime?.profile?.hotPasses?.length) {
+    lines.push("## Runtime Hotspots");
+    lines.push("");
+    for (const item of metrics.runtime.profile.hotPasses.slice(0, 10)) {
+      lines.push(`- ${item.name}: ${formatNumber(item.msAvg, 2)} ms avg, ${formatNumber(item.msP95, 2)} ms p95, ${formatNumber(item.msMax, 2)} ms max (${item.kind}, ${item.sampleCount} samples)`);
     }
     lines.push("");
   }
@@ -181,6 +192,8 @@ export function summarizeRuntimeSamples(samples = []) {
     .map((sample) => ({
       fps: numberOrNull(sample.fps),
       frameMs: numberOrNull(sample.frameMs),
+      gpuMs: numberOrNull(sample.gpuMs),
+      gpuSupported: sample.gpuSupported === true,
       renderCost: numberOrNull(sample.renderCost),
       previewFps: numberOrNull(sample.previewFps),
       previewFrameMs: numberOrNull(sample.previewFrameMs),
@@ -194,6 +207,7 @@ export function summarizeRuntimeSamples(samples = []) {
   const fpsValues = clean.map((sample) => sample.fps ?? sample.previewFps).filter(isFiniteNumber);
   const frameValues = clean.map((sample) => sample.frameMs ?? sample.previewFrameMs).filter(isFiniteNumber);
   const costValues = clean.map((sample) => sample.renderCost ?? sample.previewRenderCost).filter(isFiniteNumber);
+  const gpuValues = clean.filter((sample) => sample.gpuSupported).map((sample) => sample.gpuMs).filter(isFiniteNumber);
   const profile = summarizeRuntimeProfiles(clean.map((sample) => sample.profile).filter(Boolean));
   const transport = summarizeRuntimeTransport(clean.map((sample) => sample.transport).filter(Boolean));
   const warmupSampleCount = clean.length > 6 ? 3 : 0;
@@ -207,6 +221,9 @@ export function summarizeRuntimeSamples(samples = []) {
     frameMsP95: percentile(frameValues, 0.95),
     renderCostAvg: average(costValues),
     renderCostP95: percentile(costValues, 0.95),
+    gpuSampleCount: gpuValues.length,
+    gpuMsAvg: average(gpuValues),
+    gpuMsP95: percentile(gpuValues, 0.95),
     warmupSampleCount,
     steady,
     profile,
@@ -276,8 +293,148 @@ function summarizeRuntimeProfiles(profiles = []) {
     maxShaderChainLengthMax: clean.length ? Math.max(...clean.map((profile) => Number(profile.maxShaderChainLength) || 0)) : 0,
     shaderMsP95: percentile(clean.map((profile) => Number(profile.shaderMs) || 0), 0.95),
     componentMsP95: percentile(clean.map((profile) => Number(profile.componentWallMs ?? profile.componentMs) || 0), 0.95),
+    componentRendersAvg: average(clean.map((profile) => Number(profile.componentRenders) || 0)),
+    componentCacheHitsAvg: average(clean.map((profile) => Number(profile.componentCacheHits) || 0)),
+    stageRendersAvg: average(clean.map((profile) => Number(profile.stageRenders) || 0)),
+    stageCacheHitsAvg: average(clean.map((profile) => Number(profile.stageCacheHits) || 0)),
     slowPasses,
+    hotPasses: summarizeRuntimeHotPasses(clean),
   };
+}
+
+export function summarizeRuntimeHotPasses(profiles = [], limit = 16) {
+  const groups = new Map();
+  for (const profile of profiles || []) {
+    for (const sample of profile?.passSamples || []) {
+      const ms = Number(sample?.ms);
+      if (!Number.isFinite(ms) || ms < 0) continue;
+      const kind = runtimePassKind(sample);
+      const name = sample.type === "component"
+        ? sample.componentName || sample.componentId || sample.passName || sample.passId || kind
+        : sample.passName || sample.passId || sample.componentName || sample.componentId || kind;
+      const runtimeSource = sample.runtimeSource || profile.runtimeSource || "";
+      const chainItemId = sample.chainItemId || "";
+      const key = `${runtimeSource}:${kind}:${sample.componentId || ""}:${chainItemId}:${sample.passId || ""}:${name}`;
+      let group = groups.get(key);
+      if (!group) {
+        group = { key, kind, name, componentId: sample.componentId || "", chainItemId, passId: sample.passId || "", runtimeSource, values: [] };
+        groups.set(key, group);
+      }
+      group.values.push(ms);
+    }
+  }
+  return [...groups.values()]
+    .map((group) => ({
+      key: group.key,
+      kind: group.kind,
+      name: group.name,
+      componentId: group.componentId,
+      chainItemId: group.chainItemId,
+      passId: group.passId,
+      runtimeSource: group.runtimeSource,
+      sampleCount: group.values.length,
+      msAvg: average(group.values),
+      msP95: percentile(group.values, 0.95),
+      msMax: maxValue(group.values),
+    }))
+    .sort((a, b) => b.msAvg - a.msAvg || b.msP95 - a.msP95)
+    .slice(0, Math.max(1, Number(limit) || 16));
+}
+
+export function createRuntimeHotspotSmoother({
+  alpha = 0.28,
+  retentionUpdates = 3,
+  maxEntries = 24,
+  reorderThreshold = 0.16,
+} = {}) {
+  const entries = new Map();
+  let updateSerial = 0;
+  let activeScope = "";
+  let smoothedTotalMs = 0;
+  const smoothedSourceTotals = new Map();
+
+  function reset(scope = "") {
+    entries.clear();
+    updateSerial = 0;
+    activeScope = scope;
+    smoothedTotalMs = 0;
+    smoothedSourceTotals.clear();
+  }
+
+  function update(hotspots = [], { scope = "", totalMs = 0, totalsBySource = {}, limit = 8 } = {}) {
+    if (scope !== activeScope) reset(scope);
+    updateSerial++;
+    const boundedAlpha = Math.max(0.01, Math.min(1, Number(alpha) || 0.28));
+    const measuredTotal = Math.max(0, Number(totalMs) || 0);
+    smoothedTotalMs = smoothedTotalMs > 0
+      ? smoothedTotalMs + (measuredTotal - smoothedTotalMs) * boundedAlpha
+      : measuredTotal;
+    for (const [source, rawTotal] of Object.entries(totalsBySource || {})) {
+      const measuredSourceTotal = Math.max(0, Number(rawTotal) || 0);
+      const currentSourceTotal = smoothedSourceTotals.get(source) || 0;
+      smoothedSourceTotals.set(source, currentSourceTotal > 0
+        ? currentSourceTotal + (measuredSourceTotal - currentSourceTotal) * boundedAlpha
+        : measuredSourceTotal);
+    }
+
+    for (const hotspot of hotspots || []) {
+      const key = hotspot?.key || `${hotspot?.kind || "pass"}:${hotspot?.componentId || ""}:${hotspot?.chainItemId || ""}:${hotspot?.passId || ""}:${hotspot?.name || ""}`;
+      const measuredMs = Math.max(0, Number(hotspot?.msAvg) || 0);
+      const current = entries.get(key);
+      if (current) {
+        current.msAvg += (measuredMs - current.msAvg) * boundedAlpha;
+        current.item = { ...hotspot, key };
+        current.lastSeen = updateSerial;
+        current.missed = 0;
+      } else {
+        entries.set(key, {
+          item: { ...hotspot, key },
+          msAvg: measuredMs,
+          lastSeen: updateSerial,
+          missed: 0,
+          rank: entries.size,
+        });
+      }
+    }
+
+    for (const [key, entry] of entries) {
+      if (entry.lastSeen === updateSerial) continue;
+      entry.missed++;
+      if (entry.missed > retentionUpdates) entries.delete(key);
+    }
+
+    if (entries.size > maxEntries) {
+      const removable = Array.from(entries.entries())
+        .sort((a, b) => a[1].lastSeen - b[1].lastSeen || a[1].msAvg - b[1].msAvg);
+      while (entries.size > maxEntries && removable.length) entries.delete(removable.shift()[0]);
+    }
+
+    const ranked = Array.from(entries.values()).sort((a, b) => {
+      const scale = Math.max(a.msAvg, b.msAvg, 0.001);
+      if (Math.abs(a.msAvg - b.msAvg) / scale <= reorderThreshold) return a.rank - b.rank;
+      return b.msAvg - a.msAvg;
+    });
+    ranked.forEach((entry, rank) => { entry.rank = rank; });
+    return {
+      totalMs: smoothedTotalMs,
+      totalsBySource: Object.fromEntries(smoothedSourceTotals),
+      hotspots: ranked.slice(0, Math.max(0, Math.floor(Number(limit) || 0))).map((entry) => ({
+        ...entry.item,
+        msAvg: entry.msAvg,
+        stale: entry.missed > 0,
+      })),
+    };
+  }
+
+  return { update, reset };
+}
+
+function runtimePassKind(sample = {}) {
+  if (sample.type === "component") return "component";
+  if (sample.type === "shader-generator" || sample.type === "source") return "source / generator";
+  if (sample.type === "shader-pass") return "effect";
+  if (sample.type === "component-pipeline") return "component pipeline";
+  return String(sample.type || "render pass").replaceAll("-", " ");
 }
 
 function summarizeRuntimeTransport(samples = []) {

@@ -1,0 +1,66 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createDiagnosticsService } from "../js/services/diagnostics-service.js";
+
+function fakeHost() {
+  const listeners = new Map();
+  const calls = [];
+  const console = {
+    info: (...args) => calls.push(["info", ...args]),
+    warn: (...args) => calls.push(["warn", ...args]),
+    error: (...args) => calls.push(["error", ...args]),
+  };
+  return {
+    console,
+    calls,
+    listeners,
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    removeEventListener(type) { listeners.delete(type); },
+  };
+}
+
+test("diagnostics capture relevant console levels, collapse repeats, and remain bounded", () => {
+  const host = fakeHost();
+  const originals = { ...host.console };
+  const diagnostics = createDiagnosticsService({ host, maxEntries: 2 });
+  diagnostics.install();
+
+  host.console.info("ready", { renderer: "preview" });
+  host.console.warn("slow");
+  host.console.warn("slow");
+  assert.equal(host.calls.length, 3, "wrapped console still calls the browser console");
+  assert.equal(diagnostics.summary().level, "warning");
+  assert.equal(diagnostics.summary().entries.at(-1).count, 2);
+
+  host.console.error("failed");
+  const summary = diagnostics.summary();
+  assert.equal(summary.level, "error");
+  assert.equal(summary.entries.length, 2);
+  assert.equal(summary.entries[0].message, "slow");
+  assert.match(diagnostics.copyText(), /ERROR failed/);
+
+  diagnostics.clear();
+  assert.deepEqual(diagnostics.summary(), {
+    level: "ok",
+    counts: { info: 0, warning: 0, error: 0 },
+    entries: [],
+  });
+
+  diagnostics.destroy();
+  assert.equal(host.console.info, originals.info);
+  assert.equal(host.console.warn, originals.warn);
+  assert.equal(host.console.error, originals.error);
+});
+
+test("diagnostics capture uncaught errors and rejected promises without polling", () => {
+  const host = fakeHost();
+  const diagnostics = createDiagnosticsService({ host });
+  let notifications = 0;
+  diagnostics.subscribe(() => { notifications += 1; });
+  diagnostics.install();
+  host.listeners.get("error")({ message: "window broke" });
+  host.listeners.get("unhandledrejection")({ reason: new Error("promise broke") });
+  assert.equal(diagnostics.summary().counts.error, 2);
+  assert.equal(notifications, 3, "one initial snapshot plus one event per diagnostic");
+  diagnostics.destroy();
+});

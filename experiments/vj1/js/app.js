@@ -1,11 +1,12 @@
 import { createAppState } from "./app-state.js?v=live-scene-authority-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=live-scene-authority-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=per-renderer-share-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=chain-only-authority-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=component-transport-patch-1";
-import { installOutputApp } from "./output/output-app.js?v=live-scene-authority-1";
+import { installOutputApp } from "./output/output-app.js?v=profile-edit-identity-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
+import { createDiagnosticsService } from "./services/diagnostics-service.js?v=diagnostics-console-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -13,6 +14,8 @@ const mode = getClientMode();
 if (mode === "output" || mode === "preview" || mode === "component") {
   installOutputApp({ root, mode });
 } else {
+  const diagnostics = createDiagnosticsService();
+  diagnostics.install();
   const store = createAppState();
   const initialWorkspace = getInitialWorkspace();
   const fixtureUrl = fixtureStateUrl();
@@ -34,7 +37,7 @@ if (mode === "output" || mode === "preview" || mode === "component") {
     });
   }
 
-  createControlShell({ root, store, bridge, mediaLibrary, projectService }).mount();
+  createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics }).mount();
 
   store.subscribe((state, reason, change) => {
     if (reason === "workspace") persistWorkspace(state.ui.workspace);

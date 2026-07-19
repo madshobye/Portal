@@ -1,23 +1,29 @@
 import { VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-scene-authority-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=live-scene-authority-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=profile-edit-identity-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
-import { analyzeVj1Project } from "../metrics/component-metrics.js?v=power-flicker-1";
+import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=per-renderer-share-1";
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-29";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=performance-health-dots-1";
 import { componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=changed-sort-user-truth-1";
-import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=source-picker-filters-1";
+import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=deep-edit-navigation-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=mesh-topology-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=component-parent-placement-1";
-import { componentCardBarTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=deep-edit-navigation-1";
+import { componentCardBarTemplate, deepEditButtonTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=profile-edit-identity-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { createClipboardController } from "./clipboard-controller.js?v=chain-only-authority-1";
 import { createModalController } from "./modal-controller.js?v=source-picker-filters-1";
 import { createInputController } from "./input-controller.js?v=source-picker-filters-1";
+
+const performanceHealthClasses = Object.freeze([
+  "health-0", "health-1", "health-2", "health-3", "health-4",
+  "health-5", "health-6", "health-7", "health-8",
+]);
+const performanceHealthThresholds = Object.freeze([0.18, 0.32, 0.46, 0.60, 0.72, 0.82, 0.92, 1.0]);
 
 export function rememberParamViewSelections(scope, selections = new Map()) {
   for (const input of scope?.querySelectorAll?.(".chain-param-view-input:checked") || []) {
@@ -33,7 +39,7 @@ export function restoreParamViewSelections(scope, selections = new Map()) {
   return selections;
 }
 
-export function createControlShell({ root, store, bridge, mediaLibrary, projectService }) {
+export function createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics = null }) {
   let refs = {};
   let latestState = store.getState();
   let renderFrame = 0;
@@ -44,6 +50,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let activeCatalogViewKey = "";
   let performanceProfile = null;
   let performanceProfileTimer = 0;
+  let performanceLongTaskObserver = null;
+  let deepEditReturnContext = null;
+  let diagnosticsOpen = false;
+  let diagnosticsSnapshot = diagnostics?.summary?.() || emptyDiagnosticsSummary();
+  const performanceHotspotSmoother = createRuntimeHotspotSmoother();
+  let performanceHotspotComponentScope = "";
   const previewLayoutQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
     ? window.matchMedia("(max-width: 1100px)")
     : null;
@@ -93,11 +105,19 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     root.innerHTML = shellTemplate();
     refs = collectRefs(root);
     bindStaticEvents();
+    diagnostics?.subscribe?.((summary) => {
+      diagnosticsSnapshot = summary;
+      renderDiagnostics();
+    });
     previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState));
     restorePreviewPreference();
     store.subscribe((state, reason, change) => {
       latestState = state;
-      if (change.projectRestore) invalidateCatalogOrder();
+      recordPerformanceStateEvent(reason);
+      if (change.projectRestore) {
+        invalidateCatalogOrder();
+        deepEditReturnContext = null;
+      }
       if (reason === "output-metrics" || reason === "preview-metrics") capturePerformanceProfileSample(state, reason);
       if (reason === "mapping-state") {
         renderTopbar(state);
@@ -210,6 +230,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function render(state) {
+    const profileRenderStarted = performanceProfile ? performance.now() : 0;
     prepareCatalogOrder(state);
     setClass(root, "has-project-open", hasOpenProject(state));
     setClass(root, "no-project-open", !hasOpenProject(state));
@@ -218,11 +239,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderStudio(state);
     renderInspector(state);
     renderPreview(state);
+    if (performanceProfile) pushBounded(performanceProfile.host.uiRenderMs, performance.now() - profileRenderStarted, 240);
     modals.render(state);
   }
 
   function bindStaticEvents() {
     bindInteractionDeferral();
+
+    root.addEventListener("click", (event) => {
+      const button = event.target.closest("[data-edit-component]");
+      if (!button || !root.contains(button)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      openComponentEditor(button.dataset.editComponent, button.dataset.editChainItem || "");
+    }, true);
 
     refs.outputMenu.addEventListener("click", (event) => {
       const state = store.getState();
@@ -244,7 +274,22 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }, "toggle-preview");
     });
 
-    refs.renderCost.addEventListener("click", startPerformanceProfile);
+    refs.renderCost.addEventListener("click", (event) => {
+      event.stopPropagation();
+      togglePerformanceSummary();
+    });
+    refs.performanceSummary.addEventListener("click", (event) => event.stopPropagation());
+    refs.performanceAnalyze.addEventListener("click", startPerformanceProfile);
+    refs.performanceResultsHost.addEventListener("click", handlePerformanceResultsClick);
+    window.addEventListener("click", closePerformanceSummary);
+
+    refs.diagnosticsToggle?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      diagnosticsOpen = !diagnosticsOpen;
+      renderDiagnostics();
+    });
+    refs.diagnosticsSummary?.addEventListener("click", handleDiagnosticsClick);
+    window.addEventListener("click", closeDiagnostics);
 
     refs.toggleLabels.addEventListener("click", () => {
       store.update((draft) => {
@@ -270,21 +315,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
     refs.openFolder.addEventListener("click", openProjectFolder);
     refs.closeProject?.addEventListener("click", closeProject);
+    refs.returnFromDeepEdit?.addEventListener("click", returnFromDeepEdit);
 
     refs.workspaceButtons.forEach((button) => {
       button.addEventListener("click", () => {
         if (!hasOpenProject(latestState)) return;
         const workspace = WORKSPACES.includes(button.dataset.workspace) ? button.dataset.workspace : "scene";
-        const mappingActive = workspace === "scene";
-        if (typeof store.setWorkspace === "function") store.setWorkspace(workspace);
-        else {
-          store.update((draft) => {
-            draft.ui.workspace = workspace;
-            draft.global.calibrating = mappingActive;
-          }, "workspace");
-        }
-        embeddedPreview.command("set-calibrate", { calibrating: mappingActive });
-        bridge.command("set-calibrate", { calibrating: mappingActive });
+        deepEditReturnContext = null;
+        switchWorkspace(workspace);
       });
     });
 
@@ -299,6 +337,46 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
     clipboard.bindWindowEvents();
     window.addEventListener("keydown", handleHistoryKeydown);
+  }
+
+  function switchWorkspace(workspace) {
+    const targetWorkspace = WORKSPACES.includes(workspace) ? workspace : "scene";
+    const mappingActive = targetWorkspace === "scene";
+    if (typeof store.setWorkspace === "function") store.setWorkspace(targetWorkspace);
+    else {
+      store.update((draft) => {
+        draft.ui.workspace = targetWorkspace;
+        draft.global.calibrating = mappingActive;
+      }, "workspace");
+    }
+    embeddedPreview.command("set-calibrate", { calibrating: mappingActive });
+    bridge.command("set-calibrate", { calibrating: mappingActive });
+  }
+
+  function openComponentEditor(componentId, chainItemId = "") {
+    const component = latestState.components?.find((item) => item.id === componentId);
+    if (!component) return;
+    closePerformanceSummary();
+    if (!deepEditReturnContext) {
+      deepEditReturnContext = {
+        workspace: currentWorkspace(latestState),
+        selectedComponentId: latestState.ui?.selectedComponentId || "",
+      };
+    }
+    switchWorkspace(component.type === "canvas" ? "canvas" : "component");
+    store.selectComponent?.(component.id);
+    if (chainItemId) store.selectChainItem?.(chainItemId);
+  }
+
+  function returnFromDeepEdit() {
+    const context = deepEditReturnContext;
+    deepEditReturnContext = null;
+    if (!context) return;
+    switchWorkspace(context.workspace);
+    if ((context.workspace === "component" || context.workspace === "canvas") &&
+        latestState.components?.some((item) => item.id === context.selectedComponentId)) {
+      store.selectComponent?.(context.selectedComponentId);
+    }
   }
 
   async function undoProject() {
@@ -344,22 +422,178 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function startPerformanceProfile() {
     if (performanceProfile) return;
+    closePerformanceSummary();
     const startedAt = performance.now();
     performanceProfile = {
       startedAt,
       startedAtIso: new Date().toISOString(),
       endsAt: startedAt + performanceProfileDurationMs,
       samples: [],
+      host: {
+        uiRenderMs: [],
+        longTasks: [],
+        eventLoopLagMs: [],
+        stateEvents: {},
+        expectedTickAt: startedAt + 250,
+        memoryStartBytes: performanceMemoryBytes(),
+      },
     };
+    startPerformanceHostObserver();
     capturePerformanceProfileSample(latestState);
     renderTopbar(latestState);
     performanceProfileTimer = window.setInterval(() => {
+      if (performanceProfile) {
+        const now = performance.now();
+        pushBounded(performanceProfile.host.eventLoopLagMs, Math.max(0, now - performanceProfile.host.expectedTickAt), 80);
+        performanceProfile.host.expectedTickAt = now + 250;
+      }
       if (!performanceProfile || performance.now() >= performanceProfile.endsAt) {
         finishPerformanceProfile();
         return;
       }
       renderTopbar(latestState);
     }, 250);
+  }
+
+  function recordPerformanceStateEvent(reason) {
+    if (!performanceProfile) return;
+    const key = String(reason || "unknown");
+    performanceProfile.host.stateEvents[key] = (performanceProfile.host.stateEvents[key] || 0) + 1;
+  }
+
+  function startPerformanceHostObserver() {
+    if (typeof PerformanceObserver !== "function" || !PerformanceObserver.supportedEntryTypes?.includes("longtask")) return;
+    try {
+      performanceLongTaskObserver = new PerformanceObserver((list) => {
+        if (!performanceProfile) return;
+        for (const entry of list.getEntries()) {
+          pushBounded(performanceProfile.host.longTasks, {
+            durationMs: Number(entry.duration) || 0,
+            name: entry.name || "main-thread task",
+            startedAtMs: Number(entry.startTime) || 0,
+          }, 120);
+        }
+      });
+      performanceLongTaskObserver.observe({ type: "longtask", buffered: false });
+    } catch (error) {
+      console.warn("[VJ1_HOST_PROFILE_OBSERVER_FAILED]", { message: error?.message || String(error) });
+      performanceLongTaskObserver = null;
+    }
+  }
+
+  function togglePerformanceSummary() {
+    const opening = refs.performanceSummary.classList.contains("is-hidden");
+    setClass(refs.performanceSummary, "is-hidden", !opening);
+    refs.renderCost.setAttribute("aria-expanded", opening ? "true" : "false");
+    if (opening) renderPerformanceSummary(latestState);
+  }
+
+  function closePerformanceSummary() {
+    setClass(refs.performanceSummary, "is-hidden", true);
+    refs.renderCost?.setAttribute("aria-expanded", "false");
+  }
+
+  function closeDiagnostics() {
+    if (!diagnosticsOpen) return;
+    diagnosticsOpen = false;
+    renderDiagnostics();
+  }
+
+  function renderDiagnostics() {
+    if (!refs.diagnosticsToggle || !refs.diagnosticsSummaryContent) return;
+    const snapshot = diagnosticsSnapshot || emptyDiagnosticsSummary();
+    const level = snapshot.level || "ok";
+    const iconName = level === "error" ? "error" : level === "warning" ? "warning" : level === "info" ? "info" : "check_circle";
+    const count = (snapshot.counts?.info || 0) + (snapshot.counts?.warning || 0) + (snapshot.counts?.error || 0);
+    refs.diagnosticsToggle.innerHTML = icon(iconName);
+    refs.diagnosticsToggle.classList.remove("is-ok", "is-info", "is-warning", "is-error");
+    refs.diagnosticsToggle.classList.add(`is-${level}`);
+    refs.diagnosticsToggle.title = level === "ok" ? "Diagnostics: OK" : `Diagnostics: ${count} entr${count === 1 ? "y" : "ies"}`;
+    refs.diagnosticsToggle.setAttribute("aria-label", level === "ok" ? "Open diagnostics, status OK" : `Open diagnostics, ${count} entries, status ${level}`);
+    refs.diagnosticsToggle.setAttribute("aria-expanded", diagnosticsOpen ? "true" : "false");
+    setClass(refs.diagnosticsSummary, "is-hidden", !diagnosticsOpen);
+    if (!diagnosticsOpen) return;
+    const entries = snapshot.entries || [];
+    refs.diagnosticsSummaryContent.innerHTML = `
+      <div class="diagnostics-summary-header">
+        <span><strong>Diagnostics</strong><small>${entries.length ? `${count} captured entr${count === 1 ? "y" : "ies"}` : "No relevant console entries"}</small></span>
+        <span class="diagnostics-state is-${esc(level)}">${icon(iconName)} ${esc(level === "ok" ? "OK" : level)}</span>
+      </div>
+      <ol class="diagnostics-entry-list">
+        ${entries.length ? entries.slice().reverse().map(diagnosticEntryTemplate).join("") : `<li class="diagnostics-empty">${icon("check_circle")} Everything looks OK.</li>`}
+      </ol>
+      <div class="diagnostics-actions">
+        <button type="button" data-diagnostics-clear ${entries.length ? "" : "disabled"}>${icon("delete_sweep")} Clear</button>
+        <button type="button" data-diagnostics-copy ${entries.length ? "" : "disabled"}>${icon("content_copy")} Copy</button>
+      </div>`;
+  }
+
+  async function handleDiagnosticsClick(event) {
+    event.stopPropagation();
+    if (event.target.closest("[data-diagnostics-clear]")) {
+      diagnostics?.clear?.();
+      return;
+    }
+    if (!event.target.closest("[data-diagnostics-copy]")) return;
+    const text = diagnostics?.copyText?.() || "";
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setStatus("Diagnostics copied");
+    } catch (error) {
+      setStatus(`Could not copy diagnostics: ${error?.message || error}`);
+    }
+  }
+
+  function renderPerformanceSummary(state) {
+    const outputFps = state.metrics?.clients > 0 ? Math.max(0, Number(state.metrics.fps) || 0) : 0;
+    const metric = activeWorkMetric(state, outputFps);
+    const profiles = (metric.renderers || [])
+      .filter((renderer) => renderer.profile)
+      .map((renderer) => ({ ...renderer.profile, runtimeSource: renderer.source }));
+    const totalMs = profiles.reduce((sum, profile) => sum + Math.max(0, Number(profile.totalMs) || 0), 0);
+    const totalsBySource = profiles.reduce((totals, profile) => {
+      const source = profile.runtimeSource || "renderer";
+      totals[source] = (totals[source] || 0) + Math.max(0, Number(profile.totalMs) || 0);
+      return totals;
+    }, {});
+    const measuredHotspots = summarizeRuntimeHotPasses(profiles, 16);
+    const componentScope = Array.from(new Set(measuredHotspots.map((item) => `${item.runtimeSource || "renderer"}:${item.componentId || ""}`))).sort().join(",");
+    if (componentScope) performanceHotspotComponentScope = componentScope;
+    const smoothed = performanceHotspotSmoother.update(measuredHotspots, {
+      scope: `${metric.source || "renderer"}:${performanceHotspotComponentScope}`,
+      totalMs,
+      totalsBySource,
+      limit: 8,
+    });
+    const hotspots = smoothed.hotspots;
+    const displayTotalMs = smoothed.totalMs;
+    const renderCost = activeRenderCost(state);
+    const outputConnected = Number(state.metrics?.clients) > 0;
+    const cacheHits = profiles.reduce((sum, profile) => sum + Math.max(0, Number(profile.componentCacheHits) || 0) + Math.max(0, Number(profile.stageCacheHits) || 0), 0);
+    const cacheRenders = profiles.reduce((sum, profile) => sum + Math.max(0, Number(profile.componentRenders) || 0) + Math.max(0, Number(profile.stageRenders) || 0), 0);
+    const rows = hotspots.length
+      ? hotspots.map((item) => {
+          const rendererTotalMs = smoothed.totalsBySource[item.runtimeSource || "renderer"] || displayTotalMs;
+          const share = rendererTotalMs > 0 ? Math.min(999, item.msAvg / rendererTotalMs * 100) : 0;
+          const edit = deepEditButtonTemplate(item.componentId, { chainItemId: item.chainItemId, className: "performance-hotspot-edit", label: `Edit ${item.name}` });
+          const thumbnail = performanceComponentThumbnail(state, item.componentId, "performance-hotspot-thumbnail");
+          const context = item.runtimeSource ? `${item.kind} · ${item.runtimeSource}` : item.kind;
+          return `<li class="${edit ? "has-edit" : ""} ${thumbnail ? "has-thumbnail" : ""}">${thumbnail}<span><strong>${esc(item.name)}</strong><small>${esc(context)}</small></span><span class="performance-hotspot-value">${formatTimeMs(item.msAvg)}<small>${formatPercent(share)}</small></span>${edit}</li>`;
+        }).join("")
+      : `<li class="performance-empty-row">Waiting for an active renderer sample…</li>`;
+    refs.performanceSummaryContent.innerHTML = `
+      <div class="performance-health-readouts">
+        ${performanceReadoutTemplate("speed", "Overall", formatRenderCost(renderCost))}
+        ${performanceReadoutTemplate("timer", "CPU", formatTimeMs(metric.cpuMs))}
+        ${performanceReadoutTemplate("memory", "GPU", metric.gpuSupported ? formatTimeMs(metric.gpuMs) : "—")}
+        ${performanceReadoutTemplate("open_in_new", "Output", outputConnected ? `${Math.round(outputFps)} fps` : "—")}
+        ${performanceReadoutTemplate("cached", "Cache reuse", String(cacheHits))}
+        ${performanceReadoutTemplate("refresh", "Renders", String(cacheRenders))}
+      </div>
+      <ol class="performance-hotspot-list">${rows}</ol>
+    `;
+    refs.performanceAnalyze.disabled = !!performanceProfile;
   }
 
   function capturePerformanceProfileSample(state, reason = "active") {
@@ -405,6 +639,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     if (!performanceProfile) return;
     if (performanceProfileTimer) window.clearInterval(performanceProfileTimer);
     performanceProfileTimer = 0;
+    performanceLongTaskObserver?.disconnect?.();
+    performanceLongTaskObserver = null;
     const session = performanceProfile;
     performanceProfile = null;
     const report = {
@@ -414,12 +650,79 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       completedAt: new Date().toISOString(),
       runtimeSamples: session.samples,
       analysis: analyzeVj1Project(latestState, { runtimeSamples: session.samples }),
+      host: summarizePerformanceHost(session.host),
     };
     globalThis.__vj1LastProfileReport = report;
-    downloadPerformanceProfile(report, latestState.project?.name || "vj1");
     console.info("[VJ1_PROFILE_COMPLETE]", report);
-    setStatus(`Profile complete · ${session.samples.length} samples downloaded`);
+    showPerformanceResults(report);
+    setStatus(`Profile complete · ${session.samples.length} samples analyzed`);
     renderTopbar(latestState);
+  }
+
+  function showPerformanceResults(report) {
+    const runtime = report.analysis?.runtime || {};
+    const host = report.host || {};
+    const runtimeProfile = runtime.profile || {};
+    const cacheHits = (runtimeProfile.componentCacheHitsAvg || 0) + (runtimeProfile.stageCacheHitsAvg || 0);
+    const cacheRenders = (runtimeProfile.componentRendersAvg || 0) + (runtimeProfile.stageRendersAvg || 0);
+    const cacheReusePercent = cacheHits + cacheRenders > 0 ? cacheHits / (cacheHits + cacheRenders) * 100 : 0;
+    const hotspots = runtime.profile?.hotPasses || [];
+    const hotspotRows = hotspots.length
+      ? hotspots.slice(0, 12).map((item, index) => {
+        const thumbnail = performanceComponentThumbnail(latestState, item.componentId, "performance-analysis-thumbnail");
+        return `
+          <tr>
+            <td>${index + 1}</td>
+            <td><span class="performance-pass-cell">${thumbnail}<span><strong>${esc(item.name)}</strong><small>${esc(item.kind)}</small></span></span></td>
+            <td>${formatTimeMs(item.msAvg)}</td>
+            <td>${formatTimeMs(item.msP95)}</td>
+            <td>${formatTimeMs(item.msMax)}</td>
+            <td>${item.sampleCount}</td>
+          </tr>`;
+      }).join("")
+      : `<tr><td colspan="6">No attributed render passes were captured.</td></tr>`;
+    const bottlenecks = (report.analysis?.bottlenecks || []).slice(0, 6);
+    refs.performanceResultsHost.innerHTML = `
+      <div class="modal-backdrop performance-results-backdrop" data-performance-close></div>
+      <section class="modal-panel performance-results-modal" role="dialog" aria-modal="true" aria-label="Performance analysis">
+        <header class="modal-header">
+          <div><strong>Performance analysis</strong><small>10 second sampled report · ${runtime.sampleCount || 0} metric samples</small></div>
+          <button type="button" class="icon-buttonish" data-performance-close aria-label="Close">${icon("close")}</button>
+        </header>
+        <div class="performance-results-body">
+          <div class="performance-result-cards">
+            <div><small>FPS average</small><strong>${formatNumber(runtime.fpsAvg, 1)}</strong></div>
+            <div><small>CPU frame p95</small><strong>${formatTimeMs(runtime.frameMsP95)}</strong></div>
+            <div><small>GPU timer average</small><strong>${runtime.gpuSampleCount ? formatTimeMs(runtime.gpuMsAvg) : "--"}</strong></div>
+            <div><small>Frame budget p95</small><strong>${formatPercent((runtime.renderCostP95 || 0) * 100)}</strong></div>
+            <div><small>UI rebuild p95</small><strong>${host.uiRenderCount ? formatTimeMs(host.uiRenderMsP95) : "--"}</strong></div>
+            <div><small>Main-thread blocks</small><strong>${host.longTaskCount || 0}</strong></div>
+            <div><small>Event-loop lag p95</small><strong>${formatTimeMs(host.eventLoopLagMsP95)}</strong></div>
+            <div><small>Render cache reuse</small><strong>${formatPercent(cacheReusePercent)}</strong></div>
+          </div>
+          <div class="performance-results-section">
+            <h3>Attributed CPU hotspots</h3>
+            <p>Average, p95, and maximum duration for the bounded diagnostic pass samples. Component rows include their child work.</p>
+            <div class="performance-table-scroll"><table><thead><tr><th>#</th><th>Pass</th><th>Avg</th><th>P95</th><th>Max</th><th>N</th></tr></thead><tbody>${hotspotRows}</tbody></table></div>
+          </div>
+          ${bottlenecks.length ? `<div class="performance-results-section"><h3>Observations</h3><ul>${bottlenecks.map((item) => `<li><strong>${esc(item.scope)}</strong> · ${esc(item.message)}</li>`).join("")}</ul></div>` : ""}
+          <div class="performance-results-section"><h3>Host / UI activity</h3><p>${host.uiRenderCount || 0} full UI rebuilds · ${host.stateEventCount || 0} state notifications · ${host.longTaskTotalMs ? `${formatTimeMs(host.longTaskTotalMs)} blocked in long tasks` : "no long tasks observed"}${host.memoryDeltaBytes === null ? "" : ` · ${formatBytesSigned(host.memoryDeltaBytes)} JS heap change`}</p>${host.topStateEvents?.length ? `<ul>${host.topStateEvents.map((item) => `<li>${esc(item.reason)} · ${item.count}</li>`).join("")}</ul>` : ""}</div>
+          <p class="performance-method-note">GPU time is an aggregate of completed non-overlapping WebGL timer queries. Exact per-pass GPU profiling is not run continuously because it changes the workload being measured.</p>
+        </div>
+        <footer class="performance-results-actions">
+          <button type="button" data-performance-close>Close</button>
+          <button type="button" class="is-active" data-performance-download>${icon("download")} Download report</button>
+        </footer>
+      </section>`;
+  }
+
+  function handlePerformanceResultsClick(event) {
+    if (event.target.closest("[data-performance-download]")) {
+      const report = globalThis.__vj1LastProfileReport;
+      if (report) downloadPerformanceProfile(report, latestState.project?.name || "vj1");
+      return;
+    }
+    if (event.target.closest("[data-performance-close]")) refs.performanceResultsHost.innerHTML = "";
   }
 
   function bindInteractionDeferral() {
@@ -509,27 +812,35 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setText(refs.projectMeta, hasProject ? projectMeta : "Choose a folder to begin");
     setClass(refs.projectMeta, "is-hidden", hasProject && !projectMeta);
     setClass(refs.closeProject, "is-hidden", !hasProject);
+    setClass(refs.returnFromDeepEdit, "is-hidden", !hasProject || !deepEditReturnContext);
+    renderDiagnostics();
+    if (refs.returnFromDeepEdit && deepEditReturnContext) {
+      const label = workspaceLabel(deepEditReturnContext.workspace);
+      refs.returnFromDeepEdit.title = `Return to ${label}`;
+      refs.returnFromDeepEdit.setAttribute("aria-label", `Return to ${label}`);
+    }
     const outputConnected = state.metrics.clients > 0;
     const outputFps = outputConnected ? Math.max(0, Number(state.metrics.fps) || 0) : 0;
     setClass(refs.outputStatus, "is-live", outputConnected);
-    setText(refs.outputStatusText, outputConnected ? `${Math.round(outputFps)} fps` : "output");
+    setText(refs.outputStatusText, outputConnected ? `${Math.round(outputFps)}` : "-");
     const renderCost = activeRenderCost(state);
-    setClass(refs.renderCost, "is-hot", renderCost > 0.8);
     setClass(refs.renderCost, "is-active", !!performanceProfile);
     const profileSeconds = performanceProfile
       ? Math.max(1, Math.ceil((performanceProfile.endsAt - performance.now()) / 1000))
       : 0;
-    setText(refs.renderCostText, performanceProfile ? `${profileSeconds}s` : formatRenderCost(renderCost));
-    refs.renderCost.title = performanceProfile
-      ? `Profiling rendering… ${profileSeconds} second${profileSeconds === 1 ? "" : "s"} remaining`
-      : "Profile rendering for 10 seconds and download an analysis report";
     const workMetric = activeWorkMetric(state, outputFps);
-    setClass(refs.cpuTime, "is-hot", workMetric.cpuMs > 8.33);
-    setText(refs.cpuTimeText, formatTimeMs(workMetric.cpuMs));
-    refs.cpuTime.title = cpuTimeTitle(workMetric);
-    setClass(refs.gpuTime, "is-hot", workMetric.gpuSupported && workMetric.gpuMs > 8.33);
-    setText(refs.gpuTimeText, workMetric.gpuSupported ? formatTimeMs(workMetric.gpuMs) : "--");
-    refs.gpuTime.title = gpuTimeTitle(workMetric);
+    const frameInterval = frameTimeFromFps(workMetric.fps);
+    setPerformanceHealthDot(refs.renderCostDot, renderCost);
+    setPerformanceHealthDot(refs.cpuTimeDot, frameInterval > 0 ? workMetric.cpuMs / frameInterval : 0);
+    setPerformanceHealthDot(refs.gpuTimeDot, frameInterval > 0 ? workMetric.gpuMs / frameInterval : 0, workMetric.gpuSupported);
+    const healthTitle = performanceProfile
+      ? `Profiling rendering… ${profileSeconds} second${profileSeconds === 1 ? "" : "s"} remaining`
+      : `Overall ${formatRenderCost(renderCost)} · CPU ${formatTimeMs(workMetric.cpuMs)} · GPU ${workMetric.gpuSupported ? formatTimeMs(workMetric.gpuMs) : "unavailable"} · Output ${outputConnected ? `${Math.round(outputFps)} fps` : "closed"}`;
+    refs.renderCost.title = healthTitle;
+    refs.renderCost.setAttribute("aria-label", healthTitle);
+    // Output metrics may arrive between pointerdown and click. Preserve the
+    // interactive subtree until the browser finishes that event sequence.
+    if (!refs.performanceSummary.classList.contains("is-hidden") && !shouldDeferRender()) renderPerformanceSummary(state);
     setClass(refs.togglePreview, "is-active", state.ui.debugPreview);
     setClass(refs.toggleLabels, "is-active", state.global.showLabels !== false);
     const outputPlaying = state.global.playing !== false;
@@ -1184,6 +1495,36 @@ function currentWorkspace(state) {
   return WORKSPACES.includes(state.ui?.workspace) ? state.ui.workspace : "scene";
 }
 
+function performanceComponentThumbnail(state, componentId, className) {
+  const component = state.components?.find((item) => item.id === componentId);
+  if (!component) return "";
+  const fallbackIcon = component.type === "canvas" ? "dashboard_customize" : "account_tree";
+  return `<span class="performance-component-thumbnail ${esc(className)}">${thumbnailTemplate(component.thumbnail, fallbackIcon)}</span>`;
+}
+
+function emptyDiagnosticsSummary() {
+  return { level: "ok", counts: { info: 0, warning: 0, error: 0 }, entries: [] };
+}
+
+function diagnosticEntryTemplate(entry) {
+  const time = new Date(entry.lastAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  const count = entry.count > 1 ? `<span class="diagnostics-repeat">×${entry.count}</span>` : "";
+  return `<li class="is-${esc(entry.level)}"><header><span>${icon(diagnosticIcon(entry.level))}<strong>${esc(entry.level)}</strong></span><span>${esc(time)} ${count}</span></header><pre>${esc(entry.message)}</pre></li>`;
+}
+
+function diagnosticIcon(level) {
+  if (level === "error") return "error";
+  if (level === "warning") return "warning";
+  return "info";
+}
+
+function workspaceLabel(workspace) {
+  if (workspace === "component") return "Components";
+  if (workspace === "canvas") return "Canvas";
+  if (workspace === "live") return "Live";
+  return "Scenes";
+}
+
 function hasOpenProject(state) {
   return !!state?.project?.folderName;
 }
@@ -1210,33 +1551,147 @@ function downloadPerformanceProfile(report, projectName = "vj1") {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function activeRenderCost(state) {
-  const previewCost = Number(state.metrics.previewRenderCost);
-  if (state.ui?.debugPreview && Number(state.metrics.previewFps) > 0 && Number.isFinite(previewCost)) return previewCost;
-  const outputCost = Number(state.metrics.renderCost);
-  return Number.isFinite(outputCost) ? outputCost : 0;
+function pushBounded(items, value, limit) {
+  items.push(value);
+  if (items.length > limit) items.splice(0, items.length - limit);
 }
 
-function activeWorkMetric(state, outputFps = 0) {
+function summarizePerformanceHost(host = {}) {
+  const uiRenderMs = numericValues(host.uiRenderMs);
+  const eventLoopLagMs = numericValues(host.eventLoopLagMs);
+  const longTasks = (host.longTasks || []).filter((item) => Number.isFinite(Number(item?.durationMs)));
+  const stateEvents = Object.entries(host.stateEvents || {})
+    .map(([reason, count]) => ({ reason, count: Math.max(0, Number(count) || 0) }))
+    .sort((a, b) => b.count - a.count);
+  const memoryEndBytes = performanceMemoryBytes();
+  const memoryStartBytes = host.memoryStartBytes === null || host.memoryStartBytes === undefined
+    ? null
+    : Number(host.memoryStartBytes);
+  return {
+    uiRenderCount: uiRenderMs.length,
+    uiRenderMsAvg: averageNumbers(uiRenderMs),
+    uiRenderMsP95: percentileNumbers(uiRenderMs, 0.95),
+    uiRenderMsMax: uiRenderMs.length ? Math.max(...uiRenderMs) : 0,
+    eventLoopLagMsP95: percentileNumbers(eventLoopLagMs, 0.95),
+    eventLoopLagMsMax: eventLoopLagMs.length ? Math.max(...eventLoopLagMs) : 0,
+    longTaskCount: longTasks.length,
+    longTaskTotalMs: longTasks.reduce((sum, item) => sum + Number(item.durationMs), 0),
+    longTaskMaxMs: longTasks.length ? Math.max(...longTasks.map((item) => Number(item.durationMs))) : 0,
+    longTasks: longTasks.slice().sort((a, b) => b.durationMs - a.durationMs).slice(0, 20),
+    stateEventCount: stateEvents.reduce((sum, item) => sum + item.count, 0),
+    topStateEvents: stateEvents.slice(0, 12),
+    memoryStartBytes: Number.isFinite(memoryStartBytes) ? memoryStartBytes : null,
+    memoryEndBytes,
+    memoryDeltaBytes: Number.isFinite(memoryStartBytes) && Number.isFinite(memoryEndBytes) ? memoryEndBytes - memoryStartBytes : null,
+  };
+}
+
+function performanceMemoryBytes() {
+  const value = Number(globalThis.performance?.memory?.usedJSHeapSize);
+  return Number.isFinite(value) ? value : null;
+}
+
+function numericValues(values = []) {
+  return values.map(Number).filter((value) => Number.isFinite(value) && value >= 0);
+}
+
+function averageNumbers(values = []) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function percentileNumbers(values = [], percentile = 0.95) {
+  if (!values.length) return 0;
+  const sorted = values.slice().sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * percentile) - 1))];
+}
+
+function formatNumber(value, precision = 1) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number.toFixed(precision) : "--";
+}
+
+function formatPercent(value) {
+  const number = Math.max(0, Number(value) || 0);
+  return `${number > 0 && number < 10 ? number.toFixed(1) : Math.round(number)}%`;
+}
+
+function formatBytesSigned(value) {
+  const bytes = Number(value);
+  if (!Number.isFinite(bytes)) return "unknown";
+  const sign = bytes > 0 ? "+" : bytes < 0 ? "−" : "";
+  const absolute = Math.abs(bytes);
+  const amount = absolute >= 1024 * 1024 ? `${(absolute / (1024 * 1024)).toFixed(1)} MB` : `${Math.round(absolute / 1024)} KB`;
+  return `${sign}${amount}`;
+}
+
+function performanceReadoutTemplate(iconName, label, value) {
+  return `<span class="performance-health-readout">${icon(iconName)}<span><small>${esc(label)}</small><strong>${esc(value)}</strong></span></span>`;
+}
+
+export function performanceHealthStep(load) {
+  const value = Math.max(0, Number(load) || 0);
+  for (let index = 0; index < performanceHealthThresholds.length; index++) {
+    if (value < performanceHealthThresholds[index]) return index;
+  }
+  return performanceHealthClasses.length - 1;
+}
+
+function setPerformanceHealthDot(dot, load, available = true) {
+  if (!dot) return;
+  dot.classList.remove(...performanceHealthClasses, "is-unknown");
+  if (!available) {
+    dot.classList.add("is-unknown");
+    return;
+  }
+  dot.classList.add(performanceHealthClasses[performanceHealthStep(load)]);
+}
+
+export function activeRenderCost(state) {
+  let total = 0;
+  const outputCost = Number(state.metrics.renderCost);
+  if (Number(state.metrics.clients) > 0 && Number.isFinite(outputCost)) total += Math.max(0, outputCost);
+  const previewCost = Number(state.metrics.previewRenderCost);
+  if (state.ui?.debugPreview && Number(state.metrics.previewFps) > 0 && Number.isFinite(previewCost)) total += Math.max(0, previewCost);
+  return total;
+}
+
+export function activeWorkMetric(state, outputFps = 0) {
+  const renderers = [];
+  if (Number(state.metrics.clients) > 0) {
+    renderers.push({
+      fps: outputFps,
+      cpuMs: Math.max(0, Number(state.metrics.frameMs) || 0),
+      gpuMs: Math.max(0, Number(state.metrics.gpuMs) || 0),
+      gpuSupported: state.metrics.gpuSupported === true,
+      profile: state.metrics.profile || null,
+      transport: state.metrics.transport || null,
+      source: "output",
+    });
+  }
   const previewFps = Math.max(0, Number(state.metrics.previewFps) || 0);
   if (state.ui?.debugPreview && previewFps > 0) {
-    return {
+    renderers.push({
       fps: previewFps,
       cpuMs: Math.max(0, Number(state.metrics.previewFrameMs) || 0),
       gpuMs: Math.max(0, Number(state.metrics.previewGpuMs) || 0),
       gpuSupported: state.metrics.previewGpuSupported === true,
       profile: state.metrics.previewProfile || null,
       source: "preview",
-    };
+    });
   }
+  if (!renderers.length) return { fps: 0, cpuMs: 0, gpuMs: 0, gpuSupported: false, profile: null, profiles: [], renderers, source: "renderer" };
+  const supportedGpuRenderers = renderers.filter((renderer) => renderer.gpuSupported);
+  const activeFps = renderers.map((renderer) => renderer.fps).filter((fps) => fps > 0);
   return {
-    fps: outputFps,
-    cpuMs: Math.max(0, Number(state.metrics.frameMs) || 0),
-    gpuMs: Math.max(0, Number(state.metrics.gpuMs) || 0),
-    gpuSupported: state.metrics.gpuSupported === true,
-    profile: state.metrics.profile || null,
-    transport: state.metrics.transport || null,
-    source: "output",
+    fps: activeFps.length ? Math.min(...activeFps) : 0,
+    cpuMs: renderers.reduce((sum, renderer) => sum + renderer.cpuMs, 0),
+    gpuMs: supportedGpuRenderers.reduce((sum, renderer) => sum + renderer.gpuMs, 0),
+    gpuSupported: supportedGpuRenderers.length > 0,
+    profile: renderers.length === 1 ? renderers[0].profile : null,
+    profiles: renderers.map((renderer) => renderer.profile).filter(Boolean),
+    transport: renderers.find((renderer) => renderer.source === "output")?.transport || null,
+    renderers,
+    source: renderers.map((renderer) => renderer.source).join(" + "),
   };
 }
 
@@ -1262,6 +1717,11 @@ function cpuTimeTitle(metric) {
     `CPU render work: ${formatTimeMs(metric.cpuMs)} (${metric.source})`,
     `Frame interval: ${formatTimeMs(interval)} from ${Math.round(metric.fps)} fps`,
   ];
+  if (metric.renderers?.length > 1) {
+    for (const renderer of metric.renderers) lines.push(`${renderer.source}: ${formatTimeMs(renderer.cpuMs)} at ${Math.round(renderer.fps)} fps`);
+    lines.push("Combined value sums active preview and output renderer work.");
+    return lines.join("\n");
+  }
   const profile = metric.profile;
   if (!profile) return lines.join("\n");
   const componentMs = componentRenderTime(profile);
@@ -1286,7 +1746,12 @@ function cpuTimeTitle(metric) {
 
 function gpuTimeTitle(metric) {
   if (!metric?.gpuSupported) return "GPU render work: timer queries unavailable in this browser/GPU";
-  return `GPU average query: ${formatTimeMs(metric.gpuMs)} (${metric.source})\nRolling average of completed non-overlapping WebGL timer queries; not a frame duration`;
+  const lines = [`GPU average queries: ${formatTimeMs(metric.gpuMs)} (${metric.source})`];
+  for (const renderer of metric.renderers || []) {
+    lines.push(`${renderer.source}: ${renderer.gpuSupported ? formatTimeMs(renderer.gpuMs) : "timer unavailable"}`);
+  }
+  lines.push("Combined value sums available renderer query averages; it is not a frame duration.");
+  return lines.join("\n");
 }
 
 function formatRenderCost(cost) {

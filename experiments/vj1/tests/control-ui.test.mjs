@@ -9,7 +9,7 @@ import { createInitialState } from "../js/domain/models.js";
 import { previewFitSignature, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
 import { isPointerInteractionNode } from "../js/control/dom-utils.js";
 import { applyOptimisticToggleIntent } from "../js/control/input-controller.js";
-import { rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
+import { activeRenderCost, activeWorkMetric, performanceHealthStep, rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
 
 test("inspector parameter views survive template replacement", () => {
   const selections = new Map();
@@ -170,7 +170,7 @@ test("source chooser exposes category filters and model sources lock it to 3D", 
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
   assert.match(style, /\.element-modal\s*\{[^}]*grid-template-rows:\s*auto auto auto minmax\(0, 1fr\)/s);
-  assert.match(index, /style\.css\?v=source-picker-filters-2/);
+  assert.match(index, /style\.css\?v=[^"']+/);
 });
 
 test("media refresh is explicit and never polls during rendering", () => {
@@ -363,7 +363,7 @@ test("editable element names live in their section headers beside the icon", () 
   assert.ok(primitivesSource.includes("function titleInputTemplate(path, value)"));
   assert.ok(primitivesSource.includes("function editableSectionTitleTemplate(iconName, path, value)"));
   assert.ok(primitivesSource.includes('class="section-title-input"'));
-  assert.ok(controllerSource.includes('from "./view-primitives.js?v=view-primitives-extraction-1"'));
+  assert.match(controllerSource, /from "\.\/view-primitives\.js\?v=[^"]+"/);
   assert.ok(!controllerSource.includes('class="sculpt-head"'));
   assert.ok(settingsSource.includes('class="section-title-input"'));
   assert.ok(!settingsSource.includes('<label class="field">Name <input'));
@@ -451,7 +451,7 @@ test("component catalogs expose stable per-view sorting modes", () => {
   assert.ok(source.includes("state.ui?.catalogSortModes?.[scope]"));
   assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", scene: "recent" }'));
   assert.ok(source.includes("ui.catalogSortModes[catalog] = mode"));
-  assert.ok(source.includes("if (change.projectRestore) invalidateCatalogOrder()"));
+  assert.match(source, /if \(change\.projectRestore\) \{[\s\S]*?invalidateCatalogOrder\(\)/);
   assert.ok(source.includes('catalogSortMode(state, "component")'));
   assert.ok(source.includes('catalogSortMode(state, "scene")'));
   assert.ok(source.includes("if (viewKey === activeCatalogViewKey) return"));
@@ -672,6 +672,8 @@ test("Live navigates referenced components separately and edits one selected nes
   assert.ok(sceneLiveSource.includes('liveRangeTemplate("Opacity", component.id, "opacity"'));
   assert.ok(sceneLiveSource.includes('liveRangeTemplate("Speed", component.id, "speed"'));
   assert.ok(controllerSource.includes("ui.live.componentView = button.dataset.liveComponentView"));
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  assert.match(style, /\.live-component-head \{[\s\S]*?grid-template-columns: 72px minmax\(0, 1fr\) 22px;/);
 });
 
 test("preview fitting is invalidated only by layout viewport or output geometry", () => {
@@ -718,6 +720,15 @@ test("narrow layouts retain both control columns and disable the preview first",
   assert.ok(controller.includes('window.matchMedia("(max-width: 1100px)")'));
   assert.ok(controller.includes("previewLayoutQuery?.matches"));
   assert.match(styleSource, /@media \(max-width: 760px\)[\s\S]*?\.studio-inspector \{[\s\S]*?display: grid;/);
+});
+
+test("the application shell cannot become a vertically scrolled document", () => {
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  assert.match(styleSource, /html,[\s\S]*?body \{[\s\S]*?position: fixed;[\s\S]*?overflow: hidden;/);
+  assert.match(styleSource, /#app \{[\s\S]*?position: fixed;[\s\S]*?overflow: hidden;/);
+  assert.match(styleSource, /\.studio-app \{[\s\S]*?height: 100%;[\s\S]*?overflow: hidden;/);
+  assert.match(styleSource, /\.studio-layout \{[\s\S]*?overflow-x: auto;[\s\S]*?overflow-y: hidden;/);
+  assert.match(styleSource, /\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?overflow-y: scroll;/);
 });
 
 test("project settings expose component upscaling and native-resolution post filters", () => {
@@ -867,7 +878,7 @@ test("multiple configured outputs have individual popup actions", () => {
   assert.ok(settingsHtml.includes("data-add-output"));
 });
 
-test("topbar shows separate active-renderer CPU and GPU work timers", () => {
+test("topbar combines renderer health and fixed-width output fps", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
@@ -875,12 +886,13 @@ test("topbar shows separate active-renderer CPU and GPU work timers", () => {
   const gpuTimerSource = readFileSync(new URL("../js/output/gpu-timer-tracker.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
 
-  assert.ok(shellSource.includes('id="cpu-time"'));
-  assert.ok(shellSource.includes('id="gpu-time"'));
-  assert.ok(shellSource.includes('id="cpu-time-text">0.0 ms'));
-  assert.ok(shellSource.includes('id="gpu-time-text">--'));
-  assert.ok(!shellSource.includes('id="cpu-time-text">CPU'));
-  assert.ok(!shellSource.includes('id="gpu-time-text">GPU'));
+  assert.ok(shellSource.includes('id="render-cost" class="performance-health-button"'));
+  assert.ok(shellSource.includes('id="render-cost-dot"'));
+  assert.ok(shellSource.includes('id="cpu-time-dot"'));
+  assert.ok(shellSource.includes('id="gpu-time-dot"'));
+  assert.ok(shellSource.includes('id="output-status-text">-</span>'));
+  assert.ok(!shellSource.includes('id="cpu-time-text"'));
+  assert.ok(!shellSource.includes('id="gpu-time-text"'));
   assert.ok(controllerSource.includes("activeWorkMetric(state, outputFps)"));
   assert.ok(controllerSource.includes("state.ui?.debugPreview && previewFps > 0"));
   assert.ok(controllerSource.includes('source: "preview"'));
@@ -895,25 +907,81 @@ test("topbar shows separate active-renderer CPU and GPU work timers", () => {
   assert.ok(controllerSource.includes('sample?.type === "component"'));
   assert.ok(controllerSource.includes("cache hit"));
   assert.ok(controllerSource.includes("stage reuse"));
-  assert.match(styleSource, /\.work-time-pill #gpu-time-text[\s\S]*?white-space: nowrap;/);
+  assert.ok(controllerSource.includes("setPerformanceHealthDot(refs.renderCostDot"));
+  assert.ok(controllerSource.includes("setPerformanceHealthDot(refs.cpuTimeDot"));
+  assert.ok(controllerSource.includes("setPerformanceHealthDot(refs.gpuTimeDot"));
+  assert.ok(controllerSource.includes('performanceReadoutTemplate("speed", "Overall"'));
+  assert.ok(controllerSource.includes('performanceReadoutTemplate("timer", "CPU"'));
+  assert.ok(controllerSource.includes('performanceReadoutTemplate("memory", "GPU"'));
+  assert.ok(controllerSource.includes('performanceReadoutTemplate("open_in_new", "Output"'));
+  assert.match(styleSource, /\.performance-health-readouts \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);[\s\S]*?margin-bottom: 10px;/);
+  assert.ok(controllerSource.includes('performanceReadoutTemplate("cached", "Cache reuse"'));
+  assert.ok(controllerSource.includes('performanceReadoutTemplate("refresh", "Renders"'));
+  assert.ok(!controllerSource.includes("Hot now"));
+  assert.ok(controllerSource.includes('smoothed.totalsBySource[item.runtimeSource || "renderer"]'));
+  assert.ok(!controllerSource.includes("combined sampled CPU"));
   assert.ok(gpuTimerSource.includes('getExtension("EXT_disjoint_timer_query_webgl2")'));
   assert.ok(gpuTimerSource.includes('getExtension("EXT_disjoint_timer_query")'));
   assert.ok(rendererSource.includes("this.pruneRenderCaches();\n    this.gpuTimer.sealFrame"));
   assert.ok(rendererSource.includes("gpuSupported: this.gpuTimer.supported"));
   assert.ok(previewSource.includes("draft.metrics.previewGpuMs = metrics.gpuMs || 0"));
-  assert.ok(shellSource.includes('id="render-cost" class="status-pill cost-pill" type="button"'));
+  assert.ok(shellSource.includes('id="performance-summary"'));
+  assert.ok(shellSource.includes('id="performance-analyze"'));
   assert.ok(controllerSource.includes("performanceProfileDurationMs = 10000"));
+  assert.ok(controllerSource.includes("createRuntimeHotspotSmoother"));
+  assert.ok(controllerSource.includes("summarizeRuntimeHotPasses(profiles, 16)"));
+  assert.ok(!controllerSource.includes("running average of recent samples"));
+  assert.ok(!controllerSource.includes("CPU rows can overlap because a component includes its child passes"));
+  assert.ok(controllerSource.includes('PerformanceObserver.supportedEntryTypes?.includes("longtask")'));
+  assert.ok(controllerSource.includes("performanceProfile.host.uiRenderMs"));
   assert.ok(controllerSource.includes("analyzeVj1Project(latestState, { runtimeSamples: session.samples })"));
   assert.ok(controllerSource.includes("globalThis.__vj1LastProfileReport = report"));
   assert.ok(controllerSource.includes("downloadPerformanceProfile(report"));
+  assert.ok(controllerSource.includes("showPerformanceResults(report)"));
+});
+
+test("connected output and embedded preview metrics are combined", () => {
+  const state = {
+    ui: { debugPreview: true },
+    metrics: {
+      clients: 1,
+      fps: 30,
+      frameMs: 7,
+      gpuMs: 9,
+      gpuSupported: true,
+      renderCost: 0.42,
+      profile: { passSamples: [{ type: "component", componentId: "output-component", ms: 5 }] },
+      previewFps: 60,
+      previewFrameMs: 2,
+      previewGpuMs: 1,
+      previewGpuSupported: true,
+      previewRenderCost: 0.12,
+      previewProfile: { passSamples: [{ type: "component", componentId: "preview-component", ms: 1 }] },
+    },
+  };
+  const metric = activeWorkMetric(state, state.metrics.fps);
+  assert.equal(metric.source, "output + preview");
+  assert.equal(metric.cpuMs, 9);
+  assert.equal(metric.gpuMs, 10);
+  assert.equal(metric.renderers.length, 2);
+  assert.equal(metric.renderers[0].profile.passSamples[0].componentId, "output-component");
+  assert.equal(metric.renderers[1].profile.passSamples[0].componentId, "preview-component");
+  assert.equal(activeRenderCost(state), 0.54);
+
+  state.metrics.clients = 0;
+  assert.equal(activeWorkMetric(state, 0).source, "preview");
+  assert.equal(activeRenderCost(state), 0.12);
 });
 
 test("topbar metric readouts reserve stable widths", () => {
   const source = readFileSync(new URL("../style.css", import.meta.url), "utf8");
-  assert.ok(source.includes(".cost-pill #render-cost-text {\n  width: 4ch;"));
-  assert.ok(source.includes(".work-time-pill #cpu-time-text,\n.work-time-pill #gpu-time-text {\n  width: 6ch;"));
-  assert.ok(source.includes("#output-status-text {\n  display: inline-block;\n  width: 7ch;"));
+  assert.match(source, /\.performance-health-button \{[\s\S]*?width: 76px;[\s\S]*?flex: 0 0 76px;/);
+  assert.ok(source.includes("#output-status-text {\n  display: inline-block;\n  width: 3ch;"));
   assert.ok(source.includes("font-variant-numeric: tabular-nums;"));
+  assert.equal(performanceHealthStep(0), 0);
+  assert.equal(performanceHealthStep(0.5), 3);
+  assert.equal(performanceHealthStep(1), 8);
+  assert.equal(performanceHealthStep(10), 8);
 });
 
 test("list thumbnails crop to fill without changing their colors", () => {
@@ -984,6 +1052,54 @@ test("workspace view buttons are compact icons with accessible names", () => {
   assert.match(styleSource, /\.icon-buttonish\.close-project-button \{[\s\S]*?position: static;[\s\S]*?width: 26px;[\s\S]*?height: 26px;/);
   assert.match(styleSource, /\.close-project-button \.material-symbols-rounded \{[\s\S]*?font-size: 16px;/);
   assert.match(styleSource, /\.workspace-switch button \{[\s\S]*?width: 36px;[\s\S]*?padding: 0;/);
+});
+
+test("referenced Components share one capture-phase deep edit command with a return path", () => {
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const shell = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
+  const primitives = readFileSync(new URL("../js/control/view-primitives.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.ok(primitives.includes('data-edit-component="${esc(componentId)}"'));
+  assert.ok(primitives.includes('data-edit-chain-item="${esc(chainItemId)}"'));
+  assert.ok(shell.includes('id="return-from-deep-edit"'));
+  assert.match(controller, /root\.addEventListener\("click",[\s\S]*?data-edit-component[\s\S]*?}, true\);/);
+  assert.ok(controller.includes('switchWorkspace(component.type === "canvas" ? "canvas" : "component")'));
+  assert.ok(controller.includes('openComponentEditor(button.dataset.editComponent, button.dataset.editChainItem || "")'));
+  assert.ok(controller.includes("if (chainItemId) store.selectChainItem?.(chainItemId)"));
+  assert.ok(controller.includes("function returnFromDeepEdit()"));
+  assert.match(style, /\.header-edit-button \{[\s\S]*?margin-left: auto;/);
+  assert.match(style, /\.deep-edit-button \{[\s\S]*?width: 22px;[\s\S]*?height: 22px;/);
+});
+
+test("performance overviews show the owning Component thumbnail without renderer-side image work", () => {
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.ok(controller.includes("function performanceComponentThumbnail(state, componentId, className)"));
+  assert.ok(controller.includes('"performance-hotspot-thumbnail"'));
+  assert.ok(controller.includes('"performance-analysis-thumbnail"'));
+  assert.ok(controller.includes("chainItemId: item.chainItemId"));
+  assert.ok(renderer.includes('chainItemId: pass.instanceId || ""'));
+  assert.ok(renderer.includes('chainItemId: node.id || sourceState.instanceId || ""'));
+  assert.ok(controller.includes('!refs.performanceSummary.classList.contains("is-hidden") && !shouldDeferRender()'));
+  assert.match(style, /\.performance-hotspot-list li\.has-thumbnail\.has-edit \{[\s\S]*?40px minmax\(0, 1fr\) auto 22px;/);
+  assert.match(style, /\.performance-pass-cell \{[\s\S]*?display: flex;/);
+});
+
+test("topbar diagnostics expose an event-driven bounded console with copy and clear actions", () => {
+  const shell = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const app = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  assert.ok(shell.includes('id="diagnostics-toggle"'));
+  assert.ok(shell.includes('id="diagnostics-summary"'));
+  assert.ok(controller.includes("diagnostics?.subscribe?."));
+  assert.ok(controller.includes('data-diagnostics-copy'));
+  assert.ok(controller.includes('data-diagnostics-clear'));
+  assert.ok(app.includes("createDiagnosticsService"));
+  assert.match(style, /\.diagnostics-summary\s*\{[\s\S]*position:\s*absolute/);
 });
 
 test("empty project start shows one folder action and disables project views", () => {

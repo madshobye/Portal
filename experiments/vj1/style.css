@@ -52,14 +52,25 @@
 
 html,
 body {
+  position: fixed;
+  inset: 0;
   width: 100%;
   height: 100%;
   margin: 0;
   overflow: hidden;
+  overscroll-behavior: none;
   background: var(--bg);
   color: var(--ink);
   font-size: 13px;
   font-family: var(--sans);
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 button,
@@ -313,9 +324,12 @@ canvas {
 
 .studio-app {
   display: grid;
-  width: 100vw;
-  height: 100vh;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   grid-template-rows: 54px 1fr;
+  overflow: hidden;
   background: var(--bg);
 }
 
@@ -416,6 +430,335 @@ small {
 
 .output-menu {
   position: relative;
+}
+
+.performance-menu {
+  position: relative;
+}
+
+.diagnostics-menu {
+  position: relative;
+}
+
+.diagnostics-toggle.is-ok,
+.diagnostics-toggle.is-info {
+  color: var(--muted);
+}
+
+.diagnostics-toggle.is-warning {
+  color: #d6aa63;
+}
+
+.diagnostics-toggle.is-error {
+  color: #ef7777;
+}
+
+.diagnostics-summary {
+  position: absolute;
+  z-index: 46;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(460px, calc(100vw - 24px));
+  gap: 10px;
+  padding: 10px;
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+.diagnostics-summary.is-hidden {
+  display: none;
+}
+
+.diagnostics-summary-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+}
+
+.diagnostics-summary-header > span:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.diagnostics-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.diagnostics-state.is-warning {
+  color: #d6aa63;
+}
+
+.diagnostics-state.is-error {
+  color: #ef7777;
+}
+
+.diagnostics-entry-list {
+  display: grid;
+  max-height: 340px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  border-radius: var(--radius-card);
+  background: var(--section-header);
+}
+
+.diagnostics-entry-list li {
+  min-width: 0;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.diagnostics-entry-list li:last-child {
+  border-bottom: 0;
+}
+
+.diagnostics-entry-list header,
+.diagnostics-entry-list header > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.diagnostics-entry-list header {
+  justify-content: space-between;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.diagnostics-entry-list header strong {
+  color: inherit;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.diagnostics-entry-list li.is-warning header > span:first-child {
+  color: #d6aa63;
+}
+
+.diagnostics-entry-list li.is-error header > span:first-child {
+  color: #ef7777;
+}
+
+.diagnostics-entry-list pre {
+  max-height: 140px;
+  margin: 6px 0 0;
+  overflow: auto;
+  color: var(--ink-soft);
+  font: 10px/1.4 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diagnostics-empty {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+}
+
+.diagnostics-repeat {
+  color: var(--ink-soft);
+}
+
+.diagnostics-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.diagnostics-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.performance-summary {
+  position: absolute;
+  z-index: 45;
+  top: calc(100% + 8px);
+  right: 0;
+  display: grid;
+  width: min(500px, calc(100vw - 24px));
+  gap: 10px;
+  padding: 10px;
+  border-radius: var(--radius-card);
+  background: var(--panel);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.55);
+}
+
+.performance-summary.is-hidden {
+  display: none;
+}
+
+.performance-hotspot-list li > span {
+  display: grid;
+  gap: 2px;
+}
+
+.performance-hotspot-list small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.performance-health-readouts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.performance-health-readout {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  padding: 8px 9px;
+  border-radius: var(--radius-control);
+  background: var(--section-header);
+}
+
+.performance-health-readout > .material-symbols-rounded {
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.performance-health-readout > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.performance-health-readout small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.performance-health-readout strong {
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.performance-hotspot-list {
+  display: grid;
+  max-height: 310px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  background: var(--section-header);
+  border-radius: var(--radius-card);
+}
+
+.performance-hotspot-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  padding: 8px 10px;
+}
+
+.performance-hotspot-list li.has-edit {
+  grid-template-columns: minmax(0, 1fr) auto 22px;
+  align-items: center;
+  gap: 8px;
+}
+
+.performance-hotspot-list li.has-thumbnail {
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.performance-hotspot-list li.has-thumbnail.has-edit {
+  grid-template-columns: 40px minmax(0, 1fr) auto 22px;
+}
+
+.performance-component-thumbnail {
+  display: block;
+  width: 40px;
+  aspect-ratio: 4 / 3;
+  overflow: hidden;
+  border-radius: var(--radius-control);
+  background: #000;
+}
+
+.performance-component-thumbnail > .component-thumbnail,
+.performance-component-thumbnail > .component-card-empty {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.performance-component-thumbnail .material-symbols-rounded {
+  font-size: 16px;
+}
+
+.performance-pass-cell {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.performance-pass-cell > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.performance-analysis-thumbnail {
+  flex: 0 0 40px;
+}
+
+.performance-hotspot-list li + li {
+  border-top: 1px solid var(--line);
+}
+
+.performance-hotspot-list strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.performance-hotspot-value {
+  color: var(--text);
+  font-family: var(--mono);
+  text-align: right;
+}
+
+.performance-empty-row {
+  color: var(--muted);
+}
+
+.performance-method-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.performance-analyze-button {
+  justify-content: center;
+  gap: 7px;
+  background: var(--accent-strong);
+  color: #fff8f0;
 }
 
 .output-menu > summary {
@@ -532,59 +875,68 @@ small {
   box-shadow: 0 0 14px rgba(121, 228, 127, 0.68);
 }
 
-.cost-pill,
-.work-time-pill {
-  gap: 5px;
-}
-
-button.cost-pill {
+.performance-health-button {
   appearance: none;
-  background: transparent;
+  display: inline-flex;
+  width: 76px;
+  height: 36px;
+  flex: 0 0 76px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  background: var(--control);
   cursor: pointer;
 }
 
-button.cost-pill:hover,
-button.cost-pill.is-active {
-  border-color: var(--accent);
-  color: var(--accent);
+.performance-health-button:hover,
+.performance-health-button.is-active {
+  background: var(--control-hover);
 }
 
-.cost-pill #render-cost-text,
-.work-time-pill #cpu-time-text,
-.work-time-pill #gpu-time-text {
+.performance-health-dots {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 3px;
+}
+
+.performance-health-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: #175b42;
+}
+
+.performance-health-dot.health-0 { background: #175b42; }
+.performance-health-dot.health-1 { background: #28784a; }
+.performance-health-dot.health-2 { background: #569345; }
+.performance-health-dot.health-3 { background: #91a63e; }
+.performance-health-dot.health-4 { background: #c8b23a; }
+.performance-health-dot.health-5 { background: #dc922f; }
+.performance-health-dot.health-6 { background: #db6b2d; }
+.performance-health-dot.health-7 { background: #cf4530; }
+.performance-health-dot.health-8 { background: #b92732; }
+.performance-health-dot.is-unknown { background: var(--dim); }
+
+#output-status-text {
   display: inline-block;
+  width: 3ch;
   text-align: right;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.cost-pill #render-cost-text {
-  width: 4ch;
-}
-
-.work-time-pill #cpu-time-text,
-.work-time-pill #gpu-time-text {
-  width: 6ch;
-}
-
-#output-status-text {
-  display: inline-block;
-  width: 7ch;
-  text-align: left;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.cost-pill .material-symbols-rounded,
-.work-time-pill .material-symbols-rounded {
-  flex: 0 0 16px;
-  font-size: 16px;
-}
-
-.cost-pill.is-hot,
-.work-time-pill.is-hot {
-  border-color: rgba(248, 99, 99, 0.56);
-  color: var(--danger);
+.performance-output-status {
+  display: inline-flex;
+  flex: 0 0 3ch;
+  justify-content: flex-end;
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
 .studio-layout {
@@ -597,6 +949,8 @@ button.cost-pill.is-active {
   row-gap: 12px;
   padding: 12px;
   overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
 }
 
 .no-project-open .studio-layout {
@@ -748,6 +1102,7 @@ button.cost-pill.is-active {
   display: grid;
   --text-list-leading-size: 32px;
   --text-list-remove-size: 28px;
+  --text-list-action-size: 24px;
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
   gap: 2px;
@@ -759,8 +1114,16 @@ button.cost-pill.is-active {
   background: var(--panel-soft);
 }
 
+.text-list-item.has-action {
+  grid-template-columns: minmax(0, 1fr) var(--text-list-action-size);
+}
+
 .text-list-item.has-leading {
   grid-template-columns: var(--text-list-leading-size) minmax(0, 1fr);
+}
+
+.text-list-item.has-leading.has-action {
+  grid-template-columns: var(--text-list-leading-size) minmax(0, 1fr) var(--text-list-action-size);
 }
 
 .text-list-item.has-remove {
@@ -769,6 +1132,50 @@ button.cost-pill.is-active {
 
 .text-list-item.has-leading.has-remove {
   grid-template-columns: var(--text-list-leading-size) minmax(0, 1fr) var(--text-list-remove-size);
+}
+
+.text-list-item.has-action.has-remove {
+  grid-template-columns: minmax(0, 1fr) var(--text-list-action-size) var(--text-list-remove-size);
+}
+
+.text-list-item.has-leading.has-action.has-remove {
+  grid-template-columns: var(--text-list-leading-size) minmax(0, 1fr) var(--text-list-action-size) var(--text-list-remove-size);
+}
+
+.deep-edit-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+}
+
+.deep-edit-button .material-symbols-rounded {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.deep-edit-button:hover,
+.deep-edit-button:focus-visible {
+  background: var(--control-hover);
+  color: var(--text);
+}
+
+.header-edit-button {
+  margin-left: auto;
+}
+
+.text-list-edit,
+.performance-hotspot-edit {
+  justify-self: end;
 }
 
 .text-list-item .enable-toggle,
@@ -1042,8 +1449,27 @@ button.text-list-main:hover {
 }
 
 .assignment-selected-card {
+  position: relative;
   width: 100%;
-  pointer-events: none;
+  cursor: default;
+}
+
+.component-card-edit {
+  position: absolute;
+  z-index: 2;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: auto;
+  transition: opacity 120ms ease, visibility 0s linear 120ms;
+}
+
+.assignment-selected-card:hover .component-card-edit,
+.assignment-selected-card:focus-within .component-card-edit {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
 }
 
 .assignment-card-list {
@@ -1140,9 +1566,14 @@ button.text-list-main:hover {
 
 .live-component-head {
   display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 72px minmax(0, 1fr) 22px;
   align-items: center;
   gap: 9px;
+}
+
+.live-component-head .header-edit-button {
+  justify-self: end;
+  margin-left: 0;
 }
 
 .live-component-head .component-thumbnail,
@@ -2656,6 +3087,97 @@ button.text-list-main:hover {
   border-radius: var(--radius-modal);
   background: var(--panel);
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.54);
+}
+
+.performance-results-modal {
+  width: min(900px, calc(100vw - 32px));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.performance-results-body {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.performance-result-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.performance-result-cards > div,
+.performance-results-section {
+  padding: 10px;
+  border-radius: var(--radius-card);
+  background: var(--section-header);
+}
+
+.performance-result-cards > div {
+  display: grid;
+  gap: 4px;
+}
+
+.performance-result-cards small,
+.performance-results-section p {
+  color: var(--muted);
+}
+
+.performance-result-cards strong {
+  font-family: var(--mono);
+  font-size: 16px;
+}
+
+.performance-results-section h3,
+.performance-results-section p {
+  margin: 0 0 8px;
+}
+
+.performance-results-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.performance-table-scroll {
+  overflow-x: auto;
+}
+
+.performance-results-section table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.performance-results-section th,
+.performance-results-section td {
+  padding: 7px 8px;
+  border-top: 1px solid var(--line);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.performance-results-section th:nth-child(2),
+.performance-results-section td:nth-child(2) {
+  width: 100%;
+  text-align: left;
+}
+
+.performance-results-section td small {
+  display: block;
+  color: var(--muted);
+}
+
+.performance-results-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+@media (max-width: 760px) {
+  .performance-result-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .modal-header {
