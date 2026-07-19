@@ -38,6 +38,33 @@ test("component render signatures include nested dependencies without recursing 
   ]);
 });
 
+test("intrinsic component render state excludes only its root placement transform", () => {
+  const child = { id: "child", transform: { x: 0.25, scale: 1.5 }, chain: [] };
+  const parent = {
+    id: "parent",
+    transform: { y: -0.4 },
+    chain: [{ id: "child-ref", kind: "source", source: { type: "component", componentId: "child" } }],
+  };
+  const graph = staticComponentGraphState(parent, [parent, child], new Set(), false);
+
+  assert.equal("transform" in graph, false);
+  assert.deepEqual(graph.dependencies[0].transform, { x: 0.25, y: 0, scale: 1.5, rotation: 0 });
+});
+
+test("canonical empty chains exclude legacy source state and media", () => {
+  const component = {
+    id: "empty",
+    chain: [],
+    source: { type: "media", mediaId: "legacy-hidden.png" },
+    shaderChain: [{ id: "blur", params: { amount: 1 } }],
+  };
+  const graph = staticComponentGraphState(component, [component]);
+
+  assert.equal("source" in graph, false);
+  assert.equal("shaderChain" in graph, false);
+  assert.deepEqual(staticComponentGraphMediaState([], component, [component]), []);
+});
+
 test("media signature helpers cover media-backed generators and runtime readiness", () => {
   const ids = collectMediaIdsFromSource({
     type: "generator",
@@ -75,7 +102,7 @@ test("runtime cache policy has one owner outside the output orchestrator", () =>
   });
   assert.equal(componentRuntimeTimeKey({ runtime }, {}, { frame: 8, time: 2.75 }), 2);
   assert.equal(componentRuntimeTimeKey({ runtime: { cacheable: false } }, {}, { frame: 8, time: 2.75 }), 8);
-  assert.match(renderer, /from "\.\/component-render-state\.js\?v=live-effect-param-canonical-1"/);
+  assert.match(renderer, /from "\.\/component-render-state\.js\?v=component-parent-placement-1"/);
   assert.doesNotMatch(renderer, /function staticComponentGraphState\(/);
   assert.doesNotMatch(renderer, /function collectMediaIdsFromSource\(/);
 });

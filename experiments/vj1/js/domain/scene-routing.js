@@ -100,8 +100,7 @@ function collectLiveComponentGraph(state, componentId, ids) {
   const component = state.components?.find((candidate) => String(candidate.id) === id);
   if (!component) return;
   ids.add(id);
-  collectLiveComponentSource(state, component.source, ids);
-  collectLiveComponentChain(state, component.chain, ids);
+  collectLiveComponentChain(state, component.chain || [], ids);
 }
 
 function collectLiveComponentChain(state, chain, ids) {

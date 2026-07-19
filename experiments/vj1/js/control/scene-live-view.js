@@ -1,13 +1,13 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=changed-sort-user-truth-1";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=chain-only-authority-1";
 import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=text-generator-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=mesh-topology-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=chain-only-authority-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=changed-sort-user-truth-1";
 import { isModelMediaSource, sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=lightning-generator-1";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { CHAIN_TRANSFORM_PARAMS, chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=text-style-controls-1";
-import { MEDIA_FIT_PARAM, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=xray-outline-1";
+import { MEDIA_FIT_PARAM, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=model-wire-detail-2";
 import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { componentCardBarTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, selectablePillTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 
@@ -192,7 +192,7 @@ function significantChainControls(chain, options) {
     if (!significant.length && !transformControls) return "";
     const values = item.kind === "effect"
       ? item
-      : { params: { ...(item.source?.params || {}), ...(item.params || {}) } };
+      : { params: { ...(item.source?.params || {}) } };
     const contentControls = significant.length ? paramControlsTemplate(significant, {
       pathFor: (param) => significantParamUpdatePath({
         attrs,
@@ -218,13 +218,8 @@ function significantParamPath(paths, relativePath, paramId, source = false) {
 }
 
 function significantParamUpdatePath({ attrs, paths, relativePath, updatePath, paramId, source }) {
-  // Component editing persists source parameters on the source itself. Live
-  // keeps temporary source overrides on the chain item, where they can be
-  // discarded without mutating the authored source.
   const persistedSourcePath = `${relativePath}.source.params.${paramId}`;
-  if (source && attrs === "data-update" && paths.has(persistedSourcePath)) {
-    return `${updatePath}.source.params.${paramId}`;
-  }
+  if (source) return `${updatePath}.source.params.${paramId}`;
   return `${updatePath}.params.${paramId}`;
 }
 
@@ -267,7 +262,7 @@ function liveComponentControlsTemplate(component, view) {
     <div class="live-component-controls">
       ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
       <div class="live-component-transform-controls">
-        <span class="live-control-group-label">Transform</span>
+        <span class="live-control-group-label">Component placement</span>
         ${chainTransformControlsTemplate(view?.transform, "transform", { attrs: liveParamAttrs(component.id) })}
       </div>
       ${liveRangeTemplate("Opacity", component.id, "opacity", view?.opacity ?? 1)}
@@ -313,7 +308,7 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
   const views = chainParamViewDefinitions(
     primary,
     details,
-    chainTransformControlsTemplate(item.transform, `${path}.transform`, { attrs: liveParamAttrs(componentId) })
+    `<div class="soft-note">Transforms this element inside the component frame.</div>${chainTransformControlsTemplate(item.transform, `${path}.transform`, { attrs: liveParamAttrs(componentId) })}`
   );
   return `
     <section class="ui-section focus-panel chain-settings-panel live-chain-settings" aria-label="Selected live element parameters">
@@ -396,14 +391,11 @@ function liveShaderParamControlsTemplate(component, item, componentId, itemPath,
 
 function liveSourceParamControlsTemplate(item, componentId, itemPath, params = sourceLiveParams(item.source || {})) {
   if (!params.length) return "";
-  const values = {
-    ...(item.source?.params && typeof item.source.params === "object" ? item.source.params : {}),
-    ...(item.params && typeof item.params === "object" ? item.params : {}),
-  };
+  const values = item.source?.params && typeof item.source.params === "object" ? item.source.params : {};
   return `
     <div class="chain-param-list">
       ${paramControlsTemplate(params, {
-        pathFor: (param) => `${itemPath}.params.${param.id}`,
+        pathFor: (param) => `${itemPath}.source.params.${param.id}`,
         valueFor: (param) => normalizeParamValue(param, values[param.id]),
         attrs: liveParamAttrs(componentId),
       })}
@@ -412,7 +404,7 @@ function liveSourceParamControlsTemplate(item, componentId, itemPath, params = s
 }
 
 function sourceLiveParams(source = {}) {
-  if (source.type === "generator") return getGeneratorComponent(source.generatorId || "testPattern").params || [];
+  if (source.type === "generator") return getGeneratorComponent(source.generatorId).params || [];
   if (source.type === "media") {
     if (isModelMediaSource(source)) return MODEL_SOURCE_PARAMS;
     return [RENDER_QUALITY_PARAM, MEDIA_FIT_PARAM];

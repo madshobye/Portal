@@ -1,7 +1,7 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=mesh-topology-1";
+import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-scene-authority-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=model-qem-4";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=live-scene-authority-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project } from "../metrics/component-metrics.js?v=power-flicker-1";
@@ -9,15 +9,15 @@ import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEdi
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=adaptive-component-demand-29";
 import { componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=changed-sort-user-truth-1";
-import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=mesh-topology-1";
+import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=source-picker-filters-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=mesh-topology-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=mesh-topology-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=component-parent-placement-1";
 import { componentCardBarTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
-import { createClipboardController } from "./clipboard-controller.js?v=live-insertion-1";
-import { createModalController } from "./modal-controller.js?v=mesh-topology-1";
-import { createInputController } from "./input-controller.js?v=text-style-controls-1";
+import { createClipboardController } from "./clipboard-controller.js?v=chain-only-authority-1";
+import { createModalController } from "./modal-controller.js?v=source-picker-filters-1";
+import { createInputController } from "./input-controller.js?v=source-picker-filters-1";
 
 export function rememberParamViewSelections(scope, selections = new Map()) {
   for (const input of scope?.querySelectorAll?.(".chain-param-view-input:checked") || []) {
@@ -142,6 +142,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         render(state);
         return;
       }
+      if (change.structural) {
+        // Structural commands change the identity and destination of controls.
+        // They cannot wait behind a stale slider/text gesture hold: render on
+        // the next frame after the current DOM event has completed.
+        scheduleRenderNow(state, { force: true });
+        return;
+      }
       scheduleRender(state);
     });
   }
@@ -154,11 +161,17 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     scheduleRenderNow(state);
   }
 
-  function scheduleRenderNow(state) {
+  function scheduleRenderNow(state, { force = false } = {}) {
+    if (force) {
+      deferredRenderState = null;
+      renderPending = false;
+      if (deferredRenderTimer) clearTimeout(deferredRenderTimer);
+      deferredRenderTimer = 0;
+    }
     if (renderFrame) cancelAnimationFrame(renderFrame);
     renderFrame = requestAnimationFrame(() => {
       renderFrame = 0;
-      if (shouldDeferRender()) {
+      if (!force && shouldDeferRender()) {
         deferRender(latestState);
         return;
       }
@@ -536,17 +549,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function openOutputWindows(state, outputs = []) {
-    // Output windows have one scene authority: Live. Opening from Scene is an
-    // explicit request to take that Scene live before the popup is opened,
-    // rather than giving the popup a temporary private scene that the next
-    // ordinary Live update would immediately replace.
-    if (
-      state.ui.workspace === "scene" &&
-      state.ui.selectedSceneId &&
-      String(state.ui.live?.selectedSceneId || "") !== String(state.ui.selectedSceneId)
-    ) {
-      store.selectLiveScene(state.ui.selectedSceneId);
-    }
+    // Opening a display is infrastructure, not a Live performance command.
+    // The popup receives the existing Live program through the output bridge;
+    // editor selection must never change the program Scene as a side effect.
     for (const output of outputs) {
       window.open(
         buildOutputUrl("output", { outputId: output.id }),

@@ -206,6 +206,7 @@ export function routeSourceLookupKey(componentId = "", outputFrameId = "") {
 }
 
 export function componentSourceView(render = {}, component = {}, surface = {}, recordingFrames = [], recordingFrameById = null) {
+  const placementScale = Math.max(0.0001, Number(component?.transform?.scale) || 1);
   if (component.type === "canvas") {
     const logicalSize = {
       width: Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth),
@@ -220,7 +221,7 @@ export function componentSourceView(render = {}, component = {}, surface = {}, r
       maxRasterSize: canvasMaxRasterSize(render, logicalSize, component.resolutionScale),
       samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (recordingFrame
         ? Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE))
-        : 1),
+        : 1) * placementScale,
     };
   }
   const metrics = componentFrameMetrics(render, component);
@@ -229,7 +230,7 @@ export function componentSourceView(render = {}, component = {}, surface = {}, r
     logicalSize,
     sampleRect: { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height },
     maxRasterSize: componentAdaptiveRasterLimit(logicalSize),
-    samplingScale: Math.max(0.05, Number(metrics.resolutionScale) || 1),
+    samplingScale: Math.max(0.05, Number(metrics.resolutionScale) || 1) * placementScale,
   };
 }
 

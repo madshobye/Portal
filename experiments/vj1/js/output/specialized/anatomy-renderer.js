@@ -1,4 +1,4 @@
-import { clamp01 } from "../../domain/models.js?v=render-coordinate-scope-3";
+import { clamp01 } from "../../domain/models.js?v=chain-only-authority-1";
 
 function drawWithPolygonOffset(target, enabled, draw) {
   const gl = target?.drawingContext;

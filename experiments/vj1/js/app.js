@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=mesh-topology-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=model-qem-4";
+import { createAppState } from "./app-state.js?v=live-scene-authority-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=live-scene-authority-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
-import { createMediaLibrary } from "./services/media-library-service.js?v=model-lod-1";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=cold-backups-1";
+import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=chain-only-authority-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=component-transport-patch-1";
-import { installOutputApp } from "./output/output-app.js?v=model-qem-4";
+import { installOutputApp } from "./output/output-app.js?v=live-scene-authority-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 
 const root = document.getElementById("app");

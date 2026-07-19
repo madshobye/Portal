@@ -1,4 +1,4 @@
-import { applySceneSourceNode, resolveSceneSourceNode } from "../domain/models.js?v=render-coordinate-scope-3";
+import { applySceneSourceNode, resolveSceneSourceNode } from "../domain/models.js?v=chain-only-authority-1";
 import { touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-29";
 import { bindReorderList } from "./reorder-list.js";
 import { formatTrimTime, roundTrimTime } from "./component-view.js?v=madstodo-4";
@@ -121,7 +121,10 @@ export function createInputController({
       button.addEventListener("click", () => modals.openMediaPicker(button.dataset.mediaPath, button.dataset.mediaAccept || ""));
     });
     scope.querySelectorAll("[data-open-source-choice]").forEach((button) => {
-      button.addEventListener("click", () => modals.openSourceChoicePicker(button.dataset.openSourceChoice));
+      button.addEventListener("click", () => modals.openSourceChoicePicker(
+        button.dataset.openSourceChoice,
+        button.dataset.sourceChoiceCategory || ""
+      ));
     });
     scope.querySelectorAll("[data-set-component]").forEach((button) => {
       button.addEventListener("click", () => store.update((draft) => {

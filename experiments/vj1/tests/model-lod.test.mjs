@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import {
   buildAutomaticModelLods,
@@ -10,7 +11,25 @@ import {
   simplifyMeshByVertexClustering,
 } from "../js/output/specialized/model-lod.js";
 import { weldedMeshTopology } from "../js/output/specialized/model-meshoptimizer-simplifier.js";
+import {
+  deserializeDerivedModel,
+  modelDerivedCacheKey,
+  serializeDerivedModel,
+} from "../js/output/specialized/model-derived-cache.js";
 import { parseObjMesh, parseStlMesh } from "../js/output/specialized/model-parsers.js";
+import { parseObjPreviewMesh, parseStlPreviewMesh } from "../js/services/model-preview-service.js";
+
+test("slow model processing warns without cancelling the requested import", () => {
+  const source = readFileSync(new URL("../js/output/specialized/model-processing-client.js", import.meta.url), "utf8");
+  const slowHandler = source.slice(
+    source.indexOf("const slowWarning = setTimeout"),
+    source.indexOf("pending.set(requestId", source.indexOf("const slowWarning = setTimeout"))
+  );
+  assert.match(slowHandler, /VJ1_MODEL_PROCESSING_SLOW/);
+  assert.match(slowHandler, /still active/);
+  assert.doesNotMatch(slowHandler, /failWorker|reject\(/);
+  assert.doesNotMatch(source, /VJ1_MODEL_PROCESSING_TIMEOUT/);
+});
 
 test("binary STL parsing keeps triangles in compact typed storage", () => {
   const buffer = new ArrayBuffer(84 + 50);
@@ -52,6 +71,30 @@ test("model LOD demand is stricter for perceptual outlines", () => {
   assert.equal(
     modelLodTargetTriangles({ ...request, renderMode: "xrayOutline" }),
     modelLodTargetTriangles({ ...request, renderMode: "outline" })
+  );
+  assert.equal(
+    modelLodTargetTriangles({ ...request, renderMode: "outline", edgeBudget: 20000 }),
+    modelLodTargetTriangles({ ...request, width: 2560, height: 1440, renderMode: "outline", edgeBudget: 20000 }),
+    "2x resolution must not select more outline edges than the complete-edge budget can hold"
+  );
+  assert.ok(
+    modelLodTargetTriangles({ ...request, renderMode: "outline", edgeBudget: 50000 })
+      > modelLodTargetTriangles({ ...request, renderMode: "outline", edgeBudget: 20000 }),
+    "raising the explicit edge budget may select a denser outline LOD"
+  );
+});
+
+test("wire detail selects a complete resolution-independent construction mesh", () => {
+  const low = modelLodTargetTriangles({ width: 640, height: 360, renderMode: "wireframe", wireDetail: 0 });
+  const medium = modelLodTargetTriangles({ width: 640, height: 360, renderMode: "wireframe", wireDetail: 0.25 });
+  const high = modelLodTargetTriangles({ width: 640, height: 360, renderMode: "wireframe", wireDetail: 1 });
+  assert.equal(low, 3000);
+  assert.ok(medium > low && medium < high);
+  assert.equal(high, 25000);
+  assert.equal(
+    medium,
+    modelLodTargetTriangles({ width: 2560, height: 1440, renderMode: "wireframe", wireDetail: 0.25 }),
+    "render resolution must not replace the authored wire detail"
   );
 });
 
@@ -97,6 +140,38 @@ f 1 2 3 4
   assert.equal(modelTriangleCount(mesh), 2);
 });
 
+test("derived model cache round-trips progressive LOD geometry and rejects another source", () => {
+  const source = subdividedCubeMesh(12);
+  const mesh = buildAutomaticModelLods(source, [1200, 600, 300]);
+  const cacheKey = modelDerivedCacheKey({ type: "stl", sourceKey: "media/skull.stl:revision-a" });
+  const payload = serializeDerivedModel(mesh, cacheKey);
+  const restored = deserializeDerivedModel(payload, cacheKey);
+
+  assert.deepEqual(restored.lods.map(modelTriangleCount), mesh.lods.map(modelTriangleCount));
+  assert.equal(restored.sourceTriangleCount, mesh.sourceTriangleCount);
+  assert.ok(restored.lods.every((lod) => lod.derivedCache === true));
+  assert.deepEqual(Array.from(restored.lods.at(-1).positions.slice(0, 18)), Array.from(mesh.lods.at(-1).positions.slice(0, 18)));
+  assert.throws(() => deserializeDerivedModel(payload, `${cacheKey}:other-source`), /does not match/);
+});
+
+test("model thumbnails sample bounded geometry without entering automatic LOD generation", () => {
+  const vertices = [];
+  const faces = [];
+  for (let index = 0; index < 1000; index++) {
+    const base = index * 3 + 1;
+    vertices.push(`v ${index} 0 0`, `v ${index} 1 0`, `v ${index} 0 1`);
+    faces.push(`f ${base} ${base + 1} ${base + 2}`);
+  }
+  const objPreview = parseObjPreviewMesh(`${vertices.join("\n")}\n${faces.join("\n")}`, 64);
+  assert.equal(objPreview.triangleCount, 64);
+  assert.equal(objPreview.lods, undefined);
+
+  const stl = binaryStlWithTriangles(1000);
+  const stlPreview = parseStlPreviewMesh(stl, 48);
+  assert.equal(stlPreview.triangleCount, 48);
+  assert.equal(stlPreview.lods, undefined);
+});
+
 function gridMesh(size) {
   const triangleCount = (size - 1) * (size - 1) * 2;
   const positions = new Float32Array(triangleCount * 9);
@@ -123,6 +198,22 @@ function gridMesh(size) {
     bounds: { min: [0, 0, -1], max: [size - 1, size - 1, 1] },
     sourceBounds: { min: [0, 0, -1], max: [size - 1, size - 1, 1] },
   };
+}
+
+function binaryStlWithTriangles(count) {
+  const buffer = new ArrayBuffer(84 + count * 50);
+  const view = new DataView(buffer);
+  view.setUint32(80, count, true);
+  for (let triangle = 0; triangle < count; triangle++) {
+    const offset = 84 + triangle * 50;
+    const vertices = [[triangle, 0, 0], [triangle, 1, 0], [triangle, 0, 1]];
+    for (let corner = 0; corner < 3; corner++) {
+      for (let axis = 0; axis < 3; axis++) {
+        view.setFloat32(offset + 12 + corner * 12 + axis * 4, vertices[corner][axis], true);
+      }
+    }
+  }
+  return buffer;
 }
 
 function subdividedCubeMesh(size) {

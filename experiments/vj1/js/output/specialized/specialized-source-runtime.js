@@ -1,4 +1,4 @@
-import { clamp01 } from "../../domain/models.js?v=render-coordinate-scope-3";
+import { clamp01 } from "../../domain/models.js?v=chain-only-authority-1";
 import { createSharedFramebufferTarget, isSharedFramebufferTarget, unwrapRenderTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
 import { drawStandby } from "../generators.js?v=standby-grace-1";
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=instance-sync-60";
@@ -11,8 +11,8 @@ import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.j
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
 import { modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "./model-render-math.js?v=camera-focal-length-1";
 import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "./model-mesh-cache.js?v=model-lod-1";
-import { disposeRawModelItemResources, drawRawParsedModelMode } from "./raw-model-webgl-renderer.js?v=xray-outline-1";
-import { modelLodTargetTriangles, selectModelLod } from "./model-lod.js?v=model-qem-4";
+import { disposeRawModelItemResources, drawRawParsedModelMode } from "./raw-model-webgl-renderer.js?v=model-wire-detail-2";
+import { modelLodTargetTriangles, selectModelLod } from "./model-lod.js?v=model-wire-detail-2";
 import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=madstodo-4";
 import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER, imageFitUniform } from "./feature-morph-shader.js?v=render-core-contract-1";
 import { mobileNetMorphFieldForStrategy, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-4";
@@ -331,6 +331,8 @@ export class SpecializedSourceRuntime {
       height: renderRequest.height,
       renderMode,
       renderQuality: params.renderQuality,
+      edgeBudget: params.edgeBudget,
+      wireDetail: params.wireDetail,
     }));
     const gpuToken = this.gpuTimer.begin(target, this.frameIndex());
     try {

@@ -1805,8 +1805,7 @@ button.text-list-main:hover {
   font-size: 11px;
 }
 
-.video-source-controls,
-.model-source-controls {
+.video-source-controls {
   display: grid;
   gap: 8px;
   padding: 8px;
@@ -2095,11 +2094,13 @@ button.text-list-main:hover {
 .video-source-controls,
 .model-source-controls {
   display: grid;
+  min-width: 0;
   gap: 8px;
 }
 
 .model-param-list {
   display: grid;
+  min-width: 0;
   gap: 6px;
 }
 
@@ -2681,7 +2682,7 @@ button.text-list-main:hover {
 
 .element-modal {
   width: min(920px, calc(100vw - 32px));
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .settings-modal {
@@ -2824,6 +2825,44 @@ button.text-list-main:hover {
 
 .element-search-field input::placeholder {
   color: var(--muted);
+}
+
+.element-filter-bar {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  padding: 2px 0 4px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.element-filter-bar button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: var(--control);
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.element-filter-bar button .material-symbols-rounded {
+  font-size: 15px;
+}
+
+.element-filter-bar button:hover {
+  background: var(--control-hover);
+  color: var(--text);
+}
+
+.element-filter-bar button.is-active {
+  background: var(--accent-strong);
+  color: var(--text);
 }
 
 .component-filter-field {
@@ -2976,6 +3015,10 @@ button.text-list-main:hover {
 }
 
 .element-card.is-search-hidden {
+  display: none;
+}
+
+.element-card.is-filter-hidden {
   display: none;
 }
 

@@ -22,6 +22,7 @@ export const MODEL_SOURCE_PARAMS = [
   { id: "visibleDepth", label: "Visible depth", type: "number", min: 0.02, max: 1, step: 0.01, defaultValue: 1 },
   { id: "focalLength", label: "Focal length (mm)", type: "number", min: 8, max: 200, step: 0.1, defaultValue: 20.8 },
   { id: "wireThickness", label: "Wire thickness", type: "number", min: 0.5, max: 12, step: 0.1, defaultValue: 1 },
+  { id: "wireDetail", label: "Wire detail", type: "number", min: 0, max: 1, step: 0.01, defaultValue: 0.25 },
   { id: "edgeAngle", label: "Edge angle", type: "number", min: 0, max: 180, step: 1, defaultValue: 35 },
   { id: "edgeBudget", label: "Edge budget", type: "number", min: 1000, max: 50000, step: 1000, defaultValue: 20000 },
   { id: "pointBudget", label: "Point budget", type: "number", min: 500, max: 50000, step: 500, defaultValue: 4000 },

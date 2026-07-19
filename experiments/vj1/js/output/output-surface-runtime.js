@@ -1,5 +1,6 @@
-import { clamp01 } from "../domain/models.js?v=render-coordinate-scope-3";
+import { clamp01 } from "../domain/models.js?v=chain-only-authority-1";
 import { componentInstanceTime } from "./render-runtime-math.js?v=render-coordinate-scope-3";
+import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { applyBlend } from "./blend-utils.js";
 import { drawStandby } from "./generators.js?v=standby-grace-1";
 import {
@@ -7,7 +8,7 @@ import {
   cornersRect,
   directFitRects,
   scaledComponentSampleRect,
-} from "./component-render-layout.js?v=instance-sync-60";
+} from "./component-render-layout.js?v=component-parent-placement-1";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=render-diagnostics-1";
 import { planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
 import {
@@ -301,7 +302,7 @@ export class OutputSurfaceRuntime {
 
   canDirectProjectSurfaceRoute(route = {}, outputBlackout = false) {
     if (outputBlackout || this.renderer.shouldUseThumbnailPreview()) return false;
-    return !route.surface?.finalShaderChain?.length;
+    return !route.surface?.finalShaderChain?.length && isIdentityTransform(route.component?.transform);
   }
 
   renderSurfaceRouteView(route = {}) {
@@ -379,7 +380,7 @@ export class OutputSurfaceRuntime {
     applyBlend(target, surface.finalBlend);
     target.tint(255, 255 * clamp01(surface.opacity));
     const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, source);
-    drawSampleRect(target, source, sampleRect, 0, 0, target.width, target.height);
+    drawTransformedSampleRect(target, source, sampleRect, component?.transform);
     target.noTint();
     target.blendMode(BLEND);
     target.pop();
@@ -399,7 +400,7 @@ export class OutputSurfaceRuntime {
     target.tint(255, 255 * clamp01(surface.opacity));
     if (thumbnail?.ready && thumbnail.img) {
       const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, thumbnail.img);
-      drawSampleRect(target, thumbnail.img, sampleRect, 0, 0, target.width, target.height);
+      drawTransformedSampleRect(target, thumbnail.img, sampleRect, component?.transform);
     } else {
       const isLoading = !!component?.thumbnail;
       drawStandby(target, isLoading ? "loading thumbnail" : "no thumbnail", {
@@ -412,6 +413,17 @@ export class OutputSurfaceRuntime {
     target.blendMode(BLEND);
     target.pop();
   }
+}
+
+function drawTransformedSampleRect(target, source, sampleRect, transform = {}) {
+  const value = normalizedContentTransform(transform);
+  const placement = contentTransformCanvasPlacement(value, target.width, target.height);
+  target.push();
+  target.translate(placement.centerX, placement.centerY);
+  target.rotate(value.rotation);
+  target.scale(value.scale);
+  drawSampleRect(target, source, sampleRect, -target.width * 0.5, -target.height * 0.5, target.width, target.height);
+  target.pop();
 }
 
 function disposeGraphicsMap(map) {

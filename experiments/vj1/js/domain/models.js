@@ -1,8 +1,8 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=mesh-topology-1";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=chain-only-authority-1";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=project-storage-1";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=chain-only-authority-1";
 import {
   createOutputDefinition,
   normalizeCameraSettings,
@@ -17,7 +17,7 @@ import {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=changed-sort-user-truth-1";
+} from "./scene-routing.js?v=chain-only-authority-1";
 
 export {
   createOutputDefinition,
@@ -34,19 +34,18 @@ export {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=changed-sort-user-truth-1";
+} from "./scene-routing.js?v=chain-only-authority-1";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
 export function createDefaultComponent(index = 0, { empty = false } = {}) {
-  const source = createDefaultSource();
+  const initialSource = createDefaultSource();
   return {
     id: uid("component"),
     type: "chain",
     name: `Comp ${index + 1}`,
-    source,
     opacity: 1,
     blend: "normal",
     speed: 1,
@@ -54,8 +53,7 @@ export function createDefaultComponent(index = 0, { empty = false } = {}) {
     frameShape: "landscape",
     resolutionScale: 1,
     thumbnail: "",
-    chain: empty ? [] : [createComponentLayer(index, source)],
-    shaderChain: [],
+    chain: empty ? [] : [createComponentLayer(index, initialSource)],
     activity: createProjectActivity(),
   };
 }
@@ -68,7 +66,6 @@ export function createCanvasComponent(index = 0, sourceComponentId = "") {
     id,
     type: "canvas",
     name: `Canv ${index + 1}`,
-    source: { type: "generator", mediaId: "", generatorId: "black" },
     opacity: 1,
     blend: "normal",
     speed: 1,
@@ -77,7 +74,6 @@ export function createCanvasComponent(index = 0, sourceComponentId = "") {
     resolutionScale: 1,
     thumbnail: "",
     chain: sourceComponentId ? [createComponentLayer(0, { type: "component", componentId: sourceComponentId })] : [],
-    shaderChain: [],
     activity: createProjectActivity(),
     canvas: {
       width,
@@ -114,7 +110,6 @@ export function createComponentLayer(index = 0, source = { type: "generator", me
     opacity: 1,
     blend: "normal",
     transform: createDefaultTransform(),
-    params: {},
   };
 }
 
@@ -481,13 +476,16 @@ function clampNumber(value, min, max, fallback) {
 export function createLiveRenderState(state = createInitialState()) {
   const next = clone(state);
   const live = next.ui?.live || {};
-  const sceneId = live.selectedSceneId || next.scenes?.[0]?.id || "";
+  const sceneId = String(live.selectedSceneId || "");
   const scene = next.scenes?.find((item) => item.id === sceneId);
-  const programScene = live.sceneSnapshot
+  const programScene = scene && live.sceneSnapshot
     ? { id: sceneId, snapshot: live.sceneSnapshot }
     : scene;
   if (programScene) applySceneSnapshotToState(next, programScene);
-  next.ui.selectedSceneId = scene?.id || next.ui.selectedSceneId || "";
+  // selectedSceneId is retained for old rendering code that reads the
+  // materialized Scene, but it is derived only from explicit Live truth.
+  // Never copy the editor Scene into a render snapshot as a fallback.
+  next.ui.selectedSceneId = scene?.id || "";
   next.global.calibrating = false;
   applyLiveComponentOverrides(next, live.componentOverrides);
 
@@ -530,11 +528,6 @@ function applyLiveComponentOverrides(state, overrides = {}) {
         mergeComponentChainItemOverride(item, override.chain[index] || {})
       );
     }
-    if (Array.isArray(override.shaderChain)) {
-      component.shaderChain = component.shaderChain.map((pass, index) =>
-        mergeShaderPassOverride(pass, override.shaderChain[index] || {})
-      );
-    }
   }
 }
 
@@ -548,21 +541,16 @@ export function createLiveComponentView(component = {}, state = createInitialSta
     transform: override.transform && typeof override.transform === "object"
       ? normalizeTransform({ ...(component.transform || {}), ...override.transform })
       : normalizeTransform(component.transform),
-    chain: Array.isArray(component.chain)
-      ? component.chain.map((item, index) =>
-          mergeComponentChainItemOverride(item, override.chain?.[index] || {})
-        )
-      : [],
-    shaderChain: Array.isArray(component.shaderChain)
-      ? component.shaderChain.map((pass, index) =>
-          mergeShaderPassOverride(pass, override.shaderChain?.[index] || {})
-        )
-      : [],
+    chain: component.chain.map((item, index) =>
+      mergeComponentChainItemOverride(item, override.chain?.[index] || {})
+    ),
   };
 }
 
 function normalizeLiveUi(live = {}, state = createInitialState()) {
-  const normalizeComponentOverrides = (overrides = {}) => Object.fromEntries(Object.entries(overrides || {}).map(([id, override]) => [id, {
+  const normalizeComponentOverrides = (overrides = {}) => Object.fromEntries(Object.entries(overrides || {}).map(([id, override]) => {
+    const component = state.components?.find((entry) => String(entry.id) === String(id));
+    return [id, {
       ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
       ...(override.speed !== undefined ? { speed: Math.max(0, Number(override.speed) || 0) } : {}),
       ...(override.blend ? { blend: override.blend } : {}),
@@ -570,12 +558,10 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
         ? { transform: normalizeTransform(override.transform) }
         : {}),
       ...(Array.isArray(override.chain)
-        ? { chain: override.chain.map(normalizeLiveChainItemOverride) }
+        ? { chain: override.chain.map((item, index) => normalizeLiveChainItemOverride(item, component?.chain?.[index])) }
         : {}),
-      ...(Array.isArray(override.shaderChain)
-        ? { shaderChain: override.shaderChain.map(normalizeLiveShaderPassOverride) }
-        : {}),
-    }]));
+    }];
+  }));
   const selectedSceneId = live.selectedSceneId && state.scenes?.some((scene) => String(scene.id) === String(live.selectedSceneId))
     ? String(live.selectedSceneId)
     : state.scenes?.[0]?.id || "";
@@ -619,28 +605,21 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   };
 }
 
-function normalizeLiveChainItemOverride(item = {}) {
+function normalizeLiveChainItemOverride(item = {}, authoredItem = {}) {
   if (!item || typeof item !== "object") return {};
   const params = item.params && typeof item.params === "object" ? { ...item.params } : {};
+  const sourceParams = item.source?.params && typeof item.source.params === "object" ? { ...item.source.params } : {};
+  const isSource = authoredItem?.kind === "source" || !!item.source;
   return {
     ...(item.enabled !== undefined ? { enabled: item.enabled !== false } : {}),
     ...(item.collapsed !== undefined ? { collapsed: !!item.collapsed } : {}),
     ...(item.opacity !== undefined ? { opacity: clamp01(item.opacity) } : {}),
     ...(item.blend ? { blend: item.blend } : {}),
-    ...(Object.keys(params).length ? { params } : {}),
+    ...(!isSource && Object.keys(params).length ? { params } : {}),
+    ...(isSource && Object.keys(sourceParams).length ? { source: { params: sourceParams } } : {}),
     ...(item.amount !== undefined ? { amount: clamp01(item.amount) } : {}),
     ...(item.transform && typeof item.transform === "object" ? { transform: normalizeTransform(item.transform) } : {}),
-    ...(Array.isArray(item.chain) ? { chain: item.chain.map(normalizeLiveChainItemOverride) } : {}),
-  };
-}
-
-function normalizeLiveShaderPassOverride(pass = {}) {
-  const params = normalizeShaderPassParams(pass);
-  const hasParams = pass.params && typeof pass.params === "object";
-  return {
-    ...(pass.enabled !== undefined ? { enabled: pass.enabled !== false } : {}),
-    ...(hasParams || pass.amount !== undefined ? { params } : {}),
-    ...(pass.amount !== undefined ? { amount: params.amount } : {}),
+    ...(Array.isArray(item.chain) ? { chain: item.chain.map((child, index) => normalizeLiveChainItemOverride(child, authoredItem?.chain?.[index])) } : {}),
   };
 }
 
@@ -653,14 +632,13 @@ function normalizeComponents(input, base) {
 
 export function normalizeComponent(component = {}) {
   const fallback = createDefaultComponent(0);
-  const { enabled, ...componentData } = component;
+  const {
+    enabled,
+    source: _legacySource,
+    shaderChain: _legacyShaderChain,
+    ...componentData
+  } = component;
   const type = componentData.type === "canvas" ? "canvas" : "chain";
-  const source = normalizeSource({
-    ...componentData.source,
-    type: componentData.source?.type || fallback.source.type,
-    mediaId: componentData.source?.mediaId || "",
-    generatorId: componentData.source?.generatorId || fallback.source.generatorId,
-  });
   const chain = Array.isArray(componentData.chain) ? componentData.chain.map(normalizeComponentChainItem) : [];
   const canvas = type === "canvas" ? normalizeCanvasComponentData(componentData.canvas, componentData.id) : null;
   const canvasChain = chain;
@@ -670,7 +648,6 @@ export function normalizeComponent(component = {}) {
     type,
     id: componentData.id || uid("component"),
     name: componentData.name || fallback.name,
-    source,
     opacity: clamp01(componentData.opacity ?? fallback.opacity),
     speed: Math.max(0, Number(componentData.speed ?? fallback.speed) || 0),
     syncInstances: componentData.syncInstances !== false,
@@ -681,7 +658,6 @@ export function normalizeComponent(component = {}) {
     significantParams: Array.from(new Set((componentData.significantParams || []).filter((path) => typeof path === "string" && path))),
     activity: normalizeProjectActivity(componentData.activity, fallback.activity.createdAt),
     chain: canvasChain,
-    shaderChain: [],
     ...(type === "canvas" ? { canvas } : {}),
   };
 }
@@ -743,7 +719,10 @@ export function normalizeComponentChainItem(item = {}) {
       chain: Array.isArray(item.chain) ? item.chain.map(normalizeComponentChainItem) : [],
     };
   }
-  const source = normalizeSource(item.source || { type: "generator", generatorId: item.componentId || "testPattern" });
+  if (item.kind !== "source" || !item.source) {
+    throw new TypeError(`[VJ1_INVALID_CHAIN_ITEM] Expected source, effect, or group; received ${String(item.kind || "missing kind")}`);
+  }
+  const source = normalizeSource(item.source);
   const fallbackName = sourceLabel(source);
   return {
     id: item.id || uid("chain"),
@@ -755,7 +734,6 @@ export function normalizeComponentChainItem(item = {}) {
     opacity: clamp01(item.opacity ?? 1),
     blend: item.blend || "normal",
     transform: normalizeTransform(item.transform),
-    params: item.params && typeof item.params === "object" ? { ...item.params } : {},
   };
 }
 
@@ -820,20 +798,29 @@ export function createComponentEffect(id = "ripple", params = {}) {
   });
 }
 
-function normalizeSource(source = {}) {
+function normalizeSource(source) {
+  if (!source || typeof source !== "object" || !source.type) {
+    throw new TypeError("[VJ1_INVALID_SOURCE] A source node requires an explicit source.type");
+  }
+  if (source.type === "generator" && !source.generatorId) {
+    throw new TypeError("[VJ1_INVALID_SOURCE] A generator source requires generatorId");
+  }
+  if (!["generator", "media", "camera", "component", "black"].includes(source.type)) {
+    throw new TypeError(`[VJ1_INVALID_SOURCE] Unsupported source.type ${String(source.type)}`);
+  }
   const speed = clampNumber(source.speed, 0, 8, 1);
   const start = Math.max(0, Number(source.start) || 0);
   const end = Math.max(0, Number(source.end) || 0);
   const params = source.params && typeof source.params === "object" ? { ...source.params } : {};
-  const generatorSource = source.type === "generator" || !source.type
+  const generatorSource = source.type === "generator"
     ? createGeneratorSource(source.generatorId, params)
     : null;
   const placement = normalizeRelativePlacement(source.placement);
   return {
-    type: source.type || "generator",
+    type: source.type,
     mediaId: source.mediaId || "",
     componentId: source.componentId || "",
-    generatorId: generatorSource?.generatorId || source.generatorId || "testPattern",
+    generatorId: generatorSource?.generatorId || source.generatorId || "",
     start,
     end: end > start ? end : 0,
     speed,
@@ -861,7 +848,7 @@ function createDefaultSource() {
 }
 
 function sourceComponentId(source = {}) {
-  if (source.type === "generator") return source.generatorId || "testPattern";
+  if (source.type === "generator") return source.generatorId;
   if (source.type === "component") return "source.component";
   return `source.${source.type || "black"}`;
 }
@@ -945,8 +932,14 @@ function mergeComponentChainItemOverride(item = {}, override = {}) {
     ...(override.enabled !== undefined ? { enabled: override.enabled !== false } : {}),
     ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
     ...(override.blend ? { blend: override.blend } : {}),
-    ...(override.params && typeof override.params === "object"
-      ? { params: { ...(item.params && typeof item.params === "object" ? item.params : {}), ...override.params } }
+    ...(override.source?.params && typeof override.source.params === "object"
+      ? { source: {
+          ...(item.source || {}),
+          params: {
+            ...(item.source?.params && typeof item.source.params === "object" ? item.source.params : {}),
+            ...(override.source?.params && typeof override.source.params === "object" ? override.source.params : {}),
+          },
+        } }
       : {}),
     ...(override.transform && typeof override.transform === "object"
       ? { transform: normalizeTransform({ ...(item.transform || {}), ...override.transform }) }

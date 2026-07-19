@@ -1,5 +1,5 @@
 import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=text-generator-1";
-import { getGeneratorComponent } from "./generator-registry.js?v=mesh-topology-1";
+import { getGeneratorComponent } from "./generator-registry.js?v=chain-only-authority-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
 
 export function compileComponentPatch(component = {}, renderRequest = {}) {
@@ -117,10 +117,7 @@ function chainNodeForItem(component, item, index) {
     id: `${sourceComponent.id || "component"}:source:${index}:${item.id}`,
     role: "source",
     enabled: item.enabled !== false,
-    params: {
-      ...sourceParams(item.source),
-      ...item.params,
-    },
+    params: sourceParams(item.source),
     state: {
       source: item.source,
       layer: layerStateForItem(item),
@@ -275,7 +272,7 @@ function sourceComponentFor(source = {}) {
 function sourceParams(source = {}) {
   if (source.type === "generator") {
     return {
-      generatorId: source.generatorId || "testPattern",
+      generatorId: source.generatorId,
       ...(source.params && typeof source.params === "object" ? source.params : {}),
     };
   }

@@ -3,7 +3,7 @@ import {
   componentRenderInstanceKey,
   componentSourceView,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=instance-sync-60";
+} from "./component-render-layout.js?v=component-parent-placement-1";
 import {
   createRenderRequest,
   frameSize,

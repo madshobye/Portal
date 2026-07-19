@@ -624,7 +624,9 @@ const GENERATOR_COMPONENTS = Object.freeze(Object.fromEntries(
 ));
 
 export function getGeneratorComponent(id) {
-  return GENERATOR_COMPONENTS[id] || GENERATOR_COMPONENTS.testPattern;
+  const component = GENERATOR_COMPONENTS[id];
+  if (!component) throw new TypeError(`[VJ1_UNKNOWN_GENERATOR] Unknown generator ${String(id || "missing id")}`);
+  return component;
 }
 
 export function listGeneratorComponents() {

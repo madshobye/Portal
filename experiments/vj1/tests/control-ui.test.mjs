@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-utils.js";
-import { elementPickerTemplate } from "../js/control/picker-view.js";
+import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "../js/control/picker-view.js";
 import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState } from "../js/domain/models.js";
 import { previewFitSignature, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
@@ -103,6 +103,74 @@ test("media pickers defer image video and model resources until cards approach t
   assert.doesNotMatch(modalSource, /scheduleMediaPreviewUnload|mediaPreviewUnloadTimers/);
   assert.match(html, /class="media-preview-frame"/);
   assert.match(modalSource, /\[VJ1_MEDIA_PREVIEW_OBSERVER_UNAVAILABLE\]/);
+});
+
+test("element picker filters media and render elements by explicit category", () => {
+  const owner = { id: "canvas", type: "canvas", name: "Canvas", chain: [] };
+  const component = { id: "component", type: "chain", name: "Source", chain: [] };
+  const html = elementPickerTemplate({
+    components: [owner, component],
+    media: [
+      { id: "photo", name: "photo.png", path: "media/photo.png", type: "image" },
+      { id: "clip", name: "clip.mp4", path: "media/clip.mp4", type: "video" },
+      { id: "mesh", name: "mesh.obj", path: "media/mesh.obj", type: "model" },
+    ],
+  }, { componentId: owner.id, filter: "model" }, { getFile: () => null }, {
+    components: [owner, component],
+    sortMode: "recent",
+  });
+  const modalSource = readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8");
+
+  assert.equal(elementMediaCategory({ type: "image" }), "image");
+  assert.equal(elementMediaCategory({ type: "video" }), "video");
+  assert.equal(elementMediaCategory({ path: "media/shape.stl", type: "unknown" }), "model");
+  assert.match(html, /data-element-filter="image"/);
+  assert.match(html, /data-element-filter="video"/);
+  assert.match(html, /class="is-active" data-element-filter="model"/);
+  assert.match(html, /data-element-filter="generator"/);
+  assert.match(html, /data-element-filter="effect"/);
+  assert.match(html, /data-element-filter="component"/);
+  assert.match(html, /data-element-category="image" data-add-element-media="photo"/);
+  assert.match(html, /data-element-category="video" data-add-element-media="clip"/);
+  assert.match(html, /data-element-category="model" data-add-element-media="mesh"/);
+  assert.match(modalSource, /classList\.toggle\("is-filter-hidden"/);
+  assert.match(modalSource, /filter !== "all" && category !== filter/);
+});
+
+test("source chooser exposes category filters and model sources lock it to 3D", () => {
+  const state = {
+    components: [],
+    media: [
+      { id: "photo", name: "photo.png", path: "media/photo.png", type: "image" },
+      { id: "clip", name: "clip.mp4", path: "media/clip.mp4", type: "video" },
+      { id: "mesh", name: "mesh.stl", path: "media/mesh.stl", type: "model" },
+    ],
+    target: { source: { type: "media", mediaId: "mesh" } },
+  };
+  const general = sourceChoicePickerTemplate(state, { path: "target.source" }, { getFile: () => null });
+  assert.match(general, /data-element-filter="image"/);
+  assert.match(general, /data-element-filter="video"/);
+  assert.match(general, /data-element-filter="model"/);
+  assert.match(general, /data-element-filter="generator"/);
+  assert.match(general, /data-element-category="model" data-element-search-card=/);
+
+  const modelOnly = sourceChoicePickerTemplate(state, {
+    path: "target.source",
+    allowedCategory: "model",
+    filter: "model",
+  }, { getFile: () => null });
+  assert.match(modelOnly, /data-element-filter="model"[^>]*disabled/);
+  assert.match(modelOnly, /placeholder="Search 3D objects"/);
+  assert.match(modelOnly, /data-pick-source-media="mesh"/);
+  assert.doesNotMatch(modelOnly, /data-pick-source-media="photo"/);
+  assert.doesNotMatch(modelOnly, /data-pick-source-media="clip"/);
+  assert.doesNotMatch(modelOnly, /data-pick-source-generator/);
+  assert.doesNotMatch(modelOnly, /data-pick-source-camera/);
+
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
+  assert.match(style, /\.element-modal\s*\{[^}]*grid-template-rows:\s*auto auto auto minmax\(0, 1fr\)/s);
+  assert.match(index, /style\.css\?v=source-picker-filters-2/);
 });
 
 test("media refresh is explicit and never polls during rendering", () => {
@@ -457,6 +525,8 @@ test("deferred UI frames consume current user truth instead of captured snapshot
 
   assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]*?deferRender\(latestState\)[\s\S]*?render\(latestState\)/);
   assert.match(source, /function flushDeferredRender\(\)[\s\S]*?scheduleRenderNow\(latestState\)/);
+  assert.match(source, /if \(change\.structural\)[\s\S]*?scheduleRenderNow\(state, \{ force: true \}\)/);
+  assert.match(source, /function scheduleRenderNow\(state, \{ force = false \} = \{\}\)[\s\S]*?if \(!force && shouldDeferRender\(\)\)/);
 });
 
 test("Live parameter commits preserve inspector DOM identity and preview-owned drags avoid state echo", () => {
@@ -618,13 +688,21 @@ test("preview fitting is invalidated only by layout viewport or output geometry"
 });
 
 test("Live preview holds a new Scene and retimes its transition until media preparation completes", () => {
-  const current = { ui: { workspace: "live", selectedSceneId: "scene-a" } };
+  const current = { ui: { workspace: "live", selectedSceneId: "scene-being-edited", live: { selectedSceneId: "scene-a" } } };
   const incoming = {
-    ui: { workspace: "live", selectedSceneId: "scene-b" },
+    ui: { workspace: "live", selectedSceneId: "another-editor-scene", live: { selectedSceneId: "scene-b" } },
     liveTransition: { startedAtMs: 100, durationMs: 1000, fromState: current },
   };
   assert.equal(shouldPrepareEmbeddedLiveState(incoming, current), true);
-  assert.equal(shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, selectedSceneId: "scene-a" } }, current), false);
+  assert.equal(
+    shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, selectedSceneId: "scene-a" } }, current),
+    true,
+    "editor Scene selection must not alter Live preview routing"
+  );
+  assert.equal(
+    shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, live: { selectedSceneId: "scene-a" } } }, current),
+    false
+  );
   assert.equal(shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, workspace: "scene" } }, current), false);
   const retimed = retimeEmbeddedLiveTransition(incoming, 2500);
   assert.equal(retimed.liveTransition.startedAtMs, 2500);
@@ -752,13 +830,14 @@ test("parameter context menus are delegated across inspector replacements", () =
   assert.ok(!source.includes('scope.querySelectorAll("[data-param-context-path]").forEach'));
 });
 
-test("opening an output from Scene takes that Scene live before opening the Live-driven popup", () => {
+test("opening an output never changes the Live Scene", () => {
   const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
 
-  assert.ok(controllerSource.includes("store.selectLiveScene(state.ui.selectedSceneId);"));
   assert.ok(controllerSource.includes('buildOutputUrl("output", { outputId: output.id })'));
+  assert.ok(!controllerSource.includes("store.selectLiveScene(state.ui.selectedSceneId);"));
+  assert.ok(controllerSource.includes("Opening a display is infrastructure, not a Live performance command"));
   assert.ok(!controllerSource.includes("const initialSceneId ="));
   assert.ok(controllerSource.includes("store.selectLiveScene(button.dataset.liveScene)"));
   assert.ok(bridgeSource.includes("store.getLiveRenderState?.()"));
@@ -944,7 +1023,14 @@ test("3d model controls use full-width slider rows", () => {
   assert.ok(schemaSource.includes("Edge angle"));
   assert.ok(schemaSource.includes("Edge budget"));
   assert.ok(!modelControls.includes("field-pair"));
+  assert.ok(!modelControls.includes("<span>3D model</span>"));
   assert.ok(styleSource.includes(".model-param-list"));
+  assert.doesNotMatch(
+    styleSource,
+    /\.video-source-controls,\s*\.model-source-controls\s*\{[^}]*padding:/s,
+    "3d model controls must not inherit the video's nested card padding"
+  );
+  assert.match(styleSource, /\.model-param-list\s*\{[^}]*min-width:\s*0;/s);
 });
 
 test("seed params stay internal and are not rendered as sliders", () => {

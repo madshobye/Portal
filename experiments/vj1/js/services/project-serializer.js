@@ -1,4 +1,4 @@
-import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=project-storage-1";
+import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=chain-only-authority-1";
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
   return {

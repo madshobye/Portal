@@ -13,6 +13,7 @@ export function createChangeEvent(change = "change") {
   const parsed = parseReason(reason);
   const scope = supplied.scope || parsed.scope;
   const phase = supplied.phase || parsed.phase;
+  const structural = supplied.structural ?? isStructuralChange(reason);
   return Object.freeze({
     ...parsed,
     ...supplied,
@@ -21,8 +22,25 @@ export function createChangeEvent(change = "change") {
     topic: supplied.topic || parsed.topic,
     scope,
     history: supplied.history || historyPolicy(reason, scope, phase),
+    ...(structural ? { structural: true } : {}),
     projectRestore: supplied.projectRestore ?? parsed.projectRestore,
   });
+}
+
+const STRUCTURAL_CHANGE_PREFIXES = [
+  "add-component",
+  "remove-component",
+  "add-canvas-component",
+  "add-chain-",
+  "remove-chain-",
+  "reorder-chain",
+  "paste",
+  "cut",
+  "select-",
+];
+
+function isStructuralChange(reason) {
+  return STRUCTURAL_CHANGE_PREFIXES.some((prefix) => reason === prefix || reason.startsWith(prefix));
 }
 
 function historyPolicy(reason, scope, phase) {

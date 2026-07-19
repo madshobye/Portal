@@ -1,4 +1,4 @@
-import { collectProjectAssetFiles, isMediaFile, isShaderFile } from "./media-library-service.js?v=model-lod-1";
+import { collectProjectAssetFiles, isMediaFile, isShaderFile } from "./media-library-service.js?v=model-cache-2";
 import { RENDITION_DIR, RENDITION_ROOT, isMediaRenditionPath, mediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
 import {
   THUMBNAIL_DIR,
@@ -17,14 +17,14 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=lightning-generator-1";
-import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=project-storage-1";
-import { createChangeEvent } from "../domain/change-event.js?v=project-storage-1";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=chain-only-authority-1";
+import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=chain-only-authority-1";
+import { createChangeEvent } from "../domain/change-event.js?v=chain-only-authority-1";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-import { buildProjectPayload } from "./project-serializer.js?v=project-storage-1";
+import { buildProjectPayload } from "./project-serializer.js?v=chain-only-authority-1";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=project-storage-1";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=chain-only-authority-1";
 
 export const COLD_BACKUP_ROOT = "backups";
 export const COLD_BACKUP_INTERVAL = 500;

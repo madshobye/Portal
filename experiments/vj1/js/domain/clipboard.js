@@ -1,7 +1,7 @@
 import { clone, createSceneSurfaceSnapshot, syncLiveSnapshotFromScene, uid } from "./models.js?v=render-coordinate-scope-3";
 import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
-import { initializeLiveChainInsertion } from "./scene-routing.js?v=live-insertion-1";
+import { initializeLiveChainInsertion } from "./scene-routing.js?v=chain-only-authority-1";
 
 export const VJ1_CLIPBOARD_TYPE = "application/x-vj1-item";
 
@@ -135,7 +135,6 @@ function pasteMedia(draft, source, target) {
     opacity: 1,
     blend: "normal",
     transform: { x: 0, y: 0, scale: 1, rotation: 0 },
-    params: {},
     source: { type: "media", mediaId: source.id },
   }));
 }
@@ -168,7 +167,6 @@ function createComponentReferenceLayer(draft, canvas, source) {
     opacity: 1,
     blend: "normal",
     transform: { x: 0, y: 0, scale: 1, rotation: 0 },
-    params: {},
     source: {
       type: "component",
       componentId: source.id,

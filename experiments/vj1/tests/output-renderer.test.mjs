@@ -617,17 +617,16 @@ test("component post filters run after the upscale target", () => {
   assert.ok(source.includes('shaderProgram.setUniform("grayscaleAmount"'));
 });
 
-test("Live Component transform is a final full-frame GPU pass", () => {
+test("Live Component transform is placed by its parent instead of cropped into its own texture", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const renderStart = source.indexOf("  renderComponentForRequest(");
-  const pipelineStart = source.indexOf("  renderComponentOutputPipeline(");
-  const rootStart = source.indexOf("  renderComponentRootTransform(");
+  const surfaceSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
 
-  assert.ok(renderStart >= 0 && pipelineStart > renderStart && rootStart > pipelineStart);
-  assert.ok(source.includes("return this.renderComponentRootTransform(component, pipelined, outputRequest);"));
-  assert.ok(source.includes('passName: "Component transform"'));
-  assert.ok(source.includes('shaderProgram.setUniform("sourceUvMatrix", matrix)'));
-  assert.ok(source.includes('? LAYER_TRANSFORM_FRAGMENT_SHADER'));
+  assert.ok(source.includes("return pipelined;"));
+  assert.ok(!source.includes("renderComponentRootTransform("));
+  assert.ok(source.includes("transform: component.transform"));
+  assert.ok(source.includes("combineContentTransforms(source.contentTransform, dependency.transform)"));
+  assert.ok(surfaceSource.includes("drawTransformedSampleRect(target, source, sampleRect, component?.transform)"));
+  assert.ok(surfaceSource.includes("isIdentityTransform(route.component?.transform)"));
 });
 
 test("output resize keeps render buffers tied to configured frame size", () => {
@@ -829,7 +828,7 @@ test("paused previews contain thumbnails and canvas surface routes preserve samp
   const source = `${rendererSource}\n${surfaceSource}`;
   assert.ok(source.includes("const rect = this.componentPreviewRect(component);"));
   assert.ok(source.includes('if (component?.type === "canvas")'));
-  assert.ok(source.includes("drawSampleRect(target, thumbnail.img"));
+  assert.ok(source.includes("drawTransformedSampleRect(target, thumbnail.img"));
   assert.ok(source.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
 });
 

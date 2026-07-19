@@ -1,6 +1,6 @@
-import { uid } from "../domain/models.js?v=render-coordinate-scope-3";
+import { uid } from "../domain/models.js?v=chain-only-authority-1";
 import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
-import { createModelPreviewUrl } from "./model-preview-service.js?v=model-lod-1";
+import { createModelPreviewUrl } from "./model-preview-service.js?v=model-cache-2";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
@@ -9,6 +9,7 @@ const SHADER_RE = /\.(frag|glsl|fs)$/i;
 
 export function createMediaLibrary() {
   const files = new Map();
+  const sourceRevisions = new Map();
   const renditions = new Map();
   const previewUrls = new Map();
 
@@ -56,9 +57,10 @@ export function createMediaLibrary() {
           const meta = getMeta(file, path);
           if (files.get(meta.id) !== file) releasePreviewUrl(meta.id);
           files.set(meta.id, file);
+          sourceRevisions.set(meta.id, entry?.sourceRevision || mediaSourceRevision(file));
           media.push(meta);
           importedFiles.push(file);
-          const sourceRevision = mediaSourceRevision(file);
+          const sourceRevision = sourceRevisions.get(meta.id);
           for (const rendition of entry?.renditions || []) {
             if (!rendition?.key || !rendition?.file) continue;
             renditions.set(rendition.key, {
@@ -80,6 +82,7 @@ export function createMediaLibrary() {
       if (!id) return false;
       releasePreviewUrl(id);
       const removed = files.delete(id);
+      sourceRevisions.delete(id);
       for (const [key, entry] of renditions) {
         if (entry.mediaId === id) renditions.delete(key);
       }
@@ -117,8 +120,9 @@ export function createMediaLibrary() {
       return Array.from(files.entries()).map(([id, file]) => ({
         id,
         file,
+        sourceRevision: sourceRevisions.get(id) || mediaSourceRevision(file),
         renditions: Array.from(renditions.values())
-          .filter((entry) => entry.mediaId === id && entry.sourceRevision === mediaSourceRevision(file))
+          .filter((entry) => entry.mediaId === id && entry.sourceRevision === (sourceRevisions.get(id) || mediaSourceRevision(file)))
           .map((entry) => ({ ...entry })),
       }));
     },
@@ -130,7 +134,7 @@ export function createMediaLibrary() {
     },
     getRenditionsForMedia(mediaId) {
       const file = files.get(mediaId);
-      const sourceRevision = file ? mediaSourceRevision(file) : "";
+      const sourceRevision = file ? (sourceRevisions.get(mediaId) || mediaSourceRevision(file)) : "";
       return Array.from(renditions.values())
         .filter((entry) => entry.mediaId === mediaId && entry.sourceRevision === sourceRevision)
         .map((entry) => ({ ...entry }));
@@ -138,6 +142,7 @@ export function createMediaLibrary() {
     clear() {
       releasePreviewUrls();
       files.clear();
+      sourceRevisions.clear();
       renditions.clear();
     },
   };

@@ -1,9 +1,9 @@
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=video-active-ownership-1";
 import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
-import { graphicsToPngBlob } from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
-import { processObjModelText, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-qem-4";
-import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "./specialized/raw-model-webgl-renderer.js?v=model-lod-1";
+import { graphicsToPngBlob } from "./thumbnail-utils.js?v=chain-only-authority-1";
+import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
+import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "./specialized/raw-model-webgl-renderer.js?v=model-wire-detail-2";
 import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
 
 export class OutputMediaRuntime {
@@ -57,10 +57,11 @@ export class OutputMediaRuntime {
       const id = entry?.id || file?.relativePath || file?.webkitRelativePath || file?.name;
       if (!id || !file) continue;
       const fileKey = mediaFileFingerprint(file);
+      const sourceRevision = entry?.sourceRevision || mediaSourceRevision(file);
       let item = this.media.get(id);
-      if (!item || item.fileKey !== fileKey || item.loadError) {
+      if (!item || item.fileKey !== fileKey || item.sourceRevision !== sourceRevision || item.loadError) {
         if (item) disposeMediaRuntimeItem(item);
-        item = createMediaRuntimeItem(id, file);
+        item = createMediaRuntimeItem(id, file, sourceRevision);
         this.media.set(id, item);
       }
       this.importRenditions(item, entry?.renditions || []);
@@ -303,12 +304,12 @@ export function mediaFileFingerprint(file = {}) {
   return `${file.name || ""}:${file.size || 0}:${file.lastModified || 0}:${file.type || ""}`;
 }
 
-function createMediaRuntimeItem(id, file) {
+function createMediaRuntimeItem(id, file, sourceRevision = "") {
   return {
     id,
     file,
     fileKey: mediaFileFingerprint(file),
-    sourceRevision: mediaSourceRevision(file),
+    sourceRevision: sourceRevision || mediaSourceRevision(file),
     url: null,
     loadToken: 0,
     revision: 0,
@@ -337,6 +338,7 @@ function createMediaRuntimeItem(id, file) {
     modelOutlineFallbackLogged: false,
     modelRawRenderers: null,
     modelError: "",
+    loadStatus: "",
     imageRenditions: new Map(),
     imageRenditionOrder: [],
     persistedRenditions: new Map(),
@@ -357,6 +359,7 @@ function loadMediaItem(item, request = {}) {
     item.loading = false;
     item.ready = true;
     item.loadError = "";
+    item.loadStatus = "";
     item.revision++;
     return true;
   };
@@ -367,6 +370,7 @@ function loadMediaItem(item, request = {}) {
     if (item.loadError === message) return;
     item.ready = false;
     item.loadError = message;
+    item.loadStatus = "";
     item.revision++;
     console.error("[VJ1_MEDIA_LOAD_FAILED]", {
       id: item.id,
@@ -381,10 +385,12 @@ function loadMediaItem(item, request = {}) {
   } else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(item.id)) {
     loadRasterImage(item, request, { isCurrent, markReady, markError });
   } else if (/\.stl$/i.test(item.id)) {
+    item.loadStatus = "reading 3D model";
     item.file.arrayBuffer()
       .then((buffer) => {
         if (!isCurrent()) return;
-        return processStlModelBuffer(buffer);
+        item.loadStatus = "processing 3D model";
+        return processStlModelBuffer(buffer, { cacheKey: `${item.id}:${item.sourceRevision}` });
       })
       .then((mesh) => {
         if (!isCurrent() || !mesh) return;
@@ -398,10 +404,12 @@ function loadMediaItem(item, request = {}) {
         markError(error, "model load failed");
       });
   } else if (/\.obj$/i.test(item.id)) {
-    item.file.text()
-      .then((text) => {
+    item.loadStatus = "reading 3D model";
+    item.file.arrayBuffer()
+      .then((buffer) => {
         if (!isCurrent()) return;
-        return processObjModelText(text);
+        item.loadStatus = "processing 3D model";
+        return processObjModelBuffer(buffer, { cacheKey: `${item.id}:${item.sourceRevision}` });
       })
       .then((mesh) => {
         if (!isCurrent() || !mesh) return;
@@ -668,6 +676,7 @@ function unloadMediaRuntimeItem(item) {
   item.modelPerceptualWireVerticesKey = "";
   item.modelOutlineFallbackLogged = false;
   item.ready = false;
+  item.loadStatus = "";
   if (item.url) URL.revokeObjectURL(item.url);
   item.url = null;
   for (const url of item.renditionUrls?.values?.() || []) URL.revokeObjectURL(url);
@@ -769,8 +778,9 @@ function reportModelLods(item, mesh) {
   if (!sourceTriangles || levels.length <= 1) return;
   const sourceBoundaryEdges = Math.max(0, Number(mesh?.sourceBoundaryEdges) || 0);
   const sourceNonManifoldEdges = Math.max(0, Number(mesh?.sourceNonManifoldEdges) || 0);
-  console.info("[VJ1_MODEL_LOD_GENERATED]", {
+  console.info("[VJ1_MODEL_LOD_READY]", {
     id: item?.id || "",
+    source: mesh?.derivedCache ? "cache" : "generated",
     algorithm: mesh?.simplification || "unknown",
     sourceTriangles,
     levels,

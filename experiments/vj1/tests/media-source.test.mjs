@@ -126,6 +126,10 @@ test("every generator exposes the shared render quality budget at the current mi
   assert.equal(renderQualityScale({ renderQuality: 1 }), 1);
 });
 
+test("unknown generators fail instead of becoming Test Pattern", () => {
+  assert.throws(() => getGeneratorComponent("missing-generator"), /VJ1_UNKNOWN_GENERATOR/);
+});
+
 test("render quality preserves current work at midpoint and scales expensive work around it", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const request = { role: "component", width: 1280, height: 720 };
@@ -605,9 +609,11 @@ test("live source param overrides compile through node params", () => {
       [component.id]: {
         transform: { x: 0.25, y: -0.4, scale: 1.75, rotation: 0.3 },
         chain: [{
-          params: {
-            colorA: "#ff000080",
-            mode: "single",
+          source: {
+            params: {
+              colorA: "#ff000080",
+              mode: "single",
+            },
           },
         }],
       },
@@ -616,15 +622,16 @@ test("live source param overrides compile through node params", () => {
 
   const liveView = createLiveComponentView(component, state);
   assert.deepEqual(liveView.transform, { x: 0.25, y: -0.4, scale: 1.75, rotation: 0.3 });
-  assert.equal(liveView.chain[0].params.colorA, "#ff000080");
-  assert.equal(liveView.chain[0].params.mode, "single");
+  assert.equal(liveView.chain[0].source.params.colorA, "#ff000080");
+  assert.equal(liveView.chain[0].source.params.mode, "single");
+  assert.equal(liveView.chain[0].params, undefined);
 
   const patch = compileComponentPatch(liveView);
   const sourceNode = patch.nodes.find((node) => node.role === "source");
   assert.equal(sourceNode.params.colorA, "#ff000080");
   assert.equal(sourceNode.params.mode, "single");
 
-  const renderedSource = sourceWithNodeParams(liveView.chain[0].source, liveView.chain[0].params, liveView.chain[0].id);
+  const renderedSource = sourceWithNodeParams(liveView.chain[0].source, {}, liveView.chain[0].id);
   assert.equal(renderedSource.params.colorA, "#ff000080");
   assert.equal(renderedSource.params.mode, "single");
 
@@ -689,6 +696,33 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(sourceNode.params.wireThickness, 3.5);
   assert.equal(sourceNode.params.surfaceColor, "#3366ccaa");
   assert.equal(sourceNode.params.wireColor, "#ffcc00ff");
+});
+
+test("source params are canonical and chain-level params are discarded", () => {
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  const item = createComponentLayer(0, {
+    type: "media",
+    mediaId: "models/head.stl",
+    params: { surfaceColor: "#3366ccff" },
+  });
+  item.params = {
+    surfaceColor: "#ff0000ff",
+    wireColor: "#00ff00ff",
+  };
+  component.chain = [item];
+  state.components = [component];
+  state.media = [{ id: "models/head.stl", type: "model" }];
+
+  const normalized = sanitizeState(state);
+  const normalizedItem = normalized.components[0].chain[0];
+  assert.equal(normalizedItem.params, undefined);
+  assert.equal(normalizedItem.source.params.surfaceColor, "#3366ccff");
+  assert.equal(normalizedItem.source.params.wireColor, undefined);
+
+  const sourceNode = compileComponentPatch(normalized.components[0]).nodes.find((node) => node.role === "source");
+  assert.equal(sourceNode.params.surfaceColor, "#3366ccff");
+  assert.equal(sourceNode.params.wireColor, undefined);
 });
 
 test("obj parser triangulates polygon faces and supports negative indices", () => {
@@ -776,7 +810,8 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
   assert.ok(source.includes("const viewport = modelViewportMetrics(target, renderRequest);"));
   assert.ok(source.includes("target.camera?.(0, 0, viewport.cameraZ"));
   assert.ok(source.includes("const scale = viewport.unitScale * modelScale;"));
-  assert.ok(source.includes("const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);"));
+  assert.ok(source.includes("const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);"));
+  assert.ok(source.includes("(Number(target?.width) || 1) * density"));
   assert.ok(source.includes("gl.viewport(0, 0, drawingWidth, drawingHeight);"));
   assert.ok(source.includes("rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params))"));
   assert.ok(source.includes("target.perspective?.(modelCameraFov(params)"));
@@ -803,7 +838,7 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
   assert.ok(source.includes("function disposeRawModelContextResources("));
   assert.ok(source.includes("onContextDiscard: (gl) => this.resetModelResources(gl)"));
   assert.ok(!source.includes("modelRawRenderers ||= new WeakMap()"));
-  assert.ok(source.includes("return processObjModelText(text);"));
+  assert.ok(source.includes("return processObjModelBuffer(buffer, { cacheKey: `${item.id}:${item.sourceRevision}` });"));
   assert.ok(source.includes("item.modelData = mesh;"));
   assert.ok(source.includes("if (vModelDepth < uDepthCutoff) discard;"));
   assert.ok(source.includes("modelDepthCutoff(params, mesh.bounds, matrices.model)"));
@@ -820,7 +855,8 @@ test("renderer source extraction merges source node params", () => {
   const adapterSource = readFileSync(new URL("../js/output/component-patch-adapter.js", import.meta.url), "utf8");
 
   assert.ok(adapterSource.includes("sourceWithNodeParams(node.state.source, node.params || {}"));
-  assert.ok(source.includes("sourceWithNodeParams(item.source || component.source, item.params || {}, item.id)"));
+  assert.ok(source.includes("sourceWithNodeParams(item.source, {}, item.id)"));
+  assert.doesNotMatch(source, /component\.source/);
   assert.ok(adapterSource.includes("...generatorParams"));
   assert.ok(adapterSource.includes("...mediaParams"));
 });
@@ -830,7 +866,7 @@ test("live source controls use dynamic param metadata", () => {
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path, viewParams)"));
-  assert.ok(source.includes("getGeneratorComponent(source.generatorId || \"testPattern\").params"));
+  assert.ok(source.includes("getGeneratorComponent(source.generatorId).params"));
   assert.ok(source.includes("MODEL_SOURCE_PARAMS"));
   assert.ok(source.includes("paramControlsTemplate(params,"));
   assert.ok(parameterSource.includes("export function paramControlTemplate"));
@@ -945,8 +981,10 @@ test("output client holds current project state during control window refresh bo
 test("output defers a requested Live Scene and starts its transition at activation time", () => {
   const current = createInitialState();
   current.ui.selectedSceneId = "scene-a";
+  current.ui.live.selectedSceneId = "scene-a";
   const requested = structuredClone(current);
   requested.ui.selectedSceneId = "scene-b";
+  requested.ui.live.selectedSceneId = "scene-b";
   requested.liveTransition = { id: "transition", startedAtMs: 10, durationMs: 1000 };
 
   assert.equal(outputSceneId(requested), "scene-b");
@@ -958,11 +996,41 @@ test("output defers a requested Live Scene and starts its transition at activati
   assert.equal(requested.liveTransition.startedAtMs, 10);
 });
 
+test("output accepts an immediate Live Scene cut without waiting behind media preparation", () => {
+  const current = createInitialState();
+  current.ui.selectedSceneId = "scene-a";
+  current.ui.live.selectedSceneId = "scene-a";
+  const requested = structuredClone(current);
+  requested.ui.selectedSceneId = "scene-b";
+  requested.ui.live.selectedSceneId = "scene-b";
+  requested.liveTransition = undefined;
+
+  assert.equal(shouldPrepareLiveSceneState(requested, current, "output"), false);
+});
+
+test("output Scene identity follows Live rather than editor selection", () => {
+  const state = createInitialState();
+  state.ui.selectedSceneId = "scene-being-edited";
+  state.ui.live.selectedSceneId = "scene-on-air";
+
+  assert.equal(outputSceneId(state), "scene-on-air");
+});
+
+test("output Scene identity has no editor fallback during recovery", () => {
+  const state = createInitialState();
+  state.ui.selectedSceneId = "scene-being-edited";
+  state.ui.live.selectedSceneId = "";
+
+  assert.equal(outputSceneId(state), "");
+});
+
 test("a one-slot Scene queue transitions from the completed program target", () => {
   const sceneA = createInitialState();
   sceneA.ui.selectedSceneId = "scene-a";
+  sceneA.ui.live.selectedSceneId = "scene-a";
   const sceneB = structuredClone(sceneA);
   sceneB.ui.selectedSceneId = "scene-b";
+  sceneB.ui.live.selectedSceneId = "scene-b";
   sceneB.liveTransition = {
     id: "a-to-b",
     startedAtMs: 1000,
@@ -971,6 +1039,7 @@ test("a one-slot Scene queue transitions from the completed program target", () 
   };
   const latestRequested = structuredClone(sceneB);
   latestRequested.ui.selectedSceneId = "scene-d";
+  latestRequested.ui.live.selectedSceneId = "scene-d";
   latestRequested.ui.live.transitionDuration = 2;
   latestRequested.liveTransition = {
     id: "c-to-d",
@@ -1073,16 +1142,16 @@ test("dirty cache classifier keeps static photo chains cacheable and animated no
   assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain = [createComponentLayer(0, { type: "generator", generatorId: "anatomy" })];
-  component.chain[0].params = { part: "arm", spinY: 0 };
+  component.chain[0].source.params = { part: "arm", spinY: 0 };
   assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
-  component.chain[0].params = { part: "arm", spinY: 0.2 };
+  component.chain[0].source.params = { part: "arm", spinY: 0.2 };
   assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 
-  component.chain[0].params = { part: "heart", heartPulse: 0 };
+  component.chain[0].source.params = { part: "heart", heartPulse: 0 };
   assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
-  component.chain[0].params = { part: "heart", heartPulse: 0.35 };
+  component.chain[0].source.params = { part: "heart", heartPulse: 0.35 };
   assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 });
 
@@ -1099,7 +1168,7 @@ test("Canvas and ordinary components share dependency-aware static caching", () 
   const first = renderer.stableComponentSignature(canvas, request);
   assert.ok(first);
 
-  child.chain[0].params = { color1: "#ff0000" };
+  child.chain[0].source.params.colorA = "#ff0000ff";
   const changed = renderer.stableComponentSignature(canvas, request);
   assert.ok(changed);
   assert.notEqual(changed, first);
@@ -1116,16 +1185,16 @@ test("component runtime policies decide whether generators and effects need time
   const request = { role: "component", width: 640, height: 360 };
 
   const cloudy = createComponentLayer(0, { type: "generator", generatorId: "cloudyTunnel" });
-  cloudy.params = { speed: 0 };
+  cloudy.source.params = { speed: 0 };
   const grain = createComponentEffect("labelThresholdGrain");
   grain.params = { amount: 0.6, seedMode: "fixed", seed: 37 };
   component.chain = [cloudy, grain];
   assert.ok(renderer.stableComponentSignature(component, request));
 
-  cloudy.params.speed = 0.1;
+  cloudy.source.params.speed = 0.1;
   assert.equal(renderer.stableComponentSignature(component, request), "");
 
-  cloudy.params.speed = 0;
+  cloudy.source.params.speed = 0;
   grain.params.seedMode = "animated";
   assert.equal(renderer.stableComponentSignature(component, request), "");
 });
@@ -1209,7 +1278,7 @@ test("static source textures repaint only when their own source state changes", 
     renderer.renderComponentSourceItem(state.components[0], item, 1, request);
     assert.equal(paints, 1);
 
-    item.params = { fit: "cover" };
+    item.source.params.fit = "cover";
     renderer.renderComponentSourceItem(state.components[0], item, 2, request);
     assert.equal(paints, 2);
   } finally {

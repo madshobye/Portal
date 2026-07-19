@@ -17,12 +17,17 @@ test("component patch adapter translates graph nodes into renderer contracts", (
     kind: "generator",
     componentId: "noise",
     params: { scale: 2 },
+    state: { source: { type: "generator", generatorId: "noise" } },
   }), {
     type: "generator",
     generatorId: "noise",
     params: { scale: 2 },
     instanceId: "generator-node",
   });
+  assert.throws(
+    () => sourceFromPatchNode({ id: "invalid-source-node", kind: "generator" }),
+    /VJ1_INVALID_RENDER_NODE/
+  );
   assert.deepEqual(sourceWithNodeParams(
     { type: "media", mediaId: "image-a", params: { fit: "contain" } },
     { speed: 2, fit: "cover" },
@@ -42,7 +47,7 @@ test("component patch adapter translates graph nodes into renderer contracts", (
 test("output renderer delegates graph adaptation to one module", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./component-patch-adapter.js?v=shader-component-catalog-extraction-1"'));
+  assert.ok(rendererSource.includes('from "./component-patch-adapter.js?v=chain-only-authority-1"'));
   assert.doesNotMatch(rendererSource, /function sourceFromPatchNode\(/);
   assert.doesNotMatch(rendererSource, /function nodesInComponentChainOrder\(/);
   assert.doesNotMatch(rendererSource, /function sourceWithNodeParams\(/);

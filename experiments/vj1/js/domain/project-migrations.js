@@ -493,7 +493,7 @@ function migrateCanonicalComponent(component = {}, componentIndex = 0) {
   const canvas = component.canvas && typeof component.canvas === "object"
     ? Object.fromEntries(Object.entries(component.canvas).filter(([key]) => key !== "layers" && key !== "frames"))
     : component.canvas;
-  const { shaderChain: _shaderChain, ...current } = component;
+  const { source: _legacySource, shaderChain: _shaderChain, ...current } = component;
   return {
     ...current,
     ...(component.type === "canvas" ? { canvas } : {}),

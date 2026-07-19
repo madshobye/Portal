@@ -1,4 +1,4 @@
-import { chainPasteTarget, clipboardPayloadForTarget, VJ1_CLIPBOARD_TYPE } from "../domain/clipboard.js?v=live-insertion-1";
+import { chainPasteTarget, clipboardPayloadForTarget, VJ1_CLIPBOARD_TYPE } from "../domain/clipboard.js?v=chain-only-authority-1";
 import { isTextEditingNode } from "./dom-utils.js?v=preview-pointer-deferral-1";
 
 const VJ1_CLIPBOARD_TEXT_PREFIX = "VJ1_CLIPBOARD:";

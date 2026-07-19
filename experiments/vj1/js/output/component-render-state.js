@@ -5,7 +5,7 @@ export function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
 }
 
-export function staticComponentGraphState(component = {}, components = [], seen = new Set()) {
+export function staticComponentGraphState(component = {}, components = [], seen = new Set(), includeRootTransform = true) {
   if (!component?.id || seen.has(component.id)) return { id: component?.id || "", cycle: true };
   const nextSeen = new Set(seen);
   nextSeen.add(component.id);
@@ -14,9 +14,10 @@ export function staticComponentGraphState(component = {}, components = [], seen 
     .map((id) => staticComponentGraphState(
       components.find((item) => item.id === id) || { id, missing: true },
       components,
-      nextSeen
+      nextSeen,
+      true
     ));
-  return { ...staticComponentState(component), dependencies };
+  return { ...staticComponentState(component, includeRootTransform), dependencies };
 }
 
 export function staticComponentGraphMediaState(media = [], component = {}, components = [], seen = new Set()) {
@@ -117,19 +118,17 @@ export function isReadyMediaItem(item = {}) {
   return item.ready === true;
 }
 
-function staticComponentState(component = {}) {
+function staticComponentState(component = {}, includeTransform = true) {
   return {
     id: component.id || "",
     type: component.type || "component",
     frameShape: component.frameShape || "landscape",
     resolutionScale: Number(component.resolutionScale) || 1,
-    transform: normalizedStaticTransform(component.transform),
+    ...(includeTransform ? { transform: normalizedStaticTransform(component.transform) } : {}),
     canvas: component.type === "canvas" ? {
       width: Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth),
       height: Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight),
     } : null,
-    source: staticSourceState(component.source),
-    shaderChain: staticEffectChainState(component.shaderChain || []),
     chain: staticChainState(component.chain || []),
   };
 }
@@ -146,7 +145,6 @@ function normalizedStaticTransform(transform = {}) {
 function collectComponentGraphMediaIds(component = {}, components = [], ids = new Set(), seen = new Set()) {
   if (!component?.id || seen.has(component.id)) return ids;
   seen.add(component.id);
-  collectMediaIdsFromSource(component.source, ids);
   collectMediaIdsFromChain(component.chain || [], ids);
   for (const dependencyId of componentDependencyIds(component)) {
     const dependency = components.find((item) => item.id === dependencyId);
@@ -157,7 +155,6 @@ function collectComponentGraphMediaIds(component = {}, components = [], ids = ne
 
 function componentDependencyIds(component = {}) {
   const ids = new Set();
-  collectComponentIdsFromSource(component.source, ids);
   collectComponentIdsFromChain(component.chain || [], ids);
   return ids;
 }
@@ -193,22 +190,11 @@ function staticChainState(chain = []) {
       kind: item.kind || "source",
       enabled: item.enabled !== false,
       source: staticSourceState(item.source),
-      params: item.params || {},
       transform: item.transform || {},
       opacity: item.opacity ?? 1,
       blend: item.blend || "normal",
     };
   });
-}
-
-function staticEffectChainState(chain = []) {
-  return (chain || []).map((pass) => ({
-    id: pass.id || pass.componentId || "",
-    enabled: pass.enabled !== false,
-    amount: pass.amount,
-    params: pass.params || {},
-    transform: pass.transform || {},
-  }));
 }
 
 export function staticSourceState(source = {}) {

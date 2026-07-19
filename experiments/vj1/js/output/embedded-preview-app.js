@@ -1,5 +1,5 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=model-qem-4";
+import { OutputRenderer } from "./output-renderer.js?v=component-parent-placement-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
@@ -676,7 +676,11 @@ export function retimeEmbeddedLiveTransition(state, startedAtMs = Date.now() + 5
 }
 
 function previewSceneId(state) {
-  return String(state?.ui?.selectedSceneId || state?.ui?.live?.selectedSceneId || "");
+  // A Live preview follows program state, never the Scene currently open in
+  // another editor workspace. Non-Live callers use the editor Scene.
+  return String(state?.ui?.workspace === "live"
+    ? state?.ui?.live?.selectedSceneId || ""
+    : state?.ui?.selectedSceneId || "");
 }
 
 export function mediaFilesSignatureFor(entries = []) {

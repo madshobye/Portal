@@ -1,4 +1,4 @@
-import { collectMediaIdsFromSource, createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=scene-media-gate-1";
+import { collectMediaIdsFromSource, createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=chain-only-authority-1";
 
 export function collectOutputMediaReadiness({ mode = "output", state = null, media = new Map(), acquireMedia = null } = {}) {
   const status = createMediaReadinessStatus();
@@ -15,11 +15,7 @@ export function collectOutputMediaReadiness({ mode = "output", state = null, med
 function collectComponentMediaReadiness(component, status, componentsById, media, visited, acquireMedia) {
   if (!component || !status || visited.has(component.id)) return;
   visited.add(component.id);
-  if (Array.isArray(component.chain) && component.chain.length) {
-    collectChainMediaReadiness(component.chain, status, componentsById, media, visited, acquireMedia);
-  } else {
-    collectSourceMediaReadiness(component.source, status, media, acquireMedia);
-  }
+  collectChainMediaReadiness(component.chain || [], status, componentsById, media, visited, acquireMedia);
   visited.delete(component.id);
 }
 

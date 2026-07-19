@@ -1,6 +1,6 @@
 import { buildMeshoptimizerLods, indexedMeshToTriangleSoup } from "./model-meshoptimizer-simplifier.js?v=model-qem-4";
 
-export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([120000, 80000, 50000, 25000, 12000]);
+export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([120000, 80000, 50000, 25000, 12000, 6000, 3000]);
 
 export function modelTriangleCount(mesh = {}) {
   if (Number.isFinite(Number(mesh.triangleCount))) return Math.max(0, Math.floor(Number(mesh.triangleCount)));
@@ -107,13 +107,32 @@ export function selectModelLod(mesh = {}, targetTriangles = Infinity) {
   return selected;
 }
 
-export function modelLodTargetTriangles({ width = 1, height = 1, renderMode = "surface", renderQuality = 0.5 } = {}) {
+export function modelLodTargetTriangles({ width = 1, height = 1, renderMode = "surface", renderQuality = 0.5, edgeBudget = 20000, wireDetail = 0.25 } = {}) {
   const pixels = Math.max(1, Number(width) || 1) * Math.max(1, Number(height) || 1);
   const quality = 0.45 + Math.max(0, Math.min(1, Number(renderQuality) || 0)) * 1.1;
-  const pixelsPerTriangle = renderMode === "outline" || renderMode === "surfaceOutline" || renderMode === "xrayOutline"
+  const perceptualOutline = renderMode === "outline" || renderMode === "surfaceOutline" || renderMode === "xrayOutline";
+  const constructionWire = renderMode === "wireframe" || renderMode === "surfaceWire";
+  if (constructionWire) {
+    // Wireframe must use every edge of one coherent LOD. Sampling isolated
+    // edges from a denser mesh produces disconnected rectangular confetti.
+    const detail = Math.max(0, Math.min(1, Number(wireDetail) || 0));
+    return Math.round(3000 + detail * 22000);
+  }
+  const pixelsPerTriangle = perceptualOutline
     ? 20
-    : renderMode === "wireframe" || renderMode === "surfaceWire" ? 12 : 6;
-  return Math.max(12000, Math.min(120000, Math.round((pixels / pixelsPerTriangle) * quality)));
+    : 6;
+  const rasterTarget = Math.max(12000, Math.min(120000, Math.round((pixels / pixelsPerTriangle) * quality)));
+  if (!perceptualOutline) return rasterTarget;
+
+  // A closed triangle mesh has roughly 1.5 unique edges per triangle. The
+  // perceptual outline buffer must contain complete edges: choosing a denser
+  // LOD and then taking every Nth edge turns silhouettes into dotted lines.
+  // Cap outline geometry by its edge budget so changing render resolution
+  // cannot silently switch from continuous contours to sampled fragments.
+  const completeEdgeTriangleBudget = Math.max(1000, Math.floor(
+    Math.max(1000, Math.min(50000, Number(edgeBudget) || 20000)) / 1.6
+  ));
+  return Math.min(rasterTarget, completeEdgeTriangleBudget);
 }
 
 function cloneMeshReference(mesh) {

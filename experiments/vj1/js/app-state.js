@@ -17,14 +17,14 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=mesh-topology-1";
+} from "./domain/models.js?v=live-scene-authority-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { VJ1, WORKSPACES } from "./constants.js";
-import { createChangeEvent } from "./domain/change-event.js?v=project-storage-1";
+import { createChangeEvent } from "./domain/change-event.js?v=chain-only-authority-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
-import { pasteClipboardPayload } from "./domain/clipboard.js?v=live-insertion-1";
-import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-insertion-output-1";
+import { pasteClipboardPayload } from "./domain/clipboard.js?v=chain-only-authority-1";
+import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=chain-only-authority-1";
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());
@@ -552,7 +552,7 @@ function reconcileLiveOverridesWithPersistentEdits(previous, next) {
 
 function pruneChangedLiveOverride(override, before, after, path = "") {
   if (Array.isArray(override)) {
-    if (path !== "chain" && path !== "shaderChain") {
+    if (path !== "chain") {
       return persistentValuesEqual(before, after) ? clone(override) : undefined;
     }
     const result = override.map((entry, index) => (

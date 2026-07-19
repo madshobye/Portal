@@ -18,6 +18,12 @@ export function modelWireThickness(params = {}) {
   return Math.max(0.5, Math.min(12, Number(params.wireThickness) || 1));
 }
 
+// Perceptual outlines describe the object's visual contour and need slightly
+// more weight than construction wireframe edges at the same user setting.
+export function modelOutlineThickness(params = {}) {
+  return modelWireThickness(params) * 1.35;
+}
+
 // Perspective uses the vertical dimension of a 36x24 mm full-frame sensor.
 // The 20.8 mm default reproduces VJ1's original 60-degree vertical field of view.
 export function modelCameraFov(params = {}) {

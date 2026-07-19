@@ -1,4 +1,4 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=mesh-topology-1";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=chain-only-authority-1";
 import { listShaderComponents } from "../shaders/shader-registry.js?v=power-flicker-1";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 
@@ -39,8 +39,13 @@ export function generatorIcon(id) {
 
 export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
   const source = currentSourceValue(picker, state);
-  const mediaItems = state.media || [];
+  const allowedCategory = picker?.allowedCategory || "";
+  const allMediaItems = state.media || [];
+  const mediaItems = allowedCategory
+    ? allMediaItems.filter((item) => elementMediaCategory(item) === allowedCategory)
+    : allMediaItems;
   const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
+  const sourceFilter = allowedCategory || picker?.filter || "all";
   return `
     <div class="modal-backdrop"></div>
     <section class="modal-panel element-modal" role="dialog" aria-modal="true" aria-label="Choose source">
@@ -54,25 +59,27 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
 
       <label class="element-search-field">
         ${icon("search")}
-        <input type="search" data-element-search placeholder="Search media and generators" autocomplete="off" />
+        <input type="search" data-element-search placeholder="${allowedCategory === "model" ? "Search 3D objects" : "Search media and generators"}" autocomplete="off" />
       </label>
+
+      ${sourceFilterBarTemplate({ active: sourceFilter, mediaItems: allMediaItems, allowedCategory })}
 
       <div class="element-modal-body">
         <section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
           <div class="element-grid media-element-grid">
             ${mediaItems.length ? mediaItems.map((item) => sourceMediaCardTemplate(item, source, mediaLibrary)).join("") : `
-              <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
+              <div class="soft-note">${allowedCategory === "model" ? "No 3D objects are available. Add an OBJ or STL file to the project folder." : "Drop image, video, or 3D model files into the browser, or add them to the project folder."}</div>
             `}
           </div>
           <div class="soft-note" data-element-empty hidden>No matching media.</div>
         </section>
 
-        <section class="ui-section element-section" data-element-section>
+        ${allowedCategory ? "" : `<section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
           <div class="element-grid compact-element-grid">
             ${generators.map((generator) => `
-              <button type="button" class="element-card ${source.type === "generator" && source.generatorId === generator.id ? "is-selected" : ""}" data-pick-source-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
+              <button type="button" class="element-card ${source.type === "generator" && source.generatorId === generator.id ? "is-selected" : ""}" data-pick-source-generator="${esc(generator.id)}" data-element-category="generator" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
                 ${icon(generatorIcon(generator.id))}
                 <strong>${esc(generator.label || generator.name)}</strong>
                 <small>generator</small>
@@ -80,24 +87,24 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
             `).join("")}
           </div>
           <div class="soft-note" data-element-empty hidden>No matching generators.</div>
-        </section>
+        </section>`}
 
-        <section class="ui-section element-section" data-element-section>
+        ${allowedCategory ? "" : `<section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">input</span><span>Other sources</span></div>
           <div class="element-grid compact-element-grid">
-            <button type="button" class="element-card ${source.type === "camera" ? "is-selected" : ""}" data-pick-source-camera data-element-search-card="live camera portal camera feed video input">
+            <button type="button" class="element-card ${source.type === "camera" ? "is-selected" : ""}" data-pick-source-camera data-element-category="live" data-element-search-card="live camera portal camera feed video input">
               ${icon("photo_camera")}
               <strong>Live camera</strong>
               <small>Portal camera feed</small>
             </button>
-            <button type="button" class="element-card ${source.type === "black" ? "is-selected" : ""}" data-pick-source-black data-element-search-card="black empty blank source">
+            <button type="button" class="element-card ${source.type === "black" ? "is-selected" : ""}" data-pick-source-black data-element-category="blank" data-element-search-card="black empty blank source">
               ${icon("radio_button_unchecked")}
               <strong>Black</strong>
               <small>Empty black source</small>
             </button>
           </div>
           <div class="soft-note" data-element-empty hidden>No matching sources.</div>
-        </section>
+        </section>`}
         <div class="soft-note" data-element-no-results hidden>No matching sources.</div>
       </div>
     </section>
@@ -108,7 +115,7 @@ function sourceMediaCardTemplate(item, source, mediaLibrary) {
   const hasPreview = mediaHasLazyPreview(item, mediaLibrary);
   const selected = source.type === "media" && source.mediaId === item.id;
   return `
-    <button type="button" class="element-card media-element-card ${selected ? "is-selected" : ""}" data-pick-source-media="${esc(item.id)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
+    <button type="button" class="element-card media-element-card ${selected ? "is-selected" : ""}" data-pick-source-media="${esc(item.id)}" data-element-category="${elementMediaCategory(item)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
       ${hasPreview
         ? mediaPreviewElementTemplate(item)
         : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
@@ -116,6 +123,32 @@ function sourceMediaCardTemplate(item, source, mediaLibrary) {
       <small>${esc(item.type)}</small>
     </button>
   `;
+}
+
+function sourceFilterBarTemplate({ active = "all", mediaItems = [], allowedCategory = "" } = {}) {
+  if (allowedCategory) {
+    const label = allowedCategory === "model" ? "3D" : allowedCategory;
+    const filterIcon = allowedCategory === "model" ? "deployed_code" : "filter_alt";
+    return `<nav class="element-filter-bar" aria-label="Allowed source type">
+      <button type="button" class="is-active" data-element-filter="${esc(allowedCategory)}" aria-pressed="true" disabled>${icon(filterIcon)}<span>${esc(label)}</span></button>
+    </nav>`;
+  }
+  const availableMedia = new Set(mediaItems.map(elementMediaCategory));
+  const filters = [
+    ["all", "All", "apps"],
+    ...(availableMedia.has("image") ? [["image", "Images", "image"]] : []),
+    ...(availableMedia.has("video") ? [["video", "Videos", "movie"]] : []),
+    ...(availableMedia.has("model") ? [["model", "3D", "deployed_code"]] : []),
+    ["generator", "Generators", "auto_awesome"],
+    ["live", "Live", "photo_camera"],
+    ["blank", "Blank", "radio_button_unchecked"],
+  ];
+  const validActive = filters.some(([id]) => id === active) ? active : "all";
+  return `<nav class="element-filter-bar" aria-label="Filter source types">
+    ${filters.map(([id, label, filterIcon]) => `
+      <button type="button" class="${id === validActive ? "is-active" : ""}" data-element-filter="${id}" aria-pressed="${id === validActive}">${icon(filterIcon)}<span>${label}</span></button>
+    `).join("")}
+  </nav>`;
 }
 
 export function elementPickerTemplate(state, picker, mediaLibrary, componentCatalog = {}) {
@@ -143,6 +176,12 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
         <input type="search" data-element-search placeholder="Search media, generators, effects" autocomplete="off" />
       </label>
 
+      ${elementFilterBarTemplate({
+        active: picker.filter || "all",
+        mediaItems,
+        hasComponents: components.length > 0,
+      })}
+
       <div class="element-modal-body">
         ${components.length ? `<section class="ui-section element-section" data-element-section>
           <div class="element-section-heading">
@@ -151,7 +190,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
           </div>
           <div class="element-grid media-element-grid">
             ${components.map((component) => `
-              <button type="button" class="element-card media-element-card" data-add-element-component="${esc(component.id)}" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
+              <button type="button" class="element-card media-element-card" data-add-element-component="${esc(component.id)}" data-element-category="component" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
                 ${thumbnailTemplate(component.thumbnail)}
                 <strong>${esc(component.name)}</strong>
                 <small>component</small>
@@ -174,7 +213,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
         <section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">videocam</span><span>Live input</span></div>
           <div class="element-grid compact-element-grid">
-            <button type="button" class="element-card" data-add-element-camera data-element-search-card="live camera portal camera feed video input">
+            <button type="button" class="element-card" data-element-category="live" data-add-element-camera data-element-search-card="live camera portal camera feed video input">
               ${icon("photo_camera")}
               <strong>Live camera</strong>
               <small>Portal camera feed</small>
@@ -186,7 +225,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
         <section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Structure</span></div>
           <div class="element-grid compact-element-grid">
-            <button type="button" class="element-card" data-add-element-group data-element-search-card="group folder chain nested structure">
+            <button type="button" class="element-card" data-element-category="group" data-add-element-group data-element-search-card="group folder chain nested structure">
               ${icon("account_tree")}
               <strong>Group</strong>
               <small>nested chain</small>
@@ -199,7 +238,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
           <div class="element-grid compact-element-grid">
             ${generators.map((generator) => `
-              <button type="button" class="element-card" data-add-element-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
+              <button type="button" class="element-card" data-element-category="generator" data-add-element-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
                 ${icon(generatorIcon(generator.id))}
                 <strong>${esc(generator.label || generator.name)}</strong>
                 <small>generator</small>
@@ -213,7 +252,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
           <div class="element-grid compact-element-grid">
             ${effects.map((shader) => `
-              <button type="button" class="element-card" data-add-element-effect="${esc(shader.id)}" data-element-search-card="${esc(elementSearchText(shader.id, shader.name, shader.category, "effect"))}">
+              <button type="button" class="element-card" data-element-category="effect" data-add-element-effect="${esc(shader.id)}" data-element-search-card="${esc(elementSearchText(shader.id, shader.name, shader.category, "effect"))}">
                 ${icon(effectIcon(shader.id))}
                 <strong>${esc(shader.name)}</strong>
                 <small>${esc(shader.category || "effect")}</small>
@@ -225,6 +264,31 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
         <div class="soft-note" data-element-no-results hidden>No matching elements.</div>
       </div>
     </section>
+  `;
+}
+
+function elementFilterBarTemplate({ active = "all", mediaItems = [], hasComponents = false } = {}) {
+  const availableMedia = new Set(mediaItems.map(elementMediaCategory));
+  const filters = [
+    ["all", "All", "apps"],
+    ...(availableMedia.has("image") ? [["image", "Images", "image"]] : []),
+    ...(availableMedia.has("video") ? [["video", "Videos", "movie"]] : []),
+    ...(availableMedia.has("model") ? [["model", "3D", "deployed_code"]] : []),
+    ["generator", "Generators", "auto_awesome"],
+    ["effect", "Effects", "blur_on"],
+    ...(hasComponents ? [["component", "Components", "account_tree"]] : []),
+    ["live", "Live", "photo_camera"],
+    ["group", "Groups", "folder"],
+  ];
+  const validActive = filters.some(([id]) => id === active) ? active : "all";
+  return `
+    <nav class="element-filter-bar" aria-label="Filter element types">
+      ${filters.map(([id, label, filterIcon]) => `
+        <button type="button" class="${id === validActive ? "is-active" : ""}" data-element-filter="${id}" aria-pressed="${id === validActive}" ${id === "model" ? 'title="3D models (OBJ and STL)"' : ""}>
+          ${icon(filterIcon)}<span>${label}</span>
+        </button>
+      `).join("")}
+    </nav>
   `;
 }
 
@@ -247,7 +311,7 @@ function componentPickerSortTemplate(activeMode = "recent") {
 function elementMediaCardTemplate(item, mediaLibrary) {
   const hasPreview = mediaHasLazyPreview(item, mediaLibrary);
   return `
-    <button type="button" class="element-card media-element-card" data-add-element-media="${esc(item.id)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
+    <button type="button" class="element-card media-element-card" data-element-category="${elementMediaCategory(item)}" data-add-element-media="${esc(item.id)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
       ${hasPreview
         ? mediaPreviewElementTemplate(item)
         : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
@@ -255,6 +319,12 @@ function elementMediaCardTemplate(item, mediaLibrary) {
       <small>${esc(item.type)}</small>
     </button>
   `;
+}
+
+export function elementMediaCategory(item = {}) {
+  if (item.type === "video") return "video";
+  if (item.type === "model" || /\.(obj|stl)$/i.test(String(item.path || item.name || ""))) return "model";
+  return "image";
 }
 
 function elementSearchText(...parts) {

@@ -386,5 +386,5 @@ function stableGeometryId(id = "") {
 }
 
 function boundedBudget(value) {
-  return Math.max(128, Math.min(50000, Math.round(Number(value) || 4000)));
+  return Math.max(128, Math.min(75000, Math.round(Number(value) || 4000)));
 }

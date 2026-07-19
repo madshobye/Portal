@@ -46,7 +46,7 @@ test("output renderer delegates surface demand planning", () => {
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const mapperSource = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=standby-grace-1"'));
+  assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=component-parent-placement-1"'));
   assert.ok(runtimeSource.includes('from "./surface-render-planner.js?v=surface-runtime-extraction-1"'));
   assert.ok(runtimeSource.includes("const { routes, metrics } = planSurfaceRoutes({"));
   assert.doesNotMatch(rendererSource, /sourceRenderDemand\(\{/);

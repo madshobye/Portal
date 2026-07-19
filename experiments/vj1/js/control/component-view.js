@@ -1,12 +1,12 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=mesh-topology-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=chain-only-authority-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { generatorIcon } from "./picker-view.js?v=mesh-topology-1";
+import { generatorIcon } from "./picker-view.js?v=source-picker-filters-1";
 import { chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=text-style-controls-1";
-import { MEDIA_FIT_MODES, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=xray-outline-1";
+import { MEDIA_FIT_MODES, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=model-wire-detail-2";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=power-flicker-1";
 import { editableSectionTitleTemplate, enableToggleButton, textListItemTemplate } from "./view-primitives.js?v=view-primitives-extraction-1";
 
@@ -67,7 +67,7 @@ export function componentSelectedChainSettingsTemplate(component, state) {
 
 export function sourceIcon(source = {}) {
   if (source.type === "component") return "account_tree";
-  if (source.type === "generator") return generatorIcon(source.generatorId || "testPattern");
+  if (source.type === "generator") return generatorIcon(source.generatorId);
   if (source.type === "media") return isModelMediaSource(source) ? "deployed_code" : "perm_media";
   if (source.type === "camera") return "photo_camera";
   if (source.type === "black") return "radio_button_unchecked";
@@ -285,7 +285,7 @@ function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = 
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   if (paramView === "details") {
     if (item.source?.type === "generator") {
-      const generator = getGeneratorComponent(item.source?.generatorId || "testPattern");
+      const generator = getGeneratorComponent(item.source.generatorId);
       if (!componentParamViews(generator).details.length) return "";
     } else if (item.source?.type === "media" && isModelMediaSource(item.source, media)) {
       if (!componentParamViews({ params: MODEL_SOURCE_PARAMS }).details.length) return "";
@@ -321,14 +321,14 @@ function selectedChainItemSelection(component, state) {
   return selected || firstChainItemSelection(component.chain || [], base);
 }
 
-function sourcePickerTemplate(component, state, base, paramView = "primary") {
-  const source = component.source || {};
+function sourcePickerTemplate(item, state, base, paramView = "primary") {
+  const source = item.source;
   const media = state.media.find((item) => item.id === source.mediaId);
   return `
     <div class="source-section">
       ${source.type === "generator" || paramView !== "primary" ? "" : `<div class="field">
         <span>Source</span>
-        <button type="button" class="source-choice-button" data-open-source-choice="${esc(`${base}.source`)}">
+        <button type="button" class="source-choice-button" data-open-source-choice="${esc(`${base}.source`)}" ${isModelMediaSource(source, media) ? 'data-source-choice-category="model"' : ""}>
           ${icon(sourceIcon(source))}
           <span>
             <strong>${esc(sourceTitle(source, media))}</strong>
@@ -356,7 +356,7 @@ function mediaSourceFitControlsTemplate(base, source = {}) {
 
 function sourceTitle(source = {}, media = null, component = null) {
   if (source.type === "component") return component?.name || source.componentId || "Component";
-  if (source.type === "generator") return getGeneratorComponent(source.generatorId || "testPattern").label || getGeneratorComponent(source.generatorId || "testPattern").name;
+  if (source.type === "generator") return getGeneratorComponent(source.generatorId).label || getGeneratorComponent(source.generatorId).name;
   if (source.type === "media") return media?.name || source.mediaId || "Media";
   if (source.type === "camera") return "Live camera";
   if (source.type === "black") return "Black";
@@ -464,7 +464,6 @@ function modelSourceControlsTemplate(base, source = {}, paramView = "primary") {
   if (!viewParams.length) return "";
   return `
     <div class="model-source-controls">
-      ${paramView === "primary" ? `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">deployed_code</span><span>3D model</span></div>` : ""}
       <div class="model-param-list">${paramControlsTemplate(viewParams, {
         pathFor: (param) => `${base}.params.${param.id}`,
         valueFor: (param) => paramCurrentValue({ params: MODEL_SOURCE_PARAMS }, { params }, param),
@@ -474,7 +473,7 @@ function modelSourceControlsTemplate(base, source = {}, paramView = "primary") {
 }
 
 function generatorParamControlsTemplate(base, source = {}, state = {}, paramView = "primary") {
-  const component = getGeneratorComponent(source.generatorId || "testPattern");
+  const component = getGeneratorComponent(source.generatorId);
   if (!component?.params?.length) return "";
   const params = componentParamViews(component)[paramView] || [];
   if (!params.length) return "";

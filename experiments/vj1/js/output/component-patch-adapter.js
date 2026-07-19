@@ -1,4 +1,4 @@
-import { flattenComponentChain } from "../graph/render-scheduler.js?v=sun-rays-1";
+import { flattenComponentChain } from "../graph/render-scheduler.js?v=chain-only-authority-1";
 import { isIdentityTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
 
 export function isSourceNode(node = {}) {
@@ -42,40 +42,25 @@ export function isSimpleLayer(layer = {}) {
 }
 
 export function sourceFromPatchNode(node = {}) {
-  if (node.state?.source) return sourceWithNodeParams(node.state.source, node.params || {}, node.id || node.state?.layer?.id);
-  const params = node.params || {};
-  if (node.kind === "generator" || node.componentId === "testPattern" || params.generatorId) {
-    const { generatorId, ...generatorParams } = params;
-    return {
-      type: "generator",
-      generatorId: generatorId || node.componentId || "testPattern",
-      params: generatorParams,
-      instanceId: node.id || node.componentId || generatorId || "generator",
-    };
+  if (!node.state?.source) {
+    throw new TypeError(`[VJ1_INVALID_RENDER_NODE] Source node ${String(node.id || "unknown")} has no canonical state.source`);
   }
-  if (node.componentId === "source.media" || params.mediaId) {
-    const { mediaId, start, end, speed, ...mediaParams } = params;
-    return {
-      type: "media",
-      mediaId: mediaId || "",
-      start: Math.max(0, Number(start) || 0),
-      end: Math.max(0, Number(end) || 0),
-      speed: Math.max(0, Number(speed) || 1),
-      params: mediaParams,
-    };
-  }
-  if (node.componentId === "source.camera") return { type: "camera" };
-  if (node.componentId === "source.black") return { type: "black" };
-  return { type: "generator", generatorId: "testPattern" };
+  return sourceWithNodeParams(node.state.source, node.params || {}, node.id || node.state?.layer?.id);
 }
 
-export function sourceWithNodeParams(source = {}, params = {}, instanceId = "") {
+export function sourceWithNodeParams(source, params = {}, instanceId = "") {
+  if (!source?.type) {
+    throw new TypeError(`[VJ1_INVALID_RENDER_SOURCE] Source node ${String(instanceId || "unknown")} has no source.type`);
+  }
   const base = withSourceInstance(source, instanceId);
   if (base.type === "generator") {
     const { generatorId, ...generatorParams } = params || {};
+    if (!base.generatorId && !generatorId) {
+      throw new TypeError(`[VJ1_INVALID_RENDER_SOURCE] Generator node ${String(instanceId || "unknown")} has no generatorId`);
+    }
     return {
       ...base,
-      generatorId: base.generatorId || generatorId || "testPattern",
+      generatorId: base.generatorId || generatorId,
       params: {
         ...(base.params && typeof base.params === "object" ? base.params : {}),
         ...generatorParams,

@@ -78,14 +78,14 @@ test("catalog presentation and component selectors have single owners", () => {
 test("Live navigates components by thumbnail and Scene exposes marked significant params", () => {
   const { state } = stateWithScene();
   const component = state.components[0];
-  component.significantParams = ["chain.0.params.renderQuality"];
+  component.significantParams = ["chain.0.source.params.renderQuality"];
   state.ui.live.selectedComponentId = component.id;
   const picker = liveComponentPillTemplate(component, state);
   const significant = sceneSignificantComponentTemplate(component, state);
   assert.match(picker, /data-live-component=/);
   assert.match(picker, /component-thumbnail/);
   assert.match(significant, /Significant/);
-  assert.match(significant, /components\.0\.chain\.0\.params\.renderQuality/);
+  assert.match(significant, /components\.0\.chain\.0\.source\.params\.renderQuality/);
 });
 
 test("Live separates a Component's public controls from its element inspector", () => {
@@ -93,7 +93,7 @@ test("Live separates a Component's public controls from its element inspector", 
   const component = state.components[0];
   scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
   scene.snapshot.surfaces[0].componentId = component.id;
-  component.significantParams = ["chain.0.params.renderQuality", "chain.0.transform.scale"];
+  component.significantParams = ["chain.0.source.params.renderQuality", "chain.0.transform.scale"];
   state.ui.live.selectedComponentId = component.id;
 
   const controls = liveInspectorTemplate(state);
@@ -107,10 +107,10 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.match(controls, /data-live-update="transform\.y"/);
   assert.match(controls, /data-live-update="transform\.scale"/);
   assert.match(controls, /data-live-update="transform\.rotation"/);
-  assert.match(controls, /data-live-update="chain\.0\.params\.renderQuality"/);
+  assert.match(controls, /data-live-update="chain\.0\.source\.params\.renderQuality"/);
   assert.match(controls, /data-live-update="chain\.0\.transform\.scale"/);
   assert.ok(
-    controls.indexOf("Published controls") < controls.indexOf("Transform"),
+    controls.indexOf("Published controls") < controls.indexOf("Component placement"),
     "published controls stay visible above generic Component controls"
   );
   assert.doesNotMatch(controls, /class="live-chain-outline"/);
@@ -172,7 +172,7 @@ test("source parameters marked at their persisted path are published in Live", (
   state.ui.live.selectedComponentId = component.id;
 
   const live = liveInspectorTemplate(state);
-  assert.match(live, /data-live-update="chain\.0\.params\.renderQuality"/);
+  assert.match(live, /data-live-update="chain\.0\.source\.params\.renderQuality"/);
 
   const sceneControls = sceneSignificantComponentTemplate(component, state);
   assert.match(sceneControls, /data-update="components\.0\.chain\.0\.source\.params\.renderQuality"/);
@@ -203,6 +203,6 @@ test("Live publishes significant source parameters nested inside Groups", () => 
 
   const live = liveInspectorTemplate(state);
   assert.match(live, /Controls \(2\)/);
-  assert.match(live, /data-live-update="chain\.0\.chain\.0\.params\.renderQuality"/);
+  assert.match(live, /data-live-update="chain\.0\.chain\.0\.source\.params\.renderQuality"/);
   assert.match(live, /data-live-update="chain\.0\.chain\.0\.transform\.scale"/);
 });

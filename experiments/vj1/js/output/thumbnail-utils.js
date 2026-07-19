@@ -11,14 +11,12 @@ export function graphicsToPngBlob(graphics) {
 export function componentThumbnailSignature(component = {}) {
   try {
     return JSON.stringify({
-      source: component.source,
       opacity: component.opacity,
       blend: component.blend,
       speed: component.speed,
       frameShape: component.frameShape,
       resolutionScale: component.resolutionScale,
       chain: component.chain,
-      shaderChain: component.shaderChain,
     });
   } catch {
     const clock = typeof globalThis.millis === "function" ? globalThis.millis() : Date.now();

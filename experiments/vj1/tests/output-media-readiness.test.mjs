@@ -34,6 +34,23 @@ test("output readiness traverses nested components groups and generator media", 
   assert.equal(status.blocked, true);
 });
 
+test("an explicit empty chain does not preload a hidden legacy source", () => {
+  const component = {
+    id: "empty",
+    chain: [],
+    source: { type: "media", mediaId: "legacy-hidden.png" },
+  };
+  const status = collectOutputMediaReadiness({
+    mode: "output",
+    state: { components: [component], surfaces: [{ enabled: true, componentId: component.id }] },
+    media: new Map(),
+  });
+
+  assert.equal(status.total, 0);
+  assert.equal(status.blocked, false);
+  assert.deepEqual([...status.missingIds], []);
+});
+
 test("output renderer delegates loading and blackout traversal", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 

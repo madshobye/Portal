@@ -1,8 +1,8 @@
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=instance-sync-60";
 import { buildParsedModelSurfaceVertices } from "./model-geometry.js?v=model-geometry-fix-30";
-import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "./model-mesh-cache.js?v=model-lod-1";
-import { modelCameraFov, modelDepthCutoff, modelNormalMatrix, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "./model-render-math.js?v=camera-focal-length-1";
-import { modelTriangleCount } from "./model-lod.js?v=model-qem-4";
+import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "./model-mesh-cache.js?v=model-wire-detail-2";
+import { modelCameraFov, modelDepthCutoff, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "./model-render-math.js?v=model-outline-weight-1";
+import { modelTriangleCount } from "./model-lod.js?v=model-wire-detail-2";
 import { compileRawShader, linkSpecializedProgram } from "./raw-webgl-utils.js?v=terrain-gl-state-1";
 import {
   beginRawWebGlState,
@@ -75,8 +75,7 @@ function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode =
     if (!resources?.buffer || !resources.count || !resources.program) return false;
     attributeStates = captureRawWebGlAttributes(gl, passState, [resources.position]);
     bindRawWebGlVertexArray(gl, passState, resources.vertexArrayOwner);
-    const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);
-    const drawingHeight = Math.max(1, gl.drawingBufferHeight || target.height || 1);
+    const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);
     const metrics = modelViewportMetrics(target, viewport);
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
@@ -114,12 +113,12 @@ function drawRawParsedWire(target, item, params = {}, componentTime = 0, color =
   const passState = beginRawWebGlState(gl, "model-wire");
   let attributeStates = [];
   try {
-    const resources = ensureRawWireResources(gl, item, pointBudget, mesh);
+    const completeLineBudget = Math.min(75000, modelTriangleCount(mesh) * 3);
+    const resources = ensureRawWireResources(gl, item, completeLineBudget, mesh);
     if (!resources?.buffer || !resources.count || !resources.program) return false;
     attributeStates = captureRawWebGlAttributes(gl, passState, [resources.start, resources.end, resources.side, resources.along]);
     bindRawWebGlVertexArray(gl, passState, resources.vertexArrayOwner);
-    const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);
-    const drawingHeight = Math.max(1, gl.drawingBufferHeight || target.height || 1);
+    const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);
     const metrics = modelViewportMetrics(target, viewport);
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
@@ -179,8 +178,7 @@ function drawRawParsedPerceptualEdges(target, item, params = {}, componentTime =
       resources.along,
     ]);
     bindRawWebGlVertexArray(gl, passState, resources.vertexArrayOwner);
-    const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);
-    const drawingHeight = Math.max(1, gl.drawingBufferHeight || target.height || 1);
+    const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);
     const metrics = modelViewportMetrics(target, viewport);
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
@@ -209,7 +207,7 @@ function drawRawParsedPerceptualEdges(target, item, params = {}, componentTime =
     gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
     gl.uniform2f(resources.resolution, drawingWidth, drawingHeight);
     gl.uniform1f(resources.thickness, resolutionScaledStrokeWidth(
-      modelWireThickness(params),
+      modelOutlineThickness(params),
       metrics,
       { width: drawingWidth, height: drawingHeight }
     ));
@@ -233,8 +231,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
     if (!resources?.buffer || !resources.count || !resources.program) return false;
     attributeStates = captureRawWebGlAttributes(gl, passState, [resources.position, resources.normal]);
     bindRawWebGlVertexArray(gl, passState, resources.vertexArrayOwner);
-    const drawingWidth = Math.max(1, gl.drawingBufferWidth || target.width || 1);
-    const drawingHeight = Math.max(1, gl.drawingBufferHeight || target.height || 1);
+    const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);
     const metrics = modelViewportMetrics(target, viewport);
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
     const depth = Math.max(0.05, Number(params.depth) || 1);
@@ -536,6 +533,8 @@ function createRawPerceptualWireProgram(gl) {
       uniform float uCreaseCos;
       varying float vModelDepth;
       varying float vVisible;
+      varying float vEdgeDistance;
+      varying float vHalfWidth;
       void main() {
         vec4 startClip = uMvp * vec4(aStart, 1.0);
         vec4 endClip = uMvp * vec4(aEnd, 1.0);
@@ -545,9 +544,8 @@ function createRawPerceptualWireProgram(gl) {
         vec2 endNdc = endClip.xy / endW;
         vec2 direction = endNdc - startNdc;
         float lineLength = length(direction);
-        vec2 screenNormal = lineLength > 0.000001
-          ? vec2(-direction.y, direction.x) / lineLength
-          : vec2(0.0, 1.0);
+        vec2 screenDirection = lineLength > 0.000001 ? direction / lineLength : vec2(1.0, 0.0);
+        vec2 screenNormal = vec2(-screenDirection.y, screenDirection.x);
 
         vec3 normalA = normalize(uNormalMatrix * aNormalA);
         vec3 normalB = normalize(uNormalMatrix * aNormalB);
@@ -563,11 +561,22 @@ function createRawPerceptualWireProgram(gl) {
         vec4 clip = mix(startClip, endClip, aAlong);
         vModelDepth = (uModel * vec4(mix(aStart, aEnd, aAlong), 1.0)).z;
         vec2 pixelToNdc = vec2(2.0 / max(1.0, uResolution.x), 2.0 / max(1.0, uResolution.y));
-        clip.xy += screenNormal * pixelToNdc * (max(0.125, uThickness) * 0.5) * aSide * clip.w;
+        vHalfWidth = max(0.125, uThickness) * 0.5;
+        float expandedHalfWidth = vHalfWidth + 0.75;
+        vEdgeDistance = aSide * expandedHalfWidth;
+        clip.xy += screenNormal * pixelToNdc * expandedHalfWidth * aSide * clip.w;
+        // Perceptual contours are assembled from independent mesh edges. A
+        // half-width cap overlap closes sub-pixel cracks at their shared
+        // vertices without requiring CPU-side path reconstruction.
+        clip.xy += screenDirection * pixelToNdc * expandedHalfWidth * (aAlong * 2.0 - 1.0) * clip.w;
         gl_Position = clip;
       }
     `,
-    fragment: depthFragment("if (vVisible < 0.5) discard; gl_FragColor = uColor;", "varying float vVisible;"),
+    fragment: depthFragment(`
+      if (vVisible < 0.5) discard;
+      float coverage = 1.0 - smoothstep(max(0.0, vHalfWidth - 0.75), vHalfWidth + 0.75, abs(vEdgeDistance));
+      gl_FragColor = uColor * coverage;
+    `, "varying float vVisible; varying float vEdgeDistance; varying float vHalfWidth;"),
     attributes: [
       "start:aStart",
       "end:aEnd",
@@ -626,6 +635,17 @@ function normalizedColor(color) {
   return color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
 }
 
+function rawModelTargetPixelSize(target) {
+  const density = Math.max(
+    0.25,
+    Number(target?.pixelDensity?.()) || Number(target?.__vj1PixelDensity) || 1
+  );
+  return {
+    width: Math.max(1, Math.round((Number(target?.width) || 1) * density)),
+    height: Math.max(1, Math.round((Number(target?.height) || 1) * density)),
+  };
+}
+
 function boundedBudget(value) {
-  return Math.max(128, Math.min(50000, Math.round(Number(value) || 4000)));
+  return Math.max(128, Math.min(75000, Math.round(Number(value) || 4000)));
 }

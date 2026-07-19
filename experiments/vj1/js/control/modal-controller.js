@@ -2,7 +2,7 @@ import { createOutputDefinition, normalizeRenderSettings } from "../domain/rende
 import { sortComponentCatalog } from "./catalog-view.js?v=changed-sort-user-truth-1";
 import { setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=mesh-topology-1";
+import { elementMediaCategory, elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=source-picker-filters-1";
 import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=max-frame-rate-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
 
@@ -73,6 +73,7 @@ export function createModalController({
     if (!replaceHtmlIfChanged(host, sourceChoicePickerTemplate(state, sourceChoicePicker, mediaLibrary))) return;
     bindClose(host, closeSourceChoicePicker);
     bindElementPickerSearch(host);
+    bindElementPickerFilters(host);
     bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-pick-source-media]").forEach((button) => {
       button.addEventListener("click", () => chooseSource({ type: "media", mediaId: button.dataset.pickSourceMedia || "" }));
@@ -80,14 +81,32 @@ export function createModalController({
     host.querySelector("[data-pick-source-camera]")?.addEventListener("click", () => chooseSource({ type: "camera" }));
     host.querySelector("[data-pick-source-black]")?.addEventListener("click", () => chooseSource({ type: "black" }));
     host.querySelectorAll("[data-pick-source-generator]").forEach((button) => {
-      button.addEventListener("click", () => chooseSource({ type: "generator", generatorId: button.dataset.pickSourceGenerator || "testPattern" }));
+      button.addEventListener("click", () => chooseSource({ type: "generator", generatorId: button.dataset.pickSourceGenerator }));
     });
   }
 
   function chooseSource(source) {
     const target = sourceChoicePicker;
+    const category = sourceChoiceCategory(source, getState());
+    if (target?.allowedCategory && category !== target.allowedCategory) {
+      console.error("[VJ1_SOURCE_CATEGORY_REJECTED]", {
+        allowedCategory: target.allowedCategory,
+        receivedCategory: category,
+        source,
+      });
+      return;
+    }
     closeSourceChoicePicker();
     setSourceChoice(source, target);
+  }
+
+  function sourceChoiceCategory(source, state) {
+    if (source?.type === "media") {
+      return elementMediaCategory((state.media || []).find((item) => item.id === source.mediaId) || {});
+    }
+    if (source?.type === "camera") return "live";
+    if (source?.type === "black") return "blank";
+    return source?.type || "";
   }
 
   function renderElementPicker(host, state) {
@@ -99,6 +118,7 @@ export function createModalController({
     }))) return;
     bindClose(host, closeElementPicker);
     bindElementPickerSearch(host);
+    bindElementPickerFilters(host);
     bindCatalogSortControls(host);
     focusPendingElementPickerSearch(host);
     bindDemandMediaPreviews(host);
@@ -111,7 +131,7 @@ export function createModalController({
     host.querySelector("[data-add-element-camera]")?.addEventListener("click", () => addElement("source", { type: "camera" }));
     host.querySelector("[data-add-element-group]")?.addEventListener("click", () => addElement("group"));
     host.querySelectorAll("[data-add-element-generator]").forEach((button) => {
-      button.addEventListener("click", () => addElement("source", { type: "generator", generatorId: button.dataset.addElementGenerator || "testPattern" }));
+      button.addEventListener("click", () => addElement("source", { type: "generator", generatorId: button.dataset.addElementGenerator }));
     });
     host.querySelectorAll("[data-add-element-effect]").forEach((button) => {
       button.addEventListener("click", () => addElement("effect", button.dataset.addElementEffect));
@@ -356,20 +376,44 @@ export function createModalController({
   function bindElementPickerSearch(host) {
     const input = host.querySelector("[data-element-search]");
     if (!input) return;
-    const applyFilter = () => filterElementPicker(host, input.value || "");
+    const applyFilter = () => filterElementPicker(host, input.value || "", activeElementFilter(host));
     input.addEventListener("input", applyFilter);
     applyFilter();
   }
 
-  function filterElementPicker(host, value) {
+  function bindElementPickerFilters(host) {
+    host.querySelectorAll("[data-element-filter]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const filter = button.dataset.elementFilter || "all";
+        const picker = sourceChoicePicker || elementPicker;
+        if (picker && !picker.allowedCategory) picker.filter = filter;
+        host.querySelectorAll("[data-element-filter]").forEach((candidate) => {
+          const active = candidate === button;
+          candidate.classList.toggle("is-active", active);
+          candidate.setAttribute("aria-pressed", active ? "true" : "false");
+        });
+        filterElementPicker(host, host.querySelector("[data-element-search]")?.value || "", filter);
+      });
+    });
+  }
+
+  function activeElementFilter(host) {
+    return host.querySelector("[data-element-filter].is-active")?.dataset.elementFilter || "all";
+  }
+
+  function filterElementPicker(host, value, filter = "all") {
     const query = normalizeSearchText(value);
     host.querySelectorAll("[data-element-search-card]").forEach((card) => {
       const haystack = normalizeSearchText(card.dataset.elementSearchCard || "");
+      const category = card.dataset.elementCategory || "";
       card.classList.toggle("is-search-hidden", !!query && !haystack.includes(query));
+      card.classList.toggle("is-filter-hidden", filter !== "all" && category !== filter);
     });
     host.querySelectorAll("[data-element-section]").forEach((section) => {
       const cards = Array.from(section.querySelectorAll("[data-element-search-card]"));
-      const visibleCount = cards.filter((card) => !card.classList.contains("is-search-hidden")).length;
+      const visibleCount = cards.filter((card) => (
+        !card.classList.contains("is-search-hidden") && !card.classList.contains("is-filter-hidden")
+      )).length;
       const empty = section.querySelector("[data-element-empty]");
       const sectionHidden = visibleCount <= 0;
       section.hidden = sectionHidden;
@@ -379,7 +423,7 @@ export function createModalController({
     const sections = Array.from(host.querySelectorAll("[data-element-section]"));
     const hasVisibleSection = sections.some((section) => !section.hidden);
     const noResults = host.querySelector("[data-element-no-results]");
-    if (noResults) noResults.hidden = hasVisibleSection || !query;
+    if (noResults) noResults.hidden = hasVisibleSection || (!query && filter === "all");
   }
 
   function focusPendingElementPickerSearch(host) {
@@ -415,7 +459,7 @@ export function createModalController({
   }
 
   function openElementPicker(componentId, selectedChainItemId = "") {
-    elementPicker = { componentId, selectedChainItemId };
+    elementPicker = { componentId, selectedChainItemId, filter: "all" };
     focusElementPickerSearch = true;
     mediaPicker = null;
     sourceChoicePicker = null;
@@ -433,8 +477,8 @@ export function createModalController({
     render();
   }
 
-  function openSourceChoicePicker(path) {
-    sourceChoicePicker = { path };
+  function openSourceChoicePicker(path, allowedCategory = "") {
+    sourceChoicePicker = { path, allowedCategory, filter: allowedCategory || "all" };
     mediaPicker = null;
     elementPicker = null;
     settingsOpen = false;

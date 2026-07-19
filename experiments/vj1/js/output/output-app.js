@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=mesh-topology-1";
+import { sanitizeState } from "../domain/models.js?v=live-scene-authority-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=reconnect-media-ownership-1";
-import { OutputRenderer } from "./output-renderer.js?v=model-qem-4";
+import { OutputRenderer } from "./output-renderer.js?v=component-parent-placement-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 
@@ -246,10 +246,19 @@ export function installOutputApp({ root, mode }) {
         console.error("[VJ1_SCENE_PREPARE_FAILED]", {
           sceneId: outputSceneId(preparedState),
           mediaIds: Array.from(status.errorIds),
-          message: "Keeping the current Scene because requested media failed to load",
+          message: "Activating the requested Scene without a transition so its media failure remains visible",
         });
       }
-      return false;
+      // The requested Live Scene is user truth. The previous Scene must not
+      // impersonate it forever when preparation fails. Activate the target
+      // without a transition; the renderer's explicit failed-media state
+      // remains visible and diagnosable.
+      const state = transitionTerminalState(preparedState);
+      const revision = preparedRevision;
+      const transportMeta = preparedTransportMeta;
+      clearPreparedState();
+      acceptOutputState(state, revision, transportMeta);
+      return true;
     }
     if (status.blocked) return false;
     if (hasActiveLiveTransition(acceptedState)) return false;
@@ -304,14 +313,20 @@ export function shouldHoldCurrentOutputState(nextState, currentState) {
 }
 
 export function outputSceneId(state) {
-  return String(state?.ui?.selectedSceneId || state?.ui?.live?.selectedSceneId || "");
+  // Live is the only program-scene authority. ui.selectedSceneId belongs to
+  // the editor and must never become an output fallback during patch resync.
+  return String(state?.ui?.live?.selectedSceneId || "");
 }
 
 export function shouldPrepareLiveSceneState(nextState, currentState, mode = "output") {
   if (mode !== "output" || !nextState || !currentState) return false;
   const nextSceneId = outputSceneId(nextState);
   const currentSceneId = outputSceneId(currentState);
-  return !!nextSceneId && !!currentSceneId && nextSceneId !== currentSceneId;
+  const transitionDurationMs = Math.max(0, Number(nextState.liveTransition?.durationMs) || 0);
+  // A cut is immediate user truth. Media readiness may make the target render
+  // black/loading, but it must not leave a different Scene on air. Only a
+  // genuine timed transition retains the previous Scene while preparing.
+  return transitionDurationMs > 0 && !!nextSceneId && !!currentSceneId && nextSceneId !== currentSceneId;
 }
 
 export function retimePreparedSceneTransition(state, startedAtMs = Date.now() + 50) {

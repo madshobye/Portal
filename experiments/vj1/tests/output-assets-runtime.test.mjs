@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { mediaFileFingerprint, OutputMediaRuntime } from "../js/output/output-media-runtime.js";
 import { syncVideoPlayback } from "../js/output/media-utils.js";
@@ -276,7 +277,7 @@ test("media-library preview URLs are leased once and released as a group", async
 test("media library restores BroadcastChannel media entries without losing path identity", async () => {
   const library = createMediaLibrary();
   const file = { name: "photo.png", size: 10, lastModified: 1, type: "image/png" };
-  const sourceRevision = mediaSourceRevision(file);
+  const sourceRevision = "controller-authoritative-revision";
   const renditionFile = { name: "cached.png", size: 4, lastModified: 2, type: "image/png" };
   const rendition = {
     key: `media/photo.png:320x180:${sourceRevision}`,
@@ -288,6 +289,7 @@ test("media library restores BroadcastChannel media entries without losing path 
   const imported = await library.importFiles([{
     id: "media/photo.png",
     file,
+    sourceRevision,
     renditions: [rendition],
   }]);
 
@@ -300,6 +302,7 @@ test("media library restores BroadcastChannel media entries without losing path 
   }]);
   assert.strictEqual(library.getFile("media/photo.png"), file);
   assert.strictEqual(library.getAllFiles()[0].file, file);
+  assert.equal(library.getAllFiles()[0].sourceRevision, sourceRevision, "source identity survives structured cloning explicitly");
   assert.strictEqual(library.getAllFiles()[0].renditions[0].file, renditionFile);
 });
 
@@ -1038,4 +1041,14 @@ test("media load failures update readiness and emit structured diagnostics", () 
     URL.revokeObjectURL = previousRevoke;
     console.error = previousError;
   }
+});
+
+test("model imports expose processing state and exact preview diagnostics", () => {
+  const runtimeSource = readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.match(runtimeSource, /item\.loadStatus = "reading 3D model"/);
+  assert.match(runtimeSource, /item\.loadStatus = "processing 3D model"/);
+  assert.match(rendererSource, /`3D model error: \$\{item\.modelError\}`/);
+  assert.match(rendererSource, /item\.loadStatus \|\| "loading media"/);
+  assert.match(rendererSource, /forceVisible && this\.mode !== "output"/);
 });

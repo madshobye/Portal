@@ -292,6 +292,8 @@ test("v17 to v18 canonicalizes runtime aliases before normalization", () => {
   assert.equal(Object.hasOwn(migrated.ui, "previewViewport"), false);
   assert.deepEqual(migrated.components[0].chain.map((item) => item.kind), ["source", "effect"]);
   assert.equal(migrated.components[0].chain[0].source.start, 1);
+  assert.equal(Object.hasOwn(migrated.components[0], "source"), false);
+  assert.equal(Object.hasOwn(migrated.components[0], "shaderChain"), false);
   assert.equal(migrated.surfaces[0].sourceNodeId, "component:component-a");
 });
 

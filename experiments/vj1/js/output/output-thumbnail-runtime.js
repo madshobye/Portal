@@ -5,7 +5,7 @@ import {
   COMPONENT_THUMBNAIL_WIDTH,
   componentThumbnailSignature,
   graphicsToThumbnail,
-} from "./thumbnail-utils.js?v=thumbnail-utils-extraction-1";
+} from "./thumbnail-utils.js?v=chain-only-authority-1";
 
 export class OutputThumbnailRuntime {
   constructor({ getState, getComponentOutput, shouldUseThumbnailPreview, isComponentReady, sendThumbnail } = {}) {

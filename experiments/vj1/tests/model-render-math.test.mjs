@@ -7,6 +7,7 @@ import {
   modelDepthCutoff,
   modelImportBasis,
   modelNormalMatrix,
+  modelOutlineThickness,
   modelRotation,
   modelViewportMetrics,
   modelWireThickness,
@@ -36,6 +37,7 @@ test("specialized model math owns viewport rotation depth and matrix calculation
   assert.deepEqual(transformedModelDepthRange(bounds), { min: -3, max: 7 });
   assert.equal(modelDepthCutoff({ visibleDepth: 0.5 }, bounds), 2);
   assert.equal(modelWireThickness({ wireThickness: 99 }), 12);
+  assert.equal(modelOutlineThickness({ wireThickness: 2 }), 2.7);
   assert.ok(Math.abs(modelCameraFov({}) - Math.PI / 3) < 0.000001);
   assert.ok(modelCameraFov({ focalLength: 100 }) < modelCameraFov({ focalLength: 20.8 }));
   assert.deepEqual(Array.from(modelNormalMatrix(new Float32Array([
@@ -102,7 +104,7 @@ test("raw model WebGL programs and context resources live outside the output orc
   const rawModelRenderer = readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8");
 
   assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
-  assert.match(specializedRuntime, /from "\.\/raw-model-webgl-renderer\.js\?v=xray-outline-1"/);
+  assert.match(specializedRuntime, /from "\.\/raw-model-webgl-renderer\.js\?v=[^"]+"/);
   assert.match(rawModelRenderer, /export function drawRawParsedModelMode\(/);
   assert.match(rawModelRenderer, /export function disposeRawModelContextResources\(/);
   assert.match(rawModelRenderer, /export function disposeRawModelItemResources\(/);
@@ -110,6 +112,8 @@ test("raw model WebGL programs and context resources live outside the output orc
   assert.match(rawModelRenderer, /function createRawSurfaceProgram\(/);
   assert.match(rawModelRenderer, /function createRawWireProgram\(/);
   assert.match(rawModelRenderer, /function createRawPerceptualWireProgram\(/);
+  assert.match(rawModelRenderer, /half-width cap overlap closes sub-pixel cracks/);
+  assert.match(rawModelRenderer, /float coverage = 1\.0 - smoothstep/);
   assert.equal((rawModelRenderer.match(/beginRawWebGlState\(gl,/g) || []).length, 4);
   assert.equal((rawModelRenderer.match(/restoreRawWebGlState\(gl, passState, attributeStates\)/g) || []).length, 4);
   assert.doesNotMatch(rawModelRenderer, /gl\.useProgram\(null\)|gl\.bindBuffer\(gl\.ARRAY_BUFFER, null\)/);

@@ -127,7 +127,27 @@ test("new Components start empty only after the visible Component list exceeds t
   elevenStore.addComponent();
   const added = elevenStore.getState().components.at(-1);
   assert.deepEqual(added.chain, []);
+  assert.equal("source" in added, false);
+  assert.equal("shaderChain" in added, false);
   assert.equal(elevenStore.getState().ui.selectedChainItemId, "");
+});
+
+test("an empty newly created Component accepts its first element immediately", () => {
+  const initial = createInitialState();
+  initial.components = Array.from({ length: 11 }, (_, index) => createDefaultComponent(index));
+  const store = createAppState(initial);
+
+  store.addComponent();
+  const componentId = store.getState().ui.selectedComponentId;
+  store.addChainSource(componentId, { type: "generator", generatorId: "gradient" });
+
+  const added = store.getState().components.find((component) => component.id === componentId);
+  assert.equal(added.chain.length, 1);
+  assert.equal(added.chain[0].source.generatorId, "gradient");
+  assert.equal("source" in added, false);
+  assert.equal(store.getState().ui.selectedChainItemId, added.chain[0].id);
+  const patch = compileComponentPatch(added);
+  assert.equal(patch.nodes.filter((node) => node.role === "source").length, 1);
 });
 
 test("runtime metrics update without passing through project state normalization", () => {
@@ -370,10 +390,10 @@ test("persistent component edits overwrite conflicting Live params but retain un
   state.ui.live.selectedSceneId = scene.id;
   const componentId = state.components[0].id;
   const source = state.components[0].chain[0];
-  source.params = { modelScale: 1, depth: 1 };
+  source.source.params = { modelScale: 1, depth: 1 };
   state.ui.live.componentOverrides = {
     [componentId]: {
-      chain: [{ params: { modelScale: 2, depth: 3 } }],
+      chain: [{ source: { params: { modelScale: 2, depth: 3 } } }],
     },
   };
   state.ui.live.sceneOverrides = {
@@ -382,14 +402,14 @@ test("persistent component edits overwrite conflicting Live params but retain un
   const store = createAppState(state);
 
   store.update((draft) => {
-    draft.components[0].chain[0].params.modelScale = 1.5;
-  }, "update:components.0.chain.0.params.modelScale");
+    draft.components[0].chain[0].source.params.modelScale = 1.5;
+  }, "update:components.0.chain.0.source.params.modelScale");
 
   const overrides = store.getState().ui.live.componentOverrides[componentId];
-  assert.equal(overrides.chain[0].params.modelScale, undefined);
-  assert.equal(overrides.chain[0].params.depth, 3);
-  assert.equal(store.getLiveRenderState().components[0].chain[0].params.modelScale, 1.5);
-  assert.equal(store.getLiveRenderState().components[0].chain[0].params.depth, 3);
+  assert.equal(overrides.chain[0].source.params.modelScale, undefined);
+  assert.equal(overrides.chain[0].source.params.depth, 3);
+  assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.modelScale, 1.5);
+  assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.depth, 3);
 });
 
 test("ordinary components reject nested component sources while Canvas accepts them", () => {
@@ -517,6 +537,30 @@ test("route edits in a different Scene do not replace Live's selected scene", ()
   syncLiveSnapshotFromScene(state, editedScene);
 
   assert.deepEqual(state.ui.live.sceneSnapshot, original);
+});
+
+test("persistent component parameter edits cannot promote the editor Scene to Live", () => {
+  const state = createInitialState();
+  const liveScene = createSceneFromState(state, "Live scene");
+  const editedScene = createSceneFromState(state, "Edited scene");
+  state.scenes = [liveScene, editedScene];
+  state.ui.selectedSceneId = editedScene.id;
+  state.ui.live.selectedSceneId = liveScene.id;
+  state.ui.live.sceneSnapshot = structuredClone(liveScene.snapshot);
+  const componentId = state.components[0].id;
+  const store = createAppState(state);
+
+  store.update((draft) => {
+    draft.components[0].opacity = 0.37;
+  }, "scrub:components.0.opacity");
+
+  const persistent = store.getState();
+  const rendered = store.getLiveRenderState();
+  assert.equal(persistent.ui.selectedSceneId, editedScene.id);
+  assert.equal(persistent.ui.live.selectedSceneId, liveScene.id);
+  assert.equal(rendered.ui.live.selectedSceneId, liveScene.id);
+  assert.equal(rendered.ui.selectedSceneId, liveScene.id);
+  assert.equal(rendered.components.find((component) => component.id === componentId).opacity, 0.37);
 });
 
 test("Canvas components use ordinary source and effect chain items", () => {
