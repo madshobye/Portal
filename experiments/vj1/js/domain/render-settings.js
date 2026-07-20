@@ -45,6 +45,7 @@ export function normalizeRenderSettings(render = {}) {
     pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
     sampling: normalizeSamplingSettings(render.sampling),
     camera: normalizeCameraSettings(render.camera, primary.width, primary.height),
+    screenCapture: normalizeScreenCaptureSettings(render.screenCapture),
     ...normalizeComponentPipelineSettings(render),
   };
 }
@@ -90,6 +91,16 @@ export function normalizeCameraSettings(camera = {}, fallbackWidth = VJ1.renderW
     facingMode: camera?.facingMode === "environment" ? "environment" : "user",
     mirrored: camera?.mirrored === true,
     maxResolution: camera?.maxResolution === true,
+  };
+}
+
+export function normalizeScreenCaptureSettings(screen = {}) {
+  return {
+    frameRate: positiveInt(screen?.frameRate, 30, 1, 60),
+    cursor: ["always", "motion", "never"].includes(screen?.cursor) ? screen.cursor : "always",
+    preferCurrentTab: screen?.preferCurrentTab === true,
+    includeCurrentTab: screen?.includeCurrentTab !== false,
+    surfaceSwitching: screen?.surfaceSwitching !== false,
   };
 }
 

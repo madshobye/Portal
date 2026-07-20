@@ -1,15 +1,15 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { applyLiveRenderPatches, interpolatedLiveRenderValue, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
-import { canvasFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=canvas-global-resolution-1";
+import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=structural-live-patch-1";
+import { canvasFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=screen-share-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=volumetric-clouds-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=screen-share-1";
 import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=text-style-controls-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=volumetric-clouds-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=volumetric-clouds-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=screen-share-1";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=alpha-feather-1";
 import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=volumetric-clouds-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
@@ -22,14 +22,14 @@ import {
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
-import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-active-ownership-1";
-import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=chain-general-controls-1";
+import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=logical-component-frame-1";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=logical-component-frame-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=chain-only-authority-1";
-import { OutputMediaRuntime } from "./output-media-runtime.js?v=camera-input-leases-1";
+import { OutputMediaRuntime } from "./output-media-runtime.js?v=logical-component-frame-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=canvas-global-resolution-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=component-parent-placement-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=component-route-composite-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
@@ -57,6 +57,7 @@ import {
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,
   componentAdaptiveRasterLimit,
+  componentLogicalPreviewRect,
   componentPreviewRenderRequest,
   componentReferencePlacement,
   componentReferenceRenderRequest,
@@ -68,7 +69,7 @@ import {
   resolutionScaledStrokeWidth,
   routeSourceLookupKey,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=canvas-global-resolution-1";
+} from "./component-render-layout.js?v=logical-component-frame-1";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 export { parseObjMesh } from "./specialized/model-parsers.js?v=model-qem-4";
@@ -93,6 +94,7 @@ export {
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,
   componentAdaptiveRasterLimit,
+  componentLogicalPreviewRect,
   componentPreviewRenderRequest,
   componentReferencePlacement,
   componentReferenceRenderRequest,
@@ -104,7 +106,7 @@ export {
   resizeCanvasFrameRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=canvas-global-resolution-1";
+} from "./component-render-layout.js?v=logical-component-frame-1";
 
 export class OutputRenderer {
   constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect }) {
@@ -577,7 +579,10 @@ export class OutputRenderer {
     for (const candidate of candidates) {
       const { destination, key, active, from } = candidate;
       const to = destination.value;
-      const canFade = durationMs > 0 && Number.isFinite(from) && Number.isFinite(to);
+      const canFade = durationMs > 0 &&
+        isInterpolableLiveRenderPath(destination.path) &&
+        Number.isFinite(from) &&
+        Number.isFinite(to);
       if (!canFade || Object.is(from, to)) {
         if (!active || !Object.is(active.to, to)) this.liveParamFades.delete(key);
         continue;
@@ -830,6 +835,10 @@ export class OutputRenderer {
     return this.mediaRuntime.acquireCameraInput();
   }
 
+  acquireScreenInput() {
+    return this.mediaRuntime.acquireScreenInput();
+  }
+
   releaseCameraInput() {
     this.mediaRuntime.releaseCameraInput();
   }
@@ -840,6 +849,10 @@ export class OutputRenderer {
 
   get cameraError() {
     return this.mediaRuntime.cameraError;
+  }
+
+  get screenError() {
+    return this.mediaRuntime.screenError;
   }
 
   draw() {
@@ -2165,6 +2178,10 @@ export class OutputRenderer {
       pg.background(0);
     } else {
       const generatorTime = instanceTime(source.instanceId || source.generatorId, componentTime);
+      if (source.generatorId === "screenShare") {
+        this.drawScreenShareGenerator(pg, source);
+        return;
+      }
       if (source.generatorId === "anatomy") {
         this.drawAnatomyGenerator(pg, source, generatorTime, renderRequest);
         return;
@@ -2203,6 +2220,24 @@ export class OutputRenderer {
         drawGenerator(pg, source.generatorId, generatorTime, source.params || {});
       });
     }
+  }
+
+  drawScreenShareGenerator(pg, source = {}) {
+    const screen = this.acquireScreenInput();
+    if (!screen || !isDrawableMedia(screen)) {
+      this.drawStandby(pg, this.screenError || "screen share unavailable", { forceVisible: true });
+      return;
+    }
+    const fit = ["contain", "cover", "stretch"].includes(source.params?.fit) ? source.params.fit : "contain";
+    drawWithContentTransform(pg, source.contentTransform, () => {
+      pg.push();
+      if (source.params?.mirrored === true) {
+        pg.translate(pg.width, 0);
+        pg.scale(-1, 1);
+      }
+      drawMediaFit(pg, screen, 0, 0, pg.width, pg.height, fit);
+      pg.pop();
+    });
   }
 
   drawStandby(target, label, { forceVisible = false } = {}) {
@@ -3022,13 +3057,7 @@ export class OutputRenderer {
   }
 
   componentPreviewRect(component, source = null) {
-    if (source?.width && source?.height) return containedRect(width, height, source.width, source.height);
-    if (component?.type === "canvas") {
-      const size = canvasFrameSize(this.state?.render || {});
-      return containedRect(width, height, size.width, size.height);
-    }
-    const metrics = componentFrameMetrics(this.state?.render || {}, component || {});
-    return containedRect(width, height, metrics.baseWidth, metrics.baseHeight);
+    return componentLogicalPreviewRect(this.state?.render || {}, component || {}, width, height);
   }
 
   renderComponentFrameOverlay(component, source = null) {

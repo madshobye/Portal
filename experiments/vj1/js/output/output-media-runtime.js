@@ -1,12 +1,12 @@
-import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=video-active-ownership-1";
+import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=logical-component-frame-1";
 import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
 import { graphicsToPngBlob } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
 import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "./specialized/raw-model-webgl-renderer.js?v=model-wire-detail-2";
 import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
-import { SharedInputRuntime } from "./shared-input-runtime.js?v=camera-input-leases-1";
+import { SharedInputRuntime } from "./shared-input-runtime.js?v=screen-share-1";
 
-export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=screen-share-1";
 
 export class OutputMediaRuntime {
   constructor({
@@ -90,6 +90,10 @@ export class OutputMediaRuntime {
     return this.inputRuntime.acquireCamera();
   }
 
+  acquireScreenInput() {
+    return this.inputRuntime.acquireScreen();
+  }
+
   releaseCameraInput() {
     this.inputRuntime.releaseCamera();
   }
@@ -100,6 +104,10 @@ export class OutputMediaRuntime {
 
   get cameraError() {
     return this.inputRuntime.cameraError;
+  }
+
+  get screenError() {
+    return this.inputRuntime.screenError;
   }
 
   requestMissingMedia(mediaId) {

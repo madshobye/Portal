@@ -1,15 +1,15 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=volumetric-clouds-1";
+import { sanitizeState } from "../domain/models.js?v=screen-share-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
-import { renderMaxFrameRate } from "../domain/render-settings.js?v=canvas-global-resolution-1";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=reconnect-media-ownership-1";
-import { OutputRenderer } from "./output-renderer.js?v=volumetric-clouds-1";
+import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-share-1";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=remote-diagnostics-1";
+import { OutputRenderer } from "./output-renderer.js?v=logical-component-frame-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 
 let outputFitSignature = "";
 
-export function installOutputApp({ root, mode }) {
+export function installOutputApp({ root, mode, diagnostics = null }) {
   const outputId = mode === "output" ? new URL(window.location.href).searchParams.get("outputId") || "" : "";
   document.body.classList.add("output-client");
   root.innerHTML = `
@@ -34,6 +34,7 @@ export function installOutputApp({ root, mode }) {
   let bridge = null;
   let renderFont = null;
   let resizeObserver = null;
+  let diagnosticForwarder = null;
   const fixtureUrl = fixtureStateUrl();
 
   window.addEventListener("pagehide", () => {
@@ -41,6 +42,11 @@ export function installOutputApp({ root, mode }) {
     renderer = null;
     resizeObserver?.disconnect?.();
     resizeObserver = null;
+    diagnosticForwarder?.destroy?.();
+    diagnosticForwarder = null;
+    diagnostics?.destroy?.();
+    bridge?.close?.();
+    bridge = null;
   }, { once: true });
 
   window.setup = async function setup() {
@@ -202,6 +208,7 @@ export function installOutputApp({ root, mode }) {
         clearPreparedState();
       }
       bridge?.recoveryState(acceptedState, acceptedFiles);
+      if (meta.changed) diagnosticForwarder?.resend?.();
     },
     onCommand(command, payload) {
       if (command === "sync-mapping" && acceptedState) {
@@ -229,6 +236,7 @@ export function installOutputApp({ root, mode }) {
       if (command === "schedule") renderer?.schedule(payload);
     },
   });
+  diagnosticForwarder = forwardDiagnosticsToBridge(diagnostics, bridge);
 
   function requestLivePatchResync(reason, detail = {}) {
     console.warn("[VJ1_LIVE_PATCH_RESYNC]", { reason, ...detail });
@@ -305,6 +313,29 @@ export function installOutputApp({ root, mode }) {
   loadClassicScript(VJ1.p5Script).catch((error) => {
     root.innerHTML = `<div class="empty-preview">${error.message}</div>`;
   });
+}
+
+function forwardDiagnosticsToBridge(diagnostics, bridge) {
+  if (!diagnostics?.subscribe || !bridge?.diagnostic) return null;
+  const sentCounts = new Map();
+  const forward = (summary, reset = false) => {
+    if (reset) sentCounts.clear();
+    for (const entry of summary?.entries || []) {
+      const previousCount = sentCounts.get(entry.id) || 0;
+      const count = Math.max(0, Number(entry.count) - previousCount);
+      if (count > 0) bridge.diagnostic({ ...entry, count });
+      sentCounts.set(entry.id, Number(entry.count) || 0);
+    }
+    const currentIds = new Set((summary?.entries || []).map((entry) => entry.id));
+    for (const id of sentCounts.keys()) {
+      if (!currentIds.has(id)) sentCounts.delete(id);
+    }
+  };
+  const unsubscribe = diagnostics.subscribe((summary) => forward(summary));
+  return {
+    resend: () => forward(diagnostics.summary?.(), true),
+    destroy: unsubscribe,
+  };
 }
 
 export function shouldHoldCurrentOutputState(nextState, currentState) {

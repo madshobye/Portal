@@ -53,11 +53,13 @@ test("Scene surface source catalogs show a full-width selection without reorderi
   const sceneSurface = scene.snapshot.surfaces[0];
   sceneSurface.sourceNodeId = "component:b";
   const html = sceneSurfaceTemplate(state.surfaces[0], state, { sources });
-  const list = html.slice(html.indexOf('<div class="component-card-list assignment-card-list">'));
+  const list = html.slice(html.indexOf('<div class="component-card-list assignment-card-list"'));
   const styles = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.match(html, /class="component-card assignment-selected-card is-selected" data-selected-route-source="component:b"/);
   assert.match(html, /data-catalog-sort-scope="source"/);
+  assert.ok(html.indexOf("assignment-selected-card") < html.indexOf("component-catalog-tools"), "current component appears before search and sorting");
+  assert.ok(html.indexOf("component-catalog-tools") < html.indexOf("assignment-card-list"), "search and sorting appear before the component list");
   assert.equal((html.match(/data-cycle-catalog-marker="component"/g) || []).length, 3);
   assert.match(html, /data-edit-component="b"/);
   assert.equal((html.match(/data-set-route-source-node="component:b"/g) || []).length, 1, "selected source remains in the catalog");
@@ -74,6 +76,7 @@ test("catalog presentation and component selectors have single owners", () => {
 
   assert.match(catalog, /data-catalog-sort-scope="component"/);
   assert.match(catalog, /data-component-filter/);
+  assert.doesNotMatch(catalog, /<span>Changed<\/span>/);
   assert.equal(ordinaryComponents(state).every((component) => component.type !== "canvas"), true);
   assert.equal(canvasComponents(state).every((component) => component.type === "canvas"), true);
   assert.equal(ordinaryComponents(state).length + canvasComponents(state).length, state.components.length);

@@ -1,5 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=volumetric-clouds-1";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=screen-share-1";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
@@ -12,7 +12,7 @@ import {
   normalizePreviewViewports,
   normalizeRenderSettings,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=canvas-global-resolution-1";
+} from "./render-settings.js?v=screen-share-1";
 import {
   applySceneSourceNode,
   normalizeProjectionFit,
@@ -30,7 +30,7 @@ export {
   normalizePreviewViewports,
   normalizeRenderSettings,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=canvas-global-resolution-1";
+} from "./render-settings.js?v=screen-share-1";
 export {
   applySceneSourceNode,
   normalizeProjectionFit,
@@ -307,6 +307,13 @@ export function createInitialState() {
         facingMode: "user",
         mirrored: false,
         maxResolution: false,
+      },
+      screenCapture: {
+        frameRate: 30,
+        cursor: "always",
+        preferCurrentTab: false,
+        includeCurrentTab: true,
+        surfaceSwitching: true,
       },
       maxFrameRate: 120,
       upscaling: {

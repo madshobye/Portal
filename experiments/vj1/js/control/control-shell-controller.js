@@ -1,22 +1,22 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=volumetric-clouds-1";
+import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=screen-share-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=volumetric-clouds-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=logical-component-frame-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
-import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
+import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=performance-health-dots-1";
-import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-marker-four-state-1";
-import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=volumetric-clouds-1";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=scroll-region-1";
+import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
+import { canvasInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=scroll-region-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=volumetric-clouds-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=volumetric-clouds-1";
-import { componentCardBarTemplate, deepEditButtonTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=profile-edit-identity-1";
+import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=scroll-region-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=scroll-region-1";
+import { componentCardBarTemplate, deepEditButtonTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=scroll-region-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { createClipboardController } from "./clipboard-controller.js?v=clipboard-chain-target-1";
-import { createModalController } from "./modal-controller.js?v=volumetric-clouds-1";
+import { createModalController } from "./modal-controller.js?v=screen-share-1";
 import { createInputController } from "./input-controller.js?v=component-to-canvas-1";
 
 const performanceHealthClasses = Object.freeze([
@@ -514,18 +514,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setClass(refs.diagnosticsSummary, "is-hidden", !diagnosticsOpen);
     if (!diagnosticsOpen) return;
     const entries = snapshot.entries || [];
-    refs.diagnosticsSummaryContent.innerHTML = `
+    replaceHtmlIfChanged(refs.diagnosticsSummaryContent, `
       <div class="diagnostics-summary-header">
         <span><strong>Diagnostics</strong><small>${entries.length ? `${count} captured entr${count === 1 ? "y" : "ies"}` : "No relevant console entries"}</small></span>
         <span class="diagnostics-state is-${esc(level)}">${icon(iconName)} ${esc(level === "ok" ? "OK" : level)}</span>
       </div>
-      <ol class="diagnostics-entry-list">
+      <ol class="diagnostics-entry-list" data-scroll-region data-scroll-key="diagnostics-entries">
         ${entries.length ? entries.slice().reverse().map(diagnosticEntryTemplate).join("") : `<li class="diagnostics-empty">${icon("check_circle")} Everything looks OK.</li>`}
       </ol>
       <div class="diagnostics-actions">
         <button type="button" data-diagnostics-clear ${entries.length ? "" : "disabled"}>${icon("delete_sweep")} Clear</button>
         <button type="button" data-diagnostics-copy ${entries.length ? "" : "disabled"}>${icon("content_copy")} Copy</button>
-      </div>`;
+      </div>`);
   }
 
   async function handleDiagnosticsClick(event) {
@@ -582,7 +582,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           return `<li class="${edit ? "has-edit" : ""} ${thumbnail ? "has-thumbnail" : ""}">${thumbnail}<span><strong>${esc(item.name)}</strong><small>${esc(context)}</small></span><span class="performance-hotspot-value">${formatTimeMs(item.msAvg)}<small>${formatPercent(share)}</small></span>${edit}</li>`;
         }).join("")
       : `<li class="performance-empty-row">Waiting for an active renderer sample…</li>`;
-    refs.performanceSummaryContent.innerHTML = `
+    replaceHtmlIfChanged(refs.performanceSummaryContent, `
       <div class="performance-health-readouts">
         ${performanceReadoutTemplate("speed", "Overall", formatRenderCost(renderCost))}
         ${performanceReadoutTemplate("timer", "CPU", formatTimeMs(metric.cpuMs))}
@@ -591,8 +591,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         ${performanceReadoutTemplate("cached", "Cache reuse", String(cacheHits))}
         ${performanceReadoutTemplate("refresh", "Renders", String(cacheRenders))}
       </div>
-      <ol class="performance-hotspot-list">${rows}</ol>
-    `;
+      <ol class="performance-hotspot-list" data-scroll-region data-scroll-key="performance-hotspots">${rows}</ol>
+    `);
     refs.performanceAnalyze.disabled = !!performanceProfile;
   }
 
@@ -689,7 +689,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           <div><strong>Performance analysis</strong><small>10 second sampled report · ${runtime.sampleCount || 0} metric samples</small></div>
           <button type="button" class="icon-buttonish" data-performance-close aria-label="Close">${icon("close")}</button>
         </header>
-        <div class="performance-results-body">
+        <div class="performance-results-body" data-scroll-region data-scroll-key="performance-results">
           <div class="performance-result-cards">
             <div><small>FPS average</small><strong>${formatNumber(runtime.fpsAvg, 1)}</strong></div>
             <div><small>CPU frame p95</small><strong>${formatTimeMs(runtime.frameMsP95)}</strong></div>
@@ -703,7 +703,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           <div class="performance-results-section">
             <h3>Attributed CPU hotspots</h3>
             <p>Average, p95, and maximum duration for the bounded diagnostic pass samples. Component rows include their child work.</p>
-            <div class="performance-table-scroll"><table><thead><tr><th>#</th><th>Pass</th><th>Avg</th><th>P95</th><th>Max</th><th>N</th></tr></thead><tbody>${hotspotRows}</tbody></table></div>
+            <div class="performance-table-scroll" data-scroll-region data-scroll-key="performance-results-table"><table><thead><tr><th>#</th><th>Pass</th><th>Avg</th><th>P95</th><th>Max</th><th>N</th></tr></thead><tbody>${hotspotRows}</tbody></table></div>
           </div>
           ${bottlenecks.length ? `<div class="performance-results-section"><h3>Observations</h3><ul>${bottlenecks.map((item) => `<li><strong>${esc(item.scope)}</strong> · ${esc(item.message)}</li>`).join("")}</ul></div>` : ""}
           <div class="performance-results-section"><h3>Host / UI activity</h3><p>${host.uiRenderCount || 0} full UI rebuilds · ${host.stateEventCount || 0} state notifications · ${host.longTaskTotalMs ? `${formatTimeMs(host.longTaskTotalMs)} blocked in long tasks` : "no long tasks observed"}${host.memoryDeltaBytes === null ? "" : ` · ${formatBytesSigned(host.memoryDeltaBytes)} JS heap change`}</p>${host.topStateEvents?.length ? `<ul>${host.topStateEvents.map((item) => `<li>${esc(item.reason)} · ${item.count}</li>`).join("")}</ul>` : ""}</div>
@@ -975,8 +975,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function renderProjectRail(state) {
     const hasProject = hasOpenProject(state);
     const workspace = currentWorkspace(state);
+    refs.projectRail.dataset.workspace = workspace;
     const html = hasProject ? railToolsTemplate(state, workspace) : "";
-    if (replaceHtmlIfChanged(refs.projectRail, html)) bindRailEvents();
+    if (replaceHtmlIfChanged(refs.projectRail, html, { scrollKey: `project-rail:${workspace}` })) bindRailEvents();
   }
 
   function railToolsTemplate(state, workspace) {
@@ -994,10 +995,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function componentToolsTemplate(state) {
     const components = catalogItemsInSnapshot("component", ordinaryComponents(state));
     return `
-      <div class="ui-section rail-section" data-component-filter-scope>
+      <div class="ui-section rail-section rail-list-section" data-component-filter-scope>
         ${addableRailTitleTemplate("account_tree", "Components", "data-add-component", "Add component")}
         ${componentCatalogToolsTemplate("component", catalogSortMode(state, "component"), "Filter components")}
-        <div class="component-card-list" data-paste-scope="component-list">
+        <div class="component-card-list rail-scroll-list" data-scroll-region data-scroll-key="component-catalog" data-paste-scope="component-list">
           ${components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create visual recipes")}
         </div>
       </div>
@@ -1008,19 +1009,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const canvases = catalogItemsInSnapshot("canvas", canvasComponents(state));
     const selectedCanvas = selectedCanvasComponent(state);
     return `
-      <div class="ui-section rail-section" data-component-filter-scope>
+      <div class="ui-section rail-section rail-list-section" data-component-filter-scope>
         ${addableRailTitleTemplate("dashboard_customize", "Canvases", "data-add-canvas-component", "Add canvas")}
         ${componentCatalogToolsTemplate("canvas", catalogSortMode(state, "canvas"), "Filter canvases")}
-        <div class="component-card-list" data-paste-scope="canvas-list">
+        <div class="component-card-list rail-scroll-list" data-scroll-region data-scroll-key="canvas-catalog" data-paste-scope="canvas-list">
           ${canvases.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a canvas component")}
         </div>
       </div>
-      <div class="ui-section rail-section">
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">select_all</span><span>Frames</span></div>
-        <div class="recording-frame-pills">
+      <div class="ui-section rail-section rail-list-section canvas-frame-rail-section">
+        ${addableRailTitleTemplate("select_all", "Frames", `data-add-canvas-frame data-canvas-component-id="${esc(selectedCanvas?.id || "")}" ${selectedCanvas ? "" : "disabled"}`, "Add recording frame")}
+        <div class="recording-frame-pills rail-scroll-list" data-scroll-region data-scroll-key="recording-frames">
           ${(state.recordingFrames || []).map((frame, index) => canvasFramePillTemplate(frame, index, selectedCanvas)).join("") || emptyNote("Add a recording frame")}
         </div>
-        <button type="button" data-add-canvas-frame data-canvas-component-id="${esc(selectedCanvas?.id || "")}" ${selectedCanvas ? "" : "disabled"}>${icon("add")} Add recording frame</button>
       </div>
     `;
   }
@@ -1028,20 +1028,19 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function sceneToolsTemplate(state) {
     const scenes = catalogItemsInSnapshot("scene", state.scenes || []);
     return `
-      <div class="ui-section rail-section" data-component-filter-scope>
+      <div class="ui-section rail-section rail-list-section" data-component-filter-scope>
         ${addableRailTitleTemplate("auto_awesome_motion", "Scenes", "data-add-scene", "Add empty scene")}
         ${componentCatalogToolsTemplate("scene", catalogSortMode(state, "scene"), "Filter scenes")}
-        <div class="scene-card-list" data-paste-scope="scene-list">
+        <div class="scene-card-list rail-scroll-list" data-scroll-region data-scroll-key="scene-catalog" data-paste-scope="scene-list">
           ${scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Add a scene")}
         </div>
       </div>
       ${sceneRailConfigTemplate(state)}
-      <div class="ui-section rail-section">
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">select_all</span><span>Surfaces</span></div>
-        <div class="surface-pills" data-surface-reorder-list data-paste-scope="surface-list">
+      <div class="ui-section rail-section rail-list-section scene-surface-rail-section">
+        ${addableRailTitleTemplate("select_all", "Surfaces", "data-add-surface", "Add surface")}
+        <div class="surface-pills rail-scroll-list" data-scroll-region data-scroll-key="scene-surfaces" data-surface-reorder-list data-paste-scope="surface-list">
           ${state.surfaces.map((surface) => sceneSurfacePillTemplate(surface, state)).join("")}
         </div>
-        <button type="button" data-add-surface>${icon("add")} Add surface</button>
       </div>
     `;
   }
@@ -1055,16 +1054,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const components = liveNavigableComponents(liveScene, state);
     const scenes = catalogItemsInSnapshot("scene", state.scenes || []);
     return `
-      <div class="ui-section rail-section" data-component-filter-scope>
+      <div class="ui-section rail-section rail-list-section" data-component-filter-scope>
         <div class="ui-section-header rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live Scenes</span></div>
         ${componentCatalogToolsTemplate("scene", catalogSortMode(state, "scene"), "Filter scenes")}
-        <div class="scene-card-list live-scene-list">
+        <div class="scene-card-list live-scene-list rail-scroll-list" data-scroll-region data-scroll-key="live-scenes">
           ${scenes.map((scene) => liveScenePillTemplate(scene, state)).join("") || emptyNote("Capture scenes first")}
         </div>
       </div>
-      <div class="ui-section rail-section">
+      <div class="ui-section rail-section rail-list-section live-component-rail-section">
         <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Scene components</span></div>
-        <div class="component-card-list live-component-picker-list">
+        <div class="component-card-list live-component-picker-list rail-scroll-list" data-scroll-region data-scroll-key="live-components">
           ${components.map((component) => liveComponentPillTemplate(component, state)).join("") || emptyNote("No active components")}
         </div>
       </div>
@@ -1095,7 +1094,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       <div class="ui-section rail-section" data-component-filter-scope>
         <div class="ui-section-header rail-title"><span class="material-symbols-rounded">schema</span><span>Node Patch</span></div>
         ${componentFilterTemplate()}
-        <div class="component-card-list">
+        <div class="component-card-list" data-scroll-region data-scroll-key="mapping-components">
           ${state.components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a component")}
         </div>
       </div>
@@ -1243,7 +1242,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         "account_tree",
         selectedComponent?.name || "Component",
         selectedComponent ? componentTemplate(selectedComponent, state) : emptyNote("No component"),
-        selectedComponent ? { titlePath: `${pathForComponent(state, selectedComponent)}.name` } : {}
+        selectedComponent ? {
+          titlePath: `${pathForComponent(state, selectedComponent)}.name`,
+          headerActionHtml: componentHeaderAddButtonTemplate(selectedComponent),
+        } : {}
       )}${selectedComponent ? componentSelectedChainSettingsTemplate(selectedComponent, state) : ""}`;
       replaceInspectorHtml(html, state);
       return;
@@ -1264,7 +1266,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         "dashboard_customize",
         selectedCanvas?.name || "Canvas",
         selectedCanvas ? canvasInspectorTemplate(selectedCanvas, state) : emptyNote("Create a canvas component"),
-        selectedCanvas ? { titlePath: `${pathForComponent(state, selectedCanvas)}.name` } : {}
+        selectedCanvas ? {
+          titlePath: `${pathForComponent(state, selectedCanvas)}.name`,
+          headerActionHtml: componentHeaderAddButtonTemplate(selectedCanvas),
+        } : {}
       )}${selectedCanvas ? componentSelectedChainSettingsTemplate(selectedCanvas, state) : ""}`;
       replaceInspectorHtml(html, state);
       return;
@@ -1291,8 +1296,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function replaceInspectorHtml(html, state) {
     rememberParamViewSelections(refs.inspector, activeParamViews);
-    if (!replaceHtmlIfChanged(refs.inspector, html)) return false;
+    if (!replaceHtmlIfChanged(refs.inspector, html, { scrollKey: `inspector:${currentWorkspace(state)}` })) return false;
     restoreParamViewSelections(refs.inspector, activeParamViews);
+    replaceHtmlIfChanged.restoreScrollRegions(refs.inspector);
     bindInputs(refs.inspector, state);
     return true;
   }
@@ -1491,7 +1497,7 @@ function componentPillTemplate(component, state) {
 function canvasFramePillTemplate(frame, index, component) {
   const label = frame.name || `Frame ${index + 1}`;
   return textListItemTemplate({
-    rowClass: "list-row",
+    rowClass: "list-row compact-list-row",
     leadingHtml: `<span class="text-list-static-icon" aria-hidden="true">${icon("select_all")}</span>`,
     label,
     meta: "Shared",
@@ -1542,7 +1548,8 @@ function emptyDiagnosticsSummary() {
 function diagnosticEntryTemplate(entry) {
   const time = new Date(entry.lastAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
   const count = entry.count > 1 ? `<span class="diagnostics-repeat">×${entry.count}</span>` : "";
-  return `<li class="is-${esc(entry.level)}"><header><span>${icon(diagnosticIcon(entry.level))}<strong>${esc(entry.level)}</strong></span><span>${esc(time)} ${count}</span></header><pre>${esc(entry.message)}</pre></li>`;
+  const source = entry.source ? `<span class="diagnostics-source">${esc(entry.source)}</span>` : "";
+  return `<li class="is-${esc(entry.level)}"><header><span>${icon(diagnosticIcon(entry.level))}<strong>${esc(entry.level)}</strong>${source}</span><span>${esc(time)} ${count}</span></header><pre>${esc(entry.message)}</pre></li>`;
 }
 
 function diagnosticIcon(level) {

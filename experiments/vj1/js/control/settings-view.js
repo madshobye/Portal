@@ -1,9 +1,10 @@
-import { normalizeRenderSettings } from "../domain/render-settings.js?v=canvas-global-resolution-1";
+import { normalizeRenderSettings } from "../domain/render-settings.js?v=screen-share-1";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
 
 export function settingsModalTemplate(state, activeTab = "outputs") {
   const render = normalizeRenderSettings(state.render || {});
   const camera = render.camera;
+  const screen = render.screenCapture;
   return `
     <div class="modal-backdrop"></div>
     <section class="modal-panel settings-modal" data-settings-modal role="dialog" aria-modal="true" aria-label="Project settings">
@@ -17,9 +18,10 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
       <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
         ${settingsTab("outputs", "Outputs", activeTab)}
         ${settingsTab("camera", "Camera", activeTab)}
+        ${settingsTab("screen", "Screen share", activeTab)}
         ${settingsTab("rendering", "Rendering", activeTab)}
       </nav>
-      <div class="settings-modal-body">
+      <div class="settings-modal-body" data-scroll-region data-scroll-key="settings:${activeTab}">
         <section class="ui-section element-section" data-settings-panel="outputs" ${visiblePanel("outputs", activeTab)}>
           <div class="settings-preset-row">
             <button type="button" data-render-preset="wide">960 x 540</button>
@@ -57,6 +59,28 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           ${settingsToggle("Mirror camera image", "render.camera.mirrored", camera.mirrored)}
           ${settingsToggle("Use maximum supported resolution", "render.camera.maxResolution", camera.maxResolution)}
           <div class="soft-note">The browser chooses the closest supported mode. Changing Camera settings restarts an active capture.</div>
+        </section>
+        <section class="ui-section element-section" data-settings-panel="screen" ${visiblePanel("screen", activeTab)}>
+          <div class="settings-group">
+            <div class="settings-group-title"><span class="material-symbols-rounded">present_to_all</span><span>Shared screen input</span></div>
+            <label class="field">Maximum frame rate <input type="number" min="1" max="60" step="1" data-settings-update="render.screenCapture.frameRate" value="${screen.frameRate}" /></label>
+            <label class="field">Pointer
+              <select data-settings-update="render.screenCapture.cursor">
+                <option value="always" ${screen.cursor === "always" ? "selected" : ""}>Always</option>
+                <option value="motion" ${screen.cursor === "motion" ? "selected" : ""}>While moving</option>
+                <option value="never" ${screen.cursor === "never" ? "selected" : ""}>Hidden</option>
+              </select>
+            </label>
+            ${settingsToggle("Prefer the current browser tab", "render.screenCapture.preferCurrentTab", screen.preferCurrentTab)}
+            ${settingsToggle("Allow sharing this app tab", "render.screenCapture.includeCurrentTab", screen.includeCurrentTab)}
+            ${settingsToggle("Allow changing the shared surface", "render.screenCapture.surfaceSwitching", screen.surfaceSwitching)}
+            <div class="settings-capture-actions">
+              <button type="button" class="chain-add-button" data-start-screen-capture>${icon("present_to_all")} Choose screen or window</button>
+              <button type="button" class="icon-buttonish" data-stop-screen-capture>Stop sharing</button>
+            </div>
+            <div class="soft-note" data-screen-capture-status>Nothing is currently shared.</div>
+            <div class="soft-note">Screen selection is explicit browser permission. The Screen Share generator samples this single input in Preview and same-origin Output windows.</div>
+          </div>
         </section>
         <section class="ui-section element-section settings-rendering-panel" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
           <div class="settings-group">

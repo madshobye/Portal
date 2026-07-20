@@ -1,4 +1,5 @@
 const FORBIDDEN_PATH_PARTS = new Set(["__proto__", "prototype", "constructor"]);
+const STRUCTURAL_LIVE_RENDER_ROOTS = new Set(["resolutionScale", "frameShape", "syncInstances"]);
 
 export function createLiveRenderPatch(componentId, path, value) {
   return {
@@ -41,6 +42,16 @@ export function interpolatedLiveRenderValue(from, to, startedAtMs, durationMs, n
   if (!duration) return Number(to);
   const progress = Math.max(0, Math.min(1, (Number(nowMs) - Number(startedAtMs)) / duration));
   return Number(from) + (Number(to) - Number(from)) * progress;
+}
+
+// Param fading is a render-time presentation feature. Structural settings
+// select render topology or discrete resource sizes and must take effect as
+// one atomic target value; interpolating them creates invalid transient state
+// (for example 1x -> 0.5x resolution briefly produces unsupported 0.92x).
+export function isInterpolableLiveRenderPath(path) {
+  const parts = livePatchPathParts(path);
+  if (!parts.length) return false;
+  return !STRUCTURAL_LIVE_RENDER_ROOTS.has(String(parts[0]));
 }
 
 function livePatchPathParts(path) {

@@ -1,16 +1,16 @@
 import { BLEND_MODES } from "../constants.js";
 import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=volumetric-clouds-1";
 import { normalizeParamValue } from "../graph/component-schema.js?v=text-generator-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=volumetric-clouds-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=screen-share-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
-import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-marker-four-state-1";
-import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=volumetric-clouds-1";
+import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
+import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=scroll-region-1";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=chain-general-controls-1";
+import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=render-quality-general-1";
 import { mediaSourceParams } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
-import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-marker-four-state-1";
-import { componentCardBarTemplate, deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, selectablePillTemplate } from "./view-primitives.js?v=deep-edit-navigation-1";
+import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
+import { componentCardBarTemplate, deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, scrollRegionTemplate, selectablePillTemplate } from "./view-primitives.js?v=scroll-region-1";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
@@ -20,6 +20,7 @@ export function sceneSurfacePillTemplate(surface, state) {
   const enabled = surface.enabled !== false;
   const direct = surface.destination?.type === "direct";
   return selectablePillTemplate({
+    rowClass: "list-row compact-list-row",
     selected: state.ui.selectedSurfaceId === surface.id,
     action: "data-select-surface",
     id: surface.id,
@@ -274,7 +275,7 @@ function liveComponentControlsTemplate(component, view, state = {}) {
     media: state.media || [],
   }) : "";
   return `
-    <div class="live-component-controls">
+    <div class="live-component-controls" data-scroll-region data-scroll-key="live-controls:${esc(component.id)}">
       ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
       <div class="live-component-transform-controls">
         <span class="live-control-group-label">Component placement</span>
@@ -290,7 +291,7 @@ function liveComponentControlsTemplate(component, view, state = {}) {
 function liveChainOutlineTemplate(chain, componentId, selectedItemId = "", pathBase = "chain", state = {}) {
   if (!chain?.length) return emptyNote("No elements");
   return `
-    <div class="live-chain-outline" role="tree">
+    <div class="live-chain-outline" data-scroll-region data-scroll-key="live-elements:${esc(componentId)}" role="tree">
       ${chain.map((item, index) => liveChainOutlineItemTemplate(item, componentId, selectedItemId, `${pathBase}.${index}`, state)).join("")}
     </div>
   `;
@@ -330,7 +331,7 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
         ${views.map((view, index) => `<div class="chain-param-view-option">
           <input class="chain-param-view-input" type="radio" name="${esc(tabName)}" id="${esc(tabName)}-${view.id}" ${index === 0 ? "checked" : ""} />
           <label class="chain-param-view-tab" for="${esc(tabName)}-${view.id}">${view.label}</label>
-          <div class="chain-param-view-panel chain-param-view-${view.id}">${view.html}</div>
+          ${scrollRegionTemplate(`live-chain-params:${componentId}:${item.id}:${view.id}`, view.html, { className: `chain-param-view-panel chain-param-view-${view.id}` })}
         </div>`).join("")}
       </div>
     </section>
@@ -472,13 +473,13 @@ function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {})
   return `
     <div class="field component-assignment-field" data-component-filter-scope>
       <span>Component</span>
-      ${componentCatalogToolsTemplate("source", catalog.sortMode || "recent", "Filter sources")}
       <div class="component-card assignment-selected-card is-selected" data-selected-route-source="${esc(selectedNode.id)}" aria-label="Selected component: ${esc(selectedNode.name)}">
         ${thumbnailTemplate(selectedNode.thumbnail, selectedNode.type === "empty" ? "hide_image" : selectedNode.type === "recording-frame" ? "select_all" : "account_tree")}
         ${componentCardBarTemplate(selectedNode.name)}
         ${deepEditButtonTemplate(selectedNode.componentId, { className: "component-card-edit", label: `Edit ${selectedNode.name}` })}
       </div>
-      <div class="component-card-list assignment-card-list">
+      ${componentCatalogToolsTemplate("source", catalog.sortMode || "recent", "Filter sources")}
+      <div class="component-card-list assignment-card-list" data-scroll-region data-scroll-key="surface-sources:${esc(routeBase)}">
         ${options.map((node) => {
           const selected = node.id === route.sourceNodeId;
           return `

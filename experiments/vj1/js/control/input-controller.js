@@ -1,7 +1,7 @@
 import { applySceneSourceNode, resolveSceneSourceNode } from "../domain/models.js?v=chain-only-authority-1";
 import { touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-29";
 import { bindReorderList } from "./reorder-list.js";
-import { formatTrimTime, roundTrimTime } from "./component-view.js?v=madstodo-4";
+import { formatTrimTime, roundTrimTime } from "./component-view.js?v=scroll-region-1";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { createLiveRenderPatch } from "../domain/live-render-patch.js?v=live-param-patch-1";
 import { bindMarkdownEditors } from "./markdown-editor.js?v=text-style-controls-1";

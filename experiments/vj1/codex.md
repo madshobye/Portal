@@ -62,6 +62,7 @@ Scene transition duration and parameter fade are independent. Numeric Live value
 - Undo records completed user transactions, not UI selection, metrics, thumbnails, or scrub samples.
 - Never scan `revisions` or `vj1-cache` during media discovery.
 - Images, video, camera, STL, OBJ, renditions, and GPU resources are acquired only by active render leases and disposed through the shared bounded runtime.
+- Screen sharing is the explicit exception: Settings owns one user-started session capture until Stop/page exit; `Screen Share` generators only sample its live native-size frame, including from same-origin output windows.
 - Large images decode toward render demand. Import/catalog presence must not decode full media.
 - Media snapshots sent to outputs are authoritative, including an empty list.
 - Missing required media blacks out output and reports loading/failure explicitly.
@@ -81,7 +82,7 @@ Scene transition duration and parameter fade are independent. Numeric Live value
 
 ## Current State and Next Checks
 
-- Full Node suite: **594 passing** on 2026-07-20.
+- Full Node suite: **612 passing** on 2026-07-20.
 - Latest changes were not browser-tested, by request.
 - First manual check: keep Scene A live, open/edit a Component associated with Scene B, move several sliders, and confirm embedded Live preview and popup output remain on Scene A.
 - If a Scene still changes, inspect `VJ1_LIVE_PATCH_RESYNC`, transport revision/session metadata, and the explicit `ui.live.selectedSceneId`; do not add another fallback.

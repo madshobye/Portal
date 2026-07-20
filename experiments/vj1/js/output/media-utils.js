@@ -1,4 +1,5 @@
 import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
+import { renderTargetDescriptor, RENDER_TARGET_KIND } from "./render-target-contract.js?v=render-core-contract-1";
 
 const reportedMediaFallbacks = new WeakMap();
 const webGlMediaBridges = new WeakMap();
@@ -16,18 +17,41 @@ export function drawMediaFit(pg, media, x, y, w, h, fit = "cover") {
   const element = media.elt || media.canvas || media;
   const mw = element.videoWidth || element.naturalWidth || media.width || element.width || w;
   const mh = element.videoHeight || element.naturalHeight || media.height || element.height || h;
+  const stretch = fit === "stretch";
   const scale = fit === "contain" ? Math.min(w / mw, h / mh) : Math.max(w / mw, h / mh);
-  const dw = mw * scale;
-  const dh = mh * scale;
-  const dx = x + (w - dw) / 2;
-  const dy = y + (h - dh) / 2;
-  const webglTarget = isSharedFramebufferTarget(pg) || pg?._renderer?.isP3D === true;
+  const dw = stretch ? w : mw * scale;
+  const dh = stretch ? h : mh * scale;
+  const dx = stretch ? x : x + (w - dw) / 2;
+  const dy = stretch ? y : y + (h - dh) / 2;
+  const targetKind = renderTargetDescriptor(pg).kind;
+  const webglTarget = targetKind === RENDER_TARGET_KIND.sharedFramebuffer ||
+    targetKind === RENDER_TARGET_KIND.p5GraphicsWebgl ||
+    targetKind === RENDER_TARGET_KIND.rawWebgl;
+  const canvasContext = !webglTarget
+    ? pg?.drawingContext || pg?.canvas?.getContext?.("2d") || pg?.elt?.getContext?.("2d")
+    : null;
+  if (typeof canvasContext?.drawImage === "function") {
+    // Raw IMG/VIDEO/CANVAS sources belong to the browser Canvas2D API. Routing
+    // them through p5.Graphics.image() makes p5 look for private p5.Image
+    // metadata and can fail while reading an internal `width` field.
+    try {
+      canvasContext.drawImage(element, dx, dy, dw, dh);
+      return;
+    } catch (error) {
+      console.error("[VJ1_MEDIA_DRAW_FAILED]", {
+        source: mediaSourceKind(media),
+        target: mediaTargetKind(pg),
+        message: error?.message || String(error || "media draw failed"),
+      });
+      throw error;
+    }
+  }
   let primarySource = null;
   try {
     primarySource = webglTarget ? webGlTextureSource(media, element) : element;
     // p5 WebGL requires its p5.Image / p5.Graphics / p5.MediaElement wrapper
-    // so getTexture() can bind the browser resource. Canvas2D should use the
-    // browser-owned element directly and avoid mutable p5 pixel arrays.
+    // so getTexture() can bind the browser resource. Targets without a native
+    // Canvas2D context retain the ordinary p5 image call.
     pg.image(primarySource, dx, dy, dw, dh);
   } catch (primaryError) {
     reportMediaDrawFallback(media, webglTarget ? "webgl-texture-source" : "canvas-image-source", pg, primaryError);
@@ -117,8 +141,9 @@ function mediaSourceKind(media) {
 }
 
 function mediaTargetKind(target) {
-  if (isSharedFramebufferTarget(target)) return "shared-framebuffer";
-  if (target?._renderer?.isP3D) return "p5-webgl";
+  const kind = renderTargetDescriptor(target).kind;
+  if (kind === RENDER_TARGET_KIND.sharedFramebuffer) return "shared-framebuffer";
+  if (kind === RENDER_TARGET_KIND.p5GraphicsWebgl || kind === RENDER_TARGET_KIND.rawWebgl) return "p5-webgl";
   return target?.constructor?.name || "canvas2d";
 }
 

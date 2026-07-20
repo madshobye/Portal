@@ -10,6 +10,7 @@ import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runt
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-5";
+import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js?v=render-core-contract-1";
 import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSafeNearDistance, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
 import { terrainCameraView } from "../js/output/specialized/specialized-source-runtime.js";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
@@ -20,9 +21,32 @@ test("media drawing keeps p5 wrappers for WebGL and browser elements for Canvas2
   const webglCalls = [];
   const canvasCalls = [];
   drawMediaFit({ __vj1SharedFramebuffer: true, image: (...args) => webglCalls.push(args) }, media, 0, 0, 320, 180);
-  drawMediaFit({ image: (...args) => canvasCalls.push(args) }, media, 0, 0, 320, 180);
+  drawMediaFit({ drawingContext: { drawImage: (...args) => canvasCalls.push(args) } }, media, 0, 0, 320, 180);
   assert.equal(webglCalls[0][0], media);
   assert.equal(canvasCalls[0][0], element);
+});
+
+test("raw canvases draw directly into 2D Graphics without entering the p5 image fallback", () => {
+  const element = { tagName: "CANVAS", width: 320, height: 180 };
+  const canvasCalls = [];
+  let p5Calls = 0;
+  drawMediaFit({
+    drawingContext: { drawImage: (...args) => canvasCalls.push(args) },
+    image() { p5Calls++; },
+  }, element, 0, 0, 640, 360);
+  assert.deepEqual(canvasCalls[0], [element, 0, 0, 640, 360]);
+  assert.equal(p5Calls, 0);
+});
+
+test("raw canvases use a Graphics canvas context when p5 does not expose drawingContext", () => {
+  const element = { tagName: "CANVAS", width: 320, height: 180 };
+  const canvasCalls = [];
+  const target = {
+    canvas: { getContext: () => ({ drawImage: (...args) => canvasCalls.push(args) }) },
+    image() { throw new Error("p5 image path must not run"); },
+  };
+  drawMediaFit(target, element, 0, 0, 640, 360);
+  assert.deepEqual(canvasCalls[0], [element, 0, 0, 640, 360]);
 });
 
 test("raw browser media is bridged to a p5 image before WebGL texture upload", () => {
@@ -44,6 +68,42 @@ test("raw browser media is bridged to a p5 image before WebGL texture upload", (
   } finally {
     globalThis.createImage = previousCreateImage;
   }
+});
+
+test("registered p5 WebGL targets bridge raw screen canvases even without private p5 renderer flags", () => {
+  const element = { tagName: "CANVAS", width: 1280, height: 720 };
+  const bridge = {
+    canvas: { getContext: () => ({ drawImage() {}, clearRect() {} }) },
+    loadPixels() {},
+    setModified() {},
+  };
+  const target = { imageCalls: [], image(...args) { this.imageCalls.push(args); } };
+  registerRenderTarget(target, { kind: RENDER_TARGET_KIND.p5GraphicsWebgl });
+  const previousCreateImage = globalThis.createImage;
+  globalThis.createImage = () => bridge;
+  try {
+    drawMediaFit(target, element, 0, 0, 640, 360);
+    assert.equal(target.imageCalls[0][0], bridge);
+  } finally {
+    globalThis.createImage = previousCreateImage;
+  }
+});
+
+test("screen share is a live generator with native-aspect fit modes", () => {
+  const generator = getGeneratorComponent("screenShare");
+  assert.equal(generator.name, "Screen Share");
+  assert.equal(generator.runtime.timeDependent({}), true);
+  const fitParam = generator.params.find((param) => param.id === "fit");
+  assert.deepEqual(fitParam.values, ["contain", "cover", "stretch"]);
+  assert.equal(fitParam.defaultValue, "contain");
+
+  const calls = [];
+  const video = { tagName: "VIDEO", videoWidth: 1920, videoHeight: 1080, readyState: 4 };
+  drawMediaFit({ image: (...args) => calls.push(args) }, video, 0, 0, 400, 400, "contain");
+  assert.deepEqual(calls[0].slice(1), [0, 87.5, 400, 225]);
+  calls.length = 0;
+  drawMediaFit({ image: (...args) => calls.push(args) }, video, 0, 0, 400, 400, "stretch");
+  assert.deepEqual(calls[0].slice(1), [0, 0, 400, 400]);
 });
 
 test("media sources keep trim and playback speed through normalization and graph compile", () => {

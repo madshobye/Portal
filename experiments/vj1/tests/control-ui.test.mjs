@@ -7,7 +7,8 @@ import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate
 import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState } from "../js/domain/models.js";
 import { previewFitSignature, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
-import { isPointerInteractionNode } from "../js/control/dom-utils.js";
+import { isPointerInteractionNode, rememberScrollPositions, restoreScrollPositions } from "../js/control/dom-utils.js";
+import { scrollRegionTemplate } from "../js/control/view-primitives.js";
 import { applyOptimisticToggleIntent } from "../js/control/input-controller.js";
 import { activeRenderCost, activeWorkMetric, performanceHealthStep, rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
 import { mediaSourceParams } from "../js/control/source-control-schema.js";
@@ -31,6 +32,27 @@ test("inspector parameter views survive template replacement", () => {
 
   assert.equal(selections.get(selectedDetails.name), selectedDetails.id);
   assert.equal(replacementDetails.checked, true);
+});
+
+test("keyed list scroll survives template replacement without entering project state", () => {
+  const positions = new Map();
+  const componentList = { dataset: { scrollRegion: "", scrollKey: "component-catalog" }, scrollTop: 184, scrollLeft: 3 };
+  const frameList = { dataset: { scrollRegion: "", scrollKey: "recording-frames" }, scrollTop: 72, scrollLeft: 0 };
+  const scope = {
+    matches: () => false,
+    querySelectorAll: () => [componentList, frameList],
+  };
+
+  rememberScrollPositions(scope, positions);
+  componentList.scrollTop = 0;
+  componentList.scrollLeft = 0;
+  frameList.scrollTop = 0;
+  restoreScrollPositions(scope, positions);
+
+  assert.deepEqual(positions.get("component-catalog"), { top: 184, left: 3 });
+  assert.equal(componentList.scrollTop, 184);
+  assert.equal(componentList.scrollLeft, 3);
+  assert.equal(frameList.scrollTop, 72);
 });
 
 test("rapid toggles preserve commanded user truth before render acknowledgement", () => {
@@ -233,11 +255,16 @@ test("range params render their label and value above a full-width slider", () =
   assert.match(styleSource, /\.range-value::before \{[\s\S]*?content: "\(";/);
   assert.match(styleSource, /\.range-value::after \{[\s\S]*?content: "\)";/);
   assert.match(styleSource, /\.chain-param-view-tab \{[\s\S]*?grid-row: 1;/);
+  assert.match(styleSource, /\.chain-param-view-tab \{[\s\S]*?display: flex;[\s\S]*?align-items: center;[\s\S]*?justify-content: center;[\s\S]*?min-height: 24px;[\s\S]*?padding: 3px 7px;[\s\S]*?font-size: 11px;[\s\S]*?line-height: 1;/);
+  assert.match(styleSource, /\.chain-param-list \{[\s\S]*?align-self: start;[\s\S]*?align-content: start;/);
+  assert.match(styleSource, /\.chain-param-view-panel \{[\s\S]*?align-content: start;[\s\S]*?padding: var\(--section-inset\);[\s\S]*?border-radius: var\(--radius-section-inner\);[\s\S]*?background: var\(--panel-2\);/);
   assert.match(styleSource, /\.chain-param-views \{[\s\S]*?column-gap: 6px;/);
   assert.match(styleSource, /\.chain-param-view-input:checked \+ \.chain-param-view-tab \{[\s\S]*?background: var\(--accent-strong\);/);
   assert.match(styleSource, /\.chain-param-view-panel \{[\s\S]*?grid-row: 2;/);
-  assert.match(styleSource, /\.chain-settings-panel \{ gap: 0; \}/);
-  assert.match(styleSource, /\.chain-param-view-panel \{[\s\S]*?padding: 14px 4px 4px;/);
+  assert.match(styleSource, /\.chain-settings-panel \{[\s\S]*?grid-template-rows: auto minmax\(0, 1fr\);[\s\S]*?gap: 0;/);
+  assert.match(styleSource, /\.chain-param-view-panel \{[\s\S]*?margin-top: 6px;/);
+  assert.match(styleSource, /\.chain-param-views \{[\s\S]*?grid-template-rows: auto minmax\(0, 1fr\);[\s\S]*?overflow: hidden;/);
+  assert.match(styleSource, /\.chain-param-view-panel \{[\s\S]*?overflow-y: auto;/);
   assert.ok(styleSource.includes("grid-column: 1 / -1;"));
   assert.ok(styleSource.includes(".live-chain-settings .chain-param-view-content"));
   assert.ok(styleSource.includes("grid-column: 1 / -1;"));
@@ -254,17 +281,19 @@ test("Component Canvas and Live inspectors give range tracks their own full-widt
   assert.ok(!styleSource.includes(".chain-pass .range-field"));
   assert.ok(!styleSource.includes(".live-chain-pass .chain-param-list"));
   assert.ok(styleSource.includes(".live-chain-settings .field:not(.range-field)"));
-  assert.ok(styleSource.includes("--range-stack-gap: 9px;"));
+  assert.ok(styleSource.includes("--range-stack-gap: 7px;"));
   assert.match(styleSource, /\.chain-param-list \{[\s\S]*?gap: var\(--range-stack-gap\);/);
 });
 
-test("all chain elements expose shared opacity blend and placement through General", () => {
+test("all renderable chain elements expose shared quality opacity blend and placement through General", () => {
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
   assert.ok(parameterSource.includes('createNumberParam("opacity", "Opacity"'));
   assert.ok(parameterSource.includes('createEnumParam("blend", "Blend", BLEND_MODES'));
+  assert.ok(parameterSource.includes("[RENDER_QUALITY_PARAM, ...CHAIN_GENERAL_PARAMS]"));
+  assert.ok(parameterSource.includes("chainRenderQualityTarget(item, basePath)"));
   assert.ok(parameterSource.includes('{ id: "general", label: "General", html: general }'));
   assert.ok(componentSource.includes("chainGeneralControlsTemplate(item, base"));
   assert.ok(sceneLiveSource.includes("chainGeneralControlsTemplate(item, path"));
@@ -307,7 +336,7 @@ test("component panel exposes frame shape and relative resolution controls", () 
   assert.ok(componentSource.includes('["portrait", "Portrait"]'));
   assert.ok(componentSource.includes('["square", "Square"]'));
   assert.ok(componentSource.includes("const scaleOptions = [0.5, 1, 2];"));
-  assert.ok(componentSource.includes("component-frame-summary"));
+  assert.ok(!componentSource.includes("component-frame-summary"));
   assert.ok(styleSource.includes(".component-option-grid"));
 });
 
@@ -327,9 +356,10 @@ test("control surfaces share one flat section module and concentric corner token
   assert.ok(styleSource.includes("--radius-section: 12px;"));
   assert.ok(styleSource.includes("--radius-section-inner: 6px;"));
   assert.match(styleSource, /\.ui-section \{[\s\S]*?border: 0;[\s\S]*?border-radius: var\(--radius-section\);/);
+  assert.match(styleSource, /\.ui-section-header,[\s\S]*?min-height: 30px;[\s\S]*?padding: 4px 8px;/);
   assert.ok(styleSource.includes(".section-toolbar"));
   assert.match(styleSource, /\.section-toolbar \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
-  assert.match(styleSource, /\.component-frame-summary \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
+  assert.ok(!styleSource.includes(".component-frame-summary"));
   assert.match(styleSource, /\.text-list-item \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
   assert.ok(componentSource.includes('class="section-toolbar component-quick-toolbar"'));
 });
@@ -341,12 +371,51 @@ test("topbar identity stays neutral until interaction", () => {
   assert.match(styleSource, /\.project-button \.material-symbols-rounded \{[\s\S]*?color: var\(--muted\);/);
 });
 
-test("both control columns reserve a persistent scrollbar lane outside their sections", () => {
+test("collection workspaces keep controls fixed and scroll only their list bodies", () => {
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.match(styleSource, /\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?padding-right: 10px;[\s\S]*?overflow-y: scroll;[\s\S]*?scrollbar-gutter: stable;/);
-  assert.match(styleSource, /\.project-rail::\-webkit-scrollbar,[\s\S]*?\.studio-inspector::\-webkit-scrollbar/);
-  assert.match(styleSource, /\.project-rail::\-webkit-scrollbar-thumb,[\s\S]*?\.studio-inspector::\-webkit-scrollbar-thumb/);
+  assert.ok(controllerSource.includes("refs.projectRail.dataset.workspace = workspace"));
+  assert.match(styleSource, /\.project-rail:is\(\[data-workspace="component"\][\s\S]*?overflow: hidden;/);
+  assert.match(styleSource, /> \.rail-list-section \{[\s\S]*?flex: 1 1 0;[\s\S]*?min-height: 0;/);
+  assert.match(styleSource, /\.project-rail\[data-workspace="live"\] > \.live-component-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
+  assert.match(controllerSource, /class="ui-section rail-section rail-list-section live-component-rail-section"[\s\S]*?<span>Scene components<\/span>/);
+  assert.match(styleSource, /\.project-rail\[data-workspace="scene"\] > \.scene-surface-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
+  assert.match(controllerSource, /class="ui-section rail-section rail-list-section scene-surface-rail-section"[\s\S]*?"Surfaces"/);
+  assert.match(styleSource, /\.project-rail\[data-workspace="canvas"\] > \.canvas-frame-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
+  assert.match(controllerSource, /class="ui-section rail-section rail-list-section canvas-frame-rail-section"[\s\S]*?"Frames"/);
+  assert.match(styleSource, /\.rail-list-section > \.rail-scroll-list \{[\s\S]*?overflow-y: auto;[\s\S]*?scrollbar-gutter: stable;/);
+  assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\][\s\S]*?overflow: hidden;/);
+  assert.match(styleSource, /\.component-chain-list,[\s\S]*?align-content: start;[\s\S]*?overflow-y: auto;/);
+  assert.match(controllerSource, /class="component-card-list rail-scroll-list"/);
+  assert.match(controllerSource, /class="scene-card-list rail-scroll-list"/);
+});
+
+test("selection rerenders preserve every keyed catalog and chain viewport", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const sceneSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const pickerSource = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
+  const domSource = readFileSync(new URL("../js/control/dom-utils.js", import.meta.url), "utf8");
+
+  for (const key of ["component-catalog", "canvas-catalog", "recording-frames", "scene-catalog", "scene-surfaces", "live-scenes", "live-components", "mapping-components"]) {
+    assert.ok(controllerSource.includes(`data-scroll-region data-scroll-key="${key}"`), `missing scroll region: ${key}`);
+  }
+  assert.ok(componentSource.includes("scrollRegionTemplate(`component-chain:${component.id}`"));
+  assert.ok(componentSource.includes("scrollRegionTemplate(`chain-params:${component.id}:${item.id}:${view.id}`"));
+  assert.ok(sceneSource.includes('data-scroll-region data-scroll-key="live-controls:${esc(component.id)}"'));
+  assert.ok(sceneSource.includes('data-scroll-region data-scroll-key="live-elements:${esc(componentId)}"'));
+  assert.ok(sceneSource.includes("scrollRegionTemplate(`live-chain-params:${componentId}:${item.id}:${view.id}`"));
+  assert.ok(sceneSource.includes('data-scroll-region data-scroll-key="surface-sources:${esc(routeBase)}"'));
+  assert.ok(pickerSource.includes('data-scroll-region data-scroll-key="source-picker-results"'));
+  assert.ok(pickerSource.includes('data-scroll-region data-scroll-key="element-picker-results"'));
+  assert.match(domSource, /rememberScrollPositions\(node, scrollPositions\);[\s\S]*?node\.innerHTML = next;[\s\S]*?restoreScrollPositions\(node, scrollPositions\);/);
+});
+
+test("scroll region primitive gives every rerendered viewport a stable identity", () => {
+  const html = scrollRegionTemplate("component:one & two", "<span>content</span>", { className: "chain-param-view-panel", tagName: "section" });
+  assert.match(html, /^<section class="chain-param-view-panel" data-scroll-region data-scroll-key="component:one &amp; two"/);
+  assert.ok(html.includes("<span>content</span>"));
 });
 
 test("every workspace rail uses the same constrained first-column module", () => {
@@ -358,8 +427,25 @@ test("every workspace rail uses the same constrained first-column module", () =>
   assert.match(controllerSource, /addableRailTitleTemplate\("account_tree", "Components", "data-add-component"/);
   assert.match(controllerSource, /addableRailTitleTemplate\("dashboard_customize", "Canvases", "data-add-canvas-component"/);
   assert.match(controllerSource, /addableRailTitleTemplate\("auto_awesome_motion", "Scenes", "data-add-scene"/);
-  assert.match(styleSource, /\.rail-title-add \{[\s\S]*?width: 24px;[\s\S]*?margin-left: auto;/);
+  assert.match(controllerSource, /addableRailTitleTemplate\("select_all", "Frames", `data-add-canvas-frame/);
+  assert.match(controllerSource, /addableRailTitleTemplate\("select_all", "Surfaces", "data-add-surface"/);
+  assert.match(styleSource, /\.rail-title-add \{[\s\S]*?width: 22px;[\s\S]*?margin-left: auto;/);
   assert.doesNotMatch(styleSource, /\.capture-row/);
+});
+
+test("render-chain, frame, and surface rows share the compact list density", () => {
+  const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const sceneSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+
+  assert.match(styleSource, /\.component-chain-list \{[\s\S]*?gap: 3px;[\s\S]*?align-content: start;/);
+  assert.match(styleSource, /\.compact-list-row \{[\s\S]*?--text-list-leading-size: 27px;[\s\S]*?min-height: 34px;/);
+  assert.match(styleSource, /\.compact-list-row \.enable-toggle,[\s\S]*?\.compact-list-row \.text-list-static-icon,[\s\S]*?height: 28px;[\s\S]*?min-height: 28px;/);
+  assert.match(componentSource, /rowClass: "chain-item-row compact-list-row"/);
+  assert.match(controllerSource, /function canvasFramePillTemplate[\s\S]*?rowClass: "list-row compact-list-row"/);
+  assert.match(sceneSource, /function sceneSurfacePillTemplate[\s\S]*?rowClass: "list-row compact-list-row"/);
+  assert.match(styleSource, /\.chain-group-drop-zone \{[\s\S]*?min-height: 14px;/);
 });
 
 test("the scrollbar lane replaces excess space between the two control columns", () => {
@@ -405,7 +491,7 @@ test("thumbnail list items share a connected image and bottom label bar", () => 
   assert.match(styleSource, /\.component-card-row:focus-within \.component-card-remove \{[\s\S]*?transition-delay: 0s;/);
 });
 
-test("ordinary sliders use the tall track and square active handle from the UI system", () => {
+test("ordinary sliders use the compact track and square active handle from the UI system", () => {
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(styleSource.includes("--accent-strong: #6f3300;"));
@@ -414,7 +500,8 @@ test("ordinary sliders use the tall track and square active handle from the UI s
   assert.ok(styleSource.includes("--slider-text: #777674;"));
   assert.match(styleSource, /\.range-field > span \{[\s\S]*?color: var\(--slider-text\);/);
   assert.match(styleSource, /\.range-value \{[\s\S]*?color: var\(--slider-text\);/);
-  assert.ok(styleSource.includes("--slider-height: 22px;"));
+  assert.ok(styleSource.includes("--slider-height: 18px;"));
+  assert.match(styleSource, /input\[type="range"\] \{[\s\S]*?height: 20px;/);
   assert.match(styleSource, /input\[type="range"\]::\-webkit-slider-thumb \{[\s\S]*?width: var\(--slider-height\);[\s\S]*?height: var\(--slider-height\);[\s\S]*?border-radius: 0;[\s\S]*?background: var\(--slider-thumb\);/);
   assert.match(styleSource, /input\[type="range"\]::\-webkit-slider-runnable-track \{[\s\S]*?height: var\(--slider-height\);[\s\S]*?border-radius: var\(--radius-section-inner\);[\s\S]*?background: var\(--slider-track\);/);
   assert.match(styleSource, /\.param-range-track \{[\s\S]*?border-radius: var\(--radius-section-inner\);/);
@@ -602,12 +689,20 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(!source.includes("Build a larger visual with the same sources"));
   assert.ok(!source.includes("<span>Sampling</span>"));
-  assert.match(source, /function canvasToolsTemplate[\s\S]*?Canvases[\s\S]*?<span>Frames<\/span>/);
-  assert.ok(source.includes('class="recording-frame-pills"'));
+  assert.match(source, /function canvasToolsTemplate[\s\S]*?Canvases[\s\S]*?addableRailTitleTemplate\("select_all", "Frames"/);
+  assert.ok(source.includes('class="recording-frame-pills rail-scroll-list"'));
   assert.ok(!source.includes('class="canvas-inspector-section"'));
   assert.ok(componentSource.includes("componentUnifiedChainTemplate(component, state, base)"));
   assert.match(componentSource, /function componentUnifiedChainTemplate[\s\S]*?<section class="chain-list-section" aria-label="Elements">/);
   assert.doesNotMatch(componentSource, /function componentUnifiedChainTemplate[\s\S]*?<span>Chain<\/span>/);
+  const unifiedChainSource = componentSource.slice(
+    componentSource.indexOf("function componentUnifiedChainTemplate"),
+    componentSource.indexOf("function chainItemsTemplate")
+  );
+  assert.ok(!unifiedChainSource.includes("chain-add-button"));
+  assert.match(componentSource, /export function componentHeaderAddButtonTemplate[\s\S]*?class="rail-title-add"[\s\S]*?data-open-element-picker/);
+  assert.match(source, /currentWorkspace\(state\) === "component"[\s\S]*?headerActionHtml: componentHeaderAddButtonTemplate\(selectedComponent\)/);
+  assert.match(source, /currentWorkspace\(state\) === "canvas"[\s\S]*?headerActionHtml: componentHeaderAddButtonTemplate\(selectedCanvas\)/);
   assert.match(style, /\.chain-list-section \{[\s\S]*?padding: var\(--section-inset\);[\s\S]*?background: var\(--panel-2\);/);
   assert.match(componentSource, /function componentSelectedChainSettingsTemplate[\s\S]*?<section class="ui-section focus-panel chain-settings-panel" aria-label="Selected element parameters">/);
   assert.match(source, /currentWorkspace\(state\) === "component"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedComponent, state\)/);
@@ -677,7 +772,7 @@ test("compact text lists share one full-width item generator", () => {
   assert.ok(!style.includes(".surface-pills .list-select.is-selected"));
   assert.match(style, /\.chain-item-row \.enable-toggle\.is-enabled \{[\s\S]*?background: rgba\(255, 255, 255, 0\.055\);[\s\S]*?color: var\(--muted\);/);
   assert.match(style, /\.chain-item-row\.is-selected \.enable-toggle\.is-enabled \{[\s\S]*?color: var\(--ink\);/);
-  assert.match(style, /\.chain-group-children \{[\s\S]*?padding-left: 8px;[\s\S]*?border-left: 3px solid var\(--line-strong\);/);
+  assert.match(style, /\.chain-group-children \{[\s\S]*?padding-left: 6px;[\s\S]*?border-left: 2px solid var\(--line-strong\);/);
   assert.match(style, /\.chain-group-drop-zone \{[\s\S]*?border: 1px dashed var\(--line-strong\);/);
   assert.match(style, /\.chain-group-drop-zone\.is-drop-target \{[\s\S]*?border-color: rgba\(255, 255, 255, 0\.55\);[\s\S]*?background: rgba\(255, 255, 255, 0\.06\);/);
 });
@@ -810,6 +905,18 @@ test("project settings expose camera capture preferences", () => {
   assert.ok(source.includes('data-settings-update="render.camera.maxResolution"'));
 });
 
+test("project settings own one session-persistent screen share without target dimensions", () => {
+  const source = `${readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState(), "screen")}`;
+  assert.ok(source.includes('data-settings-tab="screen"'));
+  assert.ok(source.includes('data-settings-update="render.screenCapture.frameRate"'));
+  assert.ok(source.includes('data-settings-update="render.screenCapture.cursor"'));
+  assert.ok(source.includes("data-start-screen-capture"));
+  assert.ok(source.includes("data-stop-screen-capture"));
+  assert.ok(source.includes("startScreenCapture(settings)"));
+  assert.equal(source.includes('render.screenCapture.width'), false);
+  assert.equal(source.includes('render.screenCapture.height'), false);
+});
+
 test("project settings keep one modal DOM and patch tab values in place", () => {
   const source = `${readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState())}`;
   assert.ok(source.includes('if (!host.querySelector("[data-settings-modal]"))'));
@@ -817,6 +924,7 @@ test("project settings keep one modal DOM and patch tab values in place", () => 
   assert.ok(source.includes("function bindSettingsModalControls(host)"));
   assert.ok(source.includes('data-settings-tab="outputs"'));
   assert.ok(source.includes('data-settings-tab="camera"'));
+  assert.ok(source.includes('data-settings-tab="screen"'));
   assert.ok(source.includes('data-settings-tab="rendering"'));
   assert.ok(source.includes('data-settings-update="render.maxFrameRate"'));
   assert.ok(source.includes('data-configured-output-list'));
@@ -1057,6 +1165,8 @@ test("component selection modal exposes the shared persisted catalog sorting", (
   assert.ok(controller.includes("bindCatalogSortControls(host)"));
   assert.match(style, /\.component-sort-toggle button\.is-active \{[\s\S]*?background: transparent;[\s\S]*?color: var\(--muted\);/);
   assert.match(style, /\.component-sort-toggle button:active,[\s\S]*?background: var\(--accent-strong\);/);
+  assert.match(style, /\.component-catalog-tools \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 30px;/);
+  assert.match(style, /\.component-sort-toggle button \{[\s\S]*?width: 30px;[\s\S]*?padding: 0;/);
 });
 
 test("workspace view buttons are compact icons with accessible names", () => {
@@ -1187,7 +1297,7 @@ test("seed params stay internal and are not rendered as sliders", () => {
   assert.ok(parameterSource.includes('param?.id !== "seed"'));
   assert.ok(parameterSource.includes("const visible = visibleParamControls(params);"));
   assert.ok(componentSource.includes("componentParamViews(component)"));
-  assert.ok(parameterSource.includes('filter((param) => param?.id !== "seed")'));
+  assert.ok(parameterSource.includes('param?.id !== "seed" && param?.id !== RENDER_QUALITY_PARAM.id'));
   assert.ok(sceneLiveSource.includes("paramControlsTemplate(params"));
 });
 

@@ -4,6 +4,11 @@ export function componentCardBarTemplate(label) {
   return `<div class="component-card-bar"><span>${esc(label)}</span></div>`;
 }
 
+export function scrollRegionTemplate(key, content, { className = "", attributes = "", tagName = "div" } = {}) {
+  const safeTag = ["div", "nav", "ol", "section"].includes(tagName) ? tagName : "div";
+  return `<${safeTag} class="${esc(className)}" data-scroll-region data-scroll-key="${esc(key)}" ${attributes}>${content}</${safeTag}>`;
+}
+
 export function deepEditButtonTemplate(componentId, { chainItemId = "", className = "", label = "Edit component" } = {}) {
   if (!componentId) return "";
   const chainTarget = chainItemId ? ` data-edit-chain-item="${esc(chainItemId)}"` : "";
@@ -23,9 +28,9 @@ export function enableToggleButton({ path = "", livePath = "", componentId = "",
   `;
 }
 
-export function selectablePillTemplate({ selected, action, id, iconName, label, meta, togglePath = "", toggleValue = true, removeAction = "", removeDisabled = false, reorderable = true }) {
+export function selectablePillTemplate({ selected, action, id, iconName, label, meta, rowClass = "list-row", togglePath = "", toggleValue = true, removeAction = "", removeDisabled = false, reorderable = true }) {
   return textListItemTemplate({
-    rowClass: "list-row",
+    rowClass,
     selected,
     reorderId: reorderable ? id : "",
     leadingHtml: togglePath ? enableToggleButton({
@@ -101,12 +106,13 @@ export function editableSectionTitleTemplate(iconName, path, value) {
   return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${iconName}</span>${titleInputTemplate(path, value)}</div>`;
 }
 
-export function panelTemplate(iconName, title, body, { titlePath = "" } = {}) {
+export function panelTemplate(iconName, title, body, { titlePath = "", headerActionHtml = "" } = {}) {
   return `
     <section class="ui-section focus-panel">
       <header class="ui-section-header panel-title">
         <span class="material-symbols-rounded">${iconName}</span>
         ${titlePath ? titleInputTemplate(titlePath, title) : `<span>${esc(title)}</span>`}
+        ${headerActionHtml}
       </header>
       ${body}
     </section>

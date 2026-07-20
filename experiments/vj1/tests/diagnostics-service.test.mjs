@@ -64,3 +64,15 @@ test("diagnostics capture uncaught errors and rejected promises without polling"
   assert.equal(notifications, 3, "one initial snapshot plus one event per diagnostic");
   diagnostics.destroy();
 });
+
+test("diagnostics preserve origins and merge transported occurrence counts", () => {
+  const diagnostics = createDiagnosticsService({ host: fakeHost() });
+  diagnostics.record("error", ["renderer failed"], "output output-main · console", 3);
+  diagnostics.record("error", ["renderer failed"], "output output-main · console", 2);
+  diagnostics.record("error", ["renderer failed"], "console");
+
+  const entries = diagnostics.summary().entries;
+  assert.equal(entries.length, 2, "identical messages from different windows remain attributable");
+  assert.equal(entries[0].count, 5);
+  assert.match(diagnostics.copyText(), /renderer failed \[output output-main · console\]/);
+});

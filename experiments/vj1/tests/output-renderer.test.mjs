@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, chainTransformDragScale, componentAdaptiveRasterLimit, componentInstanceTime, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, chainTransformDragScale, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { defaultProjectSurfaceMapping, renderRequestKey } from "../js/output/render-geometry.js";
 import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
@@ -841,9 +841,10 @@ test("paused previews contain thumbnails and canvas surface routes preserve samp
   const surfaceSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const source = `${rendererSource}\n${surfaceSource}`;
   assert.ok(source.includes("const rect = this.componentPreviewRect(component);"));
-  assert.ok(source.includes('if (component?.type === "canvas")'));
+  assert.ok(source.includes("return componentLogicalPreviewRect(this.state?.render || {}, component || {}, width, height);"));
   assert.ok(source.includes("drawTransformedSampleRect(target, thumbnail.img"));
-  assert.ok(source.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
+  assert.ok(source.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {"));
+  assert.ok(source.includes("opacity: surfaceRouteOpacity(route)"));
 });
 
 test("thumbnail preview remains an active transform editor without live component rendering", () => {
@@ -1015,6 +1016,24 @@ test("Component preview raster follows visible demand instead of its initial dim
     pickRequestSize(componentPreviewRenderRequest(render, component, 800, 600, 1)),
     { width: 800, height: 400 }
   );
+});
+
+test("Component preview geometry is independent from pixel density and raster dimensions", () => {
+  const component = { type: "chain", frameShape: "landscape", resolutionScale: 1 };
+  const lowDensity = componentLogicalPreviewRect(
+    { componentTexture: { width: 1200, height: 800 }, pixelDensity: 0.5 },
+    component,
+    900,
+    700
+  );
+  const highDensity = componentLogicalPreviewRect(
+    { componentTexture: { width: 1200, height: 800 }, pixelDensity: 2 },
+    component,
+    900,
+    700
+  );
+  assert.deepEqual(lowDensity, highDensity);
+  assert.deepEqual(highDensity, { x: 0, y: 50, width: 900, height: 600 });
 });
 
 test("Canvas recording frames move within bounds and corner resize changes both dimensions independently", () => {
@@ -1327,7 +1346,7 @@ test("scene surfaces render components at their configured shape and relative re
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const plannerSource = readFileSync(new URL("../js/output/surface-render-planner.js", import.meta.url), "utf8");
   const drawSurfaceRoute = runtimeSource.slice(
-    runtimeSource.indexOf("  drawSurfaceRoute(target, route = {})"),
+    runtimeSource.indexOf("  drawSurfaceRoute(target, route = {}, { compositeOpacity = 1 } = {})"),
     runtimeSource.indexOf("  drawSurfaceThumbnailRoute(target, surface")
   );
   const surfaceRenderPlan = plannerSource;
@@ -1456,7 +1475,8 @@ test("projection mapper uses actual texture size for surface sampling math", () 
   assert.ok(source.includes("const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);"));
   assert.ok(source.includes("const sourceHeight = sourceRect[3] * Math.max(1, Number(texture.height) || 1);"));
   assert.ok(source.includes('projectionFit = "cover"'));
-  assert.ok(rendererSource.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather)"));
+  assert.ok(rendererSource.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {"));
+  assert.ok(rendererSource.includes("opacity: surfaceRouteOpacity(route)"));
   assert.ok(rendererSource.includes("sourceRect: view.sourceRect"));
   assert.ok(rendererSource.includes("directSurfaceSamples"));
   assert.ok(source.includes("drawTextureBatch(items = [])"));

@@ -30,6 +30,8 @@ test("Component and Canvas chain presentation lives outside the control orchestr
   assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.opacity"/);
   assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.blend"/);
   assert.match(settingsHtml, /data-param-context-path="components\.[0-9]+\.chain\.0\.transform\.scale"/);
+  assert.equal((settingsHtml.match(/<span>Render quality<\/span>/g) || []).length, 1);
+  assert.ok(settingsHtml.indexOf("chain-param-view-general") < settingsHtml.indexOf("<span>Render quality</span>"), "source render quality is owned by General");
   assert.doesNotMatch(canvasHtml, /\.canvas\.(?:width|height)"/);
   assert.match(controller, /from "\.\/component-view\.js\?v=[^"]+"/);
   assert.doesNotMatch(controller, /function componentTemplate\(/);
@@ -83,6 +85,8 @@ test("effects separate shader strength from generic compositing controls", () =>
   assert.match(html, new RegExp(`data-update="components\\.0\\.chain\\.1\\.opacity"`));
   assert.match(html, new RegExp(`data-update="components\\.0\\.chain\\.1\\.blend"`));
   assert.match(html, new RegExp(`data-update="components\\.0\\.chain\\.1\\.transform\\.x"`));
+  assert.equal((html.match(/<span>Render quality<\/span>/g) || []).length, 1);
+  assert.ok(html.indexOf("chain-param-view-general") < html.indexOf("<span>Render quality</span>"), "effect render quality is owned by General");
 });
 
 test("persistent and Live source editors share one media-model control schema", () => {

@@ -1,4 +1,4 @@
-import { isDrawableMedia } from "./media-utils.js?v=render-diagnostics-1";
+import { isDrawableMedia } from "./media-utils.js?v=logical-component-frame-1";
 
 export function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");

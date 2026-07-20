@@ -1,4 +1,4 @@
-import { setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
+import { setText } from "./dom-utils.js?v=scroll-region-1";
 import { formatRangeValue } from "./template-utils.js?v=slider-values-70";
 
 export function setByPath(target, path, value) {

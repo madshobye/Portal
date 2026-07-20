@@ -1,18 +1,20 @@
-import { createAppState } from "./app-state.js?v=volumetric-clouds-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=volumetric-clouds-1";
+import { createAppState } from "./app-state.js?v=screen-share-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=logical-component-frame-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=volumetric-clouds-1";
-import { createControlBridge } from "./services/output-bridge-service.js?v=component-transport-patch-1";
-import { installOutputApp } from "./output/output-app.js?v=volumetric-clouds-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=screen-share-1";
+import { createControlBridge } from "./services/output-bridge-service.js?v=remote-diagnostics-1";
+import { installOutputApp } from "./output/output-app.js?v=logical-component-frame-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
-import { createDiagnosticsService } from "./services/diagnostics-service.js?v=diagnostics-console-1";
+import { createDiagnosticsService } from "./services/diagnostics-service.js?v=remote-diagnostics-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
 
 if (mode === "output" || mode === "preview" || mode === "component") {
-  installOutputApp({ root, mode });
+  const diagnostics = createDiagnosticsService();
+  diagnostics.install();
+  installOutputApp({ root, mode, diagnostics });
 } else {
   const diagnostics = createDiagnosticsService();
   diagnostics.install();
@@ -22,7 +24,7 @@ if (mode === "output" || mode === "preview" || mode === "component") {
   store.setWorkspace(initialWorkspace);
   persistWorkspace(initialWorkspace);
   const mediaLibrary = createMediaLibrary();
-  const bridge = createControlBridge({ store, mediaLibrary });
+  const bridge = createControlBridge({ store, mediaLibrary, diagnostics });
   const projectService = createProjectFolderService({ mediaLibrary, store, bridge });
   let bridgeScrubFrame = 0;
 

@@ -600,6 +600,51 @@ test("output bridge transmits an empty authoritative media snapshot", () => {
   }
 });
 
+test("output diagnostics cross the bridge with origin and bounded occurrence counts", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const channels = [];
+  const recorded = [];
+  globalThis.BroadcastChannel = class {
+    constructor() { channels.push(this); }
+    postMessage(message) {
+      for (const channel of channels) {
+        if (channel !== this) channel.onmessage?.({ data: message });
+      }
+    }
+    close() {}
+  };
+  try {
+    const state = { metrics: { clients: 0, outputs: {} } };
+    const control = createControlBridge({
+      store: {
+        subscribe() { return () => {}; },
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+      diagnostics: {
+        record(level, values, source, count) { recorded.push({ level, message: values[0], source, count }); },
+      },
+    });
+    const output = createOutputBridge({ mode: "output", outputId: "projector-a" });
+    output.diagnostic({ level: "error", message: "shader failed", source: "console", count: 4 });
+    await Promise.resolve();
+
+    assert.deepEqual(recorded, [{
+      level: "error",
+      message: "shader failed",
+      source: "output projector-a · console",
+      count: 4,
+    }]);
+    output.close();
+    control.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
 test("controller startup never publishes a false empty media snapshot before recovery", async () => {
   const previousBroadcastChannel = globalThis.BroadcastChannel;
   const messages = [];
@@ -839,6 +884,31 @@ test("Live numeric patches preserve target truth while the renderer interpolates
   assert.equal(params.amount, 0.25, "retargeting continues from the currently displayed value");
   renderer.restoreLiveParamFadeFrame();
   assert.equal(params.amount, 0);
+});
+
+test("Structural resolution patches bypass param fading in both directions", () => {
+  const renderer = new OutputRenderer({ mode: "output" });
+  renderer.state = {
+    components: [{ id: "component-a", resolutionScale: 1, chain: [] }],
+    recordingFrames: [],
+    surfaces: [],
+    ui: { live: { paramFadeDuration: 2 } },
+  };
+  renderer.rebuildRouteLookups();
+
+  renderer.applyLivePatches([
+    createLiveRenderPatch("component-a", "resolutionScale", 0.5),
+  ], 100);
+  renderer.applyLiveParamFadeFrame(600);
+  assert.equal(renderer.state.components[0].resolutionScale, 0.5);
+  assert.equal(renderer.liveParamFades.size, 0);
+
+  renderer.applyLivePatches([
+    createLiveRenderPatch("component-a", "resolutionScale", 2),
+  ], 700);
+  renderer.applyLiveParamFadeFrame(800);
+  assert.equal(renderer.state.components[0].resolutionScale, 2);
+  assert.equal(renderer.liveParamFades.size, 0);
 });
 
 test("persisted renditions are bound to the exact source file revision", async () => {

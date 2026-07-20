@@ -1,5 +1,5 @@
 import { chainPasteTarget, clipboardPayloadForTarget, VJ1_CLIPBOARD_TYPE } from "../domain/clipboard.js?v=canvas-global-resolution-1";
-import { isTextEditingNode } from "./dom-utils.js?v=preview-pointer-deferral-1";
+import { isTextEditingNode } from "./dom-utils.js?v=scroll-region-1";
 
 const VJ1_CLIPBOARD_TEXT_PREFIX = "VJ1_CLIPBOARD:";
 

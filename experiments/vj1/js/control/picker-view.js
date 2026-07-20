@@ -1,7 +1,7 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=volumetric-clouds-1";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=screen-share-1";
 import { listShaderComponents } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
-import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-marker-four-state-1";
+import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 
 function getByPath(target, path) {
   return String(path || "").split(".").filter(Boolean).reduce((value, segment) => value?.[segment], target);
@@ -15,6 +15,7 @@ export function generatorIcon(id) {
     waves: "waves",
     noise: "grain",
     tileTexture: "grid_on",
+    screenShare: "present_to_all",
     text: "text_fields",
     plasma: "blur_on",
     gradient: "gradient",
@@ -72,7 +73,7 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
 
       ${sourceFilterBarTemplate({ active: sourceFilter, mediaItems: allMediaItems, allowedCategory })}
 
-      <div class="element-modal-body">
+      <div class="element-modal-body" data-scroll-region data-scroll-key="source-picker-results">
         <section class="ui-section element-section" data-element-section>
           <div class="element-section-heading">
             <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
@@ -143,7 +144,7 @@ function sourceFilterBarTemplate({ active = "all", mediaItems = [], allowedCateg
   if (allowedCategory) {
     const label = allowedCategory === "model" ? "3D" : allowedCategory === "image" ? "Images" : allowedCategory;
     const filterIcon = allowedCategory === "model" ? "deployed_code" : allowedCategory === "image" ? "image" : "filter_alt";
-    return `<nav class="element-filter-bar" aria-label="Allowed source type">
+    return `<nav class="element-filter-bar" data-scroll-region data-scroll-key="source-picker-filters" aria-label="Allowed source type">
       <button type="button" class="is-active" data-element-filter="${esc(allowedCategory)}" aria-pressed="true" disabled>${icon(filterIcon)}<span>${esc(label)}</span></button>
     </nav>`;
   }
@@ -158,7 +159,7 @@ function sourceFilterBarTemplate({ active = "all", mediaItems = [], allowedCateg
     ["blank", "Blank", "radio_button_unchecked"],
   ];
   const validActive = filters.some(([id]) => id === active) ? active : "all";
-  return `<nav class="element-filter-bar" aria-label="Filter source types">
+  return `<nav class="element-filter-bar" data-scroll-region data-scroll-key="source-picker-filters" aria-label="Filter source types">
     ${filters.map(([id, label, filterIcon]) => `
       <button type="button" class="${id === validActive ? "is-active" : ""}" data-element-filter="${id}" aria-pressed="${id === validActive}">${icon(filterIcon)}<span>${label}</span></button>
     `).join("")}
@@ -197,7 +198,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
         hasComponents: components.length > 0,
       })}
 
-      <div class="element-modal-body">
+      <div class="element-modal-body" data-scroll-region data-scroll-key="element-picker-results">
         ${components.length ? `<section class="ui-section element-section" data-element-section>
           <div class="element-section-heading">
             <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
@@ -303,7 +304,7 @@ function elementFilterBarTemplate({ active = "all", mediaItems = [], hasComponen
   ];
   const validActive = filters.some(([id]) => id === active) ? active : "all";
   return `
-    <nav class="element-filter-bar" aria-label="Filter element types">
+    <nav class="element-filter-bar" data-scroll-region data-scroll-key="element-picker-filters" aria-label="Filter element types">
       ${filters.map(([id, label, filterIcon]) => `
         <button type="button" class="${id === validActive ? "is-active" : ""}" data-element-filter="${id}" aria-pressed="${id === validActive}" ${id === "model" ? 'title="3D models (OBJ and STL)"' : ""}>
           ${icon(filterIcon)}<span>${label}</span>

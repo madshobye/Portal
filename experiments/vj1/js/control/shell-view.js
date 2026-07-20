@@ -24,7 +24,7 @@ export function shellTemplate() {
           </div>
           <button id="return-from-deep-edit" class="icon-buttonish deep-edit-return is-hidden" type="button" title="Return" aria-label="Return">${icon("arrow_back")}</button>
         </div>
-        <div class="top-actions">
+        <div class="top-actions" data-scroll-region data-scroll-key="top-actions">
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="toggle-labels" class="icon-buttonish" type="button" title="Debug overlays" aria-label="Debug overlays">${icon("bug_report")}</button>
           <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>
@@ -59,9 +59,9 @@ export function shellTemplate() {
           <input id="import-files-main" class="hidden" type="file" multiple webkitdirectory data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
         </div>
       </header>
-      <div class="studio-layout">
-        <aside id="project-rail" class="project-rail"></aside>
-        <aside id="inspector" class="studio-inspector"></aside>
+      <div class="studio-layout" data-scroll-region data-scroll-key="studio-layout">
+        <aside id="project-rail" class="project-rail" data-scroll-region data-scroll-key="project-rail:scene"></aside>
+        <aside id="inspector" class="studio-inspector" data-scroll-region data-scroll-key="inspector:scene"></aside>
         <main id="studio" class="studio-main"></main>
       </div>
       <div id="modal-host"></div>

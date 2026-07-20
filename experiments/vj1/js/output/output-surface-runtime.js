@@ -17,6 +17,15 @@ import {
   unwrapRenderTarget,
 } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
 
+export function surfaceRouteOpacity(route = {}) {
+  return clamp01(route.surface?.opacity ?? 1) * clamp01(route.component?.opacity ?? 1);
+}
+
+export function surfaceRouteBlend(route = {}) {
+  const surfaceBlend = route.surface?.finalBlend || "normal";
+  return surfaceBlend !== "normal" ? surfaceBlend : (route.component?.blend || "normal");
+}
+
 export class OutputSurfaceRuntime {
   constructor(renderer) {
     this.renderer = renderer;
@@ -73,7 +82,7 @@ export class OutputSurfaceRuntime {
           renderer.measureGpu(drawingContext, () => this.drawSurfaceRouteView(view, route));
           continue;
         }
-        const blend = surface.finalBlend || "normal";
+        const blend = surfaceRouteBlend(route);
         if (mapperBatch.length && blend !== mapperBatchBlend) flushMapperBatch();
         mapperBatchBlend = blend;
         mapperBatch.push({ view, route });
@@ -89,10 +98,21 @@ export class OutputSurfaceRuntime {
       else target.background(0);
       target.pop();
       renderer.measureGpu(drawingContext, () => {
-        if (mapped.direct && Number(surface.feather) > 0) {
-          renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather);
-        } else if (mapped.direct) this.drawDirectSurfaceTexture(target, route);
-        else renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather);
+        push();
+        try {
+          applyBlendGlobal(surfaceRouteBlend(route));
+          if (mapped.direct && Number(surface.feather) > 0) {
+            renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {
+              opacity: surfaceRouteOpacity(route),
+            });
+          } else if (mapped.direct) this.drawDirectSurfaceTexture(target, route);
+          else renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {
+            opacity: surfaceRouteOpacity(route),
+          });
+        } finally {
+          blendMode(BLEND);
+          pop();
+        }
       });
     }
     flushMapperBatch();
@@ -144,12 +164,19 @@ export class OutputSurfaceRuntime {
       if (!fromTexture || !toTexture) continue;
       const feather = toRoute?.surface?.feather ?? fromRoute?.surface?.feather ?? 0;
       renderer.measureGpu(drawingContext, () => {
-        renderer.mapper.drawTransitionTextures(fromTexture, toTexture, mapped.mapperSurface, {
-          fromProjectionFit: fromRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
-          toProjectionFit: toRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
-          feather,
-          progress: transition.progress,
-        });
+        push();
+        try {
+          applyBlendGlobal(surfaceRouteBlend(route));
+          renderer.mapper.drawTransitionTextures(fromTexture, toTexture, mapped.mapperSurface, {
+            fromProjectionFit: fromRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
+            toProjectionFit: toRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
+            feather,
+            progress: transition.progress,
+          });
+        } finally {
+          blendMode(BLEND);
+          pop();
+        }
       });
     }
   }
@@ -167,7 +194,7 @@ export class OutputSurfaceRuntime {
         const previousEffectPrefix = this.transitionEffectPrefix;
         this.transitionEffectPrefix = side;
         try {
-          this.drawSurfaceRoute(texture, route);
+          this.drawSurfaceRoute(texture, route, { compositeOpacity: surfaceRouteOpacity(route) });
         } finally {
           this.transitionEffectPrefix = previousEffectPrefix;
         }
@@ -287,8 +314,8 @@ export class OutputSurfaceRuntime {
     try {
       resetShader();
       imageMode(CORNER);
-      applyBlendGlobal(route.surface?.finalBlend || "normal");
-      tint(255, 255 * clamp01(alpha));
+      applyBlendGlobal(surfaceRouteBlend(route));
+      tint(255, 255 * clamp01(alpha) * surfaceRouteOpacity(route));
       image(drawable,
         fit.destination.x - width * 0.5, fit.destination.y - height * 0.5,
         fit.destination.width, fit.destination.height,
@@ -318,10 +345,10 @@ export class OutputSurfaceRuntime {
   drawSurfaceRouteView(view, route = {}) {
     const renderer = this.renderer;
     const { surface = {}, mapped = {} } = route;
-    const opacity = clamp01(surface.opacity);
+    const opacity = surfaceRouteOpacity(route);
     push();
     try {
-      applyBlendGlobal(surface.finalBlend || "normal");
+      applyBlendGlobal(surfaceRouteBlend(route));
       if (mapped.direct && Number(surface.feather) <= 0) this.drawDirectSurfaceView(view, route, opacity);
       else renderer.mapper.drawTexture(view.texture, mapped.mapperSurface, surface.projectionFit, surface.feather, { sourceRect: view.sourceRect, opacity });
     } finally {
@@ -340,7 +367,7 @@ export class OutputSurfaceRuntime {
         surface: route.mapped.mapperSurface,
         projectionFit: route.surface.projectionFit,
         feather: route.surface.feather,
-        options: { sourceRect: view.sourceRect, opacity: clamp01(route.surface.opacity) },
+        options: { sourceRect: view.sourceRect, opacity: surfaceRouteOpacity(route) },
       })));
     } finally {
       blendMode(BLEND);
@@ -366,19 +393,21 @@ export class OutputSurfaceRuntime {
     noTint();
   }
 
-  drawSurfaceRoute(target, route = {}) {
+  drawSurfaceRoute(target, route = {}, { compositeOpacity = 1 } = {}) {
     const renderer = this.renderer;
     const { surface = {}, component = null, surfaceRequest: request = null, componentRequest = null, demand = null } = route;
     if (!surface.componentId) {
       target.clear();
       return;
     }
-    if (renderer.shouldUseThumbnailPreview()) return this.drawSurfaceThumbnailRoute(target, surface, demand);
+    if (renderer.shouldUseThumbnailPreview()) {
+      return this.drawSurfaceThumbnailRoute(target, surface, demand, compositeOpacity);
+    }
     const componentTime = componentInstanceTime(component, renderer.componentTimes.get(surface.componentId) || 0, surface.id);
     const source = component ? renderer.renderComponentForRequest(component, componentTime, componentRequest) : renderer.mainMix;
     target.push();
-    applyBlend(target, surface.finalBlend);
-    target.tint(255, 255 * clamp01(surface.opacity));
+    applyBlend(target, "normal");
+    target.tint(255, 255 * clamp01(compositeOpacity));
     const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, source);
     drawTransformedSampleRect(target, source, sampleRect, component?.transform);
     target.noTint();
@@ -391,13 +420,13 @@ export class OutputSurfaceRuntime {
     }
   }
 
-  drawSurfaceThumbnailRoute(target, surface, demand = null) {
+  drawSurfaceThumbnailRoute(target, surface, demand = null, compositeOpacity = 1) {
     const renderer = this.renderer;
     const component = renderer.state.components.find((item) => item.id === surface.componentId);
     const thumbnail = renderer.getThumbnailImage(component);
     target.push();
-    applyBlend(target, surface.finalBlend);
-    target.tint(255, 255 * clamp01(surface.opacity));
+    applyBlend(target, "normal");
+    target.tint(255, 255 * clamp01(compositeOpacity));
     if (thumbnail?.ready && thumbnail.img) {
       const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, thumbnail.img);
       drawTransformedSampleRect(target, thumbnail.img, sampleRect, component?.transform);

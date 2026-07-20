@@ -1,10 +1,11 @@
-import { createOutputDefinition, normalizeRenderSettings, scaleRecordingFramesToCanvasSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
-import { sortComponentCatalog } from "./catalog-view.js?v=catalog-marker-four-state-1";
-import { setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
+import { createOutputDefinition, normalizeRenderSettings, scaleRecordingFramesToCanvasSize } from "../domain/render-settings.js?v=screen-share-1";
+import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
+import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=volumetric-clouds-1";
-import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=canvas-global-resolution-1";
+import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=scroll-region-1";
+import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=screen-share-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
+import { screenCaptureStatus, startScreenCapture, stopScreenCapture, subscribeScreenCapture } from "../output/screen-capture-service.js?v=screen-share-1";
 
 export function createModalController({
   store,
@@ -28,6 +29,7 @@ export function createModalController({
   const maxRetainedMediaPreviews = 500;
   let reportedPreviewObserverFallback = false;
   let mediaRefreshInFlight = false;
+  subscribeScreenCapture(() => syncScreenCaptureStatus(getHost()));
 
   function render(state = getState()) {
     const host = getHost();
@@ -320,8 +322,31 @@ export function createModalController({
     });
     bindOnce(host, "[data-render-preset]", (button) => applyRenderPreset(button.dataset.renderPreset));
     bindOnce(host, "[data-camera-preset]", (button) => applyCameraPreset(button.dataset.cameraPreset));
+    bindOnce(host, "[data-start-screen-capture]", startConfiguredScreenCapture);
+    bindOnce(host, "[data-stop-screen-capture]", () => stopScreenCapture());
     bindOnce(host, "[data-add-output]", addConfiguredOutput);
     bindOnce(host, "[data-remove-output]", (button) => removeConfiguredOutput(button.dataset.removeOutput));
+  }
+
+  async function startConfiguredScreenCapture() {
+    const settings = normalizeRenderSettings(getState().render || {}).screenCapture;
+    try {
+      await startScreenCapture(settings);
+    } catch {
+      // The shared service reports the actionable browser/permission error.
+    }
+  }
+
+  function syncScreenCaptureStatus(host) {
+    const output = host?.querySelector?.("[data-screen-capture-status]");
+    if (!output) return;
+    const status = screenCaptureStatus();
+    setText(output, status.status === "active"
+      ? "Sharing is active."
+      : status.status === "requesting"
+        ? "Waiting for screen selection…"
+        : status.error || "Nothing is currently shared.");
+    output.classList.toggle("is-error", status.status === "error");
   }
 
   function bindOnce(host, selector, listener) {
@@ -357,6 +382,7 @@ export function createModalController({
       element.hidden = !manualSurfaceTexture;
       element.querySelectorAll("input").forEach((input) => { input.disabled = !manualSurfaceTexture; });
     });
+    syncScreenCaptureStatus(host);
     applySettingsTab(host);
   }
 

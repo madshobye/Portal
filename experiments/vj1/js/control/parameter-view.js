@@ -1,5 +1,5 @@
 import { BLEND_MODES } from "../constants.js";
-import { createEnumParam, createNumberParam, normalizeParamValue } from "../graph/component-schema.js?v=text-style-controls-1";
+import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizeParamValue } from "../graph/component-schema.js?v=text-style-controls-1";
 import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=param-context-delegation-1";
 import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
 
@@ -17,25 +17,25 @@ export function shaderParamControlsTemplate(component, pass, basePath, options =
   `;
 }
 
-// Parameter declarations are ordered by authorial relevance. The common
-// Render quality control and overflow controls belong to Details; the first
-// six authored controls form the immediate performance surface. Components
-// may override either set with `primaryParamIds` / `detailParamIds` without
-// requiring a custom inspector.
+// Parameter declarations are ordered by authorial relevance. Render quality
+// is a shared chain-element concern and is therefore rendered by General,
+// alongside compositing and placement, rather than by a component definition.
+// The first six authored controls form the immediate performance surface.
+// Components may override either authored set with `primaryParamIds` /
+// `detailParamIds` without requiring a custom inspector.
 export function componentParamViews(component = {}) {
-  const visible = (component.params || []).filter((param) => param?.id !== "seed");
+  const visible = (component.params || []).filter((param) => param?.id !== "seed" && param?.id !== RENDER_QUALITY_PARAM.id);
   const explicitPrimary = new Set(component.primaryParamIds || []);
   const explicitDetails = new Set(component.detailParamIds || []);
   if (explicitPrimary.size || explicitDetails.size) {
-    const primary = visible.filter((param) => explicitPrimary.has(param.id) || (!explicitDetails.has(param.id) && param.id !== "renderQuality"));
-    const details = visible.filter((param) => explicitDetails.has(param.id) || (param.id === "renderQuality" && !explicitPrimary.has(param.id)));
+    const primary = visible.filter((param) => explicitPrimary.has(param.id) || !explicitDetails.has(param.id));
+    const details = visible.filter((param) => explicitDetails.has(param.id));
     return { primary, details };
   }
-  const authored = visible.filter((param) => param.id !== "renderQuality");
-  if (authored.length <= 6) return { primary: visible, details: [] };
+  if (visible.length <= 6) return { primary: visible, details: [] };
   return {
-    primary: authored.slice(0, 6),
-    details: [...authored.slice(6), ...visible.filter((param) => param.id === "renderQuality")],
+    primary: visible.slice(0, 6),
+    details: visible.slice(6),
   };
 }
 
@@ -65,16 +65,32 @@ export const CHAIN_GENERAL_PARAMS = Object.freeze([
 ]);
 
 export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) {
-  return `<div class="chain-param-list chain-general-param-list">${paramControlsTemplate(CHAIN_GENERAL_PARAMS, {
-    pathFor: (param) => CHAIN_COMPOSITE_PARAMS.includes(param)
-      ? `${basePath}.${param.id}`
-      : `${basePath}.transform.${param.id}`,
-    valueFor: (param) => CHAIN_COMPOSITE_PARAMS.includes(param)
-      ? normalizeParamValue(param, item?.[param.id])
-      : normalizeParamValue(param, item?.transform?.[param.id]),
+  const qualityTarget = chainRenderQualityTarget(item, basePath);
+  const params = qualityTarget ? [RENDER_QUALITY_PARAM, ...CHAIN_GENERAL_PARAMS] : CHAIN_GENERAL_PARAMS;
+  return `<div class="chain-param-list chain-general-param-list">${paramControlsTemplate(params, {
+    pathFor: (param) => param === RENDER_QUALITY_PARAM
+      ? qualityTarget.path
+      : CHAIN_COMPOSITE_PARAMS.includes(param)
+        ? `${basePath}.${param.id}`
+        : `${basePath}.transform.${param.id}`,
+    valueFor: (param) => param === RENDER_QUALITY_PARAM
+      ? normalizeParamValue(param, qualityTarget.value)
+      : CHAIN_COMPOSITE_PARAMS.includes(param)
+        ? normalizeParamValue(param, item?.[param.id])
+        : normalizeParamValue(param, item?.transform?.[param.id]),
     attrs: options.attrs || "data-update",
     isSignificant: options.isSignificant || (() => false),
   })}</div>`;
+}
+
+export function chainRenderQualityTarget(item = {}, basePath = "") {
+  if (item?.kind === "effect") {
+    return { path: `${basePath}.params.${RENDER_QUALITY_PARAM.id}`, value: item?.params?.[RENDER_QUALITY_PARAM.id] };
+  }
+  if (item?.kind === "source" && (item?.source?.type === "generator" || item?.source?.type === "media")) {
+    return { path: `${basePath}.source.params.${RENDER_QUALITY_PARAM.id}`, value: item?.source?.params?.[RENDER_QUALITY_PARAM.id] };
+  }
+  return null;
 }
 
 export function paramControlsTemplate(params = [], {
@@ -192,7 +208,7 @@ function markdownParamControlTemplate(param, path, value, attrs, { significant =
         <button type="button" data-markdown-command="h1" title="Heading">H</button>
         ${styleButtons}
       </div>
-      <div class="markdown-editor" contenteditable="true" role="textbox" aria-multiline="true" data-markdown-editor>${markdownToEditorHtml(value)}</div>
+      <div class="markdown-editor" contenteditable="true" role="textbox" aria-multiline="true" data-markdown-editor data-scroll-region data-scroll-key="markdown:${esc(path)}">${markdownToEditorHtml(value)}</div>
       <textarea class="markdown-value" rows="${param.rows || 3}" ${attrs}="${esc(path)}" data-markdown-value>${esc(value)}</textarea>
     </div>
   `;

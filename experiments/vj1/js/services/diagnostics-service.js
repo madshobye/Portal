@@ -45,17 +45,18 @@ export function createDiagnosticsService({ host = globalThis, maxEntries = 80, m
     record("error", ["Unhandled promise rejection", event?.reason], "promise");
   }
 
-  function record(level, values, source = "app") {
+  function record(level, values, source = "app", occurrences = 1) {
     const normalizedLevel = LEVELS.includes(level) ? level : "info";
     const message = formatValues(values).slice(0, maxMessageLength);
     if (!message) return;
+    const count = Math.max(1, Math.floor(Number(occurrences) || 1));
     const now = Date.now();
     const previous = entries.at(-1);
-    if (previous && previous.level === normalizedLevel && previous.message === message) {
-      previous.count += 1;
+    if (previous && previous.level === normalizedLevel && previous.message === message && previous.source === source) {
+      previous.count += count;
       previous.lastAt = now;
     } else {
-      entries.push({ id: nextId++, level: normalizedLevel, message, source, count: 1, firstAt: now, lastAt: now });
+      entries.push({ id: nextId++, level: normalizedLevel, message, source, count, firstAt: now, lastAt: now });
       if (entries.length > maxEntries) entries.splice(0, entries.length - maxEntries);
     }
     emit();
@@ -90,7 +91,7 @@ export function createDiagnosticsService({ host = globalThis, maxEntries = 80, m
     return entries.map((entry) => {
       const time = new Date(entry.lastAt).toISOString();
       const count = entry.count > 1 ? ` x${entry.count}` : "";
-      return `${time} ${entry.level.toUpperCase()}${count} ${entry.message}`;
+      return `${time} ${entry.level.toUpperCase()}${count} ${entry.message} [${entry.source}]`;
     }).join("\n\n");
   }
 

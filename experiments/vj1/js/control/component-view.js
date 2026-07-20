@@ -1,13 +1,13 @@
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=volumetric-clouds-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=screen-share-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
 import { generatorIcon } from "./picker-view.js?v=volumetric-clouds-1";
-import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=chain-general-controls-1";
+import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=render-quality-general-1";
 import { isModelMediaSource, isVideoMediaSource, mediaSourceParams, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=power-flicker-1";
-import { deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, textListItemTemplate } from "./view-primitives.js?v=deep-edit-navigation-1";
+import { deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js?v=scroll-region-1";
 
 
 export function canvasInspectorTemplate(component, state) {
@@ -47,6 +47,11 @@ export function componentTemplate(component, state) {
       ${componentUnifiedChainTemplate(component, state, base)}
     </article>
   `;
+}
+
+export function componentHeaderAddButtonTemplate(component) {
+  if (!component?.id) return "";
+  return `<button type="button" class="rail-title-add" data-open-element-picker data-component-id="${esc(component.id)}" title="Add element" aria-label="Add element">${icon("add")}</button>`;
 }
 
 export function componentSelectedChainSettingsTemplate(component, state) {
@@ -107,7 +112,6 @@ function componentInstanceSyncTemplate(component, base, compact = false) {
 
 function componentFrameControlsTemplate(component, state, base) {
   const metrics = componentFrameMetrics(state.render || {}, component);
-  const megapixels = (metrics.width * metrics.height / 1000000).toFixed(2);
   const shapeOptions = [
     ["landscape", "Landscape"],
     ["portrait", "Portrait"],
@@ -132,11 +136,6 @@ function componentFrameControlsTemplate(component, state, base) {
         `).join("")}
         </div>
       </div>
-      <div class="component-frame-summary">
-        <span>${metrics.baseWidth} × ${metrics.baseHeight} frame</span>
-        <strong>${metrics.width} × ${metrics.height}</strong>
-        <small>${metrics.effectiveScale}× effective · ${megapixels} MP</small>
-      </div>
     </section>
   `;
 }
@@ -145,10 +144,10 @@ function componentUnifiedChainTemplate(component, state, ownerPath) {
   return `
     <div class="chain-column">
       <section class="chain-list-section" aria-label="Elements">
-        <div class="component-chain-list" data-chain-reorder-list data-component-id="${esc(component.id)}">
-          ${chainItemsTemplate(component.chain || [], component, state, `${ownerPath}.chain`)}
-        </div>
-        <button type="button" class="chain-add-button" data-open-element-picker data-component-id="${esc(component.id)}" title="Add element" aria-label="Add element">${icon("add")}</button>
+        ${scrollRegionTemplate(`component-chain:${component.id}`, chainItemsTemplate(component.chain || [], component, state, `${ownerPath}.chain`), {
+          className: "component-chain-list",
+          attributes: `data-chain-reorder-list data-component-id="${esc(component.id)}"`,
+        })}
       </section>
     </div>
   `;
@@ -167,7 +166,7 @@ function chainItemRowTemplate(item, component, state, index, base, depth = 0) {
   const iconName = chainItemIcon(item);
   const kindLabel = item.kind === "source" ? item.source?.type || "source" : item.kind === "group" ? `${item.chain?.length || 0} item group` : "effect";
   const row = textListItemTemplate({
-    rowClass: "chain-item-row",
+    rowClass: "chain-item-row compact-list-row",
     selected,
     reorderId: item.id,
     leadingHtml: enableToggleButton({
@@ -217,7 +216,7 @@ function selectedChainItemTemplate(item, component, state, base) {
         <div class="chain-param-view-option">
           <input class="chain-param-view-input" type="radio" name="${esc(tabName)}" id="${esc(tabName)}-${view.id}" ${index === 0 ? "checked" : ""} />
           <label class="chain-param-view-tab" for="${esc(tabName)}-${view.id}">${view.label}</label>
-          <div class="chain-param-view-panel chain-param-view-${view.id}">${view.html}</div>
+          ${scrollRegionTemplate(`chain-params:${component.id}:${item.id}:${view.id}`, view.html, { className: `chain-param-view-panel chain-param-view-${view.id}` })}
         </div>
       `).join("")}
     </div>`;

@@ -188,6 +188,25 @@ export function componentPreviewRenderRequest(render = {}, component = {}, viewp
   }, meta);
 }
 
+// Component geometry is expressed in project/logical pixels. Raster demand
+// (pixel density, preview quality, quantization, LOD) may change the backing
+// texture dimensions, but it must never resize the editing frame or handles.
+export function componentLogicalPreviewRect(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1) {
+  const logical = component?.type === "canvas"
+    ? canvasFrameSize(render)
+    : (() => {
+        const metrics = componentFrameMetrics(render, component);
+        return { width: metrics.baseWidth, height: metrics.baseHeight };
+      })();
+  const fitted = containedRect(viewportWidth, viewportHeight, logical.width, logical.height);
+  return {
+    x: (Math.max(1, Number(viewportWidth) || 1) - fitted.width) * 0.5,
+    y: (Math.max(1, Number(viewportHeight) || 1) - fitted.height) * 0.5,
+    width: fitted.width,
+    height: fitted.height,
+  };
+}
+
 export function canvasPreviewRenderRequest(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
   const canvas = component.canvas || {};
   const { width, height } = canvasFrameSize(render);

@@ -7,6 +7,7 @@ import {
   normalizePreviewViewport,
   normalizePreviewViewports,
   normalizeRenderSettings,
+  normalizeScreenCaptureSettings,
   renderMaxFrameRate,
   scaleRecordingFramesToCanvasSize,
 } from "../js/domain/render-settings.js";
@@ -30,6 +31,31 @@ test("render settings normalize independently from the aggregate domain model", 
   assert.deepEqual(normalizePreviewViewport({ fit: "invalid", zoom: 20 }), { fit: "frame", zoom: 6, x: 0, y: 0 });
 });
 
+test("screen capture settings preserve native dimensions and normalize browser hints", () => {
+  assert.deepEqual(normalizeScreenCaptureSettings({}), {
+    frameRate: 30,
+    cursor: "always",
+    preferCurrentTab: false,
+    includeCurrentTab: true,
+    surfaceSwitching: true,
+  });
+  assert.deepEqual(normalizeScreenCaptureSettings({
+    frameRate: 120,
+    cursor: "invalid",
+    preferCurrentTab: true,
+    includeCurrentTab: false,
+    surfaceSwitching: false,
+    width: 640,
+    height: 360,
+  }), {
+    frameRate: 60,
+    cursor: "always",
+    preferCurrentTab: true,
+    includeCurrentTab: false,
+    surfaceSwitching: false,
+  });
+});
+
 test("preview viewport normalization accepts only the canonical per-workspace map", () => {
   const viewports = normalizePreviewViewports({ canvas: { fit: "manual", zoom: 2, x: 30, y: -10 } });
   assert.deepEqual(viewports.canvas, { fit: "manual", zoom: 2, x: 30, y: -10 });
@@ -49,7 +75,7 @@ test("the duplicate embedded preview can occupy the opposite output render phase
 
 test("models remains a compatibility facade for render settings", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
-  assert.ok(source.includes('from "./render-settings.js?v=canvas-global-resolution-1"'));
+  assert.ok(source.includes('from "./render-settings.js?v=screen-share-1"'));
   assert.doesNotMatch(source, /export function normalizeRenderSettings\(/);
   assert.doesNotMatch(source, /export function normalizeCameraSettings\(/);
 });

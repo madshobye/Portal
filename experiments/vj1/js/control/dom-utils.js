@@ -1,13 +1,51 @@
 export function createHtmlCache() {
   const renderedHtml = new WeakMap();
-  return function replaceHtmlIfChanged(node, html) {
+  const scrollPositions = new Map();
+  function replaceHtmlIfChanged(node, html, { scrollKey = null } = {}) {
     if (!node) return false;
     const next = String(html ?? "");
-    if (renderedHtml.get(node) === next) return false;
+    const nextScrollKey = scrollKey === null ? node.dataset?.scrollKey || "" : String(scrollKey || "");
+    const signature = `${nextScrollKey}\u0000${next}`;
+    if (renderedHtml.get(node) === signature) return false;
+    rememberScrollPositions(node, scrollPositions);
     node.innerHTML = next;
-    renderedHtml.set(node, next);
+    if (scrollKey !== null) {
+      node.dataset.scrollRegion = "";
+      node.dataset.scrollKey = nextScrollKey;
+    }
+    restoreScrollPositions(node, scrollPositions);
+    renderedHtml.set(node, signature);
     return true;
-  };
+  }
+  replaceHtmlIfChanged.restoreScrollRegions = (scope) => restoreScrollPositions(scope, scrollPositions);
+  return replaceHtmlIfChanged;
+}
+
+export function rememberScrollPositions(scope, positions, limit = 512) {
+  if (!scope || !positions) return;
+  scrollMemoryNodes(scope).forEach((node) => {
+    const key = node.dataset?.scrollKey;
+    if (!key) return;
+    if (!positions.has(key) && positions.size >= limit) positions.delete(positions.keys().next().value);
+    positions.set(key, { top: node.scrollTop || 0, left: node.scrollLeft || 0 });
+  });
+}
+
+export function restoreScrollPositions(scope, positions) {
+  if (!scope || !positions) return;
+  scrollMemoryNodes(scope).forEach((node) => {
+    const position = positions.get(node.dataset?.scrollKey);
+    if (!position) return;
+    node.scrollTop = position.top;
+    node.scrollLeft = position.left;
+  });
+}
+
+function scrollMemoryNodes(scope) {
+  const nodes = [];
+  if (scope.matches?.("[data-scroll-region][data-scroll-key]")) nodes.push(scope);
+  scope.querySelectorAll?.("[data-scroll-region][data-scroll-key]").forEach((node) => nodes.push(node));
+  return nodes;
 }
 
 export function setText(node, text) {

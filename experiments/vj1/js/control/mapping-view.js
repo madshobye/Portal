@@ -1,4 +1,4 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=volumetric-clouds-1";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=screen-share-1";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileComponentPatch } from "../graph/render-scheduler.js?v=chain-only-authority-1";
 import { listShaderComponents } from "../shaders/shader-registry.js?v=alpha-feather-1";
@@ -10,7 +10,7 @@ export function mappingStudioTemplate(state) {
   const plan = planPatchExecution(patch);
   const compositor = planCompositorInputs(plan);
   return `
-    <section class="mapping-stage" data-mapping-stage>
+    <section class="mapping-stage" data-mapping-stage data-scroll-region data-scroll-key="mapping-stage">
       <div class="mapping-board">
         ${compositor.inputs.length
           ? compositor.inputs.map((input, index) => mappingBranchRowTemplate(input, index, plan)).join("")

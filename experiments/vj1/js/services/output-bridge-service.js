@@ -2,7 +2,7 @@ import { VJ1 } from "../constants.js";
 import { createOutputTransportProfiler, transportTimestampMs } from "./output-transport-profiler.js?v=output-transport-profile-1";
 import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=transport-derived-assets-1";
 
-export function createControlBridge({ store, mediaLibrary }) {
+export function createControlBridge({ store, mediaLibrary, diagnostics = null }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const sessionId = `control-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const clients = new Map();
@@ -58,6 +58,11 @@ export function createControlBridge({ store, mediaLibrary }) {
             message: msg.metrics?.message || "Output connected",
           });
         }, "output-metrics");
+      }
+      if (msg.type === "diagnostic") {
+        const entry = msg.entry || {};
+        const origin = diagnosticOrigin(msg);
+        diagnostics?.record?.(entry.level, [entry.message], `${origin} · ${entry.source || "app"}`, entry.count);
       }
       if (msg.type === "mapping-state") {
         const reason = msg.live ? "scrub:mapping-state" : "mapping-state";
@@ -253,6 +258,22 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
     });
   }
 
+  function diagnostic(entry) {
+    if (!entry?.message) return;
+    channel.postMessage({
+      type: "diagnostic",
+      clientId,
+      mode,
+      outputId,
+      entry: {
+        level: entry.level,
+        message: entry.message,
+        source: entry.source,
+        count: Math.max(1, Math.floor(Number(entry.count) || 1)),
+      },
+    });
+  }
+
   function mappingState(mappingId, mapping, status, meta = {}) {
     channel.postMessage({ type: "mapping-state", clientId, mappingId, mapping, status, live: meta.live === true });
   }
@@ -275,6 +296,7 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
   return {
     hello,
     metrics,
+    diagnostic,
     mappingState,
     requestMediaFiles,
     requestState,
@@ -288,6 +310,12 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
     },
     clientId,
   };
+}
+
+function diagnosticOrigin(message) {
+  const mode = String(message?.mode || "output");
+  const outputId = String(message?.outputId || "");
+  return outputId ? `${mode} ${outputId}` : mode;
 }
 
 function activeClientCount(clients) {

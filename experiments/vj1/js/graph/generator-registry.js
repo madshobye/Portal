@@ -45,6 +45,17 @@ const RAW_GENERATORS = Object.freeze({
     name: "Test Pattern",
     category: "utility",
   },
+  screenShare: {
+    id: "screenShare",
+    name: "Screen Share",
+    category: "live",
+    runtime: ALWAYS_TIME_RUNTIME,
+    primaryParamIds: ["fit", "mirrored"],
+    params: [
+      createEnumParam("fit", "Fit", ["contain", "cover", "stretch"], "contain"),
+      createBooleanParam("mirrored", "Mirror", false),
+    ],
+  },
   waves: {
     id: "waves",
     name: "Waves",

@@ -1,4 +1,5 @@
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
+import { screenCaptureService } from "./screen-capture-service.js?v=screen-share-1";
 
 const CAMERA_RETRY_MS = 3000;
 const CAMERA_IDLE_GRACE_MS = 750;
@@ -11,6 +12,7 @@ export class SharedInputRuntime {
     this.getRenderSettings = getRenderSettings || (() => ({}));
     this.cameraIdleGraceMs = Math.max(0, Number(cameraIdleGraceMs) || 0);
     this.camera = createCameraInputState();
+    this.reportedScreenError = "";
   }
 
   beginFrame() {
@@ -59,6 +61,20 @@ export class SharedInputRuntime {
     return null;
   }
 
+  acquireScreen() {
+    const service = screenCaptureService();
+    if (service.video) {
+      this.reportedScreenError = "";
+      return service.video;
+    }
+    const message = service.error || (service.status === "requesting" ? "waiting for screen selection" : "choose a screen or window in Settings");
+    if (this.reportedScreenError !== message) {
+      this.reportedScreenError = message;
+      console.warn("[VJ1_SCREEN_CAPTURE_UNAVAILABLE]", { status: service.status, message });
+    }
+    return null;
+  }
+
   endFrame() {
     const input = this.camera;
     if (input.demanded || input.releaseTimer || (!input.capture && !input.requested)) return;
@@ -102,6 +118,13 @@ export class SharedInputRuntime {
 
   get cameraError() {
     return this.camera.error;
+  }
+
+  get screenError() {
+    const service = screenCaptureService();
+    if (service.error) return service.error;
+    if (service.status === "requesting") return "waiting for screen selection";
+    return "choose a screen or window in Settings";
   }
 
   dispose() {

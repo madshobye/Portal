@@ -4,7 +4,11 @@ import { readFileSync } from "node:fs";
 
 import { createInitialState } from "../js/domain/models.js";
 import { planSurfaceRoutes } from "../js/output/surface-render-planner.js";
-import { OutputSurfaceRuntime } from "../js/output/output-surface-runtime.js";
+import {
+  OutputSurfaceRuntime,
+  surfaceRouteBlend,
+  surfaceRouteOpacity,
+} from "../js/output/output-surface-runtime.js";
 
 test("surface planner resolves visible routes and their shared component demand", () => {
   const state = createInitialState();
@@ -46,13 +50,28 @@ test("output renderer delegates surface demand planning", () => {
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const mapperSource = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=component-parent-placement-1"'));
+  assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=component-route-composite-1"'));
   assert.ok(runtimeSource.includes('from "./surface-render-planner.js?v=surface-runtime-extraction-1"'));
   assert.ok(runtimeSource.includes("const { routes, metrics } = planSurfaceRoutes({"));
   assert.doesNotMatch(rendererSource, /sourceRenderDemand\(\{/);
   assert.doesNotMatch(rendererSource, /manualSurfaceTextureLimit\(/);
   assert.ok(mapperSource.includes("shaderProgram !== activeShader || texture !== activeTexture"));
   assert.ok(mapperSource.includes("if (activeShader) resetShader();"));
+});
+
+test("surface routes compose component placement opacity and blend at the parent boundary", () => {
+  const route = {
+    component: { opacity: 0.5, blend: "screen" },
+    surface: { opacity: 0.4, finalBlend: "normal" },
+  };
+
+  assert.equal(surfaceRouteOpacity(route), 0.2);
+  assert.equal(surfaceRouteBlend(route), "screen");
+  assert.equal(surfaceRouteBlend({
+    ...route,
+    surface: { ...route.surface, finalBlend: "multiply" },
+  }), "multiply");
+  assert.equal(surfaceRouteOpacity({ component: {}, surface: {} }), 1);
 });
 
 test("surface runtime derives transition progress without owning wall-clock state", () => {

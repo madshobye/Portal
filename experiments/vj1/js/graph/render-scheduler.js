@@ -1,5 +1,5 @@
 import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=text-generator-1";
-import { getGeneratorComponent } from "./generator-registry.js?v=volumetric-clouds-1";
+import { getGeneratorComponent } from "./generator-registry.js?v=screen-share-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 
 export function compileComponentPatch(component = {}, renderRequest = {}) {
