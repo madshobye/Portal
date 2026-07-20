@@ -68,7 +68,7 @@ test("move scale and rotation drag calculations live outside the renderer", () =
   assert.equal(move.y, 0);
   assert.equal(scale.scale, 2);
   assert.equal(rotate.rotation, Math.PI / 2);
-  assert.match(renderer, /from "\.\/preview-interaction-geometry\.js\?v=power-flicker-1"/);
+  assert.match(renderer, /from "\.\/preview-interaction-geometry\.js\?v=alpha-feather-1"/);
   assert.doesNotMatch(renderer, /function findChainItemTransformContext\(/);
   assert.doesNotMatch(renderer, /function chainTransformDragScale\(/);
 });

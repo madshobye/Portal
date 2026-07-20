@@ -1,4 +1,4 @@
-import { flattenComponentChain } from "../graph/render-scheduler.js?v=chain-only-authority-1";
+import { flattenComponentChain } from "../graph/render-scheduler.js?v=chain-general-controls-1";
 import { isIdentityTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
 
 export function isSourceNode(node = {}) {
@@ -96,7 +96,19 @@ export function mediaSourceFit(source = {}) {
   return source.params?.fit === "cover" ? "cover" : "contain";
 }
 
+export function mediaSourceAlphaEdge(source = {}) {
+  return {
+    cut: clampAlphaEdgePixels(source.params?.alphaCut),
+    feather: clampAlphaEdgePixels(source.params?.alphaFeather),
+  };
+}
+
+function clampAlphaEdgePixels(value) {
+  return Math.min(32, Math.max(0, Number(value) || 0));
+}
+
 export function shaderPassFromNode(node = {}) {
+  const layer = node.state?.layer || {};
   return {
     id: node.componentId || node.id || "",
     instanceId: node.id || node.componentId || "",
@@ -104,5 +116,7 @@ export function shaderPassFromNode(node = {}) {
     params: { ...(node.params || {}) },
     amount: node.params?.amount,
     transform: node.state?.transform || node.transform || {},
+    opacity: layer.opacity ?? 1,
+    blend: layer.blend || "normal",
   };
 }

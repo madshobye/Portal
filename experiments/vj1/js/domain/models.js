@@ -1,40 +1,43 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=chain-only-authority-1";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=fog-banks-1";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=chain-only-authority-1";
+import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=catalog-marker-four-state-1";
 import {
   createOutputDefinition,
   normalizeCameraSettings,
+  normalizeCanvasSize,
   normalizeComponentPipelineSettings,
   normalizePreviewViewports,
   normalizeRenderSettings,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=max-frame-rate-1";
+} from "./render-settings.js?v=canvas-global-resolution-1";
 import {
   applySceneSourceNode,
   normalizeProjectionFit,
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=chain-only-authority-1";
+} from "./scene-routing.js?v=scene-catalog-markers-1";
 
 export {
   createOutputDefinition,
   normalizeCameraSettings,
+  normalizeCanvasSize,
   normalizeComponentPipelineSettings,
   normalizePreviewViewport,
   normalizePreviewViewports,
   normalizeRenderSettings,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=max-frame-rate-1";
+} from "./render-settings.js?v=canvas-global-resolution-1";
 export {
   applySceneSourceNode,
   normalizeProjectionFit,
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=chain-only-authority-1";
+} from "./scene-routing.js?v=scene-catalog-markers-1";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -55,13 +58,12 @@ export function createDefaultComponent(index = 0, { empty = false } = {}) {
     thumbnail: "",
     chain: empty ? [] : [createComponentLayer(index, initialSource)],
     activity: createProjectActivity(),
+    catalogMarker: 0,
   };
 }
 
 export function createCanvasComponent(index = 0, sourceComponentId = "") {
   const id = uid("component");
-  const width = VJ1.canvasWidth;
-  const height = VJ1.canvasHeight;
   return {
     id,
     type: "canvas",
@@ -75,9 +77,8 @@ export function createCanvasComponent(index = 0, sourceComponentId = "") {
     thumbnail: "",
     chain: sourceComponentId ? [createComponentLayer(0, { type: "component", componentId: sourceComponentId })] : [],
     activity: createProjectActivity(),
+    catalogMarker: 0,
     canvas: {
-      width,
-      height,
       previewQuality: "auto",
       frameThumbnails: {},
     },
@@ -226,7 +227,10 @@ export function createInitialState() {
       },
       catalogSortModes: {
         component: "recent",
+        canvas: "recent",
         scene: "recent",
+        source: "recent",
+        media: "recent",
       },
       previewQualities: {
         scene: "auto",
@@ -278,6 +282,10 @@ export function createInitialState() {
       worldWidth: Math.round(VJ1.renderWidth * (1 + VJ1.outputWorldMarginRatio * 2)),
       worldHeight: Math.round(VJ1.renderHeight * (1 + VJ1.outputWorldMarginRatio * 2)),
       outputs: [createOutputDefinition(0)],
+      canvasSize: {
+        width: VJ1.canvasWidth,
+        height: VJ1.canvasHeight,
+      },
       componentTexture: {
         width: VJ1.renderWidth,
         height: VJ1.renderHeight,
@@ -376,8 +384,9 @@ export function sanitizeState(input = {}) {
   };
   next.global.timeStretch = clampNumber(input.global?.timeStretch, -4, 4, 0);
 
+  next.render = normalizeRenderSettings(input.render || {});
   next.components = normalizeComponents(input, base);
-  const canvasFrameBounds = next.components.find((component) => component.type === "canvas")?.canvas || { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
+  const canvasFrameBounds = next.render.canvasSize;
   const recordingFrames = Array.isArray(input.recordingFrames) ? input.recordingFrames : base.recordingFrames;
   const seenRecordingFrameIds = new Set();
   next.recordingFrames = recordingFrames
@@ -390,7 +399,6 @@ export function sanitizeState(input = {}) {
   next.surfaces = Array.isArray(input.surfaces) && input.surfaces.length
     ? input.surfaces.map((surface) => normalizeSurface(surface))
     : [createDefaultSurface(0), createDefaultSurface(1)];
-  next.render = normalizeRenderSettings(input.render || {});
   next.surfaces = reconcileDirectOutputSurfaces(next.surfaces, next.render);
   next.ui.previewViewports = normalizePreviewViewports(input.ui?.previewViewports);
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
@@ -454,10 +462,13 @@ function normalizeWorkspaceSelectionIds(value = {}, components = [], selectedCom
 }
 
 function normalizeCatalogSortModes(value = {}) {
-  const normalize = (mode) => ["recent", "name", "created"].includes(mode) ? mode : "recent";
+  const normalize = (mode) => ["recent", "marker", "name", "created"].includes(mode) ? mode : "recent";
   return {
     component: normalize(value?.component),
+    canvas: normalize(value?.canvas),
     scene: normalize(value?.scene),
+    source: normalize(value?.source),
+    media: normalize(value?.media),
   };
 }
 
@@ -657,18 +668,17 @@ export function normalizeComponent(component = {}) {
     thumbnail: typeof componentData.thumbnail === "string" ? componentData.thumbnail : "",
     significantParams: Array.from(new Set((componentData.significantParams || []).filter((path) => typeof path === "string" && path))),
     activity: normalizeProjectActivity(componentData.activity, fallback.activity.createdAt),
+    catalogMarker: normalizeCatalogMarker(componentData.catalogMarker),
     chain: canvasChain,
     ...(type === "canvas" ? { canvas } : {}),
   };
 }
 
 function normalizeCanvasComponentData(canvas = {}, selfId = "") {
-  const width = positiveInt(canvas.width, VJ1.canvasWidth, 128, 8192);
-  const height = positiveInt(canvas.height, VJ1.canvasHeight, 128, 8192);
   const previewQuality = ["auto", "low", "full"].includes(canvas.previewQuality) ? canvas.previewQuality : "auto";
   const frameThumbnails = Object.fromEntries(Object.entries(canvas.frameThumbnails || {})
     .filter(([frameId, thumbnail]) => frameId && typeof thumbnail === "string" && thumbnail));
-  return { width, height, previewQuality, frameThumbnails };
+  return { previewQuality, frameThumbnails };
 }
 
 function normalizeCanvasFrame(frame = {}, index = 0, canvasWidth = VJ1.canvasWidth, canvasHeight = VJ1.canvasHeight) {
@@ -703,6 +713,8 @@ export function normalizeComponentChainItem(item = {}) {
       params: pass.params,
       amount: pass.amount,
       transform: normalizeTransform(item.transform),
+      opacity: clamp01(item.opacity ?? 1),
+      blend: item.blend || "normal",
     };
   }
   if (item.kind === "group") {
@@ -909,6 +921,8 @@ function mergeComponentChainItemOverride(item = {}, override = {}) {
       enabled: pass.enabled,
       params: pass.params,
       amount: pass.amount,
+      ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
+      ...(override.blend ? { blend: override.blend } : {}),
       ...(override.transform && typeof override.transform === "object"
         ? { transform: normalizeTransform({ ...(item.transform || {}), ...override.transform }) }
       : {}),
@@ -978,6 +992,7 @@ export function normalizeMediaMeta(item = {}) {
     path: item.path || item.name || "",
     type: item.type || "unknown",
     size: Number(item.size) || 0,
+    catalogMarker: normalizeCatalogMarker(item.catalogMarker),
   };
 }
 
@@ -986,6 +1001,7 @@ export function normalizeScene(scene = {}, state = createInitialState()) {
     id: String(scene.id || uid("scene")),
     name: scene.name || "Scene",
     notes: scene.notes || "",
+    catalogMarker: normalizeCatalogMarker(scene.catalogMarker),
     snapshot: normalizeSceneSnapshot(scene.snapshot, state),
   };
 }
@@ -1040,6 +1056,7 @@ export function createSceneFromState(state, name) {
     id: uid("scene"),
     name,
     notes: "",
+    catalogMarker: 0,
     snapshot: createSceneSnapshot(state),
   };
 }
@@ -1049,6 +1066,7 @@ export function createEmptySceneFromState(state, name) {
     id: uid("scene"),
     name,
     notes: "",
+    catalogMarker: 0,
     snapshot: {
       surfaces: clone((state.surfaces || []).map((surface) => ({
         ...createSceneSurfaceSnapshot(surface),

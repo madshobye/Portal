@@ -1,4 +1,4 @@
-import { normalizeRenderSettings } from "../domain/render-settings.js?v=max-frame-rate-1";
+import { normalizeRenderSettings } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
 
 export function settingsModalTemplate(state, activeTab = "outputs") {
@@ -59,6 +59,14 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="soft-note">The browser chooses the closest supported mode. Changing Camera settings restarts an active capture.</div>
         </section>
         <section class="ui-section element-section settings-rendering-panel" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
+          <div class="settings-group">
+          <div class="settings-group-title"><span class="material-symbols-rounded">grid_4x4</span><span>Canvas size</span></div>
+          <div class="field-pair">
+            <label class="field">Width <input type="number" min="128" max="8192" step="1" data-settings-update="render.canvasSize.width" value="${render.canvasSize.width}" /></label>
+            <label class="field">Height <input type="number" min="128" max="8192" step="1" data-settings-update="render.canvasSize.height" value="${render.canvasSize.height}" /></label>
+          </div>
+          <div class="soft-note">One logical coordinate space shared by every Canvas and recording frame.</div>
+          </div>
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component initial size</span></div>
           <div class="field-pair">

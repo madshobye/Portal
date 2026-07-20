@@ -1,4 +1,4 @@
-import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=chain-only-authority-1";
+import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=catalog-marker-four-state-1";
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
   return {
@@ -36,7 +36,12 @@ export function persistedComponents(components = []) {
   return (components || []).map((component) => {
     const { thumbnail: _derivedThumbnail, ...persisted } = component || {};
     if (persisted.type !== "canvas" || !persisted.canvas) return persisted;
-    const { frameThumbnails: _derivedFrameThumbnails, ...canvas } = persisted.canvas;
+    const {
+      frameThumbnails: _derivedFrameThumbnails,
+      width: _legacyWidth,
+      height: _legacyHeight,
+      ...canvas
+    } = persisted.canvas;
     return { ...persisted, canvas };
   });
 }

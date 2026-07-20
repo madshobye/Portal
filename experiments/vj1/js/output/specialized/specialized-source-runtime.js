@@ -1,7 +1,7 @@
 import { clamp01 } from "../../domain/models.js?v=chain-only-authority-1";
 import { createSharedFramebufferTarget, isSharedFramebufferTarget, unwrapRenderTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
 import { drawStandby } from "../generators.js?v=standby-grace-1";
-import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=instance-sync-60";
+import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=canvas-global-resolution-1";
 import { contentTransformUvMatrices, isIdentityTransform, normalizedContentTransform } from "../content-coordinate-space.js?v=render-core-contract-1";
 import { markRenderTargetOrientation, renderTargetDescriptor, renderTargetNeedsPresentationFlip, RENDER_TEXTURE_ORIENTATION } from "../render-target-contract.js?v=render-core-contract-1";
 import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
@@ -18,6 +18,15 @@ import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER, imageFitUni
 import { mobileNetMorphFieldForStrategy, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-4";
 import { SuperPointPairService } from "./superpoint-service.js?v=surface-media-contract-4";
 import { TILE_TEXTURE_FRAGMENT_SHADER, TILE_TEXTURE_VERTEX_SHADER } from "./tile-texture-shader.js?v=render-core-contract-1";
+
+export function tileRepeatAmount(params = {}) {
+  const repeat = Math.max(0.001, Number(params.repeat) || 1);
+  const tileAxis = ["horizontal", "vertical"].includes(params.tileAxis) ? params.tileAxis : "both";
+  return [
+    tileAxis === "vertical" ? 1 : repeat,
+    tileAxis === "horizontal" ? 1 : repeat,
+  ];
+}
 import { createTextMask, TEXT_GENERATOR_FRAGMENT_SHADER, TEXT_GENERATOR_VERTEX_SHADER, textMaskSignature } from "./text-generator-renderer.js?v=text-style-controls-1";
 import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=mesh-topology-2";
 
@@ -158,8 +167,7 @@ export class SpecializedSourceRuntime {
       clearShaderTarget(target);
       applyShaderTarget(target, this.tileTextureShader);
       this.tileTextureShader.setUniform("tileImage", item.image);
-      const repeat = Math.max(0.001, Number(params.repeat) || 1);
-      this.tileTextureShader.setUniform("repeatAmount", [repeat, repeat]);
+      this.tileTextureShader.setUniform("repeatAmount", tileRepeatAmount(params));
       this.tileTextureShader.setUniform("offsetAmount", [Number(params.offsetX) || 0, Number(params.offsetY) || 0]);
       this.tileTextureShader.setUniform("scrollSpeed", [Number(params.scrollX) || 0, Number(params.scrollY) || 0]);
       this.tileTextureShader.setUniform("time", componentTime);

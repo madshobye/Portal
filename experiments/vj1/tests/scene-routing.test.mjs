@@ -29,6 +29,6 @@ test("scene routing exposes Components and Canvas recording frames without norma
 
 test("models remains a compatibility facade for scene routing", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
-  assert.ok(source.includes('from "./scene-routing.js?v=chain-only-authority-1"'));
+  assert.match(source, /from "\.\/scene-routing\.js\?v=[^"]+"/);
   assert.doesNotMatch(source, /export function sceneSourceNodes\(/);
 });

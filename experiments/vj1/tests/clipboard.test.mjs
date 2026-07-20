@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { chainPasteTarget, clipboardPayloadForTarget, pasteClipboardPayload } from "../js/domain/clipboard.js";
+import { chainPasteTarget, clipboardPayloadForTarget, copyComponentAsCanvas, pasteClipboardPayload } from "../js/domain/clipboard.js";
 import { createCanvasComponent, createComponentGroup, createComponentLayer, createDefaultComponent, createDefaultSurface, createInitialState, createSceneFromState } from "../js/domain/models.js";
 
 test("Component list paste creates an independent copy with fresh nested ids", () => {
@@ -21,6 +21,36 @@ test("Component list paste creates an independent copy with fresh nested ids", (
   assert.notEqual(copy.id, component.id);
   assert.notEqual(copy.chain[0].id, component.chain[0].id);
   assert.notEqual(copy.chain[0].chain[0].id, component.chain[0].chain[0].id);
+});
+
+test("a Component converts to an independent Canvas copy in the shared Canvas coordinate space", () => {
+  const state = createInitialState();
+  state.render.width = 1200;
+  state.render.height = 800;
+  state.render.componentTexture = { width: 1200, height: 800 };
+  const component = createDefaultComponent(0);
+  component.name = "Portrait";
+  component.frameShape = "portrait";
+  const group = createComponentGroup(0);
+  group.chain.push(createComponentLayer(1, { type: "generator", generatorId: "noise" }));
+  component.chain = [group];
+  state.components = [component];
+
+  const result = copyComponentAsCanvas(state, component.id);
+  const canvas = state.components.find((item) => item.id === result.id);
+
+  assert.equal(result.converted, true);
+  assert.equal(state.components[0], component);
+  assert.equal(canvas.type, "canvas");
+  assert.equal(canvas.name, "Portrait Canvas");
+  assert.equal(Object.hasOwn(canvas.canvas, "width"), false);
+  assert.equal(Object.hasOwn(canvas.canvas, "height"), false);
+  assert.deepEqual(state.render.canvasSize, { width: 3840, height: 2160 });
+  assert.equal(canvas.thumbnail, "");
+  assert.notEqual(canvas.id, component.id);
+  assert.notEqual(canvas.chain[0].id, component.chain[0].id);
+  assert.notEqual(canvas.chain[0].chain[0].id, component.chain[0].chain[0].id);
+  assert.equal(state.ui.workspaceSelectionIds.canvas, canvas.id);
 });
 
 test("copied Components become references when pasted into a Canvas", () => {
@@ -100,6 +130,32 @@ test("chain paste inserts after an element or inside the selected Group", () => 
   assert.equal(group.chain.length, 1);
   assert.notEqual(component.chain[1].id, group.chain[0].id);
   assert.deepEqual(chainPasteTarget(state, component.id, group.id), { kind: "group", componentId: component.id, itemId: group.id });
+});
+
+test("a Canvas element copied into a Component remains a chain element", () => {
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  const canvas = createCanvasComponent(0);
+  const canvasElement = createComponentLayer(1, { type: "generator", generatorId: "gradient" });
+  canvas.chain = [canvasElement];
+  state.components = [component, canvas];
+  const payload = clipboardPayloadForTarget(state, {
+    kind: "chain-item",
+    componentId: canvas.id,
+    itemId: canvasElement.id,
+  });
+
+  const result = pasteClipboardPayload(state, payload, {
+    kind: "component-list",
+    itemId: component.id,
+  });
+
+  assert.equal(payload.kind, "chain-item");
+  assert.equal(result.pasted, true);
+  assert.equal(result.kind, "chain-item");
+  assert.equal(state.components.length, 2);
+  assert.equal(component.chain.at(-1).source.generatorId, "gradient");
+  assert.notEqual(component.chain.at(-1).id, canvasElement.id);
 });
 
 test("Scenes and mapped surfaces duplicate only into their matching lists", () => {

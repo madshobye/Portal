@@ -4,11 +4,14 @@ import { createGeneratorSource, getGeneratorComponent } from "../js/graph/genera
 import { OutputRenderer } from "../js/output/output-renderer.js";
 import { TILE_TEXTURE_FRAGMENT_SHADER } from "../js/output/specialized/tile-texture-shader.js";
 import { generatorImageMediaControlTemplate } from "../js/control/generator-media-view.js";
+import { tileRepeatAmount } from "../js/output/specialized/specialized-source-runtime.js";
 
 test("Tile Texture exposes repeat offset and optional scrolling controls", () => {
   const component = getGeneratorComponent("tileTexture");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
   assert.equal(component.category, "texture");
+  assert.deepEqual(params.tileAxis.values, ["both", "horizontal", "vertical"]);
+  assert.equal(params.tileAxis.defaultValue, "both");
   assert.equal(params.repeat.min, 0.001);
   assert.equal(params.repeat.max, 64);
   assert.equal(params.repeat.defaultValue, 1);
@@ -16,6 +19,9 @@ test("Tile Texture exposes repeat offset and optional scrolling controls", () =>
   assert.equal(params.repeatY, undefined);
   assert.equal(component.runtime.timeDependent({ scrollX: 0, scrollY: 0 }), false);
   assert.equal(component.runtime.timeDependent({ scrollX: 0.1, scrollY: 0 }), true);
+  assert.deepEqual(tileRepeatAmount({ repeat: 8, tileAxis: "both" }), [8, 8]);
+  assert.deepEqual(tileRepeatAmount({ repeat: 8, tileAxis: "horizontal" }), [8, 1]);
+  assert.deepEqual(tileRepeatAmount({ repeat: 8, tileAxis: "vertical" }), [1, 8]);
 });
 
 test("Tile Texture repeats its selected image with wrapped shader coordinates", () => {

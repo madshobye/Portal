@@ -1,6 +1,6 @@
 import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=text-generator-1";
-import { getGeneratorComponent } from "./generator-registry.js?v=chain-only-authority-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { getGeneratorComponent } from "./generator-registry.js?v=fog-banks-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 
 export function compileComponentPatch(component = {}, renderRequest = {}) {
   const request = normalizePatchRenderRequest(renderRequest);
@@ -92,6 +92,8 @@ function chainNodeForItem(component, item, index) {
       params: item.params,
       amount: item.amount,
       transform: item.transform,
+      opacity: item.opacity,
+      blend: item.blend,
     }, index);
   }
   if (item.kind === "group") {
@@ -199,6 +201,7 @@ export function fuseLocalShaderSchedule(schedule = []) {
 
 export function isFusibleShaderJob(job) {
   if (!job?.component?.fusible || job.pass?.amount <= 0.0001) return false;
+  if ((job.pass?.blend || "normal") !== "normal" || Math.abs((job.pass?.opacity ?? 1) - 1) > 0.0001) return false;
   const transform = job.pass?.transform || {};
   return Math.abs(Number(transform.x) || 0) < 1e-9 &&
     Math.abs(Number(transform.y) || 0) < 1e-9 &&
@@ -244,11 +247,14 @@ function effectNodeForPass(ownerComponent, pass, index) {
     params: passParams(effectComponent, pass),
     state: {
       transform: pass.transform || {},
+      layer: layerStateForItem(pass),
       pass: {
         id: pass.id,
         enabled: pass.enabled !== false,
         params: passParams(effectComponent, pass),
         transform: pass.transform || {},
+        opacity: pass.opacity ?? 1,
+        blend: pass.blend || "normal",
       },
     },
   });

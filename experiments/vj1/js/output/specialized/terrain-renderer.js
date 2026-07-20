@@ -1,5 +1,5 @@
 import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
-import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=adaptive-component-demand-29";
+import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=canvas-global-resolution-1";
 import { normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
 import { compileRawShader, linkSpecializedProgram } from "./raw-webgl-utils.js?v=terrain-gl-state-1";
 import {

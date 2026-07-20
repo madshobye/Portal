@@ -1,11 +1,12 @@
 import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
+import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { normalizedContentTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
 import {
   COMPONENT_THUMBNAIL_HEIGHT,
   COMPONENT_THUMBNAIL_WIDTH,
   componentThumbnailSignature,
   graphicsToThumbnail,
-} from "./thumbnail-utils.js?v=chain-only-authority-1";
+} from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 
 export class OutputThumbnailRuntime {
   constructor({ getState, getComponentOutput, shouldUseThumbnailPreview, isComponentReady, sendThumbnail } = {}) {
@@ -67,7 +68,7 @@ export class OutputThumbnailRuntime {
     if (!this.isComponentReady(component)) return;
     const output = this.getComponentOutput(component.id);
     if (!output) return;
-    const signature = componentThumbnailSignature(component);
+    const signature = componentThumbnailSignature(component, state.render);
     const needsComponentThumbnail = !component.thumbnail || this.signatures.get(component.id) !== signature;
     const framesNeedingThumbnails = component.type === "canvas"
       ? (state.recordingFrames || []).filter((frame) => {
@@ -91,8 +92,7 @@ export class OutputThumbnailRuntime {
     if (component.type === "canvas") {
       const sourceWidth = Math.max(1, Number(thumbnailSource?.width || thumbnailSource?.canvas?.width) || 1);
       const sourceHeight = Math.max(1, Number(thumbnailSource?.height || thumbnailSource?.canvas?.height) || 1);
-      const logicalWidth = Math.max(1, Number(component.canvas?.width) || sourceWidth);
-      const logicalHeight = Math.max(1, Number(component.canvas?.height) || sourceHeight);
+      const { width: logicalWidth, height: logicalHeight } = canvasFrameSize(state.render);
       for (const frame of framesNeedingThumbnails) {
         const frameKey = `${component.id}:${frame.id}`;
         const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;

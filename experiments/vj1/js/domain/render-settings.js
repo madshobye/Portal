@@ -38,6 +38,7 @@ export function normalizeRenderSettings(render = {}) {
     outputs,
     worldWidth,
     worldHeight,
+    canvasSize: normalizeCanvasSize(render.canvasSize),
     componentTexture: normalizeComponentTextureSettings(render.componentTexture, primary),
     surfaceTexture: normalizeSurfaceTextureSettings(render.surfaceTexture, primary),
     maxFrameRate: renderMaxFrameRate(render),
@@ -46,6 +47,32 @@ export function normalizeRenderSettings(render = {}) {
     camera: normalizeCameraSettings(render.camera, primary.width, primary.height),
     ...normalizeComponentPipelineSettings(render),
   };
+}
+
+export function normalizeCanvasSize(size = {}) {
+  return {
+    width: positiveInt(size?.width, VJ1.canvasWidth, 128, 8192),
+    height: positiveInt(size?.height, VJ1.canvasHeight, 128, 8192),
+  };
+}
+
+export function canvasFrameSize(render = {}) {
+  return normalizeCanvasSize(render?.canvasSize);
+}
+
+export function scaleRecordingFramesToCanvasSize(frames = [], previousSize = {}, nextSize = {}) {
+  const previous = normalizeCanvasSize(previousSize);
+  const next = normalizeCanvasSize(nextSize);
+  const scaleX = next.width / previous.width;
+  const scaleY = next.height / previous.height;
+  if (Math.abs(scaleX - 1) < 0.000001 && Math.abs(scaleY - 1) < 0.000001) return frames;
+  return (frames || []).map((frame) => ({
+    ...frame,
+    x: Math.round((Number(frame.x) || 0) * scaleX),
+    y: Math.round((Number(frame.y) || 0) * scaleY),
+    width: Math.max(16, Math.round((Number(frame.width) || 16) * scaleX)),
+    height: Math.max(16, Math.round((Number(frame.height) || 16) * scaleY)),
+  }));
 }
 
 export function normalizeSamplingSettings(sampling = {}) {

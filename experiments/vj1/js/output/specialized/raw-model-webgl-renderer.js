@@ -1,4 +1,4 @@
-import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=instance-sync-60";
+import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=canvas-global-resolution-1";
 import { buildParsedModelSurfaceVertices } from "./model-geometry.js?v=model-geometry-fix-30";
 import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "./model-mesh-cache.js?v=model-wire-detail-2";
 import { modelCameraFov, modelDepthCutoff, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "./model-render-math.js?v=model-outline-weight-1";

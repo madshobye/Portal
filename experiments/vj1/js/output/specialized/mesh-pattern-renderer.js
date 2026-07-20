@@ -1,4 +1,4 @@
-import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=adaptive-component-demand-29";
+import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=canvas-global-resolution-1";
 import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=render-core-contract-1";
 import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
 import { generateMeshPatternTopology, meshPatternTopologySignature } from "./mesh-pattern-algorithms.js?v=mesh-topology-1";

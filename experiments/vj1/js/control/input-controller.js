@@ -34,6 +34,43 @@ export function createInputController({
     bindChainControls(scope);
     bindRemovalAndMappingButtons(scope);
     bindParamContextMenus(scope);
+    bindComponentContextMenus(scope);
+  }
+
+  function bindComponentContextMenus(scope) {
+    scope.querySelectorAll("[data-select-component]").forEach((button) => {
+      button.addEventListener("contextmenu", (event) => {
+        const componentId = button.dataset.selectComponent;
+        const component = getState().components?.find((item) => item.id === componentId);
+        if (!component || component.type === "canvas") return;
+        event.preventDefault();
+        event.stopPropagation();
+        openComponentContextMenu(component, event.clientX, event.clientY);
+      });
+    });
+  }
+
+  function openComponentContextMenu(component, x, y) {
+    document.querySelector("[data-component-context-menu]")?.remove();
+    document.querySelector("[data-param-context-menu]")?.remove();
+    const menu = document.createElement("div");
+    menu.className = "param-context-menu";
+    menu.dataset.componentContextMenu = "true";
+    menu.style.left = `${Math.max(8, x)}px`;
+    menu.style.top = `${Math.max(8, y)}px`;
+    menu.innerHTML = `<button type="button" data-copy-component-as-canvas>Convert to Canvas</button>`;
+    document.body.append(menu);
+    const bounds = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
+    menu.querySelector("[data-copy-component-as-canvas]")?.addEventListener("click", () => {
+      store.copyComponentToCanvas?.(component.id);
+      menu.remove();
+    });
+    const dismiss = (event) => {
+      if (!menu.contains(event.target)) menu.remove();
+    };
+    setTimeout(() => document.addEventListener("pointerdown", dismiss, { capture: true, once: true }), 0);
   }
 
   function bindPersistentInputs(scope) {

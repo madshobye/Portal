@@ -1,14 +1,15 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=chain-only-authority-1";
-import { normalizeParamValue, RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=text-generator-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=chain-only-authority-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
-import { componentCatalogToolsTemplate } from "./catalog-view.js?v=changed-sort-user-truth-1";
-import { isModelMediaSource, sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=lightning-generator-1";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=catalog-marker-four-state-1";
+import { normalizeParamValue } from "../graph/component-schema.js?v=text-generator-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=fog-banks-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
+import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-marker-four-state-1";
+import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=source-param-schema-1";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { CHAIN_TRANSFORM_PARAMS, chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=text-style-controls-1";
-import { MEDIA_FIT_PARAM, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=model-wire-detail-2";
+import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=chain-general-controls-1";
+import { mediaSourceParams } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
+import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-marker-four-state-1";
 import { componentCardBarTemplate, deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, selectablePillTemplate } from "./view-primitives.js?v=deep-edit-navigation-1";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
@@ -80,11 +81,12 @@ export function scenePillTemplate(scene, state) {
   const selected = state.ui.selectedSceneId === scene.id;
   const components = sceneFingerprintComponents(scene, state);
   return `
-    <div class="component-card-row">
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(scene.name.toLowerCase())}">
       <button type="button" class="component-card scene-card ${selected ? "is-selected" : ""}" data-select-scene="${esc(scene.id)}">
         ${sceneFingerprintTemplate(components)}
         ${componentCardBarTemplate(scene.name)}
       </button>
+      ${catalogMarkerButtonTemplate(scene, "scene")}
       <button type="button" class="component-card-remove" data-delete-scene="${esc(scene.id)}" title="Remove" aria-label="Remove ${esc(scene.name)}">${icon("close")}</button>
     </div>
   `;
@@ -96,11 +98,12 @@ export function liveScenePillTemplate(scene, state) {
   const sceneOverrides = state.ui?.live?.sceneOverrides?.[scene.id] || (selected ? state.ui?.live?.componentOverrides || {} : {});
   const hasOverrides = Object.keys(sceneOverrides).length > 0;
   return `
-    <div class="component-card-row">
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(scene.name.toLowerCase())}">
       <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
         ${sceneFingerprintTemplate(components)}
         ${componentCardBarTemplate(scene.name)}
       </button>
+      ${catalogMarkerButtonTemplate(scene, "scene")}
       ${hasOverrides ? `<button type="button" class="component-card-remove" data-reset-live-scene="${esc(scene.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(scene.name)}">${icon("restart_alt")}</button>` : ""}
     </div>
   `;
@@ -154,13 +157,14 @@ export function sceneSignificantComponentTemplate(component, state) {
     updateBase: `components.${componentIndex}.chain`,
     paths,
     attrs: "data-update",
+    media: state.media || [],
   });
   if (!controls) return "";
   return `<section class="ui-section focus-panel scene-significant-panel"><header class="ui-section-header panel-title"><span class="material-symbols-rounded">star</span><span>Significant · ${esc(component.name)}</span>${deepEditButtonTemplate(component.id, { className: "header-edit-button", label: `Edit ${component.name}` })}</header>${controls}</section>`;
 }
 
 function significantChainControls(chain, options) {
-  const { componentId, relativeBase, updateBase, paths, attrs } = options;
+  const { componentId, relativeBase, updateBase, paths, attrs, media = [] } = options;
   return (chain || []).map((item, index) => {
     const relativePath = `${relativeBase}.${index}`;
     const updatePath = `${updateBase}.${index}`;
@@ -176,20 +180,29 @@ function significantChainControls(chain, options) {
       attrs,
       isSignificant: () => attrs === "data-update",
     }) : "";
+    const significantComposite = CHAIN_COMPOSITE_PARAMS.filter((param) => paths.has(`${relativePath}.${param.id}`));
+    const compositeControls = significantComposite.length ? paramControlsTemplate(significantComposite, {
+      pathFor: (param) => `${updatePath}.${param.id}`,
+      valueFor: (param) => normalizeParamValue(param, item?.[param.id]),
+      attrs,
+      isSignificant: () => attrs === "data-update",
+    }) : "";
     if (item.kind === "group") {
-      const own = transformControls ? `<div class="live-significant-group"><span>${esc(item.name || "Group")}</span>${transformControls}</div>` : "";
+      const own = transformControls || compositeControls
+        ? `<div class="live-significant-group"><span>${esc(item.name || "Group")}</span>${compositeControls}${transformControls}</div>`
+        : "";
       return `${own}${nested}`;
     }
     const definitions = item.kind === "effect"
       ? getShaderComponent(item.componentId)?.params || []
-      : sourceLiveParams(item.source || {});
+      : sourceLiveParams(item.source || {}, media.find((entry) => entry.id === item.source?.mediaId));
     const significant = definitions.filter((param) => significantParamPath(
       paths,
       relativePath,
       param.id,
       item.kind === "source"
     ));
-    if (!significant.length && !transformControls) return "";
+    if (!significant.length && !transformControls && !compositeControls) return "";
     const values = item.kind === "effect"
       ? item
       : { params: { ...(item.source?.params || {}) } };
@@ -208,7 +221,7 @@ function significantChainControls(chain, options) {
       attrs,
       isSignificant: () => attrs === "data-update",
     }) : "";
-    return `<div class="live-significant-group"><span>${esc(item.name || item.componentId || sourceChainItemDisplayName(item))}</span>${contentControls}${transformControls}</div>`;
+    return `<div class="live-significant-group"><span>${esc(item.name || item.componentId || sourceChainItemDisplayName(item))}</span>${contentControls}${compositeControls}${transformControls}</div>`;
   }).join("");
 }
 
@@ -244,13 +257,13 @@ function liveComponentTemplate(component, view, selectedElement, state, componen
         <button type="button" class="live-component-view-tab ${componentView === "elements" ? "is-selected" : ""}" data-live-component-view="elements" aria-pressed="${componentView === "elements"}">${icon("account_tree")} Elements</button>
       </div>
       ${componentView === "controls"
-        ? liveComponentControlsTemplate(component, view)
+        ? liveComponentControlsTemplate(component, view, state)
         : liveChainOutlineTemplate(view?.chain || [], component.id, selectedElement?.item?.id, "chain", state)}
     </article>
   `;
 }
 
-function liveComponentControlsTemplate(component, view) {
+function liveComponentControlsTemplate(component, view, state = {}) {
   const paths = new Set(component.significantParams || []);
   const published = paths.size ? significantChainControls(view?.chain || [], {
     componentId: component.id,
@@ -258,13 +271,14 @@ function liveComponentControlsTemplate(component, view) {
     updateBase: "chain",
     paths,
     attrs: liveParamAttrs(component.id),
+    media: state.media || [],
   }) : "";
   return `
     <div class="live-component-controls">
       ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
       <div class="live-component-transform-controls">
         <span class="live-control-group-label">Component placement</span>
-        ${chainTransformControlsTemplate(view?.transform, "transform", { attrs: liveParamAttrs(component.id) })}
+        ${liveComponentPlacementControlsTemplate(view?.transform, component.id)}
       </div>
       ${liveRangeTemplate("Opacity", component.id, "opacity", view?.opacity ?? 1)}
       ${liveRangeTemplate("Speed", component.id, "speed", view?.speed ?? 1, 0, 4, 0.01)}
@@ -304,13 +318,11 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
   const label = liveChainItemLabel(item, state);
   const iconName = item.kind === "effect" ? effectIcon(item.componentId) : item.kind === "group" ? "account_tree" : sourceIcon(item.source || {});
   const tabName = `live-chain-param-view-${String(componentId).replace(/[^a-z0-9_-]/gi, "-")}-${String(item.id).replace(/[^a-z0-9_-]/gi, "-")}`;
-  const primary = liveChainItemContentTemplate(item, componentId, path, "primary");
-  const details = liveChainItemContentTemplate(item, componentId, path, "details");
-  const views = chainParamViewDefinitions(
-    primary,
-    details,
-    `<div class="soft-note">Transforms this element inside the component frame.</div>${chainTransformControlsTemplate(item.transform, `${path}.transform`, { attrs: liveParamAttrs(componentId) })}`
-  );
+  const primary = liveChainItemContentTemplate(item, componentId, path, "primary", state);
+  const details = liveChainItemContentTemplate(item, componentId, path, "details", state);
+  const views = chainParamViewDefinitions(primary, details, chainGeneralControlsTemplate(item, path, {
+    attrs: liveParamAttrs(componentId),
+  }));
   return `
     <section class="ui-section focus-panel chain-settings-panel live-chain-settings" aria-label="Selected live element parameters">
       <header class="ui-section-header panel-title"><span class="material-symbols-rounded">${iconName}</span><span>${esc(label)}</span></header>
@@ -325,24 +337,30 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
   `;
 }
 
-function liveChainItemContentTemplate(item, componentId, path, paramView = "primary") {
+function liveChainItemContentTemplate(item, componentId, path, paramView = "primary", state = {}) {
   if (item.kind === "effect") {
     const component = getShaderComponent(item.componentId);
-    const params = componentParamViews(component)[paramView] || [];
+    const params = (componentParamViews(component)[paramView] || []).map(effectDisplayParam);
     return params.length ? liveShaderParamControlsTemplate(component, item, componentId, path, params) : "";
   }
-  if (item.kind === "group") return paramView === "details" ? "" : `
-    ${liveRangeTemplate("Alpha", componentId, `${path}.opacity`, item.opacity ?? 1)}
-    <label class="field chain-param"><span>Blend</span>${liveSelectValuesTemplate(componentId, `${path}.blend`, BLEND_MODES, item.blend || "normal")}</label>
-  `;
-  const params = sourceLiveParams(item.source || {});
+  if (item.kind === "group") return "";
+  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
+  const params = sourceLiveParams(item.source || {}, media);
   const viewParams = componentParamViews({ params })[paramView] || [];
   if (paramView === "details") return viewParams.length ? liveSourceParamControlsTemplate(item, componentId, path, viewParams) : "";
-  return `
-    ${liveRangeTemplate("Opacity", componentId, `${path}.opacity`, item.opacity ?? 1)}
-    <label class="field chain-param"><span>Blend</span>${liveSelectValuesTemplate(componentId, `${path}.blend`, BLEND_MODES, item.blend || "normal")}</label>
-    ${liveSourceParamControlsTemplate(item, componentId, path, viewParams)}
-  `;
+  return liveSourceParamControlsTemplate(item, componentId, path, viewParams);
+}
+
+function liveComponentPlacementControlsTemplate(transform = {}, componentId) {
+  return `<div class="chain-param-list">${paramControlsTemplate(CHAIN_TRANSFORM_PARAMS, {
+    pathFor: (param) => `transform.${param.id}`,
+    valueFor: (param) => normalizeParamValue(param, transform?.[param.id]),
+    attrs: liveParamAttrs(componentId),
+  })}</div>`;
+}
+
+function effectDisplayParam(param) {
+  return param?.id === "amount" ? { ...param, label: "Effect strength" } : param;
 }
 
 function selectedLiveChainItem(chain, componentId, state) {
@@ -390,7 +408,7 @@ function liveShaderParamControlsTemplate(component, item, componentId, itemPath,
   `;
 }
 
-function liveSourceParamControlsTemplate(item, componentId, itemPath, params = sourceLiveParams(item.source || {})) {
+function liveSourceParamControlsTemplate(item, componentId, itemPath, params = []) {
   if (!params.length) return "";
   const values = item.source?.params && typeof item.source.params === "object" ? item.source.params : {};
   return `
@@ -404,12 +422,9 @@ function liveSourceParamControlsTemplate(item, componentId, itemPath, params = s
   `;
 }
 
-function sourceLiveParams(source = {}) {
+function sourceLiveParams(source = {}, media = null) {
   if (source.type === "generator") return getGeneratorComponent(source.generatorId).params || [];
-  if (source.type === "media") {
-    if (isModelMediaSource(source)) return MODEL_SOURCE_PARAMS;
-    return [RENDER_QUALITY_PARAM, MEDIA_FIT_PARAM];
-  }
+  if (source.type === "media") return mediaSourceParams(source, media);
   return [];
 }
 
@@ -457,7 +472,7 @@ function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {})
   return `
     <div class="field component-assignment-field" data-component-filter-scope>
       <span>Component</span>
-      ${componentCatalogToolsTemplate("scene", catalog.sortMode || "recent", "Filter sources")}
+      ${componentCatalogToolsTemplate("source", catalog.sortMode || "recent", "Filter sources")}
       <div class="component-card assignment-selected-card is-selected" data-selected-route-source="${esc(selectedNode.id)}" aria-label="Selected component: ${esc(selectedNode.name)}">
         ${thumbnailTemplate(selectedNode.thumbnail, selectedNode.type === "empty" ? "hide_image" : selectedNode.type === "recording-frame" ? "select_all" : "account_tree")}
         ${componentCardBarTemplate(selectedNode.name)}
@@ -467,10 +482,13 @@ function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {})
         ${options.map((node) => {
           const selected = node.id === route.sourceNodeId;
           return `
-            <button type="button" class="component-card assignment-card ${selected ? "is-selected" : ""}" data-component-filter-card="${esc(node.name.toLowerCase())}" data-set-route-source-node="${esc(node.id)}" data-route-base="${esc(routeBase)}">
-              ${thumbnailTemplate(node.thumbnail, node.type === "empty" ? "hide_image" : node.type === "recording-frame" ? "select_all" : "account_tree")}
-              ${componentCardBarTemplate(node.name)}
-            </button>
+            <div class="component-card-row ${node.componentId ? "has-catalog-marker" : ""}" data-component-filter-card="${esc(node.name.toLowerCase())}">
+              <button type="button" class="component-card assignment-card ${selected ? "is-selected" : ""}" data-set-route-source-node="${esc(node.id)}" data-route-base="${esc(routeBase)}">
+                ${thumbnailTemplate(node.thumbnail, node.type === "empty" ? "hide_image" : node.type === "recording-frame" ? "select_all" : "account_tree")}
+                ${componentCardBarTemplate(node.name)}
+              </button>
+              ${node.componentId ? catalogMarkerButtonTemplate({ ...node, id: node.componentId }, "component") : ""}
+            </div>
           `;
         }).join("")}
       </div>

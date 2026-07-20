@@ -1,7 +1,7 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=chain-only-authority-1";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=fog-banks-1";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileComponentPatch } from "../graph/render-scheduler.js?v=chain-only-authority-1";
-import { listShaderComponents } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { listShaderComponents } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { effectIcon, esc, icon } from "./template-utils.js?v=power-flicker-1";
 
 export function mappingStudioTemplate(state) {

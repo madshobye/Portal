@@ -8,7 +8,7 @@ import {
   cornersRect,
   directFitRects,
   scaledComponentSampleRect,
-} from "./component-render-layout.js?v=component-parent-placement-1";
+} from "./component-render-layout.js?v=canvas-global-resolution-1";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=render-diagnostics-1";
 import { planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
 import {

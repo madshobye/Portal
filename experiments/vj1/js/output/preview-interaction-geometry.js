@@ -1,4 +1,4 @@
-import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import {
   combineContentTransforms,
   contentTransformCanvasPlacement,

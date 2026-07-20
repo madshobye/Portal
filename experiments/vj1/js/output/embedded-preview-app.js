@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=profile-edit-identity-1";
-import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
+import { OutputRenderer } from "./output-renderer.js?v=chain-general-controls-1";
+import { renderMaxFrameRate } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { createPreviewViewportController, fitPreviewCanvasElement, previewViewportForUi } from "./preview-viewport.js?v=render-coordinate-scope-3";

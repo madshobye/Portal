@@ -58,6 +58,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
+  overflow: clip;
   overscroll-behavior: none;
   background: var(--bg);
   color: var(--ink);
@@ -71,6 +72,7 @@ body {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+  overflow: clip;
 }
 
 button,
@@ -330,6 +332,7 @@ canvas {
   min-height: 0;
   grid-template-rows: 54px 1fr;
   overflow: hidden;
+  overflow: clip;
   background: var(--bg);
 }
 
@@ -1054,6 +1057,30 @@ small {
   flex: 0 0 auto;
 }
 
+.rail-title-add {
+  display: inline-grid;
+  width: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  margin-left: auto;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted);
+}
+
+.rail-title-add:hover,
+.rail-title-add:focus-visible {
+  background: var(--control-bg);
+  color: var(--ink);
+}
+
+.rail-title-add .material-symbols-rounded {
+  font-size: 17px;
+}
+
 .ui-section-header .section-title-input {
   flex: 1 1 0;
   width: auto;
@@ -1287,6 +1314,47 @@ button.text-list-main:hover {
   min-width: 0;
 }
 
+.catalog-marker-toggle {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.58);
+  color: rgba(255, 255, 255, 0.58);
+}
+
+.catalog-marker-toggle .material-symbols-rounded {
+  font-size: 15px;
+}
+
+.catalog-marker-toggle:hover,
+.catalog-marker-toggle:focus-visible {
+  background: rgba(0, 0, 0, 0.82);
+  color: var(--ink);
+}
+
+.catalog-marker-toggle.marker-1 {
+  color: #e0a743;
+}
+
+.catalog-marker-toggle.marker-2 {
+  background: rgba(0, 0, 0, 0.72);
+  color: #d46b78;
+}
+
+.catalog-marker-toggle.marker-3 {
+  background: var(--accent-strong);
+  color: var(--ink);
+}
+
 .component-card {
   display: grid;
   gap: 0;
@@ -1415,6 +1483,10 @@ button.text-list-main:hover {
   visibility: hidden;
   pointer-events: none;
   transition: opacity 120ms ease, background 120ms ease, color 120ms ease, visibility 0s linear 120ms;
+}
+
+.component-card-row.has-catalog-marker .component-card-remove {
+  top: 29px;
 }
 
 .component-card-row:hover .component-card-remove {
@@ -1664,7 +1736,7 @@ button.text-list-main:hover {
 }
 
 .live-chain-settings .chain-param-view-content,
-.live-chain-settings .chain-param-view-transform {
+.live-chain-settings .chain-param-view-general {
   display: grid;
   gap: 9px;
 }
@@ -1783,18 +1855,6 @@ button.text-list-main:hover {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.capture-row {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) 36px;
-  gap: 7px;
-}
-
-.capture-row input {
-  width: 100%;
-  min-width: 0;
 }
 
 .project-empty-stage {
@@ -2792,17 +2852,6 @@ button.text-list-main:hover {
   min-width: 0;
 }
 
-.chain-composite-controls {
-  display: grid;
-  gap: var(--range-stack-gap);
-  min-width: 0;
-}
-
-.chain-composite-controls .field > span {
-  color: var(--slider-text);
-  font-weight: 400;
-}
-
 .color-param {
   grid-template-columns: minmax(0, 1fr);
   align-items: stretch;
@@ -2940,6 +2989,7 @@ button.text-list-main:hover {
 }
 
 .chain-param-views {
+  position: relative;
   display: grid;
   grid-template-columns: repeat(var(--param-view-count, 2), minmax(0, 1fr));
   min-width: 0;
@@ -2961,8 +3011,11 @@ button.text-list-main:hover {
 
 .chain-param-view-input {
   position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
   inline-size: 1px;
   block-size: 1px;
+  clip-path: inset(50%);
   opacity: 0;
   pointer-events: none;
 }
@@ -2981,6 +3034,11 @@ button.text-list-main:hover {
 .chain-param-view-input:checked + .chain-param-view-tab {
   color: #fff8f0;
   background: var(--accent-strong);
+}
+
+.chain-param-view-input:focus-visible + .chain-param-view-tab {
+  outline: 1px solid var(--slider-thumb);
+  outline-offset: -1px;
 }
 
 .chain-param-view-tab:hover { background: var(--control-hover); }
@@ -3495,6 +3553,21 @@ button.text-list-main:hover {
   gap: 8px;
 }
 
+.element-card-shell {
+  position: relative;
+  min-width: 0;
+}
+
+.element-card-shell > .element-card {
+  width: 100%;
+  height: 100%;
+}
+
+.element-card-shell.is-search-hidden,
+.element-card-shell.is-filter-hidden {
+  display: none;
+}
+
 .media-element-grid {
   grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
 }
@@ -3616,30 +3689,6 @@ button.text-list-main:hover {
   grid-row: 3;
 }
 
-.media-picker-grid {
-  display: grid;
-  min-height: 0;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 8px;
-  overflow: auto;
-}
-
-.media-picker-card {
-  display: grid;
-  gap: 5px;
-  justify-content: stretch;
-  min-width: 0;
-  padding: 7px;
-  border: 0;
-  border-radius: var(--radius-card);
-  background: var(--control);
-  text-align: left;
-}
-
-.media-picker-card.is-selected {
-  background: var(--accent-strong);
-}
-
 .media-preview-frame,
 .media-picker-placeholder {
   width: 100%;
@@ -3676,19 +3725,6 @@ button.text-list-main:hover {
   display: grid;
   place-items: center;
   color: var(--muted);
-}
-
-.media-picker-card span,
-.media-picker-card small {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.media-picker-card span {
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .output-stage {

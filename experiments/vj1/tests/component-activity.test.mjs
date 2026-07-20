@@ -37,12 +37,12 @@ test("direct Canvas edits update the Canvas marker without touching its componen
   const previous = {
     components: [
       { id: "comp", name: "Comp", activity: activity() },
-      { id: "canvas", type: "canvas", canvas: { width: 100, height: 100, frameThumbnails: {} }, activity: activity() },
+      { id: "canvas", type: "canvas", canvas: { previewQuality: "auto", frameThumbnails: {} }, activity: activity() },
     ],
     recordingFrames: [],
   };
   const next = structuredClone(previous);
-  next.components[1].canvas.width = 200;
+  next.components[1].canvas.previewQuality = "low";
   stampChangedProjectItems(previous, next, later);
 
   assert.equal(next.components[1].activity.updatedAt, later);

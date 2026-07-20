@@ -31,6 +31,7 @@ const STRUCTURAL_CHANGE_PREFIXES = [
   "add-component",
   "remove-component",
   "add-canvas-component",
+  "convert-component-to-canvas",
   "add-chain-",
   "remove-chain-",
   "reorder-chain",

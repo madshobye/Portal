@@ -1,4 +1,3 @@
-import { VJ1 } from "../constants.js";
 import { isDrawableMedia } from "./media-utils.js?v=render-diagnostics-1";
 
 export function renderBufferKey(...parts) {
@@ -126,8 +125,7 @@ function staticComponentState(component = {}, includeTransform = true) {
     resolutionScale: Number(component.resolutionScale) || 1,
     ...(includeTransform ? { transform: normalizedStaticTransform(component.transform) } : {}),
     canvas: component.type === "canvas" ? {
-      width: Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth),
-      height: Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight),
+      previewQuality: component.canvas?.previewQuality || "auto",
     } : null,
     chain: staticChainState(component.chain || []),
   };
@@ -183,6 +181,8 @@ function staticChainState(chain = []) {
         amount: item.amount,
         params: item.params || {},
         transform: item.transform || {},
+        opacity: item.opacity ?? 1,
+        blend: item.blend || "normal",
       };
     }
     return {

@@ -8,7 +8,7 @@ export function graphicsToPngBlob(graphics) {
   return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 
-export function componentThumbnailSignature(component = {}) {
+export function componentThumbnailSignature(component = {}, render = {}) {
   try {
     return JSON.stringify({
       opacity: component.opacity,
@@ -16,6 +16,7 @@ export function componentThumbnailSignature(component = {}) {
       speed: component.speed,
       frameShape: component.frameShape,
       resolutionScale: component.resolutionScale,
+      canvasSize: component.type === "canvas" ? render.canvasSize : null,
       chain: component.chain,
     });
   } catch {

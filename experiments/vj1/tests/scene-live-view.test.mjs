@@ -23,6 +23,7 @@ test("Scene and Live presentation lives outside the control orchestrator", () =>
 
   assert.match(scenePillTemplate(scene, state), /data-select-scene=/);
   assert.match(liveScenePillTemplate(scene, state), /data-live-scene=/);
+  assert.match(liveScenePillTemplate(scene, state), /data-cycle-catalog-marker="scene"/);
   assert.match(liveInspectorTemplate(state), /live-component-card|No components/);
   const surfaceTemplate = sceneSurfaceTemplate(surface, state);
   assert.match(surfaceTemplate, /class="sculpt-card"/);
@@ -56,6 +57,8 @@ test("Scene surface source catalogs show a full-width selection without reorderi
   const styles = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.match(html, /class="component-card assignment-selected-card is-selected" data-selected-route-source="component:b"/);
+  assert.match(html, /data-catalog-sort-scope="source"/);
+  assert.equal((html.match(/data-cycle-catalog-marker="component"/g) || []).length, 3);
   assert.match(html, /data-edit-component="b"/);
   assert.equal((html.match(/data-set-route-source-node="component:b"/g) || []).length, 1, "selected source remains in the catalog");
   assert.ok(list.indexOf('data-set-route-source-node=""') < list.indexOf('data-set-route-source-node="component:a"'));
@@ -178,6 +181,33 @@ test("source parameters marked at their persisted path are published in Live", (
 
   const sceneControls = sceneSignificantComponentTemplate(component, state);
   assert.match(sceneControls, /data-update="components\.0\.chain\.0\.source\.params\.renderQuality"/);
+});
+
+test("image source schema automatically exposes cut and feather in Live and published controls", () => {
+  const { state, scene } = stateWithScene();
+  const component = state.components[0];
+  const source = component.chain[0];
+  source.source = {
+    type: "media",
+    mediaId: "media/cutout.png",
+    params: { renderQuality: 0.5, fit: "contain", alphaCut: 2, alphaFeather: 4 },
+  };
+  state.media.push({ id: source.source.mediaId, name: "cutout.png", type: "image" });
+  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  scene.snapshot.surfaces[0].componentId = component.id;
+  state.ui.live.selectedComponentId = component.id;
+  state.ui.live.selectedChainItemId = source.id;
+  state.ui.live.componentView = "elements";
+
+  const elements = liveInspectorTemplate(state);
+  assert.match(elements, /data-live-update="chain\.0\.source\.params\.alphaCut"/);
+  assert.match(elements, /data-live-update="chain\.0\.source\.params\.alphaFeather"/);
+  assert.match(elements, /<span>Cut edge<\/span>/);
+  assert.match(elements, /<span>Feather<\/span>/);
+
+  component.significantParams = ["chain.0.source.params.alphaFeather"];
+  state.ui.live.componentView = "controls";
+  assert.match(liveInspectorTemplate(state), /data-live-update="chain\.0\.source\.params\.alphaFeather"/);
 });
 
 test("Live publishes significant source parameters nested inside Groups", () => {

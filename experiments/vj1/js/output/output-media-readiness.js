@@ -1,4 +1,4 @@
-import { collectMediaIdsFromSource, createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=chain-only-authority-1";
+import { collectMediaIdsFromSource, createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=canvas-global-resolution-1";
 
 export function collectOutputMediaReadiness({ mode = "output", state = null, media = new Map(), acquireMedia = null } = {}) {
   const status = createMediaReadinessStatus();

@@ -36,7 +36,7 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 19);
+  assert.equal(payload.version, 22);
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
@@ -52,6 +52,8 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes("selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
   assert.ok(source.includes("workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds"));
   assert.ok(source.includes("catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes"));
+  assert.ok(source.includes("media: mergeMediaCatalogMarkers(imported.media, projectData.media)"));
+  assert.ok(source.includes("draft.media = mergeMediaCatalogMarkers(imported.media, draft.media)"));
   assert.ok(source.includes("previewQualities: projectUi?.previewQualities || currentUi.previewQualities"));
   assert.ok(!source.includes("legacyRecordingFrames"));
   assert.ok(source.includes("data = migrateProjectData(data)"));
@@ -71,6 +73,7 @@ test("Live scene selection is autosaved so reload restores user truth", () => {
 test("project payload persists canonical render settings without derived geometry aliases", () => {
   const render = {
     outputs: [{ id: "main", width: 1920, height: 1080 }],
+    canvasSize: { width: 3840, height: 2160 },
     componentTexture: { width: 1300, height: 1000 },
     surfaceTexture: { mode: "auto", maxWidth: 1920, maxHeight: 1080 },
     pixelDensity: 1.5,
@@ -86,6 +89,7 @@ test("project payload persists canonical render settings without derived geometr
   const persisted = persistedRenderSettings(render);
   assert.deepEqual(persisted.outputs, render.outputs);
   assert.deepEqual(persisted.componentTexture, render.componentTexture);
+  assert.deepEqual(persisted.canvasSize, render.canvasSize);
   assert.equal(persisted.pixelDensity, 1.5);
   for (const key of ["width", "height", "frameWidth", "frameHeight", "worldScale", "worldWidth", "worldHeight", "outputGap"]) {
     assert.equal(Object.hasOwn(persisted, key), false);
@@ -158,12 +162,14 @@ test("project payload and undo signature exclude derived thumbnails and activity
       type: "canvas",
       thumbnail: "data:image/webp;base64,AAA=",
       activity: { updatedAt: "later" },
-      canvas: { width: 100, frameThumbnails: { frame: "blob:frame" } },
+      canvas: { width: 100, height: 50, frameThumbnails: { frame: "blob:frame" } },
     }],
   };
   const payload = buildProjectPayload(state, "2026-07-18T00:00:00.000Z");
   assert.equal(Object.hasOwn(payload.components[0], "thumbnail"), false);
   assert.equal(Object.hasOwn(payload.components[0].canvas, "frameThumbnails"), false);
+  assert.equal(Object.hasOwn(payload.components[0].canvas, "width"), false);
+  assert.equal(Object.hasOwn(payload.components[0].canvas, "height"), false);
   const changedDerived = structuredClone(payload);
   changedDerived.components[0].activity.updatedAt = "newest";
   changedDerived.global.calibrating = false;

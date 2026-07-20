@@ -8,6 +8,7 @@ import {
   normalizePreviewViewports,
   normalizeRenderSettings,
   renderMaxFrameRate,
+  scaleRecordingFramesToCanvasSize,
 } from "../js/domain/render-settings.js";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../js/domain/render-phase-policy.js";
 
@@ -22,6 +23,8 @@ test("render settings normalize independently from the aggregate domain model", 
   assert.equal(render.worldWidth > 1440, true);
   assert.equal(render.pixelDensity, 2);
   assert.equal(render.maxFrameRate, 120);
+  assert.deepEqual(render.canvasSize, { width: 3840, height: 2160 });
+  assert.deepEqual(normalizeRenderSettings({ canvasSize: { width: 2048, height: 1024 } }).canvasSize, { width: 2048, height: 1024 });
   assert.equal(renderMaxFrameRate({ maxFrameRate: 48 }), 48);
   assert.equal(renderMaxFrameRate({ maxFrameRate: 500 }), 120);
   assert.deepEqual(normalizePreviewViewport({ fit: "invalid", zoom: 20 }), { fit: "frame", zoom: 6, x: 0, y: 0 });
@@ -46,7 +49,18 @@ test("the duplicate embedded preview can occupy the opposite output render phase
 
 test("models remains a compatibility facade for render settings", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
-  assert.ok(source.includes('from "./render-settings.js?v=max-frame-rate-1"'));
+  assert.ok(source.includes('from "./render-settings.js?v=canvas-global-resolution-1"'));
   assert.doesNotMatch(source, /export function normalizeRenderSettings\(/);
   assert.doesNotMatch(source, /export function normalizeCameraSettings\(/);
+});
+
+test("changing the global Canvas size preserves recording-frame proportions", () => {
+  assert.deepEqual(
+    scaleRecordingFramesToCanvasSize(
+      [{ id: "frame", x: 100, y: 50, width: 400, height: 200 }],
+      { width: 1000, height: 500 },
+      { width: 2000, height: 1000 },
+    ),
+    [{ id: "frame", x: 200, y: 100, width: 800, height: 400 }],
+  );
 });

@@ -1,5 +1,5 @@
-import { normalizeParamValue } from "../graph/component-schema.js?v=text-style-controls-1";
-import { createNumberParam } from "../graph/component-schema.js?v=text-style-controls-1";
+import { BLEND_MODES } from "../constants.js";
+import { createEnumParam, createNumberParam, normalizeParamValue } from "../graph/component-schema.js?v=text-style-controls-1";
 import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=param-context-delegation-1";
 import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
 
@@ -39,11 +39,11 @@ export function componentParamViews(component = {}) {
   };
 }
 
-export function chainParamViewDefinitions(primary = "", details = "", transform = "") {
+export function chainParamViewDefinitions(primary = "", details = "", general = "") {
   return [
     { id: "content", label: details ? "Primary" : "Content", html: primary },
     ...(details ? [{ id: "details", label: "Details", html: details }] : []),
-    { id: "transform", label: "Transform", html: transform },
+    { id: "general", label: "General", html: general },
   ];
 }
 
@@ -54,10 +54,24 @@ export const CHAIN_TRANSFORM_PARAMS = Object.freeze([
   Object.freeze(createNumberParam("rotation", "Rotation", { min: -3.1416, max: 3.1416, step: 0.001, defaultValue: 0 })),
 ]);
 
-export function chainTransformControlsTemplate(transform = {}, basePath, options = {}) {
-  return `<div class="chain-param-list chain-transform-param-list">${paramControlsTemplate(CHAIN_TRANSFORM_PARAMS, {
-    pathFor: (param) => `${basePath}.${param.id}`,
-    valueFor: (param) => normalizeParamValue(param, transform?.[param.id]),
+export const CHAIN_COMPOSITE_PARAMS = Object.freeze([
+  Object.freeze(createNumberParam("opacity", "Opacity", { min: 0, max: 1, step: 0.01, defaultValue: 1 })),
+  Object.freeze(createEnumParam("blend", "Blend", BLEND_MODES, "normal")),
+]);
+
+export const CHAIN_GENERAL_PARAMS = Object.freeze([
+  ...CHAIN_COMPOSITE_PARAMS,
+  ...CHAIN_TRANSFORM_PARAMS,
+]);
+
+export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) {
+  return `<div class="chain-param-list chain-general-param-list">${paramControlsTemplate(CHAIN_GENERAL_PARAMS, {
+    pathFor: (param) => CHAIN_COMPOSITE_PARAMS.includes(param)
+      ? `${basePath}.${param.id}`
+      : `${basePath}.transform.${param.id}`,
+    valueFor: (param) => CHAIN_COMPOSITE_PARAMS.includes(param)
+      ? normalizeParamValue(param, item?.[param.id])
+      : normalizeParamValue(param, item?.transform?.[param.id]),
     attrs: options.attrs || "data-update",
     isSignificant: options.isSignificant || (() => false),
   })}</div>`;

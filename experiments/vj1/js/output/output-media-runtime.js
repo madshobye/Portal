@@ -1,6 +1,6 @@
 import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=video-active-ownership-1";
 import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
-import { graphicsToPngBlob } from "./thumbnail-utils.js?v=chain-only-authority-1";
+import { graphicsToPngBlob } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
 import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "./specialized/raw-model-webgl-renderer.js?v=model-wire-detail-2";
 import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";

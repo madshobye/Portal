@@ -3,7 +3,7 @@ import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-
 import { sanitizeState } from "../domain/models.js?v=chain-only-authority-1";
 import { compileComponentPatch } from "../graph/render-scheduler.js?v=chain-only-authority-1";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 
 export function analyzeVj1Project(input = {}, options = {}) {

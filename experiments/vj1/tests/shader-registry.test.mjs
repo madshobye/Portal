@@ -8,7 +8,7 @@ import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js"
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 
 function generatorShaderCatalogSource() {
-  return ["generator-shaders.js", "generator-shaders-core.js", "generator-shaders-spatial.js", "generator-shaders-organic.js"]
+  return ["generator-shaders.js", "generator-shaders-core.js", "generator-shaders-spatial.js", "generator-shaders-organic.js", "generator-shaders-atmosphere.js"]
     .map((file) => readFileSync(new URL(`../js/shaders/${file}`, import.meta.url), "utf8"))
     .join("\n");
 }
@@ -141,6 +141,23 @@ test("HSV alpha key exposes paired color ranges and preserves premultiplied alph
   assert.equal(params.feather.defaultValue, 0.08);
   assert.match(component.code, /rgbToHsv/);
   assert.match(component.code, /color\.rgb \* keep, color\.a \* keep/);
+});
+
+test("Alpha Feather erodes then softens alpha while preserving premultiplied color", () => {
+  const component = getShaderComponent("alphaFeather");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+
+  assert.equal(component.name, "Alpha Feather");
+  assert.equal(component.category, "key");
+  assert.equal(component.sampling, "neighborhood");
+  assert.equal(component.fusible, false);
+  assert.equal(params.amount.defaultValue, 1);
+  assert.equal(params.cut.defaultValue, 1);
+  assert.equal(params.feather.defaultValue, 3);
+  assert.equal(params.cut.max, 32);
+  assert.match(component.code, /float erodedAlpha8/);
+  assert.match(component.code, /cutRadius \+ featherRadius/);
+  assert.match(component.code, /color\.rgb \* alphaScale, outputAlpha/);
 });
 
 test("grain threshold interpolates its slider-scaled random field", () => {
@@ -544,6 +561,23 @@ test("Sun Rays uses one compact polar pass with transparent premultiplied output
   assert.equal((component.code.match(/for \(/g) || []).length, 0, "ray count changes frequency without adding loop work");
   assert.ok(!component.code.includes("texture("));
   assert.ok(!component.code.includes("texture2D("));
+});
+
+test("Fog preserves simplex attribution and emits bounded transparent premultiplied fog", () => {
+  const component = getGeneratorShaderComponent("fog");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/XtfSW4"));
+  assert.ok(component.code.includes("Ian McEwan / Ashima Arts"));
+  assert.ok(component.code.includes("for (int octave = 0; octave < 5; octave++)"));
+  assert.ok(component.code.includes("float octaveBudget"));
+  assert.ok(component.code.includes("float lowerMask = smoothstep("));
+  assert.ok(component.code.includes("float upperMask = 1.0 - smoothstep("));
+  assert.ok(component.code.includes("float macroNoise = 0.5 + 0.5 * fogSimplex3("));
+  assert.ok(component.code.includes("vec2 billowWarp ="));
+  assert.ok(component.code.includes("fragColor = vec4(fogColor.rgb * alpha, alpha)"));
+  assert.ok(!component.code.includes("octave < 8"));
+  assert.ok(!component.code.includes("fragColor = vec4(q,q,q, 1.0)"));
 });
 
 test("Galaxy preserves attribution and replaces Shadertoy channels with procedural noise and stars", () => {

@@ -1,26 +1,20 @@
-import { BLEND_MODES, VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=chain-only-authority-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=fog-banks-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { generatorIcon } from "./picker-view.js?v=source-picker-filters-1";
-import { chainParamViewDefinitions, chainTransformControlsTemplate, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=text-style-controls-1";
-import { MEDIA_FIT_MODES, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=model-wire-detail-2";
+import { generatorIcon } from "./picker-view.js?v=catalog-markers-1";
+import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=chain-general-controls-1";
+import { isModelMediaSource, isVideoMediaSource, mediaSourceParams, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=power-flicker-1";
 import { deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, textListItemTemplate } from "./view-primitives.js?v=deep-edit-navigation-1";
 
 
 export function canvasInspectorTemplate(component, state) {
   const base = pathForComponent(state, component);
-  const canvas = component.canvas || { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
   return `
     <article class="sculpt-card">
       ${canvasResolutionControlsTemplate(component, base)}
-      <div class="field-pair">
-        <label class="field">Width <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.width" value="${canvas.width}" /></label>
-        <label class="field">Height <input type="number" min="128" max="8192" step="1" data-update="${base}.canvas.height" value="${canvas.height}" /></label>
-      </div>
       ${componentUnifiedChainTemplate(component, state, base)}
     </article>
   `;
@@ -82,10 +76,7 @@ export function sourceChainItemDisplayName(item = {}, media = null, component = 
   return item.name;
 }
 
-export function isModelMediaSource(source = {}, media = null) {
-  if (media?.type === "model") return true;
-  return /\.(stl|obj)$/i.test(String(source.mediaId || ""));
-}
+export { isModelMediaSource } from "./source-control-schema.js?v=source-param-schema-1";
 
 export function formatTrimTime(value) {
   const safe = Math.max(0, Number(value) || 0);
@@ -216,7 +207,7 @@ function selectedChainItemTemplate(item, component, state, base) {
   const content = selectedChainItemContentTemplate(item, component, state, base, "primary");
   const details = selectedChainItemContentTemplate(item, component, state, base, "details");
   const tabName = `chain-param-view-${item.id}`;
-  const views = chainParamViewDefinitions(content, details, chainTransformControlsTemplate(item.transform, `${base}.transform`, {
+  const views = chainParamViewDefinitions(content, details, chainGeneralControlsTemplate(item, base, {
     isSignificant: (_param, path) => componentParamIsSignificant(component, state, path),
   }));
   return `
@@ -255,7 +246,7 @@ function selectedChainItemContentTemplate(item, component, state, base, paramVie
 
 function effectChainItemTemplate(item, component, state, base, paramView = "primary") {
   const effectComponent = getShaderComponent(item.componentId);
-  const params = componentParamViews(effectComponent)[paramView] || [];
+  const params = (componentParamViews(effectComponent)[paramView] || []).map(effectDisplayParam);
   if (!params.length) return "";
   return `
     <section class="chain-item-editor">
@@ -274,10 +265,6 @@ function groupChainItemTemplate(item, component, state, base) {
         <span>Collapsed</span>
         <input type="checkbox" data-update="${base}.collapsed" ${item.collapsed ? "checked" : ""} />
       </label>
-      <div class="chain-composite-controls group-composite-controls">
-        <label class="field"><span>Blend</span>${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend || "normal")}</label>
-        ${rangeTemplate("Alpha", `${base}.opacity`, item.opacity ?? 1)}
-      </div>
       <button type="button" class="chain-add-button" data-open-element-picker data-component-id="${esc(component.id)}" data-target-chain-item="${esc(item.id)}" title="Add element to group" aria-label="Add element to group">${icon("add")}</button>
       <div class="soft-note">Use the preview handles to move, scale, or rotate the group as one unit.</div>
     </section>
@@ -291,8 +278,8 @@ function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = 
     if (item.source?.type === "generator") {
       const generator = getGeneratorComponent(item.source.generatorId);
       if (!componentParamViews(generator).details.length) return "";
-    } else if (item.source?.type === "media" && isModelMediaSource(item.source, media)) {
-      if (!componentParamViews({ params: MODEL_SOURCE_PARAMS }).details.length) return "";
+    } else if (item.source?.type === "media") {
+      if (!componentParamViews({ params: mediaSourceParams(item.source, media) }).details.length) return "";
     } else return "";
     return `<section class="chain-item-editor">${sourcePickerTemplate(item, state, base, "details")}</section>`;
   }
@@ -301,12 +288,12 @@ function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = 
       ${item.source?.type === "component"
         ? (isCanvasComponentPlacement ? "" : `<label class="field">Component ${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
         : sourcePickerTemplate(item, state, base, paramView)}
-      <div class="chain-composite-controls">
-        <label class="field"><span>Blend</span>${selectValuesTemplate(`${base}.blend`, BLEND_MODES, item.blend)}</label>
-        ${rangeTemplate("Opacity", `${base}.opacity`, item.opacity)}
-      </div>
     </section>
   `;
+}
+
+function effectDisplayParam(param) {
+  return param?.id === "amount" ? { ...param, label: "Effect strength" } : param;
 }
 
 function componentSelectTemplate(path, state, value, excludeId = "") {
@@ -342,7 +329,7 @@ function sourcePickerTemplate(item, state, base, paramView = "primary") {
         </button>
       </div>`}
       ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source, state, paramView) : ""}
-      ${paramView === "primary" && source.type === "media" && !isModelMediaSource(source, media) ? mediaSourceFitControlsTemplate(`${base}.source`, source) : ""}
+      ${source.type === "media" && !isModelMediaSource(source, media) ? mediaSourceControlsTemplate(`${base}.source`, source, media, paramView) : ""}
       ${paramView === "primary" && source.type === "media" && isVideoMediaSource(source, media) ? videoSourceControlsTemplate(`${base}.source`, source, media) : ""}
       ${source.type === "media" && isModelMediaSource(source, media) ? modelSourceControlsTemplate(`${base}.source`, source, paramView) : ""}
       ${paramView === "primary" && source.type === "camera" ? `<div class="soft-note">Using the portal camera feed.</div>` : ""}
@@ -351,11 +338,14 @@ function sourcePickerTemplate(item, state, base, paramView = "primary") {
   `;
 }
 
-function mediaSourceFitControlsTemplate(base, source = {}) {
-  return `
-    ${rangeTemplate("Render quality", `${base}.params.renderQuality`, source.params?.renderQuality ?? 0.5, 0, 1, 0.01)}
-    <label class="field chain-param">Fit ${selectValuesTemplate(`${base}.params.fit`, MEDIA_FIT_MODES, source.params?.fit || "contain")}</label>
-  `;
+function mediaSourceControlsTemplate(base, source = {}, media = null, paramView = "primary") {
+  const definition = { params: mediaSourceParams(source, media) };
+  const params = componentParamViews(definition)[paramView] || [];
+  if (!params.length) return "";
+  return `<div class="chain-param-list">${paramControlsTemplate(params, {
+    pathFor: (param) => `${base}.params.${param.id}`,
+    valueFor: (param) => paramCurrentValue(definition, { params: source.params || {} }, param),
+  })}</div>`;
 }
 
 function sourceTitle(source = {}, media = null, component = null) {
@@ -455,11 +445,6 @@ function videoTrimValues(source = {}, media = null) {
     max: roundTrimTime(max),
     implicitEnd: !(explicitEnd > start),
   };
-}
-
-function isVideoMediaSource(source = {}, media = null) {
-  if (media?.type === "video") return true;
-  return /\.(mp4|m4v|mov|webm|ogv)$/i.test(String(source.mediaId || ""));
 }
 
 function modelSourceControlsTemplate(base, source = {}, paramView = "primary") {

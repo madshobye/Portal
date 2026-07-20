@@ -5,6 +5,19 @@ export const MEDIA_FIT_MODES = ["contain", "cover"];
 export const MODEL_SURFACE_COLOR_PARAM = { id: "surfaceColor", label: "Surface color", type: "color", defaultValue: "#dce1dcff" };
 export const MODEL_WIRE_COLOR_PARAM = { id: "wireColor", label: "Wire color", type: "color", defaultValue: "#141414dd" };
 export const MEDIA_FIT_PARAM = { id: "fit", label: "Fit", type: "enum", values: MEDIA_FIT_MODES, defaultValue: "contain" };
+export const IMAGE_ALPHA_CUT_PARAM = { id: "alphaCut", label: "Cut edge", type: "number", min: 0, max: 32, step: 0.25, defaultValue: 0 };
+export const IMAGE_ALPHA_FEATHER_PARAM = { id: "alphaFeather", label: "Feather", type: "number", min: 0, max: 32, step: 0.25, defaultValue: 0 };
+
+export const MEDIA_SOURCE_PARAMS = Object.freeze([
+  RENDER_QUALITY_PARAM,
+  MEDIA_FIT_PARAM,
+]);
+
+export const IMAGE_SOURCE_PARAMS = Object.freeze([
+  ...MEDIA_SOURCE_PARAMS,
+  IMAGE_ALPHA_CUT_PARAM,
+  IMAGE_ALPHA_FEATHER_PARAM,
+]);
 
 export const MODEL_SOURCE_PARAMS = [
   { ...RENDER_QUALITY_PARAM, label: "Geometry detail" },
@@ -27,3 +40,24 @@ export const MODEL_SOURCE_PARAMS = [
   { id: "edgeBudget", label: "Edge budget", type: "number", min: 1000, max: 50000, step: 1000, defaultValue: 20000 },
   { id: "pointBudget", label: "Point budget", type: "number", min: 500, max: 50000, step: 500, defaultValue: 4000 },
 ];
+
+export function mediaSourceParams(source = {}, media = null) {
+  if (isModelMediaSource(source, media)) return MODEL_SOURCE_PARAMS;
+  if (isImageMediaSource(source, media)) return IMAGE_SOURCE_PARAMS;
+  return MEDIA_SOURCE_PARAMS;
+}
+
+export function isModelMediaSource(source = {}, media = null) {
+  if (media?.type === "model") return true;
+  return /\.(stl|obj)$/i.test(String(source.mediaId || ""));
+}
+
+export function isVideoMediaSource(source = {}, media = null) {
+  if (media?.type === "video") return true;
+  return /\.(mp4|m4v|mov|webm|ogv)$/i.test(String(source.mediaId || ""));
+}
+
+export function isImageMediaSource(source = {}, media = null) {
+  if (media?.type === "image") return true;
+  return /\.(avif|bmp|gif|jpe?g|png|webp)$/i.test(String(source.mediaId || ""));
+}

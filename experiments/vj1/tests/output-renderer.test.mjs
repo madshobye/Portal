@@ -2,11 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, chainTransformDragScale, componentAdaptiveRasterLimit, componentInstanceTime, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, chainTransformDragScale, componentAdaptiveRasterLimit, componentInstanceTime, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { defaultProjectSurfaceMapping, renderRequestKey } from "../js/output/render-geometry.js";
 import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
 import { ComponentPreviewInteraction, stateWithCanvasFrameRect, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
+
+test("effect opacity and blend request a separate generic composite", () => {
+  assert.equal(effectNeedsComposite({}), false);
+  assert.equal(effectNeedsComposite({ opacity: 1, blend: "normal" }), false);
+  assert.equal(effectNeedsComposite({ opacity: 0.5, blend: "normal" }), true);
+  assert.equal(effectNeedsComposite({ opacity: 1, blend: "screen" }), true);
+});
 import { createInitialState } from "../js/domain/models.js";
 
 function pickRequestSize(request) {
@@ -196,7 +203,7 @@ test("a selected Canvas Group cannot be picked outside the union of its placed c
   const canvas = { id: "canvas", type: "canvas", canvas: { width: 400, height: 400 }, chain: [group] };
   renderer.state = {
     components: [canvas, childComponent],
-    render: {},
+    render: { canvasSize: { width: 400, height: 400 } },
     ui: { selectedComponentId: canvas.id, selectedChainItemId: group.id },
   };
   renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 400, height: 400 });
@@ -1072,14 +1079,14 @@ test("Canvas Component placement is independent from later texture-resolution ch
   const low = componentReferencePlacement(
     canvas,
     child,
-    { componentTexture: { width: 650, height: 500 }, pixelDensity: 1 },
+    { canvasSize: { width: 4000, height: 2000 }, componentTexture: { width: 650, height: 500 }, pixelDensity: 1 },
     target,
     placement
   );
   const high = componentReferencePlacement(
     canvas,
     child,
-    { componentTexture: { width: 2600, height: 2000 }, pixelDensity: 1 },
+    { canvasSize: { width: 4000, height: 2000 }, componentTexture: { width: 2600, height: 2000 }, pixelDensity: 1 },
     target,
     placement
   );
@@ -1095,14 +1102,14 @@ test("Canvas placement follows changed Component aspect without stretching its o
   const original = componentReferencePlacement(
     canvas,
     child,
-    { componentTexture: { width: 1300, height: 1000 }, pixelDensity: 1 },
+    { canvasSize: { width: 4000, height: 2000 }, componentTexture: { width: 1300, height: 1000 }, pixelDensity: 1 },
     target,
     placement
   );
   const wider = componentReferencePlacement(
     canvas,
     child,
-    { componentTexture: { width: 1300, height: 650 }, pixelDensity: 1 },
+    { canvasSize: { width: 4000, height: 2000 }, componentTexture: { width: 1300, height: 650 }, pixelDensity: 1 },
     target,
     placement
   );
@@ -1112,7 +1119,7 @@ test("Canvas placement follows changed Component aspect without stretching its o
 });
 
 test("nested components inherit physical demand from their placement for every parent type", () => {
-  const render = { frameWidth: 1000, frameHeight: 700, pixelDensity: 1 };
+  const render = { frameWidth: 1000, frameHeight: 700, canvasSize: { width: 4000, height: 2800 }, pixelDensity: 1 };
   const child = { id: "child", type: "chain", frameShape: "landscape", resolutionScale: 2 };
   const canvasParent = { type: "canvas", canvas: { width: 4000, height: 2800 } };
   const canvasPlacement = componentReferencePlacement(canvasParent, child, render, { width: 1000, height: 700 }, { scale: 0.25 });
@@ -1160,6 +1167,11 @@ test("direct placement eligibility is shared by Canvas and ordinary component pa
   assert.equal(renderer.canDirectCompositeSource(reference), true);
   assert.equal(renderer.canDirectCompositeSource({ ...reference, blend: "overlay" }), false);
   assert.equal(renderer.canDirectCompositeSource({ kind: "source", source: { type: "media", mediaId: "image" } }), true);
+  renderer.state.media = [{ id: "image", type: "image" }];
+  assert.equal(renderer.canDirectCompositeSource({
+    kind: "source",
+    source: { type: "media", mediaId: "image", params: { alphaCut: 2, alphaFeather: 4 } },
+  }), false, "image alpha cleanup materializes only that source before compositing it");
   assert.equal(renderer.canDirectCompositeSource({ kind: "source", source: { type: "media", mediaId: "model" } }), false);
   assert.equal(directPlacementKind({ source: { type: "camera" }, cameraDrawable: true }), "camera-texture");
   assert.equal(directPlacementKind({ source: { type: "generator" } }), "");
@@ -1221,24 +1233,26 @@ test("output renderer imports the bounds helper used while rebuilding direct sur
 });
 
 test("Canvas preview requests follow the viewport with auto low and full quality modes", () => {
+  const fullSize = { canvasSize: { width: 3840, height: 2160 } };
+  const halfSize = { canvasSize: { width: 1920, height: 1080 } };
   assert.deepEqual(
-    pickRequestSize(canvasPreviewRenderRequest({ canvas: { width: 3840, height: 2160, previewQuality: "auto" } }, 1200, 800)),
+    pickRequestSize(canvasPreviewRenderRequest(fullSize, { canvas: { previewQuality: "auto" } }, 1200, 800)),
     { width: 1200, height: 675 }
   );
   assert.deepEqual(
-    pickRequestSize(canvasPreviewRenderRequest({ canvas: { width: 3840, height: 2160, previewQuality: "low" } }, 1200, 800)),
+    pickRequestSize(canvasPreviewRenderRequest(fullSize, { canvas: { previewQuality: "low" } }, 1200, 800)),
     { width: 600, height: 338 }
   );
   assert.deepEqual(
-    pickRequestSize(canvasPreviewRenderRequest({ canvas: { width: 3840, height: 2160, previewQuality: "full" } }, 1200, 800)),
+    pickRequestSize(canvasPreviewRenderRequest(fullSize, { canvas: { previewQuality: "full" } }, 1200, 800)),
     { width: 3840, height: 2160 }
   );
   assert.deepEqual(
-    pickRequestSize(canvasPreviewRenderRequest({ resolutionScale: 2, canvas: { width: 1920, height: 1080, previewQuality: "full" } }, 1200, 800)),
+    pickRequestSize(canvasPreviewRenderRequest(halfSize, { resolutionScale: 2, canvas: { previewQuality: "full" } }, 1200, 800)),
     { width: 3840, height: 2160 }
   );
   assert.deepEqual(
-    pickRequestSize(canvasPreviewRenderRequest({ resolutionScale: 0.5, canvas: { width: 1920, height: 1080, previewQuality: "full" } }, 1200, 800)),
+    pickRequestSize(canvasPreviewRenderRequest(halfSize, { resolutionScale: 0.5, canvas: { previewQuality: "full" } }, 1200, 800)),
     { width: 960, height: 540 }
   );
 });

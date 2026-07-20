@@ -1,6 +1,7 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=chain-only-authority-1";
-import { listShaderComponents } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=fog-banks-1";
+import { listShaderComponents } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
+import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-marker-four-state-1";
 
 function getByPath(target, path) {
   return String(path || "").split(".").filter(Boolean).reduce((value, segment) => value?.[segment], target);
@@ -22,6 +23,8 @@ export function generatorIcon(id) {
     cellularCircles: "bubble_chart",
     meshPatterns: "polyline",
     galaxy: "blur_circular",
+    fog: "foggy",
+    volumetricClouds: "filter_drama",
     sunRays: "sunny",
     anatomy: "accessibility_new",
     terrainFlyover: "landscape",
@@ -40,33 +43,41 @@ export function generatorIcon(id) {
 export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
   const source = currentSourceValue(picker, state);
   const allowedCategory = picker?.allowedCategory || "";
-  const allMediaItems = state.media || [];
+  const mediaSortMode = state.ui?.catalogSortModes?.media || "recent";
+  const allMediaItems = sortComponentCatalog(state.media || [], mediaSortMode);
   const mediaItems = allowedCategory
     ? allMediaItems.filter((item) => elementMediaCategory(item) === allowedCategory)
     : allMediaItems;
   const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
   const sourceFilter = allowedCategory || picker?.filter || "all";
+  const isMediaValuePicker = picker?.valueMode === "mediaId";
   return `
     <div class="modal-backdrop"></div>
     <section class="modal-panel element-modal" role="dialog" aria-modal="true" aria-label="Choose source">
       <header class="modal-header">
         <div>
-          <strong>Choose source</strong>
-          <small>Pick one source for this element.</small>
+          <strong>${isMediaValuePicker ? "Choose image" : "Choose source"}</strong>
+          <small>${isMediaValuePicker ? "Pick one image for this parameter." : "Pick one source for this element."}</small>
         </div>
-        <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
+        <span class="modal-header-actions">
+          <button type="button" class="icon-buttonish" data-refresh-media title="Refresh media folder" aria-label="Refresh media folder">${icon("refresh")}</button>
+          <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
+        </span>
       </header>
 
       <label class="element-search-field">
         ${icon("search")}
-        <input type="search" data-element-search placeholder="${allowedCategory === "model" ? "Search 3D objects" : "Search media and generators"}" autocomplete="off" />
+        <input type="search" data-element-search placeholder="${allowedCategory === "model" ? "Search 3D objects" : allowedCategory === "image" ? "Search images" : "Search media and generators"}" autocomplete="off" />
       </label>
 
       ${sourceFilterBarTemplate({ active: sourceFilter, mediaItems: allMediaItems, allowedCategory })}
 
       <div class="element-modal-body">
         <section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
+          <div class="element-section-heading">
+            <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
+            ${catalogPickerSortTemplate("media", mediaSortMode)}
+          </div>
           <div class="element-grid media-element-grid">
             ${mediaItems.length ? mediaItems.map((item) => sourceMediaCardTemplate(item, source, mediaLibrary)).join("") : `
               <div class="soft-note">${allowedCategory === "model" ? "No 3D objects are available. Add an OBJ or STL file to the project folder." : "Drop image, video, or 3D model files into the browser, or add them to the project folder."}</div>
@@ -115,20 +126,23 @@ function sourceMediaCardTemplate(item, source, mediaLibrary) {
   const hasPreview = mediaHasLazyPreview(item, mediaLibrary);
   const selected = source.type === "media" && source.mediaId === item.id;
   return `
-    <button type="button" class="element-card media-element-card ${selected ? "is-selected" : ""}" data-pick-source-media="${esc(item.id)}" data-element-category="${elementMediaCategory(item)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
-      ${hasPreview
-        ? mediaPreviewElementTemplate(item)
-        : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
-      <strong>${esc(item.name)}</strong>
-      <small>${esc(item.type)}</small>
-    </button>
+    <div class="element-card-shell" data-element-category="${elementMediaCategory(item)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}">
+      <button type="button" class="element-card media-element-card ${selected ? "is-selected" : ""}" data-pick-source-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
+        ${hasPreview
+          ? mediaPreviewElementTemplate(item)
+          : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
+        <strong>${esc(item.name)}</strong>
+        <small>${esc(item.type)}</small>
+      </button>
+      ${catalogMarkerButtonTemplate(item, "media")}
+    </div>
   `;
 }
 
 function sourceFilterBarTemplate({ active = "all", mediaItems = [], allowedCategory = "" } = {}) {
   if (allowedCategory) {
-    const label = allowedCategory === "model" ? "3D" : allowedCategory;
-    const filterIcon = allowedCategory === "model" ? "deployed_code" : "filter_alt";
+    const label = allowedCategory === "model" ? "3D" : allowedCategory === "image" ? "Images" : allowedCategory;
+    const filterIcon = allowedCategory === "model" ? "deployed_code" : allowedCategory === "image" ? "image" : "filter_alt";
     return `<nav class="element-filter-bar" aria-label="Allowed source type">
       <button type="button" class="is-active" data-element-filter="${esc(allowedCategory)}" aria-pressed="true" disabled>${icon(filterIcon)}<span>${esc(label)}</span></button>
     </nav>`;
@@ -152,7 +166,8 @@ function sourceFilterBarTemplate({ active = "all", mediaItems = [], allowedCateg
 }
 
 export function elementPickerTemplate(state, picker, mediaLibrary, componentCatalog = {}) {
-  const mediaItems = state.media || [];
+  const mediaSortMode = state.ui?.catalogSortModes?.media || "recent";
+  const mediaItems = sortComponentCatalog(state.media || [], mediaSortMode);
   const owner = state.components.find((component) => component.id === picker.componentId);
   const componentItems = Array.isArray(componentCatalog.components) ? componentCatalog.components : state.components;
   const components = owner?.type === "canvas"
@@ -190,18 +205,24 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
           </div>
           <div class="element-grid media-element-grid">
             ${components.map((component) => `
-              <button type="button" class="element-card media-element-card" data-add-element-component="${esc(component.id)}" data-element-category="component" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
-                ${thumbnailTemplate(component.thumbnail)}
-                <strong>${esc(component.name)}</strong>
-                <small>component</small>
-              </button>
+              <div class="element-card-shell" data-element-category="component" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
+                <button type="button" class="element-card media-element-card" data-add-element-component="${esc(component.id)}">
+                  ${thumbnailTemplate(component.thumbnail)}
+                  <strong>${esc(component.name)}</strong>
+                  <small>component</small>
+                </button>
+                ${catalogMarkerButtonTemplate(component, "component")}
+              </div>
             `).join("")}
           </div>
           <div class="soft-note" data-element-empty hidden>No matching components.</div>
         </section>` : ""}
 
         <section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
+          <div class="element-section-heading">
+            <div class="ui-section-header rail-title"><span class="material-symbols-rounded">perm_media</span><span>Media</span></div>
+            ${catalogPickerSortTemplate("media", mediaSortMode)}
+          </div>
           <div class="element-grid media-element-grid">
             ${mediaItems.length ? mediaItems.map((item) => elementMediaCardTemplate(item, mediaLibrary)).join("") : `
               <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
@@ -293,8 +314,13 @@ function elementFilterBarTemplate({ active = "all", mediaItems = [], hasComponen
 }
 
 function componentPickerSortTemplate(activeMode = "recent") {
+  return catalogPickerSortTemplate("component", activeMode);
+}
+
+function catalogPickerSortTemplate(scope = "component", activeMode = "recent") {
   const modes = [
     ["recent", "Changed", "history"],
+    ["marker", "Marked", "keep"],
     ["name", "Name", "sort_by_alpha"],
     ["created", "Created", "add_circle"],
   ];
@@ -303,7 +329,7 @@ function componentPickerSortTemplate(activeMode = "recent") {
   const [nextMode, nextLabel] = modes[(activeIndex + 1) % modes.length];
   return `
     <div class="component-sort-toggle component-picker-sort">
-      <button type="button" class="is-active" data-catalog-sort-scope="component" data-catalog-sort="${nextMode}" title="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}" aria-label="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}">${icon(activeIcon)}<span>${activeLabel}</span></button>
+      <button type="button" class="is-active" data-catalog-sort-scope="${esc(scope)}" data-catalog-sort="${nextMode}" title="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}" aria-label="Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}">${icon(activeIcon)}<span>${activeLabel}</span></button>
     </div>
   `;
 }
@@ -311,13 +337,16 @@ function componentPickerSortTemplate(activeMode = "recent") {
 function elementMediaCardTemplate(item, mediaLibrary) {
   const hasPreview = mediaHasLazyPreview(item, mediaLibrary);
   return `
-    <button type="button" class="element-card media-element-card" data-element-category="${elementMediaCategory(item)}" data-add-element-media="${esc(item.id)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}" title="${esc(item.path || item.name)}">
-      ${hasPreview
-        ? mediaPreviewElementTemplate(item)
-        : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
-      <strong>${esc(item.name)}</strong>
-      <small>${esc(item.type)}</small>
-    </button>
+    <div class="element-card-shell" data-element-category="${elementMediaCategory(item)}" data-element-search-card="${esc(elementSearchText(item.id, item.name, item.type, item.path, "media"))}">
+      <button type="button" class="element-card media-element-card" data-add-element-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
+        ${hasPreview
+          ? mediaPreviewElementTemplate(item)
+          : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
+        <strong>${esc(item.name)}</strong>
+        <small>${esc(item.type)}</small>
+      </button>
+      ${catalogMarkerButtonTemplate(item, "media")}
+    </div>
   `;
 }
 
@@ -329,46 +358,6 @@ export function elementMediaCategory(item = {}) {
 
 function elementSearchText(...parts) {
   return parts.filter(Boolean).join(" ").toLowerCase();
-}
-
-export function mediaPickerTemplate(state, picker, mediaLibrary) {
-  const mediaItems = picker?.accept
-    ? state.media.filter((item) => item.type === picker.accept)
-    : state.media;
-  return `
-    <div class="modal-backdrop"></div>
-    <section class="modal-panel media-modal" role="dialog" aria-modal="true" aria-label="Choose media">
-      <header class="modal-header">
-        <div>
-          <strong>Choose media</strong>
-          <small>${mediaItems.length} file${mediaItems.length === 1 ? "" : "s"}</small>
-        </div>
-        <span class="modal-header-actions">
-          <button type="button" class="icon-buttonish" data-refresh-media title="Refresh media folder" aria-label="Refresh media folder">${icon("refresh")}</button>
-          <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
-        </span>
-      </header>
-      <div class="media-picker-grid">
-        ${mediaItems.length ? mediaItems.map((item) => mediaPickerCardTemplate(item, picker, state, mediaLibrary)).join("") : `
-          <div class="soft-note">Drop image, video, or 3D model files into the browser, or add them to the project folder.</div>
-        `}
-      </div>
-    </section>
-  `;
-}
-
-function mediaPickerCardTemplate(item, picker, state, mediaLibrary) {
-  const selected = item.id === currentMediaValue(picker, state);
-  const hasPreview = mediaHasLazyPreview(item, mediaLibrary);
-  return `
-    <button type="button" class="media-picker-card ${selected ? "is-selected" : ""}" data-pick-media="${esc(item.id)}" title="${esc(item.path || item.name)}">
-      ${hasPreview
-        ? mediaPreviewElementTemplate(item)
-        : `<div class="media-picker-placeholder">${icon(mediaTypeIcon(item.type))}</div>`}
-      <span>${esc(item.name)}</span>
-      <small>${esc(item.type)}</small>
-    </button>
-  `;
 }
 
 function mediaPreviewElementTemplate(item) {
@@ -389,14 +378,11 @@ function mediaTypeIcon(type = "") {
   return "image";
 }
 
-function currentMediaValue(picker, state) {
-  if (!picker?.path || !state) return "";
-  const cursor = getByPath(state, picker.path);
-  return typeof cursor === "string" ? cursor : "";
-}
-
 function currentSourceValue(picker, state) {
   if (!picker?.path || !state) return {};
   const source = getByPath(state, picker.path);
+  if (picker.valueMode === "mediaId") {
+    return typeof source === "string" ? { type: "media", mediaId: source } : {};
+  }
   return source && typeof source === "object" ? source : {};
 }

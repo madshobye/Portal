@@ -1,4 +1,4 @@
-export const CURRENT_PROJECT_VERSION = 19;
+export const CURRENT_PROJECT_VERSION = 22;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -42,6 +42,9 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   16: migrateProjectV16ToV17,
   17: migrateProjectV17ToV18,
   18: migrateProjectV18ToV19,
+  19: migrateProjectV19ToV20,
+  20: migrateProjectV20ToV21,
+  21: migrateProjectV21ToV22,
 });
 
 export function migrateProjectData(project = {}) {
@@ -217,6 +220,7 @@ export function migrateProjectV8ToV9(project) {
       ...ui,
       catalogSortModes: {
         component: migratedCatalogSortMode(modes.component),
+        canvas: migratedCatalogSortMode(modes.canvas),
         scene: migratedCatalogSortMode(modes.scene),
       },
     },
@@ -465,6 +469,71 @@ export function migrateProjectV18ToV19(project) {
           return { ...current, canvas };
         })
       : project.components,
+  };
+}
+
+// v20 makes the logical Canvas frame a project render setting. All Canvases
+// share one coordinate space; per-Canvas width and height are removed so the
+// active model cannot retain a second, conflicting resolution authority.
+export function migrateProjectV19ToV20(project) {
+  const components = Array.isArray(project.components) ? project.components : [];
+  const firstCanvas = components.find((component) => component?.type === "canvas")?.canvas || {};
+  const render = project.render && typeof project.render === "object" ? project.render : {};
+  const configuredSize = render.canvasSize && typeof render.canvasSize === "object" ? render.canvasSize : {};
+  const canvasSize = {
+    width: migratedPositiveNumber(configuredSize.width ?? firstCanvas.width, 3840),
+    height: migratedPositiveNumber(configuredSize.height ?? firstCanvas.height, 2160),
+  };
+  return {
+    ...project,
+    render: { ...render, canvasSize },
+    components: components.map((component) => {
+      if (component?.type !== "canvas" || !component.canvas) return component;
+      const { width: _width, height: _height, ...canvas } = component.canvas;
+      return { ...component, canvas };
+    }),
+  };
+}
+
+// v21 adds one shared three-level catalog marker to authored catalog items.
+// UI sort preferences remain separate from project content.
+export function migrateProjectV20ToV21(project) {
+  const normalizeMarker = (value) => value === 1 || value === 2 ? value : 0;
+  const ui = project.ui && typeof project.ui === "object" ? project.ui : {};
+  const sortModes = ui.catalogSortModes && typeof ui.catalogSortModes === "object" ? ui.catalogSortModes : {};
+  return {
+    ...project,
+    ui: {
+      ...ui,
+      catalogSortModes: {
+        ...sortModes,
+        media: ["recent", "marker", "name", "created"].includes(sortModes.media) ? sortModes.media : "recent",
+      },
+    },
+    components: (project.components || []).map((item) => ({ ...item, catalogMarker: normalizeMarker(item?.catalogMarker) })),
+    scenes: (project.scenes || []).map((item) => ({ ...item, catalogMarker: normalizeMarker(item?.catalogMarker) })),
+    media: (project.media || []).map((item) => ({ ...item, catalogMarker: normalizeMarker(item?.catalogMarker) })),
+  };
+}
+
+// v22 expands the catalog marker to four states: none, star, heart, and pin.
+// Marker 2 meant pin in v21, so preserve that authored intent as marker 3.
+export function migrateProjectV21ToV22(project) {
+  const migrateMarker = (value) => value === 2 ? 3 : value === 1 ? 1 : 0;
+  const ui = project.ui && typeof project.ui === "object" ? project.ui : {};
+  const sortModes = ui.catalogSortModes && typeof ui.catalogSortModes === "object" ? ui.catalogSortModes : {};
+  return {
+    ...project,
+    ui: {
+      ...ui,
+      catalogSortModes: {
+        ...sortModes,
+        source: ["recent", "marker", "name", "created"].includes(sortModes.source) ? sortModes.source : "recent",
+      },
+    },
+    components: (project.components || []).map((item) => ({ ...item, catalogMarker: migrateMarker(item?.catalogMarker) })),
+    scenes: (project.scenes || []).map((item) => ({ ...item, catalogMarker: migrateMarker(item?.catalogMarker) })),
+    media: (project.media || []).map((item) => ({ ...item, catalogMarker: migrateMarker(item?.catalogMarker) })),
   };
 }
 

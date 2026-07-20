@@ -20,11 +20,14 @@ import {
   migrateProjectV16ToV17,
   migrateProjectV17ToV18,
   migrateProjectV18ToV19,
+  migrateProjectV19ToV20,
+  migrateProjectV20ToV21,
+  migrateProjectV21ToV22,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 19);
+  assert.equal(CURRENT_PROJECT_VERSION, 22);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -77,21 +80,21 @@ test("v7 to v8 migrates the Component workspace and remembered selections", () =
   assert.equal(migrated.ui.workspace, "component");
   assert.deepEqual(migrated.ui.workspaceSelectionIds, { component: "comp-a", canvas: "canvas-a" });
   assert.equal(Object.hasOwn(migrated.ui, "workspaceCompositionIds"), false);
-  assert.deepEqual(migrated.ui.catalogSortModes, { component: "recent", scene: "recent" });
+  assert.deepEqual(migrated.ui.catalogSortModes, { component: "recent", canvas: "recent", scene: "recent", media: "recent", source: "recent" });
 });
 
 test("v8 to v9 persists independent normalized catalog sort modes", () => {
   const migrated = migrateProjectV8ToV9({
     version: 8,
-    ui: { catalogSortModes: { component: "name", scene: "created" } },
+    ui: { catalogSortModes: { component: "name", canvas: "created", scene: "created" } },
   });
-  assert.deepEqual(migrated.ui.catalogSortModes, { component: "name", scene: "created" });
+  assert.deepEqual(migrated.ui.catalogSortModes, { component: "name", canvas: "created", scene: "created" });
 
   const repaired = migrateProjectV8ToV9({
     version: 8,
     ui: { catalogSortModes: { component: "invalid" } },
   });
-  assert.deepEqual(repaired.ui.catalogSortModes, { component: "recent", scene: "recent" });
+  assert.deepEqual(repaired.ui.catalogSortModes, { component: "recent", canvas: "recent", scene: "recent" });
 });
 
 test("v9 to v10 migrates the Composition concept throughout nested project data", () => {
@@ -309,6 +312,47 @@ test("v18 to v19 removes derived thumbnails from persisted project data", () => 
   assert.equal(Object.hasOwn(migrated.components[1], "thumbnail"), false);
   assert.equal(Object.hasOwn(migrated.components[1].canvas, "frameThumbnails"), false);
   assert.equal(migrated.components[1].canvas.width, 100);
+});
+
+test("v19 to v20 moves Canvas dimensions to one global render setting", () => {
+  const migrated = migrateProjectV19ToV20({
+    version: 19,
+    render: { pixelDensity: 1 },
+    components: [
+      { id: "component-a", type: "chain" },
+      { id: "canvas-a", type: "canvas", canvas: { width: 2560, height: 1440, previewQuality: "low" } },
+      { id: "canvas-b", type: "canvas", canvas: { width: 800, height: 800, previewQuality: "full" } },
+    ],
+  });
+  assert.deepEqual(migrated.render.canvasSize, { width: 2560, height: 1440 });
+  assert.deepEqual(migrated.components[1].canvas, { previewQuality: "low" });
+  assert.deepEqual(migrated.components[2].canvas, { previewQuality: "full" });
+});
+
+test("v20 to v21 adds normalized catalog markers", () => {
+  const migrated = migrateProjectV20ToV21({
+    version: 20,
+    components: [{ id: "component-a", catalogMarker: 1 }, { id: "component-b", catalogMarker: 99 }],
+    scenes: [{ id: "scene-a", catalogMarker: 2 }],
+    media: [{ id: "media-a" }],
+  });
+  assert.deepEqual(migrated.components.map((item) => item.catalogMarker), [1, 0]);
+  assert.deepEqual(migrated.scenes.map((item) => item.catalogMarker), [2]);
+  assert.deepEqual(migrated.media.map((item) => item.catalogMarker), [0]);
+});
+
+test("v21 to v22 separates hearts from pins while preserving old pins", () => {
+  const migrated = migrateProjectV21ToV22({
+    version: 21,
+    ui: { catalogSortModes: { source: "marker" } },
+    components: [{ id: "star", catalogMarker: 1 }, { id: "pin", catalogMarker: 2 }],
+    scenes: [{ id: "none", catalogMarker: 0 }],
+    media: [{ id: "invalid", catalogMarker: 99 }],
+  });
+  assert.deepEqual(migrated.components.map((item) => item.catalogMarker), [1, 3]);
+  assert.deepEqual(migrated.scenes.map((item) => item.catalogMarker), [0]);
+  assert.deepEqual(migrated.media.map((item) => item.catalogMarker), [0]);
+  assert.equal(migrated.ui.catalogSortModes.source, "marker");
 });
 
 test("migration runner applies every adjacent step in order", () => {

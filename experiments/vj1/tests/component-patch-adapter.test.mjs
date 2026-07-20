@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import {
   isSimpleLayer,
+  mediaSourceAlphaEdge,
   mediaSourceFit,
   patchLayerForNode,
   shaderPassFromNode,
@@ -40,6 +41,14 @@ test("component patch adapter translates graph nodes into renderer contracts", (
     instanceId: "media-node",
   });
   assert.equal(mediaSourceFit({ params: { fit: "cover" } }), "cover");
+  assert.deepEqual(mediaSourceAlphaEdge({ params: { alphaCut: 2.5, alphaFeather: 7 } }), {
+    cut: 2.5,
+    feather: 7,
+  });
+  assert.deepEqual(mediaSourceAlphaEdge({ params: { alphaCut: -2, alphaFeather: 99 } }), {
+    cut: 0,
+    feather: 32,
+  });
   assert.equal(isSimpleLayer(patchLayerForNode({ id: "node-a" })), true);
   assert.equal(shaderPassFromNode({ id: "fx-a", componentId: "invert" }).instanceId, "fx-a");
 });
@@ -47,7 +56,7 @@ test("component patch adapter translates graph nodes into renderer contracts", (
 test("output renderer delegates graph adaptation to one module", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./component-patch-adapter.js?v=chain-only-authority-1"'));
+  assert.ok(rendererSource.includes('from "./component-patch-adapter.js?v=alpha-feather-1"'));
   assert.doesNotMatch(rendererSource, /function sourceFromPatchNode\(/);
   assert.doesNotMatch(rendererSource, /function nodesInComponentChainOrder\(/);
   assert.doesNotMatch(rendererSource, /function sourceWithNodeParams\(/);

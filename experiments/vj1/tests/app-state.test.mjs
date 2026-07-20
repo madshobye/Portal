@@ -53,6 +53,31 @@ test("UI-only updates preserve project data and emit an explicit UI scope", () =
   assert.deepEqual(after.surfaces, before.surfaces);
 });
 
+test("catalog markers cycle through star heart and pin across authored catalogs", () => {
+  const state = createInitialState();
+  const component = state.components[0];
+  const scene = createEmptySceneFromState(state, "Marked scene");
+  const media = { id: "media/photo.png", name: "photo.png", type: "image", catalogMarker: 0 };
+  state.scenes = [scene];
+  state.media = [media];
+  const store = createAppState(state);
+
+  for (const [kind, id, collection] of [
+    ["component", component.id, "components"],
+    ["scene", scene.id, "scenes"],
+    ["media", media.id, "media"],
+  ]) {
+    assert.equal(store.cycleCatalogMarker(kind, id), true);
+    assert.equal(store.getState()[collection].find((item) => item.id === id).catalogMarker, 1);
+    store.cycleCatalogMarker(kind, id);
+    assert.equal(store.getState()[collection].find((item) => item.id === id).catalogMarker, 2);
+    store.cycleCatalogMarker(kind, id);
+    assert.equal(store.getState()[collection].find((item) => item.id === id).catalogMarker, 3);
+    store.cycleCatalogMarker(kind, id);
+    assert.equal(store.getState()[collection].find((item) => item.id === id).catalogMarker, 0);
+  }
+});
+
 test("component selection updates recent-use metadata through the local fast path", () => {
   const initial = createInitialState();
   const second = createDefaultComponent(1);
@@ -428,7 +453,7 @@ test("ordinary components reject nested component sources while Canvas accepts t
   const placed = store.getState().components.find((item) => item.id === canvas.id).chain.at(-1).source;
   assert.equal(placed.componentId, source.id);
   assert.deepEqual(placed.placement, {
-    scale: state.render.componentTexture.width / canvas.canvas.width,
+    scale: state.render.componentTexture.width / state.render.canvasSize.width,
   });
   const placementBeforeTextureChange = structuredClone(placed.placement);
   store.update((draft) => {
@@ -598,14 +623,35 @@ test("new Canvas components start empty", () => {
   assert.equal(store.getState().ui.selectedChainItemId, "");
 });
 
+test("copying a Component as Canvas preserves the original and opens the new Canvas", () => {
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  component.id = "source-component";
+  component.name = "Source";
+  state.components = [component];
+  state.ui.workspace = "component";
+  const store = createAppState(state);
+
+  const result = store.copyComponentToCanvas(component.id);
+  const next = store.getState();
+  const canvas = next.components.find((item) => item.id === result.id);
+
+  assert.equal(result.converted, true);
+  assert.equal(next.components.find((item) => item.id === component.id).type, "chain");
+  assert.equal(canvas.type, "canvas");
+  assert.equal(next.ui.workspace, "canvas");
+  assert.equal(next.ui.selectedComponentId, canvas.id);
+  assert.equal(next.ui.workspaceSelectionIds.canvas, canvas.id);
+  assert.equal(next.global.calibrating, false);
+});
+
 test("Canvas workspace selects a Canvas and components are added as ordinary sources", () => {
   const state = createInitialState();
   const source = createDefaultComponent(0);
   source.id = "source-component";
   const canvas = createCanvasComponent(0);
   canvas.id = "canvas-component";
-  canvas.canvas.width = 2000;
-  canvas.canvas.height = 1000;
+  state.render.canvasSize = { width: 2000, height: 1000 };
   state.components = [source, canvas];
   state.ui.selectedComponentId = source.id;
   const store = createAppState(state);

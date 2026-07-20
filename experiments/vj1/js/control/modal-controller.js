@@ -1,9 +1,9 @@
-import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js?v=max-frame-rate-1";
-import { sortComponentCatalog } from "./catalog-view.js?v=changed-sort-user-truth-1";
+import { createOutputDefinition, normalizeRenderSettings, scaleRecordingFramesToCanvasSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
+import { sortComponentCatalog } from "./catalog-view.js?v=catalog-marker-four-state-1";
 import { setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementMediaCategory, elementPickerTemplate, mediaPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=source-picker-filters-1";
-import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=max-frame-rate-1";
+import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=catalog-markers-1";
+import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=canvas-global-resolution-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
 
 export function createModalController({
@@ -16,7 +16,6 @@ export function createModalController({
   getCatalogSortMode,
   bindCatalogSortControls,
 }) {
-  let mediaPicker = null;
   let elementPicker = null;
   let sourceChoicePicker = null;
   let focusElementPickerSearch = false;
@@ -33,7 +32,7 @@ export function createModalController({
   function render(state = getState()) {
     const host = getHost();
     if (!host) return;
-    if (!mediaPicker && !elementPicker && !sourceChoicePicker && !settingsOpen) {
+    if (!elementPicker && !sourceChoicePicker && !settingsOpen) {
       resetDemandMediaPreviews();
       replaceHtmlIfChanged(host, "");
       return;
@@ -50,7 +49,8 @@ export function createModalController({
       renderElementPicker(host, state);
       return;
     }
-    renderMediaPicker(host, state);
+    resetDemandMediaPreviews();
+    replaceHtmlIfChanged(host, "");
   }
 
   function renderSettings(host, state) {
@@ -74,6 +74,9 @@ export function createModalController({
     bindClose(host, closeSourceChoicePicker);
     bindElementPickerSearch(host);
     bindElementPickerFilters(host);
+    bindCatalogSortControls(host);
+    bindCatalogMarkerControls(host);
+    host.querySelector("[data-refresh-media]")?.addEventListener("click", refreshMediaPicker);
     bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-pick-source-media]").forEach((button) => {
       button.addEventListener("click", () => chooseSource({ type: "media", mediaId: button.dataset.pickSourceMedia || "" }));
@@ -97,7 +100,8 @@ export function createModalController({
       return;
     }
     closeSourceChoicePicker();
-    setSourceChoice(source, target);
+    if (target?.valueMode === "mediaId") setMediaValue(source.mediaId || "", target);
+    else setSourceChoice(source, target);
   }
 
   function sourceChoiceCategory(source, state) {
@@ -120,6 +124,7 @@ export function createModalController({
     bindElementPickerSearch(host);
     bindElementPickerFilters(host);
     bindCatalogSortControls(host);
+    bindCatalogMarkerControls(host);
     focusPendingElementPickerSearch(host);
     bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-add-element-media]").forEach((button) => {
@@ -138,6 +143,19 @@ export function createModalController({
     });
   }
 
+  function bindCatalogMarkerControls(host) {
+    host.querySelectorAll("[data-cycle-catalog-marker]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        store.cycleCatalogMarker?.(
+          button.dataset.cycleCatalogMarker || "",
+          button.dataset.catalogMarkerId || "",
+        );
+      });
+    });
+  }
+
   function addElement(kind, value) {
     const target = elementPicker;
     if (!target?.componentId) return;
@@ -150,26 +168,6 @@ export function createModalController({
     if (kind === "source") store.addChainSource(target.componentId, value);
     else if (kind === "group") store.addChainGroup(target.componentId);
     else if (kind === "effect") store.addChainEffect(target.componentId, value);
-  }
-
-  function renderMediaPicker(host, state) {
-    if (!replaceHtmlIfChanged(host, mediaPickerTemplate(state, mediaPicker, mediaLibrary))) return;
-    bindClose(host, closeMediaPicker);
-    host.querySelector("[data-refresh-media]")?.addEventListener("click", refreshMediaPicker);
-    bindDemandMediaPreviews(host);
-    host.querySelectorAll("[data-pick-media]").forEach((button) => {
-      button.addEventListener("click", () => {
-        const mediaId = button.dataset.pickMedia || "";
-        store.update((draft) => {
-          setByPath(draft, mediaPicker.path, mediaId);
-          if (/\.mediaId$/.test(mediaPicker.path)) {
-            const sourcePath = mediaPicker.path.replace(/\.mediaId$/, "");
-            setByPath(draft, `${sourcePath}.type`, "media");
-          }
-        }, `update:${mediaPicker.path}`);
-        closeMediaPicker();
-      });
-    });
   }
 
   async function refreshMediaPicker() {
@@ -438,30 +436,26 @@ export function createModalController({
   function openSettings() {
     resetDemandMediaPreviews();
     settingsOpen = true;
-    mediaPicker = null;
     elementPicker = null;
     sourceChoicePicker = null;
     render();
   }
 
   function openMediaPicker(path, accept = "") {
-    mediaPicker = { path, accept };
+    sourceChoicePicker = {
+      path,
+      allowedCategory: accept || "",
+      filter: accept || "all",
+      valueMode: "mediaId",
+    };
     elementPicker = null;
-    sourceChoicePicker = null;
     settingsOpen = false;
-    render();
-  }
-
-  function closeMediaPicker() {
-    mediaPicker = null;
-    resetDemandMediaPreviews();
     render();
   }
 
   function openElementPicker(componentId, selectedChainItemId = "") {
     elementPicker = { componentId, selectedChainItemId, filter: "all" };
     focusElementPickerSearch = true;
-    mediaPicker = null;
     sourceChoicePicker = null;
     settingsOpen = false;
     render();
@@ -479,7 +473,6 @@ export function createModalController({
 
   function openSourceChoicePicker(path, allowedCategory = "") {
     sourceChoicePicker = { path, allowedCategory, filter: allowedCategory || "all" };
-    mediaPicker = null;
     elementPicker = null;
     settingsOpen = false;
     render();
@@ -499,6 +492,17 @@ export function createModalController({
     }, `update:${target.path}`);
   }
 
+  function setMediaValue(mediaId, target = sourceChoicePicker) {
+    if (!target?.path) return;
+    store.update((draft) => {
+      setByPath(draft, target.path, mediaId);
+      if (/\.mediaId$/.test(target.path)) {
+        const sourcePath = target.path.replace(/\.mediaId$/, "");
+        setByPath(draft, `${sourcePath}.type`, "media");
+      }
+    }, `update:${target.path}`);
+  }
+
   function closeSettings() {
     settingsOpen = false;
     render();
@@ -509,6 +513,13 @@ export function createModalController({
       const previousRender = normalizeRenderSettings(draft.render);
       setByPath(draft, input.dataset.settingsUpdate, readInputValue(input));
       draft.render = normalizeRenderSettings(draft.render);
+      if (input.dataset.settingsUpdate.startsWith("render.canvasSize.")) {
+        draft.recordingFrames = scaleRecordingFramesToCanvasSize(
+          draft.recordingFrames,
+          previousRender.canvasSize,
+          draft.render.canvasSize
+        );
+      }
       scaleMappingForRenderChange(draft, previousRender, draft.render);
     }, reason);
     syncSettingsModal(getHost(), store.getState());

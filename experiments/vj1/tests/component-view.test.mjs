@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "../js/control/component-view.js";
-import { createInitialState } from "../js/domain/models.js?v=render-coordinate-scope-3";
+import { createComponentEffect, createInitialState } from "../js/domain/models.js?v=render-coordinate-scope-3";
 
 test("Component and Canvas chain presentation lives outside the control orchestrator", () => {
   const state = createInitialState();
@@ -24,11 +24,13 @@ test("Component and Canvas chain presentation lives outside the control orchestr
   assert.doesNotMatch(componentHtml, /chain-item-remove[^>]*disabled/);
   assert.match(settingsHtml, /class="ui-section focus-panel chain-settings-panel"/);
   assert.match(settingsHtml, />Content<\/label>|>Primary<\/label>/);
-  assert.match(settingsHtml, />Transform<\/label>/);
+  assert.match(settingsHtml, />General<\/label>/);
   assert.ok(settingsHtml.indexOf("ui-section-header rail-title") < settingsHtml.indexOf("chain-param-views"));
   assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.transform\.x"/);
+  assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.opacity"/);
+  assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.blend"/);
   assert.match(settingsHtml, /data-param-context-path="components\.[0-9]+\.chain\.0\.transform\.scale"/);
-  assert.match(canvasHtml, /data-update="components\.[0-9]+\.canvas\.width"/);
+  assert.doesNotMatch(canvasHtml, /\.canvas\.(?:width|height)"/);
   assert.match(controller, /from "\.\/component-view\.js\?v=[^"]+"/);
   assert.doesNotMatch(controller, /function componentTemplate\(/);
   assert.doesNotMatch(controller, /function componentUnifiedChainTemplate\(/);
@@ -68,6 +70,21 @@ test("Canvas component placements render selected settings without a redundant s
   assert.match(html, /data-update="components\.[0-9]+\.chain\.0\.opacity"/);
 });
 
+test("effects separate shader strength from generic compositing controls", () => {
+  const state = createInitialState();
+  const component = state.components.find((item) => item.type !== "canvas");
+  const effect = createComponentEffect("invert", { amount: 0.4 });
+  component.chain.push(effect);
+  state.ui.selectedChainItemId = effect.id;
+
+  const html = componentSelectedChainSettingsTemplate(component, state);
+  assert.match(html, /<span>Effect strength<\/span>/);
+  assert.match(html, />General<\/label>/);
+  assert.match(html, new RegExp(`data-update="components\\.0\\.chain\\.1\\.opacity"`));
+  assert.match(html, new RegExp(`data-update="components\\.0\\.chain\\.1\\.blend"`));
+  assert.match(html, new RegExp(`data-update="components\\.0\\.chain\\.1\\.transform\\.x"`));
+});
+
 test("persistent and Live source editors share one media-model control schema", () => {
   const componentView = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const sceneLiveView = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
@@ -81,7 +98,7 @@ test("persistent and Live source editors share one media-model control schema", 
   assert.match(sceneLiveView, /chainParamViewDefinitions\(/);
 });
 
-test("STL sources expose the same Primary Details and Transform views in Component editing", () => {
+test("STL sources expose the same Primary Details and General views in Component editing", () => {
   const state = createInitialState();
   const component = state.components.find((item) => item.type !== "canvas");
   const source = component.chain[0];
@@ -103,7 +120,7 @@ test("STL sources expose the same Primary Details and Transform views in Compone
 
   assert.match(html, />Primary<\/label>/);
   assert.match(html, />Details<\/label>/);
-  assert.match(html, />Transform<\/label>/);
+  assert.match(html, />General<\/label>/);
   assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.rotationX"/);
   assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.modelScale"/);
   assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.renderQuality"/);

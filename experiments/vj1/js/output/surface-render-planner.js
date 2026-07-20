@@ -3,7 +3,7 @@ import {
   componentRenderInstanceKey,
   componentSourceView,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=component-parent-placement-1";
+} from "./component-render-layout.js?v=canvas-global-resolution-1";
 import {
   createRenderRequest,
   frameSize,

@@ -1,5 +1,5 @@
-import { VJ1 } from "../constants.js";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import {
   canvasFrameBorderHit,
   canvasRectCorners,
@@ -7,7 +7,7 @@ import {
   distanceSquared,
   moveCanvasFrameRect,
   resizeCanvasFrameRect,
-} from "./component-render-layout.js?v=instance-sync-60";
+} from "./component-render-layout.js?v=canvas-global-resolution-1";
 import {
   combineContentTransforms,
   findChainItemById,
@@ -87,8 +87,7 @@ export class ComponentPreviewInteraction {
   canvasRecordingFrameRects(component, source = null) {
     if (component?.type !== "canvas") return [];
     const renderer = this.renderer;
-    const canvasWidth = Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth);
-    const canvasHeight = Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight);
+    const { width: canvasWidth, height: canvasHeight } = canvasFrameSize(renderer.state?.render);
     const preview = renderer.componentPreviewRect(component, source);
     return (renderer.state?.recordingFrames || []).map((frame) => ({
       frame,
@@ -206,8 +205,7 @@ export class ComponentPreviewInteraction {
       const corner = corners.find((entry) => distanceSquared(x, y, entry.x, entry.y) <= hitRadius * hitRadius);
       const border = canvasFrameBorderHit(item, x, y);
       if (!corner && !border) continue;
-      const canvasWidth = Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth);
-      const canvasHeight = Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight);
+      const { width: canvasWidth, height: canvasHeight } = canvasFrameSize(renderer.state?.render);
       const frame = item.frame;
       this.canvasFrameDrag = {
         componentId: component.id,

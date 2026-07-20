@@ -254,6 +254,26 @@ test("Sun Rays exposes compact animated light controls", () => {
   assert.equal(generatorIcon("sunRays"), "sunny");
 });
 
+test("Fog exposes transparent quality-aware atmosphere controls and a steady mode", () => {
+  const component = getGeneratorComponent("fog");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+
+  assert.equal(component.name, "Fog");
+  assert.equal(component.category, "atmosphere");
+  assert.deepEqual(params.motionMode.values, ["steady", "drift", "billow"]);
+  for (const id of ["speed", "density", "coverage", "noisiness", "scale", "detail", "fromBelow", "fromAbove", "billow", "variation", "falloff", "softness", "driftAngle", "seed", "amount"]) {
+    assert.equal(params[id].type, "number", `missing numeric Fog control ${id}`);
+  }
+  assert.equal(params.fogColor.type, "color");
+  assert.equal(params.detail.max, 5);
+  assert.equal(params.fromBelow.defaultValue, 0);
+  assert.equal(params.fromAbove.defaultValue, 0.08);
+  assert.equal(component.runtime.timeDependent({ motionMode: "steady", speed: 1 }), false);
+  assert.equal(component.runtime.timeDependent({ motionMode: "drift", speed: 0 }), false);
+  assert.equal(component.runtime.timeDependent({ motionMode: "drift", speed: 0.5 }), true);
+  assert.equal(generatorIcon("fog"), "foggy");
+});
+
 test("Seascape exposes bounded artistic controls", () => {
   const component = getGeneratorComponent("seascape");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
@@ -867,7 +887,7 @@ test("live source controls use dynamic param metadata", () => {
 
   assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path, viewParams)"));
   assert.ok(source.includes("getGeneratorComponent(source.generatorId).params"));
-  assert.ok(source.includes("MODEL_SOURCE_PARAMS"));
+  assert.ok(source.includes("mediaSourceParams(source, media)"));
   assert.ok(source.includes("paramControlsTemplate(params,"));
   assert.ok(parameterSource.includes("export function paramControlTemplate"));
   assert.ok(!source.includes("function liveParamControlTemplate"));

@@ -17,14 +17,14 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=chain-only-authority-1";
-import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=chain-only-authority-1";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=catalog-marker-four-state-1";
+import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=catalog-marker-four-state-1";
 import { createChangeEvent } from "../domain/change-event.js?v=chain-only-authority-1";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-import { buildProjectPayload } from "./project-serializer.js?v=chain-only-authority-1";
+import { buildProjectPayload } from "./project-serializer.js?v=catalog-marker-four-state-1";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=chain-only-authority-1";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=catalog-marker-four-state-1";
 
 export const COLD_BACKUP_ROOT = "backups";
 export const COLD_BACKUP_INTERVAL = 500;
@@ -301,7 +301,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         folderName: dirHandle.name,
         warnings: projectFileFound ? [] : [`No project.json found in ${dirHandle.name}`],
       },
-      media: imported.media,
+      media: mergeMediaCatalogMarkers(imported.media, projectData.media),
       shaders: imported.shaders[0]
         ? {
             ...(projectData.shaders || store.getState().shaders),
@@ -332,7 +332,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     store.update((draft) => {
       draft.project.folderName = dirHandle?.name || draft.project.folderName;
       draft.project.warnings = (draft.project.warnings || []).filter((warning) => !String(warning).startsWith("Folder change ("));
-      draft.media = imported.media;
+      draft.media = mergeMediaCatalogMarkers(imported.media, draft.media);
       if (imported.shaders[0]) {
         draft.shaders = {
           ...draft.shaders,
@@ -981,7 +981,13 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   function mergeObservedAssets(imported) {
     store.updateDerived((draft) => {
       const byId = new Map((draft.media || []).map((item) => [item.id, item]));
-      for (const item of imported.media || []) byId.set(item.id, item);
+      for (const item of imported.media || []) {
+        const previous = byId.get(item.id);
+        byId.set(item.id, {
+          ...item,
+          catalogMarker: previous?.catalogMarker ?? item.catalogMarker ?? 0,
+        });
+      }
       draft.media = Array.from(byId.values());
       if (imported.shaders?.[0]) {
         draft.shaders = { ...draft.shaders, customName: imported.shaders[0].name, customCode: imported.shaders[0].code };
@@ -997,6 +1003,14 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   }
 
   return { openFolder, restoreStoredFolder, closeProject, saveProject, scheduleAutoSave, flushAutoSave, importExternalFiles, refreshFolder, undoProject, redoProject, getHistoryState, writeMediaRendition, writeComponentThumbnail };
+}
+
+function mergeMediaCatalogMarkers(imported = [], authored = []) {
+  const markers = new Map((Array.isArray(authored) ? authored : []).map((item) => [item.id, item.catalogMarker ?? 0]));
+  return (Array.isArray(imported) ? imported : []).map((item) => ({
+    ...item,
+    catalogMarker: markers.get(item.id) ?? item.catalogMarker ?? 0,
+  }));
 }
 
 async function ensureProjectScaffold(handle) {

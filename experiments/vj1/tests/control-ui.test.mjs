@@ -10,6 +10,7 @@ import { previewFitSignature, previewRasterDensity, retimeEmbeddedLiveTransition
 import { isPointerInteractionNode } from "../js/control/dom-utils.js";
 import { applyOptimisticToggleIntent } from "../js/control/input-controller.js";
 import { activeRenderCost, activeWorkMetric, performanceHealthStep, rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
+import { mediaSourceParams } from "../js/control/source-control-schema.js";
 
 test("inspector parameter views survive template replacement", () => {
   const selections = new Map();
@@ -130,9 +131,9 @@ test("element picker filters media and render elements by explicit category", ()
   assert.match(html, /data-element-filter="generator"/);
   assert.match(html, /data-element-filter="effect"/);
   assert.match(html, /data-element-filter="component"/);
-  assert.match(html, /data-element-category="image" data-add-element-media="photo"/);
-  assert.match(html, /data-element-category="video" data-add-element-media="clip"/);
-  assert.match(html, /data-element-category="model" data-add-element-media="mesh"/);
+  assert.match(html, /data-element-category="image"[\s\S]*?data-add-element-media="photo"/);
+  assert.match(html, /data-element-category="video"[\s\S]*?data-add-element-media="clip"/);
+  assert.match(html, /data-element-category="model"[\s\S]*?data-add-element-media="mesh"/);
   assert.match(modalSource, /classList\.toggle\("is-filter-hidden"/);
   assert.match(modalSource, /filter !== "all" && category !== filter/);
 });
@@ -166,6 +167,23 @@ test("source chooser exposes category filters and model sources lock it to 3D", 
   assert.doesNotMatch(modelOnly, /data-pick-source-media="clip"/);
   assert.doesNotMatch(modelOnly, /data-pick-source-generator/);
   assert.doesNotMatch(modelOnly, /data-pick-source-camera/);
+
+  const imageValueOnly = sourceChoicePickerTemplate({
+    ...state,
+    target: { imageId: "photo" },
+  }, {
+    path: "target.imageId",
+    allowedCategory: "image",
+    filter: "image",
+    valueMode: "mediaId",
+  }, { getFile: () => null });
+  assert.match(imageValueOnly, />Choose image</);
+  assert.match(imageValueOnly, /data-element-filter="image"[^>]*disabled/);
+  assert.match(imageValueOnly, /data-pick-source-media="photo"/);
+  assert.match(imageValueOnly, /media-element-card is-selected/);
+  assert.doesNotMatch(imageValueOnly, /data-pick-source-media="clip"/);
+  assert.doesNotMatch(imageValueOnly, /data-pick-source-media="mesh"/);
+  assert.doesNotMatch(imageValueOnly, /data-pick-source-generator/);
 
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
@@ -240,24 +258,18 @@ test("Component Canvas and Live inspectors give range tracks their own full-widt
   assert.match(styleSource, /\.chain-param-list \{[\s\S]*?gap: var\(--range-stack-gap\);/);
 });
 
-test("groups expose blend mode and alpha in persistent and Live inspectors", () => {
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+test("all chain elements expose shared opacity blend and placement through General", () => {
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
-  const groupEditor = componentSource.slice(
-    componentSource.indexOf("function groupChainItemTemplate("),
-    componentSource.indexOf("function sourceChainItemTemplate(")
-  );
-  const liveGroup = sceneLiveSource.slice(
-    sceneLiveSource.indexOf('if (item.kind === "group")', sceneLiveSource.indexOf("function liveChainItemContentTemplate(")),
-    sceneLiveSource.indexOf("function selectedLiveChainItem(")
-  );
+  const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
-  assert.ok(groupEditor.includes('selectValuesTemplate(`${base}.blend`, BLEND_MODES'));
-  assert.ok(groupEditor.includes('rangeTemplate("Alpha", `${base}.opacity`'));
-  assert.ok(groupEditor.includes('class="chain-composite-controls group-composite-controls"'));
-  assert.ok(liveGroup.includes('liveSelectValuesTemplate(componentId, `${path}.blend`, BLEND_MODES'));
-  assert.ok(liveGroup.includes('liveRangeTemplate("Alpha", componentId, `${path}.opacity`'));
+  assert.ok(parameterSource.includes('createNumberParam("opacity", "Opacity"'));
+  assert.ok(parameterSource.includes('createEnumParam("blend", "Blend", BLEND_MODES'));
+  assert.ok(parameterSource.includes('{ id: "general", label: "General", html: general }'));
+  assert.ok(componentSource.includes("chainGeneralControlsTemplate(item, base"));
+  assert.ok(sceneLiveSource.includes("chainGeneralControlsTemplate(item, path"));
+  assert.doesNotMatch(componentSource, /rangeTemplate\("Alpha", `\$\{base\}\.opacity`/);
+  assert.doesNotMatch(sceneLiveSource, /liveRangeTemplate\("Alpha", componentId, `\$\{path\}\.opacity`/);
 });
 
 test("paired HSV ranges render two accessible handles and shared range state", () => {
@@ -339,11 +351,15 @@ test("both control columns reserve a persistent scrollbar lane outside their sec
 
 test("every workspace rail uses the same constrained first-column module", () => {
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.match(styleSource, /\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(styleSource, /\.rail-section \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/);
-  assert.match(styleSource, /\.capture-row \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 36px;/);
-  assert.match(styleSource, /\.capture-row input \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/);
+  assert.match(controllerSource, /addableRailTitleTemplate\("account_tree", "Components", "data-add-component"/);
+  assert.match(controllerSource, /addableRailTitleTemplate\("dashboard_customize", "Canvases", "data-add-canvas-component"/);
+  assert.match(controllerSource, /addableRailTitleTemplate\("auto_awesome_motion", "Scenes", "data-add-scene"/);
+  assert.match(styleSource, /\.rail-title-add \{[\s\S]*?width: 24px;[\s\S]*?margin-left: auto;/);
+  assert.doesNotMatch(styleSource, /\.capture-row/);
 });
 
 test("the scrollbar lane replaces excess space between the two control columns", () => {
@@ -449,19 +465,29 @@ test("component catalogs expose stable per-view sorting modes", () => {
   const catalogSource = readFileSync(new URL("../js/control/catalog-view.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(source.includes("state.ui?.catalogSortModes?.[scope]"));
-  assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", scene: "recent" }'));
+  assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", canvas: "recent", scene: "recent", source: "recent", media: "recent" }'));
   assert.ok(source.includes("ui.catalogSortModes[catalog] = mode"));
   assert.match(source, /if \(change\.projectRestore\) \{[\s\S]*?invalidateCatalogOrder\(\)/);
   assert.ok(source.includes('catalogSortMode(state, "component")'));
+  assert.ok(source.includes('catalogSortMode(state, "canvas")'));
   assert.ok(source.includes('catalogSortMode(state, "scene")'));
+  assert.ok(source.includes('catalogSortMode(state, "source")'));
+  assert.match(source, /scope === "scene"\s*\? state\.scenes \|\| \[\]/);
+  assert.match(source, /scope === "source"\s*\? sceneSourceNodes\(state\)/);
+  assert.ok(source.includes('componentCatalogToolsTemplate("scene", catalogSortMode(state, "scene"), "Filter scenes")'));
+  assert.ok(source.includes('sources: catalogItemsInSnapshot("source", sceneSourceNodes(state))'));
   assert.ok(source.includes("if (viewKey === activeCatalogViewKey) return"));
   assert.ok(source.includes("captureCatalogOrder(workspace, state)"));
   assert.ok(catalogSource.includes('data-catalog-sort="${nextMode}"'));
   assert.ok(catalogSource.includes("(activeIndex + 1) % modes.length"));
+  assert.ok(catalogSource.includes('["marker", "Marked", "keep"]'));
+  assert.ok(catalogSource.includes("data-cycle-catalog-marker"));
   assert.ok(catalogSource.includes("Sorted by ${activeLabel.toLowerCase()}; click to sort by ${nextLabel.toLowerCase()}"));
   assert.ok(!catalogSource.includes('role="group" aria-label="Sort components"'));
-  assert.ok(source.includes('["recent", "name", "created"]'));
+  assert.ok(source.includes('["recent", "marker", "name", "created"]'));
   assert.ok(style.includes(".component-sort-toggle"));
+  assert.ok(source.includes('catalogItemsInSnapshot("canvas", canvasComponents(state))'));
+  assert.ok(source.includes('componentCatalogToolsTemplate("canvas", catalogSortMode(state, "canvas"), "Filter canvases")'));
 });
 
 test("Live scene cards expose reset only for retained temporary overrides", () => {
@@ -536,13 +562,13 @@ test("Live parameter commits preserve inspector DOM identity and preview-owned d
   assert.match(source, /reason !== "scrub:chain-transform" && reason !== "scrub:canvas-frame"/);
 });
 
-test("Live source labels clip before their visibility control and Transform remains selectable", () => {
+test("Live source labels clip before their visibility control and General remains selectable", () => {
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.match(style, /\.live-chain-outline-row \{[\s\S]*?min-width: 0;[\s\S]*?overflow: hidden;/);
   assert.match(style, /\.live-chain-outline-select \{[\s\S]*?box-sizing: border-box;[\s\S]*?width: 100%;[\s\S]*?overflow: hidden;/);
   assert.match(style, /\.live-chain-outline-select > span:not\(\.material-symbols-rounded\) \{[\s\S]*?max-width: 100%;[\s\S]*?text-overflow: ellipsis;/);
-  assert.doesNotMatch(style, /\.live-chain-settings \.chain-param-view-transform \{\s*display: none;/);
+  assert.doesNotMatch(style, /\.live-chain-settings \.chain-param-view-general \{\s*display: none;/);
 });
 
 test("local UI controls use the UI-only state path", () => {
@@ -666,7 +692,7 @@ test("Live navigates referenced components separately and edits one selected nes
   assert.ok(sceneLiveSource.includes("liveChainOutlineTemplate"));
   assert.ok(sceneLiveSource.includes("liveSelectedChainSettingsTemplate"));
   assert.ok(sceneLiveSource.includes("live-chain-outline-children"));
-  assert.ok(sceneLiveSource.includes("chainTransformControlsTemplate"));
+  assert.ok(sceneLiveSource.includes("chainGeneralControlsTemplate"));
   assert.ok(sceneLiveSource.includes('data-live-component-view="controls"'));
   assert.ok(sceneLiveSource.includes('data-live-component-view="elements"'));
   assert.ok(sceneLiveSource.includes('liveRangeTemplate("Opacity", component.id, "opacity"'));
@@ -724,11 +750,13 @@ test("narrow layouts retain both control columns and disable the preview first",
 
 test("the application shell cannot become a vertically scrolled document", () => {
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
-  assert.match(styleSource, /html,[\s\S]*?body \{[\s\S]*?position: fixed;[\s\S]*?overflow: hidden;/);
-  assert.match(styleSource, /#app \{[\s\S]*?position: fixed;[\s\S]*?overflow: hidden;/);
-  assert.match(styleSource, /\.studio-app \{[\s\S]*?height: 100%;[\s\S]*?overflow: hidden;/);
+  assert.match(styleSource, /html,[\s\S]*?body \{[\s\S]*?position: fixed;[\s\S]*?overflow: hidden;[\s\S]*?overflow: clip;/);
+  assert.match(styleSource, /#app \{[\s\S]*?position: fixed;[\s\S]*?overflow: hidden;[\s\S]*?overflow: clip;/);
+  assert.match(styleSource, /\.studio-app \{[\s\S]*?height: 100%;[\s\S]*?overflow: hidden;[\s\S]*?overflow: clip;/);
   assert.match(styleSource, /\.studio-layout \{[\s\S]*?overflow-x: auto;[\s\S]*?overflow-y: hidden;/);
   assert.match(styleSource, /\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?overflow-y: scroll;/);
+  assert.match(styleSource, /\.chain-param-views \{[\s\S]*?position: relative;/);
+  assert.match(styleSource, /\.chain-param-view-input \{[\s\S]*?position: absolute;[\s\S]*?inset-block-start: 0;[\s\S]*?inset-inline-start: 0;[\s\S]*?clip-path: inset\(50%\);/);
 });
 
 test("project settings expose component upscaling and native-resolution post filters", () => {
@@ -799,6 +827,7 @@ test("Scene plus control creates an empty Scene instead of capturing current ass
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   assert.ok(source.includes("data-add-scene"));
   assert.ok(source.includes("store.addScene(name)"));
+  assert.ok(!source.includes("data-scene-name"));
   assert.ok(!source.includes('data-save-scene title="Capture scene"'));
 });
 
@@ -991,7 +1020,7 @@ test("list thumbnails crop to fill without changing their colors", () => {
   assert.match(source, /\.component-thumbnail,\n\.component-card-empty \{[\s\S]*?aspect-ratio: 16 \/ 9;[\s\S]*?overflow: hidden;/);
   assert.match(source, /\.component-thumbnail img \{[\s\S]*?width: 100%;[\s\S]*?height: 100%;[\s\S]*?object-fit: cover;/);
   assert.doesNotMatch(source, /\.component-card[^}]*filter:\s*grayscale/s);
-  assert.doesNotMatch(source, /\.media-picker-card[^}]*filter:\s*grayscale/s);
+  assert.doesNotMatch(source, /\.media-element-card[^}]*filter:\s*grayscale/s);
 });
 
 test("media cards use one full-width text column without the generic icon inset", () => {
@@ -1164,19 +1193,32 @@ test("seed params stay internal and are not rendered as sliders", () => {
 
 test("selected generators omit the redundant source chooser", () => {
   const source = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const picker = source.slice(source.indexOf("function sourcePickerTemplate("), source.indexOf("function mediaSourceFitControlsTemplate("));
+  const picker = source.slice(source.indexOf("function sourcePickerTemplate("), source.indexOf("function mediaSourceControlsTemplate("));
 
   assert.match(picker, /source\.type === "generator" \|\| paramView !== "primary" \? "" : `<div class="field">/);
   assert.match(picker, /source\.type === "generator" \? generatorParamControlsTemplate/);
 });
 
-test("inspector dropdowns share compact slider-like styling without an orange focus ring", () => {
+test("media source controls derive image-only alpha controls from the shared schema", () => {
   const source = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
-  const editor = source.slice(source.indexOf("function sourceChainItemTemplate("), source.indexOf("function sourceTransformControlsTemplate("));
+  const mediaControls = source.slice(
+    source.indexOf("function mediaSourceControlsTemplate("),
+    source.indexOf("function sourceTitle(")
+  );
 
-  assert.match(editor, /class="chain-composite-controls"[\s\S]*?<span>Blend<\/span>[\s\S]*?rangeTemplate\("Opacity"/);
-  assert.match(style, /\.chain-composite-controls \{[\s\S]*?display: grid;[\s\S]*?gap: var\(--range-stack-gap\);/);
+  const imageIds = mediaSourceParams({ type: "media", mediaId: "still.png" }).map((param) => param.id);
+  const videoIds = mediaSourceParams({ type: "media", mediaId: "clip.mp4" }).map((param) => param.id);
+  assert.deepEqual(imageIds, ["renderQuality", "fit", "alphaCut", "alphaFeather"]);
+  assert.deepEqual(videoIds, ["renderQuality", "fit"]);
+  assert.match(mediaControls, /params: mediaSourceParams\(source, media\)/);
+  assert.match(mediaControls, /pathFor: \(param\) => `\$\{base\}\.params\.\$\{param\.id\}`/);
+});
+
+test("inspector dropdowns share compact slider-like styling without an orange focus ring", () => {
+  const source = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(source, /createNumberParam\("opacity", "Opacity"[\s\S]*?createEnumParam\("blend", "Blend", BLEND_MODES/);
   assert.match(style, /\.studio-inspector select \{[\s\S]*?height: var\(--slider-height\);[\s\S]*?border: 0;[\s\S]*?border-radius: var\(--radius-section-inner\);[\s\S]*?background: var\(--slider-track\);/);
   assert.match(style, /\.studio-inspector select:focus-visible \{[\s\S]*?outline: 1px solid var\(--slider-thumb\);/);
   assert.doesNotMatch(style, /\.studio-inspector select:focus-visible \{[^}]*var\(--accent/);
@@ -1200,6 +1242,8 @@ test("global clipboard routing follows clicked lists chains Groups and external 
   assert.ok(source.includes("clipboard.bindWindowEvents()"));
   assert.ok(clipboardSource.includes('window.addEventListener("copy", copyFromCurrentTarget)'));
   assert.ok(clipboardSource.includes('window.addEventListener("paste", pasteIntoCurrentTarget)'));
+  assert.ok(clipboardSource.includes('window.addEventListener("pointerdown", rememberTarget, true)'));
+  assert.ok(clipboardSource.includes('chainItem.closest("[data-chain-reorder-list]")'));
   assert.ok(source.includes('data-paste-scope="component-list"'));
   assert.ok(source.includes('data-paste-scope="canvas-list"'));
   assert.ok(source.includes('data-paste-scope="scene-list"'));

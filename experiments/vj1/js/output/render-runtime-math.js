@@ -1,5 +1,5 @@
 import { renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
-import { componentRenderInstanceKey } from "./component-render-layout.js?v=instance-sync-60";
+import { componentRenderInstanceKey } from "./component-render-layout.js?v=canvas-global-resolution-1";
 import { contentTransformUvMatrices } from "./content-coordinate-space.js?v=render-coordinate-scope-3";
 
 export function qualityScaledRenderRequest(request = {}, params = {}, minimum = 0.35) {
@@ -23,7 +23,7 @@ export function qualityAdjustedGeneratorParams(generatorId, params = {}) {
   if (!QUALITY_ADJUSTED_GENERATORS.has(generatorId)) return params;
   const multiplier = qualityComputeMultiplier(params, { minimum: 0.35, maximum: 1.5 });
   const adjusted = { ...params };
-  if (["seascape", "cloudyTunnel", "cherenkovVolume", "biomineLite"].includes(generatorId)) {
+  if (["seascape", "cloudyTunnel", "cherenkovVolume", "biomineLite", "volumetricClouds"].includes(generatorId)) {
     adjusted.raySteps = Math.max(1, Math.round((Number(params.raySteps) || 1) * multiplier));
   }
   if (generatorId === "seascape") {
@@ -37,6 +37,13 @@ export function qualityAdjustedGeneratorParams(generatorId, params = {}) {
       minimum: 0.5,
       maximum: 1.25,
     })));
+  }
+  if (generatorId === "volumetricClouds") {
+    adjusted.raySteps = Math.max(8, Math.min(48, adjusted.raySteps));
+    adjusted.detail = Math.max(1, Math.min(4, Math.round((Number(params.detail) || 1) * qualityComputeMultiplier(params, {
+      minimum: 0.5,
+      maximum: 1.2,
+    }))));
   }
   if (generatorId === "biomineLite") {
     adjusted.surfaceDetail = Math.max(0, Math.round((Number(params.surfaceDetail) || 0) * qualityComputeMultiplier(params, {
@@ -122,7 +129,7 @@ export function advanceSpatialScale(previous, scale, anchor = [0, 0]) {
 }
 
 export function generatorRateParam(generatorId) {
-  if (generatorId === "fireflies" || generatorId === "bezierStrokes" || generatorId === "shadertoyBaseWarp" || generatorId === "cellularCircles" || generatorId === "galaxy" || generatorId === "lightning" || generatorId === "sunRays" || generatorId === "seascape" || generatorId === "paintDrips" || generatorId === "cloudyTunnel" || generatorId === "cherenkovVolume" || generatorId === "biomineLite") return "speed";
+  if (generatorId === "fireflies" || generatorId === "bezierStrokes" || generatorId === "shadertoyBaseWarp" || generatorId === "cellularCircles" || generatorId === "galaxy" || generatorId === "lightning" || generatorId === "fog" || generatorId === "volumetricClouds" || generatorId === "sunRays" || generatorId === "seascape" || generatorId === "paintDrips" || generatorId === "cloudyTunnel" || generatorId === "cherenkovVolume" || generatorId === "biomineLite") return "speed";
   return "";
 }
 
@@ -234,6 +241,7 @@ const QUALITY_ADJUSTED_GENERATORS = new Set([
   "cloudyTunnel",
   "cherenkovVolume",
   "biomineLite",
+  "volumetricClouds",
   "cellularCircles",
 ]);
 

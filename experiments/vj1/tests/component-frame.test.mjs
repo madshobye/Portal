@@ -281,7 +281,7 @@ test("legacy canvas layers migrate into ordinary Groups without retaining a para
   assert.equal(canvas.chain[0].blend, "screen");
   assert.equal(canvas.chain[0].chain[0].source.componentId, source.id);
   assert.deepEqual(canvas.chain[0].chain[0].source.placement, {
-    scale: state.render.componentTexture.width / canvas.canvas.width,
+    scale: state.render.componentTexture.width / state.render.canvasSize.width,
   });
 });
 

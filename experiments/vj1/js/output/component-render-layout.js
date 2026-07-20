@@ -1,5 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
+import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { createRenderRequest, RECORDING_FRAME_DEMAND_SCALE } from "./render-geometry.js?v=adaptive-component-demand-29";
 
 export function directFitRects(sourceWidth, sourceHeight, target = {}, fit = "stretch") {
@@ -128,9 +129,9 @@ export function resizeCanvasFrameRect(rect, corner, dx, dy, canvasWidth, canvasH
   };
 }
 
-export function canvasComponentPlacementRect(canvas = {}, sourceMetrics = {}, target = {}, placement = null) {
-  const canvasWidth = Math.max(1, Number(canvas.width) || VJ1.canvasWidth);
-  const canvasHeight = Math.max(1, Number(canvas.height) || VJ1.canvasHeight);
+export function canvasComponentPlacementRect(canvasSize = {}, sourceMetrics = {}, target = {}, placement = null) {
+  const canvasWidth = Math.max(1, Number(canvasSize.width) || VJ1.canvasWidth);
+  const canvasHeight = Math.max(1, Number(canvasSize.height) || VJ1.canvasHeight);
   const targetWidth = Math.max(1, Number(target.width) || canvasWidth);
   const targetHeight = Math.max(1, Number(target.height) || canvasHeight);
   const placementScale = Number(placement?.scale);
@@ -157,7 +158,7 @@ export function componentReferencePlacement(parent = {}, child = {}, render = {}
   const targetWidth = Math.max(1, Number(target.width) || 1);
   const targetHeight = Math.max(1, Number(target.height) || 1);
   if (parent.type !== "canvas") return { x: 0, y: 0, width: targetWidth, height: targetHeight };
-  return canvasComponentPlacementRect(parent.canvas, componentFrameMetrics(render, child), target, placement);
+  return canvasComponentPlacementRect(canvasFrameSize(render), componentFrameMetrics(render, child), target, placement);
 }
 
 export function fullTargetRect(target = {}) {
@@ -187,10 +188,9 @@ export function componentPreviewRenderRequest(render = {}, component = {}, viewp
   }, meta);
 }
 
-export function canvasPreviewRenderRequest(component = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
+export function canvasPreviewRenderRequest(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
   const canvas = component.canvas || {};
-  const width = Math.max(1, Math.round(Number(canvas.width) || VJ1.canvasWidth));
-  const height = Math.max(1, Math.round(Number(canvas.height) || VJ1.canvasHeight));
+  const { width, height } = canvasFrameSize(render);
   const quality = ["auto", "low", "full"].includes(canvas.previewQuality) ? canvas.previewQuality : "auto";
   const resolutionScale = Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1));
   const fitScale = Math.min(Math.max(1, Number(viewportWidth) || 1) / width, Math.max(1, Number(viewportHeight) || 1) / height, 1);
@@ -208,10 +208,7 @@ export function routeSourceLookupKey(componentId = "", outputFrameId = "") {
 export function componentSourceView(render = {}, component = {}, surface = {}, recordingFrames = [], recordingFrameById = null) {
   const placementScale = Math.max(0.0001, Number(component?.transform?.scale) || 1);
   if (component.type === "canvas") {
-    const logicalSize = {
-      width: Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth),
-      height: Math.max(1, Number(component.canvas?.height) || VJ1.canvasHeight),
-    };
+    const logicalSize = canvasFrameSize(render);
     const recordingFrame = typeof recordingFrameById?.get === "function"
       ? recordingFrameById.get(surface.outputFrameId)
       : recordingFrames.find((item) => item.id === surface.outputFrameId);

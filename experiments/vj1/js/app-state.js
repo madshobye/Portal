@@ -17,14 +17,16 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=live-scene-authority-1";
+} from "./domain/models.js?v=catalog-marker-four-state-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
-import { VJ1, WORKSPACES } from "./constants.js";
+import { WORKSPACES } from "./constants.js";
 import { createChangeEvent } from "./domain/change-event.js?v=chain-only-authority-1";
+import { canvasFrameSize } from "./domain/render-settings.js?v=canvas-global-resolution-1";
+import { nextCatalogMarker } from "./domain/catalog-marker.js?v=catalog-marker-four-state-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
-import { pasteClipboardPayload } from "./domain/clipboard.js?v=chain-only-authority-1";
-import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=chain-only-authority-1";
+import { copyComponentAsCanvas, pasteClipboardPayload } from "./domain/clipboard.js?v=canvas-global-resolution-1";
+import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=scene-catalog-markers-1";
 
 export function createAppState(initial = null) {
   let state = sanitizeState(initial || createInitialState());
@@ -137,6 +139,15 @@ export function createAppState(initial = null) {
     updateLive,
     updateMapping,
     subscribe,
+    cycleCatalogMarker(kind, id) {
+      const collection = kind === "media" ? "media" : kind === "scene" ? "scenes" : "components";
+      if (!(state[collection] || []).some((item) => item.id === id)) return false;
+      update((draft) => {
+        const item = (draft[collection] || []).find((entry) => entry.id === id);
+        if (item) item.catalogMarker = nextCatalogMarker(item.catalogMarker);
+      }, `catalog-marker:${kind}`);
+      return true;
+    },
     pasteClipboard(payload, target) {
       const draft = getState();
       const result = pasteClipboardPayload(draft, payload, target);
@@ -217,16 +228,30 @@ export function createAppState(initial = null) {
         rememberWorkspaceComponent(draft, "canvas", component);
       }, "add-canvas-component");
     },
+    copyComponentToCanvas(componentId) {
+      if (!state.components.some((item) => item.id === componentId && item.type !== "canvas")) {
+        return { converted: false, reason: "missing-component" };
+      }
+      let result = { converted: false, reason: "missing-component" };
+      update((draft) => {
+        result = copyComponentAsCanvas(draft, componentId);
+        if (!result.converted) return;
+        draft.ui.workspace = "canvas";
+        draft.global.calibrating = false;
+      }, "convert-component-to-canvas");
+      return result;
+    },
     addCanvasFrame(canvasComponentId) {
       update((draft) => {
         const component = draft.components.find((item) => item.id === canvasComponentId && item.type === "canvas");
         if (!component) return;
-        component.canvas ||= { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
+        component.canvas ||= { previewQuality: "auto", frameThumbnails: {} };
+        const canvasSize = canvasFrameSize(draft.render);
         draft.recordingFrames ||= [];
         draft.recordingFrames.push(createCanvasFrame(
           draft.recordingFrames.length,
-          component.canvas.width,
-          component.canvas.height
+          canvasSize.width,
+          canvasSize.height
         ));
       }, "add-canvas-frame");
     },
@@ -282,7 +307,7 @@ export function createAppState(initial = null) {
           const referenced = draft.components.find((item) => item.id === source.componentId && item.type !== "canvas");
           if (!referenced) return;
           const metrics = componentFrameMetrics(draft.render, referenced);
-          const canvasWidth = Math.max(1, Number(component.canvas?.width) || VJ1.canvasWidth);
+          const canvasWidth = canvasFrameSize(draft.render).width;
           layer.source.placement = {
             scale: metrics.baseWidth / canvasWidth,
           };

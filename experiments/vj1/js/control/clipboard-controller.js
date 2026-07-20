@@ -1,4 +1,4 @@
-import { chainPasteTarget, clipboardPayloadForTarget, VJ1_CLIPBOARD_TYPE } from "../domain/clipboard.js?v=chain-only-authority-1";
+import { chainPasteTarget, clipboardPayloadForTarget, VJ1_CLIPBOARD_TYPE } from "../domain/clipboard.js?v=canvas-global-resolution-1";
 import { isTextEditingNode } from "./dom-utils.js?v=preview-pointer-deferral-1";
 
 const VJ1_CLIPBOARD_TEXT_PREFIX = "VJ1_CLIPBOARD:";
@@ -10,6 +10,9 @@ export function createClipboardController({ root, store, getState, getInspector,
   function bindWindowEvents() {
     window.addEventListener("dragover", preventDefault);
     window.addEventListener("drop", handleDrop);
+    // Draggable chain rows can suppress their eventual click. Capture the
+    // pressed target first so Copy always follows the element the user chose.
+    window.addEventListener("pointerdown", rememberTarget, true);
     window.addEventListener("click", rememberTarget);
     window.addEventListener("copy", copyFromCurrentTarget);
     window.addEventListener("cut", cutFromCurrentTarget);
@@ -48,11 +51,14 @@ export function createClipboardController({ root, store, getState, getInspector,
     const element = node?.closest ? node : node?.parentElement;
     if (!element?.closest) return null;
     const chainItem = element.closest("[data-select-chain-item]");
-    if (chainItem) return {
-      kind: "chain-item",
-      componentId: state.ui.selectedComponentId,
-      itemId: chainItem.dataset.selectChainItem,
-    };
+    if (chainItem) {
+      const chainOwner = chainItem.closest("[data-chain-reorder-list]");
+      return {
+        kind: "chain-item",
+        componentId: chainOwner?.dataset.componentId || state.ui.selectedComponentId,
+        itemId: chainItem.dataset.selectChainItem,
+      };
+    }
     const componentButton = element.closest("[data-select-component]");
     if (componentButton) {
       const component = state.components.find((item) => item.id === componentButton.dataset.selectComponent);
@@ -62,10 +68,10 @@ export function createClipboardController({ root, store, getState, getInspector,
     if (sceneButton) return { kind: "scene-list", itemId: sceneButton.dataset.selectScene };
     const surfaceButton = element.closest("[data-select-surface]");
     if (surfaceButton) return { kind: "surface-list", itemId: surfaceButton.dataset.selectSurface };
-    const mediaButton = element.closest("[data-pick-media], [data-pick-source-media], [data-add-element-media]");
+    const mediaButton = element.closest("[data-pick-source-media], [data-add-element-media]");
     if (mediaButton) return {
       kind: "media-item",
-      itemId: mediaButton.dataset.pickMedia || mediaButton.dataset.pickSourceMedia || mediaButton.dataset.addElementMedia || "",
+      itemId: mediaButton.dataset.pickSourceMedia || mediaButton.dataset.addElementMedia || "",
     };
     const scope = element.closest("[data-paste-scope]");
     if (scope) return { kind: scope.dataset.pasteScope };

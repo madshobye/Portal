@@ -1,4 +1,4 @@
-import { drawWebGLBuffer } from "./component-render-layout.js?v=instance-sync-60";
+import { drawWebGLBuffer } from "./component-render-layout.js?v=canvas-global-resolution-1";
 import { isSharedFramebufferTarget, unwrapRenderTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
 import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=render-core-contract-1";
 

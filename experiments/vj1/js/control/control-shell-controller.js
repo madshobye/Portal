@@ -1,23 +1,23 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-scene-authority-1";
+import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=catalog-marker-four-state-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=profile-edit-identity-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=chain-general-controls-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
-import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=per-renderer-share-1";
+import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=performance-health-dots-1";
-import { componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=changed-sort-user-truth-1";
-import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=deep-edit-navigation-1";
+import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-marker-four-state-1";
+import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=source-param-schema-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=mesh-topology-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=deep-edit-navigation-1";
+import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=alpha-feather-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=catalog-marker-four-state-1";
 import { componentCardBarTemplate, deepEditButtonTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=profile-edit-identity-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
-import { createClipboardController } from "./clipboard-controller.js?v=chain-only-authority-1";
-import { createModalController } from "./modal-controller.js?v=source-picker-filters-1";
-import { createInputController } from "./input-controller.js?v=source-picker-filters-1";
+import { createClipboardController } from "./clipboard-controller.js?v=clipboard-chain-target-1";
+import { createModalController } from "./modal-controller.js?v=catalog-markers-1";
+import { createInputController } from "./input-controller.js?v=component-to-canvas-1";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -59,7 +59,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   const previewLayoutQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
     ? window.matchMedia("(max-width: 1100px)")
     : null;
-  const catalogOrderSnapshots = { component: [], scene: [] };
+  const catalogOrderSnapshots = { component: [], canvas: [], scene: [], source: [] };
   const activeParamViews = new Map();
   const replaceHtmlIfChanged = createHtmlCache();
   const clipboard = createClipboardController({
@@ -77,7 +77,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     mediaLibrary,
     refreshMedia: () => projectService.refreshFolder({ force: true }),
     replaceHtmlIfChanged,
-    getCatalogSortMode: (state) => catalogSortMode(state, "component"),
+    getCatalogSortMode: (state, scope = "component") => catalogSortMode(state, scope),
     bindCatalogSortControls,
   });
   const inputs = createInputController({
@@ -917,23 +917,33 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const viewKey = `${state.project.folderName || state.project.name || "project"}:${workspace}`;
     if (viewKey === activeCatalogViewKey) return;
     activeCatalogViewKey = viewKey;
-    if (workspace === "component" || workspace === "scene") captureCatalogOrder(workspace, state);
+    if (["component", "canvas", "scene"].includes(workspace)) captureCatalogOrder(workspace, state);
+    if (workspace === "scene") captureCatalogOrder("source", state);
+    if (workspace === "live") captureCatalogOrder("scene", state);
   }
 
   function invalidateCatalogOrder() {
     activeCatalogViewKey = "";
     catalogOrderSnapshots.component = [];
+    catalogOrderSnapshots.canvas = [];
     catalogOrderSnapshots.scene = [];
+    catalogOrderSnapshots.source = [];
   }
 
   function captureCatalogOrder(scope, state) {
-    const items = scope === "scene" ? sceneSourceNodes(state) : ordinaryComponents(state);
+    const items = scope === "scene"
+      ? state.scenes || []
+      : scope === "source"
+        ? sceneSourceNodes(state)
+        : scope === "canvas"
+          ? canvasComponents(state)
+          : ordinaryComponents(state);
     catalogOrderSnapshots[scope] = sortComponentCatalog(items, catalogSortMode(state, scope)).map((item) => item.id);
   }
 
   function catalogSortMode(state, scope) {
     const mode = state.ui?.catalogSortModes?.[scope];
-    return ["recent", "name", "created"].includes(mode) ? mode : "recent";
+    return ["recent", "marker", "name", "created"].includes(mode) ? mode : "recent";
   }
 
   function catalogItemsInSnapshot(scope, items = []) {
@@ -950,14 +960,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       button.addEventListener("click", () => {
         const catalog = button.dataset.catalogSortScope;
         const mode = button.dataset.catalogSort;
-        if (!["component", "scene"].includes(catalog) || !["recent", "name", "created"].includes(mode)) return;
+        if (!["component", "canvas", "scene", "source", "media"].includes(catalog) || !["recent", "marker", "name", "created"].includes(mode)) return;
         updateUi((ui) => {
-          ui.catalogSortModes ||= { component: "recent", scene: "recent" };
+          ui.catalogSortModes ||= { component: "recent", canvas: "recent", scene: "recent", source: "recent", media: "recent" };
           ui.catalogSortModes[catalog] = mode;
         }, `catalog-sort:${catalog}`);
-        captureCatalogOrder(catalog, latestState);
-        if (catalog === "component") renderProjectRail(latestState);
-        else renderInspector(latestState);
+        if (catalog !== "media") captureCatalogOrder(catalog, latestState);
+        if (catalog === "source") renderInspector(latestState);
+        else if (catalog === "component" || catalog === "canvas" || catalog === "scene") renderProjectRail(latestState);
       });
     });
   }
@@ -977,31 +987,33 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     return sceneToolsTemplate(state);
   }
 
+  function addableRailTitleTemplate(iconName, title, actionAttribute, actionLabel) {
+    return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${iconName}</span><span>${esc(title)}</span><button class="rail-title-add" type="button" ${actionAttribute} title="${esc(actionLabel)}" aria-label="${esc(actionLabel)}">${icon("add")}</button></div>`;
+  }
+
   function componentToolsTemplate(state) {
     const components = catalogItemsInSnapshot("component", ordinaryComponents(state));
     return `
       <div class="ui-section rail-section" data-component-filter-scope>
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
+        ${addableRailTitleTemplate("account_tree", "Components", "data-add-component", "Add component")}
         ${componentCatalogToolsTemplate("component", catalogSortMode(state, "component"), "Filter components")}
         <div class="component-card-list" data-paste-scope="component-list">
           ${components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create visual recipes")}
         </div>
-        <button type="button" data-add-component>${icon("add")} Add component</button>
       </div>
     `;
   }
 
   function canvasToolsTemplate(state) {
-    const canvases = canvasComponents(state);
+    const canvases = catalogItemsInSnapshot("canvas", canvasComponents(state));
     const selectedCanvas = selectedCanvasComponent(state);
     return `
       <div class="ui-section rail-section" data-component-filter-scope>
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">dashboard_customize</span><span>Canvases</span></div>
-        ${componentFilterTemplate("Filter canvases")}
+        ${addableRailTitleTemplate("dashboard_customize", "Canvases", "data-add-canvas-component", "Add canvas")}
+        ${componentCatalogToolsTemplate("canvas", catalogSortMode(state, "canvas"), "Filter canvases")}
         <div class="component-card-list" data-paste-scope="canvas-list">
           ${canvases.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a canvas component")}
         </div>
-        <button type="button" data-add-canvas-component>${icon("add")} Add canvas</button>
       </div>
       <div class="ui-section rail-section">
         <div class="ui-section-header rail-title"><span class="material-symbols-rounded">select_all</span><span>Frames</span></div>
@@ -1014,15 +1026,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function sceneToolsTemplate(state) {
+    const scenes = catalogItemsInSnapshot("scene", state.scenes || []);
     return `
-      <div class="ui-section rail-section">
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scenes</span></div>
+      <div class="ui-section rail-section" data-component-filter-scope>
+        ${addableRailTitleTemplate("auto_awesome_motion", "Scenes", "data-add-scene", "Add empty scene")}
+        ${componentCatalogToolsTemplate("scene", catalogSortMode(state, "scene"), "Filter scenes")}
         <div class="scene-card-list" data-paste-scope="scene-list">
-          ${state.scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Add a scene")}
-        </div>
-        <div class="capture-row">
-          <input type="text" data-scene-name value="Scn ${state.scenes.length + 1}" spellcheck="false" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false" />
-          <button class="icon-buttonish" type="button" data-add-scene title="Add empty scene" aria-label="Add empty scene">${icon("add")}</button>
+          ${scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Add a scene")}
         </div>
       </div>
       ${sceneRailConfigTemplate(state)}
@@ -1043,11 +1053,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const timeScale = timeStretch <= -4 ? 0 : 2 ** timeStretch;
     const liveScene = state.scenes.find((scene) => scene.id === (state.ui?.live?.selectedSceneId || state.scenes[0]?.id));
     const components = liveNavigableComponents(liveScene, state);
+    const scenes = catalogItemsInSnapshot("scene", state.scenes || []);
     return `
-      <div class="ui-section rail-section">
+      <div class="ui-section rail-section" data-component-filter-scope>
         <div class="ui-section-header rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live Scenes</span></div>
+        ${componentCatalogToolsTemplate("scene", catalogSortMode(state, "scene"), "Filter scenes")}
         <div class="scene-card-list live-scene-list">
-          ${state.scenes.map((scene) => liveScenePillTemplate(scene, state)).join("") || emptyNote("Capture scenes first")}
+          ${scenes.map((scene) => liveScenePillTemplate(scene, state)).join("") || emptyNote("Capture scenes first")}
         </div>
       </div>
       <div class="ui-section rail-section">
@@ -1267,8 +1279,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const sceneComponent = state.components.find((component) => component.id === selectedRoute?.componentId);
     html = `
       ${panelTemplate("select_all", selectedSurface?.name || "Surface", selectedSurface ? sceneSurfaceTemplate(selectedSurface, state, {
-        sources: catalogItemsInSnapshot("scene", sceneSourceNodes(state)),
-        sortMode: catalogSortMode(state, "scene"),
+        sources: catalogItemsInSnapshot("source", sceneSourceNodes(state)),
+        sortMode: catalogSortMode(state, "source"),
       }) : emptyNote("No surface"), selectedSurface && selectedSurface.destination?.type !== "direct"
         ? { titlePath: `${pathForSurface(state, selectedSurface)}.name` }
         : {})}
@@ -1295,7 +1307,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       button.addEventListener("click", () => store.addSurface());
     });
     refs.projectRail.querySelector("[data-add-scene]")?.addEventListener("click", () => {
-      const name = refs.projectRail.querySelector("[data-scene-name]")?.value?.trim() || `Scn ${latestState.scenes.length + 1}`;
+      const name = `Scn ${latestState.scenes.length + 1}`;
       store.addScene(name);
     });
     refs.projectRail.querySelectorAll("[data-select-scene]").forEach((button) => {
@@ -1319,9 +1331,28 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-delete-scene]").forEach((button) => {
       button.addEventListener("click", () => store.deleteScene(button.dataset.deleteScene));
     });
+    bindCatalogMarkerControls(refs.projectRail);
     refs.projectRail.querySelectorAll("[data-surface-reorder-list]").forEach((list) => {
       bindReorderList(list, {
         onReorder: (fromId, toId) => store.reorderSurfaces?.(fromId, toId),
+      });
+    });
+  }
+
+  function bindCatalogMarkerControls(scope) {
+    scope?.querySelectorAll?.("[data-cycle-catalog-marker]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const kind = button.dataset.cycleCatalogMarker || "component";
+        const id = button.dataset.catalogMarkerId || "";
+        if (!store.cycleCatalogMarker?.(kind, id)) return;
+        if (kind !== "media") {
+          const catalog = kind === "scene" ? "scene" : latestState.components.find((item) => item.id === id)?.type === "canvas" ? "canvas" : "component";
+          captureCatalogOrder(catalog, latestState);
+          if (kind === "component") captureCatalogOrder("source", latestState);
+        }
+        renderProjectRail(latestState);
+        if (scope === refs.inspector) renderInspector(latestState);
       });
     });
   }
@@ -1341,7 +1372,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         if (workspace === "canvas") {
           const canvas = selectedCanvasComponent(draft);
           if (!canvas) return;
-          canvas.canvas ||= { width: VJ1.canvasWidth, height: VJ1.canvasHeight };
+          canvas.canvas ||= { previewQuality: "auto", frameThumbnails: {} };
           canvas.canvas.previewQuality = nextPreviewQuality(canvas.canvas.previewQuality);
           return;
         }
@@ -1394,6 +1425,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function bindInputs(scope) {
     inputs.bind(scope);
+    bindCatalogMarkerControls(scope);
     scope.querySelectorAll("[data-live-component-view]").forEach((button) => {
       button.addEventListener("click", () => updateUi((ui) => {
         ui.live ||= {};
@@ -1445,11 +1477,12 @@ function componentPillTemplate(component, state) {
     ? ordinaryComponents(state).length <= 1
     : state.components.length <= 1;
   return `
-    <div class="component-card-row" data-component-filter-card="${esc(component.name.toLowerCase())}">
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(component.name.toLowerCase())}">
       <button type="button" class="component-card ${selected ? "is-selected" : ""}" data-select-component="${esc(component.id)}">
         ${thumbnailTemplate(component.thumbnail, fallbackIcon)}
         ${componentCardBarTemplate(component.name)}
       </button>
+      ${catalogMarkerButtonTemplate(component, "component")}
       <button type="button" class="component-card-remove" data-remove-component="${esc(component.id)}" title="Remove" aria-label="Remove ${esc(component.name)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>
     </div>
   `;

@@ -1,5 +1,6 @@
-import { clone, createSceneSurfaceSnapshot, syncLiveSnapshotFromScene, uid } from "./models.js?v=render-coordinate-scope-3";
+import { clone, createCanvasComponent, createSceneSurfaceSnapshot, syncLiveSnapshotFromScene, uid } from "./models.js?v=render-coordinate-scope-3";
 import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
+import { canvasFrameSize } from "./render-settings.js?v=canvas-global-resolution-1";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
 import { initializeLiveChainInsertion } from "./scene-routing.js?v=chain-only-authority-1";
 
@@ -38,6 +39,33 @@ export function pasteClipboardPayload(draft = {}, payload = {}, target = {}) {
   if (payload.kind === "surface") return pasteSurface(draft, payload.value, target);
   if (payload.kind === "media") return pasteMedia(draft, payload.value, target);
   return { pasted: false, reason: "unsupported" };
+}
+
+export function copyComponentAsCanvas(draft = {}, componentId = "") {
+  const source = draft.components?.find((item) => item.id === componentId && item.type !== "canvas");
+  if (!source) return { converted: false, reason: "missing-component" };
+
+  const canvasCount = (draft.components || []).filter((item) => item.type === "canvas").length;
+  const defaults = createCanvasComponent(canvasCount);
+  const copy = {
+    ...clone(source),
+    id: defaults.id,
+    type: "canvas",
+    name: uniqueDerivedName(`${source.name || "Component"} Canvas`, draft.components || []),
+    thumbnail: "",
+    chain: (source.chain || []).map(regenerateChainItemIds),
+    activity: defaults.activity,
+    canvas: defaults.canvas,
+  };
+
+  draft.components ||= [];
+  draft.components.push(copy);
+  draft.ui ||= {};
+  draft.ui.selectedComponentId = copy.id;
+  draft.ui.selectedChainItemId = copy.chain[0]?.id || "";
+  draft.ui.workspaceSelectionIds ||= { component: "", canvas: "" };
+  draft.ui.workspaceSelectionIds.canvas = copy.id;
+  return { converted: true, kind: "canvas", id: copy.id };
 }
 
 export function chainPasteTarget(state = {}, componentId = "", selectedItemId = "") {
@@ -158,7 +186,7 @@ function insertIntoTarget(draft, target, item) {
 }
 
 function createComponentReferenceLayer(draft, canvas, source) {
-  const canvasWidth = Math.max(1, Number(canvas.canvas?.width) || 1920);
+  const canvasWidth = canvasFrameSize(draft.render).width;
   const metrics = componentFrameMetrics(draft.render || {}, source);
   return regenerateChainItemIds({
     id: uid("chain"),
@@ -214,4 +242,13 @@ function uniqueCopyName(name, items) {
   let suffix = 2;
   while (used.has(`${base} Copy ${suffix}`)) suffix++;
   return `${base} Copy ${suffix}`;
+}
+
+function uniqueDerivedName(name, items) {
+  const base = String(name || "Canvas");
+  const used = new Set((items || []).map((item) => item.name));
+  if (!used.has(base)) return base;
+  let suffix = 2;
+  while (used.has(`${base} ${suffix}`)) suffix++;
+  return `${base} ${suffix}`;
 }

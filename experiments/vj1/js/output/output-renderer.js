@@ -1,18 +1,18 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
-import { renderMaxFrameRate } from "../domain/render-settings.js?v=max-frame-rate-1";
+import { canvasFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=chain-only-authority-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=chain-general-controls-1";
 import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=text-style-controls-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=chain-only-authority-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=chain-only-authority-1";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=power-flicker-1";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=mesh-topology-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=power-flicker-1";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=chain-general-controls-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=fog-banks-1";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=alpha-feather-1";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=fog-banks-1";
+import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
@@ -23,17 +23,17 @@ import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptiv
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-active-ownership-1";
-import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=component-parent-placement-1";
-import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-only-authority-1";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=chain-general-controls-1";
+import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=chain-only-authority-1";
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=camera-input-leases-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
-import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=output-assets-runtime-extraction-1";
+import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=canvas-global-resolution-1";
 import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=component-parent-placement-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
-import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=power-flicker-1";
+import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
-import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=power-flicker-1";
+import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=canvas-global-resolution-1";
 import { drawBuffer } from "./render-draw-utils.js?v=render-diagnostics-1";
 import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
 import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=sun-rays-1";
@@ -52,7 +52,7 @@ import {
 } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { VjMapper } from "./vj-mapper.js?v=mapper-raster-state-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=model-wire-detail-2";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=tile-axis-1";
 import {
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,
@@ -68,15 +68,15 @@ import {
   resolutionScaledStrokeWidth,
   routeSourceLookupKey,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=component-parent-placement-1";
+} from "./component-render-layout.js?v=canvas-global-resolution-1";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 export { parseObjMesh } from "./specialized/model-parsers.js?v=model-qem-4";
 export { modelDepthCutoff, transformedModelDepthRange } from "./specialized/model-render-math.js?v=camera-focal-length-1";
-export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=power-flicker-1";
+export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=sun-rays-1";
-export { sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-only-authority-1";
-export { fittedThumbnailSize } from "./thumbnail-utils.js?v=chain-only-authority-1";
+export { sourceWithNodeParams } from "./component-patch-adapter.js?v=alpha-feather-1";
+export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {
   terrainExpandedGridWireVertices,
@@ -104,7 +104,7 @@ export {
   resizeCanvasFrameRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=component-parent-placement-1";
+} from "./component-render-layout.js?v=canvas-global-resolution-1";
 
 export class OutputRenderer {
   constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect }) {
@@ -1043,7 +1043,7 @@ export class OutputRenderer {
       if (neededComponentIds.size && !neededComponentIds.has(component.id)) continue;
       const componentTime = this.componentTimes.get(component.id) || 0;
       const request = component.type === "canvas"
-        ? canvasPreviewRenderRequest(component, width, height, { reason: "component-preview", renderIdentity: component.id })
+        ? canvasPreviewRenderRequest(this.state?.render || {}, component, width, height, { reason: "component-preview", renderIdentity: component.id })
         : componentPreviewRenderRequest(
             this.state.render,
             component,
@@ -1451,6 +1451,7 @@ export class OutputRenderer {
 
   canDirectCompositeSource(item = {}, renderRequest = {}) {
     const source = item.source || {};
+    if (this.imageSourceNeedsAlphaEdge(source)) return false;
     const dependency = source.type === "component"
       ? this.state?.components?.find((component) => component.id === source.componentId)
       : null;
@@ -1704,6 +1705,7 @@ export class OutputRenderer {
     if (!component) return inputState;
     const params = normalizeParamValues(component, effectParamState(item));
     const amount = effectParamNumber(component, params, "amount", item.amount ?? 0.35);
+    if ((item.opacity ?? 1) <= 0.0001) return inputState;
     if (amount <= 0.0001) return inputState;
     const runtimeContext = this.nodeRuntimeContext(componentTime);
     const signature = stableStringify({
@@ -1715,7 +1717,8 @@ export class OutputRenderer {
       customShader: item.componentId === "custom" ? this.state?.shaders?.customCode || "" : "",
       request: renderRequestKey(renderRequest),
     });
-    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
+    const needsComposite = effectNeedsComposite(item);
+    const effectState = this.evaluateChainNode(needsComposite ? renderBufferKey(nodeId, "effect") : nodeId, signature, renderRequest, (output) => {
       const pass = chainItemToShaderPass({ ...item, params, amount });
       const qualityRequest = qualityScaledRenderRequest(renderRequest, params);
       if (isSharedFramebufferTarget(output) &&
@@ -1730,6 +1733,14 @@ export class OutputRenderer {
       drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
       output.pop();
     }, "effect");
+    if (!needsComposite) return effectState;
+    return this.renderLayerNodeState(
+      renderBufferKey(nodeId, "composite"),
+      inputState,
+      effectState,
+      { opacity: item.opacity ?? 1, blend: item.blend || "normal", transform: {} },
+      renderRequest
+    );
   }
 
   renderEffectRunNodeState(nodeId, inputState, items, componentTime, renderRequest) {
@@ -1959,12 +1970,37 @@ export class OutputRenderer {
     }, { frame: this.frameIndex, dirtyReason: "source" });
     if (!result.rendered) this.frameProfile.stageCacheHits++;
     else this.frameProfile.stageRenders++;
-    return {
+    const sourceState = {
       buffer: result.output,
       outputVersion: result.outputVersion,
       nodeKey: key,
       dirtyReason: result.dirtyReason,
     };
+    if (!this.imageSourceNeedsAlphaEdge(source)) return sourceState;
+    const edge = mediaSourceAlphaEdge(source);
+    return this.renderEffectNodeState(
+      renderBufferKey(nodeId, "image-alpha-edge"),
+      sourceState,
+      {
+        id: renderBufferKey(item.id || nodeId, "image-alpha-edge"),
+        kind: "effect",
+        componentId: "alphaFeather",
+        amount: 1,
+        params: { amount: 1, cut: edge.cut, feather: edge.feather, renderQuality: 1 },
+        transform: {},
+      },
+      componentTime,
+      renderRequest
+    );
+  }
+
+  imageSourceNeedsAlphaEdge(source = {}) {
+    if (source.type !== "media") return false;
+    const media = (this.state?.media || []).find((item) => item.id === source.mediaId);
+    const isImage = media?.type === "image" || /\.(avif|bmp|gif|jpe?g|png|webp)$/i.test(String(source.mediaId || ""));
+    if (!isImage) return false;
+    const edge = mediaSourceAlphaEdge(source);
+    return edge.cut > 0.0001 || edge.feather > 0.0001;
   }
 
   sourceRuntimeTimeKey(source = {}, owner = {}, runtimeContext = {}) {
@@ -2988,7 +3024,8 @@ export class OutputRenderer {
   componentPreviewRect(component, source = null) {
     if (source?.width && source?.height) return containedRect(width, height, source.width, source.height);
     if (component?.type === "canvas") {
-      return containedRect(width, height, component.canvas?.width, component.canvas?.height);
+      const size = canvasFrameSize(this.state?.render || {});
+      return containedRect(width, height, size.width, size.height);
     }
     const metrics = componentFrameMetrics(this.state?.render || {}, component || {});
     return containedRect(width, height, metrics.baseWidth, metrics.baseHeight);
@@ -3477,7 +3514,13 @@ function chainItemToShaderPass(item) {
     params: item.params || {},
     amount: item.amount,
     transform: item.transform || {},
+    opacity: item.opacity ?? 1,
+    blend: item.blend || "normal",
   };
+}
+
+export function effectNeedsComposite(item = {}) {
+  return (item.blend || "normal") !== "normal" || Math.abs((item.opacity ?? 1) - 1) > 0.0001;
 }
 
 

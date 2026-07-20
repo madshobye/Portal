@@ -1,6 +1,6 @@
 # VJ1 Handover
 
-Updated: 2026-07-19
+Updated: 2026-07-20
 
 VJ1 is a build-free browser VJ and projection-mapping app in `experiments/vj1`. It uses p5 as the host/media compatibility layer and raw WebGL for the render pipeline. The user-selected project folder is authoritative.
 
@@ -11,9 +11,15 @@ VJ1 is a build-free browser VJ and projection-mapping app in `experiments/vj1`. 
 - **Scenes** route Components, Canvases, or Canvas recording frames to surfaces.
 - **Live** selects the program Scene and applies temporary performance overrides.
 
-`component.chain` is the only Component/Canvas graph authority. Items are sources, effects, or isolated Groups. Do not restore `component.source`, `component.shaderChain`, chain-level source params, or silent Test Pattern/black fallbacks. Current project schema is version **19**; format changes require one adjacent migration and focused tests.
+`component.chain` is the only Component/Canvas graph authority. Items are sources, effects, or isolated Groups. Do not restore `component.source`, `component.shaderChain`, chain-level source params, or silent Test Pattern/black fallbacks. Current project schema is version **22**; format changes require one adjacent migration and focused tests.
+
+Every chain item shares one General contract: `opacity`, `blend`, and `transform`. An authored `params.amount` is algorithm-specific strength, never a second compositing-opacity authority.
+
+Media-source parameters have one type-aware schema shared by Component, Canvas, Live, and significant controls. Do not hand-author parallel inspector control lists.
 
 Scene routes use `surface.sourceNodeId`. An empty route is intentionally empty. `recordingFrames` is a shared project registry and frames remain Canvas-logical crops.
+
+Catalog markers are shared authored metadata (`none → star → heart → pin`). Only pins stay first under every ordering; Scene ordering and surface-source ordering have separate UI sort preferences.
 
 ## Critical Invariants
 
@@ -75,7 +81,7 @@ Scene transition duration and parameter fade are independent. Numeric Live value
 
 ## Current State and Next Checks
 
-- Full Node suite: **564 passing** on 2026-07-19.
+- Full Node suite: **594 passing** on 2026-07-20.
 - Latest changes were not browser-tested, by request.
 - First manual check: keep Scene A live, open/edit a Component associated with Scene B, move several sliders, and confirm embedded Live preview and popup output remain on Scene A.
 - If a Scene still changes, inspect `VJ1_LIVE_PATCH_RESYNC`, transport revision/session metadata, and the explicit `ui.live.selectedSceneId`; do not add another fallback.
