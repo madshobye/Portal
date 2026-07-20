@@ -6,13 +6,14 @@ import { contentTransformUvMatrices, isIdentityTransform, normalizedContentTrans
 import { markRenderTargetOrientation, renderTargetDescriptor, renderTargetNeedsPresentationFlip, RENDER_TEXTURE_ORIENTATION } from "../render-target-contract.js?v=render-core-contract-1";
 import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
 import { GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "../render-pass-shaders.js?v=render-coordinate-scope-3";
-import { advanceRateClock, advanceSpatialScale, qualityComputeMultiplier } from "../render-runtime-math.js?v=render-coordinate-scope-3";
+import { advanceSpatialScale, qualityComputeMultiplier } from "../render-runtime-math.js?v=render-coordinate-scope-3";
+import { advanceRateClock } from "../../libraries/timing-engine/index.js";
 import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.js?v=adaptive-component-demand-29";
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
-import { modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "./model-render-math.js?v=camera-focal-length-1";
-import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "./model-mesh-cache.js?v=model-lod-1";
-import { disposeRawModelItemResources, drawRawParsedModelMode } from "./raw-model-webgl-renderer.js?v=model-wire-detail-2";
-import { modelLodTargetTriangles, selectModelLod } from "./model-lod.js?v=model-wire-detail-2";
+import { modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js";
+import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "../../libraries/mesh-engine/mesh-render-cache.js";
+import { disposeRawModelItemResources, drawRawParsedModelMode } from "../../libraries/mesh-engine/mesh-render/index.js";
+import { modelLodTargetTriangles, selectModelLod } from "../../libraries/mesh-engine/mesh-resolution/index.js";
 import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=madstodo-4";
 import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER, imageFitUniform } from "./feature-morph-shader.js?v=render-core-contract-1";
 import { mobileNetMorphFieldForStrategy, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-4";
@@ -347,6 +348,9 @@ export class SpecializedSourceRuntime {
       target.push();
       target.clear();
       const scale = viewport.unitScale * modelScale;
+      // Intentional allocation-stable fast path: the live loop invokes the node-owned
+      // render implementation directly, avoiding packet, scheduler, and instance
+      // allocation overhead while keeping the exact established p5/WebGL UX.
       const rawParsedDrawn = item.modelData &&
         drawRawParsedModelMode(target, item, { ...params, __importBasis: importBasis }, componentTime, renderMode, surfaceColor, wireColor, pointBudget, viewport, source.contentTransform, modelMesh);
       if (!rawParsedDrawn) {

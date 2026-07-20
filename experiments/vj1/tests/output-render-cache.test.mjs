@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { OutputRenderCache } from "../js/output/output-render-cache.js";
+import { CacheEngineNode, cacheEngineNodeProcess, OutputRenderCache } from "../js/libraries/cache-engine/render-cache/index.js";
 
 test("render cache batches maintenance and disposes idle resources", () => {
   const cache = new OutputRenderCache();
@@ -30,4 +30,13 @@ test("render cache enforces hard GPU limits without evicting the current frame",
   assert.equal(cache.gpuBuffers.size, 64);
   assert.deepEqual(removed, ["gpu-0"]);
   assert.equal(cache.gpuBuffers.has("gpu-64"), true);
+});
+
+test("cache engine node owns policy while the renderer retains its direct fast path", () => {
+  const cache = new OutputRenderCache();
+  cacheEngineNodeProcess({ engine: cache, command: "touch", kind: "source", key: "a", frameIndex: 4 });
+
+  assert.equal(cache.sourceUse.get("a"), 4);
+  assert.match(CacheEngineNode.parts[0].source, /class OutputRenderCache/);
+  assert.match(CacheEngineNode.parts[0].source, /function staleRenderCacheKeys/);
 });

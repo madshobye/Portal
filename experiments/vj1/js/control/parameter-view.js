@@ -1,5 +1,5 @@
 import { BLEND_MODES } from "../constants.js";
-import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizeParamValue } from "../graph/component-schema.js?v=text-style-controls-1";
+import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=param-context-delegation-1";
 import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
 import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";

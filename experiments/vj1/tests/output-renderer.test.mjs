@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, chainTransformDragScale, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferencePlacement, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { defaultProjectSurfaceMapping, renderRequestKey } from "../js/output/render-geometry.js";
-import { mapperFragmentShaderSource, VjMapper } from "../js/output/vj-mapper.js";
+import { mapperFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 import { ComponentPreviewInteraction, stateWithCanvasFrameRect, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
 
 test("effect opacity and blend request a separate generic composite", () => {
@@ -43,6 +43,14 @@ test("local drag overlays refresh only the changed lookup entry", () => {
   const renderer = new OutputRenderer({ mode: "component" });
   renderer.state = { components: [component], recordingFrames: [frame], surfaces: [], render: {}, ui: {} };
   renderer.rebuildRouteLookups();
+  let patchedProgramItem = null;
+  renderer.componentPrograms.set(component.id, {
+    replaceChainItem(itemId, item) {
+      assert.equal(itemId, "item");
+      patchedProgramItem = item;
+      return true;
+    },
+  });
   let fullRebuilds = 0;
   renderer.rebuildRouteLookups = () => { fullRebuilds++; };
   const interaction = new ComponentPreviewInteraction(renderer);
@@ -52,6 +60,7 @@ test("local drag overlays refresh only the changed lookup entry", () => {
 
   assert.equal(fullRebuilds, 0);
   assert.equal(renderer.componentById.get(component.id).chain[0].transform.x, 0.25);
+  assert.equal(patchedProgramItem.transform.x, 0.25, "the rendered program follows the local preview overlay immediately");
   assert.equal(renderer.recordingFrameById.get(frame.id).y, 20);
 });
 
@@ -515,7 +524,7 @@ test("direct output presentation handles stretch contain and cover without homog
     x: 500, y: 0, width: 1000, height: 1000,
   });
   const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
-  const plannerSource = readFileSync(new URL("../js/output/surface-render-planner.js", import.meta.url), "utf8");
+  const plannerSource = readFileSync(new URL("../js/libraries/composition-engine/surface-composition/index.js", import.meta.url), "utf8");
   assert.ok(source.includes("else if (mapped.direct) this.drawDirectSurfaceTexture(target, route)"));
   assert.ok(source.includes("mapped.direct && Number(surface.feather) > 0"));
   assert.ok(plannerSource.includes("preserveFullFootprint: mapped.direct"));
@@ -580,7 +589,7 @@ test("stable component cache refreshes the exact GPU buffer usage key", () => {
 
 test("render-cache maintenance is periodic unless a hard cache limit is exceeded", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const cacheSource = readFileSync(new URL("../js/output/output-render-cache.js", import.meta.url), "utf8");
+  const cacheSource = readFileSync(new URL("../js/libraries/cache-engine/render-cache/index.js", import.meta.url), "utf8");
   assert.match(cacheSource, /frameIndex - this\.lastPruneFrame < RENDER_CACHE_MAINTENANCE_FRAMES/);
   assert.match(cacheSource, /this\.gpuBufferUse\.size > COMPONENT_GPU_BUFFER_CACHE_LIMIT/);
   assert.match(cacheSource, /const RENDER_CACHE_MAINTENANCE_FRAMES = 120;/);
@@ -864,7 +873,7 @@ test("thumbnail preview remains an active transform editor without live componen
 
 test("canvas rendering evaluates ordinary sources, Groups, effects, and shared route frames", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const plannerSource = readFileSync(new URL("../js/output/surface-render-planner.js", import.meta.url), "utf8");
+  const plannerSource = readFileSync(new URL("../js/libraries/composition-engine/surface-composition/index.js", import.meta.url), "utf8");
   const canvasRenderer = source.slice(
     source.indexOf("  renderCanvasComponent("),
     source.indexOf("  renderComponentPatch(")
@@ -1346,7 +1355,7 @@ test("component preview always draws its overarching frame independently of sele
 test("scene surfaces render components at their configured shape and relative resolution", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
-  const plannerSource = readFileSync(new URL("../js/output/surface-render-planner.js", import.meta.url), "utf8");
+  const plannerSource = readFileSync(new URL("../js/libraries/composition-engine/surface-composition/index.js", import.meta.url), "utf8");
   const drawSurfaceRoute = runtimeSource.slice(
     runtimeSource.indexOf("  drawSurfaceRoute(target, route = {}, { compositeOpacity = 1 } = {})"),
     runtimeSource.indexOf("  drawSurfaceThumbnailRoute(target, surface")
@@ -1471,7 +1480,7 @@ test("every generator path is tied to the component source target", () => {
 });
 
 test("projection mapper uses actual texture size for surface sampling math", () => {
-  const source = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/libraries/mapping-engine/mapping-engine/index.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);"));

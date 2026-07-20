@@ -4,15 +4,15 @@ import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLive
 import { canvasFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
 import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=screen-input-registry-1";
-import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=text-style-controls-1";
+import { normalizeParamValue, normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
-import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
+import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/render-node-contract.js";
+import { compileComponentRenderPrograms } from "../libraries/composition-engine/index.js";
+import { activeSceneProgramSurfaces, compileSceneRenderPrograms } from "../libraries/composition-engine/index.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=volumetric-clouds-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=screen-input-registry-1";
+import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=alpha-feather-1";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=volumetric-clouds-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
@@ -36,7 +36,7 @@ import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./c
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=canvas-global-resolution-1";
 import { drawBuffer } from "./render-draw-utils.js?v=render-diagnostics-1";
 import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=output-profile-runtime-1";
-import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "./output-render-cache.js?v=output-cache-runtime-1";
+import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js";
 import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, drawWithContentTransform, effectNeedsComposite, effectParamNumber, enumUniform, nextFxTargetSlot, resetShaderTarget, setDynamicShaderUniformIfPresent, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=shader-target-runtime-1";
 import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
 import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=volumetric-clouds-1";
@@ -53,7 +53,7 @@ import {
   outputSpanRect,
   worldSize,
 } from "./render-geometry.js?v=adaptive-component-demand-29";
-import { VjMapper } from "./vj-mapper.js?v=mapper-raster-state-1";
+import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
 import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=tile-axis-1";
 import {
@@ -75,8 +75,8 @@ import {
 } from "./component-render-layout.js?v=logical-component-frame-1";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
-export { parseObjMesh } from "./specialized/model-parsers.js?v=model-qem-4";
-export { modelDepthCutoff, transformedModelDepthRange } from "./specialized/model-render-math.js?v=camera-focal-length-1";
+export { parseObjMesh } from "../libraries/mesh-engine/obj-parser/index.js";
+export { modelDepthCutoff, transformedModelDepthRange } from "../libraries/mesh-engine/mesh-render-math.js";
 export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=volumetric-clouds-1";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=alpha-feather-1";
@@ -142,6 +142,15 @@ export class OutputRenderer {
     this.generatorUniformStates = new Map();
     this.generatorUniformStateUse = new Map();
     this.componentPatches = new Map();
+    this.visualNodes = createProjectVisualNodeResolver();
+    this.visualResolverOptions = Object.freeze({
+      getEffectComponent: (id) => this.effectNodeComponent(id),
+      getGeneratorComponent: (id) => this.generatorNodeComponent(id),
+    });
+    this.visualForkSignature = "";
+    this.componentPrograms = new Map();
+    this.scenePrograms = new Map();
+    this.sceneProgramCache = new WeakMap();
     this.componentById = new Map();
     this.recordingFrameById = new Map();
     this.routeSourceNodeById = new Map();
@@ -218,6 +227,7 @@ export class OutputRenderer {
     this.componentPipelineShaders = new Map();
     this.shaderBuilder = createShaderBuilder({
       getCustomCode: () => this.state?.shaders?.customCode || "",
+      getComponent: (id) => this.effectNodeComponent(id),
       onStatus: (status, error) => {
         this.state.ui.shaderStatus = status;
         this.state.ui.shaderError = error || "";
@@ -227,6 +237,9 @@ export class OutputRenderer {
 
   async setup(initialState, { normalized = false } = {}) {
     this.state = normalized ? initialState : sanitizeState(initialState || {});
+    this.rebuildVisualNodeResolver();
+    this.rebuildComponentPrograms();
+    this.rebuildScenePrograms();
     this.rebuildRouteLookups();
     if (this.shouldUseThumbnailPreview()) this.captureThumbnailEditTransformBaselines();
     this.applyPixelDensity();
@@ -513,6 +526,9 @@ export class OutputRenderer {
     const preparedState = normalized ? nextState : sanitizeState(nextState);
     this.clearLiveParamFades();
     this.state = this.previewInteraction?.reconcileIncomingState(preparedState) || preparedState;
+    this.rebuildVisualNodeResolver();
+    this.rebuildComponentPrograms();
+    this.rebuildScenePrograms();
     this.rebuildRouteLookups();
     const nextCameraSignature = cameraSettingsSignature(this.state.render);
     if (previousCameraSignature && previousCameraSignature !== nextCameraSignature) this.releaseCameraInput();
@@ -620,6 +636,59 @@ export class OutputRenderer {
   clearLiveParamFades() {
     this.restoreLiveParamFadeFrame();
     this.liveParamFades.clear();
+  }
+
+  rebuildComponentPrograms() {
+    this.componentPrograms = compileComponentRenderPrograms(
+      this.state?.components || [],
+      this.state?.nodes?.groups || []
+    );
+  }
+
+  rebuildVisualNodeResolver() {
+    const signature = JSON.stringify((this.state?.nodes?.forks || []).map((fork) => [
+      fork?.id, fork?.active !== false, fork?.base?.id, fork?.base?.version, fork?.definition,
+    ]));
+    if (signature === this.visualForkSignature) return;
+    this.visualForkSignature = signature;
+    this.visualNodes = createProjectVisualNodeResolver(this.state || {});
+    // Shader objects are context-bound and keyed by source. Clear only when
+    // project node code changes, never during ordinary frames or parameter
+    // scrubs.
+    this.shaderBuilder?.clear?.();
+  }
+
+  effectNodeComponent(id) {
+    return this.visualNodes.effect(id);
+  }
+
+  generatorNodeComponent(id) {
+    return this.visualNodes.generator(id);
+  }
+
+  generatorShaderComponent(id) {
+    return this.visualNodes.generatorShader(id);
+  }
+
+  rebuildScenePrograms() {
+    this.scenePrograms = compileSceneRenderPrograms(this.state || {}, this.state?.nodes?.groups || []);
+    if (this.state && typeof this.state === "object") this.sceneProgramCache.set(this.state, this.scenePrograms);
+  }
+
+  sceneProgramSurfaces(state = this.state) {
+    if (!state || typeof state !== "object") return [];
+    let programs = state === this.state ? this.scenePrograms : this.sceneProgramCache.get(state);
+    if (!programs) {
+      programs = compileSceneRenderPrograms(state, state.nodes?.groups || []);
+      this.sceneProgramCache.set(state, programs);
+    }
+    return activeSceneProgramSurfaces(state, programs);
+  }
+
+  componentProgramChain(component = {}) {
+    const program = this.componentPrograms.get(component.id);
+    if (!program) throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id || "unknown"}`);
+    return program.chain;
   }
 
   rebuildRouteLookups() {
@@ -1120,7 +1189,7 @@ export class OutputRenderer {
       if (stableSignature) this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
       return output;
     }
-    const patch = compileComponentPatch(component, renderRequest);
+    const patch = compileComponentPatch(component, renderRequest, this.visualResolverOptions);
     this.componentPatches.set(component.id, patch);
     const output = this.measureComponentProfile({
       type: "component",
@@ -1274,24 +1343,22 @@ export class OutputRenderer {
 
   renderCanvasComponent(component, componentTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "component");
-    return this.renderComponentChainState(
-      component,
-      component.chain || [],
-      componentTime,
-      renderRequest,
-      renderBufferKey(component.id, "canvas")
-    ).buffer;
+    const program = this.componentPrograms.get(component.id);
+    const state = program
+      ? program.execute(this, component, componentTime, renderRequest, renderBufferKey(component.id, "canvas"))
+      : this.renderComponentChainState(component, component.chain || [], componentTime, renderRequest, renderBufferKey(component.id, "canvas"));
+    return state.buffer;
   }
 
   renderComponentPatch(component, patch, componentTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(patch?.renderRequest || request, "component");
-    if (Array.isArray(component.chain) && component.chain.length) {
-      return this.renderComponentChainState(
-        component,
-        component.chain,
-        componentTime,
-        renderRequest
-      ).buffer;
+    const program = this.componentPrograms.get(component.id);
+    const programChain = this.componentProgramChain(component);
+    if (programChain.length) {
+      const state = program
+        ? program.execute(this, component, componentTime, renderRequest)
+        : this.renderComponentChainState(component, programChain, componentTime, renderRequest);
+      return state.buffer;
     }
 
     const output = this.getComponentGpuBuffer(component.id, renderRequest);
@@ -1329,7 +1396,7 @@ export class OutputRenderer {
 
   renderPatchSourceTexture(component, node, layer, componentTime, renderRequest) {
     const sourceState = sourceFromPatchNode(node);
-    if (isSimpleLayer(layer) && sourceState.type === "generator" && sourceState.generatorId !== "terrainFlyover" && getGeneratorShaderComponent(getGeneratorComponent(sourceState.generatorId).id)) {
+    if (isSimpleLayer(layer) && sourceState.type === "generator" && sourceState.generatorId !== "terrainFlyover" && this.generatorShaderComponent(this.generatorNodeComponent(sourceState.generatorId).id)) {
       return this.measureProfile("sourceMs", {
         type: "source",
         componentId: component.id,
@@ -1364,12 +1431,11 @@ export class OutputRenderer {
 
   renderComponentChain(component, componentTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "component");
-    return this.renderComponentChainState(
-      component,
-      component.chain || [],
-      componentTime,
-      renderRequest
-    ).buffer;
+    const program = this.componentPrograms.get(component.id);
+    const state = program
+      ? program.execute(this, component, componentTime, renderRequest)
+      : this.renderComponentChainState(component, component.chain || [], componentTime, renderRequest);
+    return state.buffer;
   }
 
   renderComponentChainItems(component, chain, output, componentTime, renderRequest, scopeId = component.id) {
@@ -1405,7 +1471,7 @@ export class OutputRenderer {
       }
       if (item.kind === "effect") {
         const firstPass = chainItemToShaderPass(renderedItem);
-        const firstJob = compileShaderSchedule([firstPass])[0];
+        const firstJob = compileShaderSchedule([firstPass], this.visualResolverOptions)[0];
         if (isFusibleShaderJob(firstJob)) {
           const run = [renderedItem];
           let nextIndex = index + 1;
@@ -1419,7 +1485,7 @@ export class OutputRenderer {
             const renderedNextItem = isIdentityTransform(inheritedTransform)
               ? nextItem
               : { ...nextItem, transform: combineContentTransforms(inheritedTransform, nextItem.transform || {}) };
-            const nextJob = compileShaderSchedule([chainItemToShaderPass(renderedNextItem)])[0];
+            const nextJob = compileShaderSchedule([chainItemToShaderPass(renderedNextItem)], this.visualResolverOptions)[0];
             if (!isFusibleShaderJob(nextJob)) break;
             run.push(renderedNextItem);
             nextIndex++;
@@ -1703,7 +1769,7 @@ export class OutputRenderer {
   }
 
   renderEffectNodeState(nodeId, inputState, item, componentTime, renderRequest) {
-    const component = getShaderComponent(item.componentId);
+    const component = this.effectNodeComponent(item.componentId);
     if (!component) return inputState;
     const params = normalizeParamValues(component, effectParamState(item));
     const amount = effectParamNumber(component, params, "amount", item.amount ?? 0.35);
@@ -1751,7 +1817,7 @@ export class OutputRenderer {
       input: textureStateKey(inputState),
       passes,
       time: passes.map((pass) => {
-        const component = getShaderComponent(pass.id);
+        const component = this.effectNodeComponent(pass.id);
         return componentRuntimeTimeKey(component, pass.params, this.nodeRuntimeContext(componentTime));
       }),
       request: renderRequestKey(renderRequest),
@@ -1872,7 +1938,7 @@ export class OutputRenderer {
     if (!source || source.type === "black") return false;
     if (source.type === "camera") return true;
     if (source.type === "generator") {
-      const component = getGeneratorComponent(source.generatorId);
+      const component = this.generatorNodeComponent(source.generatorId);
       const params = normalizeParamValues(component, source.params || {});
       const featureMorphPairs = this.featureMorphPairService(source.generatorId);
       if (featureMorphPairs && params.imageAId && params.imageBId) {
@@ -1909,7 +1975,7 @@ export class OutputRenderer {
 
   effectPassIsFrameDynamic(pass = {}) {
     const id = pass.id || pass.componentId || "";
-    const component = getShaderComponent(id);
+    const component = this.effectNodeComponent(id);
     if (!component) return false;
     const params = normalizeParamValues(component, {
       ...(pass.params && typeof pass.params === "object" ? pass.params : {}),
@@ -2009,7 +2075,7 @@ export class OutputRenderer {
     if (!source || source.type === "black") return null;
     if (source.type === "camera") return runtimeContext.frame;
     if (source.type === "generator") {
-      const component = getGeneratorComponent(source.generatorId);
+      const component = this.generatorNodeComponent(source.generatorId);
       const params = normalizeParamValues(component, {
         ...(source.params || {}),
         ...(owner.params || {}),
@@ -2051,7 +2117,7 @@ export class OutputRenderer {
         imageBFile: imageB?.file,
       });
     }
-    const component = getGeneratorComponent(source.generatorId);
+    const component = this.generatorNodeComponent(source.generatorId);
     const params = normalizeParamValues(component, {
       ...(source.params || {}),
       ...(owner.params || {}),
@@ -2195,7 +2261,7 @@ export class OutputRenderer {
         this.drawMeshPatternsGenerator(pg, source, generatorTime, renderRequest);
         return;
       }
-      const shaderGenerator = getGeneratorShaderComponent(getGeneratorComponent(source.generatorId).id);
+      const shaderGenerator = this.generatorShaderComponent(this.generatorNodeComponent(source.generatorId).id);
       if (shaderGenerator) {
         if (this.drawShaderGenerator(pg, source, generatorTime, renderRequest)) return;
         console.error("[VJ1_SHADER_GENERATOR_UNAVAILABLE]", {
@@ -2372,9 +2438,9 @@ export class OutputRenderer {
   }
 
   renderShaderGeneratorSource(id, componentTime = this.visualTime, request = frameRenderRequest(this.state.render), params = {}, instanceId = id, contentTransform = {}, outputTarget = null) {
-    const generatorComponent = getGeneratorComponent(id);
+    const generatorComponent = this.generatorNodeComponent(id);
     const generatorId = generatorComponent.id;
-    const shaderComponent = getGeneratorShaderComponent(generatorId);
+    const shaderComponent = this.generatorShaderComponent(generatorId);
     const component = shaderComponent ? { ...shaderComponent, params: generatorComponent.params || shaderComponent.params || [] } : null;
     if (!component) return null;
     const renderRequest = qualityScaledRenderRequest(this.normalizeRenderRequest(request, "source"), params);
@@ -2642,7 +2708,7 @@ export class OutputRenderer {
     const logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || rh);
     let current = input;
     let passCount = 0;
-    const logicalSchedule = compileShaderSchedule(chain);
+    const logicalSchedule = compileShaderSchedule(chain, this.visualResolverOptions);
     const schedule = fuseLocalShaderSchedule(logicalSchedule);
     if (schedule.length) {
       this.frameProfile.shaderChains++;
@@ -2694,7 +2760,7 @@ export class OutputRenderer {
 
   renderShaderPassToTarget(input, pass, target, request, timeSeconds = this.visualTime) {
     const renderRequest = this.normalizeRenderRequest(request, "effect");
-    const job = compileShaderSchedule([pass])[0];
+    const job = compileShaderSchedule([pass], this.visualResolverOptions)[0];
     if (!job || job.pass.amount <= 0.0001) return input;
     const shaderProgram = this.shaderBuilder.getShader(job.pass, target);
     if (!shaderProgram) return input;

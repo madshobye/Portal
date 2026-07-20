@@ -13,8 +13,8 @@ import {
   modelWireThickness,
   rawModelMatrices,
   transformedModelDepthRange,
-} from "../js/output/specialized/model-render-math.js";
-import { buildParsedModelPerceptualEdges, buildParsedModelPointCloud, buildParsedModelWireLines } from "../js/output/specialized/model-mesh-cache.js";
+} from "../js/libraries/mesh-engine/mesh-render-math.js";
+import { buildParsedModelPerceptualEdges, buildParsedModelPointCloud, buildParsedModelWireLines } from "../js/libraries/mesh-engine/mesh-render-cache.js";
 
 test("specialized model math owns viewport rotation depth and matrix calculations", () => {
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
@@ -48,15 +48,15 @@ test("specialized model math owns viewport rotation depth and matrix calculation
   ]))), [0.5, 0, 0, 0, 0.25, 0, 0, 0, 0.20000000298023224]);
   assert.deepEqual(modelImportBasis({ file: { name: "mesh.stl" } }), [0, 0, Math.PI]);
   assert.deepEqual(modelImportBasis({ file: { name: "mesh.obj" } }), [0, 0, 0]);
-  assert.match(renderer, /from "\.\/specialized\/model-render-math\.js\?v=camera-focal-length-1"/);
+  assert.match(renderer, /from "\.\.\/libraries\/mesh-engine\/mesh-render-math\.js"/);
   assert.doesNotMatch(renderer, /function rawModelMatrices\(/);
   assert.doesNotMatch(renderer, /function transformedModelDepthRange\(/);
 });
 
 test("specialized model mesh cache owns bounded point and wire extraction", () => {
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const meshCache = readFileSync(new URL("../js/output/specialized/model-mesh-cache.js", import.meta.url), "utf8");
-  const rawRenderer = readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8");
+  const meshCache = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render-cache.js", import.meta.url), "utf8");
+  const rawRenderer = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
   const specializedRuntime = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
 
   assert.match(meshCache, /strokeWeight\(wireThickness\)/);
@@ -76,7 +76,7 @@ test("specialized model mesh cache owns bounded point and wire extraction", () =
     0, 1, 0, 0, 0, 0,
   ]);
   assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
-  assert.match(specializedRuntime, /from "\.\/model-mesh-cache\.js\?v=model-lod-1"/);
+  assert.match(specializedRuntime, /from "\.\.\/\.\.\/libraries\/mesh-engine\/mesh-render-cache\.js"/);
   assert.doesNotMatch(renderer, /function ensureParsedModelPointCloud\(/);
   assert.doesNotMatch(renderer, /function buildParsedModelWireLines\(/);
 });
@@ -101,10 +101,13 @@ test("perceptual STL edges merge coplanar triangle diagonals into one logical ed
 test("raw model WebGL programs and context resources live outside the output orchestrator", () => {
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const specializedRuntime = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
-  const rawModelRenderer = readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8");
+  const rawModelRenderer = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
 
   assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
-  assert.match(specializedRuntime, /from "\.\/raw-model-webgl-renderer\.js\?v=[^"]+"/);
+  assert.match(specializedRuntime, /from "\.\.\/\.\.\/libraries\/mesh-engine\/mesh-render\/index\.js"/);
+  assert.match(specializedRuntime, /Intentional allocation-stable fast path/);
+  assert.doesNotMatch(specializedRuntime, /new NodeInstance\(/);
+  assert.match(rawModelRenderer, /export const MeshRenderNode = defineNode\(/);
   assert.match(rawModelRenderer, /export function drawRawParsedModelMode\(/);
   assert.match(rawModelRenderer, /export function disposeRawModelContextResources\(/);
   assert.match(rawModelRenderer, /export function disposeRawModelItemResources\(/);

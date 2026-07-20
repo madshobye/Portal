@@ -1,5 +1,6 @@
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { screenCaptureService } from "./screen-capture-service.js?v=screen-input-registry-1";
+import { MediaInputLifecycle } from "../libraries/media-engine/media-input-lifecycle/index.js";
 
 const CAMERA_RETRY_MS = 3000;
 const CAMERA_IDLE_GRACE_MS = 750;
@@ -11,54 +12,31 @@ export class SharedInputRuntime {
   constructor({ getRenderSettings, cameraIdleGraceMs = CAMERA_IDLE_GRACE_MS } = {}) {
     this.getRenderSettings = getRenderSettings || (() => ({}));
     this.cameraIdleGraceMs = Math.max(0, Number(cameraIdleGraceMs) || 0);
-    this.camera = createCameraInputState();
+    this.camera = new MediaInputLifecycle({
+      idleGraceMs: this.cameraIdleGraceMs,
+      retryMs: CAMERA_RETRY_MS,
+      clock: runtimeMillis,
+      onError: (message, signature) => this.setCameraError(message, signature),
+      onReady: () => { this.reportedCameraErrorKey = ""; },
+    });
     this.reportedScreenErrors = new Map();
   }
 
   beginFrame() {
-    this.camera.demanded = false;
+    this.camera.beginFrame();
   }
 
   acquireCamera() {
     const render = this.getRenderSettings();
     const settings = cameraCaptureSettings(render);
     const signature = cameraSettingsSignature(render);
-    const input = this.camera;
-    input.demanded = true;
-    cancelCameraRelease(input);
-    if (input.capture && input.signature === signature) return input.capture;
-    if (input.requested && input.signature === signature) return null;
-    if (input.error && input.signature === signature && runtimeMillis() < input.retryAt) return null;
-    if (input.capture || input.requested) this.releaseCamera();
-    input.demanded = true;
-    input.requested = true;
-    input.error = "";
-    input.signature = signature;
-    const requestToken = ++input.requestToken;
     const setupWebcamera = getPortalWebcameraSetup();
     if (!setupWebcamera) {
-      this.setCameraError("camera unavailable", signature);
-      input.requested = false;
+      this.camera.fail("camera unavailable", signature);
       return null;
     }
-    setupWebcamera(settings.front, settings.width, settings.height, settings.mirrored, settings.maxResolution)
-      .then((camera) => {
-        if (requestToken !== input.requestToken) {
-          camera?.remove?.();
-          return;
-        }
-        input.capture = camera;
-        input.requested = false;
-        input.error = "";
-        input.retryAt = 0;
-        input.reportedErrorKey = "";
-      })
-      .catch((error) => {
-        if (requestToken !== input.requestToken) return;
-        this.setCameraError(error?.message || "camera blocked", signature);
-        input.requested = false;
-      });
-    return null;
+    return this.camera.acquire(signature, () =>
+      setupWebcamera(settings.front, settings.width, settings.height, settings.mirrored, settings.maxResolution));
   }
 
   acquireScreen(inputId = "") {
@@ -81,44 +59,26 @@ export class SharedInputRuntime {
   }
 
   endFrame() {
-    const input = this.camera;
-    if (input.demanded || input.releaseTimer || (!input.capture && !input.requested)) return;
-    const requestToken = input.requestToken;
-    input.releaseTimer = setTimeout(() => {
-      input.releaseTimer = 0;
-      if (input.demanded || input.requestToken !== requestToken) return;
-      this.releaseCamera();
-    }, this.cameraIdleGraceMs);
+    this.camera.endFrame();
   }
 
   releaseCamera() {
-    const input = this.camera;
-    cancelCameraRelease(input);
-    input.requestToken++;
-    input.capture?.remove?.();
-    input.capture = null;
-    input.requested = false;
-    input.signature = "";
-    input.retryAt = 0;
-    input.demanded = false;
+    this.camera.release();
   }
 
   setCameraError(message, signature = this.camera.signature) {
-    const input = this.camera;
-    input.error = message || "camera unavailable";
-    input.retryAt = runtimeMillis() + CAMERA_RETRY_MS;
-    const key = `${signature}:${input.error}`;
-    if (input.reportedErrorKey === key) return;
-    input.reportedErrorKey = key;
+    const key = `${signature}:${message || "camera unavailable"}`;
+    if (this.reportedCameraErrorKey === key) return;
+    this.reportedCameraErrorKey = key;
     console.error("[VJ1_CAMERA_CAPTURE_FAILED]", {
       signature,
-      message: input.error,
+      message: message || "camera unavailable",
       retryMs: CAMERA_RETRY_MS,
     });
   }
 
   get cameraCapture() {
-    return this.camera.capture;
+    return this.camera.resource;
   }
 
   get cameraError() {
@@ -137,26 +97,6 @@ export class SharedInputRuntime {
     this.releaseCamera();
     this.reportedScreenErrors.clear();
   }
-}
-
-function createCameraInputState() {
-  return {
-    capture: null,
-    requested: false,
-    demanded: false,
-    error: "",
-    signature: "",
-    requestToken: 0,
-    retryAt: 0,
-    reportedErrorKey: "",
-    releaseTimer: 0,
-  };
-}
-
-function cancelCameraRelease(input) {
-  if (!input.releaseTimer) return;
-  clearTimeout(input.releaseTimer);
-  input.releaseTimer = 0;
 }
 
 function runtimeMillis() {

@@ -1,4 +1,4 @@
-import { getGeneratorComponent } from "../graph/generator-registry.js";
+import { getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js";
 
 const standbyStateByTarget = new WeakMap();
 

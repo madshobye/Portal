@@ -21,27 +21,30 @@ import {
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";
-import { createChangeEvent } from "./domain/change-event.js?v=chain-only-authority-1";
+import { createChangeEvent } from "./libraries/state-engine/state-command/index.js";
 import { canvasFrameSize } from "./domain/render-settings.js?v=canvas-global-resolution-1";
 import { nextCatalogMarker } from "./domain/catalog-marker.js?v=catalog-marker-four-state-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
 import { copyComponentAsCanvas, pasteClipboardPayload } from "./domain/clipboard.js?v=canvas-global-resolution-1";
 import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=scene-catalog-markers-1";
+import { ObservableDataStore } from "./libraries/data-store/data-store/index.js";
 
-export function createAppState(initial = null) {
-  let state = sanitizeState(initial || createInitialState());
+export function createAppState(initial = null, { prepareState = null, classifyChange = createChangeEvent } = {}) {
+  const normalizeState = (value) => {
+    const normalized = sanitizeState(value);
+    return typeof prepareState === "function" ? prepareState(normalized) : normalized;
+  };
+  let state = normalizeState(initial || createInitialState());
+  const dataStore = new ObservableDataStore(state, { clone });
   let pendingEditBaseline = null;
   refreshLiveSelectedSceneSnapshot(state);
-  const listeners = new Set();
-
   function emit(change = "change") {
-    const event = createChangeEvent(change);
-    const snapshot = getState();
-    for (const listener of listeners) listener(snapshot, event.reason, event);
+    const event = classifyChange(change);
+    dataStore.publish(state, event);
   }
 
   function getState() {
-    return clone(state);
+    return dataStore.snapshot(state);
   }
 
   function getMetrics() {
@@ -49,10 +52,10 @@ export function createAppState(initial = null) {
   }
 
   function replace(next, change = "replace") {
-    const event = createChangeEvent(change);
+    const event = classifyChange(change);
     const previous = pendingEditBaseline || state;
     pendingEditBaseline = null;
-    const normalized = sanitizeState(next);
+    const normalized = normalizeState(next);
     state = event.projectRestore ? normalized : stampChangedProjectItems(previous, normalized);
     if (event.scope !== "live") reconcileLiveOverridesWithPersistentEdits(previous, state);
     refreshLiveSelectedSceneSnapshot(state);
@@ -60,7 +63,7 @@ export function createAppState(initial = null) {
   }
 
   function update(recipe, change = "update") {
-    const event = createChangeEvent(change);
+    const event = classifyChange(change);
     if (event.scope === "project" && (event.phase === "scrub" || event.phase === "edit")) {
       // A gesture is one transaction. Preserve a single pre-gesture baseline
       // for activity/Live reconciliation, but do not deep-clone, sanitize, and
@@ -122,10 +125,8 @@ export function createAppState(initial = null) {
   }
 
   function subscribe(listener) {
-    listeners.add(listener);
-    const event = createChangeEvent("init");
-    listener(getState(), event.reason, event);
-    return () => listeners.delete(listener);
+    const event = classifyChange("init");
+    return dataStore.subscribe(listener, { event });
   }
 
   return {

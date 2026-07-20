@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createDiagnosticsService } from "../js/services/diagnostics-service.js";
+import { createDiagnosticsService, DiagnosticsEngineNode, diagnosticsEngineNodeProcess } from "../js/libraries/diagnostics-engine/diagnostics-engine/index.js";
 
 function fakeHost() {
   const listeners = new Map();
@@ -75,4 +75,17 @@ test("diagnostics preserve origins and merge transported occurrence counts", () 
   assert.equal(entries.length, 2, "identical messages from different windows remain attributable");
   assert.equal(entries[0].count, 5);
   assert.match(diagnostics.copyText(), /renderer failed \[output output-main · console\]/);
+});
+
+test("diagnostics engine node owns the service policy", () => {
+  const service = createDiagnosticsService({ host: fakeHost() });
+  const result = diagnosticsEngineNodeProcess({
+    service,
+    command: "record",
+    level: "warning",
+    values: ["slow render"],
+    source: "test",
+  });
+  assert.equal(result.summary.counts.warning, 1);
+  assert.match(DiagnosticsEngineNode.parts[0].source, /function createDiagnosticsService/);
 });

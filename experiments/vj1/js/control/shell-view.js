@@ -20,6 +20,7 @@ export function shellTemplate() {
             <button type="button" data-workspace="component" title="Components" aria-label="Components">${icon("account_tree")}</button>
             <button type="button" data-workspace="canvas" title="Canvas" aria-label="Canvas">${icon("dashboard_customize")}</button>
             <button type="button" data-workspace="scene" class="is-active" title="Scenes" aria-label="Scenes">${icon("auto_awesome")}</button>
+            <button type="button" data-workspace="nodes" title="Nodes" aria-label="Nodes">${icon("schema")}</button>
             <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           </div>
           <button id="return-from-deep-edit" class="icon-buttonish deep-edit-return is-hidden" type="button" title="Return" aria-label="Return">${icon("arrow_back")}</button>

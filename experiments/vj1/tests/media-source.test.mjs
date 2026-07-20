@@ -4,9 +4,9 @@ import { readFileSync } from "node:fs";
 import { generatorIcon } from "../js/control/picker-view.js";
 
 import { createCanvasComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState, sceneSourceNodeId } from "../js/domain/models.js?v=world-frame-27";
-import { normalizeParamValue, renderQualityScale } from "../js/graph/component-schema.js";
-import { getGeneratorComponent, listGeneratorComponents } from "../js/graph/generator-registry.js";
-import { RenderNodeRuntime, textureStateKey } from "../js/graph/render-node-runtime.js";
+import { normalizeParamValue, renderQualityScale } from "../js/libraries/visual-nodes/shared/component-schema.js";
+import { getGeneratorNodeComponent as getGeneratorComponent, listGeneratorNodeComponents as listGeneratorComponents } from "../js/libraries/visual-nodes/index.js";
+import { RenderNodeRuntime, textureStateKey } from "../js/libraries/render-engine/render-node-contract.js";
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-5";
@@ -494,7 +494,7 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-mesh.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/raw-webgl-state.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/render-engine/raw-webgl-state.js", import.meta.url), "utf8"),
   ].join("\n");
   const profileSource = readFileSync(new URL("../js/output/output-render-profile.js", import.meta.url), "utf8");
 
@@ -871,8 +871,8 @@ test("3d model point mode uses cached bounded point clouds", () => {
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/model-mesh-cache.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/mesh-engine/mesh-render-cache.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8"),
   ].join("\n");
 
   assert.ok(source.includes("drawRawParsedModelMode(target, item"));
@@ -900,7 +900,7 @@ test("specialized wire thickness is scaled once from logical to raster resolutio
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8"),
   ].join("\n");
   assert.ok(source.includes("drawTerrainWireframe(target, this.terrainWireResources"));
   assert.ok(source.includes("const viewportSize = renderTargetPixelSize(target);"));
@@ -913,8 +913,8 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
   const source = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/model-render-math.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/mesh-engine/mesh-render-math.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8"),
   ].join("\n");
 
   assert.ok(source.includes("const viewport = modelViewportMetrics(target, renderRequest);"));
@@ -934,8 +934,8 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/model-geometry.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/raw-model-webgl-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/mesh-engine/mesh-geometry.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8"),
   ].join("\n");
 
   assert.ok(source.includes("drawRawParsedModelMode(target, item, params"));

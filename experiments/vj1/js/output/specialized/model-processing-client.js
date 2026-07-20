@@ -1,5 +1,5 @@
-import { parseObjMesh, parseStlMesh } from "./model-parsers.js?v=model-qem-4";
-import { attachLegacyTriangleView, buildAutomaticModelLods } from "./model-lod.js?v=model-wire-detail-2";
+import { attachLegacyTriangleView } from "../../libraries/mesh-engine/mesh-types.js";
+import { prepare3dAsset } from "../../libraries/mesh-engine/prepare-3d-asset/index.js";
 import {
   modelDerivedCacheKey,
   readDerivedModelCache,
@@ -63,10 +63,12 @@ function processModelUncached(payload) {
       fallbackLogged = true;
       console.warn("[VJ1_MODEL_WORKER_FALLBACK]", { message: "Web Worker unavailable; model processing will use the main thread" });
     }
-    return Promise.resolve().then(() => buildAutomaticModelLods(
-      payload.type === "obj" ? parseObjMesh(payload.text ?? new TextDecoder("utf-8").decode(payload.buffer)) : parseStlMesh(payload.buffer),
-      payload.levels
-    ));
+    return Promise.resolve().then(async () => (await prepare3dAsset({
+      source: payload.type === "obj" ? (payload.text ?? payload.buffer) : payload.buffer,
+      format: payload.type,
+      resolution: "automatic",
+      levels: payload.levels,
+    })).mesh);
   }
   const requestId = ++requestSerial;
   const requestType = payload.type;

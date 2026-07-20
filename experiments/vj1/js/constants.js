@@ -13,7 +13,7 @@ export const VJ1 = Object.freeze({
   renderFont: "assets/RobotoMono-Regular.ttf",
 });
 
-export const WORKSPACES = Object.freeze(["component", "canvas", "scene", "mapping", "live"]);
+export const WORKSPACES = Object.freeze(["component", "canvas", "scene", "nodes", "mapping", "live"]);
 
 export const BLEND_MODES = Object.freeze([
   "normal",

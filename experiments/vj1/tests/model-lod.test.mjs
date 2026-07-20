@@ -5,19 +5,20 @@ import { readFileSync } from "node:fs";
 import {
   buildAutomaticModelLods,
   modelLodTargetTriangles,
-  modelTriangleCount,
   selectModelLod,
   simplifyMeshByQuadricError,
   simplifyMeshByVertexClustering,
-} from "../js/output/specialized/model-lod.js";
-import { weldedMeshTopology } from "../js/output/specialized/model-meshoptimizer-simplifier.js";
+} from "../js/libraries/mesh-engine/mesh-resolution/index.js";
+import { modelTriangleCount } from "../js/libraries/mesh-engine/mesh-types.js";
+import { weldedMeshTopology } from "../js/libraries/mesh-engine/meshoptimizer-simplifier.js";
 import {
   deserializeDerivedModel,
   modelDerivedCacheKey,
   serializeDerivedModel,
 } from "../js/output/specialized/model-derived-cache.js";
-import { parseObjMesh, parseStlMesh } from "../js/output/specialized/model-parsers.js";
-import { parseObjPreviewMesh, parseStlPreviewMesh } from "../js/services/model-preview-service.js";
+import { parseObjMesh } from "../js/libraries/mesh-engine/obj-parser/index.js";
+import { parseStlMesh } from "../js/libraries/mesh-engine/stl-parser/index.js";
+import { parseObjPreviewMesh, parseStlPreviewMesh } from "../js/libraries/mesh-engine/mesh-preview-renderer.js";
 
 test("slow model processing warns without cancelling the requested import", () => {
   const source = readFileSync(new URL("../js/output/specialized/model-processing-client.js", import.meta.url), "utf8");

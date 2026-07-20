@@ -555,8 +555,8 @@ test("the primary workspace is architecturally named Component", () => {
 });
 
 test("component catalogs expose stable per-view sorting modes", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
-    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = controllerSource + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const catalogSource = readFileSync(new URL("../js/control/catalog-view.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(source.includes("state.ui?.catalogSortModes?.[scope]"));
@@ -573,6 +573,7 @@ test("component catalogs expose stable per-view sorting modes", () => {
   assert.ok(source.includes('sources: catalogItemsInSnapshot("source", sceneSourceNodes(state))'));
   assert.ok(source.includes("if (viewKey === activeCatalogViewKey) return"));
   assert.ok(source.includes("captureCatalogOrder(workspace, state)"));
+  assert.match(controllerSource, /import \{[^}]*canvasComponents[^}]*\} from "\.\/control-selectors\.js/);
   assert.ok(catalogSource.includes('data-catalog-sort="${nextMode}"'));
   assert.ok(catalogSource.includes("(activeIndex + 1) % modes.length"));
   assert.ok(catalogSource.includes('["marker", "Marked", "keep"]'));
@@ -714,8 +715,8 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   assert.match(source, /currentWorkspace\(state\) === "canvas"[\s\S]*?headerActionHtml: componentHeaderAddButtonTemplate\(selectedCanvas\)/);
   assert.match(style, /\.chain-list-section \{[\s\S]*?padding: var\(--section-inset\);[\s\S]*?background: var\(--panel-2\);/);
   assert.match(componentSource, /function componentSelectedChainSettingsTemplate[\s\S]*?<section class="ui-section focus-panel chain-settings-panel" aria-label="Selected element parameters">/);
-  assert.match(source, /currentWorkspace\(state\) === "component"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedComponent, state\)/);
-  assert.match(source, /currentWorkspace\(state\) === "canvas"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedCanvas, state\)/);
+  assert.match(source, /currentWorkspace\(state\) === "component"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedComponent, state, \{/);
+  assert.match(source, /currentWorkspace\(state\) === "canvas"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedCanvas, state, \{/);
   assert.ok(!source.includes('emptyNote("Select a chain item")'));
   assert.match(style, /\.chain-item-editor \{[\s\S]*?padding: 0;[\s\S]*?background: transparent;/);
   assert.ok(source.includes('workspace === "component" || workspace === "canvas" ? "component"'));
@@ -957,6 +958,7 @@ test("Scene plus control creates an empty Scene instead of capturing current ass
 test("scrub changes send coalesced param patches without waiting for a preview frame", () => {
   const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
+  const synchronizationSource = readFileSync(new URL("../js/libraries/synchronization-engine/live-patch-synchronizer/index.js", import.meta.url), "utf8");
   const stateSource = readFileSync(new URL("../js/app-state.js", import.meta.url), "utf8");
   const inputSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
@@ -970,7 +972,7 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(bridgeSource.includes('if (change.scope !== "live") return;'));
   assert.ok(bridgeSource.includes("scheduleLivePatches();"));
   assert.ok(bridgeSource.includes("flushLivePatches();"));
-  assert.ok(bridgeSource.includes('typeof queueMicrotask === "function"'));
+  assert.ok(synchronizationSource.includes('typeof queueMicrotask === "function"'));
   assert.ok(bridgeSource.includes('type: "live-patch"'));
   assert.ok(!appSource.includes("setTimeout(() => bridge.sendState(), 90)"));
   assert.ok(stateSource.includes("function updateLive(recipe"));
@@ -1189,7 +1191,7 @@ test("workspace view buttons are compact icons with accessible names", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  for (const label of ["Components", "Canvas", "Scenes", "Live"]) {
+  for (const label of ["Components", "Canvas", "Scenes", "Nodes", "Live"]) {
     assert.ok(shellSource.includes(`title="${label}" aria-label="${label}"`));
     assert.ok(!shellSource.includes(`<span>${label}</span>`));
   }
@@ -1201,12 +1203,27 @@ test("workspace view buttons are compact icons with accessible names", () => {
   const liveButtonIndex = shellSource.indexOf('data-workspace="live"');
   assert.ok(projectButtonIndex < closeProjectIndex && closeProjectIndex < viewSwitchIndex);
   assert.ok(viewSwitchIndex < liveButtonIndex && liveButtonIndex < topActionsIndex);
-  assert.equal((shellSource.slice(viewSwitchIndex, topActionsIndex).match(/data-workspace=/g) || []).length, 4);
+  assert.equal((shellSource.slice(viewSwitchIndex, topActionsIndex).match(/data-workspace=/g) || []).length, 5);
+  assert.ok(shellSource.indexOf('data-workspace="scene"') < shellSource.indexOf('data-workspace="nodes"'));
+  assert.ok(shellSource.indexOf('data-workspace="nodes"') < liveButtonIndex);
   assert.ok(shellSource.indexOf('data-workspace="scene"') < liveButtonIndex);
   assert.ok(shellSource.includes('class="project-title-control"'));
   assert.match(styleSource, /\.icon-buttonish\.close-project-button \{[\s\S]*?position: static;[\s\S]*?width: 26px;[\s\S]*?height: 26px;/);
   assert.match(styleSource, /\.close-project-button \.material-symbols-rounded \{[\s\S]*?font-size: 16px;/);
   assert.match(styleSource, /\.workspace-switch button \{[\s\S]*?width: 36px;[\s\S]*?padding: 0;/);
+});
+
+test("Nodes is a reachable library workspace with structure and editing surfaces", () => {
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const view = readFileSync(new URL("../js/control/node-library-view.js", import.meta.url), "utf8");
+
+  assert.match(controller, /workspace === "nodes"/);
+  assert.match(controller, /nodeLibraryRailTemplate/);
+  assert.match(controller, /nodeLibraryStudioTemplate/);
+  assert.match(controller, /nodeLibraryInspectorTemplate/);
+  assert.match(view, /data-select-node-definition/);
+  assert.match(view, /Internal group structure/);
+  assert.match(view, /nodeDefinitionEditorTemplate/);
 });
 
 test("referenced Components share one capture-phase deep edit command with a return path", () => {

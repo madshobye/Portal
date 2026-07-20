@@ -10,7 +10,7 @@ import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=scroll-region-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { canvasInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=scroll-region-1";
-import { getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
+import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=scroll-region-1";
 import { liveInspectorTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=scroll-region-1";
 import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=scroll-region-1";
@@ -21,6 +21,8 @@ import { createInputController } from "./input-controller.js?v=component-to-canv
 import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-controller-1";
 import { projectRailTemplate } from "./project-rail-view.js?v=project-rail-view-1";
+import { selectedNodeEditorTemplate, withProjectNodeFork, withoutProjectNodeFork } from "./node-editor-view.js";
+import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate } from "./node-library-view.js";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -42,7 +44,7 @@ export function restoreParamViewSelections(scope, selections = new Map()) {
   return selections;
 }
 
-export function createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics = null }) {
+export function createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics = null, nodePackage = null }) {
   let refs = {};
   let latestState = store.getState();
   let renderFrame = 0;
@@ -813,11 +815,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const hasProject = hasOpenProject(state);
     const workspace = currentWorkspace(state);
     refs.projectRail.dataset.workspace = workspace;
-    const html = hasProject ? projectRailTemplate(state, {
-      workspace,
-      catalogItems: (scope, items) => catalogItemsInSnapshot(scope, items),
-      catalogSortMode: (scope) => catalogSortMode(state, scope),
-    }) : "";
+    const html = hasProject
+      ? workspace === "nodes"
+        ? nodeLibraryRailTemplate(state, nodePackage)
+        : projectRailTemplate(state, {
+          workspace,
+          catalogItems: (scope, items) => catalogItemsInSnapshot(scope, items),
+          catalogSortMode: (scope) => catalogSortMode(state, scope),
+        })
+      : "";
     if (replaceHtmlIfChanged(refs.projectRail, html, { scrollKey: `project-rail:${workspace}` })) bindRailEvents();
   }
 
@@ -838,6 +844,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       embeddedPreview.pause();
       const html = mappingStudioTemplate(state);
       if (replaceHtmlIfChanged(refs.studio, html)) bindStudioEvents();
+      return;
+    }
+    if (currentWorkspace(state) === "nodes") {
+      embeddedPreview.pause();
+      if (replaceHtmlIfChanged(refs.studio, nodeLibraryStudioTemplate(state, nodePackage), { scrollKey: "node-library-workspace" })) bindStudioEvents();
       return;
     }
     if (previewLayoutQuery?.matches) {
@@ -862,7 +873,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function renderPreview(state) {
-    if (currentWorkspace(state) === "mapping" || previewLayoutQuery?.matches) return;
+    if (currentWorkspace(state) === "mapping" || currentWorkspace(state) === "nodes" || previewLayoutQuery?.matches) return;
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
     const workspace = currentWorkspace(state);
@@ -928,7 +939,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function updatePreviewState(state) {
     const workspace = currentWorkspace(state);
-    if (workspace === "mapping" || previewLayoutQuery?.matches) return;
+    if (workspace === "mapping" || workspace === "nodes" || previewLayoutQuery?.matches) return;
     const kind = workspace === "component" || workspace === "canvas" ? "component" : "preview";
     embeddedPreview.setState(workspace === "live" ? createLiveRenderState(state) : state, kind);
   }
@@ -943,6 +954,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
     let html = "";
+    if (currentWorkspace(state) === "nodes") {
+      html = panelTemplate("schema", "Node editor", nodeLibraryInspectorTemplate(state, nodePackage));
+      replaceInspectorHtml(html, state);
+      return;
+    }
     if (currentWorkspace(state) === "component") {
       const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
       html = `${panelTemplate(
@@ -953,7 +969,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           titlePath: `${pathForComponent(state, selectedComponent)}.name`,
           headerActionHtml: componentHeaderAddButtonTemplate(selectedComponent),
         } : {}
-      )}${selectedComponent ? componentSelectedChainSettingsTemplate(selectedComponent, state) : ""}`;
+      )}${selectedComponent ? componentSelectedChainSettingsTemplate(selectedComponent, state, {
+        nodeEditorHtml: selectedNodeEditorTemplate(selectedComponent, state, nodePackage),
+      }) : ""}`;
       replaceInspectorHtml(html, state);
       return;
     }
@@ -977,7 +995,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           titlePath: `${pathForComponent(state, selectedCanvas)}.name`,
           headerActionHtml: componentHeaderAddButtonTemplate(selectedCanvas),
         } : {}
-      )}${selectedCanvas ? componentSelectedChainSettingsTemplate(selectedCanvas, state) : ""}`;
+      )}${selectedCanvas ? componentSelectedChainSettingsTemplate(selectedCanvas, state, {
+        nodeEditorHtml: selectedNodeEditorTemplate(selectedCanvas, state, nodePackage),
+      }) : ""}`;
       replaceInspectorHtml(html, state);
       return;
     }
@@ -1012,6 +1032,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function bindRailEvents() {
     inputs.bind(refs.projectRail);
+    bindNodeLibraryFilter(refs.projectRail);
+    refs.projectRail.querySelectorAll("[data-select-node-definition]").forEach((button) => {
+      button.addEventListener("click", () => updateUi((ui) => {
+        ui.selectedNodeDefinitionId = button.dataset.selectNodeDefinition;
+      }, "select-node-definition"));
+    });
     refs.projectRail.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
     refs.projectRail.querySelectorAll("[data-add-component]").forEach((button) => {
       button.addEventListener("click", () => store.addComponent());
@@ -1138,6 +1164,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function bindInputs(scope) {
     inputs.bind(scope);
+    bindNodeEditorEvents(scope);
     bindCatalogMarkerControls(scope);
     scope.querySelectorAll("[data-live-component-view]").forEach((button) => {
       button.addEventListener("click", () => updateUi((ui) => {
@@ -1151,6 +1178,47 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         ui.live.selectedChainItemIds ||= {};
         ui.live.selectedChainItemIds[button.dataset.liveComponentId] = button.dataset.liveChainItem;
       }, "select-live-chain-item"));
+    });
+  }
+
+  function bindNodeEditorEvents(scope) {
+    if (!nodePackage?.registry) return;
+    scope.querySelectorAll("[data-save-node-fork]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const editor = button.closest("[data-node-editor]");
+        if (!editor) return;
+        let definition;
+        try {
+          definition = nodePackage.registry.get(editor.dataset.nodeBaseId, editor.dataset.nodeBaseVersion);
+        } catch {
+          setStatus("Node definition is no longer available");
+          return;
+        }
+        const sources = {};
+        for (const input of editor.querySelectorAll("[data-node-part-source]")) {
+          if (!input.readOnly) sources[input.dataset.nodePartSource] = input.value;
+        }
+        store.update((draft) => {
+          draft.nodes = withProjectNodeFork(draft.nodes, definition, sources);
+        }, "update:node-fork");
+        setStatus(`${definition.name} project version saved`);
+      });
+    });
+    scope.querySelectorAll("[data-reset-node-fork]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const editor = button.closest("[data-node-editor]");
+        if (!editor) return;
+        let definition;
+        try {
+          definition = nodePackage.registry.get(editor.dataset.nodeBaseId, editor.dataset.nodeBaseVersion);
+        } catch {
+          return;
+        }
+        store.update((draft) => {
+          draft.nodes = withoutProjectNodeFork(draft.nodes, definition);
+        }, "update:node-fork-reset");
+        setStatus(`${definition.name} restored to the built-in version`);
+      });
     });
   }
 
@@ -1218,6 +1286,7 @@ function workspaceLabel(workspace) {
   if (workspace === "component") return "Components";
   if (workspace === "canvas") return "Canvas";
   if (workspace === "live") return "Live";
+  if (workspace === "nodes") return "Nodes";
   return "Scenes";
 }
 

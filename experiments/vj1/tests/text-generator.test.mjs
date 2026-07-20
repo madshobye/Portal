@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-import { createGeneratorSource, getGeneratorComponent } from "../js/graph/generator-registry.js";
+import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 import { parseTextMarkdown, TEXT_GENERATOR_FRAGMENT_SHADER, textMaskSignature } from "../js/output/specialized/text-generator-renderer.js";
 
 test("text generator exposes portable typography and persistent style parameters", () => {

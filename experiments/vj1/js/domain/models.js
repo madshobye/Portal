@@ -1,9 +1,10 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=screen-input-registry-1";
+import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
 import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=catalog-marker-four-state-1";
+import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js";
 import {
   createOutputDefinition,
   normalizeCameraSettings,
@@ -221,6 +222,7 @@ export function createInitialState() {
       workspace: "scene",
       selectedComponentId: components[0].id,
       selectedChainItemId: components[0].chain[0]?.id || "",
+      selectedNodeDefinitionId: "",
       workspaceSelectionIds: {
         component: components[0].id,
         canvas: "",
@@ -331,6 +333,7 @@ export function createInitialState() {
       mode: "hardconfigured",
       manualLane: true,
     },
+    nodes: createEmptyNodeProjectData(),
     media: [],
     components,
     recordingFrames: [createCanvasFrame(0)],
@@ -389,6 +392,7 @@ export function sanitizeState(input = {}) {
     shaders: { ...base.shaders, ...(input.shaders || {}) },
     metrics: { ...base.metrics, ...(input.metrics || {}) },
   };
+  next.nodes = normalizeNodeProjectData(input.nodes);
   next.global.timeStretch = clampNumber(input.global?.timeStretch, -4, 4, 0);
 
   next.render = normalizeRenderSettings(input.render || {});

@@ -2,14 +2,14 @@ import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=can
 import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=render-core-contract-1";
 import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
 import { generateMeshPatternTopology, meshPatternTopologySignature } from "./mesh-pattern-algorithms.js?v=mesh-topology-1";
-import { compileRawShader, linkSpecializedProgram } from "./raw-webgl-utils.js?v=terrain-gl-state-1";
+import { compileRawShader, linkSpecializedProgram } from "../../libraries/render-engine/raw-webgl-utils.js";
 import {
   beginRawWebGlState,
   bindRawWebGlVertexArray,
   captureRawWebGlAttributes,
   disposeRawWebGlVertexArray,
   restoreRawWebGlState,
-} from "./raw-webgl-state.js?v=raw-webgl-state-1";
+} from "../../libraries/render-engine/raw-webgl-state.js";
 
 const MAX_CPU_TOPOLOGIES = 32;
 const MAX_GPU_TOPOLOGIES = 24;

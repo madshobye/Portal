@@ -1,4 +1,4 @@
-import { RENDER_QUALITY_PARAM } from "../graph/component-schema.js?v=adaptive-component-demand-29";
+import { RENDER_QUALITY_PARAM } from "../libraries/visual-nodes/shared/component-schema.js";
 
 export const MODEL_RENDER_MODES = ["surface", "wireframe", "surfaceWire", "outline", "surfaceOutline", "xrayOutline", "points"];
 export const MEDIA_FIT_MODES = ["contain", "cover"];

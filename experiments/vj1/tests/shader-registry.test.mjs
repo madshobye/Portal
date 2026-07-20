@@ -2,15 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { getShaderComponent, listShaderComponents } from "../js/shaders/shader-registry.js";
-import { getGeneratorComponent } from "../js/graph/generator-registry.js";
-import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js";
+import { getEffectNodeComponent as getShaderComponent, listEffectNodeComponents as listShaderComponents, getGeneratorNodeComponent as getGeneratorComponent, getGeneratorNodeShader, listGeneratorNodeComponents } from "../js/libraries/visual-nodes/index.js";
+import { getGeneratorShaderComponent } from "../js/libraries/visual-nodes/index.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 
 function generatorShaderCatalogSource() {
-  return ["generator-shaders.js", "generator-shaders-core.js", "generator-shaders-spatial.js", "generator-shaders-organic.js", "generator-shaders-atmosphere.js"]
-    .map((file) => readFileSync(new URL(`../js/shaders/${file}`, import.meta.url), "utf8"))
-    .join("\n");
+  return listGeneratorNodeComponents().map((component) => component.code || "").join("\n");
 }
 
 test("every effect exposes the shared render quality budget", () => {
@@ -456,6 +453,30 @@ test("gradient generator supports efficient linear radial and single modes", () 
   assert.ok(component.code.includes("float maxRadius = max(length(vec2(0.5 * aspect.x, 0.5)), 0.0001);"));
   assert.ok(component.code.includes("t = length(uv) / maxRadius + offset;"));
   assert.ok(component.code.includes("vec2 dir = vec2(cos(angle), sin(angle));"));
+});
+
+test("node-owned standalone generator shaders are not wrapped as effects", () => {
+  const component = getGeneratorNodeShader("gradient");
+  let fragmentSource = "";
+  const target = {
+    createShader(_vertex, fragment) {
+      fragmentSource = fragment;
+      return {};
+    },
+  };
+
+  createShaderBuilder({}).getShader({ id: component.id, component }, target);
+
+  assert.equal(component.type, "fragment");
+  for (const declaration of [
+    "uniform vec2 resolution;",
+    "uniform float time;",
+    "uniform float mode;",
+    "varying vec2 vTexCoord;",
+  ]) {
+    assert.equal(fragmentSource.split(declaration).length - 1, 1, `${declaration} must be declared once`);
+  }
+  assert.doesNotMatch(fragmentSource, /vec4\s+runEffect\s*\(/);
 });
 
 test("Shadertoy generator keeps mainImage source behind the compatibility wrapper", () => {

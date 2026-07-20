@@ -1,4 +1,5 @@
 import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=catalog-marker-four-state-1";
+import { serializeNodeProjectData } from "../libraries/node-engine/node-project.js";
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
   return {
@@ -22,6 +23,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
     global: state.global,
     render: persistedRenderSettings(state.render),
     scheduler: state.scheduler,
+    nodes: serializeNodeProjectData(state.nodes),
     media: state.media,
     components: persistedComponents(state.components),
     recordingFrames: state.recordingFrames,

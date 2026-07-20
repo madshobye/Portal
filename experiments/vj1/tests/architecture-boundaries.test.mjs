@@ -5,6 +5,7 @@ import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const jsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../js");
+const libraryRoot = resolve(jsRoot, "libraries");
 const modules = collectModules(jsRoot);
 const moduleSet = new Set(modules);
 const graph = new Map(modules.map((filename) => [filename, localImports(filename)]));
@@ -27,6 +28,80 @@ test("domain and graph modules do not depend on application, UI, services, or ou
     }
   }
   assert.deepEqual(violations, []);
+});
+
+test("node engine and capability libraries do not delegate into application internals", () => {
+  const violations = [];
+  for (const [filename, dependencies] of graph) {
+    const owner = moduleName(filename);
+    if (!owner.startsWith("libraries/")) continue;
+    for (const dependency of dependencies) {
+      const target = moduleName(dependency);
+      if (!target.startsWith("libraries/") && !target.startsWith("vendor/")) {
+        violations.push(`${owner} -> ${target}`);
+      }
+    }
+  }
+  assert.deepEqual(violations, []);
+});
+
+test("output and preview hot paths use node-owned algorithms without node-runtime overhead", () => {
+  const renderer = readFileSync(resolve(jsRoot, "output/output-renderer.js"), "utf8");
+  const surfaceRuntime = readFileSync(resolve(jsRoot, "output/output-surface-runtime.js"), "utf8");
+  const surfacePlanner = readFileSync(resolve(jsRoot, "output/surface-render-planner.js"), "utf8");
+  const app = readFileSync(resolve(jsRoot, "app.js"), "utf8");
+  const outputBranch = app.slice(app.indexOf('if (mode === "output"'), app.indexOf("} else {"));
+  const hotPath = `${renderer}\n${surfaceRuntime}\n${surfacePlanner}\n${outputBranch}`;
+
+  assert.doesNotMatch(hotPath, /\b(?:NodeInstance|createNodeInstance|createVj1NodePackage)\b/);
+  assert.doesNotMatch(hotPath, /(?:\.\.\/)+node\/node-runtime\.js|app-node-package\.js/);
+  assert.match(surfacePlanner, /export const planSurfaceRoutes = createSurfaceCompositionEngine\(/);
+});
+
+test("visual nodes own their definitions instead of using aggregate manifests", () => {
+  const renderer = readFileSync(resolve(jsRoot, "output/output-renderer.js"), "utf8");
+  for (const removed of [
+    "graph/generator-source-manifest.js",
+    "graph/visual-node-catalog.js",
+    "shaders/effect-source-manifest.js",
+    "shaders/generator-shaders.js",
+  ]) assert.equal(moduleSet.has(resolve(jsRoot, removed)), false, `${removed} must not return`);
+  const generatorNodes = collectModules(resolve(libraryRoot, "visual-nodes/generators"));
+  const effectNodes = collectModules(resolve(libraryRoot, "visual-nodes/effects"));
+  assert.equal(generatorNodes.length, 31);
+  assert.equal(effectNodes.length, 33);
+  assert.equal(generatorNodes.every((filename) => filename.endsWith(`${sep}index.js`)), true);
+  assert.equal(effectNodes.every((filename) => filename.endsWith(`${sep}index.js`)), true);
+  assert.equal(moduleSet.has(resolve(jsRoot, "graph/visual-node-adapter.js")), false);
+  assert.doesNotMatch(renderer, /return component\.chain \|\| \[\]/);
+  assert.match(renderer, /VJ1_COMPONENT_PROGRAM_MISSING/);
+});
+
+test("each reusable library and executable node has an explicit folder boundary", () => {
+  const libraries = readdirSync(libraryRoot, { withFileTypes: true }).filter((entry) => entry.isDirectory());
+  assert.equal(libraries.length > 0, true);
+  for (const library of libraries) {
+    assert.equal(moduleSet.has(resolve(libraryRoot, library.name, "index.js")), true, `${library.name} needs a public index.js`);
+  }
+
+  const violations = [];
+  for (const filename of modules.filter((item) => item.startsWith(libraryRoot))) {
+    const source = readFileSync(filename, "utf8");
+    const declarations = [...source.matchAll(/export const \w+(?:Node|Group|VisualComponent)\s*=\s*define(?:Node|NodeGroup|GeneratorNode|EffectNode)\s*\(/g)];
+    if (!declarations.length) continue;
+    if (!filename.endsWith(`${sep}index.js`) || declarations.length !== 1) {
+      violations.push(`${moduleName(filename)} (${declarations.length} executable definitions)`);
+    }
+  }
+  assert.deepEqual(violations, []);
+  assert.equal(modules.some((filename) => /(?:timing-nodes|source-manifest|shader-components-(?:image|motion|stylize))\.js$/.test(filename)), false);
+});
+
+test("the application composition root configures libraries through public entry points", () => {
+  const source = readFileSync(resolve(jsRoot, "app-node-package.js"), "utf8");
+  const imports = [...source.matchAll(/from "\.\/libraries\/([^"?]+)"/g)].map((match) => match[1]);
+  assert.equal(imports.length > 0, true);
+  assert.deepEqual(imports.filter((target) => !target.endsWith("/index.js")), []);
 });
 
 test("orchestration shells delegate extracted cache, shader-target, history, derived-asset, profiling, diagnostics, and rail ownership", () => {

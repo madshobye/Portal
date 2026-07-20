@@ -13,22 +13,20 @@ import {
 } from "./directory-handle-store.js";
 import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=screen-input-registry-1";
 import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=catalog-marker-four-state-1";
-import { createChangeEvent } from "../domain/change-event.js?v=chain-only-authority-1";
+import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
 import { buildProjectPayload } from "./project-serializer.js?v=catalog-marker-four-state-1";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
 import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=project-derived-asset-store-1";
+import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
 export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=catalog-marker-four-state-1";
 export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js?v=project-history-store-1";
 
-export function createProjectFolderService({ mediaLibrary, store, bridge }) {
+export function createProjectFolderService({ mediaLibrary, store, bridge, classifyChange = createChangeEvent }) {
   let dirHandle = null;
   let autosaveTimer = null;
-  let saveInFlight = false;
-  let saveDrainPromise = null;
-  const saveQueue = [];
   let lastSavedSignature = "";
   let lastDirectorySignature = "";
   let refreshInFlight = false;
@@ -66,6 +64,15 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         draft.ui.canUndo = canUndo;
         draft.ui.canRedo = canRedo;
       }, "project-history");
+    },
+  });
+  const saveQueue = new SerializedTaskQueue({
+    worker: (job) => saveProject(job),
+    onError(error) {
+      store.update((draft) => {
+        draft.project.warnings = [`Autosave error: ${error.message || error}`];
+      }, "project-autosave-error");
+      return false;
     },
   });
   const derivedAssets = new ProjectDerivedAssetStore({
@@ -173,14 +180,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
       autosaveTimer = null;
       await flushAutoSave("project-close-checkpoint");
     }
-    if (saveDrainPromise) await saveDrainPromise;
-    if (saveQueue.length) return false;
+    await saveQueue.wait();
+    if (saveQueue.size) return false;
     stopFileObserver();
     projectGeneration++;
     dirHandle = null;
-    saveInFlight = false;
-    saveDrainPromise = null;
-    saveQueue.length = 0;
+    saveQueue.clear();
     lastSavedSignature = "";
     lastDirectorySignature = "";
     projectLoadBlocked = false;
@@ -335,7 +340,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   }
 
   function scheduleAutoSave(change = "change", { immediate = false } = {}) {
-    const event = createChangeEvent(change);
+    const event = classifyChange(change);
     const reason = event.reason;
     if (event.phase === "edit" || event.phase === "scrub") return;
     if (!dirHandle || isOpening || projectLoadBlocked || skipAutosaveReasons.has(reason)) return;
@@ -356,37 +361,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
   async function flushAutoSave(reason = "") {
     if (!dirHandle) return false;
     const saveReason = reason || pendingSaveReason || "change";
-    const recordHistory = pendingHistory || createChangeEvent(saveReason).history === "record";
+    const recordHistory = pendingHistory || classifyChange(saveReason).history === "record";
     pendingHistory = false;
     pendingSaveReason = "";
     const payload = buildProjectPayload(store.getState(), new Date().toISOString());
     const json = JSON.stringify(payload, null, 2);
-    saveQueue.push({ reason: saveReason, recordHistory, payload: JSON.parse(json), json });
-    if (saveInFlight) return saveDrainPromise;
-    saveInFlight = true;
-    saveDrainPromise = (async () => {
-      let saved = false;
-      try {
-        while (saveQueue.length) {
-          const job = saveQueue.shift();
-          try { saved = await saveProject(job) || saved; }
-          catch (error) {
-            saveQueue.unshift(job);
-            throw error;
-          }
-        }
-        return saved;
-      } catch (error) {
-        store.update((draft) => {
-          draft.project.warnings = [`Autosave error: ${error.message || error}`];
-        }, "project-autosave-error");
-        return false;
-      } finally {
-        saveInFlight = false;
-        saveDrainPromise = null;
-      }
-    })();
-    return saveDrainPromise;
+    return saveQueue.enqueue({ reason: saveReason, recordHistory, payload: JSON.parse(json), json });
   }
 
   async function saveProject({ reason = "manual", recordHistory = true, payload: suppliedPayload = null, json: suppliedJson = "" } = {}) {
@@ -449,8 +429,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
         clearTimeout(autosaveTimer);
         autosaveTimer = null;
         await flushAutoSave("history-checkpoint");
-      } else if (saveDrainPromise) await saveDrainPromise;
-      if (saveQueue.length) return false;
+      } else await saveQueue.wait();
+      if (saveQueue.size) return false;
       const entry = await historyStore.latestRevisionEntry("undo");
       if (!entry) {
         await refreshHistoryState();
@@ -472,8 +452,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge }) {
     if (!dirHandle || historyInFlight) return false;
     historyInFlight = true;
     try {
-      if (saveDrainPromise) await saveDrainPromise;
-      if (saveQueue.length) return false;
+      await saveQueue.wait();
+      if (saveQueue.size) return false;
       const entry = await historyStore.latestRevisionEntry("redo");
       if (!entry) {
         await refreshHistoryState();

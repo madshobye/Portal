@@ -23,11 +23,12 @@ import {
   migrateProjectV19ToV20,
   migrateProjectV20ToV21,
   migrateProjectV21ToV22,
+  migrateProjectV22ToV23,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 22);
+  assert.equal(CURRENT_PROJECT_VERSION, 23);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -353,6 +354,23 @@ test("v21 to v22 separates hearts from pins while preserving old pins", () => {
   assert.deepEqual(migrated.scenes.map((item) => item.catalogMarker), [0]);
   assert.deepEqual(migrated.media.map((item) => item.catalogMarker), [0]);
   assert.equal(migrated.ui.catalogSortModes.source, "marker");
+});
+
+test("v22 to v23 adds empty project-owned node data without changing authored content", () => {
+  const input = { version: 22, project: { name: "Legacy show" }, components: [{ id: "component-a" }] };
+  const migrated = migrateProjectV22ToV23(input);
+  assert.deepEqual(migrated.nodes, {
+    formatVersion: 1,
+    definitions: [],
+    pins: [],
+    instances: [],
+    groups: [],
+    artifacts: [],
+    forks: [],
+    migrations: [],
+  });
+  assert.deepEqual(migrated.project, input.project);
+  assert.deepEqual(migrated.components, input.components);
 });
 
 test("migration runner applies every adjacent step in order", () => {

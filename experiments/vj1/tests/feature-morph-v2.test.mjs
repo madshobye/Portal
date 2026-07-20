@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { featureMorphMediaControlsTemplate } from "../js/control/feature-morph-view.js";
-import { createGeneratorSource, getGeneratorComponent } from "../js/graph/generator-registry.js";
+import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
 import {
   buildMobileNetMorphField,

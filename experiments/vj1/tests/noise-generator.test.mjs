@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGeneratorSource, getGeneratorComponent } from "../js/graph/generator-registry.js";
+import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
-import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js";
+import { getGeneratorShaderComponent } from "../js/libraries/visual-nodes/index.js";
 
 test("Noise exposes bounded simplex, motion, shaping, and palette controls", () => {
   const component = getGeneratorComponent("noise");

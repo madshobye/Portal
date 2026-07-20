@@ -1,4 +1,6 @@
-export const CURRENT_PROJECT_VERSION = 22;
+import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
+
+export const CURRENT_PROJECT_VERSION = 23;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -45,6 +47,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   19: migrateProjectV19ToV20,
   20: migrateProjectV20ToV21,
   21: migrateProjectV21ToV22,
+  22: migrateProjectV22ToV23,
 });
 
 export function migrateProjectData(project = {}) {
@@ -534,6 +537,15 @@ export function migrateProjectV21ToV22(project) {
     components: (project.components || []).map((item) => ({ ...item, catalogMarker: migrateMarker(item?.catalogMarker) })),
     scenes: (project.scenes || []).map((item) => ({ ...item, catalogMarker: migrateMarker(item?.catalogMarker) })),
     media: (project.media || []).map((item) => ({ ...item, catalogMarker: migrateMarker(item?.catalogMarker) })),
+  };
+}
+
+// v23 introduces project-owned node definitions and graph state. Existing
+// projects keep their exact authored behavior and begin with no local nodes.
+export function migrateProjectV22ToV23(project) {
+  return {
+    ...project,
+    nodes: createEmptyNodeProjectData(),
   };
 }
 

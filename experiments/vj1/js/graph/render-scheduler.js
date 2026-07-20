@@ -1,11 +1,10 @@
-import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "./component-schema.js?v=text-generator-1";
-import { getGeneratorComponent } from "./generator-registry.js?v=screen-input-registry-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
+import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "../libraries/visual-nodes/shared/component-schema.js";
+import { getEffectNodeComponent as getShaderComponent, getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js";
 
-export function compileComponentPatch(component = {}, renderRequest = {}) {
+export function compileComponentPatch(component = {}, renderRequest = {}, resolvers = {}) {
   const request = normalizePatchRenderRequest(renderRequest);
   const outputId = `${component.id || "component"}:output`;
-  const graph = graphForComponentChain(component, request, outputId);
+  const graph = graphForComponentChain(component, request, outputId, resolvers);
   const outputNode = {
     id: outputId,
     componentId: "output.texture",
@@ -38,10 +37,10 @@ export function compileComponentPatch(component = {}, renderRequest = {}) {
   };
 }
 
-function graphForComponentChain(component, request, outputId) {
+function graphForComponentChain(component, request, outputId, resolvers) {
   const chain = (component.chain || []).filter((item) => item.enabled !== false);
   const nodes = chain
-    .map((item, index) => withRenderRequest(chainNodeForItem(component, item, index), request));
+    .map((item, index) => withRenderRequest(chainNodeForItem(component, item, index, resolvers), request));
   const edges = [];
   for (let index = 0; index < nodes.length - 1; index++) {
     edges.push(textureEdge(nodes[index].id, nodes[index + 1].id));
@@ -84,7 +83,7 @@ function textureEdge(fromId, toId, outletId = "texture", inletId = "texture") {
   };
 }
 
-function chainNodeForItem(component, item, index) {
+function chainNodeForItem(component, item, index, resolvers = {}) {
   if (item.kind === "effect") {
     return effectNodeForPass(component, {
       id: item.componentId,
@@ -94,7 +93,7 @@ function chainNodeForItem(component, item, index) {
       transform: item.transform,
       opacity: item.opacity,
       blend: item.blend,
-    }, index);
+    }, index, resolvers.getEffectComponent);
   }
   if (item.kind === "group") {
     return createVisualNode(groupComponentFor(), {
@@ -114,7 +113,7 @@ function chainNodeForItem(component, item, index) {
       },
     });
   }
-  const sourceComponent = sourceComponentFor(item.source);
+  const sourceComponent = sourceComponentFor(item.source, resolvers.getGeneratorComponent);
   return createVisualNode(sourceComponent, {
     id: `${sourceComponent.id || "component"}:source:${index}:${item.id}`,
     role: "source",
@@ -142,10 +141,10 @@ function groupComponentFor() {
   };
 }
 
-export function compileShaderSchedule(chain = []) {
+export function compileShaderSchedule(chain = [], { getEffectComponent = getShaderComponent } = {}) {
   return (chain || [])
     .map((pass, index) => {
-      const component = getShaderComponent(pass.id);
+      const component = getEffectComponent(pass.id);
       if (!component) return null;
       const params = passParams(component, pass);
       return {
@@ -238,8 +237,8 @@ function withRenderRequest(node, request) {
   };
 }
 
-function effectNodeForPass(ownerComponent, pass, index) {
-  const effectComponent = getShaderComponent(pass.id);
+function effectNodeForPass(ownerComponent, pass, index, getEffectComponent = getShaderComponent) {
+  const effectComponent = getEffectComponent(pass.id);
   return createVisualNode(effectComponent, {
     id: `${ownerComponent.id || "component"}:effect:${index}:${pass.id}`,
     role: "effect",
@@ -260,8 +259,8 @@ function effectNodeForPass(ownerComponent, pass, index) {
   });
 }
 
-function sourceComponentFor(source = {}) {
-  if (source.type === "generator") return getGeneratorComponent(source.generatorId);
+function sourceComponentFor(source = {}, resolveGenerator = getGeneratorComponent) {
+  if (source.type === "generator") return resolveGenerator(source.generatorId);
   return {
     id: `source.${source.type || "black"}`,
     kind: "source",

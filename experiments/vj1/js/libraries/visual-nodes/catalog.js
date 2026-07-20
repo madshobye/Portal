@@ -1,0 +1,141 @@
+import GeneratorAnatomy from "./generators/anatomy/index.js";
+import GeneratorBezierStrokes from "./generators/bezier-strokes/index.js";
+import GeneratorBiomineLite from "./generators/biomine-lite/index.js";
+import GeneratorBlack from "./generators/black/index.js";
+import GeneratorCellularCircles from "./generators/cellular-circles/index.js";
+import GeneratorChecker from "./generators/checker/index.js";
+import GeneratorCherenkovVolume from "./generators/cherenkov-volume/index.js";
+import GeneratorCloudyTunnel from "./generators/cloudy-tunnel/index.js";
+import GeneratorEyeball from "./generators/eyeball/index.js";
+import GeneratorFeatureMorphV2 from "./generators/feature-morph-v2/index.js";
+import GeneratorFeatureMorph from "./generators/feature-morph/index.js";
+import GeneratorFireflies from "./generators/fireflies/index.js";
+import GeneratorFog from "./generators/fog/index.js";
+import GeneratorGalaxy from "./generators/galaxy/index.js";
+import GeneratorGradient from "./generators/gradient/index.js";
+import GeneratorLightning from "./generators/lightning/index.js";
+import GeneratorMeshPatterns from "./generators/mesh-patterns/index.js";
+import GeneratorNoise from "./generators/noise/index.js";
+import GeneratorPaintDrips from "./generators/paint-drips/index.js";
+import GeneratorPlasma from "./generators/plasma/index.js";
+import GeneratorScreenShare from "./generators/screen-share/index.js";
+import GeneratorSeascape from "./generators/seascape/index.js";
+import GeneratorShadertoyBaseWarp from "./generators/shadertoy-base-warp/index.js";
+import GeneratorSunRays from "./generators/sun-rays/index.js";
+import GeneratorSwayingTrees from "./generators/swaying-trees/index.js";
+import GeneratorTerrainFlyover from "./generators/terrain-flyover/index.js";
+import GeneratorTestPattern from "./generators/test-pattern/index.js";
+import GeneratorText from "./generators/text/index.js";
+import GeneratorTileTexture from "./generators/tile-texture/index.js";
+import GeneratorVolumetricClouds from "./generators/volumetric-clouds/index.js";
+import GeneratorWaves from "./generators/waves/index.js";
+import EffectAlphaFeather from "./effects/alpha-feather/index.js";
+import EffectAlphaVignette from "./effects/alpha-vignette/index.js";
+import EffectBlur from "./effects/blur/index.js";
+import EffectBrokenFluorescent from "./effects/broken-fluorescent/index.js";
+import EffectCrayonStroke from "./effects/crayon-stroke/index.js";
+import EffectCustom from "./effects/custom/index.js";
+import EffectDilate from "./effects/dilate/index.js";
+import EffectEchoFade from "./effects/echo-fade/index.js";
+import EffectErode from "./effects/erode/index.js";
+import EffectFlip from "./effects/flip/index.js";
+import EffectGlitchDistort from "./effects/glitch-distort/index.js";
+import EffectGray from "./effects/gray/index.js";
+import EffectHardBlack from "./effects/hard-black/index.js";
+import EffectHeartbeatPulse from "./effects/heartbeat-pulse/index.js";
+import EffectHeatShimmer from "./effects/heat-shimmer/index.js";
+import EffectHsvAlphaKey from "./effects/hsv-alpha-key/index.js";
+import EffectInvert from "./effects/invert/index.js";
+import EffectKaleido from "./effects/kaleido/index.js";
+import EffectLabelChromatic from "./effects/label-chromatic/index.js";
+import EffectLabelGrain from "./effects/label-grain/index.js";
+import EffectLabelThresholdGrain from "./effects/label-threshold-grain/index.js";
+import EffectLumaKey from "./effects/luma-key/index.js";
+import EffectMirrorFold from "./effects/mirror-fold/index.js";
+import EffectPhotoGrade from "./effects/photo-grade/index.js";
+import EffectPixelArtUpscale from "./effects/pixel-art-upscale/index.js";
+import EffectPixelate from "./effects/pixelate/index.js";
+import EffectPlasma from "./effects/plasma/index.js";
+import EffectPowerFlicker from "./effects/power-flicker/index.js";
+import EffectRgbSplit from "./effects/rgb-split/index.js";
+import EffectRipple from "./effects/ripple/index.js";
+import EffectSmear from "./effects/smear/index.js";
+import EffectSpinRotate from "./effects/spin-rotate/index.js";
+import EffectThreshold from "./effects/threshold/index.js";
+
+import { defaultParamValues, normalizeParamValues } from "./shared/component-schema.js";
+export { componentFromNodeDefinition } from "./shared/visual-node-factory.js";
+
+const generators = Object.freeze([GeneratorAnatomy, GeneratorBezierStrokes, GeneratorBiomineLite, GeneratorBlack, GeneratorCellularCircles, GeneratorChecker, GeneratorCherenkovVolume, GeneratorCloudyTunnel, GeneratorEyeball, GeneratorFeatureMorphV2, GeneratorFeatureMorph, GeneratorFireflies, GeneratorFog, GeneratorGalaxy, GeneratorGradient, GeneratorLightning, GeneratorMeshPatterns, GeneratorNoise, GeneratorPaintDrips, GeneratorPlasma, GeneratorScreenShare, GeneratorSeascape, GeneratorShadertoyBaseWarp, GeneratorSunRays, GeneratorSwayingTrees, GeneratorTerrainFlyover, GeneratorTestPattern, GeneratorText, GeneratorTileTexture, GeneratorVolumetricClouds, GeneratorWaves]);
+const effects = Object.freeze([EffectAlphaFeather, EffectAlphaVignette, EffectBlur, EffectBrokenFluorescent, EffectCrayonStroke, EffectCustom, EffectDilate, EffectEchoFade, EffectErode, EffectFlip, EffectGlitchDistort, EffectGray, EffectHardBlack, EffectHeartbeatPulse, EffectHeatShimmer, EffectHsvAlphaKey, EffectInvert, EffectKaleido, EffectLabelChromatic, EffectLabelGrain, EffectLabelThresholdGrain, EffectLumaKey, EffectMirrorFold, EffectPhotoGrade, EffectPixelArtUpscale, EffectPixelate, EffectPlasma, EffectPowerFlicker, EffectRgbSplit, EffectRipple, EffectSmear, EffectSpinRotate, EffectThreshold]);
+const generatorById = new Map(generators.map((component) => [component.id, component]));
+const effectById = new Map(effects.map((component) => [component.id, component]));
+
+export function getGeneratorNodeComponent(id) {
+  const key = String(id || "");
+  const component = generatorById.get(key);
+  if (!component) throw new TypeError(`[VJ1_UNKNOWN_GENERATOR] Unknown generator ${key || "missing id"}`);
+  return component;
+}
+
+export function getEffectNodeComponent(id) {
+  return effectById.get(String(id || "")) || null;
+}
+
+export function listGeneratorNodeComponents() { return [...generators]; }
+export function listEffectNodeComponents() { return [...effects]; }
+
+export function getGeneratorNodeShader(id) {
+  const component = getGeneratorNodeComponent(id);
+  if (!component?.nodeDefinition?.parts?.some((part) => part.kind === "shader")) return null;
+  return Object.freeze({ ...component, type: component.shaderInterface || component.type });
+}
+
+// Shader-oriented consumers receive the editable shader part while the full
+// node remains the catalog authority.
+export function getGeneratorShaderComponent(id) {
+  const component = getGeneratorNodeComponent(id);
+  const shaderPart = component?.nodeDefinition?.parts?.find((part) => part.kind === "shader");
+  if (!shaderPart) return null;
+  return Object.freeze({
+    ...component,
+    name: shaderPart.name || component.name,
+    type: component.shaderInterface || component.type,
+    code: shaderPart.source,
+  });
+}
+
+export function createGeneratorSource(id = "testPattern", params = {}) {
+  const component = getGeneratorNodeComponent(id);
+  const sourceParams = component.id === "meshPatterns" ? normalizeLegacyMeshPatternParams(params) : params;
+  return {
+    type: "generator",
+    generatorId: component.id,
+    params: Object.keys(sourceParams || {}).length
+      ? normalizeParamValues(component, sourceParams)
+      : defaultParamValues(component),
+  };
+}
+
+function normalizeLegacyMeshPatternParams(params = {}) {
+  const aliases = {
+    "tectonic plates": "cells",
+    "leaf veins": "veins",
+    "topographic contours": "mountains",
+    "soap bubble foam": "soap",
+    "shattered glass": "cracks",
+    "coral skeleton": "coral",
+    "fabric tension": "fabric",
+    "river delta": "rivers",
+    "magnetic field": "magnetic fields",
+    "crystalline growth": "cracks",
+    "root system": "veins",
+    "neural tissue": "veins",
+    "spider web": "veins",
+    "city blocks": "cells",
+    "lava cooling": "cells",
+    "constellation graph": "bone",
+  };
+  const pattern = aliases[String(params?.pattern || "").toLowerCase()] || params?.pattern;
+  return pattern === params?.pattern ? params : { ...params, pattern };
+}

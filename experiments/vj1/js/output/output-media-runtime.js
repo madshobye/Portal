@@ -2,7 +2,7 @@ import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } fro
 import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
 import { graphicsToPngBlob } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
-import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "./specialized/raw-model-webgl-renderer.js?v=model-wire-detail-2";
+import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "../libraries/mesh-engine/mesh-render/index.js";
 import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
 import { SharedInputRuntime } from "./shared-input-runtime.js?v=screen-input-registry-1";
 

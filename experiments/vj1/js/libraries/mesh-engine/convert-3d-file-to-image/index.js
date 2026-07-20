@@ -1,0 +1,144 @@
+import { NodeRegistry } from "../../node-engine/node-definition.js";
+import { defineNodeGroup } from "../../node-engine/node-group.js";
+import { createNodeInstance } from "../../node-engine/node-group.js";
+import { optionalType } from "../../node-engine/node-types.js";
+import { ImageResizeNode, RasterImageType } from "../../image-engine/image-resize/index.js";
+import { Detect3dFormatNode } from "../detect-3d-format/index.js";
+import { MeshRenderNode } from "../mesh-render/index.js";
+import { MeshType } from "../mesh-types.js";
+import { MeshResolutionNode } from "../mesh-resolution/index.js";
+import { ObjParserNode } from "../obj-parser/index.js";
+import { Parse3dObjectGroup } from "../parse-3d-object/index.js";
+import { Prepare3dAssetGroup } from "../prepare-3d-asset/index.js";
+import { StlParserNode } from "../stl-parser/index.js";
+
+export const Convert3dFileToImageGroup = defineNodeGroup({
+  id: "core.mesh.convert-3d-file-to-image",
+  name: "Convert 3D File to Image",
+  version: "0.1.0",
+  description: "Prepares and renders a 3D file using live or bounded-thumbnail quality policies.",
+  inlets: {
+    source: { type: "any", required: true },
+    name: { type: "string", optional: true, defaultValue: "" },
+    format: { type: { type: "enum", values: ["", "stl", "obj"] }, optional: true, defaultValue: "" },
+    target: { type: "any", optional: true },
+    cacheOwner: { type: "any", optional: true },
+    viewport: { type: "any", optional: true },
+    contentTransform: { type: "transform2d", optional: true },
+    rasterImage: { type: optionalType(RasterImageType), optional: true },
+  },
+  parameters: {
+    profile: { type: { type: "enum", values: ["live", "thumbnail"] }, defaultValue: "live", editor: { type: "select" } },
+    resolution: { type: { type: "enum", values: ["source", "automatic", "single"] }, defaultValue: "automatic", editor: { type: "select" } },
+    targetTriangles: { type: "number", defaultValue: 25000, allowedRange: [256, 120000], clamp: true },
+    width: { type: "number", defaultValue: 100, allowedRange: [1, 16384], clamp: true },
+    height: { type: "number", defaultValue: 100, allowedRange: [1, 16384], clamp: true },
+    fit: { type: { type: "enum", values: ["contain", "cover", "stretch"] }, defaultValue: "contain" },
+    renderMode: { type: { type: "enum", values: ["surface", "points", "wireframe", "surfaceWire", "outline", "surfaceOutline", "xrayOutline"] }, defaultValue: "surface" },
+  },
+  outlets: {
+    mesh: { type: optionalType(MeshType) },
+    image: { type: optionalType("any") },
+    renderResult: { type: "any" },
+    format: { type: { type: "enum", values: ["stl", "obj"] } },
+  },
+  execution: { trigger: "input-change", domain: "main", stateful: true, asynchronous: true },
+  capabilities: ["mesh-processing", "mesh-rendering", "produces-image", "expandable-group", "graph-placeable"],
+  presentation: { catalogs: ["graph", "mesh", "image"], placeableOn: ["node-graph"], expandable: true, previewOutput: "image" },
+  nodes: [
+    { id: "prepare", type: Prepare3dAssetGroup.id, version: Prepare3dAssetGroup.version },
+    { id: "render", type: MeshRenderNode.id, version: MeshRenderNode.version },
+    { id: "resize", type: ImageResizeNode.id, version: ImageResizeNode.version },
+  ],
+  connections: [
+    { from: "$in.source", to: "prepare.source" },
+    { from: "prepare.mesh", to: "render.mesh" },
+    { from: "render.result.image", to: "resize.image", when: { imageKind: "raster" } },
+    { from: "resize.frame", to: "$out.image", when: { imageKind: "raster" } },
+    { from: "render.result.image", to: "$out.image", when: { imageKind: "svg" } },
+  ],
+  publicInlets: { source: "prepare.source", name: "prepare.name", format: "prepare.format", target: "render.target" },
+  publicOutlets: { mesh: "prepare.mesh", image: ["render.result.image", "resize.frame"], format: "prepare.format" },
+  program: convert3dFileToImageProgram,
+});
+
+async function convert3dFileToImageProgram(inputs = {}, { run }) {
+  const thumbnail = inputs.profile === "thumbnail";
+  const prepared = await run("prepare", {
+    source: inputs.source,
+    name: inputs.name,
+    format: inputs.format,
+  }, {
+    // Thumbnails reuse the general parser node but deliberately avoid building
+    // QEM LODs; the SVG render node applies its bounded display sampling.
+    parameters: {
+      resolution: thumbnail ? "source" : (inputs.resolution || "automatic"),
+      targetTriangles: inputs.targetTriangles || 25000,
+    },
+  });
+  const rendered = await run("render", {
+    mesh: prepared.mesh,
+    target: inputs.target,
+    cacheOwner: inputs.cacheOwner,
+    viewport: inputs.viewport,
+    contentTransform: inputs.contentTransform,
+  }, {
+    parameters: {
+      backend: thumbnail ? "svg" : "webgl",
+      renderMode: inputs.renderMode || "surface",
+    },
+  });
+  const renderResult = rendered.result;
+  let image = renderResult.image;
+  if (inputs.rasterImage) {
+    const resized = await run("resize", {
+      image: inputs.rasterImage,
+      transform: inputs.contentTransform,
+    }, {
+      parameters: { width: inputs.width, height: inputs.height, fit: inputs.fit },
+    });
+    image = resized.frame;
+  }
+  return { mesh: prepared.mesh, image, renderResult, format: prepared.format };
+}
+
+export const Convert3dFileToImageRegistry = new NodeRegistry([
+  Detect3dFormatNode,
+  StlParserNode,
+  ObjParserNode,
+  Parse3dObjectGroup,
+  MeshResolutionNode,
+  Prepare3dAssetGroup,
+  MeshRenderNode,
+  ImageResizeNode,
+  Convert3dFileToImageGroup,
+]);
+
+export async function convert3dFileToImage(inputs = {}) {
+  const instance = createNodeInstance(Convert3dFileToImageGroup, {
+    registry: Convert3dFileToImageRegistry,
+    parameters: {
+      profile: inputs.profile,
+      resolution: inputs.resolution,
+      targetTriangles: inputs.targetTriangles,
+      width: inputs.width,
+      height: inputs.height,
+      fit: inputs.fit,
+      renderMode: inputs.renderMode,
+    },
+  });
+  try {
+    return await instance.run(inputs);
+  } finally {
+    instance.dispose();
+  }
+}
+
+export async function createModelPreviewUrl(file) {
+  const converted = await convert3dFileToImage({
+    source: file,
+    name: file?.relativePath || file?.webkitRelativePath || file?.name || "",
+    profile: "thumbnail",
+  });
+  return URL.createObjectURL(new Blob([converted.image.data], { type: "image/svg+xml" }));
+}

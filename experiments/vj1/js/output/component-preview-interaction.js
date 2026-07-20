@@ -1,5 +1,5 @@
 import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
 import {
   canvasFrameBorderHit,
   canvasRectCorners,
@@ -426,6 +426,13 @@ export class ComponentPreviewInteraction {
     const renderer = this.renderer;
     renderer.state = stateWithChainItemTransform(renderer.state, componentId, itemId, transform);
     renderer.refreshComponentLookup?.(componentId);
+    const component = renderer.state?.components?.find((entry) => entry.id === componentId);
+    const item = findChainItemById(component?.chain, itemId);
+    // Compiled Component programs intentionally avoid traversing project node
+    // metadata in the frame loop. During a preview drag, patch only the one
+    // materialized chain item so the local pointer overlay remains immediate;
+    // waiting for the RAF-coalesced store echo makes motion visibly stair-step.
+    if (item) renderer.componentPrograms?.get?.(componentId)?.replaceChainItem?.(itemId, item);
   }
 
   reconcileIncomingState(nextState) {

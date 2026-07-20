@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createGeneratorSource, getGeneratorComponent } from "../js/graph/generator-registry.js";
+import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
 import { TILE_TEXTURE_FRAGMENT_SHADER } from "../js/output/specialized/tile-texture-shader.js";
 import { generatorImageMediaControlTemplate } from "../js/control/generator-media-view.js";

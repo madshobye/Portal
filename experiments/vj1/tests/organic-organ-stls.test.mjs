@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 
-import { parseStlMesh } from "../js/output/specialized/model-parsers.js";
+import { parseStlMesh } from "../js/libraries/mesh-engine/stl-parser/index.js";
 
 const directory = new URL("../assets/stl/anatomical-organs/", import.meta.url);
 

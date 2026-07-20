@@ -1,6 +1,6 @@
-import { renderQualityScale, renderQualityValue } from "../graph/component-schema.js?v=adaptive-component-demand-29";
-import { componentRenderInstanceKey } from "./component-render-layout.js?v=canvas-global-resolution-1";
+import { renderQualityScale, renderQualityValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { contentTransformUvMatrices } from "./content-coordinate-space.js?v=render-coordinate-scope-3";
+export { advanceRateClock, componentInstanceTime, globalVisualTimeScale, instanceTime } from "../libraries/timing-engine/index.js";
 
 export function qualityScaledRenderRequest(request = {}, params = {}, minimum = 0.35) {
   const scale = renderQualityScale(params, { minimum });
@@ -97,23 +97,6 @@ export function eyeballFrameUniforms(timeSeconds = 0, params = {}, output = null
   return frame;
 }
 
-export function componentInstanceTime(component = {}, baseTime = 0, instanceId = "") {
-  if (component?.syncInstances !== false) return Number(baseTime) || 0;
-  return instanceTime(componentRenderInstanceKey(component, instanceId), baseTime);
-}
-
-export function advanceRateClock(previous, baseTime, rate) {
-  const now = Number(baseTime) || 0;
-  const speed = Math.max(0, Number(rate) || 0);
-  if (!previous || now < previous.baseTime) {
-    return { baseTime: now, time: now * speed };
-  }
-  return {
-    baseTime: now,
-    time: previous.time + Math.max(0, now - previous.baseTime) * speed,
-  };
-}
-
 export function advanceSpatialScale(previous, scale, anchor = [0, 0]) {
   const nextScale = Math.max(0.02, Number(scale) || 0.62);
   const point = [Number(anchor[0]) || 0, Number(anchor[1]) || 0];
@@ -137,15 +120,6 @@ export function usesShadertoyInterface(component = {}) {
   if (component.type === "shadertoy") return true;
   const code = String(component.code || "");
   return /\bvoid\s+mainImage\s*\(/.test(code) && !/\bvoid\s+main\s*\(/.test(code);
-}
-
-export function globalVisualTimeScale(global = {}) {
-  const stretch = Number(global?.timeStretch);
-  if (Number.isFinite(stretch)) {
-    const bounded = Math.max(-4, Math.min(4, stretch));
-    return bounded <= -4 ? 0 : 2 ** bounded;
-  }
-  return 1;
 }
 
 export function effectTransformUniforms(transform = {}) {
@@ -244,18 +218,3 @@ const QUALITY_ADJUSTED_GENERATORS = new Set([
   "volumetricClouds",
   "cellularCircles",
 ]);
-
-export function instanceTime(instanceId, baseTime = 0) {
-  return Number(baseTime) + instanceTimeOffset(instanceId);
-}
-
-function instanceTimeOffset(instanceId = "") {
-  const text = String(instanceId || "");
-  if (!text) return 0;
-  let hash = 2166136261;
-  for (let index = 0; index < text.length; index++) {
-    hash ^= text.charCodeAt(index);
-    hash = Math.imul(hash, 16777619);
-  }
-  return ((hash >>> 0) / 4294967295) * 97.0;
-}

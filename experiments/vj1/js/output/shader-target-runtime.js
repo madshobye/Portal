@@ -1,4 +1,4 @@
-import { normalizeParamValue } from "../graph/component-schema.js?v=text-style-controls-1";
+import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { isIdentityTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";

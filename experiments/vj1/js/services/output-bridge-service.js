@@ -1,15 +1,22 @@
 import { VJ1 } from "../constants.js";
 import { createOutputTransportProfiler, transportTimestampMs } from "./output-transport-profiler.js?v=output-transport-profile-1";
 import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=transport-derived-assets-1";
+import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js";
 
 export function createControlBridge({ store, mediaLibrary, diagnostics = null }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const sessionId = `control-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const clients = new Map();
-  let livePatchScheduled = false;
-  let livePatchScheduleToken = 0;
-  let liveRevision = 0;
-  const pendingLivePatches = new Map();
+  const liveSynchronization = new LivePatchSynchronizer({
+    onPatch(packet) {
+      channel.postMessage({
+        type: "live-patch",
+        ...packet,
+        sessionId,
+        transport: { sentAtMs: transportTimestampMs() },
+      });
+    },
+  });
   const clientWatchdog = setInterval(() => {
     const count = activeClientCount(clients);
     const outputs = activeOutputClients(clients);
@@ -102,61 +109,32 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null })
 
   function sendState(stateOverride = null, { targetClientId = "" } = {}) {
     if (!targetClientId) {
-      cancelPendingLivePatches();
-      liveRevision++;
+      liveSynchronization.stateRevision({ broadcast: true });
     }
     channel.postMessage({
       type: "state",
       state: stateWithoutThumbnailUrls(stateOverride || store.getLiveRenderState?.() || store.getRenderState?.() || store.getState()),
       targetClientId,
-      revision: liveRevision,
+      revision: liveSynchronization.revision,
       sessionId,
       transport: { sentAtMs: transportTimestampMs() },
     });
   }
 
   function queueLivePatches(patches) {
-    for (const patch of patches) {
-      if (!patch?.componentId || !patch?.path) continue;
-      pendingLivePatches.set(`${patch.componentId}:${patch.path}`, patch);
-    }
+    liveSynchronization.queue(patches);
   }
 
   function scheduleLivePatches() {
-    if (livePatchScheduled) return;
-    livePatchScheduled = true;
-    const token = ++livePatchScheduleToken;
-    const schedule = typeof queueMicrotask === "function"
-      ? queueMicrotask
-      : (callback) => Promise.resolve().then(callback);
-    schedule(() => {
-      if (!livePatchScheduled || token !== livePatchScheduleToken) return;
-      livePatchScheduled = false;
-      flushLivePatches();
-    });
+    liveSynchronization.schedule();
   }
 
   function flushLivePatches() {
-    if (livePatchScheduled) livePatchScheduleToken++;
-    livePatchScheduled = false;
-    if (!pendingLivePatches.size) return;
-    const baseRevision = liveRevision;
-    liveRevision++;
-    channel.postMessage({
-      type: "live-patch",
-      baseRevision,
-      revision: liveRevision,
-      sessionId,
-      patches: [...pendingLivePatches.values()],
-      transport: { sentAtMs: transportTimestampMs() },
-    });
-    pendingLivePatches.clear();
+    liveSynchronization.flush();
   }
 
   function cancelPendingLivePatches() {
-    if (livePatchScheduled) livePatchScheduleToken++;
-    livePatchScheduled = false;
-    pendingLivePatches.clear();
+    liveSynchronization.cancelPending();
   }
 
   function sendRenderPatches(patches = [], { coalesce = false } = {}) {

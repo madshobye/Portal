@@ -1,6 +1,5 @@
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=screen-input-registry-1";
-import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
+import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
 import { generatorIcon } from "./picker-view.js?v=volumetric-clouds-1";
@@ -54,12 +53,12 @@ export function componentHeaderAddButtonTemplate(component) {
   return `<button type="button" class="rail-title-add" data-open-element-picker data-component-id="${esc(component.id)}" title="Add element" aria-label="Add element">${icon("add")}</button>`;
 }
 
-export function componentSelectedChainSettingsTemplate(component, state) {
+export function componentSelectedChainSettingsTemplate(component, state, { nodeEditorHtml = "" } = {}) {
   const selected = selectedChainItemSelection(component, state);
   if (!selected) return "";
   return `
     <section class="ui-section focus-panel chain-settings-panel" aria-label="Selected element parameters">
-      ${selectedChainItemTemplate(selected.item, component, state, selected.path)}
+      ${selectedChainItemTemplate(selected.item, component, state, selected.path, nodeEditorHtml)}
     </section>
   `;
 }
@@ -201,7 +200,7 @@ function chainItemRowTemplate(item, component, state, index, base, depth = 0) {
   `;
 }
 
-function selectedChainItemTemplate(item, component, state, base) {
+function selectedChainItemTemplate(item, component, state, base, nodeEditorHtml = "") {
   const title = selectedChainItemTitleTemplate(item, component, state, base);
   const content = selectedChainItemContentTemplate(item, component, state, base, "primary");
   const details = selectedChainItemContentTemplate(item, component, state, base, "details");
@@ -209,6 +208,7 @@ function selectedChainItemTemplate(item, component, state, base) {
   const views = chainParamViewDefinitions(content, details, chainGeneralControlsTemplate(item, base, {
     isSignificant: (_param, path) => componentParamIsSignificant(component, state, path),
   }));
+  if (nodeEditorHtml) views.push({ id: "node", label: "Node", html: nodeEditorHtml });
   return `
     ${title}
     <div class="chain-param-views" style="--param-view-count: ${views.length};">

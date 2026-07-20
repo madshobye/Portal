@@ -14,9 +14,9 @@ import {
   localContentDragDelta,
 } from "../js/output/content-coordinate-space.js";
 import { SharedFramebufferTarget, unwrapRenderTarget } from "../js/output/shared-framebuffer-target.js";
-import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, normalizedSourceRect, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices, VjMapper } from "../js/output/vj-mapper.js";
+import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, normalizedSourceRect, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
-import { getShaderComponent } from "../js/shaders/shader-registry.js";
+import { getEffectNodeComponent as getShaderComponent } from "../js/libraries/visual-nodes/index.js";
 
 test("shader components declare sampling cost and safe fusion metadata", () => {
   const invert = getShaderComponent("invert");
@@ -133,8 +133,8 @@ test("terrain preserves world-up camera Y until Composition placement converts i
 
 test("terrain raw WebGL passes are isolated from the shared p5 renderer", () => {
   const source = readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8");
-  const rawWebGlSource = readFileSync(new URL("../js/output/specialized/raw-webgl-utils.js", import.meta.url), "utf8");
-  const stateSource = readFileSync(new URL("../js/output/specialized/raw-webgl-state.js", import.meta.url), "utf8");
+  const rawWebGlSource = readFileSync(new URL("../js/libraries/render-engine/raw-webgl-utils.js", import.meta.url), "utf8");
+  const stateSource = readFileSync(new URL("../js/libraries/render-engine/raw-webgl-state.js", import.meta.url), "utf8");
   assert.match(source, /beginRawWebGlState\(gl, "terrain-surface"\)/);
   assert.match(source, /beginRawWebGlState\(gl, "terrain-wire"\)/);
   assert.match(stateSource, /VERTEX_ARRAY_BINDING/);
@@ -150,7 +150,7 @@ test("render recovery paths are observable and mapper overlays restore depth sta
   const framebufferSource = readFileSync(new URL("../js/output/shared-framebuffer-target.js", import.meta.url), "utf8");
   const drawSource = readFileSync(new URL("../js/output/render-draw-utils.js", import.meta.url), "utf8");
   const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
-  const mapperSource = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
+  const mapperSource = readFileSync(new URL("../js/libraries/mapping-engine/mapping-engine/index.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const terrainSource = readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8");
   const mediaRuntimeSource = readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8");

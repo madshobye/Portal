@@ -36,7 +36,17 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 22);
+  assert.equal(payload.version, 23);
+  assert.deepEqual(payload.nodes, {
+    formatVersion: 1,
+    definitions: [],
+    pins: [],
+    instances: [],
+    groups: [],
+    artifacts: [],
+    forks: [],
+    migrations: [],
+  });
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
@@ -217,10 +227,11 @@ test("every 500 committed revisions creates a scan-excluded cold project backup"
 
 test("completed project transactions enter a serialized immutable save queue", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  const engine = readFileSync(new URL("../js/libraries/storage-engine/serialized-storage/index.js", import.meta.url), "utf8");
   assert.match(source, /event\.history === "record" \? 0 : autosaveDelayMs/);
-  assert.match(source, /saveQueue\.push\(\{ reason: saveReason, recordHistory, payload: JSON\.parse\(json\), json \}\)/);
-  assert.match(source, /while \(saveQueue\.length\)/);
-  assert.match(source, /if \(saveInFlight\) return saveDrainPromise/);
+  assert.match(source, /saveQueue\.enqueue\(\{ reason: saveReason, recordHistory, payload: JSON\.parse\(json\), json \}\)/);
+  assert.match(engine, /while \(this\.pending\.length\)/);
+  assert.match(engine, /this\.pending\.unshift\(task\)/);
 });
 
 test("undo and redo reload project state without rescanning assets", () => {

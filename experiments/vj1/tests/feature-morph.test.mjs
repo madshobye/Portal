@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { buildFeatureMorphField, buildFeatureMorphMesh, matchSuperPointFeatures } from "../js/output/specialized/feature-morph-field.js";
 import { featureMorphPersistentKey, SuperPointPairService } from "../js/output/specialized/superpoint-service.js";
-import { createGeneratorSource, getGeneratorComponent } from "../js/graph/generator-registry.js";
+import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
 
 function feature(x, y, descriptor) {

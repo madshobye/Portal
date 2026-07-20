@@ -1,7 +1,6 @@
-import { parseObjMesh, parseStlMesh } from "./model-parsers.js?v=model-qem-4";
-import { buildAutomaticModelLods } from "./model-lod.js?v=model-wire-detail-2";
+import { prepare3dAsset } from "../../libraries/mesh-engine/prepare-3d-asset/index.js";
 
-self.onmessage = (event) => {
+self.onmessage = async (event) => {
   const { requestId, type, levels } = event.data || {};
   try {
     let buffer = event.data?.buffer;
@@ -11,9 +10,13 @@ self.onmessage = (event) => {
       event.data.buffer = null;
       buffer = null;
     }
-    const parsed = type === "obj" ? parseObjMesh(text || "") : parseStlMesh(buffer);
+    const mesh = (await prepare3dAsset({
+      source: type === "obj" ? (text || "") : buffer,
+      format: type,
+      resolution: "automatic",
+      levels,
+    })).mesh;
     text = null;
-    const mesh = buildAutomaticModelLods(parsed, levels);
     const transfer = transferableMeshArrays(mesh);
     self.postMessage({ requestId, mesh }, transfer);
   } catch (error) {

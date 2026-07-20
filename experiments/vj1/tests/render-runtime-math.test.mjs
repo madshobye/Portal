@@ -12,6 +12,12 @@ import {
   qualityAdjustedGeneratorParams,
   qualityScaledRenderRequest,
 } from "../js/output/render-runtime-math.js";
+import {
+  advanceRateClock as nodeAdvanceRateClock,
+  InstanceTimeNode,
+  RateClockNode,
+  VisualTimeScaleNode,
+} from "../js/libraries/timing-engine/index.js";
 
 test("render runtime math owns quality timing and transform policy", () => {
   assert.deepEqual(
@@ -48,4 +54,19 @@ test("output renderer imports runtime policy instead of defining it", () => {
   assert.doesNotMatch(rendererSource, /function globalVisualTimeScale\(/);
   assert.doesNotMatch(rendererSource, /function effectTransformUniforms\(/);
   assert.match(rendererSource, /globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams/);
+});
+
+test("timing nodes own phase continuity without changing direct render calls", () => {
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
+  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const first = nodeAdvanceRateClock(null, 10, 1);
+
+  assert.deepEqual(nodeAdvanceRateClock(first, 11, 2), { baseTime: 11, time: 12 });
+  assert.match(RateClockNode.parts[0].source, /function advanceRateClock/);
+  assert.equal(VisualTimeScaleNode.capabilities.includes("timing"), true);
+  assert.equal(InstanceTimeNode.capabilities.includes("live-fast-path"), true);
+  assert.match(runtimeSource, /export \{ advanceRateClock, componentInstanceTime, globalVisualTimeScale, instanceTime \} from "\.\.\/libraries\/timing-engine\/index\.js"/);
+  assert.doesNotMatch(runtimeSource, /function advanceRateClock|function instanceTimeOffset/);
+  assert.match(specializedSource, /from "\.\.\/\.\.\/libraries\/timing-engine\/index\.js"/);
+  assert.doesNotMatch(specializedSource, /new NodeInstance\(/);
 });

@@ -6,7 +6,7 @@ import { createProjectFolderService } from "./services/project-folder-service.js
 import { createControlBridge } from "./services/output-bridge-service.js?v=remote-diagnostics-1";
 import { installOutputApp } from "./output/output-app.js?v=screen-input-registry-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
-import { createDiagnosticsService } from "./services/diagnostics-service.js?v=remote-diagnostics-1";
+import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -16,16 +16,61 @@ if (mode === "output" || mode === "preview" || mode === "component") {
   diagnostics.install();
   installOutputApp({ root, mode, diagnostics });
 } else {
-  const diagnostics = createDiagnosticsService();
-  diagnostics.install();
-  const store = createAppState();
+  installControlApp();
+}
+
+async function installControlApp() {
+  // Control-only composition keeps node catalog/editor metadata completely out
+  // of output and preview render processes; no live-frame work is introduced.
+  const { createVj1NodePackage } = await import("./app-node-package.js");
+  const nodePackage = createVj1NodePackage();
+  const application = await nodePackage.createApplicationRuntime({
+    factories: {
+      timing: (_dependencies, { definition }) => ({
+        scale: (timeStretch) => definition.process({ timeStretch }).scale,
+      }),
+      "state-command": (_dependencies, { definition }) => ({
+        classify: (command) => definition.process({ command }).event,
+      }),
+      diagnostics: () => {
+        const service = createDiagnosticsService();
+        service.install();
+        return service;
+      },
+      "data-store": (dependencies) => createAppState(null, {
+        prepareState: nodePackage.prepareProjectState,
+        classifyChange: dependencies["state-command"].classify,
+      }),
+      "media-lifecycle": () => createMediaLibrary(),
+      "live-synchronization": (dependencies) => createControlBridge({
+        store: dependencies["data-store"],
+        mediaLibrary: dependencies["media-lifecycle"],
+        diagnostics: dependencies.diagnostics,
+      }),
+      storage: (dependencies) => createProjectFolderService({
+        mediaLibrary: dependencies["media-lifecycle"],
+        store: dependencies["data-store"],
+        bridge: dependencies["live-synchronization"],
+        classifyChange: dependencies["state-command"].classify,
+      }),
+      // The output renderer lives in its own browser process. This endpoint is
+      // the real transport connection declared by live -> output in the node
+      // program; no output/cache machinery is duplicated in the control UI.
+      output: (dependencies) => Object.freeze({
+        bridge: dependencies["live-synchronization"],
+        executionDomain: "output",
+      }),
+    },
+  }).initialize();
+  const diagnostics = application.get("diagnostics");
+  const store = application.get("data-store");
   const initialWorkspace = getInitialWorkspace();
   const fixtureUrl = fixtureStateUrl();
   store.setWorkspace(initialWorkspace);
   persistWorkspace(initialWorkspace);
-  const mediaLibrary = createMediaLibrary();
-  const bridge = createControlBridge({ store, mediaLibrary, diagnostics });
-  const projectService = createProjectFolderService({ mediaLibrary, store, bridge });
+  const mediaLibrary = application.get("media-lifecycle");
+  const bridge = application.get("live-synchronization");
+  const projectService = application.get("storage");
   let bridgeScrubFrame = 0;
 
   function sendScrubState() {
@@ -39,7 +84,7 @@ if (mode === "output" || mode === "preview" || mode === "component") {
     });
   }
 
-  createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics }).mount();
+  createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics, nodePackage }).mount();
 
   store.subscribe((state, reason, change) => {
     if (reason === "workspace") persistWorkspace(state.ui.workspace);

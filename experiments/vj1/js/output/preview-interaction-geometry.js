@@ -1,4 +1,4 @@
-import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
 import {
   combineContentTransforms,
   contentTransformCanvasPlacement,

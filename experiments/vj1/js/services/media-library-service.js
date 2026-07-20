@@ -1,6 +1,6 @@
 import { uid } from "../domain/models.js?v=chain-only-authority-1";
 import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
-import { createModelPreviewUrl } from "./model-preview-service.js?v=model-cache-2";
+import { createModelPreviewUrl } from "../libraries/mesh-engine/convert-3d-file-to-image/index.js";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;

@@ -1,10 +1,10 @@
-import { getShaderComponent } from "./shader-registry.js?v=alpha-feather-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
 
-export function createShaderBuilder({ getCustomCode, onStatus }) {
+export function createShaderBuilder({ getCustomCode, onStatus, getComponent = getShaderComponent } = {}) {
   const cache = new Map();
 
   function getShader(pass, target = null) {
-    const component = pass.component || getShaderComponent(pass.id);
+    const component = pass.component || getComponent(pass.id);
     const code = pass.id === "custom" ? getCustomCode() : component?.code;
     if (!code) return null;
     const contextId = getContextId(target);

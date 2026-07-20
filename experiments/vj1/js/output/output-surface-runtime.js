@@ -1,5 +1,5 @@
 import { clamp01 } from "../domain/models.js?v=chain-only-authority-1";
-import { componentInstanceTime } from "./render-runtime-math.js?v=render-coordinate-scope-3";
+import { componentInstanceTime } from "../libraries/timing-engine/index.js";
 import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { applyBlend } from "./blend-utils.js";
 import { drawStandby } from "./generators.js?v=standby-grace-1";
@@ -280,6 +280,7 @@ export class OutputSurfaceRuntime {
       viewport: renderer.displayCanvasSize(renderer.state?.render || {}),
       pixelScale: renderer.renderPixelDensity(renderer.state?.render || {}),
       renderIdentityPrefix: this.renderIdentityPrefix,
+      surfaceProgram: renderer.sceneProgramSurfaces(renderer.state),
       resolveRouteSourceNode: (surface) => renderer.resolveRouteSourceNode(surface),
     });
     renderer.frameProfile.surfaceRouteCandidates += metrics.candidates;

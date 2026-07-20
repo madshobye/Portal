@@ -16,6 +16,7 @@ import {
 } from "../js/domain/models.js?v=world-frame-27";
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
+import { DataStoreNode, ObservableDataStore } from "../js/libraries/data-store/data-store/index.js";
 
 test("one immutable-style state snapshot is shared across subscribers per emission", () => {
   const store = createAppState(createInitialState());
@@ -30,6 +31,20 @@ test("one immutable-style state snapshot is shared across subscribers per emissi
 
   assert.strictEqual(firstSnapshots.at(-1), secondSnapshots.at(-1));
   assert.notStrictEqual(firstSnapshots.at(-1), store.getState());
+});
+
+test("observable data store node owns shared snapshot publication", () => {
+  const engine = new ObservableDataStore({ count: 0 });
+  const first = [];
+  const second = [];
+  engine.subscribe((value) => first.push(value));
+  engine.subscribe((value) => second.push(value));
+  engine.update((draft) => { draft.count++; }, { reason: "increment" });
+
+  assert.strictEqual(first.at(-1), second.at(-1));
+  assert.deepEqual(first.at(-1), { count: 1 });
+  assert.match(DataStoreNode.parts[0].source, /class ObservableDataStore/);
+  assert.equal(DataStoreNode.capabilities.includes("data-store"), true);
 });
 
 test("UI-only updates preserve project data and emit an explicit UI scope", () => {

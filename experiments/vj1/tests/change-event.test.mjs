@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createChangeEvent } from "../js/domain/change-event.js";
+import { createChangeEvent } from "../js/libraries/state-engine/state-command/index.js";
 
 test("structural component changes are identified separately from control gestures", () => {
   assert.equal(createChangeEvent("add-component").structural, true);

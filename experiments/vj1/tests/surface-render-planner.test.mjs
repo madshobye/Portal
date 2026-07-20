@@ -45,14 +45,33 @@ test("surface planner resolves visible routes and their shared component demand"
   assert.ok(metrics.componentRasterPixels > 0);
 });
 
+test("surface planner consumes the compiled Scene surface program as routing authority", () => {
+  const state = createInitialState();
+  const surface = state.surfaces[0];
+  surface.enabled = true;
+  surface.componentId = state.components[0].id;
+  const result = planSurfaceRoutes({
+    state,
+    surfaceProgram: [],
+    mapperSurfaces: new Map(),
+    componentById: new Map(),
+    recordingFrameById: new Map(),
+  });
+
+  assert.equal(state.surfaces.length > 0, true);
+  assert.equal(result.metrics.candidates, 0);
+  assert.deepEqual(result.routes, []);
+});
+
 test("output renderer delegates surface demand planning", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
-  const mapperSource = readFileSync(new URL("../js/output/vj-mapper.js", import.meta.url), "utf8");
+  const mapperSource = readFileSync(new URL("../js/libraries/mapping-engine/mapping-engine/index.js", import.meta.url), "utf8");
 
   assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=component-route-composite-1"'));
   assert.ok(runtimeSource.includes('from "./surface-render-planner.js?v=surface-runtime-extraction-1"'));
   assert.ok(runtimeSource.includes("const { routes, metrics } = planSurfaceRoutes({"));
+  assert.ok(runtimeSource.includes("surfaceProgram: renderer.sceneProgramSurfaces(renderer.state)"));
   assert.doesNotMatch(rendererSource, /sourceRenderDemand\(\{/);
   assert.doesNotMatch(rendererSource, /manualSurfaceTextureLimit\(/);
   assert.ok(mapperSource.includes("shaderProgram !== activeShader || texture !== activeTexture"));

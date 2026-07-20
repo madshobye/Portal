@@ -5,7 +5,7 @@ import {
   buildParsedModelSurfaceVertices,
   modelTriangleNormal,
   normalizeModelVector,
-} from "../js/output/specialized/model-geometry.js";
+} from "../js/libraries/mesh-engine/mesh-geometry.js";
 
 test("parsed STL surface vertices normalize supplied facet normals", () => {
   const vertices = buildParsedModelSurfaceVertices({

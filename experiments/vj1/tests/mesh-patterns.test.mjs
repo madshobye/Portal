@@ -8,7 +8,7 @@ import {
   meshPatternTopologySignature,
 } from "../js/output/specialized/mesh-pattern-algorithms.js";
 import { meshPatternPalette } from "../js/output/specialized/mesh-pattern-renderer.js";
-import { createGeneratorSource } from "../js/graph/generator-registry.js";
+import { createGeneratorSource } from "../js/libraries/visual-nodes/index.js";
 
 const representative = {
   scale: 8,
