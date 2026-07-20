@@ -2,13 +2,13 @@ const SERVICE_KEY = "__vj1ScreenCaptureServiceV1";
 
 export class ScreenCaptureService {
   constructor() {
-    this.stream = null;
-    this.video = null;
+    this.captures = new Map();
+    this.captureSequence = 0;
     this.error = "";
     this.status = "idle";
     this.listeners = new Set();
     this.requestToken = 0;
-    this.boundPageHide = () => this.stop();
+    this.boundPageHide = () => this.stopAll();
     globalThis.addEventListener?.("pagehide", this.boundPageHide, { once: true });
   }
 
@@ -47,7 +47,7 @@ export class ScreenCaptureService {
         stopStream(stream);
         return null;
       }
-      this.replaceCapture(stream, video);
+      this.addCapture(stream, video);
       candidateStream = null;
       return video;
     } catch (error) {
@@ -57,47 +57,85 @@ export class ScreenCaptureService {
     }
   }
 
-  replaceCapture(stream, video) {
-    stopStream(this.stream);
-    this.stream = stream;
-    this.video = video;
+  addCapture(stream, video) {
+    const sequence = ++this.captureSequence;
+    const id = createCaptureId(sequence);
+    const track = stream.getVideoTracks?.()[0];
+    const capture = {
+      id,
+      name: automaticCaptureName(track, sequence),
+      stream,
+      video,
+      createdAt: Date.now(),
+    };
+    this.captures.set(id, capture);
     this.status = "active";
     this.error = "";
-    const track = stream.getVideoTracks?.()[0];
     if (track) track.addEventListener("ended", () => {
-      if (this.stream !== stream) return;
-      this.clearCapture("idle");
+      if (this.captures.get(id)?.stream !== stream) return;
+      this.removeCapture(id, { stop: false });
     }, { once: true });
     this.emit();
+    return capture;
   }
 
-  stop() {
+  rename(id, name) {
+    const capture = this.captures.get(String(id || ""));
+    if (!capture) return false;
+    const nextName = String(name || "").trim();
+    if (!nextName || nextName === capture.name) return !!nextName;
+    capture.name = nextName.slice(0, 120);
+    this.emit();
+    return true;
+  }
+
+  stop(id = "") {
+    if (id) return this.removeCapture(id);
+    this.stopAll();
+    return true;
+  }
+
+  stopAll() {
     this.requestToken++;
-    this.clearCapture("idle");
-  }
-
-  clearCapture(status) {
-    stopStream(this.stream);
-    if (this.video) this.video.srcObject = null;
-    this.stream = null;
-    this.video = null;
-    this.status = status;
+    for (const id of [...this.captures.keys()]) this.removeCapture(id, { emit: false });
+    this.status = "idle";
     this.error = "";
     this.emit();
+  }
+
+  removeCapture(id, { stop = true, emit = true } = {}) {
+    const capture = this.captures.get(String(id || ""));
+    if (!capture) return false;
+    this.captures.delete(capture.id);
+    if (stop) stopStream(capture.stream);
+    if (capture.video) capture.video.srcObject = null;
+    this.status = this.captures.size ? "active" : "idle";
+    this.error = "";
+    if (emit) this.emit();
+    return true;
+  }
+
+  videoFor(id) {
+    return this.captures.get(String(id || ""))?.video || null;
   }
 
   fail(error) {
     // Cancelling a replacement selection must not invalidate a capture that is
     // already serving the session. The failure describes the attempted switch;
     // user truth remains "active" while the old track is still available.
-    this.status = this.video ? "active" : "error";
+    this.status = this.captures.size ? "active" : "error";
     this.error = error?.message || String(error || "Screen sharing failed");
     console.error("[VJ1_SCREEN_CAPTURE_FAILED]", { message: this.error });
     this.emit();
   }
 
   snapshot() {
-    return { status: this.status, error: this.error, active: !!this.video };
+    return {
+      status: this.status,
+      error: this.error,
+      active: this.captures.size > 0,
+      inputs: [...this.captures.values()].map(captureSnapshot),
+    };
   }
 
   subscribe(listener) {
@@ -125,7 +163,15 @@ export function startScreenCapture(settings = {}) {
 }
 
 export function stopScreenCapture() {
-  return localScreenCaptureService().stop();
+  return localScreenCaptureService().stopAll();
+}
+
+export function stopScreenCaptureInput(id) {
+  return localScreenCaptureService().stop(id);
+}
+
+export function renameScreenCaptureInput(id, name) {
+  return localScreenCaptureService().rename(id, name);
 }
 
 export function screenCaptureStatus() {
@@ -166,4 +212,24 @@ function clampInt(value, min, max, fallback) {
 
 function stopStream(stream) {
   for (const track of stream?.getTracks?.() || []) track.stop?.();
+}
+
+function captureSnapshot(capture) {
+  const settings = capture.stream?.getVideoTracks?.()[0]?.getSettings?.() || {};
+  return {
+    id: capture.id,
+    name: capture.name,
+    width: Math.max(0, Number(capture.video?.videoWidth || settings.width) || 0),
+    height: Math.max(0, Number(capture.video?.videoHeight || settings.height) || 0),
+  };
+}
+
+function automaticCaptureName(track, sequence) {
+  const label = String(track?.label || "").trim();
+  return (label || `Shared window ${sequence}`).slice(0, 120);
+}
+
+function createCaptureId(sequence) {
+  const random = globalThis.crypto?.randomUUID?.();
+  return random ? `screen-${random}` : `screen-${Date.now().toString(36)}-${sequence.toString(36)}`;
 }

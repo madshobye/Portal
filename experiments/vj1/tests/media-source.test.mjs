@@ -93,6 +93,10 @@ test("screen share is a live generator with native-aspect fit modes", () => {
   const generator = getGeneratorComponent("screenShare");
   assert.equal(generator.name, "Screen Share");
   assert.equal(generator.runtime.timeDependent({}), true);
+  const inputParam = generator.params.find((param) => param.id === "inputId");
+  assert.equal(inputParam.type, "text");
+  assert.equal(inputParam.ui, "screen-input");
+  assert.equal(inputParam.defaultValue, "");
   const fitParam = generator.params.find((param) => param.id === "fit");
   assert.deepEqual(fitParam.values, ["contain", "cover", "stretch"]);
   assert.equal(fitParam.defaultValue, "contain");

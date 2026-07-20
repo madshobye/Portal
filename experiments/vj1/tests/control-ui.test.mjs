@@ -905,13 +905,18 @@ test("project settings expose camera capture preferences", () => {
   assert.ok(source.includes('data-settings-update="render.camera.maxResolution"'));
 });
 
-test("project settings own one session-persistent screen share without target dimensions", () => {
+test("project settings own named session-persistent screen inputs without target dimensions", () => {
   const source = `${readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState(), "screen")}`;
   assert.ok(source.includes('data-settings-tab="screen"'));
   assert.ok(source.includes('data-settings-update="render.screenCapture.frameRate"'));
   assert.ok(source.includes('data-settings-update="render.screenCapture.cursor"'));
   assert.ok(source.includes("data-start-screen-capture"));
   assert.ok(source.includes("data-stop-screen-capture"));
+  assert.ok(source.includes("data-screen-capture-list"));
+  assert.ok(source.includes("data-screen-capture-name"));
+  assert.ok(source.includes("data-stop-screen-capture-input"));
+  assert.ok(source.includes("renameScreenCaptureInput"));
+  assert.ok(source.includes("stopScreenCaptureInput"));
   assert.ok(source.includes("startScreenCapture(settings)"));
   assert.equal(source.includes('render.screenCapture.width'), false);
   assert.equal(source.includes('render.screenCapture.height'), false);

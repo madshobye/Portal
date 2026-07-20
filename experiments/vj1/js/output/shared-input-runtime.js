@@ -1,5 +1,5 @@
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
-import { screenCaptureService } from "./screen-capture-service.js?v=screen-share-1";
+import { screenCaptureService } from "./screen-capture-service.js?v=screen-input-registry-1";
 
 const CAMERA_RETRY_MS = 3000;
 const CAMERA_IDLE_GRACE_MS = 750;
@@ -12,7 +12,7 @@ export class SharedInputRuntime {
     this.getRenderSettings = getRenderSettings || (() => ({}));
     this.cameraIdleGraceMs = Math.max(0, Number(cameraIdleGraceMs) || 0);
     this.camera = createCameraInputState();
-    this.reportedScreenError = "";
+    this.reportedScreenErrors = new Map();
   }
 
   beginFrame() {
@@ -61,16 +61,21 @@ export class SharedInputRuntime {
     return null;
   }
 
-  acquireScreen() {
+  acquireScreen(inputId = "") {
     const service = screenCaptureService();
-    if (service.video) {
-      this.reportedScreenError = "";
-      return service.video;
+    const video = service.videoFor(inputId);
+    if (video) {
+      this.reportedScreenErrors.delete(inputId);
+      return video;
     }
-    const message = service.error || (service.status === "requesting" ? "waiting for screen selection" : "choose a screen or window in Settings");
-    if (this.reportedScreenError !== message) {
-      this.reportedScreenError = message;
-      console.warn("[VJ1_SCREEN_CAPTURE_UNAVAILABLE]", { status: service.status, message });
+    const message = service.error || (!inputId
+      ? "choose a shared input"
+      : service.status === "requesting"
+        ? "waiting for screen selection"
+        : "selected shared input is unavailable");
+    if (this.reportedScreenErrors.get(inputId) !== message) {
+      this.reportedScreenErrors.set(inputId, message);
+      console.warn("[VJ1_SCREEN_CAPTURE_UNAVAILABLE]", { inputId, status: service.status, message });
     }
     return null;
   }
@@ -120,15 +125,17 @@ export class SharedInputRuntime {
     return this.camera.error;
   }
 
-  get screenError() {
+  screenError(inputId = "") {
     const service = screenCaptureService();
     if (service.error) return service.error;
+    if (!inputId) return "choose a shared input";
     if (service.status === "requesting") return "waiting for screen selection";
-    return "choose a screen or window in Settings";
+    return "selected shared input is unavailable";
   }
 
   dispose() {
     this.releaseCamera();
+    this.reportedScreenErrors.clear();
   }
 }
 

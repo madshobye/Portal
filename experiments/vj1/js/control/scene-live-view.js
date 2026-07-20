@@ -1,12 +1,12 @@
 import { BLEND_MODES } from "../constants.js";
 import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=volumetric-clouds-1";
 import { normalizeParamValue } from "../graph/component-schema.js?v=text-generator-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=screen-share-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=screen-input-registry-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=scroll-region-1";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=render-quality-general-1";
+import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=screen-input-registry-1";
 import { mediaSourceParams } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-tools-row-1";

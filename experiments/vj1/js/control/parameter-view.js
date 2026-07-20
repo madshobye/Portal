@@ -2,6 +2,7 @@ import { BLEND_MODES } from "../constants.js";
 import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizeParamValue } from "../graph/component-schema.js?v=text-style-controls-1";
 import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=param-context-delegation-1";
 import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
+import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
 
 export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
   const params = options.params || component?.params || [];
@@ -162,6 +163,7 @@ export function paramControlTemplate(param, path, value, attrs = "data-update", 
   if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs, { significant });
   if (param.type === "text") {
     if (param.ui === "markdown") return markdownParamControlTemplate(param, path, value, attrs, { significant, relatedControls });
+    if (param.ui === "screen-input") return screenInputParamControlTemplate(param, path, value, attrs, { significant });
     return `
       <label class="field chain-param param-context-target${significantClass}" ${contextAttrs}>
         <span>${esc(param.label || param.id)}</span>
@@ -186,6 +188,34 @@ export function paramControlTemplate(param, path, value, attrs = "data-update", 
       <output class="range-value" data-range-value>${formatRangeValue(safeValue, param.step ?? 0.01)}</output>
       <input type="range" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" data-display-step="${param.step ?? 0.01}" ${scaleAttrs} ${attrs}="${esc(path)}" value="${sliderValue}" />
     </label>
+  `;
+}
+
+export function screenInputParamControlTemplate(param, path, value, attrs = "data-update", { significant = false, inputs = screenCaptureStatus().inputs } = {}) {
+  const selectedId = String(value || "");
+  const contextAttrs = attrs === "data-update"
+    ? `data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}"`
+    : "";
+  return `
+    <label class="field chain-param param-context-target${significant ? " is-significant" : ""}" ${contextAttrs}>
+      <span>${esc(param.label || param.id)}</span>
+      <select ${attrs}="${esc(path)}" data-screen-input-select>
+        ${screenInputOptionsTemplate(inputs, selectedId)}
+      </select>
+    </label>
+  `;
+}
+
+export function screenInputOptionsTemplate(inputs = [], selectedId = "") {
+  const selected = String(selectedId || "");
+  const available = inputs.some((input) => input.id === selected);
+  return `
+    <option value="" ${selected ? "" : "selected"}>Select a shared input</option>
+    ${selected && !available ? `<option value="${esc(selected)}" selected>Unavailable input</option>` : ""}
+    ${inputs.map((input) => {
+      const dimensions = input.width && input.height ? ` · ${input.width} × ${input.height}` : "";
+      return `<option value="${esc(input.id)}" ${input.id === selected ? "selected" : ""}>${esc(input.name)}${dimensions}</option>`;
+    }).join("")}
   `;
 }
 

@@ -4,9 +4,9 @@ import { graphicsToPngBlob } from "./thumbnail-utils.js?v=canvas-global-resoluti
 import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
 import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "./specialized/raw-model-webgl-renderer.js?v=model-wire-detail-2";
 import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
-import { SharedInputRuntime } from "./shared-input-runtime.js?v=screen-share-1";
+import { SharedInputRuntime } from "./shared-input-runtime.js?v=screen-input-registry-1";
 
-export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=screen-share-1";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=screen-input-registry-1";
 
 export class OutputMediaRuntime {
   constructor({
@@ -90,8 +90,8 @@ export class OutputMediaRuntime {
     return this.inputRuntime.acquireCamera();
   }
 
-  acquireScreenInput() {
-    return this.inputRuntime.acquireScreen();
+  acquireScreenInput(inputId = "") {
+    return this.inputRuntime.acquireScreen(inputId);
   }
 
   releaseCameraInput() {
@@ -106,8 +106,8 @@ export class OutputMediaRuntime {
     return this.inputRuntime.cameraError;
   }
 
-  get screenError() {
-    return this.inputRuntime.screenError;
+  screenError(inputId = "") {
+    return this.inputRuntime.screenError(inputId);
   }
 
   requestMissingMedia(mediaId) {

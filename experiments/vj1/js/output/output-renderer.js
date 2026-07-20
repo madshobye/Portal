@@ -1,15 +1,15 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=structural-live-patch-1";
-import { canvasFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=screen-share-1";
+import { canvasFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=screen-share-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=screen-input-registry-1";
 import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=text-style-controls-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=volumetric-clouds-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=screen-share-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=screen-input-registry-1";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=alpha-feather-1";
 import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=volumetric-clouds-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
@@ -26,7 +26,7 @@ import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=log
 import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=logical-component-frame-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=chain-only-authority-1";
-import { OutputMediaRuntime } from "./output-media-runtime.js?v=logical-component-frame-1";
+import { OutputMediaRuntime } from "./output-media-runtime.js?v=screen-input-registry-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=canvas-global-resolution-1";
 import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=component-route-composite-1";
@@ -835,8 +835,8 @@ export class OutputRenderer {
     return this.mediaRuntime.acquireCameraInput();
   }
 
-  acquireScreenInput() {
-    return this.mediaRuntime.acquireScreenInput();
+  acquireScreenInput(inputId = "") {
+    return this.mediaRuntime.acquireScreenInput(inputId);
   }
 
   releaseCameraInput() {
@@ -851,8 +851,8 @@ export class OutputRenderer {
     return this.mediaRuntime.cameraError;
   }
 
-  get screenError() {
-    return this.mediaRuntime.screenError;
+  screenError(inputId = "") {
+    return this.mediaRuntime.screenError(inputId);
   }
 
   draw() {
@@ -2223,9 +2223,10 @@ export class OutputRenderer {
   }
 
   drawScreenShareGenerator(pg, source = {}) {
-    const screen = this.acquireScreenInput();
+    const inputId = String(source.params?.inputId || "");
+    const screen = this.acquireScreenInput(inputId);
     if (!screen || !isDrawableMedia(screen)) {
-      this.drawStandby(pg, this.screenError || "screen share unavailable", { forceVisible: true });
+      this.drawStandby(pg, this.screenError(inputId) || "screen share unavailable", { forceVisible: true });
       return;
     }
     const fit = ["contain", "cover", "stretch"].includes(source.params?.fit) ? source.params.fit : "contain";

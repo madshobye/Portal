@@ -1,5 +1,5 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=screen-share-1";
+import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=screen-input-registry-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
 import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=logical-component-frame-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
@@ -16,7 +16,7 @@ import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponen
 import { componentCardBarTemplate, deepEditButtonTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=scroll-region-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { createClipboardController } from "./clipboard-controller.js?v=clipboard-chain-target-1";
-import { createModalController } from "./modal-controller.js?v=screen-share-1";
+import { createModalController } from "./modal-controller.js?v=screen-input-registry-2";
 import { createInputController } from "./input-controller.js?v=component-to-canvas-1";
 
 const performanceHealthClasses = Object.freeze([

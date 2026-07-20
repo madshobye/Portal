@@ -50,8 +50,9 @@ const RAW_GENERATORS = Object.freeze({
     name: "Screen Share",
     category: "live",
     runtime: ALWAYS_TIME_RUNTIME,
-    primaryParamIds: ["fit", "mirrored"],
+    primaryParamIds: ["inputId", "fit", "mirrored"],
     params: [
+      createTextParam("inputId", "Input", "", { ui: "screen-input", rows: 1 }),
       createEnumParam("fit", "Fit", ["contain", "cover", "stretch"], "contain"),
       createBooleanParam("mirrored", "Mirror", false),
     ],

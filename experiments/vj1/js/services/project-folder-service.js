@@ -17,7 +17,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=screen-share-1";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=screen-input-registry-1";
 import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=catalog-marker-four-state-1";
 import { createChangeEvent } from "../domain/change-event.js?v=chain-only-authority-1";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";

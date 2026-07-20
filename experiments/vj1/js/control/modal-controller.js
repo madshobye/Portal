@@ -1,11 +1,12 @@
-import { createOutputDefinition, normalizeRenderSettings, scaleRecordingFramesToCanvasSize } from "../domain/render-settings.js?v=screen-share-1";
+import { createOutputDefinition, normalizeRenderSettings, scaleRecordingFramesToCanvasSize } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=scroll-region-1";
-import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=screen-share-1";
+import { configuredOutputsTemplate, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js?v=screen-input-registry-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
-import { screenCaptureStatus, startScreenCapture, stopScreenCapture, subscribeScreenCapture } from "../output/screen-capture-service.js?v=screen-share-1";
+import { renameScreenCaptureInput, screenCaptureStatus, startScreenCapture, stopScreenCapture, stopScreenCaptureInput, subscribeScreenCapture } from "../output/screen-capture-service.js?v=screen-input-registry-1";
+import { screenInputOptionsTemplate } from "./parameter-view.js?v=screen-input-registry-1";
 
 export function createModalController({
   store,
@@ -29,7 +30,10 @@ export function createModalController({
   const maxRetainedMediaPreviews = 500;
   let reportedPreviewObserverFallback = false;
   let mediaRefreshInFlight = false;
-  subscribeScreenCapture(() => syncScreenCaptureStatus(getHost()));
+  subscribeScreenCapture((status) => {
+    syncScreenCaptureStatus(getHost(), status);
+    syncScreenInputSelects(status.inputs);
+  });
 
   function render(state = getState()) {
     const host = getHost();
@@ -324,6 +328,7 @@ export function createModalController({
     bindOnce(host, "[data-camera-preset]", (button) => applyCameraPreset(button.dataset.cameraPreset));
     bindOnce(host, "[data-start-screen-capture]", startConfiguredScreenCapture);
     bindOnce(host, "[data-stop-screen-capture]", () => stopScreenCapture());
+    bindScreenCaptureInputs(host);
     bindOnce(host, "[data-add-output]", addConfiguredOutput);
     bindOnce(host, "[data-remove-output]", (button) => removeConfiguredOutput(button.dataset.removeOutput));
   }
@@ -337,16 +342,44 @@ export function createModalController({
     }
   }
 
-  function syncScreenCaptureStatus(host) {
+  function syncScreenCaptureStatus(host, status = screenCaptureStatus()) {
     const output = host?.querySelector?.("[data-screen-capture-status]");
     if (!output) return;
-    const status = screenCaptureStatus();
+    const list = host.querySelector("[data-screen-capture-list]");
+    const signature = screenCaptureSignature(status.inputs);
+    if (list && list.dataset.screenCaptureSignature !== signature) {
+      list.innerHTML = screenCaptureInputsTemplate(status.inputs);
+      list.dataset.screenCaptureSignature = signature;
+      bindScreenCaptureInputs(host);
+    }
+    const stopAll = host.querySelector("[data-stop-screen-capture]");
+    if (stopAll) stopAll.hidden = !status.inputs.length;
     setText(output, status.status === "active"
-      ? "Sharing is active."
+      ? `${status.inputs.length} shared input${status.inputs.length === 1 ? "" : "s"} active.`
       : status.status === "requesting"
         ? "Waiting for screen selection…"
         : status.error || "Nothing is currently shared.");
     output.classList.toggle("is-error", status.status === "error");
+  }
+
+  function syncScreenInputSelects(inputs = []) {
+    globalThis.document?.querySelectorAll?.("[data-screen-input-select]").forEach((select) => {
+      const html = screenInputOptionsTemplate(inputs, select.value);
+      if (select.innerHTML !== html) select.innerHTML = html;
+    });
+  }
+
+  function bindScreenCaptureInputs(host) {
+    host.querySelectorAll("[data-screen-capture-name]").forEach((input) => {
+      if (input.dataset.captureBound) return;
+      input.dataset.captureBound = "true";
+      input.addEventListener("change", () => renameScreenCaptureInput(input.dataset.screenCaptureName, input.value));
+    });
+    host.querySelectorAll("[data-stop-screen-capture-input]").forEach((button) => {
+      if (button.dataset.captureBound) return;
+      button.dataset.captureBound = "true";
+      button.addEventListener("click", () => stopScreenCaptureInput(button.dataset.stopScreenCaptureInput));
+    });
   }
 
   function bindOnce(host, selector, listener) {

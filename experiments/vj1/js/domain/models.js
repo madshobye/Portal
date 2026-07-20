@@ -1,5 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=screen-share-1";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=screen-input-registry-1";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
@@ -12,7 +12,7 @@ import {
   normalizePreviewViewports,
   normalizeRenderSettings,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=screen-share-1";
+} from "./render-settings.js?v=screen-input-registry-1";
 import {
   applySceneSourceNode,
   normalizeProjectionFit,
@@ -30,7 +30,7 @@ export {
   normalizePreviewViewports,
   normalizeRenderSettings,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=screen-share-1";
+} from "./render-settings.js?v=screen-input-registry-1";
 export {
   applySceneSourceNode,
   normalizeProjectionFit,

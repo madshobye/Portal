@@ -1,4 +1,4 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=screen-share-1";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=screen-input-registry-1";
 import { listShaderComponents } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";

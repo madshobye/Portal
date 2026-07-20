@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=screen-share-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=logical-component-frame-1";
+import { createAppState } from "./app-state.js?v=screen-input-registry-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=screen-input-registry-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=screen-share-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=screen-input-registry-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=remote-diagnostics-1";
-import { installOutputApp } from "./output/output-app.js?v=logical-component-frame-1";
+import { installOutputApp } from "./output/output-app.js?v=screen-input-registry-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createDiagnosticsService } from "./services/diagnostics-service.js?v=remote-diagnostics-1";
 

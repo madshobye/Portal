@@ -1,4 +1,4 @@
-import { listGeneratorComponents } from "../graph/generator-registry.js?v=screen-share-1";
+import { listGeneratorComponents } from "../graph/generator-registry.js?v=screen-input-registry-1";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileComponentPatch } from "../graph/render-scheduler.js?v=chain-only-authority-1";
 import { listShaderComponents } from "../shaders/shader-registry.js?v=alpha-feather-1";

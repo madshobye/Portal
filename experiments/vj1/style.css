@@ -3450,6 +3450,45 @@ button.text-list-main:hover {
 
 .settings-capture-actions > button { min-height: 34px; }
 
+.screen-capture-list {
+  display: grid;
+  gap: 6px;
+}
+
+.screen-capture-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 8px;
+  border-radius: var(--radius-inner, 8px);
+  background: var(--surface-deep, #252525);
+}
+
+.screen-capture-row > .material-symbols-rounded,
+.screen-capture-size { color: var(--muted); }
+
+.screen-capture-name input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 6px;
+  background: transparent;
+  border: 0;
+}
+
+.screen-capture-size {
+  white-space: nowrap;
+  font-size: 0.82rem;
+}
+
+.screen-capture-empty {
+  padding: 10px;
+  color: var(--muted);
+  background: var(--surface-deep, #252525);
+  border-radius: var(--radius-inner, 8px);
+}
+
 [data-screen-capture-status].is-error { color: #e78b7f; }
 
 .settings-tabs button {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { colorParamControlTemplate, paramControlTemplate, paramControlsTemplate } from "../js/control/parameter-view.js";
+import { colorParamControlTemplate, paramControlTemplate, paramControlsTemplate, screenInputParamControlTemplate } from "../js/control/parameter-view.js";
 import { paramRangePairTemplate } from "../js/control/template-utils.js";
 
 test("parameter view owns reusable inspector controls outside the controller", () => {
@@ -42,6 +42,18 @@ test("persistent params expose reset and significant metadata while Live overrid
   assert.match(persistent, /is-significant/);
   assert.match(persistent, /data-param-default="0\.75"/);
   assert.doesNotMatch(live, /data-param-context-path/);
+});
+
+test("screen input params keep stable IDs while presenting session names and dimensions", () => {
+  const param = { id: "inputId", label: "Input", type: "text", ui: "screen-input", defaultValue: "" };
+  const inputs = [
+    { id: "screen-one", name: "Slides", width: 1920, height: 1080 },
+    { id: "screen-two", name: "Browser", width: 1280, height: 720 },
+  ];
+  const html = screenInputParamControlTemplate(param, "source.params.inputId", "screen-two", "data-update", { inputs });
+  assert.match(html, /value="screen-one"[^>]*>Slides · 1920 × 1080/);
+  assert.match(html, /value="screen-two" selected>Browser · 1280 × 720/);
+  assert.match(html, /data-update="source\.params\.inputId"/);
 });
 
 test("paired persistent range handles retain independent parameter context metadata", () => {

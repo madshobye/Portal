@@ -1,10 +1,12 @@
-import { normalizeRenderSettings } from "../domain/render-settings.js?v=screen-share-1";
+import { normalizeRenderSettings } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
+import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
 
 export function settingsModalTemplate(state, activeTab = "outputs") {
   const render = normalizeRenderSettings(state.render || {});
   const camera = render.camera;
   const screen = render.screenCapture;
+  const sharedInputs = screenCaptureStatus().inputs;
   return `
     <div class="modal-backdrop"></div>
     <section class="modal-panel settings-modal" data-settings-modal role="dialog" aria-modal="true" aria-label="Project settings">
@@ -62,7 +64,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
         </section>
         <section class="ui-section element-section" data-settings-panel="screen" ${visiblePanel("screen", activeTab)}>
           <div class="settings-group">
-            <div class="settings-group-title"><span class="material-symbols-rounded">present_to_all</span><span>Shared screen input</span></div>
+            <div class="settings-group-title"><span class="material-symbols-rounded">present_to_all</span><span>Shared screen inputs</span></div>
             <label class="field">Maximum frame rate <input type="number" min="1" max="60" step="1" data-settings-update="render.screenCapture.frameRate" value="${screen.frameRate}" /></label>
             <label class="field">Pointer
               <select data-settings-update="render.screenCapture.cursor">
@@ -75,11 +77,14 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
             ${settingsToggle("Allow sharing this app tab", "render.screenCapture.includeCurrentTab", screen.includeCurrentTab)}
             ${settingsToggle("Allow changing the shared surface", "render.screenCapture.surfaceSwitching", screen.surfaceSwitching)}
             <div class="settings-capture-actions">
-              <button type="button" class="chain-add-button" data-start-screen-capture>${icon("present_to_all")} Choose screen or window</button>
-              <button type="button" class="icon-buttonish" data-stop-screen-capture>Stop sharing</button>
+              <button type="button" class="chain-add-button" data-start-screen-capture>${icon("add")} Add screen or window</button>
+              <button type="button" class="icon-buttonish" data-stop-screen-capture ${sharedInputs.length ? "" : "hidden"}>Stop all</button>
+            </div>
+            <div class="screen-capture-list" data-screen-capture-list data-screen-capture-signature="${esc(screenCaptureSignature(sharedInputs))}">
+              ${screenCaptureInputsTemplate(sharedInputs)}
             </div>
             <div class="soft-note" data-screen-capture-status>Nothing is currently shared.</div>
-            <div class="soft-note">Screen selection is explicit browser permission. The Screen Share generator samples this single input in Preview and same-origin Output windows.</div>
+            <div class="soft-note">Each browser-approved input stays open for this session. Screen Share generators select an input by its stable session ID; Preview and same-origin Output windows share the same streams.</div>
           </div>
         </section>
         <section class="ui-section element-section settings-rendering-panel" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
@@ -150,6 +155,25 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
       </div>
     </section>
   `;
+}
+
+export function screenCaptureInputsTemplate(inputs = []) {
+  if (!inputs.length) return `<div class="screen-capture-empty">No shared inputs.</div>`;
+  return inputs.map((input) => `
+    <article class="screen-capture-row">
+      ${icon("present_to_all")}
+      <label class="screen-capture-name">
+        <span class="sr-only">Input name</span>
+        <input type="text" value="${esc(input.name)}" data-screen-capture-name="${esc(input.id)}" maxlength="120" />
+      </label>
+      <span class="screen-capture-size">${input.width && input.height ? `${input.width} × ${input.height}` : "Starting…"}</span>
+      <button type="button" class="list-remove" data-stop-screen-capture-input="${esc(input.id)}" title="Stop ${esc(input.name)}" aria-label="Stop ${esc(input.name)}">${icon("close")}</button>
+    </article>
+  `).join("");
+}
+
+export function screenCaptureSignature(inputs = []) {
+  return inputs.map((input) => `${input.id}:${input.name}:${input.width}x${input.height}`).join("|");
 }
 
 export function configuredOutputsTemplate(render) {
