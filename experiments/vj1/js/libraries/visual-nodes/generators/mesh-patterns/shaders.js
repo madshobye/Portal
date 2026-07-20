@@ -5,6 +5,7 @@ uniform vec2 offset;
 uniform float time;
 uniform float speed;
 uniform float motion;
+uniform vec4 renderUvRect;
 
 vec2 animatedMeshUv(vec2 uv) {
   vec2 centered = uv - 0.5;
@@ -20,7 +21,8 @@ vec2 animatedMeshUv(vec2 uv) {
 vec2 meshClip(vec2 uv) {
   vec3 placed = contentPlacementMatrix * vec3(animatedMeshUv(uv), 1.0);
   vec2 screenUv = placed.xy / max(abs(placed.z), 0.00001);
-  return vec2(screenUv.x * 2.0 - 1.0, 1.0 - screenUv.y * 2.0);
+  vec2 roiUv = (screenUv - renderUvRect.xy) / max(renderUvRect.zw, vec2(0.000001));
+  return vec2(roiUv.x * 2.0 - 1.0, 1.0 - roiUv.y * 2.0);
 }
 `;
 

@@ -9,7 +9,7 @@ import {
   MESH_PATTERN_FILL_VERTEX_SHADER,
   MESH_PATTERN_WIRE_FRAGMENT_SHADER,
   MESH_PATTERN_WIRE_VERTEX_SHADER,
-} from "../../libraries/visual-nodes/generators/mesh-patterns/shaders.js?v=node-program-hooks-15";
+} from "../../libraries/visual-nodes/generators/mesh-patterns/shaders.js?v=source-roi-view-3";
 import { compileRawShader, linkSpecializedProgram } from "../../libraries/render-engine/raw-webgl-utils.js";
 import {
   beginRawWebGlState,
@@ -18,6 +18,7 @@ import {
   disposeRawWebGlVertexArray,
   restoreRawWebGlState,
 } from "../../libraries/render-engine/raw-webgl-state.js";
+import { renderView } from "../../libraries/render-engine/render-view/index.js";
 
 const MAX_CPU_TOPOLOGIES = 32;
 const MAX_GPU_TOPOLOGIES = 24;
@@ -60,13 +61,14 @@ export class MeshPatternRenderer {
     if (!gl) return false;
     const params = source.params || {};
     const viewport = renderTargetPixelSize(target);
+    const view = renderView(target, renderRequest);
     const nodeModule = meshPatternNodeRuntimeModule(operation);
     const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
-    const topologySignature = nodeModule.meshPatternTopologySignature(params, viewport.width / viewport.height);
+    const topologySignature = nodeModule.meshPatternTopologySignature(params, view.width / view.height);
     const signature = `${codeRevision}:${topologySignature}`;
     let topology = this.cpuTopologies.get(signature);
     if (!topology) {
-      topology = nodeModule.generateMeshPatternTopology(params, viewport.width / viewport.height);
+      topology = nodeModule.generateMeshPatternTopology(params, view.width / view.height);
       this.cpuTopologies.set(signature, { topology, lastUsedFrame: this.frameIndex() });
       pruneCpuTopologies(this.cpuTopologies);
     } else {
@@ -117,6 +119,7 @@ export class MeshPatternRenderer {
       background,
       placement,
       viewport,
+      renderUvRect: view.uvRect,
       drawFill,
       drawWire,
       componentTime,
@@ -211,6 +214,7 @@ function setSharedUniforms(gl, program, options) {
   gl.uniform1f(program.time, finite(options.componentTime, 0));
   gl.uniform1f(program.speed, Math.max(0, finite(options.params.speed, 0)));
   gl.uniform1f(program.motion, clamp(finite(options.params.motion, 0.35), 0, 2));
+  gl.uniform4fv(program.renderUvRect, options.renderUvRect);
 }
 
 function createContext(gl, shaderConfiguration, topologies = new Map()) {
@@ -269,6 +273,7 @@ function sharedUniforms(gl, program) {
     time: gl.getUniformLocation(program, "time"),
     speed: gl.getUniformLocation(program, "speed"),
     motion: gl.getUniformLocation(program, "motion"),
+    renderUvRect: gl.getUniformLocation(program, "renderUvRect"),
   };
 }
 

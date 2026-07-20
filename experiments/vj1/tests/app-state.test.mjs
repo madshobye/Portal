@@ -492,17 +492,14 @@ test("ordinary components reject nested component sources while Canvas accepts t
   store.addChainSource(canvas.id, { type: "component", componentId: source.id });
   const placed = store.getState().components.find((item) => item.id === canvas.id).chain.at(-1).source;
   assert.equal(placed.componentId, source.id);
-  assert.deepEqual(placed.placement, {
-    scale: state.render.componentTexture.width / state.render.canvasSize.width,
-  });
-  const placementBeforeTextureChange = structuredClone(placed.placement);
+  assert.deepEqual(placed.placement, { scale: 1 });
+  const placementBeforeProportionChange = structuredClone(placed.placement);
   store.update((draft) => {
-    draft.render.componentTexture.width *= 4;
-    draft.render.componentTexture.height *= 4;
-  }, "update:render.componentTexture");
+    draft.render.componentAspectRatio = 4 / 3;
+  }, "update:render.componentAspectRatio");
   assert.deepEqual(
     store.getState().components.find((item) => item.id === canvas.id).chain.at(-1).source.placement,
-    placementBeforeTextureChange,
+    placementBeforeProportionChange,
     "texture resolution changes do not rewrite Canvas placement data"
   );
 });

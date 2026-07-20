@@ -1,4 +1,5 @@
 import { VJ1 } from "../constants.js";
+import { relativeRectToLogical } from "../libraries/render-engine/relative-geometry.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
 import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { createRenderRequest, RECORDING_FRAME_DEMAND_SCALE } from "./render-geometry.js?v=adaptive-component-demand-29";
@@ -100,15 +101,19 @@ export function canvasFrameBorderHit(rect = {}, x = 0, y = 0, tolerance = 8) {
 }
 
 export function moveCanvasFrameRect(rect, dx, dy, canvasWidth, canvasHeight) {
+  const relative = canvasWidth <= 1.000001 && canvasHeight <= 1.000001;
+  const round = relative ? (value) => value : Math.round;
   return {
     ...rect,
-    x: Math.round(Math.max(0, Math.min(canvasWidth - rect.width, rect.x + dx))),
-    y: Math.round(Math.max(0, Math.min(canvasHeight - rect.height, rect.y + dy))),
+    x: round(Math.max(0, Math.min(canvasWidth - rect.width, rect.x + dx))),
+    y: round(Math.max(0, Math.min(canvasHeight - rect.height, rect.y + dy))),
   };
 }
 
 export function resizeCanvasFrameRect(rect, corner, dx, dy, canvasWidth, canvasHeight) {
-  const minSize = 16;
+  const relative = canvasWidth <= 1.000001 && canvasHeight <= 1.000001;
+  const minSize = relative ? 0.005 : 16;
+  const round = relative ? (value) => value : Math.round;
   const east = corner.includes("e");
   const south = corner.includes("s");
   const anchorX = east ? rect.x : rect.x + rect.width;
@@ -122,10 +127,10 @@ export function resizeCanvasFrameRect(rect, corner, dx, dy, canvasWidth, canvasH
     ? Math.max(anchorY + minSize, Math.min(canvasHeight, draggedY))
     : Math.max(0, Math.min(anchorY - minSize, draggedY));
   return {
-    x: Math.round(east ? anchorX : cornerX),
-    y: Math.round(south ? anchorY : cornerY),
-    width: Math.round(Math.abs(cornerX - anchorX)),
-    height: Math.round(Math.abs(cornerY - anchorY)),
+    x: round(east ? anchorX : cornerX),
+    y: round(south ? anchorY : cornerY),
+    width: round(Math.abs(cornerX - anchorX)),
+    height: round(Math.abs(cornerY - anchorY)),
   };
 }
 
@@ -167,16 +172,71 @@ export function fullTargetRect(target = {}) {
 
 export function componentReferenceRenderRequest(render = {}, component = {}, placement = {}, meta = {}) {
   const metrics = componentFrameMetrics(render, component);
-  const demandScale = Math.max(
+  let demandScale = Math.max(
     Math.max(1, Number(placement.width) || 1) / metrics.baseWidth,
     Math.max(1, Number(placement.height) || 1) / metrics.baseHeight
   ) * Math.max(0.05, Number(metrics.resolutionScale) || 1);
   const limit = componentAdaptiveRasterLimit(metrics);
+  if (meta.sharedResolutionClass === true) {
+    demandScale = sharedReferenceResolutionScale(metrics, demandScale, limit);
+  }
   const scale = Math.min(limit.width / metrics.baseWidth, limit.height / metrics.baseHeight, demandScale);
   return createRenderRequest("texture", {
     width: quantizedRenderDimension(metrics.baseWidth * scale, limit.width),
     height: quantizedRenderDimension(metrics.baseHeight * scale, limit.height),
   }, { ...meta, logicalWidth: metrics.baseWidth, logicalHeight: metrics.baseHeight, demandScale: scale });
+}
+
+// Repeated synchronized references can reuse one canonical texture only when
+// their requests converge. Half-octave resolution classes bound oversampling
+// to roughly 2x pixels while avoiding a separate render for insignificant
+// placement-size differences such as 304px versus 320px.
+function sharedReferenceResolutionScale(metrics = {}, demandScale = 1, limit = {}) {
+  const baseWidth = Math.max(1, Number(metrics.baseWidth) || 1);
+  const baseHeight = Math.max(1, Number(metrics.baseHeight) || 1);
+  const baseLongest = Math.max(baseWidth, baseHeight);
+  const demandedLongest = Math.max(1, baseLongest * Math.max(0.0001, Number(demandScale) || 1));
+  const minimumClass = 64;
+  const halfOctaves = Math.ceil(Math.log2(Math.max(1, demandedLongest / minimumClass)) * 2) / 2;
+  const classLongest = Math.max(minimumClass, minimumClass * Math.pow(2, halfOctaves));
+  const limitScale = Math.min(
+    Math.max(1, Number(limit.width) || baseWidth) / baseWidth,
+    Math.max(1, Number(limit.height) || baseHeight) / baseHeight
+  );
+  return Math.min(limitScale, Math.max(demandScale, classLongest / baseLongest));
+}
+
+export function componentReferenceCount(component = {}, dependencyId = "") {
+  const visit = (chain) => (chain || []).reduce((count, item) => {
+    if (!item || item.enabled === false) return count;
+    if (item.kind === "group") return count + visit(item.chain);
+    return count + (item.kind === "source" && item.source?.type === "component" && item.source.componentId === dependencyId ? 1 : 0);
+  }, 0);
+  return dependencyId ? visit(component.chain) : 0;
+}
+
+export function componentReferencePrefersSharedTexture(component = {}, referenceCount = 0, request = {}) {
+  const pixels = Math.max(1, Number(request.width) || 1) * Math.max(1, Number(request.height) || 1);
+  return component.syncInstances !== false && referenceCount > 1 && pixels <= 1024 * 1024;
+}
+
+export function componentReferenceRegionRequest(fullRequest = {}, uvRect = [0, 0, 1, 1], meta = {}) {
+  const widthRatio = Math.max(1e-9, Math.min(1, Number(uvRect?.[2]) || 1));
+  const heightRatio = Math.max(1e-9, Math.min(1, Number(uvRect?.[3]) || 1));
+  return createRenderRequest(fullRequest.role || "texture", {
+    width: Math.max(1, Math.ceil((Number(fullRequest.width) || 1) * widthRatio)),
+    height: Math.max(1, Math.ceil((Number(fullRequest.height) || 1) * heightRatio)),
+  }, {
+    ...fullRequest,
+    ...meta,
+    uvRect: [
+      Math.max(0, Math.min(1 - widthRatio, Number(uvRect?.[0]) || 0)),
+      Math.max(0, Math.min(1 - heightRatio, Number(uvRect?.[1]) || 0)),
+      widthRatio,
+      heightRatio,
+    ],
+    regionView: true,
+  });
 }
 
 export function componentPreviewRenderRequest(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, pixelScale = 1, meta = {}) {
@@ -208,12 +268,16 @@ export function componentLogicalPreviewRect(render = {}, component = {}, viewpor
 }
 
 export function canvasPreviewRenderRequest(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
-  const canvas = component.canvas || {};
   const { width, height } = canvasFrameSize(render);
-  const quality = ["auto", "low", "full"].includes(canvas.previewQuality) ? canvas.previewQuality : "auto";
   const resolutionScale = Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1));
   const fitScale = Math.min(Math.max(1, Number(viewportWidth) || 1) / width, Math.max(1, Number(viewportHeight) || 1) / height, 1);
-  const scale = (quality === "full" ? 1 : quality === "low" ? fitScale * 0.5 : fitScale) * resolutionScale;
+  // The embedded preview's effective density already encodes Auto/Good/Low.
+  // Matching that backing density here avoids a sharp outer canvas magnifying
+  // an undersized Canvas texture on high-density displays.
+  const pixelScale = Math.max(0.125, Math.min(4,
+    (Number(render.pixelDensity) || 1) * (Number(render.previewRasterScale) || 1)
+  ));
+  const scale = fitScale * pixelScale * resolutionScale;
   return createRenderRequest("texture", {
     width: Math.max(1, Math.min(8192, Math.round(width * scale))),
     height: Math.max(1, Math.min(8192, Math.round(height * scale))),
@@ -231,9 +295,12 @@ export function componentSourceView(render = {}, component = {}, surface = {}, r
     const recordingFrame = typeof recordingFrameById?.get === "function"
       ? recordingFrameById.get(surface.outputFrameId)
       : recordingFrames.find((item) => item.id === surface.outputFrameId);
+    const sampleRect = recordingFrame
+      ? relativeRectToLogical(recordingFrame, logicalSize)
+      : { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height };
     return {
       logicalSize,
-      sampleRect: recordingFrame || { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height },
+      sampleRect,
       maxRasterSize: canvasMaxRasterSize(render, logicalSize, component.resolutionScale),
       samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (recordingFrame
         ? Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE))

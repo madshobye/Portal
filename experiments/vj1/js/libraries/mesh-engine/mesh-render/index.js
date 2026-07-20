@@ -3,7 +3,7 @@ import { numberType, optionalType, recordType, valueType } from "../../node-engi
 import { resolutionScaledStrokeWidth } from "../../render-engine/render-metrics.js";
 import { buildParsedModelSurfaceVertices } from "../mesh-geometry.js";
 import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "../mesh-render-cache.js";
-import { modelCameraFov, modelDepthCutoff, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js";
+import { modelCameraFov, modelDepthCutoff, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js?v=source-roi-view-3";
 import { MeshType, modelTriangleCount } from "../mesh-types.js";
 import { modelPreviewSvg } from "../mesh-preview-renderer.js";
 import { compileRawShader, linkSpecializedProgram } from "../../render-engine/raw-webgl-utils.js";
@@ -204,7 +204,7 @@ function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode =
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params));
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect);
     const rgba = normalizedColor(color);
 
     gl.useProgram(resources.program);
@@ -247,7 +247,7 @@ function drawRawParsedWire(target, item, params = {}, componentTime = 0, color =
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params));
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect);
     const stride = 8 * 4;
 
     gl.useProgram(resources.program);
@@ -307,7 +307,7 @@ function drawRawParsedPerceptualEdges(target, item, params = {}, componentTime =
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params));
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect);
     const stride = 15 * 4;
     const requestedAngle = Number(params.edgeAngle);
     const edgeAngle = Math.max(0, Math.min(180, Number.isFinite(requestedAngle) ? requestedAngle : 35));
@@ -360,7 +360,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params));
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect);
     const stride = 6 * 4;
 
     gl.useProgram(resources.program);

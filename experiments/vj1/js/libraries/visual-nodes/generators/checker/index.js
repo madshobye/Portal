@@ -9,11 +9,11 @@ const manifest = Object.freeze({
   runtime: ALWAYS_TIME_RUNTIME,
 });
 
-export function drawCheckerNode(pg) {
-  const cell = Math.max(18, Math.floor(Math.min(pg.width, pg.height) / 12));
+export function drawCheckerNode(pg, view = pg) {
+  const cell = Math.max(18, Math.floor(Math.min(view.width, view.height) / 12));
   pg.noStroke();
-  for (let y = 0; y < pg.height; y += cell) {
-    for (let x = 0; x < pg.width; x += cell) {
+  for (let y = 0; y < view.height; y += cell) {
+    for (let x = 0; x < view.width; x += cell) {
       pg.fill(((x / cell + y / cell) | 0) % 2 === 0 ? "#e3e8de" : "#141920");
       pg.rect(x, y, cell, cell);
     }
@@ -22,7 +22,7 @@ export function drawCheckerNode(pg) {
 
 export function checkerNodeProcess(_inputs, context = {}) {
   if (!context.target) throw new Error("CHECKER_RENDER_TARGET_MISSING");
-  drawCheckerNode(context.target);
+  drawCheckerNode(context.target, context.renderView || context.target);
   return context.target;
 }
 

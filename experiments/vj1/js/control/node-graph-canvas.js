@@ -474,6 +474,7 @@ function visualCompilerHook(definition, kind) {
     shaderInterface: metadata.shaderInterface || "effect",
     sampling: metadata.sampling || "unknown",
     fusible: metadata.fusible === true,
+    roi: metadata.roi || { mode: "local", halo: 0, coordinateSpace: "boundary" },
     transformDomain: metadata.transformSource === false ? "group-field" : "composition",
   };
   if (metadata.nativeRenderer) return {

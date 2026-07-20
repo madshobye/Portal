@@ -10,8 +10,8 @@ import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/r
 import { activeSceneProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileSceneRenderPrograms, VISUAL_SOURCE_RENDERERS, visualSourceRenderer } from "../libraries/composition-engine/index.js?v=node-program-hooks-15";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=volumetric-clouds-1";
-import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=alpha-feather-1";
+import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
+import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=source-roi-view-3";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
@@ -21,22 +21,24 @@ import {
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
 import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
-import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=logical-component-frame-1";
-import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=logical-component-frame-1";
+import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-load-hold-1";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=video-load-hold-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=chain-only-authority-1";
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=screen-input-registry-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=thumbnail-pipeline-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=component-route-composite-1";
-import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
-import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=periodic-preview-maintenance-1";
+import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=async-frame-fanout-1";
+import { combineContentTransforms, isIdentityTransform, normalizedContentTransform, transformedRectBounds, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
-import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=canvas-global-resolution-1";
+import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=transform-hit-contract-4";
 import { drawBuffer } from "./render-draw-utils.js?v=render-diagnostics-1";
 import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=output-profile-runtime-1";
-import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js";
-import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, drawWithContentTransform, effectNeedsComposite, effectParamNumber, enumUniform, nextFxTargetSlot, resetShaderTarget, setDynamicShaderUniformIfPresent, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=shader-target-runtime-1";
+import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
+import { FULL_NODE_BOUNDARY, isFullNodeBoundary, nodeBoundaryPixelRect, nodeRoiRequest, sameNodeBoundary } from "../libraries/render-engine/roi/index.js";
+import { renderView, withRenderView } from "../libraries/render-engine/render-view/index.js";
+import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, drawWithContentTransform, effectNeedsComposite, effectParamNumber, enumUniform, nextFxTargetSlot, resetShaderTarget, setDynamicShaderUniformIfPresent, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=source-roi-view-3";
 import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
 import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=volumetric-clouds-1";
 import {
@@ -47,14 +49,16 @@ import {
   outputFrameForId,
   outputFrames,
   outputFrameOffset,
+  instanceInvariantRenderRequest,
   renderRequestKey,
+  renderRequestStateKey,
   RECORDING_FRAME_DEMAND_SCALE,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=adaptive-component-demand-29";
+} from "./render-geometry.js?v=instance-invariant-prefix-1";
 import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=node-program-hooks-15";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=source-roi-view-3";
 import {
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,
@@ -62,6 +66,9 @@ import {
   componentLogicalPreviewRect,
   componentPreviewRenderRequest,
   componentReferencePlacement,
+  componentReferenceCount,
+  componentReferencePrefersSharedTexture,
+  componentReferenceRegionRequest,
   componentReferenceRenderRequest,
   componentRenderInstanceKey,
   componentSourceView,
@@ -79,7 +86,7 @@ export { modelDepthCutoff, transformedModelDepthRange } from "../libraries/mesh-
 export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=volumetric-clouds-1";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=alpha-feather-1";
-export { effectNeedsComposite } from "./shader-target-runtime.js?v=shader-target-runtime-1";
+export { effectNeedsComposite } from "./shader-target-runtime.js?v=source-roi-view-3";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {
@@ -100,6 +107,9 @@ export {
   componentLogicalPreviewRect,
   componentPreviewRenderRequest,
   componentReferencePlacement,
+  componentReferenceCount,
+  componentReferencePrefersSharedTexture,
+  componentReferenceRegionRequest,
   componentReferenceRenderRequest,
   componentRenderInstanceKey,
   componentSourceView,
@@ -134,6 +144,7 @@ const NATIVE_SOURCE_HOST_METHODS = Object.freeze({
   "output/specialized:text": "drawTextGenerator",
   "output/specialized:meshPatterns": "drawMeshPatternsGenerator",
 });
+const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
 const BASIC_NATIVE_SOURCE_RENDERERS = new Set([
   "output/specialized:black",
   "output/specialized:checker",
@@ -165,7 +176,7 @@ export function compiledNativeSourceRenderer(operation = {}, source = {}, genera
 }
 
 export class OutputRenderer {
-  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect }) {
+  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendChainBoundary, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect }) {
     this.mode = mode;
     this.outputId = outputId;
     this.hud = hud;
@@ -174,6 +185,7 @@ export class OutputRenderer {
     this.sendMapping = sendMapping;
     this.sendThumbnail = sendThumbnail;
     this.sendChainTransform = sendChainTransform;
+    this.sendChainBoundary = sendChainBoundary;
     this.sendCanvasFrame = sendCanvasFrame;
     this.sendMediaRendition = sendMediaRendition;
     this.requestMediaFiles = requestMediaFiles;
@@ -202,6 +214,7 @@ export class OutputRenderer {
     });
     this.visualForkSignature = "";
     this.componentPrograms = new Map();
+    this.componentRegionSafety = new WeakMap();
     this.scenePrograms = new Map();
     this.outputProgram = null;
     this.sceneProgramCache = new WeakMap();
@@ -266,7 +279,6 @@ export class OutputRenderer {
     this.lastPixelDensity = 0;
     this.frameStart = 0;
     this.profileRuntime = new OutputRenderProfile();
-    this.lastComponentTimePruneFrame = -COMPONENT_TIME_MAINTENANCE_FRAMES;
     this.lastTickMs = 0;
     this.frameDeltaSeconds = 0;
     this.visualDeltaSeconds = 0;
@@ -336,7 +348,10 @@ export class OutputRenderer {
   }
 
   createBuffers() {
-    this.disposeBuffers();
+    // Window resizing must not destroy and recreate the dedicated model
+    // WebGL context on every event. Specialized targets resize in place on
+    // their next use; only a final renderer disposal owns their destruction.
+    this.disposeBuffers({ preserveSpecialized: true });
     this.applyPixelDensity();
     const { width: rw, height: rh } = this.outputFrameSize(this.state.render);
     this.sourcePg = createGraphics(rw, rh);
@@ -356,8 +371,8 @@ export class OutputRenderer {
       this.mainMix?.height === rh;
   }
 
-  disposeBuffers() {
-    this.specializedSources.dispose();
+  disposeBuffers({ preserveSpecialized = false } = {}) {
+    if (!preserveSpecialized) this.specializedSources.dispose();
     disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
     this.surfaceRuntime.dispose();
@@ -542,8 +557,13 @@ export class OutputRenderer {
     const surface = this.state?.mappings?.local?.surfaces?.find((item) =>
       String(item?.id || item?.name || "") === String(surfaceId)
     );
+    const world = worldSize(this.state?.render || {});
+    const relative = this.state?.mappings?.local?.coordinateSpace === "relative";
     return Array.isArray(surface?.corners) && surface.corners.length === 4
-      ? surface.corners.map((corner) => ({ x: Number(corner.x) || 0, y: Number(corner.y) || 0 }))
+      ? surface.corners.map((corner) => ({
+          x: (Number(corner.x) || 0) * (relative ? world.width : 1),
+          y: (Number(corner.y) || 0) * (relative ? world.height : 1),
+        }))
       : null;
   }
 
@@ -581,6 +601,7 @@ export class OutputRenderer {
     const preparedState = normalized ? nextState : sanitizeState(nextState);
     this.clearLiveParamFades();
     this.state = this.previewInteraction?.reconcileIncomingState(preparedState) || preparedState;
+    this.pruneComponentTimes();
     this.rebuildVisualNodeResolver();
     this.rebuildComponentPrograms();
     this.rebuildScenePrograms();
@@ -710,6 +731,7 @@ export class OutputRenderer {
     if (signature === this.visualForkSignature) return;
     this.visualForkSignature = signature;
     this.visualNodes = createProjectVisualNodeResolver(this.state || {});
+    this.componentRegionSafety = new WeakMap();
     // Shader objects are context-bound and keyed by source. Clear only when
     // project node code changes, never during ordinary frames or parameter
     // scrubs.
@@ -798,10 +820,9 @@ export class OutputRenderer {
     const frame = this.outputFrameSize(render);
     const world = worldSize(render);
     const texture = componentTextureSize(render);
-    const surfacePolicy = render.surfaceTexture || {};
     const density = this.renderPixelDensity(render);
     const outputs = outputFrames(render).map((output) => `${output.id}:${output.width}x${output.height}@${output.x},${output.y}`).join("|");
-    return `${this.outputId}:${frame.width}x${frame.height}:${outputs}:${world.width}x${world.height}:ct${texture.width}x${texture.height}:st${surfacePolicy.mode || "auto"}:${surfacePolicy.maxWidth || 0}x${surfacePolicy.maxHeight || 0}:pd${density}`;
+    return `${this.outputId}:${frame.width}x${frame.height}:${outputs}:${world.width}x${world.height}:ct${texture.width}x${texture.height}:ceiling${render.resolutionCeiling || "auto"}:pd${density}`;
   }
 
   outputFrameSize(render = this.state?.render || {}) {
@@ -818,12 +839,12 @@ export class OutputRenderer {
 
   renderPixelDensity(render = this.state?.render || {}) {
     const configured = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
-    const demandScale = Math.max(0.125, Math.min(1, Number(render.previewRasterScale) || 1));
-    return Math.max(0.125, configured * demandScale);
+    const demandScale = Math.max(0.125, Math.min(8, Number(render.previewRasterScale) || 1));
+    return Math.max(0.125, Math.min(2, configured * demandScale));
   }
 
   renderResolutionSize(render = this.state?.render || {}) {
-    const frame = this.outputFrameSize(render);
+    const frame = this.displayCanvasSize(render);
     const density = this.renderPixelDensity(render);
     return {
       width: Math.max(1, Math.round(frame.width * density)),
@@ -881,12 +902,21 @@ export class OutputRenderer {
   }
 
   mappingForRenderMode(mapping) {
-    if (this.mode !== "output") return mapping;
-    return mapMappingCorners(mapping, (corner) => this.worldPointToDisplay(corner));
+    const world = worldSize(this.state?.render || {});
+    const worldMapping = mapping?.coordinateSpace === "relative"
+      ? mapMappingCorners(mapping, (corner) => ({
+          x: (Number(corner.x) || 0) * world.width,
+          y: (Number(corner.y) || 0) * world.height,
+        }))
+      : mapping;
+    if (this.mode !== "output") return worldMapping;
+    return mapMappingCorners(worldMapping, (corner) => this.worldPointToDisplay(corner));
   }
 
   outputFrameTransform() {
-    const projectFrame = this.outputFrameSize(this.state?.render || {});
+    const projectFrame = this.mode === "output"
+      ? outputFrameForId(this.state?.render || {}, this.outputId)
+      : this.outputFrameSize(this.state?.render || {});
     const outputFrame = this.displayCanvasSize(this.state?.render || {});
     const scale = Math.max(
       outputFrame.width / Math.max(1, projectFrame.width),
@@ -900,8 +930,22 @@ export class OutputRenderer {
   }
 
   mappingFromRenderMode(mapping) {
-    if (this.mode !== "output") return mapping;
-    return mapMappingCorners(mapping, (corner) => this.displayPointToWorld(corner));
+    const worldMapping = this.mode === "output"
+      ? mapMappingCorners(mapping, (corner) => this.displayPointToWorld(corner))
+      : mapping;
+    const world = worldSize(this.state?.render || {});
+    const normalized = mapMappingCorners(worldMapping, (corner) => ({
+      x: (Number(corner.x) || 0) / Math.max(1, world.width),
+      y: (Number(corner.y) || 0) / Math.max(1, world.height),
+    }));
+    return {
+      ...normalized,
+      coordinateSpace: "relative",
+      surfaces: (normalized?.surfaces || []).map((surface) => {
+        const { w: _w, h: _h, ...persisted } = surface || {};
+        return persisted;
+      }),
+    };
   }
 
   outputFrameOffset() {
@@ -1010,6 +1054,16 @@ export class OutputRenderer {
     this.profileRuntime.beginFrame(this.frameIndex);
     this.tickClock(this.frameStart);
     this.outputMediaStatus = this.outputMediaReadiness();
+    if (this.shouldHoldOutputFrameForMedia()) {
+      // Keep the last completely rendered frame on the presentation canvas.
+      // This needs no extra framebuffer and prevents a loading video from
+      // flashing Output black between decoder readiness notifications.
+      this.pruneRenderCaches();
+      this.gpuTimer.sealFrame(this.frameIndex);
+      this.finishFrameProfile();
+      this.updateHudAndMetrics();
+      return;
+    }
     this.scheduledEvents = this.state.scheduler?.manualLane === false
       ? []
       : this.manualScheduler.drain({ frame: this.frameIndex, time: this.visualTime });
@@ -1030,7 +1084,6 @@ export class OutputRenderer {
       const restoreCalibrate = outputBlackout && this.mapper?.isCalibrating?.();
       if (restoreCalibrate) this.mapper.setCalibrate(false);
       this.mapper.drawOverlays();
-      this.renderOutputFrameOverlay();
       this.renderSelectedSurfaceOverlay();
       if (restoreCalibrate) this.mapper.setCalibrate(true);
     });
@@ -1062,17 +1115,17 @@ export class OutputRenderer {
     this.visualDeltaSeconds = playing ? dt * timeScale : 0;
     if (!playing) return;
     this.visualTime += this.visualDeltaSeconds;
-    if (this.frameIndex - this.lastComponentTimePruneFrame >= COMPONENT_TIME_MAINTENANCE_FRAMES) {
-      const liveComponentIds = new Set();
-      for (const component of this.state.components || []) liveComponentIds.add(component.id);
-      for (const id of this.componentTimes.keys()) {
-        if (!liveComponentIds.has(id)) this.componentTimes.delete(id);
-      }
-      this.lastComponentTimePruneFrame = this.frameIndex;
-    }
     for (const component of this.state.components || []) {
       const speed = Math.max(0, Number(component.speed) || 0);
       this.componentTimes.set(component.id, (this.componentTimes.get(component.id) || 0) + this.visualDeltaSeconds * speed);
+    }
+  }
+
+  pruneComponentTimes() {
+    if (!this.componentTimes.size) return;
+    const liveComponentIds = new Set((this.state?.components || []).map((component) => component.id));
+    for (const id of this.componentTimes.keys()) {
+      if (!liveComponentIds.has(id)) this.componentTimes.delete(id);
     }
   }
 
@@ -1118,35 +1171,6 @@ export class OutputRenderer {
       circle(corner.x - w2, corner.y - h2, 34);
       fill(255);
       circle(corner.x - w2, corner.y - h2, 14);
-    }
-    pop();
-    if (gl?.enable) gl.enable(gl.DEPTH_TEST);
-  }
-
-  renderOutputFrameOverlay() {
-    if (this.mode === "output" || !this.mapper?.isCalibrating?.()) return;
-    const frames = outputFrames(this.state?.render || {});
-    if (!frames.length) return;
-    const showLabels = this.state?.global?.showLabels !== false;
-    const gl = drawingContext;
-    if (gl?.disable) gl.disable(gl.DEPTH_TEST);
-    resetShader();
-    push();
-    noFill();
-    stroke(255, 255, 255, 135);
-    strokeWeight(2);
-    rectMode(CORNER);
-    for (const frame of frames) {
-      noFill();
-      stroke(255, 255, 255, 135);
-      rect(-width * 0.5 + frame.x, -height * 0.5 + frame.y, frame.width, frame.height);
-      if (showLabels) {
-        noStroke();
-        fill(255, 255, 255, 150);
-        textSize(12);
-        textAlign(LEFT, TOP);
-        text(`${frame.name} · ${frame.width}×${frame.height}`, -width * 0.5 + frame.x + 10, -height * 0.5 + frame.y + 8);
-      }
     }
     pop();
     if (gl?.enable) gl.enable(gl.DEPTH_TEST);
@@ -1226,13 +1250,17 @@ export class OutputRenderer {
     const renderRequest = component?.type === "canvas"
       ? outputRequest
       : componentPipelineSourceRequest(outputRequest, pipeline);
-    const outputKey = renderBufferKey(component.id, renderRequestKey(outputRequest));
+    const outputKey = renderBufferKey(component.id, renderRequestStateKey(outputRequest));
     const cached = this.componentOutput.get(outputKey);
     if (cached) {
       this.frameProfile.componentCacheHits++;
       return cached;
     }
-    const stableSignature = this.stableComponentSignature(component, outputRequest);
+    // Moving regional windows reuse size-keyed GPU allocations, but they must
+    // not create persistent stable-cache entries for every crop position.
+    const stableSignature = outputRequest.regionView === true
+      ? ""
+      : this.stableComponentSignature(component, outputRequest);
     const stableKey = renderBufferKey("stable", outputKey);
     const stableGpuKey = renderBufferKey(stableKey, renderRequestKey(outputRequest));
     const stableGpuCached = stableSignature ? this.componentGpuBuffer.get(stableGpuKey) : null;
@@ -1540,9 +1568,19 @@ export class OutputRenderer {
       const effectComponent = opcode === "effect" && !operation?.transformDomain
         ? this.effectNodeComponent(item.componentId)
         : null;
+      const effectRoi = operation?.roi || operation?.compilerHook?.roi || effectComponent?.runtime?.roi;
       const renderedItem = visualOperationRenderItem(operation, item, inheritedTransform, effectComponent);
       const nodeId = renderBufferKey(component.id, scopeId, index, item.id || item.componentId || item.kind);
       if (opcode === "source") {
+        if (!isFullNodeBoundary(renderedItem.boundary)) {
+          const roiRequest = nodeRoiRequest(renderRequest, renderedItem.boundary, {
+            renderIdentity: renderBufferKey(renderRequest.renderIdentity || component.id, renderedItem.id || nodeId),
+          });
+          if (roiRequest.empty) continue;
+          const sourceState = this.renderComponentSourceItemState(component, renderedItem, componentTime, roiRequest, nodeId, operation);
+          state = this.renderBoundedLayerNodeState(nodeId, state, sourceState, renderedItem, renderRequest, roiRequest.roi);
+          continue;
+        }
         if (this.canDirectCompositeSource(renderedItem, renderRequest)) {
           state = this.renderDirectSourceNodeState(nodeId, state, component, renderedItem, componentTime, renderRequest);
           continue;
@@ -1555,6 +1593,36 @@ export class OutputRenderer {
         continue;
       }
       if (opcode === "effect") {
+        if (!isFullNodeBoundary(renderedItem.boundary)) {
+          if (nodeBoundaryPixelRect(renderedItem.boundary, renderRequest).empty) continue;
+          if (effectRoi?.mode === "full-frame") {
+            state = this.renderFullFrameEffectWithinBoundary(nodeId, state, renderedItem, componentTime, renderRequest);
+            continue;
+          }
+          const run = [renderedItem];
+          let nextIndex = index + 1;
+          while (nextIndex < (operations || []).length) {
+            const nextOperation = operations[nextIndex];
+            const nextItem = nextOperation?.configuration || nextOperation;
+            if (nextItem?.enabled === false) {
+              nextIndex++;
+              continue;
+            }
+            if ((nextOperation?.opcode || nextItem?.kind) !== "effect") break;
+            const nextEffectComponent = !nextOperation?.transformDomain
+              ? this.effectNodeComponent(nextItem.componentId)
+              : null;
+            const nextEffectRoi = nextOperation?.roi || nextOperation?.compilerHook?.roi || nextEffectComponent?.runtime?.roi;
+            if (nextEffectRoi?.mode === "full-frame") break;
+            const renderedNextItem = visualOperationRenderItem(nextOperation, nextItem, inheritedTransform, nextEffectComponent);
+            if (!sameNodeBoundary(renderedItem.boundary, renderedNextItem.boundary)) break;
+            run.push(renderedNextItem);
+            nextIndex++;
+          }
+          state = this.renderBoundedEffectRunNodeState(nodeId, state, run, componentTime, renderRequest);
+          index = nextIndex - 1;
+          continue;
+        }
         const firstPass = chainItemToShaderPass(renderedItem);
         const firstJob = compileShaderSchedule([firstPass], this.visualResolverOptions)[0];
         if (isFusibleShaderJob(firstJob)) {
@@ -1588,23 +1656,36 @@ export class OutputRenderer {
         continue;
       }
       if (opcode === "group") {
+        const bounded = !isFullNodeBoundary(renderedItem.boundary);
+        const groupRequest = bounded
+          ? nodeRoiRequest(renderRequest, renderedItem.boundary, {
+              renderIdentity: renderBufferKey(renderRequest.renderIdentity || component.id, renderedItem.id || nodeId),
+            })
+          : renderRequest;
+        if (groupRequest.empty) continue;
         const groupState = this.renderComponentOperationsState(
           component,
           operation?.operations || item.chain || [],
           componentTime,
-          renderRequest,
+          groupRequest,
           renderBufferKey(scopeId, item.id || index),
           combineContentTransforms(inheritedTransform, item.transform || {})
         );
         // A Group is a transform scope: its transform is precomposed into all
         // descendants above. Only its blend/opacity applies at this boundary.
-        state = this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest);
+        state = bounded
+          ? this.renderBoundedLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest, groupRequest.roi)
+          : this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest);
       }
     }
     return state;
   }
 
   canDirectCompositeSource(item = {}, renderRequest = {}) {
+    // Direct placement uses the allocation as its complete coordinate frame.
+    // A regional Canvas request is only a window into a larger logical frame,
+    // so route it through the render-view-aware source implementation.
+    if (renderRequest.regionView === true) return false;
     const source = item.source || {};
     if (this.imageSourceNeedsAlphaEdge(source)) return false;
     const dependency = source.type === "component"
@@ -1625,32 +1706,98 @@ export class OutputRenderer {
     });
   }
 
+  componentRegionSafe(component = {}, visiting = new Set()) {
+    if (!component?.id || visiting.has(component.id)) return false;
+    const cached = this.componentRegionSafety.get(component);
+    if (cached !== undefined) return cached;
+    visiting.add(component.id);
+    const visit = (chain) => (chain || []).every((item) => {
+      if (item?.enabled === false) return true;
+      if (item?.kind === "group") return visit(item.chain);
+      if (item?.kind === "effect") {
+        const effect = this.effectNodeComponent(item.componentId);
+        // Recording-frame ROI must be pixel-equivalent to a full Canvas crop.
+        // Effects that sample neighboring/arbitrary source coordinates need
+        // a halo/global adapter and therefore retain the established full-
+        // Canvas path for now. Local filters remain region-safe.
+        return !!effect?.code && effect.runtime?.roi?.mode === "local" && effect.sampling === "local";
+      }
+      if (item?.kind !== "source") return false;
+      if (item.source?.type === "black") return true;
+      if (item.source?.type === "component") {
+        const dependency = this.state?.components?.find((candidate) => candidate.id === item.source.componentId);
+        return !!dependency && dependency.type !== "canvas" && this.componentRegionSafe(dependency, visiting);
+      }
+      if (item.source?.type === "media" || item.source?.type === "camera") return true;
+      if (item.source?.type !== "generator") return false;
+      return !!this.generatorNodeComponent(item.source.generatorId);
+    });
+    const safe = visit(component.chain);
+    visiting.delete(component.id);
+    this.componentRegionSafety.set(component, safe);
+    return safe;
+  }
+
+  canvasComponentRegionSafe(component = {}) {
+    return component.type === "canvas" && this.componentRegionSafe(component);
+  }
+
+  canvasComponentFrameFanoutSafe(component = {}, visiting = new Set()) {
+    if (component?.type !== "canvas" || !component.id) return false;
+    const visitChain = (chain) => (chain || []).every((item) => {
+      if (item?.enabled === false) return true;
+      if (item?.kind === "group") return visitChain(item.chain);
+      if (item?.kind !== "source" || item.source?.type !== "component") return true;
+      const dependency = this.state?.components?.find((candidate) => candidate.id === item.source.componentId);
+      if (!dependency || dependency.syncInstances === false) return false;
+      return visitComponent(dependency);
+    });
+    const visitComponent = (candidate) => {
+      if (!candidate?.id || visiting.has(candidate.id)) return false;
+      visiting.add(candidate.id);
+      const safe = visitChain(candidate.chain);
+      visiting.delete(candidate.id);
+      return safe;
+    };
+    return visitComponent(component);
+  }
+
   renderDirectSourceNodeState(nodeId, inputState, component, item, componentTime, renderRequest) {
     const source = {
       ...sourceWithNodeParams(item.source, {}, item.id),
       contentTransform: item.transform || {},
     };
     const runtimeContext = this.nodeRuntimeContext(componentTime);
+    const time = this.sourceRuntimeTimeKey(source, item, runtimeContext);
+    const external = this.sourceRuntimeExternalKey(source, item, runtimeContext);
+    const instanceInvariant = inputState.instanceInvariant === true &&
+      !this.sourceIsFrameDynamic(source, item);
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(renderRequest)
+      : renderRequest;
     const signature = stableStringify({
       input: textureStateKey(inputState),
       source: staticSourceState(source),
       media: staticMediaStateForSource(this.state?.media || [], source),
       runtimeMedia: runtimeMediaStateForSource(this.media, source),
-      time: this.sourceRuntimeTimeKey(source, item, runtimeContext),
-      external: this.sourceRuntimeExternalKey(source, item, runtimeContext),
+      time,
+      external,
       layer: chainLayerState(item),
-      request: renderRequestKey(renderRequest),
+      request: renderRequestStateKey(evaluationRequest),
     });
     return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
       output.push();
       output.clear();
       drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
       output.pop();
-      const placed = this.resolvePlacedSourceResult(output, source, component, componentTime, renderRequest);
-      if (placed) this.drawPlacedSourceResult(output, placed, item);
+      const placed = this.resolvePlacedSourceResult(output, source, component, componentTime, evaluationRequest);
+      const clipRect = isFullNodeBoundary(item.boundary)
+        ? null
+        : nodeBoundaryPixelRect(item.boundary, renderRequest);
+      if (placed) this.drawPlacedSourceResult(output, placed, item, clipRect);
       this.frameProfile.directSourceComposites++;
       this.frameProfile.avoidedSourceRasterPixels += renderRequest.width * renderRequest.height;
-    }, "direct-source");
+    }, "direct-source", { instanceInvariant });
   }
 
   resolvePlacedSourceResult(output, source, component, componentTime, renderRequest) {
@@ -1663,12 +1810,14 @@ export class OutputRenderer {
       const demandRect = transformedPlacementDemandRect(placement, placementTransform);
       const dependencyTime = this.componentTimes.get(dependency.id) || componentTime;
       const renderIdentity = componentRenderInstanceKey(dependency, source.instanceId);
+      const referenceCount = componentReferenceCount(component, dependency.id);
       const texture = this.renderComponentForRequest(
         dependency,
         componentInstanceTime(dependency, dependencyTime, source.instanceId),
         componentReferenceRenderRequest(this.state.render, dependency, demandRect, {
           reason: "direct-component-reference",
           renderIdentity,
+          sharedResolutionClass: dependency.syncInstances !== false && referenceCount > 1,
         })
       );
       return createPlacedRenderResult(texture, {
@@ -1717,26 +1866,28 @@ export class OutputRenderer {
     return null;
   }
 
-  drawPlacedSourceResult(output, placed, layer = {}) {
+  drawPlacedSourceResult(output, placed, layer = {}, clipRect = null) {
     output.push();
     applyBlend(output, layer.blend);
     output.tint(255, 255 * clamp01(layer.opacity ?? 1));
-    this.drawPlacedResultGeometry(output, placed);
+    withTargetScissor(output, clipRect, () => this.drawPlacedResultGeometry(output, placed));
     output.noTint();
     output.blendMode(BLEND);
     output.pop();
   }
 
-  drawPlacedResultGeometry(output, placed) {
+  drawPlacedResultGeometry(output, placed, coordinateTarget = output) {
     const rect = placed.destinationRect;
     const transform = normalizedContentTransform(placed.transform);
-    const placement = contentTransformCanvasPlacement(transform, output.width, output.height);
+    const coordinateWidth = Math.max(1, Number(coordinateTarget?.width) || Number(output.width) || 1);
+    const coordinateHeight = Math.max(1, Number(coordinateTarget?.height) || Number(output.height) || 1);
+    const placement = contentTransformCanvasPlacement(transform, coordinateWidth, coordinateHeight);
     output.push();
     output.translate(placement.centerX, placement.centerY);
     output.rotate(transform.rotation);
     output.scale(transform.scale);
-    const x = rect.x - output.width * 0.5;
-    const y = rect.y - output.height * 0.5;
+    const x = rect.x - coordinateWidth * 0.5;
+    const y = rect.y - coordinateHeight * 0.5;
     if (placed.fit === "stretch") {
       drawBuffer(output, placed.texture, x, y, rect.width, rect.height, placed.sourceIsWebGL);
     } else {
@@ -1747,15 +1898,16 @@ export class OutputRenderer {
 
   transparentChainState(component, renderRequest) {
     const nodeId = renderBufferKey(component.id, "transparent");
+    const evaluationRequest = instanceInvariantRenderRequest(renderRequest);
     const signature = stableStringify({
       transparent: true,
-      request: renderRequestKey(renderRequest),
+      request: renderRequestStateKey(evaluationRequest),
     });
     return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
       output.push();
       output.clear();
       output.pop();
-    }, "initial");
+    }, "initial", { instanceInvariant: true });
   }
 
   renderLayerNodeState(nodeId, inputState, layerState, layer, renderRequest) {
@@ -1766,11 +1918,15 @@ export class OutputRenderer {
       renderRequest
     );
     const compositeLayer = { ...layer, transform: {} };
+    const instanceInvariant = inputState.instanceInvariant === true && contentState.instanceInvariant === true;
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(renderRequest)
+      : renderRequest;
     const signature = stableStringify({
       input: textureStateKey(inputState),
       layer: textureStateKey(contentState),
       state: chainLayerState(layer),
-      request: renderRequestKey(renderRequest),
+      request: renderRequestStateKey(evaluationRequest),
     });
     return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
       if (layer.blend === "overlay" && isSharedFramebufferTarget(output)) {
@@ -1782,15 +1938,164 @@ export class OutputRenderer {
       drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
       output.pop();
       this.drawChainLayer(output, contentState.buffer, compositeLayer);
-    }, "layer");
+    }, "layer", { instanceInvariant });
+  }
+
+  renderBoundedLayerNodeState(nodeId, inputState, layerState, layer, renderRequest, roi) {
+    const instanceInvariant = inputState.instanceInvariant === true && layerState.instanceInvariant === true;
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(renderRequest)
+      : renderRequest;
+    const signature = stableStringify({
+      input: textureStateKey(inputState),
+      layer: textureStateKey(layerState),
+      state: chainLayerState(layer),
+      roi,
+      request: renderRequestStateKey(evaluationRequest),
+    });
+    return this.evaluateChainNode(renderBufferKey(nodeId, "bounded-layer"), signature, renderRequest, (output) => {
+      output.push();
+      output.clear();
+      drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
+      applyBlend(output, layer.blend);
+      output.tint(255, 255 * clamp01(layer.opacity ?? 1));
+      this.drawNodeRegionGeometry(output, layerState.buffer, roi);
+      output.noTint();
+      output.blendMode(BLEND);
+      output.pop();
+    }, "bounded-layer", { instanceInvariant });
+  }
+
+  renderBoundedEffectNodeState(nodeId, inputState, item, componentTime, renderRequest) {
+    return this.renderBoundedEffectRunNodeState(nodeId, inputState, [item], componentTime, renderRequest);
+  }
+
+  renderFullFrameEffectWithinBoundary(nodeId, inputState, item, componentTime, renderRequest) {
+    const fullState = this.renderEffectNodeState(
+      renderBufferKey(nodeId, "full-frame-effect"),
+      inputState,
+      { ...item, boundary: FULL_NODE_BOUNDARY },
+      componentTime,
+      renderRequest
+    );
+    const roiRequest = nodeRoiRequest(renderRequest, item.boundary, {
+      renderIdentity: renderBufferKey(renderRequest.renderIdentity || "effect", item.id || item.componentId),
+    });
+    const regionState = this.extractNodeRegionState(
+      renderBufferKey(nodeId, "full-frame-region"),
+      fullState,
+      renderRequest,
+      roiRequest
+    );
+    return this.compositeNodeRegionState(
+      renderBufferKey(nodeId, "full-frame-composite"),
+      inputState,
+      regionState,
+      renderRequest,
+      roiRequest.roi
+    );
+  }
+
+  renderBoundedEffectRunNodeState(nodeId, inputState, items, componentTime, renderRequest) {
+    const boundary = items[0]?.boundary || FULL_NODE_BOUNDARY;
+    const roiRequest = nodeRoiRequest(renderRequest, boundary, {
+      renderIdentity: renderBufferKey(renderRequest.renderIdentity || "effect", items.map((item) => item.id || item.componentId).join("+")),
+    });
+    const regionState = this.extractNodeRegionState(renderBufferKey(nodeId, "extract"), inputState, renderRequest, roiRequest);
+    let effectState = regionState;
+    for (let index = 0; index < items.length; index++) {
+      effectState = this.renderEffectNodeState(
+        renderBufferKey(nodeId, "roi-effect", index, items[index].id || items[index].componentId),
+        effectState,
+        { ...items[index], boundary: FULL_NODE_BOUNDARY },
+        componentTime,
+        roiRequest
+      );
+    }
+    return this.compositeNodeRegionState(renderBufferKey(nodeId, "roi-composite"), inputState, effectState, renderRequest, roiRequest.roi);
+  }
+
+  extractNodeRegionState(nodeId, inputState, fullRequest, roiRequest) {
+    const instanceInvariant = inputState.instanceInvariant === true;
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(fullRequest)
+      : fullRequest;
+    const signature = stableStringify({
+      input: textureStateKey(inputState),
+      roi: roiRequest.roi,
+      request: renderRequestStateKey(evaluationRequest),
+    });
+    return this.evaluateChainNode(nodeId, signature, roiRequest, (output) => {
+      const roi = roiRequest.roi;
+      output.push();
+      output.clear();
+      output.translate(-roi.sampleX, -roi.sampleY);
+      output.translate(roi.boundaryWidth * 0.5, roi.boundaryHeight * 0.5);
+      output.rotate(-roi.rotation);
+      output.translate(-roi.centerX, -roi.centerY);
+      drawBuffer(
+        output,
+        inputState.buffer,
+        0,
+        0,
+        roi.fullWidth,
+        roi.fullHeight,
+        this.isShaderBuffer(inputState.buffer)
+      );
+      output.pop();
+    }, "roi-extract", { instanceInvariant });
+  }
+
+  compositeNodeRegionState(nodeId, inputState, regionState, renderRequest, roi) {
+    const instanceInvariant = inputState.instanceInvariant === true && regionState.instanceInvariant === true;
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(renderRequest)
+      : renderRequest;
+    const signature = stableStringify({
+      input: textureStateKey(inputState),
+      region: textureStateKey(regionState),
+      roi,
+      request: renderRequestStateKey(evaluationRequest),
+    });
+    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
+      output.push();
+      output.clear();
+      drawBuffer(output, inputState.buffer, 0, 0, output.width, output.height, this.isShaderBuffer(inputState.buffer));
+      // Replacement is important for alpha-key and mask effects: ordinary
+      // source-over compositing would retain pixels made transparent by the ROI.
+      output.blendMode(REPLACE);
+      this.drawNodeRegionGeometry(output, regionState.buffer, roi);
+      output.blendMode(BLEND);
+      output.pop();
+    }, "roi-composite", { instanceInvariant });
+  }
+
+  drawNodeRegionGeometry(output, region, roi) {
+    output.push();
+    output.translate(roi.centerX, roi.centerY);
+    output.rotate(roi.rotation);
+    drawBuffer(
+      output,
+      region,
+      -roi.boundaryWidth * 0.5 + roi.sampleX,
+      -roi.boundaryHeight * 0.5 + roi.sampleY,
+      roi.width,
+      roi.height,
+      this.isShaderBuffer(region)
+    );
+    output.pop();
   }
 
   renderLayerContentTransformState(nodeId, inputState, transform, renderRequest) {
     if (isIdentityTransform(transform)) return inputState;
+    const instanceInvariant = inputState.instanceInvariant === true;
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(renderRequest)
+      : renderRequest;
     const signature = stableStringify({
       input: textureStateKey(inputState),
       transform,
-      request: renderRequestKey(renderRequest),
+      request: renderRequestStateKey(evaluationRequest),
     });
     return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
       if (!isSharedFramebufferTarget(output)) {
@@ -1812,7 +2117,7 @@ export class OutputRenderer {
         drawShaderTargetRect(output, output.width, output.height);
         resetShaderTarget(output);
       });
-    }, "content-transform");
+    }, "content-transform", { instanceInvariant });
   }
 
   getLayerTransformShader(target) {
@@ -1863,19 +2168,26 @@ export class OutputRenderer {
     if ((item.opacity ?? 1) <= 0.0001) return inputState;
     if (amount <= 0.0001) return inputState;
     const runtimeContext = this.nodeRuntimeContext(componentTime);
+    const external = component.runtime?.externalKey?.(params, runtimeContext) ?? null;
+    const instanceInvariant = inputState.instanceInvariant === true &&
+      !this.effectPassIsFrameDynamic({ id: item.componentId, params, amount }) &&
+      external === null;
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(renderRequest)
+      : renderRequest;
     const signature = stableStringify({
       input: textureStateKey(inputState),
       params,
       transform: item.transform || {},
       time: componentRuntimeTimeKey(component, params, runtimeContext),
-      external: component.runtime?.externalKey?.(params, runtimeContext) ?? null,
+      external,
       customShader: item.componentId === "custom" ? this.state?.shaders?.customCode || "" : "",
-      request: renderRequestKey(renderRequest),
+      request: renderRequestStateKey(evaluationRequest),
     });
     const needsComposite = effectNeedsComposite(item);
     const effectState = this.evaluateChainNode(needsComposite ? renderBufferKey(nodeId, "effect") : nodeId, signature, renderRequest, (output) => {
       const pass = chainItemToShaderPass({ ...item, params, amount });
-      const qualityRequest = qualityScaledRenderRequest(renderRequest, params);
+      const qualityRequest = qualityScaledRenderRequest(evaluationRequest, params);
       if (isSharedFramebufferTarget(output) &&
           output.width === qualityRequest.width &&
           output.height === qualityRequest.height) {
@@ -1887,7 +2199,7 @@ export class OutputRenderer {
       output.clear();
       drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
       output.pop();
-    }, "effect");
+    }, "effect", { instanceInvariant });
     if (!needsComposite) return effectState;
     return this.renderLayerNodeState(
       renderBufferKey(nodeId, "composite"),
@@ -1900,6 +2212,11 @@ export class OutputRenderer {
 
   renderEffectRunNodeState(nodeId, inputState, items, componentTime, renderRequest) {
     const passes = items.map((item) => chainItemToShaderPass(item));
+    const instanceInvariant = inputState.instanceInvariant === true &&
+      passes.every((pass) => !this.effectPassIsFrameDynamic(pass));
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(renderRequest)
+      : renderRequest;
     const signature = stableStringify({
       input: textureStateKey(inputState),
       passes,
@@ -1907,21 +2224,25 @@ export class OutputRenderer {
         const component = this.effectNodeComponent(pass.id);
         return componentRuntimeTimeKey(component, pass.params, this.nodeRuntimeContext(componentTime));
       }),
-      request: renderRequestKey(renderRequest),
+      request: renderRequestStateKey(evaluationRequest),
     });
     return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
-      const effected = this.renderShaderChain(inputState.buffer, passes, renderRequest, componentTime);
+      const effected = this.renderShaderChain(inputState.buffer, passes, evaluationRequest, componentTime);
       output.push();
       output.clear();
       drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
       output.pop();
-    }, "fused-effect-run");
+    }, "fused-effect-run", { instanceInvariant });
   }
 
-  evaluateChainNode(nodeId, signature, renderRequest, render, dirtyReason) {
+  evaluateChainNode(nodeId, signature, renderRequest, render, dirtyReason, options = {}) {
+    const instanceInvariant = options.instanceInvariant === true;
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(renderRequest)
+      : renderRequest;
     const bufferId = renderBufferKey("node", nodeId);
-    const runtimeKey = renderBufferKey(bufferId, renderRequestKey(renderRequest));
-    const output = this.getComponentGpuBuffer(bufferId, renderRequest);
+    const runtimeKey = renderBufferKey(bufferId, renderRequestKey(evaluationRequest));
+    const output = this.getComponentGpuBuffer(bufferId, evaluationRequest);
     let runtime = this.chainNodeRuntimes.get(runtimeKey);
     if (!runtime) {
       runtime = new RenderNodeRuntime(runtimeKey);
@@ -1939,6 +2260,7 @@ export class OutputRenderer {
       outputVersion: result.outputVersion,
       nodeKey: runtimeKey,
       dirtyReason: result.dirtyReason,
+      instanceInvariant,
     };
   }
 
@@ -2029,8 +2351,8 @@ export class OutputRenderer {
       const params = normalizeParamValues(component, source.params || {});
       const featureMorphPairs = this.featureMorphPairService(source.generatorId);
       if (featureMorphPairs && params.imageAId && params.imageBId) {
-        const imageA = this.acquireMedia(params.imageAId);
-        const imageB = this.acquireMedia(params.imageBId);
+        const imageA = this.media.get(params.imageAId);
+        const imageB = this.media.get(params.imageBId);
         if (!isReadyMediaItem(imageA) || !isReadyMediaItem(imageB)) return true;
         const analysisStatus = featureMorphPairs.status(params, {
           imageAFile: imageA.file,
@@ -2038,7 +2360,7 @@ export class OutputRenderer {
         });
         if (analysisStatus === "idle" || analysisStatus === "loading") return true;
       }
-      if (source.generatorId === "tileTexture" && params.imageId && !isReadyMediaItem(this.acquireMedia(params.imageId))) return true;
+      if (source.generatorId === "tileTexture" && params.imageId && !isReadyMediaItem(this.media.get(params.imageId))) return true;
       return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
     }
     if (source.type === "component") {
@@ -2048,7 +2370,9 @@ export class OutputRenderer {
     if (source.type !== "media") return true;
     const mediaId = source.mediaId || "";
     const mediaMeta = (this.state?.media || []).find((item) => item.id === mediaId);
-    const runtimeItem = this.acquireMedia(mediaId);
+    // Classification must never claim, load, play, or pause media. The actual
+    // source draw and Output readiness traversal own those lifecycle actions.
+    const runtimeItem = this.media.get(mediaId);
     if (!mediaMeta || !isReadyMediaItem(runtimeItem)) return true;
     if (mediaMeta.type === "video" || runtimeItem?.video) return true;
     if (mediaMeta.type === "model" || runtimeItem?.model || runtimeItem?.modelData) {
@@ -2085,23 +2409,27 @@ export class OutputRenderer {
 
   renderComponentSourceItemState(component, item, componentTime, request, nodeId, operation = null) {
     const renderRequest = this.normalizeRenderRequest(request, "source");
-    const key = renderBufferKey(nodeId, "source", renderRequestKey(renderRequest));
-    let pg = this.componentSource.get(key);
-    if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
-      disposeGraphics(pg);
-      pg = createSharedFramebufferTarget(renderRequest.width, renderRequest.height) || createGraphics(renderRequest.width, renderRequest.height);
-      if (!isSharedFramebufferTarget(pg)) {
-        this.applyGraphicsPixelDensity(pg, this.requestPixelDensity(renderRequest));
-        this.applyGraphicsFont(pg);
-      }
-      this.componentSource.set(key, pg);
-    }
-    this.renderCache.touch("source", key, this.frameIndex);
     const source = {
       ...sourceWithNodeParams(item.source, {}, item.id),
       contentTransform: item.transform || {},
     };
     const runtimeContext = this.nodeRuntimeContext(componentTime);
+    const instanceInvariant = !this.sourceIsFrameDynamic(source, item);
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(renderRequest)
+      : renderRequest;
+    const key = renderBufferKey(nodeId, "source", renderRequestKey(evaluationRequest));
+    let pg = this.componentSource.get(key);
+    if (!pg || pg.width !== evaluationRequest.width || pg.height !== evaluationRequest.height) {
+      disposeGraphics(pg);
+      pg = createSharedFramebufferTarget(evaluationRequest.width, evaluationRequest.height) || createGraphics(evaluationRequest.width, evaluationRequest.height);
+      if (!isSharedFramebufferTarget(pg)) {
+        this.applyGraphicsPixelDensity(pg, this.requestPixelDensity(evaluationRequest));
+        this.applyGraphicsFont(pg);
+      }
+      this.componentSource.set(key, pg);
+    }
+    this.renderCache.touch("source", key, this.frameIndex);
     const sourceSignature = stableStringify({
       source: staticSourceState(source),
       execution: operation ? {
@@ -2115,7 +2443,7 @@ export class OutputRenderer {
       runtimeMedia: runtimeMediaStateForSource(this.media, source),
       time: this.sourceRuntimeTimeKey(source, item, runtimeContext),
       external: this.sourceRuntimeExternalKey(source, item, runtimeContext),
-      request: renderRequestKey(renderRequest),
+      request: renderRequestStateKey(evaluationRequest),
     });
     let runtime = this.sourceNodeRuntimes.get(key);
     if (!runtime) {
@@ -2126,7 +2454,7 @@ export class OutputRenderer {
     const result = runtime.evaluate(sourceSignature, () => {
       pg.push();
       pg.clear();
-      this.safeDrawSourceToGraphics(pg, source, component, componentTime, renderRequest, operation);
+      this.safeDrawSourceToGraphics(pg, source, component, componentTime, evaluationRequest, operation);
       pg.pop();
       return pg;
     }, { frame: this.frameIndex, dirtyReason: "source" });
@@ -2137,6 +2465,7 @@ export class OutputRenderer {
       outputVersion: result.outputVersion,
       nodeKey: key,
       dirtyReason: result.dirtyReason,
+      instanceInvariant,
     };
     if (!this.imageSourceNeedsAlphaEdge(source)) return sourceState;
     const edge = mediaSourceAlphaEdge(source);
@@ -2152,7 +2481,7 @@ export class OutputRenderer {
         transform: {},
       },
       componentTime,
-      renderRequest
+      evaluationRequest
     );
   }
 
@@ -2266,33 +2595,65 @@ export class OutputRenderer {
     this[method](pg, source, component, componentTime, renderRequest, operation);
   }
 
-  drawComponentReferenceSource(pg, source, component, componentTime) {
+  drawComponentReferenceSource(pg, source, component, componentTime, renderRequest) {
     const sourceComponent = this.state.components.find((item) => item.id === source.componentId);
     if (!sourceComponent || sourceComponent.id === component.id || sourceComponent.type === "canvas") return;
     const sourceTime = this.componentTimes.get(sourceComponent.id) || componentTime;
     const renderIdentity = componentRenderInstanceKey(sourceComponent, source.instanceId);
+    const view = renderView(pg, renderRequest);
     const placement = componentReferencePlacement(
       component,
       sourceComponent,
       this.state.render,
-      { width: pg.width, height: pg.height },
+      view,
       source.placement
     );
     const placementTransform = combineContentTransforms(source.contentTransform, sourceComponent.transform);
     const demandRect = transformedPlacementDemandRect(placement, placementTransform);
+    const coordinateFrame = { x: 0, y: 0, width: view.width, height: view.height };
+    const viewport = {
+      x: view.x,
+      y: view.y,
+      width: view.allocationWidth,
+      height: view.allocationHeight,
+    };
+    const visiblePlacement = transformedRectBounds(
+      coordinateFrame,
+      placement,
+      placementTransform
+    );
+    if (!rectsIntersect(visiblePlacement, viewport)) return;
+    const referenceCount = componentReferenceCount(component, sourceComponent.id);
+    const fullSourceRequest = componentReferenceRenderRequest(this.state.render, sourceComponent, demandRect, {
+      reason: "component-reference",
+      renderIdentity,
+      sharedResolutionClass: sourceComponent.syncInstances !== false && referenceCount > 1,
+    });
+    // Small repeated synchronized references are cheaper as one shared full
+    // texture: at these sizes p5/shader setup dominates fragment work. Large
+    // references retain regional rendering so the previous multi-megapixel
+    // allocation problem cannot return.
+    const preferSharedTexture = componentReferencePrefersSharedTexture(sourceComponent, referenceCount, fullSourceRequest);
+    const visibleRegion = renderRequest.regionView === true && !preferSharedTexture && this.componentRegionSafe(sourceComponent)
+      ? transformedRectVisibleRegion(coordinateFrame, placement, placementTransform, viewport)
+      : null;
+    const sourceRequest = visibleRegion
+      ? componentReferenceRegionRequest(fullSourceRequest, visibleRegion.uvRect, {
+          reason: "component-reference-region",
+        })
+      : fullSourceRequest;
     const sourceOutput = this.renderComponentForRequest(
       sourceComponent,
       componentInstanceTime(sourceComponent, sourceTime, source.instanceId),
-      componentReferenceRenderRequest(this.state.render, sourceComponent, demandRect, {
-        reason: "component-reference",
-        renderIdentity,
-      })
+      sourceRequest
     );
-    this.drawPlacedResultGeometry(pg, createPlacedRenderResult(sourceOutput, {
-      destinationRect: placement,
-      transform: placementTransform,
-      sourceIsWebGL: this.isShaderBuffer(sourceOutput),
-    }));
+    withRenderView(pg, renderRequest, () => {
+      this.drawPlacedResultGeometry(pg, createPlacedRenderResult(sourceOutput, {
+        destinationRect: visibleRegion?.destinationRect || placement,
+        transform: placementTransform,
+        sourceIsWebGL: this.isShaderBuffer(sourceOutput),
+      }), view);
+    });
   }
 
   drawMediaSource(pg, source, component, componentTime, renderRequest) {
@@ -2303,19 +2664,20 @@ export class OutputRenderer {
     };
     const item = this.acquireMedia(source.mediaId, { playback, width: pg.width });
     if (item?.video && isDrawableMedia(item.video)) {
-      drawWithContentTransform(pg, source.contentTransform, () => {
-        drawMediaFit(pg, item.video, 0, 0, pg.width, pg.height, mediaSourceFit(source));
-      });
+      drawWithContentTransform(pg, source.contentTransform, (view) => {
+        drawMediaFit(pg, item.video, 0, 0, view.width, view.height, mediaSourceFit(source));
+      }, renderRequest);
     }
     else if (item?.image && isDrawableMedia(item.image)) {
       const fit = mediaSourceFit(source);
-      const qualityRequest = qualityScaledRenderRequest({ width: pg.width, height: pg.height }, source.params || {});
+      const view = renderView(pg, renderRequest);
+      const qualityRequest = qualityScaledRenderRequest({ width: view.width, height: view.height }, source.params || {});
       const image = fit === "cover"
         ? this.getImageRendition(item, qualityRequest.width, qualityRequest.height) || item.image
         : item.image;
-      drawWithContentTransform(pg, source.contentTransform, () => {
-        drawMediaFit(pg, image, 0, 0, pg.width, pg.height, fit);
-      });
+      drawWithContentTransform(pg, source.contentTransform, (renderView) => {
+        drawMediaFit(pg, image, 0, 0, renderView.width, renderView.height, fit);
+      }, renderRequest);
     }
     else if (item?.model || item?.modelData) {
       this.drawModelSource(pg, item, source, componentTime, renderRequest);
@@ -2329,12 +2691,12 @@ export class OutputRenderer {
     }
   }
 
-  drawCameraSource(pg, source) {
+  drawCameraSource(pg, source, _component, _componentTime, renderRequest) {
     const camera = this.acquireCameraInput();
     if (camera && isDrawableMedia(camera)) {
-      drawWithContentTransform(pg, source.contentTransform, () => {
-        drawCover(pg, camera, 0, 0, pg.width, pg.height);
-      });
+      drawWithContentTransform(pg, source.contentTransform, (view) => {
+        drawCover(pg, camera, 0, 0, view.width, view.height);
+      }, renderRequest);
     }
     else this.drawStandby(pg, this.cameraError || "camera");
   }
@@ -2346,9 +2708,9 @@ export class OutputRenderer {
   drawGeneratorSource(pg, source, _component, componentTime, renderRequest, operation) {
     const generatorTime = instanceTime(source.instanceId || source.generatorId, componentTime);
     if (typeof operation?.nodeProcess === "function") {
-      drawWithContentTransform(pg, source.contentTransform, () => {
-        this.executeCompiledVisualNodeProcess(operation, pg, source, generatorTime, renderRequest);
-      });
+      drawWithContentTransform(pg, source.contentTransform, (view) => {
+        this.executeCompiledVisualNodeProcess(operation, pg, source, generatorTime, renderRequest, view);
+      }, renderRequest);
       return;
     }
     const generatorComponent = this.generatorNodeComponent(source.generatorId);
@@ -2364,12 +2726,12 @@ export class OutputRenderer {
       this.drawStandby(pg, `shader unavailable: ${source.generatorId}`);
       return;
     }
-    drawWithContentTransform(pg, source.contentTransform, () => {
-      drawGenerator(pg, source.generatorId, generatorTime, source.params || {});
-    });
+    drawWithContentTransform(pg, source.contentTransform, (view) => {
+      drawGenerator(pg, source.generatorId, generatorTime, source.params || {}, renderRequest, view);
+    }, renderRequest);
   }
 
-  executeCompiledVisualNodeProcess(operation, target, source, time, renderRequest) {
+  executeCompiledVisualNodeProcess(operation, target, source, time, renderRequest, sourceRenderView = null) {
     let invocation = this.compiledNodeProcessContexts.get(operation);
     if (!invocation) {
       // One mutable invocation envelope per compiled operation avoids creating
@@ -2382,6 +2744,7 @@ export class OutputRenderer {
           source: null,
           time: 0,
           renderRequest: null,
+          renderView: null,
           executionClass: "live-frame",
           renderHost: this,
           // Stable capability bindings let direct nodes own their behavior
@@ -2402,6 +2765,7 @@ export class OutputRenderer {
     invocation.context.source = source;
     invocation.context.time = time;
     invocation.context.renderRequest = renderRequest;
+    invocation.context.renderView = sourceRenderView || renderView(target, renderRequest);
     const result = operation.nodeProcess(invocation.inputs, invocation.context);
     if (result && typeof result.then === "function") {
       throw new Error(`VJ1_VISUAL_NODE_PROCESS_ASYNC:${operation.nodeProcessId || operation.nodeId || operation.id}`);
@@ -2416,9 +2780,9 @@ export class OutputRenderer {
       return true;
     }
     if (BASIC_NATIVE_SOURCE_RENDERERS.has(rendererId)) {
-      drawWithContentTransform(pg, source.contentTransform, () => {
-        drawGenerator(pg, source.generatorId, generatorTime, source.params || {});
-      });
+      drawWithContentTransform(pg, source.contentTransform, (view) => {
+        drawGenerator(pg, source.generatorId, generatorTime, source.params || {}, renderRequest, view);
+      }, renderRequest);
       return true;
     }
     console.error("[VJ1_NATIVE_SOURCE_RENDERER_MISSING]", {
@@ -2429,7 +2793,7 @@ export class OutputRenderer {
     return true;
   }
 
-  drawScreenShareGenerator(pg, source = {}) {
+  drawScreenShareGenerator(pg, source = {}, _componentTime, renderRequest) {
     const inputId = String(source.params?.inputId || "");
     const screen = this.acquireScreenInput(inputId);
     if (!screen || !isDrawableMedia(screen)) {
@@ -2437,15 +2801,15 @@ export class OutputRenderer {
       return;
     }
     const fit = ["contain", "cover", "stretch"].includes(source.params?.fit) ? source.params.fit : "contain";
-    drawWithContentTransform(pg, source.contentTransform, () => {
+    drawWithContentTransform(pg, source.contentTransform, (view) => {
       pg.push();
       if (source.params?.mirrored === true) {
-        pg.translate(pg.width, 0);
+        pg.translate(view.width, 0);
         pg.scale(-1, 1);
       }
-      drawMediaFit(pg, screen, 0, 0, pg.width, pg.height, fit);
+      drawMediaFit(pg, screen, 0, 0, view.width, view.height, fit);
       pg.pop();
-    });
+    }, renderRequest);
   }
 
   drawStandby(target, label, { forceVisible = false } = {}) {
@@ -2643,12 +3007,13 @@ export class OutputRenderer {
       const contentMatrix = generatorUniformState.sampling;
       setShaderUniformIfPresent(shader, "useContentTransform", isIdentityTransform(contentTransform) ? 0 : 1);
       setShaderUniformIfPresent(shader, "contentUvMatrix", contentMatrix);
+      setShaderUniformIfPresent(shader, "renderUvRect", renderRequest.uvRect || FULL_RENDER_UV_RECT);
       const shadertoyInterface = usesShadertoyInterface(component);
       if (shadertoyInterface) {
         const now = new Date();
         const drawingSize = shaderDrawingBufferSize(target, renderRequest.width, renderRequest.height);
-        generatorUniformState.iResolution[0] = drawingSize.width;
-        generatorUniformState.iResolution[1] = drawingSize.height;
+        generatorUniformState.iResolution[0] = Math.max(1, Number(renderRequest.logicalWidth) || drawingSize.width);
+        generatorUniformState.iResolution[1] = Math.max(1, Number(renderRequest.logicalHeight) || drawingSize.height);
         generatorUniformState.iResolution[2] = 1;
         setShaderUniformIfPresent(shader, "iResolution", generatorUniformState.iResolution);
         setShaderUniformIfPresent(shader, "iTime", shaderTime);
@@ -2662,8 +3027,8 @@ export class OutputRenderer {
         generatorUniformState.iDate[3] = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
         setShaderUniformIfPresent(shader, "iDate", generatorUniformState.iDate);
       } else {
-        generatorUniformState.resolution[0] = renderRequest.width;
-        generatorUniformState.resolution[1] = renderRequest.height;
+        generatorUniformState.resolution[0] = Math.max(1, Number(renderRequest.logicalWidth) || renderRequest.width);
+        generatorUniformState.resolution[1] = Math.max(1, Number(renderRequest.logicalHeight) || renderRequest.height);
         shader.setUniform("resolution", generatorUniformState.resolution);
         setShaderUniformIfPresent(shader, "time", shaderTime);
       }
@@ -2890,6 +3255,7 @@ export class OutputRenderer {
         applyShaderTarget(target, shader);
         shader.setUniform("tex0", unwrapRenderTarget(current));
         shader.setUniform("resolution", [logicalWidth, logicalHeight]);
+        shader.setUniform("renderUvRect", renderRequest.uvRect || FULL_RENDER_UV_RECT);
         shader.setUniform("canvasSize", [logicalWidth, logicalHeight]);
         shader.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight]);
         shader.setUniform("sourceFlipY", !sourceIsShaderBuffer);
@@ -2931,6 +3297,7 @@ export class OutputRenderer {
         applyShaderTarget(target, shaderProgram);
         shaderProgram.setUniform("tex0", unwrapRenderTarget(input));
         shaderProgram.setUniform("resolution", [logicalWidth, logicalHeight]);
+        shaderProgram.setUniform("renderUvRect", renderRequest.uvRect || FULL_RENDER_UV_RECT);
         shaderProgram.setUniform("canvasSize", [logicalWidth, logicalHeight]);
         shaderProgram.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight]);
         shaderProgram.setUniform("sourceFlipY", !sourceIsShaderBuffer);
@@ -3113,8 +3480,14 @@ export class OutputRenderer {
     push();
     imageMode(CORNER);
     if (this.shouldUseThumbnailPreview()) {
-      const drewEditableCanvas = component?.type === "canvas" && this.renderCanvasThumbnailEditPreview(component);
-      if (!drewEditableCanvas) this.renderFlattenedThumbnailEditPreview(component);
+      // A Canvas thumbnail is the flattened composition authority. Rebuilding
+      // a paused Canvas from referenced Component thumbnails omits media and
+      // effects and can therefore show an entirely different image. Keep that
+      // reconstruction only as a last-resort fallback for old Canvases that
+      // have never published their own thumbnail.
+      const drewCanvasSnapshot = component?.type === "canvas" && this.renderCanvasThumbnailSnapshotPreview(component);
+      const drewCanvasFallback = component?.type === "canvas" && !drewCanvasSnapshot && this.renderCanvasThumbnailEditPreview(component);
+      if (!drewCanvasSnapshot && !drewCanvasFallback) this.renderFlattenedThumbnailEditPreview(component);
     } else if (source) {
       const rect = this.componentPreviewRect(component, source);
       image(unwrapRenderTarget(source), rect.x - width / 2, rect.y - height / 2, rect.width, rect.height);
@@ -3152,6 +3525,22 @@ export class OutputRenderer {
       scale(editScale);
       drawImageCoverCrop(thumbnail.img, -rect.width * 0.5, -rect.height * 0.5, rect.width, rect.height);
       pop();
+    });
+    return true;
+  }
+
+  renderCanvasThumbnailSnapshotPreview(component) {
+    const thumbnail = this.getThumbnailImage(component);
+    if (!thumbnail?.ready || !thumbnail.img) return false;
+    const rect = this.componentPreviewRect(component);
+    withScreenScissor(rect, () => {
+      drawImageCoverCrop(
+        thumbnail.img,
+        rect.x - width * 0.5,
+        rect.y - height * 0.5,
+        rect.width,
+        rect.height
+      );
     });
     return true;
   }
@@ -3375,6 +3764,15 @@ export class OutputRenderer {
     return this.mode === "output" && (!!this.state.global.blackout || !!this.outputMediaStatus?.blocked);
   }
 
+  shouldHoldOutputFrameForMedia() {
+    const status = this.outputMediaStatus;
+    return this.mode === "output" &&
+      !this.state?.global?.blackout &&
+      status?.loadingIds?.size > 0 &&
+      status?.missingIds?.size === 0 &&
+      status?.errorIds?.size === 0;
+  }
+
   shouldUseThumbnailPreview() {
     return (this.mode === "preview" || this.mode === "component") && this.state?.ui?.debugPreview === false;
   }
@@ -3387,13 +3785,12 @@ export class OutputRenderer {
     this.updateSmoothedMetrics({ fps, frameMs, renderCost });
     this.updateGpuMetric();
     if (this.hud) {
-      const hideOutputHud = this.mode === "output" && this.state?.global?.showLabels === false;
       const mediaLoading = this.mode === "output" && !!this.outputMediaStatus?.blocked;
-      const showResolution = this.mode !== "output" || this.state?.global?.showLabels !== false;
-      const resolution = showResolution ? `<span class="output-resolution">${this.renderResolutionLabel()}</span>` : "";
-      this.hud.classList.toggle("is-hidden", !this.state.global.showHud || (hideOutputHud && !mediaLoading));
+      const resolution = `<span class="output-resolution">${this.renderResolutionLabel()}</span>`;
+      this.hud.classList.toggle("is-hidden", !this.state.global.showHud);
       this.hud.classList.toggle("is-loading", mediaLoading);
-      this.hud.innerHTML = `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>${resolution}`;
+      const markup = `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>${resolution}`;
+      if (this.hud.innerHTML !== markup) this.hud.innerHTML = markup;
     }
     if (millis() - this.lastMetricsAt > 500) {
       this.lastMetricsAt = millis();
@@ -3558,6 +3955,8 @@ function drawImageCoverCrop(source, x, y, targetWidth, targetHeight) {
   image(source, x, y, targetWidth, targetHeight, sx, sy, sw, sh);
 }
 
+// Editor-only clip for transformed stale thumbnails. This changes GL scissor
+// state around an existing draw; it does not create a render target or pass.
 function withScreenScissor(rect = {}, draw) {
   const gl = typeof drawingContext !== "undefined" ? drawingContext : null;
   if (!gl?.scissor || !gl?.enable || typeof draw !== "function") return draw?.();
@@ -3586,6 +3985,58 @@ function withScreenScissor(rect = {}, draw) {
   }
 }
 
+function withTargetScissor(target, rect, draw) {
+  if (!rect || typeof draw !== "function") return draw?.();
+  const gl = target?.drawingContext;
+  if (!gl?.scissor || !gl?.enable) {
+    if (!gl?.save || !gl?.beginPath || !gl?.rect || !gl?.clip) return draw();
+    gl.save();
+    gl.beginPath();
+    gl.rect(Number(rect.x) || 0, Number(rect.y) || 0, Math.max(0, Number(rect.width) || 0), Math.max(0, Number(rect.height) || 0));
+    gl.clip();
+    try {
+      return draw();
+    } finally {
+      gl.restore();
+    }
+  }
+  const targetWidth = Math.max(1, Number(target?.width) || 1);
+  const targetHeight = Math.max(1, Number(target?.height) || 1);
+  const density = target?.__vj1SharedFramebuffer
+    ? 1
+    : Math.max(1, Number(target?.pixelDensity?.()) || 1);
+  const left = Math.max(0, Math.min(targetWidth, Number(rect.x) || 0));
+  const top = Math.max(0, Math.min(targetHeight, Number(rect.y) || 0));
+  const right = Math.max(left, Math.min(targetWidth, left + Math.max(0, Number(rect.width) || 0)));
+  const bottom = Math.max(top, Math.min(targetHeight, top + Math.max(0, Number(rect.height) || 0)));
+  const wasEnabled = gl.isEnabled?.(gl.SCISSOR_TEST) === true;
+  const previousBox = gl.getParameter?.(gl.SCISSOR_BOX);
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(
+    Math.floor(left * density),
+    Math.floor((targetHeight - bottom) * density),
+    Math.max(1, Math.ceil((right - left) * density)),
+    Math.max(1, Math.ceil((bottom - top) * density))
+  );
+  try {
+    return draw();
+  } finally {
+    if (previousBox?.length === 4) gl.scissor(previousBox[0], previousBox[1], previousBox[2], previousBox[3]);
+    if (!wasEnabled) gl.disable(gl.SCISSOR_TEST);
+  }
+}
+
+function rectsIntersect(left = {}, right = {}) {
+  const leftX = Number(left.x) || 0;
+  const leftY = Number(left.y) || 0;
+  const rightX = Number(right.x) || 0;
+  const rightY = Number(right.y) || 0;
+  return leftX < rightX + Math.max(0, Number(right.width) || 0) &&
+    leftX + Math.max(0, Number(left.width) || 0) > rightX &&
+    leftY < rightY + Math.max(0, Number(right.height) || 0) &&
+    leftY + Math.max(0, Number(left.height) || 0) > rightY;
+}
+
 
 function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
@@ -3594,5 +4045,3 @@ function stableStringify(value) {
   }
   return JSON.stringify(value);
 }
-
-const COMPONENT_TIME_MAINTENANCE_FRAMES = 120;

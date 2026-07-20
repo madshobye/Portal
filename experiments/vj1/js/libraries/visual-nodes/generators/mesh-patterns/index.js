@@ -5,7 +5,7 @@ import {
   meshPatternNodeModuleParts,
   MeshPatternNodeModuleExports,
   meshPatternNodeProcess,
-} from "./node-module.js";
+} from "./node-module.js?v=source-roi-view-3";
 
 const manifest = Object.freeze({
     id: "meshPatterns",

@@ -15,17 +15,19 @@ import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../js/
 
 test("render settings normalize independently from the aggregate domain model", () => {
   const render = normalizeRenderSettings({
-    outputs: [{ id: "left", width: 640, height: 480 }, { id: "right", width: 800, height: 600 }],
+    outputs: [{ id: "left", aspectRatio: 4 / 3 }, { id: "right", aspectRatio: 4 / 3 }],
     pixelDensity: 4,
   });
 
-  assert.deepEqual(createOutputDefinition(1, 320, 240), { id: "output-2", name: "Output 2", width: 320, height: 240 });
-  assert.equal(render.width, 640);
-  assert.equal(render.worldWidth > 1440, true);
+  assert.deepEqual(createOutputDefinition(1, 320, 240), { id: "output-2", name: "Output 2", aspectRatio: 4 / 3 });
+  assert.equal(render.outputs[0].aspectRatio, 4 / 3);
+  assert.equal(Object.hasOwn(render, "width"), false);
+  assert.equal(Object.hasOwn(render, "worldWidth"), false);
   assert.equal(render.pixelDensity, 2);
   assert.equal(render.maxFrameRate, 120);
-  assert.deepEqual(render.canvasSize, { width: 3840, height: 2160 });
-  assert.deepEqual(normalizeRenderSettings({ canvasSize: { width: 2048, height: 1024 } }).canvasSize, { width: 2048, height: 1024 });
+  assert.equal(render.canvasAspectRatio, 16 / 9);
+  assert.equal(render.componentAspectRatio, 4 / 3);
+  assert.equal(normalizeRenderSettings({ canvasAspectRatio: 2 }).canvasAspectRatio, 2);
   assert.equal(renderMaxFrameRate({ maxFrameRate: 48 }), 48);
   assert.equal(renderMaxFrameRate({ maxFrameRate: 500 }), 120);
   assert.deepEqual(normalizePreviewViewport({ fit: "invalid", zoom: 20 }), { fit: "frame", zoom: 6, x: 0, y: 0 });
@@ -80,13 +82,10 @@ test("models remains a compatibility facade for render settings", () => {
   assert.doesNotMatch(source, /export function normalizeCameraSettings\(/);
 });
 
-test("changing the global Canvas size preserves recording-frame proportions", () => {
+test("relative recording frames need no rewrite when the Canvas proportion changes", () => {
+  const frames = [{ id: "frame", x: 0.1, y: 0.1, width: 0.4, height: 0.4 }];
   assert.deepEqual(
-    scaleRecordingFramesToCanvasSize(
-      [{ id: "frame", x: 100, y: 50, width: 400, height: 200 }],
-      { width: 1000, height: 500 },
-      { width: 2000, height: 1000 },
-    ),
-    [{ id: "frame", x: 200, y: 100, width: 800, height: 400 }],
+    scaleRecordingFramesToCanvasSize(frames, { aspectRatio: 2 }, { aspectRatio: 1 }),
+    frames,
   );
 });

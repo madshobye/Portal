@@ -33,6 +33,7 @@ uniform float morphStrategy;
 uniform vec4 fitA;
 uniform vec4 fitB;
 uniform mat3 contentUvMatrix;
+uniform vec4 renderUvRect;
 varying vec2 vTexCoord;
 
 vec2 fittedUv(vec2 uv, vec4 fit) {
@@ -62,7 +63,8 @@ vec2 decodeFlow(vec2 encoded) {
 }
 
 void main() {
-  vec2 uv = (contentUvMatrix * vec3(vTexCoord, 1.0)).xy;
+  vec2 boundaryUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;
+  vec2 uv = (contentUvMatrix * vec3(boundaryUv, 1.0)).xy;
   vec2 warpedA = uv;
   vec2 warpedB = uv;
   if (morphStrategy > 0.5 && morphStrategy < 1.5) {

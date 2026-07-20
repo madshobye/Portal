@@ -11,6 +11,7 @@ import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-f
 import { hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-6";
 import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js?v=render-core-contract-1";
+import { isReadyMediaItem } from "../js/output/component-render-state.js";
 import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSafeNearDistance, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
 import { terrainCameraView } from "../js/output/specialized/specialized-source-runtime.js";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
@@ -261,7 +262,7 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.ok(builderSource.includes('component?.type === "shadertoy"'));
   assert.ok(builderSource.includes("uniform vec3 iResolution"));
   assert.ok(builderSource.includes("varying vec2 vTexCoord;"));
-  assert.ok(builderSource.includes("vec2 baseUv = vTexCoord;"));
+  assert.ok(builderSource.includes("vec2 baseUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;"));
   assert.ok(builderSource.includes("vec2(shaderUv.x, 1.0 - shaderUv.y) * iResolution.xy"));
   assert.ok(builderSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
   assert.ok(rendererSource.includes('setShaderUniformIfPresent(shader, "iTime", shaderTime)'));
@@ -582,7 +583,8 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.equal((rendererSource.match(/terrainSafeNearPlane\(\)/g) || []).length, 4, "surface depth and wire clipping share one mesh-safe near plane");
   assert.ok(rendererSource.includes("vec3 screenUvH = vec3("));
   assert.ok(rendererSource.includes("vec3 placedUvH = contentPlacementMatrix * screenUvH"));
-  assert.ok(rendererSource.includes("clip.w = placedUvH.z"));
+  assert.ok(rendererSource.includes("vec3 roiUvH = vec3("));
+  assert.ok(rendererSource.includes("clip.w = roiUvH.z"));
   assert.ok(!rendererSource.includes("max(abs(clip.w)"));
   assert.ok(rendererSource.includes("float verticalWorld = relativeSurfaceHeight - globeDrop - max(altitude, 0.0)"));
   assert.ok(rendererSource.includes("float alpha = water ? waterColor.a : terrainAlpha"));
@@ -929,8 +931,8 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
   assert.ok(source.includes("const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);"));
   assert.ok(source.includes("(Number(target?.width) || 1) * density"));
   assert.ok(source.includes("gl.viewport(0, 0, drawingWidth, drawingHeight);"));
-  assert.ok(source.includes("rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params))"));
-  assert.ok(source.includes("target.perspective?.(modelCameraFov(params)"));
+  assert.ok(source.includes("rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect)"));
+  assert.ok(source.includes("applyModelViewportProjection(target, modelCameraFov(params), viewport)"));
   assert.ok(source.includes("const cameraZ = Math.max(1, height) * 0.92;"));
   assert.ok(!source.includes("Math.max(width, height) * 0.92"));
 });
@@ -1032,6 +1034,7 @@ test("output renderer blackouts while active media sources are missing or loadin
     renderer.outputMediaStatus = status;
     assert.equal(status.blocked, true);
     assert.equal(status.loadingIds.has("clips/loop.mov"), true);
+    assert.equal(renderer.shouldHoldOutputFrameForMedia(), true, "loading retains the last complete output frame");
 
     const previewRenderer = new OutputRenderer({ mode: "preview" });
     previewRenderer.state = renderer.state;
@@ -1044,10 +1047,19 @@ test("output renderer blackouts while active media sources are missing or loadin
     renderer.outputMediaStatus = status;
     assert.equal(status.blocked, false);
     assert.equal(renderer.isOutputBlackout(), false);
+    assert.equal(renderer.shouldHoldOutputFrameForMedia(), false);
   } finally {
     if (previousMillis === undefined) delete globalThis.millis;
     else globalThis.millis = previousMillis;
   }
+});
+
+test("video readiness stays latched through temporary decoder readyState dips", () => {
+  const element = { tagName: "VIDEO", videoWidth: 1920, videoHeight: 1080, readyState: 2 };
+  const item = { ready: true, video: { elt: element } };
+  assert.equal(isReadyMediaItem(item), true);
+  element.readyState = 1;
+  assert.equal(isReadyMediaItem(item), true);
 });
 
 test("output readiness includes images referenced by media-backed generators", () => {
@@ -1183,7 +1195,8 @@ test("active output can return project state and files to a refreshed control wi
   assert.ok(bridgeSource.includes('channel.postMessage({ type: "control-hello", sessionId })'));
   assert.ok(bridgeSource.includes('msg.sessionId !== controlSessionId'));
   assert.ok(bridgeSource.includes('msg.type === "recovery-state"'));
-  assert.ok(bridgeSource.includes('store.replace(stateWithoutThumbnailUrls(msg.state), "project-output-recovery")'));
+  assert.ok(bridgeSource.includes('store.replace(recoveredState, "project-output-recovery")'));
+  assert.ok(bridgeSource.includes('type: "recovery-media-files"'));
   assert.ok(outputSource.includes("bridge?.recoveryState(acceptedState, acceptedFiles)"));
   assert.ok(outputSource.includes('sessionId !== receivedSessionId'));
 });
@@ -1196,6 +1209,7 @@ test("component preview follows the shared preview toggle", () => {
   assert.ok(rendererSource.includes("this.thumbnailRuntime.invalidateSelectedComponent()"));
   assert.ok(thumbnailSource.includes("if (!this.sendThumbnail || !this.canCapture() || this.shouldUseThumbnailPreview())"));
   assert.ok(rendererSource.includes("this.renderSelectedChainTransformOverlay()"));
+  assert.ok(rendererSource.includes("renderCanvasThumbnailSnapshotPreview(component)"));
   assert.ok(rendererSource.includes("renderCanvasThumbnailEditPreview(component)"));
   assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(component)"));
 });
@@ -1371,6 +1385,31 @@ test("node output versions propagate dirtiness only to downstream nodes", () => 
   assert.equal(renderer.frameProfile.stageCacheHits, 5);
 });
 
+test("instance-invariant node states share one retained evaluation across async identities", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const buffers = new Map();
+  renderer.getComponentGpuBuffer = (id, request) => {
+    const key = `${id}:${request.width}x${request.height}:${request.renderIdentity || "shared"}`;
+    if (!buffers.has(key)) buffers.set(key, { id: key });
+    return buffers.get(key);
+  };
+  const requestA = { role: "component", width: 320, height: 180, renderIdentity: "instance:a" };
+  const requestB = { role: "component", width: 320, height: 180, renderIdentity: "instance:b" };
+  let sharedRenders = 0;
+  const first = renderer.evaluateChainNode("static-prefix", "same", requestA, () => { sharedRenders++; }, "source", { instanceInvariant: true });
+  const second = renderer.evaluateChainNode("static-prefix", "same", requestB, () => { sharedRenders++; }, "source", { instanceInvariant: true });
+  assert.equal(sharedRenders, 1);
+  assert.equal(first.buffer, second.buffer);
+  assert.equal(first.nodeKey, second.nodeKey);
+  assert.equal(second.instanceInvariant, true);
+
+  let dynamicRenders = 0;
+  const dynamicA = renderer.evaluateChainNode("dynamic-tail", "same", requestA, () => { dynamicRenders++; }, "source");
+  const dynamicB = renderer.evaluateChainNode("dynamic-tail", "same", requestB, () => { dynamicRenders++; }, "source");
+  assert.equal(dynamicRenders, 2);
+  assert.notEqual(dynamicA.nodeKey, dynamicB.nodeKey);
+});
+
 test("static source textures repaint only when their own source state changes", () => {
   const previousCreateGraphics = globalThis.createGraphics;
   const renderer = new OutputRenderer({ mode: "component" });
@@ -1391,9 +1430,9 @@ test("static source textures repaint only when their own source state changes", 
 
   try {
     const item = createComponentLayer(0, { type: "media", mediaId: "media/a.png", params: { fit: "contain" } });
-    const request = { role: "component", width: 640, height: 360 };
+    const request = { role: "component", width: 640, height: 360, renderIdentity: "instance:a" };
     renderer.renderComponentSourceItem(state.components[0], item, 0, request);
-    renderer.renderComponentSourceItem(state.components[0], item, 1, request);
+    renderer.renderComponentSourceItem(state.components[0], item, 1, { ...request, renderIdentity: "instance:b" });
     assert.equal(paints, 1);
 
     item.source.params.fit = "cover";

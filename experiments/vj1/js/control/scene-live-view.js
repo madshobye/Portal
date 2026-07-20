@@ -1,7 +1,7 @@
 import { BLEND_MODES } from "../constants.js";
 import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=live-patch-contract-1";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
+import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=scroll-region-1";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
@@ -79,11 +79,11 @@ export function sceneRailConfigTemplate(state) {
 
 export function scenePillTemplate(scene, state) {
   const selected = state.ui.selectedSceneId === scene.id;
-  const components = sceneFingerprintComponents(scene, state);
+  const sources = sceneFingerprintSources(scene, state);
   return `
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(scene.name.toLowerCase())}">
       <button type="button" class="component-card scene-card ${selected ? "is-selected" : ""}" data-select-scene="${esc(scene.id)}">
-        ${sceneFingerprintTemplate(components)}
+        ${sceneFingerprintTemplate(sources)}
         ${componentCardBarTemplate(scene.name)}
       </button>
       ${catalogMarkerButtonTemplate(scene, "scene")}
@@ -94,13 +94,13 @@ export function scenePillTemplate(scene, state) {
 
 export function liveScenePillTemplate(scene, state) {
   const selected = liveSelectedSceneId(state) === scene.id;
-  const components = sceneFingerprintComponents(scene, state);
+  const sources = sceneFingerprintSources(scene, state);
   const sceneOverrides = state.ui?.live?.sceneOverrides?.[scene.id] || (selected ? state.ui?.live?.componentOverrides || {} : {});
   const hasOverrides = Object.keys(sceneOverrides).length > 0;
   return `
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(scene.name.toLowerCase())}">
       <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
-        ${sceneFingerprintTemplate(components)}
+        ${sceneFingerprintTemplate(sources)}
         ${componentCardBarTemplate(scene.name)}
       </button>
       ${catalogMarkerButtonTemplate(scene, "scene")}
@@ -450,17 +450,35 @@ function liveSelectValuesTemplate(componentId, path, values, value) {
   `;
 }
 
-function sceneFingerprintTemplate(components) {
-  if (!components.length) return `<div class="component-card-empty">${icon("auto_awesome_motion")}</div>`;
-  const withThumbs = components.filter((component) => component.thumbnail);
+function sceneFingerprintTemplate(sources) {
+  if (!sources.length) return `<div class="component-card-empty">${icon("auto_awesome_motion")}</div>`;
+  const withThumbs = sources.filter((source) => source.thumbnail);
   if (!withThumbs.length) return `<div class="component-card-empty">${icon("auto_awesome_motion")}</div>`;
   return `
     <div class="scene-fingerprint">
-      ${withThumbs.slice(0, 5).map((component, index) => `
-        <img src="${esc(component.thumbnail)}" alt="" loading="lazy" style="--fingerprint-index: ${index}; --fingerprint-count: ${withThumbs.length};" />
+      ${withThumbs.slice(0, 5).map((source, index) => `
+        <img src="${esc(source.thumbnail)}" alt="" loading="lazy" style="--fingerprint-index: ${index}; --fingerprint-count: ${withThumbs.length};" />
       `).join("")}
     </div>
   `;
+}
+
+function sceneFingerprintSources(scene, state) {
+  const sources = sceneSourceNodes(state);
+  const byId = new Map(sources.map((source) => [source.id, source]));
+  const selected = [];
+  const seen = new Set();
+  for (const route of scene?.snapshot?.surfaces || []) {
+    if (route.enabled === false) continue;
+    const source = byId.get(route.sourceNodeId) || sources.find((candidate) =>
+      candidate.componentId === route.componentId &&
+      String(candidate.outputFrameId || "") === String(route.outputFrameId || "")
+    );
+    if (!source || seen.has(source.id)) continue;
+    seen.add(source.id);
+    selected.push(source);
+  }
+  return selected;
 }
 
 function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {}) {

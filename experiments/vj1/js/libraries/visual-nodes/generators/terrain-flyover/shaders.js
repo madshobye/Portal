@@ -13,6 +13,7 @@ float terrainClipYFromWorldUp(float worldUpY) {
 
 const TERRAIN_CONTENT_PLACEMENT_GLSL = `
 uniform mat3 contentPlacementMatrix;
+uniform vec4 renderUvRect;
 vec4 placeTerrainInComposition(vec4 clip) {
   // Keep placement homogeneous. Dividing by abs(w) mirrored vertices behind
   // the camera before the near plane could clip their triangles, even when
@@ -23,11 +24,15 @@ vec4 placeTerrainInComposition(vec4 clip) {
     clip.w
   );
   vec3 placedUvH = contentPlacementMatrix * screenUvH;
-  clip.xy = vec2(
-    placedUvH.x * 2.0 - placedUvH.z,
-    placedUvH.z - placedUvH.y * 2.0
+  vec3 roiUvH = vec3(
+    (placedUvH.xy - renderUvRect.xy * placedUvH.z) / max(renderUvRect.zw, vec2(0.000001)),
+    placedUvH.z
   );
-  clip.w = placedUvH.z;
+  clip.xy = vec2(
+    roiUvH.x * 2.0 - roiUvH.z,
+    roiUvH.z - roiUvH.y * 2.0
+  );
+  clip.w = roiUvH.z;
   return clip;
 }
 `;

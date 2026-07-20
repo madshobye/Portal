@@ -4,6 +4,7 @@ import { renderTargetDescriptor, RENDER_TARGET_KIND } from "./render-target-cont
 const reportedMediaFallbacks = new WeakMap();
 const webGlMediaBridges = new WeakMap();
 const reportedVideoPlaybackFailures = new WeakSet();
+const pendingVideoPlays = new WeakMap();
 
 export function drawCover(pg, media, x, y, w, h) {
   drawMediaFit(pg, media, x, y, w, h, "cover");
@@ -189,13 +190,33 @@ export function syncVideoPlayback(video, options = {}) {
     }
   }
   elt.loop = !hasSegment;
-  if (elt.paused) {
-    try {
-      const result = (video.play || elt.play)?.call(video.play ? video : elt);
-      result?.catch?.((error) => reportVideoPlaybackFailure(video, error));
-    } catch (error) {
-      reportVideoPlaybackFailure(video, error);
+  if (elt.paused) requestVideoPlayback(video, elt);
+}
+
+function requestVideoPlayback(video, element) {
+  const key = element || video;
+  if (!key || pendingVideoPlays.has(key)) return;
+  const token = {};
+  pendingVideoPlays.set(key, token);
+  try {
+    // Call the browser element directly when possible. p5's wrapper reports an
+    // AbortError itself when a legitimate lifecycle pause interrupts play().
+    const playTarget = typeof element?.play === "function" ? element : video;
+    const result = playTarget?.play?.call(playTarget);
+    if (!result?.then) {
+      if (pendingVideoPlays.get(key) === token) pendingVideoPlays.delete(key);
+      return;
     }
+    Promise.resolve(result)
+      .catch((error) => {
+        if (error?.name !== "AbortError") reportVideoPlaybackFailure(video, error);
+      })
+      .finally(() => {
+        if (pendingVideoPlays.get(key) === token) pendingVideoPlays.delete(key);
+      });
+  } catch (error) {
+    if (pendingVideoPlays.get(key) === token) pendingVideoPlays.delete(key);
+    if (error?.name !== "AbortError") reportVideoPlaybackFailure(video, error);
   }
 }
 

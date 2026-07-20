@@ -45,6 +45,88 @@ test("surface planner resolves visible routes and their shared component demand"
   assert.ok(metrics.componentRasterPixels > 0);
 });
 
+test("a region-safe recording frame renders at mapped demand instead of its share of a full Canvas", () => {
+  const state = createInitialState();
+  const canvas = { ...state.components[0], id: "canvas-a", type: "canvas", chain: [], canvas: { frameThumbnails: {} } };
+  const frame = { id: "frame-a", x: 0.45, y: 0.45, width: 0.1, height: 0.1 };
+  const surface = {
+    ...state.surfaces[0],
+    id: "surface-a",
+    enabled: true,
+    componentId: canvas.id,
+    outputFrameId: frame.id,
+    sourceNodeId: `recording-frame:${canvas.id}:${frame.id}`,
+  };
+  state.components = [canvas];
+  state.recordingFrames = [frame];
+  state.surfaces = [surface];
+  const mapperSurface = {
+    name: surface.id,
+    corners: [{ x: 0, y: 0 }, { x: 1270, y: 0 }, { x: 1270, y: 855 }, { x: 0, y: 855 }],
+  };
+  const { routes, metrics } = planSurfaceRoutes({
+    state,
+    mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
+    componentById: new Map([[canvas.id, canvas]]),
+    recordingFrameById: new Map([[frame.id, frame]]),
+    viewport: { width: 1270, height: 855 },
+    pixelScale: 1,
+    resolveRouteSourceNode: () => ({ id: surface.sourceNodeId, componentId: canvas.id, outputFrameId: frame.id }),
+    isComponentRegionSafe: () => true,
+  });
+
+  assert.equal(routes[0].componentRequest.role, "canvas-region");
+  assert.equal(routes[0].componentRequest.regionView, true);
+  assert.deepEqual(
+    { width: routes[0].componentRequest.width, height: routes[0].componentRequest.height },
+    routes[0].demand.surfaceSize
+  );
+  assert.equal(metrics.componentRasterPixels, routes[0].componentRequest.width * routes[0].componentRequest.height);
+});
+
+test("independent Canvas children do not multiply across multiple recording-frame routes", () => {
+  const state = createInitialState();
+  const canvas = { ...state.components[0], id: "canvas-a", type: "canvas", chain: [], canvas: { frameThumbnails: {} } };
+  const frames = [
+    { id: "frame-a", x: 0, y: 0, width: 0.5, height: 1 },
+    { id: "frame-b", x: 0.5, y: 0, width: 0.5, height: 1 },
+  ];
+  const surfaces = frames.map((frame, index) => ({
+    ...state.surfaces[0],
+    id: `surface-${index}`,
+    enabled: true,
+    componentId: canvas.id,
+    outputFrameId: frame.id,
+    sourceNodeId: `recording-frame:${canvas.id}:${frame.id}`,
+  }));
+  state.components = [canvas];
+  state.recordingFrames = frames;
+  state.surfaces = surfaces;
+  const mapperSurfaces = new Map(surfaces.map((surface) => [surface.id, {
+    direct: true,
+    mapperSurface: {
+      name: surface.id,
+      corners: [{ x: 0, y: 0 }, { x: 960, y: 0 }, { x: 960, y: 540 }, { x: 0, y: 540 }],
+    },
+  }]));
+
+  const { routes } = planSurfaceRoutes({
+    state,
+    mapperSurfaces,
+    componentById: new Map([[canvas.id, canvas]]),
+    recordingFrameById: new Map(frames.map((frame) => [frame.id, frame])),
+    viewport: { width: 960, height: 540 },
+    pixelScale: 1,
+    resolveRouteSourceNode: (surface) => ({ id: surface.sourceNodeId, componentId: canvas.id, outputFrameId: surface.outputFrameId }),
+    isComponentRegionSafe: () => true,
+    isComponentFrameFanoutSafe: () => false,
+  });
+
+  assert.equal(routes.length, 2);
+  assert.notEqual(routes[0].componentRequest.role, "canvas-region");
+  assert.strictEqual(routes[0].componentRequest, routes[1].componentRequest);
+});
+
 test("surface planner consumes the compiled Scene surface program as routing authority", () => {
   const state = createInitialState();
   const surface = state.surfaces[0];
@@ -68,8 +150,8 @@ test("output renderer delegates surface demand planning", () => {
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const mapperSource = readFileSync(new URL("../js/libraries/mapping-engine/mapping-engine/index.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=component-route-composite-1"'));
-  assert.ok(runtimeSource.includes('from "./surface-render-planner.js?v=surface-runtime-extraction-1"'));
+  assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=periodic-preview-maintenance-1"'));
+  assert.ok(runtimeSource.includes('from "./surface-render-planner.js?v=async-frame-fanout-1"'));
   assert.ok(runtimeSource.includes("const { routes, metrics } = planSurfaceRoutes({"));
   assert.ok(runtimeSource.includes("surfaceProgram: renderer.sceneProgramSurfaces(renderer.state)"));
   assert.doesNotMatch(rendererSource, /sourceRenderDemand\(\{/);

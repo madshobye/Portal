@@ -1,79 +1,97 @@
 import { VJ1 } from "../constants.js";
-import { normalizeComponentTextureSettings, normalizeSurfaceTextureSettings } from "./render-resolution.js?v=adaptive-component-demand-29";
+import {
+  compositionLogicalSize,
+  normalizeAspectRatio,
+} from "../libraries/render-engine/relative-geometry.js";
 
 export const DEFAULT_MAX_FRAME_RATE = 120;
+export const RESOLUTION_CEILING_CLASSES = ["auto", "2k", "4k", "8k"];
 
 export function renderMaxFrameRate(render = {}) {
   return positiveInt(render?.maxFrameRate, DEFAULT_MAX_FRAME_RATE, 1, 120);
 }
 
-export function createOutputDefinition(index = 0, width = VJ1.renderWidth, height = VJ1.renderHeight) {
+export function createOutputDefinition(index = 0, aspectRatio = VJ1.renderWidth / VJ1.renderHeight) {
+  // Accept the old (index, width, height) call during the v24->v25 transition.
+  const legacyHeight = arguments.length > 2 ? Number(arguments[2]) : 0;
+  const ratio = legacyHeight > 0 ? Number(aspectRatio) / legacyHeight : aspectRatio;
   return {
     id: index === 0 ? "output-main" : `output-${index + 1}`,
     name: index === 0 ? "Main output" : `Output ${index + 1}`,
-    width: positiveInt(width, VJ1.renderWidth, 128, 8192),
-    height: positiveInt(height, VJ1.renderHeight, 128, 8192),
+    aspectRatio: normalizeAspectRatio(ratio),
   };
 }
 
 export function normalizeRenderSettings(render = {}) {
-  const frameWidth = positiveInt(render.width, VJ1.renderWidth, 128, 8192);
-  const frameHeight = positiveInt(render.height, VJ1.renderHeight, 128, 8192);
   const outputs = Array.isArray(render.outputs) && render.outputs.length
-    ? render.outputs.map((output, index) => normalizeOutputDefinition(output, index, frameWidth, frameHeight))
-    : [createOutputDefinition(0, frameWidth, frameHeight)];
-  const primary = outputs[0];
-  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0);
-  const contentHeight = Math.max(...outputs.map((output) => output.height));
-  const marginX = Math.round(Math.max(...outputs.map((output) => output.width)) * VJ1.outputWorldMarginRatio);
-  const marginY = Math.round(contentHeight * VJ1.outputWorldMarginRatio);
-  const worldWidth = contentWidth + marginX * 2;
-  const worldHeight = contentHeight + marginY * 2;
+    ? render.outputs.map((output, index) => normalizeOutputDefinition(output, index))
+    : [createOutputDefinition()];
+  const primaryAspect = outputs[0].aspectRatio;
   return {
-    ...render,
-    width: primary.width,
-    height: primary.height,
-    frameWidth: primary.width,
-    frameHeight: primary.height,
+    ...stripLegacyPixelGeometry(render),
     outputs,
-    worldWidth,
-    worldHeight,
-    canvasSize: normalizeCanvasSize(render.canvasSize),
-    componentTexture: normalizeComponentTextureSettings(render.componentTexture, primary),
-    surfaceTexture: normalizeSurfaceTextureSettings(render.surfaceTexture, primary),
+    canvasAspectRatio: normalizeAspectRatio(
+      render.canvasAspectRatio,
+      VJ1.canvasWidth / VJ1.canvasHeight
+    ),
+    componentAspectRatio: normalizeAspectRatio(
+      render.componentAspectRatio,
+      primaryAspect
+    ),
+    resolutionCeiling: normalizeResolutionCeiling(render.resolutionCeiling),
     maxFrameRate: renderMaxFrameRate(render),
     pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
     sampling: normalizeSamplingSettings(render.sampling),
-    camera: normalizeCameraSettings(render.camera, primary.width, primary.height),
+    camera: normalizeCameraSettings(render.camera),
     screenCapture: normalizeScreenCaptureSettings(render.screenCapture),
+    hostViewport: normalizeHostViewport(render.hostViewport),
     ...normalizeComponentPipelineSettings(render),
   };
 }
 
-export function normalizeCanvasSize(size = {}) {
-  return {
-    width: positiveInt(size?.width, VJ1.canvasWidth, 128, 8192),
-    height: positiveInt(size?.height, VJ1.canvasHeight, 128, 8192),
-  };
-}
-
+// This is an aspect-based mathematical space used by interactions and shader
+// coordinates. It is not a requested backing-buffer resolution.
 export function canvasFrameSize(render = {}) {
-  return normalizeCanvasSize(render?.canvasSize);
+  return compositionLogicalSize(render.canvasAspectRatio ?? (VJ1.canvasWidth / VJ1.canvasHeight));
 }
 
-export function scaleRecordingFramesToCanvasSize(frames = [], previousSize = {}, nextSize = {}) {
-  const previous = normalizeCanvasSize(previousSize);
-  const next = normalizeCanvasSize(nextSize);
-  const scaleX = next.width / previous.width;
-  const scaleY = next.height / previous.height;
-  if (Math.abs(scaleX - 1) < 0.000001 && Math.abs(scaleY - 1) < 0.000001) return frames;
-  return (frames || []).map((frame) => ({
-    ...frame,
-    x: Math.round((Number(frame.x) || 0) * scaleX),
-    y: Math.round((Number(frame.y) || 0) * scaleY),
-    width: Math.max(16, Math.round((Number(frame.width) || 16) * scaleX)),
-    height: Math.max(16, Math.round((Number(frame.height) || 16) * scaleY)),
-  }));
+export function componentFrameSize(render = {}) {
+  return compositionLogicalSize(render.componentAspectRatio ?? (VJ1.renderWidth / VJ1.renderHeight));
+}
+
+export function normalizeCanvasSize(size = {}) {
+  const aspectRatio = positiveRatio(size?.width, size?.height, VJ1.canvasWidth / VJ1.canvasHeight);
+  return compositionLogicalSize(aspectRatio);
+}
+
+// Kept as a no-op compatibility export for callers being migrated. Recording
+// frames are relative in v25 and therefore never scale when a host resizes.
+export function scaleRecordingFramesToCanvasSize(frames = []) {
+  return frames;
+}
+
+export function normalizeResolutionCeiling(value) {
+  return RESOLUTION_CEILING_CLASSES.includes(value) ? value : "auto";
+}
+
+export function resolutionCeilingLongEdge(value = "auto") {
+  if (value === "2k") return 2048;
+  if (value === "4k") return 4096;
+  if (value === "8k") return 8192;
+  return Infinity;
+}
+
+export function normalizeHostViewport(viewport = {}) {
+  if (!viewport || typeof viewport !== "object") return null;
+  const width = Math.round(Number(viewport.width));
+  const height = Math.round(Number(viewport.height));
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width < 1 || height < 1) return null;
+  return {
+    width: Math.min(16384, width),
+    height: Math.min(16384, height),
+    mode: viewport.mode === "preview" ? "preview" : "output",
+    outputId: String(viewport.outputId || ""),
+  };
 }
 
 export function normalizeSamplingSettings(sampling = {}) {
@@ -84,10 +102,8 @@ export function normalizeSamplingSettings(sampling = {}) {
   };
 }
 
-export function normalizeCameraSettings(camera = {}, fallbackWidth = VJ1.renderWidth, fallbackHeight = VJ1.renderHeight) {
+export function normalizeCameraSettings(camera = {}) {
   return {
-    width: positiveInt(camera?.width, fallbackWidth, 160, 7680),
-    height: positiveInt(camera?.height, fallbackHeight, 120, 4320),
     facingMode: camera?.facingMode === "environment" ? "environment" : "user",
     mirrored: camera?.mirrored === true,
     maxResolution: camera?.maxResolution === true,
@@ -136,14 +152,38 @@ export function normalizePreviewViewports(viewports = {}) {
   return Object.fromEntries(keys.map((key) => [key, normalizePreviewViewport(viewports?.[key] || {})]));
 }
 
-function normalizeOutputDefinition(output = {}, index = 0, fallbackWidth = VJ1.renderWidth, fallbackHeight = VJ1.renderHeight) {
-  const fallback = createOutputDefinition(index, fallbackWidth, fallbackHeight);
+function normalizeOutputDefinition(output = {}, index = 0, fallbackAspect = VJ1.renderWidth / VJ1.renderHeight) {
+  const fallback = createOutputDefinition(index, fallbackAspect);
   return {
     id: String(output.id || fallback.id),
     name: output.name || fallback.name,
-    width: positiveInt(output.width, fallback.width, 128, 8192),
-    height: positiveInt(output.height, fallback.height, 128, 8192),
+    aspectRatio: normalizeAspectRatio(
+      output.aspectRatio,
+      fallback.aspectRatio
+    ),
   };
+}
+
+function stripLegacyPixelGeometry(render = {}) {
+  const {
+    width: _width,
+    height: _height,
+    frameWidth: _frameWidth,
+    frameHeight: _frameHeight,
+    worldWidth: _worldWidth,
+    worldHeight: _worldHeight,
+    canvasSize: _canvasSize,
+    componentTexture: _componentTexture,
+    surfaceTexture: _surfaceTexture,
+    ...current
+  } = render;
+  return current;
+}
+
+function positiveRatio(width, height, fallback) {
+  const w = Number(width);
+  const h = Number(height);
+  return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? w / h : fallback;
 }
 
 function positiveInt(value, fallback, min = 1, max = 8192) {

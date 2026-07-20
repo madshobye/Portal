@@ -8,7 +8,7 @@ import {
   importNodePackage,
   installNodePackageIntoProject,
 } from "./libraries/node-engine/index.js";
-import { listEffectNodeComponents, listGeneratorNodeComponents } from "./libraries/visual-nodes/index.js?v=node-catalog-13";
+import { listEffectNodeComponents, listGeneratorNodeComponents } from "./libraries/visual-nodes/index.js?v=node-catalog-14";
 import { SliderArtifact, SliderNode } from "./libraries/control-engine/index.js";
 import { ValueControlNode } from "./libraries/control-engine/index.js";
 import { CacheEngineNode } from "./libraries/cache-engine/index.js";
@@ -48,7 +48,7 @@ import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
-import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=node-catalog-13";
+import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=node-catalog-14";
 import {
   Convert3dFileToImageGroup,
   Detect3dFormatNode,

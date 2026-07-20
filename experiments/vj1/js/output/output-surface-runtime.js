@@ -1,4 +1,5 @@
 import { clamp01 } from "../domain/models.js?v=chain-only-authority-1";
+import { BoundedRenderTargetPool } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
 import { componentInstanceTime } from "../libraries/timing-engine/index.js";
 import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { applyBlend } from "./blend-utils.js";
@@ -10,7 +11,7 @@ import {
   scaledComponentSampleRect,
 } from "./component-render-layout.js?v=canvas-global-resolution-1";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=render-diagnostics-1";
-import { planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
+import { planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=async-frame-fanout-1";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
@@ -29,7 +30,8 @@ export function surfaceRouteBlend(route = {}) {
 export class OutputSurfaceRuntime {
   constructor(renderer) {
     this.renderer = renderer;
-    this.surfaceTextures = new Map();
+    this.surfaceTexturePool = new BoundedRenderTargetPool({ maxItems: 12 });
+    this.surfaceTextures = this.surfaceTexturePool.resources;
     this.transitionSurfaceTextures = new Map();
     this.activeTransitionTextureId = "";
     this.renderIdentityPrefix = "";
@@ -42,7 +44,7 @@ export class OutputSurfaceRuntime {
   }
 
   dispose() {
-    disposeGraphicsMap(this.surfaceTextures);
+    this.surfaceTexturePool.dispose();
     disposeGraphicsMap(this.transitionSurfaceTextures);
     this.activeTransitionTextureId = "";
     this.renderIdentityPrefix = "";
@@ -282,6 +284,8 @@ export class OutputSurfaceRuntime {
       renderIdentityPrefix: this.renderIdentityPrefix,
       surfaceProgram: renderer.sceneProgramSurfaces(renderer.state),
       resolveRouteSourceNode: (surface) => renderer.resolveRouteSourceNode(surface),
+      isComponentRegionSafe: (component) => renderer.canvasComponentRegionSafe?.(component) === true,
+      isComponentFrameFanoutSafe: (component) => renderer.canvasComponentFrameFanoutSafe?.(component) !== false,
     });
     renderer.frameProfile.surfaceRouteCandidates += metrics.candidates;
     renderer.frameProfile.surfaceRoutesCulled += metrics.culled;
@@ -294,16 +298,14 @@ export class OutputSurfaceRuntime {
     const widthPx = Math.max(1, Math.round(Number(request.width) || 1));
     const heightPx = Math.max(1, Math.round(Number(request.height) || 1));
     const key = `${widthPx}x${heightPx}`;
-    let target = this.surfaceTextures.get(key);
-    if (!target) {
-      target = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx);
+    return this.surfaceTexturePool.acquire(key, this.renderer.frameIndex, () => {
+      const target = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx);
       if (!isSharedFramebufferTarget(target)) {
         this.renderer.applyGraphicsPixelDensity(target, this.renderer.requestPixelDensity(request));
         this.renderer.applyGraphicsFont(target);
       }
-      this.surfaceTextures.set(key, target);
-    }
-    return target;
+      return target;
+    });
   }
 
   drawDirectSurfaceTexture(texture, route = {}, alpha = 1) {
@@ -340,6 +342,9 @@ export class OutputSurfaceRuntime {
     const componentTime = componentInstanceTime(component, renderer.componentTimes.get(surface.componentId) || 0, surface.id);
     const texture = component ? renderer.renderComponentForRequest(component, componentTime, componentRequest) : renderer.mainMix;
     if (!texture) return null;
+    if (componentRequest?.regionView) {
+      return { texture, sourceRect: { x: 0, y: 0, width: texture.width, height: texture.height } };
+    }
     return { texture, sourceRect: scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, texture) };
   }
 

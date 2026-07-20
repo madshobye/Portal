@@ -3,6 +3,7 @@ import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizePara
 import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=param-context-delegation-1";
 import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
 import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
+import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 
 export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
   const params = options.params || component?.params || [];
@@ -49,11 +50,20 @@ export function chainParamViewDefinitions(primary = "", details = "", general = 
 }
 
 export const CHAIN_TRANSFORM_PARAMS = Object.freeze([
-  Object.freeze(createNumberParam("x", "Position X", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
-  Object.freeze(createNumberParam("y", "Position Y", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
-  Object.freeze(createNumberParam("scale", "Scale", { min: 0.05, max: 8, step: 0.001, defaultValue: 1, scale: "log" })),
-  Object.freeze(createNumberParam("rotation", "Rotation", { min: -3.1416, max: 3.1416, step: 0.001, defaultValue: 0 })),
+  Object.freeze(createNumberParam("x", "Content X", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
+  Object.freeze(createNumberParam("y", "Content Y", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
+  Object.freeze(createNumberParam("scale", "Content scale", { min: 0.05, max: 8, step: 0.001, defaultValue: 1, scale: "log" })),
 ]);
+
+export const CHAIN_BOUNDARY_PARAMS = Object.freeze([
+  Object.freeze(createNumberParam("x", "Boundary X", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
+  Object.freeze(createNumberParam("y", "Boundary Y", { min: -2, max: 2, step: 0.001, defaultValue: 0 })),
+  Object.freeze(createNumberParam("rotation", "Boundary rotation", { min: -3.1416, max: 3.1416, step: 0.001, defaultValue: 0 })),
+]);
+
+export const CHAIN_BOUNDARY_SCALE_PARAM = Object.freeze(
+  createNumberParam("scale", "Boundary scale", { min: 0.005, max: 4, step: 0.001, defaultValue: 1, scale: "log" })
+);
 
 export const CHAIN_COMPOSITE_PARAMS = Object.freeze([
   Object.freeze(createNumberParam("opacity", "Opacity", { min: 0, max: 1, step: 0.01, defaultValue: 1 })),
@@ -68,7 +78,7 @@ export const CHAIN_GENERAL_PARAMS = Object.freeze([
 export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) {
   const qualityTarget = chainRenderQualityTarget(item, basePath);
   const params = qualityTarget ? [RENDER_QUALITY_PARAM, ...CHAIN_GENERAL_PARAMS] : CHAIN_GENERAL_PARAMS;
-  return `<div class="chain-param-list chain-general-param-list">${paramControlsTemplate(params, {
+  const general = paramControlsTemplate(params, {
     pathFor: (param) => param === RENDER_QUALITY_PARAM
       ? qualityTarget.path
       : CHAIN_COMPOSITE_PARAMS.includes(param)
@@ -81,7 +91,25 @@ export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) 
         : normalizeParamValue(param, item?.transform?.[param.id]),
     attrs: options.attrs || "data-update",
     isSignificant: options.isSignificant || (() => false),
-  })}</div>`;
+  });
+  const normalizedBoundary = normalizeNodeBoundary(item?.boundary);
+  const boundaryPosition = paramControlsTemplate(CHAIN_BOUNDARY_PARAMS, {
+    pathFor: (param) => `${basePath}.boundary.${param.id}`,
+    valueFor: (param) => normalizeParamValue(param, normalizedBoundary[param.id]),
+    attrs: options.attrs || "data-update",
+    isSignificant: options.isSignificant || (() => false),
+  });
+  const boundaryScale = paramControlTemplate(
+    CHAIN_BOUNDARY_SCALE_PARAM,
+    `${basePath}.boundary.scale`,
+    nodeBoundaryUniformScale(normalizedBoundary),
+    options.attrs || "data-update",
+    {
+      context: false,
+      extraInputAttrs: `data-boundary-width="${normalizedBoundary.width}" data-boundary-height="${normalizedBoundary.height}"`,
+    }
+  );
+  return `<div class="chain-param-list chain-general-param-list">${general}<div class="soft-note">Boundary limits rendering and effects; Content changes the visual math inside it.</div>${boundaryPosition}${boundaryScale}</div>`;
 }
 
 export function chainRenderQualityTarget(item = {}, basePath = "") {
@@ -137,8 +165,8 @@ export function paramControlsTemplate(params = [], {
   }).join("");
 }
 
-export function paramControlTemplate(param, path, value, attrs = "data-update", { significant = false, relatedControls = new Map() } = {}) {
-  const contextAttrs = attrs === "data-update"
+export function paramControlTemplate(param, path, value, attrs = "data-update", { significant = false, relatedControls = new Map(), context = true, extraInputAttrs = "" } = {}) {
+  const contextAttrs = attrs === "data-update" && context
     ? `data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}"`
     : "";
   const significantClass = significant ? " is-significant" : "";
@@ -186,7 +214,7 @@ export function paramControlTemplate(param, path, value, attrs = "data-update", 
     <label class="field range-field chain-param param-context-target${significantClass}" ${contextAttrs}>
       <span>${esc(param.label || param.id)}</span>
       <output class="range-value" data-range-value>${formatRangeValue(safeValue, param.step ?? 0.01)}</output>
-      <input type="range" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" data-display-step="${param.step ?? 0.01}" ${scaleAttrs} ${attrs}="${esc(path)}" value="${sliderValue}" />
+      <input type="range" min="${sliderMin}" max="${sliderMax}" step="${sliderStep}" data-display-step="${param.step ?? 0.01}" ${scaleAttrs} ${extraInputAttrs} ${attrs}="${esc(path)}" value="${sliderValue}" />
     </label>
   `;
 }

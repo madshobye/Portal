@@ -13,7 +13,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
       <header class="modal-header">
         <div>
           <strong>Project settings</strong>
-          <small>Output frame and rendering budget.</small>
+          <small>Composition proportions and rendering budget.</small>
         </div>
         <button type="button" class="icon-buttonish" data-close-modal title="Close" aria-label="Close">${icon("close")}</button>
       </header>
@@ -26,32 +26,19 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
       <div class="settings-modal-body" data-scroll-region data-scroll-key="settings:${activeTab}">
         <section class="ui-section element-section" data-settings-panel="outputs" ${visiblePanel("outputs", activeTab)}>
           <div class="settings-preset-row">
-            <button type="button" data-render-preset="wide">960 x 540</button>
-            <button type="button" data-render-preset="xga" title="1024 x 768">XGA</button>
-            <button type="button" data-render-preset="wxga" title="1280 x 800">WXGA</button>
-            <button type="button" data-render-preset="hd" title="1280 x 720">HD</button>
-            <button type="button" data-render-preset="fhd" title="1920 x 1080">Full HD</button>
-            <button type="button" data-render-preset="wuxga" title="1920 x 1200">WUXGA</button>
-            <button type="button" data-render-preset="2k">2K</button>
-            <button type="button" data-render-preset="4k">4K</button>
+            <button type="button" data-render-preset="16:9">16:9</button>
+            <button type="button" data-render-preset="4:3">4:3</button>
+            <button type="button" data-render-preset="16:10">16:10</button>
+            <button type="button" data-render-preset="1:1">1:1</button>
+            <button type="button" data-render-preset="9:16">9:16</button>
           </div>
           <div class="configured-output-list" data-configured-output-list data-output-signature="${esc(render.outputs.map((output) => output.id).join("|"))}">
             ${configuredOutputsTemplate(render)}
           </div>
           <button type="button" class="chain-add-button" data-add-output>${icon("add")} Add output</button>
-          <div class="soft-note">Outputs are arranged side by side in the Scene mapping workspace.</div>
+          <div class="soft-note">The active output window supplies the pixels. Outputs keep only their proportions and are arranged side by side in Scene mapping.</div>
         </section>
         <section class="ui-section element-section" data-settings-panel="camera" ${visiblePanel("camera", activeTab)}>
-          <div class="settings-preset-row">
-            <button type="button" data-camera-preset="sd">640 x 480</button>
-            <button type="button" data-camera-preset="hd">HD</button>
-            <button type="button" data-camera-preset="fhd">Full HD</button>
-            <button type="button" data-camera-preset="4k">4K</button>
-          </div>
-          <div class="field-pair">
-            <label class="field">Width <input type="number" min="160" max="7680" step="1" data-settings-update="render.camera.width" value="${camera.width}" /></label>
-            <label class="field">Height <input type="number" min="120" max="4320" step="1" data-settings-update="render.camera.height" value="${camera.height}" /></label>
-          </div>
           <label class="field">Camera direction
             <select data-settings-update="render.camera.facingMode">
               <option value="user" ${camera.facingMode === "user" ? "selected" : ""}>Front</option>
@@ -60,7 +47,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           </label>
           ${settingsToggle("Mirror camera image", "render.camera.mirrored", camera.mirrored)}
           ${settingsToggle("Use maximum supported resolution", "render.camera.maxResolution", camera.maxResolution)}
-          <div class="soft-note">The browser chooses the closest supported mode. Changing Camera settings restarts an active capture.</div>
+          <div class="soft-note">The browser chooses a capture size suitable for the current render demand. Changing Camera settings restarts an active capture.</div>
         </section>
         <section class="ui-section element-section" data-settings-panel="screen" ${visiblePanel("screen", activeTab)}>
           <div class="settings-group">
@@ -89,34 +76,26 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
         </section>
         <section class="ui-section element-section settings-rendering-panel" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
           <div class="settings-group">
-          <div class="settings-group-title"><span class="material-symbols-rounded">grid_4x4</span><span>Canvas size</span></div>
-          <div class="field-pair">
-            <label class="field">Width <input type="number" min="128" max="8192" step="1" data-settings-update="render.canvasSize.width" value="${render.canvasSize.width}" /></label>
-            <label class="field">Height <input type="number" min="128" max="8192" step="1" data-settings-update="render.canvasSize.height" value="${render.canvasSize.height}" /></label>
-          </div>
-          <div class="soft-note">One logical coordinate space shared by every Canvas and recording frame.</div>
+          <div class="settings-group-title"><span class="material-symbols-rounded">grid_4x4</span><span>Canvas proportion</span></div>
+          ${aspectRatioField("Canvas aspect ratio", "render.canvasAspectRatio", render.canvasAspectRatio)}
+          <div class="soft-note">One relative coordinate space shared by every Canvas and recording frame.</div>
           </div>
           <div class="settings-group">
-          <div class="settings-group-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component initial size</span></div>
-          <div class="field-pair">
-            <label class="field">Width <input type="number" min="64" max="8192" step="1" data-settings-update="render.componentTexture.width" value="${render.componentTexture.width}" /></label>
-            <label class="field">Height <input type="number" min="64" max="8192" step="1" data-settings-update="render.componentTexture.height" value="${render.componentTexture.height}" /></label>
-          </div>
-          <div class="soft-note">Defines the starting frame geometry and aspect. Runtime texture resolution follows the largest visible render demand.</div>
+          <div class="settings-group-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component proportion</span></div>
+          ${aspectRatioField("Default Component aspect ratio", "render.componentAspectRatio", render.componentAspectRatio)}
+          <div class="soft-note">Defines default Component geometry. Runtime texture resolution follows visible demand.</div>
           </div>
           <div class="settings-group">
-          <div class="settings-group-title"><span class="material-symbols-rounded">texture</span><span>Surface texture</span></div>
-          <label class="field">Resolution policy
-            <select data-settings-update="render.surfaceTexture.mode">
-              <option value="auto" ${render.surfaceTexture.mode === "auto" ? "selected" : ""}>Auto · projected pixel demand</option>
-              <option value="manual" ${render.surfaceTexture.mode === "manual" ? "selected" : ""}>Manual maximum</option>
+          <div class="settings-group-title"><span class="material-symbols-rounded">texture</span><span>Resolution ceiling</span></div>
+          <label class="field">Maximum class
+            <select data-settings-update="render.resolutionCeiling">
+              <option value="auto" ${render.resolutionCeiling === "auto" ? "selected" : ""}>Auto · current window</option>
+              <option value="2k" ${render.resolutionCeiling === "2k" ? "selected" : ""}>2K</option>
+              <option value="4k" ${render.resolutionCeiling === "4k" ? "selected" : ""}>4K</option>
+              <option value="8k" ${render.resolutionCeiling === "8k" ? "selected" : ""}>8K</option>
             </select>
           </label>
-          <div class="field-pair" data-manual-surface-texture ${render.surfaceTexture.mode === "manual" ? "" : "hidden"}>
-            <label class="field">Max width <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceTexture.maxWidth" value="${render.surfaceTexture.maxWidth}" /></label>
-            <label class="field">Max height <input type="number" min="64" max="8192" step="1" data-settings-update="render.surfaceTexture.maxHeight" value="${render.surfaceTexture.maxHeight}" /></label>
-          </div>
-          <div class="soft-note">Auto follows visible projected-pixel demand. Manual only limits the final per-surface raster; it never changes component dimensions.</div>
+          <div class="soft-note">A safety ceiling for adaptive buffers, expressed without authoring a width and height. Auto follows the current window.</div>
           </div>
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">speed</span><span>Performance</span></div>
@@ -184,12 +163,13 @@ export function configuredOutputsTemplate(render) {
         <input class="section-title-input" type="text" data-settings-update="render.outputs.${index}.name" value="${esc(output.name)}" aria-label="Output ${index + 1} name" />
         <button type="button" class="list-remove" data-remove-output="${esc(output.id)}" title="Remove output" aria-label="Remove ${esc(output.name)}" ${render.outputs.length <= 1 ? "disabled" : ""}>${icon("close")}</button>
       </div>
-      <div class="field-pair">
-        <label class="field">Width <input type="number" min="128" max="8192" step="1" data-settings-update="render.outputs.${index}.width" value="${output.width}" /></label>
-        <label class="field">Height <input type="number" min="128" max="8192" step="1" data-settings-update="render.outputs.${index}.height" value="${output.height}" /></label>
-      </div>
+      ${aspectRatioField("Output aspect ratio", `render.outputs.${index}.aspectRatio`, output.aspectRatio)}
     </article>
   `).join("");
+}
+
+function aspectRatioField(label, path, value) {
+  return `<label class="field">${label}<input type="number" min="0.05" max="20" step="0.001" data-settings-update="${path}" value="${Math.round(Number(value) * 1000) / 1000}" /></label>`;
 }
 
 function settingsTab(id, label, activeTab) {

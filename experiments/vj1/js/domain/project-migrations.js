@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
 
-export const CURRENT_PROJECT_VERSION = 24;
+export const CURRENT_PROJECT_VERSION = 26;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -49,6 +49,8 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   21: migrateProjectV21ToV22,
   22: migrateProjectV22ToV23,
   23: migrateProjectV23ToV24,
+  24: migrateProjectV24ToV25,
+  25: migrateProjectV25ToV26,
 });
 
 export function migrateProjectData(project = {}) {
@@ -563,6 +565,253 @@ export function migrateProjectV23ToV24(project) {
       authority: "node-graph",
     },
   };
+}
+
+// v25 makes authored geometry independent from physical displays. Outputs,
+// Canvas, and Components retain proportions; recording frames and projection
+// corners become relative. Runtime hosts compile those values to pixels.
+export function migrateProjectV24ToV25(project) {
+  const migrated = migrateRelativeProjectState(project);
+  const live = migrated.ui?.live;
+  return live?.sceneSnapshot
+    ? { ...migrated, ui: { ...migrated.ui, live: { ...live, sceneSnapshot: migrateRelativeProjectState(live.sceneSnapshot) } } }
+    : migrated;
+}
+
+// v26 makes the visible element transform an oriented render boundary.
+// Existing handle-authored rotations therefore move from the content field to
+// the boundary while content keeps its independent X/Y/Scale controls.
+export function migrateProjectV25ToV26(project) {
+  const migrateState = (state = {}) => ({
+    ...state,
+    components: (state.components || []).map((component) => Array.isArray(component.chain)
+      ? {
+          ...component,
+          chain: migrateChainBoundaryRotation(component.chain),
+          nodeProjectionSignature: "",
+        }
+      : component),
+    nodes: state.nodes && typeof state.nodes === "object"
+      ? {
+          ...state.nodes,
+          // Since v24, generated Component groups are the persisted visual
+          // authority and `component.chain` is normally omitted on disk. Move
+          // rotation inside that authority instead of clearing its projection
+          // marker and rebuilding from a non-existent compatibility chain.
+          groups: (state.nodes.groups || []).map(migrateComponentGroupBoundaryRotation),
+        }
+      : state.nodes,
+  });
+  const migrated = migrateState(project);
+  const live = migrated.ui?.live;
+  return live?.sceneSnapshot
+    ? { ...migrated, ui: { ...migrated.ui, live: { ...live, sceneSnapshot: migrateState(live.sceneSnapshot) } } }
+    : migrated;
+}
+
+function migrateChainBoundaryRotation(chain = []) {
+  return chain.map(migrateChainItemBoundaryRotation);
+}
+
+function migrateChainItemBoundaryRotation(item) {
+  if (!item || typeof item !== "object") return item;
+  const transform = item.transform && typeof item.transform === "object" ? item.transform : {};
+  const boundary = item.boundary && typeof item.boundary === "object" ? item.boundary : {};
+  const rotation = Number.isFinite(Number(boundary.rotation))
+    ? Number(boundary.rotation)
+    : Number(transform.rotation) || 0;
+  return {
+    ...item,
+    boundary: { ...boundary, rotation },
+    transform: { ...transform, rotation: 0 },
+    ...(item.kind === "group" && Array.isArray(item.chain)
+      ? { chain: migrateChainBoundaryRotation(item.chain) }
+      : {}),
+  };
+}
+
+function migrateComponentGroupBoundaryRotation(group = {}) {
+  if (group?.generatedBy !== "vj1-component-compiler") return group;
+  return {
+    ...group,
+    nodes: migrateComponentGraphNodes(group.nodes || []),
+  };
+}
+
+function migrateComponentGraphNodes(nodes = []) {
+  return nodes.map((node) => {
+    const configuration = node?.configuration && typeof node.configuration === "object"
+      ? migrateChainItemBoundaryRotation(node.configuration)
+      : node?.configuration;
+    const parameterTransform = node?.parameters?.transform && typeof node.parameters.transform === "object"
+      ? { ...node.parameters.transform, rotation: 0 }
+      : null;
+    return {
+      ...node,
+      ...(configuration ? { configuration } : {}),
+      ...(parameterTransform ? { parameters: { ...node.parameters, transform: parameterTransform } } : {}),
+      ...(Array.isArray(node?.nodes) ? { nodes: migrateComponentGraphNodes(node.nodes) } : {}),
+    };
+  });
+}
+
+function migrateRelativeProjectState(project = {}) {
+  const render = project.render && typeof project.render === "object" ? project.render : {};
+  const ui = project.ui && typeof project.ui === "object" ? project.ui : {};
+  const legacyPreviewQuality = ui.previewQuality
+    ?? ui.previewQualities?.scene
+    ?? ui.previewQualities?.live
+    ?? project.components?.find((component) => component?.previewQuality || component?.canvas?.previewQuality)?.previewQuality
+    ?? project.components?.find((component) => component?.canvas?.previewQuality)?.canvas?.previewQuality;
+  const { previewQualities: _previewQualities, ...uiWithoutLegacyQualities } = ui;
+  const legacyOutputs = Array.isArray(render.outputs) && render.outputs.length
+    ? render.outputs
+    : [{ id: "output-main", name: "Main output", width: render.frameWidth ?? render.width, height: render.frameHeight ?? render.height }];
+  const outputs = legacyOutputs.map((output, index) => ({
+    id: String(output?.id || (index === 0 ? "output-main" : `output-${index + 1}`)),
+    name: output?.name || (index === 0 ? "Main output" : `Output ${index + 1}`),
+    aspectRatio: migratedAspectRatio(output?.aspectRatio, output?.width, output?.height, 16 / 9),
+  }));
+  const canvasWidth = migratedPositiveNumber(render.canvasSize?.width, 3840);
+  const canvasHeight = migratedPositiveNumber(render.canvasSize?.height, 2160);
+  const componentWidth = migratedPositiveNumber(render.componentTexture?.width, 960);
+  const componentHeight = migratedPositiveNumber(render.componentTexture?.height, 540);
+  const world = migratedLegacyWorldSize(render, legacyOutputs);
+  const {
+    width: _width,
+    height: _height,
+    frameWidth: _frameWidth,
+    frameHeight: _frameHeight,
+    worldWidth: _worldWidth,
+    worldHeight: _worldHeight,
+    canvasSize: _canvasSize,
+    componentTexture: _componentTexture,
+    surfaceTexture: _surfaceTexture,
+    camera: legacyCamera = {},
+    ...renderWithoutPixels
+  } = render;
+  const { width: _cameraWidth, height: _cameraHeight, ...camera } = legacyCamera;
+  return {
+    ...project,
+    ui: {
+      ...uiWithoutLegacyQualities,
+      previewQuality: migratedSharedPreviewQuality(legacyPreviewQuality),
+    },
+    render: {
+      ...renderWithoutPixels,
+      outputs,
+      canvasAspectRatio: migratedAspectRatio(render.canvasAspectRatio, canvasWidth, canvasHeight, 16 / 9),
+      componentAspectRatio: migratedAspectRatio(render.componentAspectRatio, componentWidth, componentHeight, outputs[0]?.aspectRatio || 16 / 9),
+      resolutionCeiling: ["auto", "2k", "4k", "8k"].includes(render.resolutionCeiling) ? render.resolutionCeiling : "auto",
+      camera,
+    },
+    recordingFrames: migrateRelativeRecordingFrames(project.recordingFrames, canvasWidth, canvasHeight),
+    mappings: migrateRelativeMappings(project.mappings, world.width, world.height),
+    components: Array.isArray(project.components) ? project.components.map(migrateComponentBoundaries) : project.components,
+    nodes: migrateNodeProjectBoundaries(project.nodes),
+  };
+}
+
+function migrateComponentBoundaries(component = {}) {
+  const { previewQuality: _previewQuality, ...componentWithoutLegacyQuality } = component;
+  const canvas = component.canvas && typeof component.canvas === "object"
+    ? Object.fromEntries(Object.entries(component.canvas).filter(([key]) => key !== "previewQuality"))
+    : component.canvas;
+  return {
+    ...componentWithoutLegacyQuality,
+    ...(component.type === "canvas" ? { canvas } : {}),
+    ...(Array.isArray(component.chain) ? { chain: migrateChainBoundaries(component.chain) } : {}),
+  };
+}
+
+function migratedSharedPreviewQuality(value) {
+  if (value === "full") return "good";
+  if (value === "high") return "good";
+  return ["auto", "good", "low"].includes(value) ? value : "good";
+}
+
+function migrateChainBoundaries(chain) {
+  return (chain || []).map((item) => ({
+    ...item,
+    boundary: item?.boundary || { x: 0, y: 0, width: 1, height: 1 },
+    ...(item?.kind === "group" && Array.isArray(item.chain) ? { chain: migrateChainBoundaries(item.chain) } : {}),
+  }));
+}
+
+function migrateNodeProjectBoundaries(nodes) {
+  if (!nodes || typeof nodes !== "object") return nodes;
+  const migrateNodes = (items) => (items || []).map((node) => ({
+    ...node,
+    ...(node?.configuration ? {
+      configuration: { ...node.configuration, boundary: node.configuration.boundary || { x: 0, y: 0, width: 1, height: 1 } },
+    } : {}),
+    ...(Array.isArray(node?.nodes) ? { nodes: migrateNodes(node.nodes) } : {}),
+  }));
+  return {
+    ...nodes,
+    groups: Array.isArray(nodes.groups) ? nodes.groups.map((group) => ({
+      ...group,
+      ...(Array.isArray(group.nodes) ? { nodes: migrateNodes(group.nodes) } : {}),
+    })) : nodes.groups,
+  };
+}
+
+function migrateRelativeRecordingFrames(frames, canvasWidth, canvasHeight) {
+  if (!Array.isArray(frames)) return frames;
+  return frames.map((frame) => {
+    if (!frame || typeof frame !== "object") return frame;
+    const alreadyRelative = Number(frame.width) <= 1 && Number(frame.height) <= 1 && Number(frame.x) <= 1 && Number(frame.y) <= 1;
+    if (alreadyRelative) return frame;
+    return {
+      ...frame,
+      x: (Number(frame.x) || 0) / canvasWidth,
+      y: (Number(frame.y) || 0) / canvasHeight,
+      width: migratedPositiveNumber(frame.width, canvasWidth * 0.25) / canvasWidth,
+      height: migratedPositiveNumber(frame.height, canvasHeight * 0.25) / canvasHeight,
+    };
+  });
+}
+
+function migrateRelativeMappings(mappings, worldWidth, worldHeight) {
+  if (!mappings || typeof mappings !== "object") return mappings;
+  return Object.fromEntries(Object.entries(mappings).map(([key, mapping]) => {
+    if (!mapping || typeof mapping !== "object") return [key, mapping];
+    if (mapping.coordinateSpace === "relative") return [key, mapping];
+    return [key, {
+      ...mapping,
+      coordinateSpace: "relative",
+      surfaces: Array.isArray(mapping.surfaces) ? mapping.surfaces.map((surface) => {
+        const { w: _w, h: _h, ...current } = surface || {};
+        return {
+          ...current,
+          corners: Array.isArray(surface?.corners) ? surface.corners.map((point) => ({
+            x: (Number(point?.x) || 0) / worldWidth,
+            y: (Number(point?.y) || 0) / worldHeight,
+          })) : surface?.corners,
+        };
+      }) : mapping.surfaces,
+    }];
+  }));
+}
+
+function migratedLegacyWorldSize(render, outputs) {
+  const widths = outputs.map((output) => migratedPositiveNumber(output?.width, 960));
+  const heights = outputs.map((output) => migratedPositiveNumber(output?.height, 540));
+  const contentWidth = widths.reduce((sum, width) => sum + width, 0);
+  const contentHeight = Math.max(...heights, 540);
+  const margin = Math.max(...widths, 960) * 0.08;
+  return {
+    width: migratedPositiveNumber(render.worldWidth, contentWidth + margin * 2),
+    height: migratedPositiveNumber(render.worldHeight, contentHeight * 1.16),
+  };
+}
+
+function migratedAspectRatio(value, width, height, fallback) {
+  const direct = Number(value);
+  if (Number.isFinite(direct) && direct > 0) return direct;
+  const w = Number(width);
+  const h = Number(height);
+  return Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0 ? w / h : fallback;
 }
 
 function migrateCanonicalComponent(component = {}, componentIndex = 0) {

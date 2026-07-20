@@ -2,6 +2,8 @@ import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-
 import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { isIdentityTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
+import { renderView } from "../libraries/render-engine/render-view/index.js";
+import { disposeRenderTarget } from "../libraries/render-engine/render-target-lifetime.js";
 
 export function effectParamNumber(component, params = {}, id, fallback = 0) {
   const param = (component?.params || []).find((item) => item.id === id);
@@ -14,10 +16,7 @@ export function nextFxTargetSlot(targets = [], current = null) {
 }
 
 export function disposeGraphics(item) {
-  if (!item) return;
-  try {
-    item.remove?.();
-  } catch {}
+  disposeRenderTarget(item);
 }
 
 export function chainItemToShaderPass(item) {
@@ -37,21 +36,23 @@ export function effectNeedsComposite(item = {}) {
   return (item.blend || "normal") !== "normal" || Math.abs((item.opacity ?? 1) - 1) > 0.0001;
 }
 
-export function drawWithContentTransform(target, transform = {}, draw) {
+export function drawWithContentTransform(target, transform = {}, draw, renderRequest = null) {
   if (typeof draw !== "function") return;
-  if (isIdentityTransform(transform)) {
-    draw();
+  const view = renderView(target, renderRequest || {});
+  if (isIdentityTransform(transform) && !view.cropped) {
+    draw(view);
     return;
   }
-  const width = Math.max(1, Number(target?.width) || 1);
-  const height = Math.max(1, Number(target?.height) || 1);
+  const width = view.width;
+  const height = view.height;
   const value = contentTransformCanvasPlacement(transform, width, height);
   target.push();
+  target.translate(-view.x, -view.y);
   target.translate(value.centerX, value.centerY);
   target.rotate(value.rotation);
   target.scale(value.scale);
   target.translate(-width * 0.5, -height * 0.5);
-  draw();
+  draw(view);
   target.pop();
 }
 

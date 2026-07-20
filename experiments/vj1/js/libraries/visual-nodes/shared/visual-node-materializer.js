@@ -87,5 +87,6 @@ function visualExecutionMetadata(component = {}) {
     transformSource: component.transformSource !== false,
     requiresBaseSample: component.requiresBaseSample !== false,
     fusible: component.fusible === true,
+    roi: component.runtime?.roi || { mode: "local", halo: 0, coordinateSpace: "boundary" },
   };
 }

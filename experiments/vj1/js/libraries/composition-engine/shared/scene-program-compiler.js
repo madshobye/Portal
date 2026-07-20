@@ -115,7 +115,14 @@ export function compileSceneRenderPrograms(state = {}, groups = []) {
       sceneId: group.sceneId || "",
       surfaces: Object.freeze(routeNodes.map((node) => {
         const surface = surfacesById.get(String(node.surfaceId || ""));
-        return surface ? { ...surface, ...(node.parameters || {}) } : null;
+        // Generated route-node parameters describe the compiled topology, but
+        // the current Scene snapshot is the live parameter authority. During a
+        // slider gesture the project model is patched in place without
+        // regenerating node groups; allowing the generated copy to win here
+        // made Presence/Fit update only after pointer release. Keeping the
+        // route identity in the graph and values in the Scene also avoids a
+        // second mutable source of truth.
+        return surface ? { ...surface } : null;
       }).filter(Boolean)),
       plan,
       generatedBy: SCENE_PROGRAM_GENERATOR,
@@ -143,7 +150,16 @@ export function activeSceneProgramSurfaces(state = {}, programs = new Map(), out
 
 function sceneSurfaces(state, sceneId) {
   if (!sceneId) return state.surfaces || [];
-  return state.scenes?.find((scene) => String(scene.id || "") === String(sceneId))?.snapshot?.surfaces || state.surfaces || [];
+  const routes = state.scenes?.find((scene) => String(scene.id || "") === String(sceneId))?.snapshot?.surfaces;
+  if (!Array.isArray(routes)) return state.surfaces || [];
+  const physicalSurfaces = new Map((state.surfaces || []).map((surface) => [String(surface.id || ""), surface]));
+  return routes.map((route) => {
+    const physical = physicalSurfaces.get(String(route.id || ""));
+    // Feather and destination/mapping geometry belong to the physical
+    // surface, not to a Scene. Merge them underneath the Scene-owned routing
+    // values so physical edits remain live in every Scene.
+    return physical ? { ...physical, ...route, feather: physical.feather } : route;
+  });
 }
 
 function sceneSourceSignature(scene, surfaces) {

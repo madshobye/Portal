@@ -152,26 +152,41 @@ export class ProjectDerivedAssetStore {
     }
   }
 
-  async loadComponentThumbnails(components = []) {
+  async loadComponentThumbnails(components = [], { onBatch = null, batchSize = 16 } = {}) {
     const componentIds = new Set((components || []).map((component) => String(component.id)));
     const directory = await this.thumbnailDirectory();
     if (!directory) return { entries: [], urls: new Set() };
     const entries = [];
     const urls = new Set();
+    let batchEntries = [];
+    let batchUrls = new Set();
     let count = 0;
+    const publishBatch = async () => {
+      if (!batchEntries.length || typeof onBatch !== "function") return;
+      const publishedEntries = batchEntries;
+      const publishedUrls = batchUrls;
+      batchEntries = [];
+      batchUrls = new Set();
+      await onBatch(publishedEntries, publishedUrls);
+    };
     for await (const handle of directory.values()) {
       const parsed = handle.kind === "file" ? parseComponentThumbnailFilename(handle.name) : null;
       if (parsed && componentIds.has(String(parsed.componentId))) {
         try {
           const url = URL.createObjectURL(await handle.getFile());
           urls.add(url);
-          entries.push({ ...parsed, url });
+          const entry = { ...parsed, url };
+          entries.push(entry);
+          batchEntries.push(entry);
+          batchUrls.add(url);
+          if (batchEntries.length >= Math.max(1, Number(batchSize) || 16)) await publishBatch();
         } catch (error) {
           console.warn("[VJ1_THUMBNAIL_READ_FAILED]", { filename: handle.name, fallback: "regenerate thumbnail on demand", message: error?.message || String(error) });
         }
       }
       if (++count % 64 === 0) await cooperativeYield();
     }
+    await publishBatch();
     return { entries, urls };
   }
 

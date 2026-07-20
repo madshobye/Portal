@@ -1,4 +1,4 @@
-import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=catalog-marker-four-state-1";
+import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=boundary-authority-1";
 import { serializeNodeProjectData } from "../libraries/node-engine/node-project.js";
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
@@ -14,7 +14,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       selectedNodeGroupId: state.ui.selectedNodeGroupId || "",
       workspaceSelectionIds: state.ui.workspaceSelectionIds,
       catalogSortModes: state.ui.catalogSortModes,
-      previewQualities: state.ui.previewQualities,
+      previewQuality: state.ui.previewQuality,
       live: {
         selectedSceneId: state.ui.live?.selectedSceneId || "",
         sceneSnapshot: state.ui.live?.sceneSnapshot || null,
@@ -79,7 +79,19 @@ export function persistedRenderSettings(render = {}) {
     surfaceHeight: _legacySurfaceHeight,
     surfaceTextureMode: _legacySurfaceTextureMode,
     edgeSoftness: _removedEdgeSoftness,
+    hostViewport: _runtimeHostViewport,
+    previewRasterScale: _runtimePreviewRasterScale,
+    canvasSize: _legacyCanvasSize,
+    componentTexture: _legacyComponentTexture,
+    surfaceTexture: _legacySurfaceTexture,
     ...canonical
   } = render || {};
-  return canonical;
+  return {
+    ...canonical,
+    outputs: (canonical.outputs || []).map((output, index) => ({
+      id: String(output?.id || (index === 0 ? "output-main" : `output-${index + 1}`)),
+      name: output?.name || (index === 0 ? "Main output" : `Output ${index + 1}`),
+      aspectRatio: Number(output?.aspectRatio) || 16 / 9,
+    })),
+  };
 }

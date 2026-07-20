@@ -34,6 +34,23 @@ test("Scene and Live presentation lives outside the control orchestrator", () =>
   assert.doesNotMatch(controller, /function sceneSurfaceTemplate\(/);
 });
 
+test("Scene fingerprints use a selected recording frame thumbnail instead of its Canvas thumbnail", () => {
+  const { state, scene } = stateWithScene();
+  const canvas = { ...state.components[0], id: "canvas-a", type: "canvas", thumbnail: "canvas-thumb", canvas: { frameThumbnails: { "frame-a": "frame-thumb" } } };
+  state.components = [canvas];
+  state.recordingFrames = [{ id: "frame-a", name: "Frame A", x: 0, y: 0, width: 0.5, height: 0.5 }];
+  scene.snapshot.surfaces[0] = {
+    ...scene.snapshot.surfaces[0],
+    sourceNodeId: "recording-frame:canvas-a:frame-a",
+    componentId: canvas.id,
+    outputFrameId: "frame-a",
+  };
+
+  const html = scenePillTemplate(scene, state);
+  assert.match(html, /src="frame-thumb"/);
+  assert.doesNotMatch(html, /src="canvas-thumb"/);
+});
+
 test("Live Scene reset is absent until temporary parameters exist", () => {
   const { state, scene } = stateWithScene();
   assert.doesNotMatch(liveScenePillTemplate(scene, state), /data-reset-live-scene/);
@@ -114,7 +131,7 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.match(controls, /data-live-update="transform\.x"/);
   assert.match(controls, /data-live-update="transform\.y"/);
   assert.match(controls, /data-live-update="transform\.scale"/);
-  assert.match(controls, /data-live-update="transform\.rotation"/);
+  assert.doesNotMatch(controls, /data-live-update="transform\.rotation"/);
   assert.match(controls, /data-live-update="chain\.0\.source\.params\.renderQuality"/);
   assert.match(controls, /data-live-update="chain\.0\.transform\.scale"/);
   assert.ok(

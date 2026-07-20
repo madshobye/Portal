@@ -5,5 +5,6 @@ export {
   parseTextMarkdown,
   TEXT_GENERATOR_FRAGMENT_SHADER,
   TEXT_GENERATOR_VERTEX_SHADER,
+  textMaskDimensions,
   textMaskSignature,
-} from "../../libraries/visual-nodes/generators/text/runtime.js";
+} from "../../libraries/visual-nodes/generators/text/runtime.js?v=source-roi-view-3";

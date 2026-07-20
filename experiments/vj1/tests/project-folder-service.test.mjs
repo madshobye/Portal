@@ -23,7 +23,7 @@ test("project payload preserves the selected component chain item", () => {
       selectedChainItemId: "chain-effect-b",
       workspaceSelectionIds: { component: "component-a", canvas: "canvas-b" },
       catalogSortModes: { component: "name", scene: "created" },
-      previewQualities: { scene: "low", live: "full" },
+      previewQuality: "good",
       live: {
         selectedSceneId: "scene-live",
         sceneSnapshot: { surfaces: [{ id: "surface-a", componentId: "component-a" }] },
@@ -36,7 +36,7 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 24);
+  assert.equal(payload.version, 26);
   assert.deepEqual(payload.nodes, {
     formatVersion: 1,
     authority: "component-import",
@@ -51,7 +51,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
-  assert.deepEqual(payload.ui.previewQualities, state.ui.previewQualities);
+  assert.equal(payload.ui.previewQuality, state.ui.previewQuality);
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
   assert.deepEqual(payload.ui.live.sceneSnapshot, state.ui.live.sceneSnapshot);
   assert.equal(payload.ui.live.transitionDuration, 2.5);
@@ -63,9 +63,10 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes("selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
   assert.ok(source.includes("workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds"));
   assert.ok(source.includes("catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes"));
-  assert.ok(source.includes("media: mergeMediaCatalogMarkers(imported.media, projectData.media)"));
+  assert.ok(source.includes("preserveMediaCatalog && Array.isArray(projectData.media)"));
+  assert.ok(source.includes(": mergeMediaCatalogMarkers(imported.media, projectData.media)"));
   assert.ok(source.includes("draft.media = mergeMediaCatalogMarkers(imported.media, draft.media)"));
-  assert.ok(source.includes("previewQualities: projectUi?.previewQualities || currentUi.previewQualities"));
+  assert.ok(source.includes("previewQuality: projectUi?.previewQuality || currentUi.previewQuality"));
   assert.ok(!source.includes("legacyRecordingFrames"));
   assert.ok(source.includes("data = migrateProjectData(data)"));
   assert.ok(source.includes("projectLoadBlocked = true"));
@@ -98,9 +99,9 @@ test("project payload persists canonical render settings without derived geometr
     outputGap: 0,
   };
   const persisted = persistedRenderSettings(render);
-  assert.deepEqual(persisted.outputs, render.outputs);
-  assert.deepEqual(persisted.componentTexture, render.componentTexture);
-  assert.deepEqual(persisted.canvasSize, render.canvasSize);
+  assert.deepEqual(persisted.outputs, [{ id: "main", name: "Main output", aspectRatio: 16 / 9 }]);
+  assert.equal(Object.hasOwn(persisted, "componentTexture"), false);
+  assert.equal(Object.hasOwn(persisted, "canvasSize"), false);
   assert.equal(persisted.pixelDensity, 1.5);
   for (const key of ["width", "height", "frameWidth", "frameHeight", "worldScale", "worldWidth", "worldHeight", "outputGap"]) {
     assert.equal(Object.hasOwn(persisted, key), false);
@@ -112,6 +113,35 @@ test("folder permission prompt does not discard a project recovered from output"
 
   assert.ok(source.includes("const recoveredFromOutput = !!draft.project.folderName"));
   assert.ok(source.includes("if (!recoveredFromOutput)"));
+});
+
+test("an aborted experimental file observer falls back silently for the tab session", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+
+  assert.match(source, /if \(fileObserverAbortedForSession\(dirHandle\)\) return;/);
+  assert.match(source, /if \(isFileObserverAbort\(error\)\) \{[\s\S]*rememberFileObserverAbort\(handle\);[\s\S]*return;/);
+  assert.match(source, /clearFileObserverAbort\(selectedHandle\)/);
+});
+
+test("project structure and cached thumbnails load before the media-library traversal", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  const loadDirectory = source.slice(
+    source.indexOf("  async function loadDirectory"),
+    source.indexOf("\n  async function loadProject", source.indexOf("  async function loadDirectory"))
+  );
+
+  assert.ok(loadDirectory.indexOf("await loadProject") < loadDirectory.indexOf("collectProjectAssetFiles"));
+  assert.ok(loadDirectory.includes("preserveMediaCatalog: true"));
+  assert.ok(loadDirectory.indexOf("collectProjectAssetFiles") < loadDirectory.indexOf("mediaLibrary.importFiles"));
+  assert.ok(loadDirectory.indexOf("mediaLibrary.importFiles") < loadDirectory.indexOf("refreshProjectAssets"));
+
+  const loadProject = source.slice(
+    source.indexOf("  async function loadProject"),
+    source.indexOf("\n  function blockProjectLoad", source.indexOf("  async function loadProject"))
+  );
+  assert.ok(loadProject.indexOf("store.replace(nextState, reason)") < loadProject.indexOf("derivedAssets.loadComponentThumbnails"));
+  assert.match(loadProject, /void derivedAssets\.loadComponentThumbnails/);
+  assert.match(loadProject, /project-thumbnail-cache-batch/);
 });
 
 test("media import publishes known files without rescanning or replacing live project state", () => {

@@ -3,8 +3,8 @@ import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-
 import { sanitizeState } from "../domain/models.js?v=chain-only-authority-1";
 import { compileComponentPatch } from "../graph/render-scheduler.js?v=chain-only-authority-1";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
-import { worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
+import { frameSize, worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 
 export function analyzeVj1Project(input = {}, options = {}) {
   const state = sanitizeState(input || {});
@@ -536,8 +536,9 @@ function componentMetrics(component, context) {
 function renderMetrics(state) {
   const component = componentTextureSize(state.render || {});
   const world = worldSize(state.render || {});
-  const frameWidth = positiveInt(state.render?.frameWidth ?? state.render?.width, VJ1.renderWidth);
-  const frameHeight = positiveInt(state.render?.frameHeight ?? state.render?.height, VJ1.renderHeight);
+  const frame = frameSize(state.render || {});
+  const frameWidth = frame.width;
+  const frameHeight = frame.height;
   return {
     frameWidth,
     frameHeight,
@@ -559,18 +560,20 @@ function mappingMetrics(state, render) {
   let degenerateSurfaceCount = 0;
   let offWorldCornerCount = 0;
   const bottlenecks = [];
+  const relative = state.mappings?.local?.coordinateSpace === "relative";
+  const world = worldSize(state.render || {});
 
   for (const surface of mappedActive) {
     const corners = Array.isArray(surface.corners) ? surface.corners : [];
     const area = polygonArea(corners);
-    if (corners.length !== 4 || area < 100) {
+    if (corners.length !== 4 || area < (relative ? 0.000001 : 100)) {
       degenerateSurfaceCount++;
       bottlenecks.push(bottleneck("critical", `mapping:${surface.id || surface.name}`, "Mapped surface has missing or near-zero area corners."));
     }
     for (const corner of corners) {
       const x = Number(corner.x);
       const y = Number(corner.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > render.worldWidth || y > render.worldHeight) {
+      if (!Number.isFinite(x) || !Number.isFinite(y) || x < 0 || y < 0 || x > (relative ? 1 : world.width) || y > (relative ? 1 : world.height)) {
         offWorldCornerCount++;
       }
     }
@@ -681,15 +684,6 @@ function engineOptimizationTargets({ state, render, components, activeSurfaces, 
       step: "Media and camera texture upload",
       reason: `${activeMediaSources.length} live media/camera source(s) can add decode and texture-upload pressure before shader work starts.`,
       evidence: { activeMediaSources },
-    });
-  }
-
-  if (state.global?.calibrating && state.global?.showLabels !== false) {
-    targets.push({
-      priority: activeSurfaces.length >= 6 ? "medium" : "low",
-      step: "Calibration overlays and labels",
-      reason: "Calibration mode draws handles, output-frame overlays, and per-surface text labels on top of render output.",
-      evidence: { calibrating: true, showLabels: state.global.showLabels !== false },
     });
   }
 

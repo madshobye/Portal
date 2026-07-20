@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=thumbnail-pipeline-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=thumbnail-pipeline-1";
+import { createAppState } from "./app-state.js?v=boundary-authority-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=periodic-preview-maintenance-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=thumbnail-pipeline-1";
-import { createControlBridge } from "./services/output-bridge-service.js?v=remote-diagnostics-1";
-import { installOutputApp } from "./output/output-app.js?v=thumbnail-pipeline-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=observer-abort-fallback-1";
+import { createControlBridge } from "./services/output-bridge-service.js?v=queued-recovery-1";
+import { installOutputApp } from "./output/output-app.js?v=periodic-preview-maintenance-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
 
@@ -69,6 +69,10 @@ async function installControlApp() {
         store: dependencies["data-store"],
         mediaLibrary: dependencies["media-lifecycle"],
         diagnostics: dependencies.diagnostics,
+        // The stored project is authoritative for persistent thumbnail URLs.
+        // Announce this controller only after that restore attempt completes,
+        // so an already-open Output cannot race it with transport-only state.
+        deferAnnouncement: true,
         // Application dataflow owns state delivery. The bridge retains its
         // direct patch transport but does not create a hidden parallel store
         // subscription when instantiated by the node program.
@@ -133,7 +137,7 @@ async function installControlApp() {
       bridge.command("sync-mapping", { mappings: state.mappings });
       return;
     }
-    if (state.ui.workspace === "scene" && ["blackout", "toggle-output-playback", "toggle-labels"].includes(reason)) {
+    if (state.ui.workspace === "scene" && ["blackout", "toggle-output-playback", "toggle-output-hud"].includes(reason)) {
       bridge.command("sync-global", { global: state.global });
       return;
     }
@@ -174,10 +178,21 @@ async function installControlApp() {
   if (fixtureState) {
     fixtureState.ui = { ...fixtureState.ui, workspace: initialWorkspace };
     store.replace(fixtureState, "fixture");
+    bridge.announceControl();
   } else if (fixtureUrl) {
     console.warn(`[vj1] Could not load fixture state: ${applicationBootstrap.warning || "unknown error"}`);
+    bridge.announceControl();
   } else {
-    projectService.restoreStoredFolder();
+    // Output state may make the editor useful while the local folder loads,
+    // but its media snapshot must not compete with the authoritative import.
+    bridge.beginProjectRestore();
+    bridge.announceControl();
+    let restored = false;
+    try {
+      restored = await projectService.restoreStoredFolder();
+    } finally {
+      bridge.finishProjectRestore(restored);
+    }
   }
 }
 

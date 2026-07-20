@@ -1,4 +1,4 @@
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 
 export function createShaderBuilder({ getCustomCode, onStatus, getComponent = getShaderComponent } = {}) {
   const cache = new Map();
@@ -99,11 +99,11 @@ void main() {
 }
 
 function fragmentShaderSource(effectCode, component = null) {
-  const uvExpression = component?.transformSource === false ? "vTexCoord" : "transformEffectUv(vTexCoord)";
   return `
 precision mediump float;
 uniform sampler2D tex0;
 uniform vec2 resolution;
+uniform vec4 renderUvRect;
 uniform bool sourceFlipY;
 uniform bool sourceForceOpaque;
 uniform float time;
@@ -128,8 +128,13 @@ float cachedNoise(vec2 p) {
 }
 
 vec2 sourceUv(vec2 uv) {
-  vec2 safeUv = clamp(uv, vec2(0.0), vec2(1.0));
+  vec2 extent = max(renderUvRect.zw, vec2(0.000001));
+  vec2 safeUv = clamp((uv - renderUvRect.xy) / extent, vec2(0.0), vec2(1.0));
   return sourceFlipY ? vec2(safeUv.x, 1.0 - safeUv.y) : safeUv;
+}
+
+vec2 renderUvFromLocal(vec2 uv) {
+  return renderUvRect.xy + uv * renderUvRect.zw;
 }
 
 vec4 sampleSource(vec2 uv) {
@@ -138,7 +143,8 @@ vec4 sampleSource(vec2 uv) {
 }
 
 vec2 effectScreenUv() {
-  return vec2(vTexCoord.x, 1.0 - vTexCoord.y);
+  vec2 uv = renderUvFromLocal(vTexCoord);
+  return vec2(uv.x, 1.0 - uv.y);
 }
 
 vec2 textureUvFromEffectScreenUv(vec2 uv) {
@@ -156,14 +162,15 @@ vec2 inverseTransformEffectUv(vec2 uv) {
 float effectFieldMask(vec2 uv) {
   // Transforms change the effect coordinate field, not the component frame.
   // Keep the boundary fixed to the full component instead of a node rectangle.
-  vec2 edge = abs(vTexCoord - vec2(0.5));
+  vec2 edge = abs(renderUvFromLocal(vTexCoord) - vec2(0.5));
   return 1.0 - smoothstep(0.5, 0.535, max(edge.x, edge.y));
 }
 
 ${effectCode}
 
 void main() {
-  vec2 uv = ${uvExpression};
+  vec2 componentUv = renderUvFromLocal(vTexCoord);
+  vec2 uv = ${component?.transformSource === false ? "componentUv" : "transformEffectUv(componentUv)"};
   vec4 color = ${component?.requiresBaseSample === false ? "vec4(0.0)" : "sampleSource(uv)"};
   gl_FragColor = runEffect(uv, color);
 }`;
@@ -180,12 +187,13 @@ function fusedFragmentShaderSource(jobs) {
       declarations.push(`uniform ${uniformTypeForParam(param)} ${fusedUniformName(index, param.id)};`);
     }
     codeBlocks.push(namespaceEffectCode(component.code, component, index));
-    calls.push(`color = ${fusedUniformName(index, "runEffect")}(vTexCoord, color);`);
+    calls.push(`color = ${fusedUniformName(index, "runEffect")}(componentUv, color);`);
   });
   return `
 precision mediump float;
 uniform sampler2D tex0;
 uniform vec2 resolution;
+uniform vec4 renderUvRect;
 uniform bool sourceFlipY;
 uniform bool sourceForceOpaque;
 uniform sampler2D noiseTex;
@@ -203,8 +211,12 @@ float cachedNoise(vec2 p) {
   return texture2D(noiseTex, fract((floor(p) + 0.5) / size)).r;
 }
 vec2 sourceUv(vec2 uv) {
-  vec2 safeUv = clamp(uv, vec2(0.0), vec2(1.0));
+  vec2 extent = max(renderUvRect.zw, vec2(0.000001));
+  vec2 safeUv = clamp((uv - renderUvRect.xy) / extent, vec2(0.0), vec2(1.0));
   return sourceFlipY ? vec2(safeUv.x, 1.0 - safeUv.y) : safeUv;
+}
+vec2 renderUvFromLocal(vec2 uv) {
+  return renderUvRect.xy + uv * renderUvRect.zw;
 }
 vec4 sampleSource(vec2 uv) {
   vec4 sampled = texture2D(tex0, sourceUv(uv));
@@ -212,7 +224,8 @@ vec4 sampleSource(vec2 uv) {
 }
 ${codeBlocks.join("\n")}
 void main() {
-  vec4 color = sampleSource(vTexCoord);
+  vec2 componentUv = renderUvFromLocal(vTexCoord);
+  vec4 color = sampleSource(componentUv);
   ${calls.join("\n  ")}
   gl_FragColor = color;
 }`;
@@ -243,14 +256,16 @@ function standaloneFragmentSource(code, component) {
 varying vec2 vTexCoord;
 uniform float useContentTransform;
 uniform mat3 contentUvMatrix;
+uniform vec4 renderUvRect;
 
 vec2 vj1CompositionUv() {
   // p5's aTexCoord varying is already top-left screen-oriented even though
   // WebGL texture storage is bottom-left. Storage orientation is handled at
   // target presentation, so content transforms apply directly in the shared
   // +x right, +y down Composition coordinate space.
-  vec2 transformedUv = (contentUvMatrix * vec3(vTexCoord, 1.0)).xy;
-  return mix(vTexCoord, transformedUv, step(0.5, useContentTransform));
+  vec2 componentUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;
+  vec2 transformedUv = (contentUvMatrix * vec3(componentUv, 1.0)).xy;
+  return mix(componentUv, transformedUv, step(0.5, useContentTransform));
 }`;
   adapted = adapted.replace(varyingPlaceholder, coordinateContract);
   if (hasRenderQualityParam(component) && !/uniform\s+float\s+renderQuality\s*;/.test(adapted)) {
@@ -280,6 +295,7 @@ uniform sampler2D iChannel3;
 varying vec2 vTexCoord;
 uniform float useContentTransform;
 uniform mat3 contentUvMatrix;
+uniform vec4 renderUvRect;
 ${qualityUniform}
 
 ${adaptedCode}
@@ -289,7 +305,7 @@ void main() {
   // Use the same top-left Composition UV supplied to native generators.
   // Reconstructing it from gl_FragCoord couples movement to framebuffer
   // storage orientation and reverses vertical transforms on shared targets.
-  vec2 baseUv = vTexCoord;
+  vec2 baseUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;
   vec2 transformedUv = (contentUvMatrix * vec3(baseUv, 1.0)).xy;
   vec2 shaderUv = mix(baseUv, transformedUv, step(0.5, useContentTransform));
   // Shadertoy mainImage expects a bottom-left fragCoord. Keep the VJ1
@@ -305,7 +321,7 @@ function hasRenderQualityParam(component) {
 }
 
 function paramUniformDeclarations(component) {
-  const reserved = new Set(["tex0", "resolution", "sourceFlipY", "sourceForceOpaque", "time", "amount", "effectTransform", "effectUvMatrix", "inverseEffectUvMatrix", "noiseTex", "noiseTextureSize", "canvasSize", "texelSize"]);
+  const reserved = new Set(["tex0", "resolution", "renderUvRect", "sourceFlipY", "sourceForceOpaque", "time", "amount", "effectTransform", "effectUvMatrix", "inverseEffectUvMatrix", "noiseTex", "noiseTextureSize", "canvasSize", "texelSize"]);
   return (component?.params || [])
     .filter((param) => param?.id && !reserved.has(param.id))
     .map((param) => `uniform ${uniformTypeForParam(param)} ${param.id};`)

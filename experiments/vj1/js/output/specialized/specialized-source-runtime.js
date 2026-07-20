@@ -10,17 +10,17 @@ import { advanceSpatialScale, qualityComputeMultiplier } from "../render-runtime
 import { advanceRateClock } from "../../libraries/timing-engine/index.js";
 import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.js?v=node-program-hooks-15";
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
-import { modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js";
+import { applyModelViewportProjection, modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js?v=source-roi-view-3";
 import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "../../libraries/mesh-engine/mesh-render-cache.js";
-import { disposeRawModelItemResources, drawRawParsedModelMode } from "../../libraries/mesh-engine/mesh-render/index.js";
+import { disposeRawModelItemResources, drawRawParsedModelMode } from "../../libraries/mesh-engine/mesh-render/index.js?v=source-roi-view-3";
 import { modelLodTargetTriangles, selectModelLod } from "../../libraries/mesh-engine/mesh-resolution/index.js";
-import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=node-program-hooks-15";
+import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=source-roi-view-3";
 import { TerrainNodeModuleExports as FALLBACK_TERRAIN_NODE_MODULE } from "./terrain-mesh.js?v=node-program-hooks-15";
 import {
   FEATURE_MORPH_FRAGMENT_SHADER,
   FEATURE_MORPH_VERTEX_SHADER,
   imageFitUniform as fallbackImageFitUniform,
-} from "./feature-morph-shader.js?v=node-program-hooks-15";
+} from "./feature-morph-shader.js?v=source-roi-view-3";
 import {
   buildFeatureMorphField as fallbackBuildFeatureMorphField,
   buildFeatureMorphMesh as fallbackBuildFeatureMorphMesh,
@@ -32,18 +32,22 @@ import {
   TILE_TEXTURE_FRAGMENT_SHADER,
   TILE_TEXTURE_VERTEX_SHADER,
   tileRepeatAmount as fallbackTileRepeatAmount,
-} from "./tile-texture-shader.js?v=node-program-hooks-15";
-export { tileRepeatAmount } from "./tile-texture-shader.js?v=node-program-hooks-15";
+} from "./tile-texture-shader.js?v=source-roi-view-3";
+export { tileRepeatAmount } from "./tile-texture-shader.js?v=source-roi-view-3";
 import {
   createTextMask as fallbackCreateTextMask,
   TEXT_GENERATOR_FRAGMENT_SHADER as FALLBACK_TEXT_FRAGMENT_SHADER,
   TEXT_GENERATOR_VERTEX_SHADER as FALLBACK_TEXT_VERTEX_SHADER,
+  textMaskDimensions as fallbackTextMaskDimensions,
   textMaskSignature as fallbackTextMaskSignature,
-} from "./text-generator-renderer.js?v=node-program-hooks-15";
-import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=mesh-topology-4";
+} from "./text-generator-renderer.js?v=source-roi-view-3";
+import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=source-roi-view-3";
+import { disposeRenderTarget } from "../../libraries/render-engine/render-target-lifetime.js";
+import { renderView } from "../../libraries/render-engine/render-view/index.js";
 
 const FALLBACK_TEXT_NODE_MODULE = Object.freeze({
   createTextMask: fallbackCreateTextMask,
+  textMaskDimensions: fallbackTextMaskDimensions,
   textMaskSignature: fallbackTextMaskSignature,
 });
 
@@ -192,7 +196,8 @@ export class SpecializedSourceRuntime {
       this.drawStandby(pg, "choose two images");
       return;
     }
-    const imageRequest = { width: Math.max(1024, Number(pg.width) || 0) };
+    const view = renderView(pg, renderRequest);
+    const imageRequest = { width: Math.max(1024, Number(view.width) || 0) };
     const itemA = this.acquireMedia(imageAId, imageRequest);
     const itemB = this.acquireMedia(imageBId, imageRequest);
     const missingIds = [!itemA ? imageAId : "", !itemB ? imageBId : ""].filter(Boolean);
@@ -255,9 +260,10 @@ export class SpecializedSourceRuntime {
       shaderProgram.setUniform("flowPhases", morphField.phases || 1);
       shaderProgram.setUniform("flowLayers", morphField.layers || 1);
       shaderProgram.setUniform("morphStrategy", morphStrategy === "rigid" || morphStrategy === "elastic" ? 1 : morphStrategy === "fluid" ? 2 : 0);
-      shaderProgram.setUniform("fitA", nodeModule.imageFitUniform(itemA.image, pg.width, pg.height, fit));
-      shaderProgram.setUniform("fitB", nodeModule.imageFitUniform(itemB.image, pg.width, pg.height, fit));
+      shaderProgram.setUniform("fitA", nodeModule.imageFitUniform(itemA.image, view.width, view.height, fit));
+      shaderProgram.setUniform("fitB", nodeModule.imageFitUniform(itemB.image, view.width, view.height, fit));
       shaderProgram.setUniform("contentUvMatrix", contentTransformUvMatrices(source.contentTransform).sampling);
+      setOptionalShaderUniform(shaderProgram, "renderUvRect", view.uvRect);
       drawShaderTargetRect(target, pg.width, pg.height);
       resetShaderTarget(target);
     });
@@ -307,6 +313,7 @@ export class SpecializedSourceRuntime {
       this.tileTextureShader.setUniform("scrollSpeed", [Number(params.scrollX) || 0, Number(params.scrollY) || 0]);
       this.tileTextureShader.setUniform("time", componentTime);
       this.tileTextureShader.setUniform("contentUvMatrix", contentTransformUvMatrices(source.contentTransform).sampling);
+      setOptionalShaderUniform(this.tileTextureShader, "renderUvRect", renderView(pg, renderRequest).uvRect);
       drawShaderTargetRect(target, pg.width, pg.height);
       resetShaderTarget(target);
     });
@@ -317,6 +324,9 @@ export class SpecializedSourceRuntime {
     const params = source.params || {};
     const nodeModule = textNodeRuntimeModule(operation);
     const createTextMask = nodeModule.createTextMask;
+    const textMaskDimensions = typeof nodeModule.textMaskDimensions === "function"
+      ? nodeModule.textMaskDimensions
+      : fallbackTextMaskDimensions;
     const textMaskSignature = nodeModule.textMaskSignature;
     const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
     const shaderRevision = String(operation?.nodeShaderRevision || operation?.nodeModuleRevision || "legacy");
@@ -334,10 +344,12 @@ export class SpecializedSourceRuntime {
       this.textGeneratorShaderRevision = shaderRevision;
     }
     const instanceId = source.instanceId || source.generatorId || "text";
-    const signature = `${codeRevision}:${textMaskSignature(params, pg.width, pg.height)}`;
+    const view = renderView(pg, renderRequest);
+    const maskSize = textMaskDimensions(view.width, view.height);
+    const signature = `${codeRevision}:${textMaskSignature(params, maskSize.width, maskSize.height)}`;
     let mask = this.textMasks.get(instanceId);
     if (!mask || mask.signature !== signature) {
-      const canvas = createTextMask(params, pg.width, pg.height, mask?.canvas || null);
+      const canvas = createTextMask(params, maskSize.width, maskSize.height, mask?.canvas || null);
       mask = {
         signature,
         canvas,
@@ -353,7 +365,8 @@ export class SpecializedSourceRuntime {
       clearShaderTarget(target);
       applyShaderTarget(target, this.textGeneratorShader);
       this.textGeneratorShader.setUniform("textMask", mask.image);
-      this.textGeneratorShader.setUniform("resolution", [pg.width, pg.height]);
+      this.textGeneratorShader.setUniform("resolution", [maskSize.width, maskSize.height]);
+      setOptionalShaderUniform(this.textGeneratorShader, "renderUvRect", view.uvRect);
       this.textGeneratorShader.setUniform("fillColor", colorUniform(params.fillColor, "#ffffffff"));
       this.textGeneratorShader.setUniform("outlineColor", colorUniform(params.outlineColor, "#ffffffff"));
       this.textGeneratorShader.setUniform("backgroundColor", colorUniform(params.backgroundColor, "#00000000"));
@@ -408,7 +421,7 @@ export class SpecializedSourceRuntime {
     this.measureGpu(target, () => {
       target.push();
       target.clear();
-      target.perspective?.(Math.PI / 3, viewport.width / Math.max(1, viewport.height), 0.1, 5000);
+      applyModelViewportProjection(target, Math.PI / 3, viewport);
       target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
       target.ambientLight?.(96);
       target.directionalLight?.(238, 232, 220, -0.45, -0.55, -0.75);
@@ -428,6 +441,7 @@ export class SpecializedSourceRuntime {
 
   drawTerrain(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const params = source.params || {};
+    const renderViewport = renderView(pg, renderRequest);
     const target = this.getTerrainTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
     const style = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
     const flightSpeed = Math.max(0, Number(params.flightSpeed) || 0);
@@ -444,6 +458,7 @@ export class SpecializedSourceRuntime {
       flightSpeed: 1,
       terrainScale: scaleState.scale,
       terrainPhase: scaleState.phase,
+      renderUvRect: renderViewport.uvRect,
       contentPlacementMatrix: contentTransformUvMatrices(source.contentTransform).placement,
       gridDensity: Math.max(0.25, Math.min(4,
         (Number(params.gridDensity) || 1) * qualityComputeMultiplier(params, { minimum: 0.4, maximum: 1.5 })
@@ -460,8 +475,8 @@ export class SpecializedSourceRuntime {
       target.push();
       target.clear();
       if (style !== 1) target.background(sky[0] * 255, sky[1] * 255, sky[2] * 255, sky[3] * 255);
-      if (style !== 1) drawTerrainSurface(target, this.terrainSurfaceResources, flightParams, flightTime, target.width, target.height, style, sky, terrainModule, codeRevision, nodeShaders, surfaceShaderRevision);
-      if (style >= 1) drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height, renderRequest, terrainModule, codeRevision, nodeShaders, wireShaderRevision);
+      if (style !== 1) drawTerrainSurface(target, this.terrainSurfaceResources, flightParams, flightTime, renderViewport.width, renderViewport.height, style, sky, terrainModule, codeRevision, nodeShaders, surfaceShaderRevision);
+      if (style >= 1) drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, renderViewport.width, renderViewport.height, renderRequest, terrainModule, codeRevision, nodeShaders, wireShaderRevision);
       target.pop();
     });
     // Camera/projected coordinates are already in screen-down Composition
@@ -518,7 +533,7 @@ export class SpecializedSourceRuntime {
             fallbackMode: fallbackRenderMode,
           });
         }
-        target.perspective?.(modelCameraFov(params), viewport.width / Math.max(1, viewport.height), 0.1, 5000);
+        applyModelViewportProjection(target, modelCameraFov(params), viewport);
         target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
         target.ambientLight?.(95);
         target.directionalLight?.(220, 220, 220, -0.35, -0.45, -0.75);
@@ -782,6 +797,10 @@ function resetShaderTarget(target) {
   else target.resetShader();
 }
 
+function setOptionalShaderUniform(shaderProgram, name, value) {
+  if (shaderProgram?.uniforms?.[name]) shaderProgram.setUniform(name, value);
+}
+
 function drawShaderTargetRect(target, width, height) {
   if (isSharedFramebufferTarget(target)) rect(-width / 2, -height / 2, width, height);
   else target.rect(-width / 2, -height / 2, width, height);
@@ -798,9 +817,7 @@ function disposeGraphicsMap(map) {
 }
 
 function disposeGraphics(item) {
-  try {
-    item?.remove?.();
-  } catch {}
+  disposeRenderTarget(item);
 }
 
 function colorUniform(value, fallback = "#ffffffff") {

@@ -1,10 +1,10 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=thumbnail-pipeline-1";
+import { OutputRenderer } from "./output-renderer.js?v=periodic-preview-maintenance-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { createPreviewViewportController, fitPreviewCanvasElement, previewViewportForUi } from "./preview-viewport.js?v=render-coordinate-scope-3";
-import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-3";
+import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-4";
 import { canvasSizeForMode } from "./render-geometry.js?v=adaptive-component-demand-29";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
@@ -44,6 +44,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let activeRetimedTransitionSceneId = "";
   let transformCommitFrame = 0;
   let pendingTransformCommit = null;
+  let boundaryCommitFrame = 0;
+  let pendingBoundaryCommit = null;
   let canvasCommitFrame = 0;
   let pendingCanvasCommit = null;
   let canvasFitSignature = "";
@@ -119,10 +121,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
 
   function cleanup() {
     if (transformCommitFrame) cancelAnimationFrame(transformCommitFrame);
+    if (boundaryCommitFrame) cancelAnimationFrame(boundaryCommitFrame);
     if (canvasCommitFrame) cancelAnimationFrame(canvasCommitFrame);
     transformCommitFrame = 0;
+    boundaryCommitFrame = 0;
     canvasCommitFrame = 0;
     pendingTransformCommit = null;
+    pendingBoundaryCommit = null;
     pendingCanvasCommit = null;
     cancelPreviewPhaseShift();
     unbindCanvasPointerEvents?.();
@@ -185,6 +190,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       sendMapping: updateMapping,
       sendThumbnail: updateThumbnail,
       sendChainTransform: updateChainTransform,
+      sendChainBoundary: updateChainBoundary,
       onChainItemSelect: selectChainItem,
       sendCanvasFrame: updateCanvasFrame,
       sendMediaRendition: (mediaId, width, height, blob, sourceRevision) => projectService?.writeMediaRendition?.(mediaId, width, height, blob, sourceRevision),
@@ -381,7 +387,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   }
 
   function canvasLogicalSize() {
-    const size = canvasSizeForMode(pendingMode, pendingState?.render || {});
+    const host = stageSize();
+    const size = canvasSizeForMode(pendingMode, {
+      ...(pendingState?.render || {}),
+      hostViewport: { ...host, mode: "preview", outputId: "" },
+    });
     return {
       width: Math.max(320, Math.floor(size.width || VJ1.renderWidth)),
       height: Math.max(180, Math.floor(size.height || VJ1.renderHeight)),
@@ -405,10 +415,9 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     const deviceScale = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
     const displayScale = Math.min(size.width / logical.width, size.height / logical.height, 1);
     const configuredDensity = Math.max(0.5, Math.min(2, Number(state.render?.pixelDensity) || 1));
-    const workspace = state.ui?.workspace;
-    const previewQuality = pendingMode === "preview" && (workspace === "scene" || workspace === "live")
-      ? state.ui?.previewQualities?.[workspace]
-      : "auto";
+    const previewQuality = ["auto", "good", "low"].includes(state.ui?.previewQuality)
+      ? state.ui.previewQuality
+      : "good";
     const previewDensity = previewRasterDensity({
       configuredDensity,
       displayScale,
@@ -421,7 +430,14 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
         ...state.render,
         // Transient demand hint: logical coordinates stay project-sized while
         // physical buffers follow the pixels the embedded preview can display.
+        previewQuality,
         previewRasterScale: previewDensity / configuredDensity,
+        hostViewport: {
+          width: Math.max(1, Math.floor(Number(size.width) || VJ1.renderWidth)),
+          height: Math.max(1, Math.floor(Number(size.height) || VJ1.renderHeight)),
+          mode: "preview",
+          outputId: "",
+        },
       },
     };
   }
@@ -550,13 +566,16 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   }
 
   function updateMetrics(metrics = {}) {
-    store.updateDerived((draft) => {
-      draft.metrics.previewFps = metrics.fps || 0;
-      draft.metrics.previewFrameMs = metrics.frameMs || 0;
-      draft.metrics.previewGpuMs = metrics.gpuMs || 0;
-      draft.metrics.previewGpuSupported = metrics.gpuSupported === true;
-      draft.metrics.previewRenderCost = metrics.renderCost || 0;
-      draft.metrics.previewProfile = metrics.profile || null;
+    // Metrics arrive twice a second. Keep them on the runtime-only path so a
+    // large project is not deep-cloned merely to publish performance counters;
+    // that allocation burst otherwise produces a small periodic GC hitch.
+    store.updateRuntime((runtimeMetrics) => {
+      runtimeMetrics.previewFps = metrics.fps || 0;
+      runtimeMetrics.previewFrameMs = metrics.frameMs || 0;
+      runtimeMetrics.previewGpuMs = metrics.gpuMs || 0;
+      runtimeMetrics.previewGpuSupported = metrics.gpuSupported === true;
+      runtimeMetrics.previewRenderCost = metrics.renderCost || 0;
+      runtimeMetrics.previewProfile = metrics.profile || null;
     }, "preview-metrics");
   }
 
@@ -664,6 +683,44 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     });
   }
 
+  function updateChainBoundary(componentId, itemId, boundary, meta = {}) {
+    if (!meta.commit) {
+      pendingBoundaryCommit = { componentId, itemId, boundary };
+      if (!boundaryCommitFrame) boundaryCommitFrame = requestAnimationFrame(flushPendingBoundaryCommit);
+      return;
+    }
+    if (boundaryCommitFrame) cancelAnimationFrame(boundaryCommitFrame);
+    boundaryCommitFrame = 0;
+    pendingBoundaryCommit = null;
+    commitChainBoundary(componentId, itemId, boundary, true);
+  }
+
+  function flushPendingBoundaryCommit() {
+    boundaryCommitFrame = 0;
+    const pending = pendingBoundaryCommit;
+    pendingBoundaryCommit = null;
+    if (pending) commitChainBoundary(pending.componentId, pending.itemId, pending.boundary, false);
+  }
+
+  function commitChainBoundary(componentId, itemId, boundary, commit) {
+    const renderPatches = [];
+    store.update((draft) => {
+      const component = draft.components.find((item) => item.id === componentId);
+      const itemPath = chainItemPath(component?.chain, itemId);
+      const item = findChainItemById(component?.chain, itemId);
+      if (!item) return;
+      item.boundary = { ...item.boundary, ...boundary };
+      if (itemPath) renderPatches.push({
+        componentId,
+        path: `${itemPath}.boundary`,
+        value: item.boundary,
+      });
+    }, {
+      reason: commit ? "update:chain-boundary" : "scrub:chain-boundary",
+      renderPatches,
+    });
+  }
+
   function updateCanvasFrame(componentId, frameId, rect, meta = {}) {
     if (!meta.commit) {
       pendingCanvasCommit = { componentId, frameId, rect };
@@ -762,13 +819,15 @@ export function mediaFilesSignatureFor(entries = []) {
 
 export function previewRasterDensity({ configuredDensity = 1, displayScale = 1, deviceScale = 1, quality = "auto" } = {}) {
   const configured = Math.max(0.5, Math.min(2, Number(configuredDensity) || 1));
-  if (quality === "full") return configured;
+  const nativeDisplay = Math.max(1, Math.min(2, Number(deviceScale) || 1));
+  const good = Math.max(configured, nativeDisplay);
+  if (quality === "good" || quality === "full") return good;
   const automatic = Math.min(configured, Math.max(0.125, Number(displayScale) * Number(deviceScale) || 0.125));
   return quality === "low" ? Math.max(0.125, automatic * 0.5) : automatic;
 }
 
 export function previewFitSignature({ mode = "preview", size = {}, logical = {}, viewport = {}, render = {} } = {}) {
-  const outputs = (render?.outputs || []).map((output) => `${output.id || ""}:${output.width || 0}x${output.height || 0}`).join("|");
+  const outputs = (render?.outputs || []).map((output) => `${output.id || ""}:${output.aspectRatio || 0}`).join("|");
   return [
     mode,
     Number(size.width) || 0,

@@ -45,7 +45,8 @@ test("a Component converts to an independent Canvas copy in the shared Canvas co
   assert.equal(canvas.name, "Portrait Canvas");
   assert.equal(Object.hasOwn(canvas.canvas, "width"), false);
   assert.equal(Object.hasOwn(canvas.canvas, "height"), false);
-  assert.deepEqual(state.render.canvasSize, { width: 3840, height: 2160 });
+  assert.equal(state.render.canvasAspectRatio, 16 / 9);
+  assert.equal(Object.hasOwn(state.render, "canvasSize"), false);
   assert.equal(canvas.thumbnail, "");
   assert.notEqual(canvas.id, component.id);
   assert.notEqual(canvas.chain[0].id, component.chain[0].id);

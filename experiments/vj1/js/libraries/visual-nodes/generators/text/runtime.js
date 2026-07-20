@@ -16,6 +16,7 @@ export const TEXT_GENERATOR_FRAGMENT_SHADER = `
 precision mediump float;
 uniform sampler2D textMask;
 uniform vec2 resolution;
+uniform vec4 renderUvRect;
 uniform vec4 fillColor;
 uniform vec4 outlineColor;
 uniform vec4 backgroundColor;
@@ -38,7 +39,8 @@ vec4 over(vec4 top, vec4 bottom) {
 }
 
 void main() {
-  vec2 uv = (contentUvMatrix * vec3(vTexCoord, 1.0)).xy;
+  vec2 boundaryUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;
+  vec2 uv = (contentUvMatrix * vec3(boundaryUv, 1.0)).xy;
   float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
   float fillMask = maskAt(uv) * inside;
   vec2 texel = 1.0 / max(resolution, vec2(1.0));
@@ -58,6 +60,24 @@ void main() {
   result = over(vec4(fillColor.rgb, fillMask * fillColor.a * fillEnabled), result);
   gl_FragColor = vec4(result.rgb, result.a * inside);
 }`;
+
+export const TEXT_MASK_MAX_DIMENSION = 4096;
+
+// Text layout is cached in the complete boundary coordinate domain so an ROI
+// can move without squeezing the glyphs or rebuilding the CPU mask every
+// frame. Cap only the cached mask raster, never the boundary math: unusually
+// large/off-screen text remains allocation-bounded while ordinary output
+// sizes retain one source pixel per rendered pixel.
+export function textMaskDimensions(width = 1, height = 1, maxDimension = TEXT_MASK_MAX_DIMENSION) {
+  const sourceWidth = Math.max(1, Number(width) || 1);
+  const sourceHeight = Math.max(1, Number(height) || 1);
+  const ceiling = Math.max(1, Number(maxDimension) || TEXT_MASK_MAX_DIMENSION);
+  const scale = Math.min(1, ceiling / Math.max(sourceWidth, sourceHeight));
+  return {
+    width: Math.max(1, Math.round(sourceWidth * scale)),
+    height: Math.max(1, Math.round(sourceHeight * scale)),
+  };
+}
 
 export const FONT_FAMILIES = Object.freeze({
   sans: 'Arial, Helvetica, sans-serif',
@@ -215,7 +235,9 @@ export function textNodeProcess(inputs = {}, context = {}) {
 export function textNodeModuleParts() {
   const algorithmSource = [
     `const FONT_FAMILIES = Object.freeze(${JSON.stringify(FONT_FAMILIES)});`,
+    `const TEXT_MASK_MAX_DIMENSION = ${TEXT_MASK_MAX_DIMENSION};`,
     createTextMask,
+    textMaskDimensions,
     textMaskSignature,
     parseTextMarkdown,
     parseInlineMarkdown,
@@ -233,7 +255,7 @@ export function textNodeModuleParts() {
       language: "javascript",
       editable: true,
       module: import.meta.url,
-      exports: ["createTextMask", "textMaskSignature", "parseTextMarkdown"],
+      exports: ["createTextMask", "textMaskDimensions", "textMaskSignature", "parseTextMarkdown"],
       source: algorithmSource,
     },
     {
@@ -271,6 +293,7 @@ export function textNodeModuleParts() {
 
 export const TextNodeModuleExports = Object.freeze({
   createTextMask,
+  textMaskDimensions,
   textMaskSignature,
   parseTextMarkdown,
 });

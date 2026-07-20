@@ -64,7 +64,8 @@ test("fused local shader samples the source once and namespaces uniforms", () =>
   assert.match(fragment, /f0_runEffect/);
   assert.match(fragment, /f1_runEffect/);
   assert.match(fragment, /uniform float f0_amount/);
-  assert.equal((fragment.match(/color = sampleSource\(vTexCoord\)/g) || []).length, 1);
+  assert.equal((fragment.match(/color = sampleSource\(componentUv\)/g) || []).length, 1);
+  assert.equal((fragment.match(/renderUvFromLocal\(vTexCoord\)/g) || []).length, 1);
 });
 
 test("precomputed effect matrices are inverse transforms", () => {

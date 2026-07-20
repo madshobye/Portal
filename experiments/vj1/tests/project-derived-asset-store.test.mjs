@@ -45,6 +45,36 @@ test("derived asset store owns rendition deduplication, manifest indexing, and p
   assert.equal(thumbnailFile.value, thumbnail);
 });
 
+test("cached component thumbnails publish incrementally in bounded batches", async () => {
+  const project = new MemoryDirectory("project");
+  const root = await project.getDirectoryHandle(THUMBNAIL_ROOT, { create: true });
+  const directory = await root.getDirectoryHandle(THUMBNAIL_DIR, { create: true });
+  for (const id of ["component-a", "component-b", "component-c"]) {
+    const handle = await directory.getFileHandle(`${id}__component.webp`, { create: true });
+    handle.value = new Blob([id], { type: "image/webp" });
+  }
+  const store = new ProjectDerivedAssetStore({ getProjectDirectory: () => project });
+  const batches = [];
+  const originalCreateObjectURL = URL.createObjectURL;
+  URL.createObjectURL = (file) => `blob:${file.name}`;
+  try {
+    const loaded = await store.loadComponentThumbnails([
+      { id: "component-a" },
+      { id: "component-b" },
+      { id: "component-c" },
+    ], {
+      batchSize: 2,
+      onBatch(entries) {
+        batches.push(entries.map((entry) => entry.componentId));
+      },
+    });
+    assert.deepEqual(batches, [["component-a", "component-b"], ["component-c"]]);
+    assert.equal(loaded.entries.length, 3);
+  } finally {
+    URL.createObjectURL = originalCreateObjectURL;
+  }
+});
+
 class MemoryDirectory {
   constructor(name) {
     this.kind = "directory";

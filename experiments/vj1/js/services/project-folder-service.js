@@ -11,13 +11,13 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=screen-input-registry-1";
-import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=catalog-marker-four-state-1";
+import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=boundary-authority-1";
+import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=boundary-authority-1";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
 import { buildProjectPayload } from "./project-serializer.js?v=catalog-marker-four-state-1";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
-import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=thumbnail-pipeline-1";
+import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
 import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
@@ -39,6 +39,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   let fileObserver = null;
   let observedChangeQueue = Promise.resolve();
   let projectGeneration = 0;
+  let loadedProjectHandle = null;
+  let thumbnailLoadRevision = 0;
   const autosaveDelayMs = 700;
   const skipAutosaveReasons = new Set([
     "init",
@@ -103,6 +105,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         projectGeneration++;
       }
       dirHandle = selectedHandle;
+      clearFileObserverAbort(selectedHandle);
       opened = true;
       await saveStoredHandle(dirHandle);
       await ensureProjectScaffold(dirHandle);
@@ -184,7 +187,9 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     if (saveQueue.size) return false;
     stopFileObserver();
     projectGeneration++;
+    thumbnailLoadRevision++;
     dirHandle = null;
+    loadedProjectHandle = null;
     saveQueue.clear();
     lastSavedSignature = "";
     lastDirectorySignature = "";
@@ -220,17 +225,21 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
 
   async function loadDirectory(reason) {
     mediaLibrary.clear();
+    // Project structure and persisted thumbnails are lightweight and define
+    // the first useful UI. Publish them before traversing and importing the
+    // potentially large media library so startup never waits behind assets.
+    const loaded = await loadProject(reason, { media: [], shaders: [] }, "", { preserveMediaCatalog: true });
+    if (!loaded) return false;
     const files = [...await collectProjectAssetFiles(dirHandle), ...await derivedAssets.loadIndexedRenditions()];
     const signature = directorySignature(files);
     const imported = await mediaLibrary.importFiles(files);
-    const loaded = await loadProject(reason, imported, signature);
-    if (!loaded) return false;
+    refreshProjectAssets(imported, signature);
     bridge.sendMediaFiles(mediaLibrary.getAllFiles());
     await refreshHistoryState();
     return true;
   }
 
-  async function loadProject(reason = "project-load", imported = { media: [], shaders: [] }, directorySig = "") {
+  async function loadProject(reason = "project-load", imported = { media: [], shaders: [] }, directorySig = "", { preserveMediaCatalog = false } = {}) {
     if (!dirHandle) return;
     let data = {};
     let embeddedThumbnails = [];
@@ -261,16 +270,24 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     }
     projectLoadBlocked = false;
     const { ui: projectUi, metrics: _projectMetrics, ...projectData } = data;
-    const currentUi = store.getState().ui;
+    const currentState = store.getState();
+    const currentUi = currentState.ui;
+    const loadHandle = dirHandle;
+    const loadGeneration = projectGeneration;
+    const sameProject = loadedProjectHandle === loadHandle;
     const recordingFrames = Array.isArray(projectData.recordingFrames)
       ? projectData.recordingFrames
-      : store.getState().recordingFrames;
-    const components = clearThumbnailUrls(Array.isArray(projectData.components) ? projectData.components : store.getState().components);
+      : currentState.recordingFrames;
+    const components = clearThumbnailUrls(Array.isArray(projectData.components) ? projectData.components : currentState.components);
+    const thumbnailEntries = new Map();
+    if (sameProject) {
+      for (const entry of componentThumbnailEntries(currentState.components)) thumbnailEntries.set(componentThumbnailKey(entry), entry);
+      applyThumbnailUrls(components, [...thumbnailEntries.values()]);
+    }
+    for (const entry of embeddedThumbnails) thumbnailEntries.delete(componentThumbnailKey(entry));
     applyThumbnailUrls(components, embeddedThumbnails);
-    const loadedThumbnails = await derivedAssets.loadComponentThumbnails(components);
-    applyThumbnailUrls(components, loadedThumbnails.entries);
     const nextState = {
-      ...store.getState(),
+      ...currentState,
       ...projectData,
       components,
       recordingFrames,
@@ -282,7 +299,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId,
         workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds,
         catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes,
-        previewQualities: projectUi?.previewQualities || currentUi.previewQualities,
+        previewQuality: projectUi?.previewQuality || currentUi.previewQuality,
         live: {
           ...currentUi.live,
           ...(projectUi?.live || {}),
@@ -290,25 +307,49 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         },
       },
       project: {
-        ...store.getState().project,
+        ...currentState.project,
         ...(projectData.project || {}),
         name: projectData.project?.name || dirHandle.name,
         folderName: dirHandle.name,
         warnings: projectFileFound ? [] : [`No project.json found in ${dirHandle.name}`],
       },
-      media: mergeMediaCatalogMarkers(imported.media, projectData.media),
+      media: preserveMediaCatalog && Array.isArray(projectData.media)
+        ? projectData.media.map((item) => ({ ...item }))
+        : mergeMediaCatalogMarkers(imported.media, projectData.media),
       shaders: imported.shaders[0]
         ? {
             ...(projectData.shaders || store.getState().shaders),
             customName: imported.shaders[0].name,
             customCode: imported.shaders[0].code,
           }
-        : (projectData.shaders || store.getState().shaders),
+        : (projectData.shaders || currentState.shaders),
     };
     const selectedScene = nextState.scenes?.find((scene) => scene.id === nextState.ui.selectedSceneId) || nextState.scenes?.[0];
     if (selectedScene) applySceneSnapshotToState(nextState, selectedScene);
     store.replace(nextState, reason);
-    thumbnailUrlLease.activate(loadedThumbnails.urls);
+    loadedProjectHandle = loadHandle;
+    if (!sameProject) thumbnailUrlLease.activate([]);
+    // Cached thumbnails are derived assets, not a prerequisite for opening a
+    // project. Publish the parsed graph first, then stream thumbnail batches.
+    // This prevents a busy standalone Output from starving editor recovery and
+    // keeps the previous image until a replacement for that exact key exists.
+    const thumbnailRevision = ++thumbnailLoadRevision;
+    void derivedAssets.loadComponentThumbnails(components, {
+      onBatch(entries) {
+        if (loadHandle !== dirHandle || loadGeneration !== projectGeneration || thumbnailRevision !== thumbnailLoadRevision) {
+          for (const entry of entries) if (String(entry.url || "").startsWith("blob:")) URL.revokeObjectURL(entry.url);
+          return;
+        }
+        for (const entry of entries) thumbnailEntries.set(componentThumbnailKey(entry), entry);
+        store.updateDerived((draft) => {
+          applyThumbnailUrls(draft.components, entries);
+        }, "project-thumbnail-cache-batch");
+        thumbnailUrlLease.activate(componentThumbnailObjectUrls(thumbnailEntries.values()));
+      },
+    }).catch((error) => console.warn("[VJ1_THUMBNAIL_CACHE_LOAD_FAILED]", {
+      fallback: "retain existing thumbnails and regenerate missing entries on demand",
+      message: error?.message || String(error),
+    }));
     if (embeddedThumbnails.length) derivedAssets.migrateEmbeddedThumbnails(embeddedThumbnails);
     lastDirectorySignature = directorySig;
     lastSavedSignature = payloadSignature(buildProjectPayload(store.getState(), projectData.project?.savedAt || ""));
@@ -507,21 +548,30 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       console.info("[VJ1_FILE_OBSERVER_UNAVAILABLE]", { fallback: "use the Media refresh button for external folder changes" });
       return;
     }
+    if (fileObserverAbortedForSession(dirHandle)) return;
     try {
       const observerGeneration = projectGeneration;
+      const observedHandle = dirHandle;
       fileObserver = new Observer((records) => {
         observedChangeQueue = observedChangeQueue
           .then(() => observerGeneration === projectGeneration ? applyObservedChanges(records, observerGeneration) : undefined)
           .catch((error) => console.warn("[VJ1_FILE_OBSERVER_UPDATE_FAILED]", { fallback: "use the Media refresh button", message: error?.message || String(error) }));
       });
-      Promise.resolve(fileObserver.observe(dirHandle, { recursive: true })).catch((error) => {
-        console.warn("[VJ1_FILE_OBSERVER_START_FAILED]", { fallback: "use the Media refresh button", message: error?.message || String(error) });
-        stopFileObserver();
-      });
+      Promise.resolve(fileObserver.observe(dirHandle, { recursive: true }))
+        .then(() => clearFileObserverAbort(observedHandle))
+        .catch((error) => handleFileObserverStartFailure(error, observedHandle));
     } catch (error) {
-      console.warn("[VJ1_FILE_OBSERVER_START_FAILED]", { fallback: "use the Media refresh button", message: error?.message || String(error) });
-      stopFileObserver();
+      handleFileObserverStartFailure(error, dirHandle);
     }
+  }
+
+  function handleFileObserverStartFailure(error, handle) {
+    stopFileObserver();
+    if (isFileObserverAbort(error)) {
+      rememberFileObserverAbort(handle);
+      return;
+    }
+    console.warn("[VJ1_FILE_OBSERVER_START_FAILED]", { fallback: "use the Media refresh button", message: error?.message || String(error) });
   }
 
   function stopFileObserver() {
@@ -637,6 +687,56 @@ function mergeMediaCatalogMarkers(imported = [], authored = []) {
     ...item,
     catalogMarker: markers.get(item.id) ?? item.catalogMarker ?? 0,
   }));
+}
+
+function componentThumbnailEntries(components = []) {
+  const entries = [];
+  for (const component of components || []) {
+    if (component?.thumbnail) entries.push({ componentId: component.id, frameId: "", url: component.thumbnail });
+    if (component?.type !== "canvas") continue;
+    for (const [frameId, url] of Object.entries(component.canvas?.frameThumbnails || {})) {
+      if (url) entries.push({ componentId: component.id, frameId, url });
+    }
+  }
+  return entries;
+}
+
+function componentThumbnailKey(entry = {}) {
+  return `${String(entry.componentId || "")}:${String(entry.frameId || "")}`;
+}
+
+function componentThumbnailObjectUrls(entries = []) {
+  return new Set([...entries]
+    .map((entry) => String(entry?.url || ""))
+    .filter((url) => url.startsWith("blob:")));
+}
+
+function isFileObserverAbort(error) {
+  return error?.name === "AbortError" || /user aborted/i.test(String(error?.message || ""));
+}
+
+function fileObserverAbortStorageKey(handle) {
+  return `vj1:file-observer-aborted:${String(handle?.name || "project")}`;
+}
+
+function fileObserverAbortedForSession(handle) {
+  try {
+    return globalThis.sessionStorage?.getItem(fileObserverAbortStorageKey(handle)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function rememberFileObserverAbort(handle) {
+  try {
+    globalThis.sessionStorage?.setItem(fileObserverAbortStorageKey(handle), "1");
+  } catch {}
+}
+
+function clearFileObserverAbort(handle) {
+  try {
+    globalThis.sessionStorage?.removeItem(fileObserverAbortStorageKey(handle));
+  } catch {}
 }
 
 async function ensureProjectScaffold(handle) {

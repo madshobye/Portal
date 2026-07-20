@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=live-patch-contract-1";
+import { sanitizeState } from "../domain/models.js?v=boundary-authority-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=remote-diagnostics-1";
-import { OutputRenderer } from "./output-renderer.js?v=thumbnail-pipeline-1";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=queued-recovery-1";
+import { OutputRenderer } from "./output-renderer.js?v=periodic-preview-maintenance-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 
@@ -98,7 +98,8 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       sendMapping: (id, mapping, status, meta) => bridge?.mappingState(id, mapping, status, meta),
       requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
     });
-    await renderer.setup(pendingState ? sanitizeState(pendingState) : null);
+    const initialState = pendingState ? sanitizeState(pendingState) : null;
+    await renderer.setup(initialState ? outputSizedState(initialState, outputSize(initialState, mode), mode, outputId) : null, { normalized: true });
     if (acceptedState) {
       acceptedState = renderer.state;
       pendingState = renderer.state;
@@ -237,7 +238,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
         };
         pendingState = nextState;
         acceptedState = nextState;
-        renderer?.setState(nextState);
+        renderer?.setState(outputSizedState(nextState, outputSize(nextState, mode), mode, outputId), { normalized: true });
       }
       if (command === "sync-global" && acceptedState) {
         const nextState = {
@@ -246,7 +247,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
         };
         pendingState = nextState;
         acceptedState = nextState;
-        renderer?.setState(nextState);
+        renderer?.setState(outputSizedState(nextState, outputSize(nextState, mode), mode, outputId), { normalized: true });
       }
       if (command === "set-calibrate") renderer?.setCalibrate(!!payload.calibrating);
       if (command === "save-mapping") renderer?.saveMapping();
@@ -304,7 +305,10 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     receivedRevision = Math.max(receivedRevision, revision);
     if (typeof frameRate === "function") frameRate(renderMaxFrameRate(state?.render));
     if (renderer) resizeOutputIfNeeded(state, mode, renderer);
-    renderer?.setState(state, { normalized: true });
+    const runtimeState = outputSizedState(state, outputSize(state, mode), mode, outputId);
+    pendingState = runtimeState;
+    acceptedState = runtimeState;
+    renderer?.setState(runtimeState, { normalized: true });
     bridge?.markTransportApplied(transportMeta);
   }
 
@@ -322,7 +326,8 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       .then((state) => {
         pendingState = state;
         if (renderer) resizeOutputIfNeeded(state, mode, renderer);
-        renderer?.setState(state);
+        const normalized = sanitizeState(state);
+        renderer?.setState(outputSizedState(normalized, outputSize(normalized, mode), mode, outputId), { normalized: true });
       })
       .catch((error) => {
         console.warn(`[vj1] Could not load fixture state: ${error.message}`);
@@ -457,12 +462,29 @@ function outputSize(state = null, mode = "output") {
   };
 }
 
+function outputSizedState(state, size, mode, outputId = "") {
+  if (!state) return state;
+  return {
+    ...state,
+    render: {
+      ...state.render,
+      hostViewport: {
+        width: Math.max(1, Math.floor(Number(size?.width) || VJ1.renderWidth)),
+        height: Math.max(1, Math.floor(Number(size?.height) || VJ1.renderHeight)),
+        mode: mode === "preview" ? "preview" : "output",
+        outputId,
+      },
+    },
+  };
+}
+
 function resizeOutputIfNeeded(state, mode = "output", renderer = null) {
   const size = outputSize(state, mode);
   if (width === size.width && height === size.height) return;
   resizeCanvas(size.width, size.height);
   fitOutputCanvas(size);
   renderer?.resize?.();
+  if (renderer?.state) renderer.setState(outputSizedState(renderer.state, size, mode, renderer.outputId || ""), { normalized: true });
 }
 
 function fitOutputCanvas(size = outputSize()) {

@@ -17,7 +17,7 @@ import {
   TERRAIN_SURFACE_VERTEX_SHADER,
   TERRAIN_WIRE_FRAGMENT_SHADER,
   TERRAIN_WIRE_VERTEX_SHADER,
-} from "../../libraries/visual-nodes/generators/terrain-flyover/shaders.js?v=node-program-hooks-15";
+} from "../../libraries/visual-nodes/generators/terrain-flyover/shaders.js?v=source-roi-view-3";
 
 export function drawTerrainSurface(target, resourceCache, params, componentTime, planeWidth, planeDepth, style, sky, terrainModule = TerrainNodeModuleExports, moduleRevision = "legacy", nodeShaders = null, shaderRevision = moduleRevision) {
   const gl = target?.drawingContext;
@@ -168,6 +168,7 @@ function terrainRawUniformLocations(gl, program) {
     planeSize: gl.getUniformLocation(program, "planeSize"),
     wireColor: gl.getUniformLocation(program, "wireColor"),
     contentPlacementMatrix: gl.getUniformLocation(program, "contentPlacementMatrix"),
+    renderUvRect: gl.getUniformLocation(program, "renderUvRect"),
   };
 }
 
@@ -356,4 +357,5 @@ function setTerrainRawUniforms(gl, resources, params, componentTime, planeWidth,
     0, 1, 0,
     0, 0, 1,
   ]);
+  gl.uniform4fv(resources.renderUvRect, params.renderUvRect || [0, 0, 1, 1]);
 }

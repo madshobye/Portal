@@ -1,7 +1,7 @@
 import { VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-patch-contract-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=thumbnail-pipeline-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=periodic-preview-maintenance-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
@@ -165,7 +165,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         // Component preview gestures own an immediate local state overlay.
         // Feeding their store echo straight back into the same renderer makes
         // it rebuild lookup state twice per pointer frame.
-        if (!patchedLivePreview && reason !== "scrub:chain-transform" && reason !== "scrub:canvas-frame") updatePreviewState(state);
+        if (!patchedLivePreview && reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:canvas-frame") updatePreviewState(state);
         return;
       }
       if (change.phase === "color") {
@@ -309,10 +309,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.diagnosticsSummary?.addEventListener("click", diagnosticsController.handleClick);
     window.addEventListener("click", diagnosticsController.close);
 
-    refs.toggleLabels.addEventListener("click", () => {
+    refs.toggleOutputHud.addEventListener("click", () => {
       store.update((draft) => {
-        draft.global.showLabels = !draft.global.showLabels;
-      }, "toggle-labels");
+        draft.global.showHud = draft.global.showHud === false;
+      }, "toggle-output-hud");
     });
 
     refs.toggleOutputPlayback.addEventListener("click", () => {
@@ -682,7 +682,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     // interactive subtree until the browser finishes that event sequence.
     if (!refs.performanceSummary.classList.contains("is-hidden") && !shouldDeferRender()) renderPerformanceSummary(state);
     setClass(refs.togglePreview, "is-active", state.ui.debugPreview);
-    setClass(refs.toggleLabels, "is-active", state.global.showLabels !== false);
+    setClass(refs.toggleOutputHud, "is-active", state.global.showHud !== false);
     const outputPlaying = state.global.playing !== false;
     refs.toggleOutputPlayback.disabled = !outputConnected;
     refs.toggleOutputPlayback.title = outputPlaying ? "Pause output" : "Play output";
@@ -707,7 +707,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       window.open(
         buildOutputUrl("output", { outputId: output.id }),
         `vj1-output-${output.id}`,
-        `popup=yes,width=${output.width},height=${output.height}`
+        "popup=yes"
       );
     }
     refs.outputMenu.open = false;
@@ -732,12 +732,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     // buttons when the configured outputs change, otherwise a render between
     // pointerdown and click detaches the clicked button and swallows the click.
     const menuOutputs = direct ? [] : outputs;
-    const signature = JSON.stringify(menuOutputs.map((output) => [output.id, output.name, output.width, output.height]));
+    const signature = JSON.stringify(menuOutputs.map((output) => [output.id, output.name, output.aspectRatio]));
     if (refs.outputMenuItems.dataset.outputsSignature !== signature) {
       refs.outputMenuItems.dataset.outputsSignature = signature;
       refs.outputMenuItems.innerHTML = menuOutputs.map((output) => `
         <button type="button" data-open-output-id="${esc(output.id)}">
-          <span></span><small>${output.width}×${output.height}</small>
+          <span></span><small>${formatOutputAspect(output.aspectRatio)}</small>
         </button>
       `).join("");
     }
@@ -899,20 +899,22 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setClass(handleButton, "is-active", state.global.mappingHandleMode !== "near");
     setClass(handleButton, "is-hidden", kind !== "preview");
     const qualityButton = previewHost.querySelector("[data-preview-quality]");
-    const canvas = workspace === "canvas" ? selectedCanvasComponent(state) : null;
-    const supportsPreviewQuality = !!canvas || workspace === "scene" || workspace === "live";
-    const storedPreviewQuality = canvas?.canvas?.previewQuality || state.ui?.previewQualities?.[workspace];
-    const previewQuality = ["low", "full"].includes(storedPreviewQuality) ? storedPreviewQuality : "auto";
-    const qualityLabels = { auto: "Auto", low: "Low", full: "Full" };
-    const qualitySubject = canvas ? "Canvas" : workspace === "live" ? "Live" : "Scene";
-    const qualityDescriptions = canvas ? {
-      auto: "Auto: internal Canvas raster follows the visible preview size",
-      low: "Low: internal Canvas raster uses half the preview width and height",
-      full: "Full: internal Canvas raster uses the full Canvas dimensions",
-    } : {
-      auto: `Auto: ${qualitySubject} render demand follows the visible preview size`,
-      low: `Low: ${qualitySubject} render demand uses half the automatic width and height`,
-      full: `Full: ${qualitySubject} render demand uses the configured output density`,
+    const supportsPreviewQuality = ["component", "canvas", "scene", "live"].includes(workspace);
+    const previewQuality = ["auto", "good", "low"].includes(state.ui?.previewQuality)
+      ? state.ui.previewQuality
+      : "good";
+    const qualityLabels = { auto: "Auto", good: "Good", low: "Low" };
+    const qualitySubject = workspace === "canvas"
+      ? "Canvas"
+      : workspace === "component"
+        ? "Component"
+        : workspace === "live"
+          ? "Live"
+          : "Scene";
+    const qualityDescriptions = {
+      auto: `Auto: ${qualitySubject} preview adapts to its visible size`,
+      good: `Good: ${qualitySubject} preview matches the display's native density`,
+      low: `Low: ${qualitySubject} preview reduces GPU work for heavy compositions`,
     };
     setClass(qualityButton, "is-hidden", !supportsPreviewQuality);
     setClass(qualityButton, "is-active", supportsPreviewQuality && previewQuality !== "auto");
@@ -1114,17 +1116,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     bindButton("[data-preview-zoom-in]", () => nudgePreviewZoom(1.2));
     bindButton("[data-preview-quality]", () => {
       store.update((draft) => {
-        const workspace = currentWorkspace(draft);
-        if (workspace === "canvas") {
-          const canvas = selectedCanvasComponent(draft);
-          if (!canvas) return;
-          canvas.canvas ||= { previewQuality: "auto", frameThumbnails: {} };
-          canvas.canvas.previewQuality = nextPreviewQuality(canvas.canvas.previewQuality);
-          return;
-        }
-        if (workspace !== "scene" && workspace !== "live") return;
-        draft.ui.previewQualities ||= { scene: "auto", live: "auto" };
-        draft.ui.previewQualities[workspace] = nextPreviewQuality(draft.ui.previewQualities[workspace]);
+        if (!["component", "canvas", "scene", "live"].includes(currentWorkspace(draft))) return;
+        draft.ui.previewQuality = nextPreviewQuality(draft.ui.previewQuality);
       }, "preview-quality");
     });
     bindButton("[data-preview-fit-world]", () => {
@@ -1289,6 +1282,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   return { mount };
 }
 
+function formatOutputAspect(value) {
+  const ratio = Number(value) || 16 / 9;
+  const common = [[16 / 9, "16:9"], [4 / 3, "4:3"], [16 / 10, "16:10"], [1, "1:1"], [9 / 16, "9:16"]]
+    .find(([candidate]) => Math.abs(candidate - ratio) < 0.001);
+  return common?.[1] || `${Math.round(ratio * 1000) / 1000}:1`;
+}
+
 function syncSelectedSceneSnapshot(state) {
   const scene = state.scenes.find((item) => item.id === state.ui.selectedSceneId);
   if (!scene) return;
@@ -1305,8 +1305,8 @@ function applySelectedSceneSnapshot(state) {
 
 
 function nextPreviewQuality(value) {
-  const quality = ["low", "full"].includes(value) ? value : "auto";
-  return quality === "auto" ? "low" : quality === "low" ? "full" : "auto";
+  const quality = ["good", "low"].includes(value) ? value : "auto";
+  return quality === "auto" ? "good" : quality === "good" ? "low" : "auto";
 }
 
 function currentWorkspace(state) {

@@ -66,6 +66,7 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
         candidate: hook.fusible === true,
         sampling: hook.sampling || "unknown",
       },
+      roi: hook.roi || { mode: "local", halo: 0, coordinateSpace: "boundary" },
     }),
   }),
   defineVisualNodeCompilerHook({

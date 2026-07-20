@@ -4,7 +4,7 @@ import {
   TERRAIN_SURFACE_VERTEX_SHADER,
   TERRAIN_WIRE_FRAGMENT_SHADER,
   TERRAIN_WIRE_VERTEX_SHADER,
-} from "./shaders.js";
+} from "./shaders.js?v=source-roi-view-3";
 
 export const TERRAIN_GRID_CELLS = 48;
 

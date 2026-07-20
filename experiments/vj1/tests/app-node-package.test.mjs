@@ -15,6 +15,7 @@ import { buildProjectPayload } from "../js/services/project-serializer.js";
 import { applicationProgramFromProjectData, loadStoredApplicationProgram } from "../js/services/application-program-loader.js";
 import { createAppState } from "../js/app-state.js";
 import { createInitialState } from "../js/domain/models.js";
+import { migrateProjectData } from "../js/domain/project-migrations.js";
 import { selectedNodeEditorTemplate, withProjectGroupGraph, withProjectNodeFork } from "../js/control/node-editor-view.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/index.js";
 import { nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "../js/control/node-library-view.js";
@@ -362,6 +363,30 @@ test("persisted Component groups own configuration while chain remains an in-mem
   assert.equal(reloaded.components[0].nodeProjectionSignature, group.projectionSignature);
 });
 
+test("v26 migration preserves graph-authoritative Component elements when the persisted chain is omitted", () => {
+  const packageRoot = createVj1NodePackage();
+  const initial = createInitialState();
+  initial.components[0].chain = [{
+    id: "source-a",
+    kind: "source",
+    name: "Plasma",
+    transform: { x: 0.1, y: -0.2, scale: 0.8, rotation: 0.35 },
+    source: { type: "generator", generatorId: "plasma", params: {} },
+  }];
+  const prepared = packageRoot.prepareProjectState(initial);
+  const payload = buildProjectPayload(prepared, "2026-07-20T00:00:00.000Z");
+  payload.version = 25;
+
+  assert.equal(Object.hasOwn(payload.components[0], "chain"), false);
+  const migrated = migrateProjectData(payload);
+  const reloaded = packageRoot.prepareProjectState(migrated);
+
+  assert.equal(reloaded.components[0].chain.length, 1);
+  assert.equal(reloaded.components[0].chain[0].source.generatorId, "plasma");
+  assert.equal(reloaded.components[0].chain[0].boundary.rotation, 0.35);
+  assert.equal(reloaded.components[0].chain[0].transform.rotation, 0);
+});
+
 test("Scenes and main output persist route composition and mapping groups", () => {
   const packageRoot = createVj1NodePackage();
   const surface = {
@@ -388,6 +413,40 @@ test("Scenes and main output persist route composition and mapping groups", () =
   assert.deepEqual(output.nodes.map((node) => node.role), ["scene", "composition", "mapping"]);
   assert.equal(state.nodes.definitions.some((definition) => definition.id === "core.composition.scene-program"), true);
   assert.equal(state.nodes.definitions.some((definition) => definition.id === "core.mapping.projection-engine"), true);
+});
+
+test("compiled Scene routes use live snapshot and physical-surface values instead of stale generated parameters", () => {
+  const packageRoot = createVj1NodePackage();
+  const surface = {
+    id: "surface-a",
+    enabled: true,
+    sourceNodeId: "component:component-a",
+    componentId: "component-a",
+    projectionFit: "cover",
+    feather: 0.05,
+    opacity: 1,
+  };
+  const state = packageRoot.prepareProjectState({
+    components: [{ id: "component-a", type: "component", name: "A", chain: [] }],
+    surfaces: [surface],
+    scenes: [{ id: "scene-a", name: "Scene A", snapshot: { surfaces: [surface] } }],
+    nodes: {},
+    ui: { selectedSceneId: "scene-a" },
+  });
+  const generatedRoute = state.nodes.groups
+    .find((group) => group.id === "vj1.scene.scene-a")
+    .nodes.find((node) => node.role === "surface-route");
+  assert.equal(generatedRoute.parameters.opacity, 1);
+  assert.equal(generatedRoute.parameters.feather, 0.05);
+
+  state.scenes[0].snapshot.surfaces[0].opacity = 0.25;
+  state.scenes[0].snapshot.surfaces[0].projectionFit = "contain";
+  state.surfaces[0].feather = 0.2;
+  const routes = compileSceneRenderPrograms(state, state.nodes.groups).get("scene-a").surfaces;
+
+  assert.equal(routes[0].opacity, 0.25);
+  assert.equal(routes[0].projectionFit, "contain");
+  assert.equal(routes[0].feather, 0.2);
 });
 
 test("the persisted application program connects controls Live services and output infrastructure", () => {

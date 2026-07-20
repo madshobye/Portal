@@ -53,14 +53,13 @@ test("mapped and direct surfaces share one reversible world-to-output transform"
     const renderer = new OutputRenderer({ mode: "output", outputId: "main" });
     renderer.state = {
       render: {
-        outputs: [{ id: "main", width: 100, height: 100 }],
-        worldWidth: 200,
-        worldHeight: 100,
+        outputs: [{ id: "main", aspectRatio: 1 }],
+        hostViewport: { width: 200, height: 100, mode: "output", outputId: "main" },
       },
     };
-    const display = renderer.worldPointToDisplay({ x: 50, y: 0 });
-    assert.deepEqual(display, { x: 0, y: -50 });
-    assert.deepEqual(renderer.displayPointToWorld(display), { x: 50, y: 0 });
+    const world = { x: 82, y: 31 };
+    const display = renderer.worldPointToDisplay(world);
+    assert.deepEqual(renderer.displayPointToWorld(display), world);
   } finally {
     globalThis.width = previousWidth;
     globalThis.height = previousHeight;

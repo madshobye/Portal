@@ -3,10 +3,17 @@ import { createOutputTransportProfiler, transportTimestampMs } from "./output-tr
 import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=transport-derived-assets-1";
 import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js";
 
-export function createControlBridge({ store, mediaLibrary, diagnostics = null, subscribeStore = true }) {
+export function createControlBridge({ store, mediaLibrary, diagnostics = null, subscribeStore = true, deferAnnouncement = false }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const sessionId = `control-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const clients = new Map();
+  let announced = false;
+  let recoveryMediaFrame = 0;
+  let recoveryMediaTimer = 0;
+  let activeRecovery = null;
+  let recoveryMediaBlocked = false;
+  let pendingRecoveryState = null;
+  let pendingRecoveryMedia = null;
   const liveSynchronization = new LivePatchSynchronizer({
     onPatch(packet) {
       channel.postMessage({
@@ -30,17 +37,41 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     }, "output-metrics");
   }, 1000);
 
-  channel.onmessage = async (event) => {
+  channel.onmessage = (event) => {
     const messageStartedAt = performance.now();
     const msg = event.data || {};
     try {
       if (msg.type === "recovery-state" && !store.getState().project.folderName && msg.state?.project?.folderName) {
-        if (msg.files?.length) await mediaLibrary.importFiles(msg.files);
-        store.replace(stateWithoutThumbnailUrls(msg.state), "project-output-recovery");
-        sendMediaFiles(mediaLibrary.getAllFiles());
+        const recoveredState = stateWithoutThumbnailUrls(msg.state);
+        activeRecovery = {
+          id: String(msg.recoveryId || "legacy"),
+          folderName: String(recoveredState.project.folderName || ""),
+        };
+        if (recoveryMediaBlocked) {
+          // Local project.json and its thumbnail cache are authoritative and
+          // now load before media traversal. Keep Output recovery as fallback
+          // instead of committing the same large project twice during boot.
+          pendingRecoveryState = { state: recoveredState, recovery: activeRecovery };
+        } else {
+          store.replace(recoveredState, "project-output-recovery");
+        }
+        // Older Output windows send state and files together. Retain protocol
+        // compatibility while still moving the file work behind first paint.
+        if (msg.files?.length) scheduleRecoveryMedia(msg.files, activeRecovery);
+        return;
+      }
+      if (msg.type === "recovery-media-files" && activeRecovery) {
+        const recovery = {
+          id: String(msg.recoveryId || "legacy"),
+          folderName: String(msg.folderName || ""),
+        };
+        if (recovery.id === activeRecovery.id && recovery.folderName === activeRecovery.folderName) {
+          scheduleRecoveryMedia(msg.files || [], recovery);
+        }
         return;
       }
       if (msg.type === "hello") {
+        if (!announced) return;
         const isNewClient = !clients.has(msg.clientId || "output");
         clients.set(msg.clientId || "output", { at: performance.now(), outputId: msg.outputId || "output-main" });
         if (isNewClient) {
@@ -55,6 +86,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
         sendState(null, { targetClientId: msg.clientId || "" });
       }
       if (msg.type === "metrics") {
+        if (!announced) return;
         clients.set(msg.clientId || "output", { at: performance.now(), outputId: msg.outputId || "output-main" });
         const updateMetrics = store.updateRuntime || ((recipe, reason) => store.update((draft) => recipe(draft.metrics), reason));
         updateMetrics((next) => {
@@ -91,7 +123,88 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     }
   };
 
-  channel.postMessage({ type: "control-hello", sessionId });
+  function announceControl() {
+    if (announced) return false;
+    announced = true;
+    clients.clear();
+    channel.postMessage({ type: "control-hello", sessionId });
+    return true;
+  }
+
+  if (!deferAnnouncement) announceControl();
+
+  function scheduleRecoveryMedia(files, recovery) {
+    if (recoveryMediaBlocked) {
+      pendingRecoveryMedia = { files, recovery };
+      return;
+    }
+    cancelRecoveryMediaSchedule();
+    const run = () => {
+      recoveryMediaFrame = 0;
+      recoveryMediaTimer = setTimeout(() => {
+        recoveryMediaTimer = 0;
+        importRecoveryMedia(files, recovery);
+      }, 0);
+    };
+    if (typeof requestAnimationFrame === "function") recoveryMediaFrame = requestAnimationFrame(run);
+    else run();
+  }
+
+  async function importRecoveryMedia(files, recovery) {
+    if (!recoveryStillApplies(recovery)) return;
+    try {
+      await mediaLibrary.importFiles(files);
+      if (!recoveryStillApplies(recovery)) return;
+      sendMediaFiles(mediaLibrary.getAllFiles());
+      activeRecovery = null;
+    } catch (error) {
+      if (recoveryStillApplies(recovery)) activeRecovery = null;
+      console.warn("[VJ1_OUTPUT_RECOVERY_MEDIA_FAILED]", {
+        folderName: recovery.folderName,
+        fallback: "continue with project-folder media when available",
+        message: error?.message || String(error),
+      });
+    }
+  }
+
+  function recoveryStillApplies(recovery) {
+    return activeRecovery?.id === recovery.id
+      && activeRecovery.folderName === recovery.folderName
+      && String(store.getState().project?.folderName || "") === recovery.folderName;
+  }
+
+  function cancelRecoveryMediaSchedule() {
+    if (recoveryMediaFrame && typeof cancelAnimationFrame === "function") cancelAnimationFrame(recoveryMediaFrame);
+    if (recoveryMediaTimer) clearTimeout(recoveryMediaTimer);
+    recoveryMediaFrame = 0;
+    recoveryMediaTimer = 0;
+  }
+
+  function beginProjectRestore() {
+    recoveryMediaBlocked = true;
+    pendingRecoveryState = null;
+    pendingRecoveryMedia = null;
+    cancelRecoveryMediaSchedule();
+  }
+
+  function finishProjectRestore(restored) {
+    recoveryMediaBlocked = false;
+    if (restored) {
+      pendingRecoveryState = null;
+      pendingRecoveryMedia = null;
+      activeRecovery = null;
+      cancelRecoveryMediaSchedule();
+      return;
+    }
+    const pendingState = pendingRecoveryState;
+    const pending = pendingRecoveryMedia;
+    pendingRecoveryState = null;
+    pendingRecoveryMedia = null;
+    if (pendingState && !store.getState().project?.folderName) {
+      store.replace(pendingState.state, "project-output-recovery");
+    }
+    if (pending) scheduleRecoveryMedia(pending.files, pending.recovery);
+  }
 
   function acceptStateChange(_state, _reason, change = {}) {
     if (change.scope !== "live") return;
@@ -171,9 +284,17 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     sendRenderPatches,
     sendMediaFiles,
     acceptStateChange,
+    announceControl,
+    beginProjectRestore,
+    finishProjectRestore,
     command,
     close: () => {
       cancelPendingLivePatches();
+      cancelRecoveryMediaSchedule();
+      activeRecovery = null;
+      pendingRecoveryState = null;
+      pendingRecoveryMedia = null;
+      recoveryMediaBlocked = false;
       unsubscribeLiveState?.();
       clearInterval(clientWatchdog);
       channel.close();
@@ -185,6 +306,7 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
   const channel = new BroadcastChannel(VJ1.channelName);
   const clientId = `${mode}-${outputId || "default"}-${Math.random().toString(36).slice(2)}`;
   const transportProfiler = createOutputTransportProfiler();
+  const recoveryTimers = new Set();
   let controlSessionId = "";
   channel.onmessage = (event) => {
     const msg = event.data || {};
@@ -268,7 +390,19 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
 
   function recoveryState(state, files = []) {
     if (!state?.project?.folderName) return;
-    channel.postMessage({ type: "recovery-state", state: stateWithoutThumbnailUrls(state), files });
+    const folderName = String(state.project.folderName || "");
+    const recoveryId = `${clientId}-${Date.now().toString(36)}`;
+    channel.postMessage({
+      type: "recovery-state",
+      state: stateWithoutThumbnailUrls(state),
+      recoveryId,
+    });
+    if (!files.length) return;
+    const timer = setTimeout(() => {
+      recoveryTimers.delete(timer);
+      channel.postMessage({ type: "recovery-media-files", folderName, files, recoveryId });
+    }, 0);
+    recoveryTimers.add(timer);
   }
 
   hello();
@@ -286,6 +420,8 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
     recordTransportResync: transportProfiler.resync,
     close: () => {
       clearInterval(helloInterval);
+      for (const timer of recoveryTimers) clearTimeout(timer);
+      recoveryTimers.clear();
       channel.close();
     },
     clientId,

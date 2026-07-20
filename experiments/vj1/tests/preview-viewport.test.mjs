@@ -10,9 +10,8 @@ import {
 
 test("automatic viewport fits are resolved per workspace mode", () => {
   const render = {
-    outputs: [{ id: "main", name: "Main", width: 1920, height: 1080 }],
-    worldWidth: 2880,
-    worldHeight: 1620,
+    outputs: [{ id: "main", name: "Main", aspectRatio: 16 / 9 }],
+    hostViewport: { width: 960, height: 540, mode: "preview", outputId: "" },
   };
   const stageSize = { width: 960, height: 540 };
   const storedFrameFit = { fit: "frame", zoom: 1.5, x: 42, y: -18 };
@@ -23,7 +22,7 @@ test("automatic viewport fits are resolved per workspace mode", () => {
   );
   assert.equal(
     resolveViewportForFit({ mode: "preview", stageSize, viewport: storedFrameFit, render }).zoom,
-    1.5
+    2
   );
 });
 

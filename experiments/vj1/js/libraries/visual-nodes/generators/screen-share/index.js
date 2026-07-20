@@ -16,14 +16,14 @@ const manifest = Object.freeze({
     ],
   });
 
-export function drawScreenShareNode(target, screen, params = {}, drawMediaFit) {
+export function drawScreenShareNode(target, screen, params = {}, drawMediaFit, view = target) {
   const fit = ["contain", "cover", "stretch"].includes(params.fit) ? params.fit : "contain";
   target.push();
   if (params.mirrored === true) {
-    target.translate(target.width, 0);
+    target.translate(view.width, 0);
     target.scale(-1, 1);
   }
-  drawMediaFit(target, screen, 0, 0, target.width, target.height, fit);
+  drawMediaFit(target, screen, 0, 0, view.width, view.height, fit);
   target.pop();
 }
 
@@ -37,7 +37,7 @@ export function screenShareNodeProcess(inputs = {}, context = {}) {
     context.drawStandby(target, context.screenInputError(inputId) || "screen share unavailable", { forceVisible: true });
     return target;
   }
-  drawScreenShareNode(target, screen, source.params || {}, context.drawMediaFit);
+  drawScreenShareNode(target, screen, source.params || {}, context.drawMediaFit, context.renderView || target);
   return target;
 }
 

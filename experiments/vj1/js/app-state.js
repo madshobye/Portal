@@ -17,7 +17,7 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=live-patch-contract-1";
+} from "./domain/models.js?v=boundary-authority-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";
@@ -279,7 +279,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       update((draft) => {
         const component = draft.components.find((item) => item.id === canvasComponentId && item.type === "canvas");
         if (!component) return;
-        component.canvas ||= { previewQuality: "auto", frameThumbnails: {} };
+        component.canvas ||= { frameThumbnails: {} };
         const canvasSize = canvasFrameSize(draft.render);
         draft.recordingFrames ||= [];
         draft.recordingFrames.push(createCanvasFrame(

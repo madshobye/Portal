@@ -1,4 +1,4 @@
-import { isDrawableMedia } from "./media-utils.js?v=logical-component-frame-1";
+import { isDrawableMedia } from "./media-utils.js?v=video-load-hold-1";
 
 export function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
@@ -111,7 +111,15 @@ export function createMediaReadinessStatus() {
 
 export function isReadyMediaItem(item = {}) {
   if (!item || item.loadError) return false;
-  if (item.video) return isDrawableMedia(item.video);
+  if (item.video) {
+    const element = item.video.elt || item.video;
+    // loadeddata/canplay is a one-way readiness transition. A playing video
+    // can temporarily fall below HAVE_CURRENT_DATA while seeking or filling
+    // its decode queue; treating that fluctuation as a fresh project-loading
+    // state makes Output alternate between play and pause forever.
+    if (item.ready === true && element.videoWidth > 1 && element.videoHeight > 1) return true;
+    return isDrawableMedia(item.video);
+  }
   if (item.image) return isDrawableMedia(item.image);
   if (item.model || item.modelData) return true;
   return item.ready === true;
@@ -124,9 +132,7 @@ function staticComponentState(component = {}, includeTransform = true) {
     frameShape: component.frameShape || "landscape",
     resolutionScale: Number(component.resolutionScale) || 1,
     ...(includeTransform ? { transform: normalizedStaticTransform(component.transform) } : {}),
-    canvas: component.type === "canvas" ? {
-      previewQuality: component.canvas?.previewQuality || "auto",
-    } : null,
+    canvas: component.type === "canvas" ? {} : null,
     chain: staticChainState(component.chain || []),
   };
 }
@@ -165,6 +171,7 @@ function staticChainState(chain = []) {
         kind: "group",
         enabled: item.enabled !== false,
         transform: item.transform || {},
+        boundary: item.boundary || {},
         opacity: item.opacity ?? 1,
         blend: item.blend || "normal",
         role: item.role || "group",
@@ -181,6 +188,7 @@ function staticChainState(chain = []) {
         amount: item.amount,
         params: item.params || {},
         transform: item.transform || {},
+        boundary: item.boundary || {},
         opacity: item.opacity ?? 1,
         blend: item.blend || "normal",
       };
@@ -191,6 +199,7 @@ function staticChainState(chain = []) {
       enabled: item.enabled !== false,
       source: staticSourceState(item.source),
       transform: item.transform || {},
+      boundary: item.boundary || {},
       opacity: item.opacity ?? 1,
       blend: item.blend || "normal",
     };

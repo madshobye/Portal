@@ -168,6 +168,7 @@ export function defineVisualComponent(definition = {}) {
       domain: definition.code ? "gpu" : "main",
       pure: definition.runtime?.cacheable !== false,
       stateful: definition.runtime?.cacheable === false,
+      roi: definition.runtime?.roi,
     },
     parts: definition.code ? [{
       id: "fragment-shader",
@@ -265,6 +266,13 @@ function normalizeRuntimePolicy(runtime = {}) {
     externalKey: typeof runtime?.externalKey === "function"
       ? runtime.externalKey
       : () => null,
+    roi: Object.freeze({
+      mode: ["local", "neighborhood", "full-frame"].includes(runtime?.roi?.mode)
+        ? runtime.roi.mode
+        : runtime?.cacheable === false ? "full-frame" : "local",
+      halo: Math.max(0, Number(runtime?.roi?.halo) || 0),
+      coordinateSpace: runtime?.roi?.coordinateSpace === "full-frame" ? "full-frame" : "boundary",
+    }),
   });
 }
 

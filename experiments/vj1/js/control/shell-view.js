@@ -27,7 +27,7 @@ export function shellTemplate() {
         </div>
         <div class="top-actions" data-scroll-region data-scroll-key="top-actions">
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
-          <button id="toggle-labels" class="icon-buttonish" type="button" title="Debug overlays" aria-label="Debug overlays">${icon("bug_report")}</button>
+          <button id="toggle-output-hud" class="icon-buttonish" type="button" title="Output FPS and resolution" aria-label="Toggle output FPS and resolution">${icon("bug_report")}</button>
           <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>
           <div class="diagnostics-menu">
             <button id="diagnostics-toggle" class="icon-buttonish diagnostics-toggle is-ok" type="button" title="Diagnostics: OK" aria-label="Open diagnostics, status OK" aria-expanded="false">${icon("check_circle")}</button>
@@ -88,7 +88,7 @@ export function collectRefs(root) {
     outputMenu: root.querySelector("#output-menu"),
     outputMenuItems: root.querySelector("#output-menu-items"),
     togglePreview: root.querySelector("#toggle-preview"),
-    toggleLabels: root.querySelector("#toggle-labels"),
+    toggleOutputHud: root.querySelector("#toggle-output-hud"),
     openSettings: root.querySelector("#open-settings"),
     diagnosticsToggle: root.querySelector("#diagnostics-toggle"),
     diagnosticsSummary: root.querySelector("#diagnostics-summary"),

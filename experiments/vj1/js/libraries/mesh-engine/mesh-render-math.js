@@ -1,3 +1,5 @@
+import { FULL_RENDER_UV_RECT, normalizeRenderUvRect, renderView } from "../render-engine/render-view/index.js";
+
 export function modelRotation(params = {}, componentTime = 0, importBasis = [0, 0, 0]) {
   return [
     (Number(importBasis[0]) || 0) + (Number(params.rotationX) || 0) + componentTime * (Number(params.spinX) || 0),
@@ -60,22 +62,26 @@ export function transformedModelDepthRange(bounds = null, modelMatrix = null) {
 }
 
 export function modelViewportMetrics(target, request = {}) {
-  const width = Math.max(1, Math.round(Number(request?.width || target?.width) || 1));
-  const height = Math.max(1, Math.round(Number(request?.height || target?.height) || 1));
-  const logicalWidth = Math.max(1, Number(request?.logicalWidth) || width);
-  const logicalHeight = Math.max(1, Number(request?.logicalHeight) || height);
+  const view = renderView(target, request);
+  const width = view.width;
+  const height = view.height;
+  const logicalWidth = view.logicalWidth;
+  const logicalHeight = view.logicalHeight;
   const verticalUnit = height;
   return {
     width,
     height,
+    renderWidth: view.allocationWidth,
+    renderHeight: view.allocationHeight,
     logicalWidth,
     logicalHeight,
+    uvRect: view.uvRect,
     cameraZ: verticalUnit * 0.92,
     unitScale: verticalUnit * 0.0065,
   };
 }
 
-export function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0], contentTransform = {}, cameraFov = Math.PI / 3) {
+export function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0], contentTransform = {}, cameraFov = Math.PI / 3, uvRect = FULL_RENDER_UV_RECT) {
   const projection = mat4Perspective(cameraFov, width / Math.max(1, height), 0.1, 5000);
   const cameraZ = Math.max(1, height) * 0.92;
   const view = mat4LookAt([0, 0, cameraZ], [0, 0, 0], [0, 1, 0]);
@@ -92,8 +98,32 @@ export function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, ro
   model = mat4Multiply(model, mat4Scale(scale, scale, scale * depth));
   return {
     model,
-    mvp: mat4Multiply(mat4Multiply(projection, view), model),
+    // Project in the complete boundary, then remap only the requested NDC
+    // window onto the small ROI target. This is equivalent to cropping a full
+    // model render but avoids allocating or shading the invisible pixels.
+    mvp: mat4Multiply(mat4ViewportCrop(uvRect), mat4Multiply(mat4Multiply(projection, view), model)),
   };
+}
+
+export function applyModelViewportProjection(target, cameraFov = Math.PI / 3, viewport = {}) {
+  const width = Math.max(1, Number(viewport.width) || Number(target?.width) || 1);
+  const height = Math.max(1, Number(viewport.height) || Number(target?.height) || 1);
+  const uv = normalizeRenderUvRect(viewport.uvRect);
+  if (isFullUvRect(uv) || typeof target?.frustum !== "function") {
+    target?.perspective?.(cameraFov, width / height, 0.1, 5000);
+    return;
+  }
+  const near = 0.1;
+  const far = 5000;
+  const top = near * Math.tan(cameraFov * 0.5);
+  const bottom = -top;
+  const right = top * width / height;
+  const left = -right;
+  const cropLeft = left + (right - left) * uv[0];
+  const cropRight = left + (right - left) * (uv[0] + uv[2]);
+  const cropTop = top + (bottom - top) * uv[1];
+  const cropBottom = top + (bottom - top) * (uv[1] + uv[3]);
+  target.frustum(cropLeft, cropRight, cropBottom, cropTop, near, far);
 }
 
 // Raw WebGL model coordinates are Y-up and rotate counter-clockwise. This
@@ -179,6 +209,26 @@ function mat4Perspective(fovy, aspect, near, far) {
     0, 0, (far + near) * nf, -1,
     0, 0, (2 * far * near) * nf, 0,
   ]);
+}
+
+function mat4ViewportCrop(value) {
+  const uv = normalizeRenderUvRect(value);
+  const scaleX = 1 / uv[2];
+  const scaleY = 1 / uv[3];
+  return new Float32Array([
+    scaleX, 0, 0, 0,
+    0, scaleY, 0, 0,
+    0, 0, 1, 0,
+    (1 - 2 * uv[0] - uv[2]) * scaleX,
+    (2 * uv[1] + uv[3] - 1) * scaleY,
+    0,
+    1,
+  ]);
+}
+
+function isFullUvRect(uv) {
+  return Math.abs(uv[0]) < 1e-9 && Math.abs(uv[1]) < 1e-9 &&
+    Math.abs(uv[2] - 1) < 1e-9 && Math.abs(uv[3] - 1) < 1e-9;
 }
 
 function mat4LookAt(eye, center, up) {

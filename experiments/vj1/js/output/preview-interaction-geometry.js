@@ -1,4 +1,4 @@
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import {
   combineContentTransforms,
   contentTransformCanvasPlacement,
@@ -48,6 +48,7 @@ export function hitTestChainItems({
   parentTransform = normalizedContentTransform(),
   ownerGroup = null,
   baseRectForItem = () => ({ x: 0, y: 0, width: frame.width, height: frame.height }),
+  containsItem = null,
 } = {}) {
   for (let index = chain.length - 1; index >= 0; index--) {
     const item = chain[index];
@@ -63,13 +64,17 @@ export function hitTestChainItems({
         parentTransform: transform,
         ownerGroup: ownerGroup || item,
         baseRectForItem,
+        containsItem,
       });
       if (nested) return nested;
       continue;
     }
     if (!isPhysicalChainItem(item)) continue;
     const baseRect = baseRectForItem(component, item, frame);
-    if (pointInTransformedRect(x, y, frame, baseRect, transform)) return ownerGroup || item;
+    const contains = typeof containsItem === "function"
+      ? containsItem(component, item, frame, x, y)
+      : pointInTransformedRect(x, y, frame, baseRect, transform);
+    if (contains) return ownerGroup || item;
   }
   return null;
 }
@@ -172,6 +177,68 @@ export function transformedRectBounds(frame = {}, baseRect = {}, transform = {})
   };
 }
 
+// Return the smallest source-space rectangle that can contribute to a visible
+// viewport. The result is conservative for rotated objects (the inverse of the
+// clipped screen AABB), so it may render a few extra corner pixels but can
+// never discard pixels that belong in the final composition.
+export function transformedRectVisibleRegion(frame = {}, baseRect = {}, transform = {}, viewport = {}) {
+  const bounds = transformedRectBounds(frame, baseRect, transform);
+  const left = Math.max(Number(bounds.x) || 0, Number(viewport.x) || 0);
+  const top = Math.max(Number(bounds.y) || 0, Number(viewport.y) || 0);
+  const right = Math.min(
+    (Number(bounds.x) || 0) + Math.max(0, Number(bounds.width) || 0),
+    (Number(viewport.x) || 0) + Math.max(0, Number(viewport.width) || 0)
+  );
+  const bottom = Math.min(
+    (Number(bounds.y) || 0) + Math.max(0, Number(bounds.height) || 0),
+    (Number(viewport.y) || 0) + Math.max(0, Number(viewport.height) || 0)
+  );
+  if (right <= left || bottom <= top) return null;
+
+  const value = normalizedContentTransform(transform);
+  const transformPlacement = contentTransformCanvasPlacement(value, frame.width, frame.height);
+  const frameX = Number(frame.x) || 0;
+  const frameY = Number(frame.y) || 0;
+  const frameCenterX = frameX + Math.max(1, Number(frame.width) || 1) * 0.5;
+  const frameCenterY = frameY + Math.max(1, Number(frame.height) || 1) * 0.5;
+  const transformCenterX = frameX + transformPlacement.centerX;
+  const transformCenterY = frameY + transformPlacement.centerY;
+  const cosine = Math.cos(-value.rotation);
+  const sine = Math.sin(-value.rotation);
+  const sourceLeft = frameX + (Number(baseRect.x) || 0);
+  const sourceTop = frameY + (Number(baseRect.y) || 0);
+  const sourceWidth = Math.max(1, Number(baseRect.width) || 1);
+  const sourceHeight = Math.max(1, Number(baseRect.height) || 1);
+  const sourcePoints = [
+    [left, top],
+    [right, top],
+    [right, bottom],
+    [left, bottom],
+  ].map(([x, y]) => {
+    const dx = x - transformCenterX;
+    const dy = y - transformCenterY;
+    return {
+      x: (dx * cosine - dy * sine) / value.scale + frameCenterX,
+      y: (dx * sine + dy * cosine) / value.scale + frameCenterY,
+    };
+  });
+  const u0 = clamp01(Math.min(...sourcePoints.map((point) => (point.x - sourceLeft) / sourceWidth)));
+  const v0 = clamp01(Math.min(...sourcePoints.map((point) => (point.y - sourceTop) / sourceHeight)));
+  const u1 = clamp01(Math.max(...sourcePoints.map((point) => (point.x - sourceLeft) / sourceWidth)));
+  const v1 = clamp01(Math.max(...sourcePoints.map((point) => (point.y - sourceTop) / sourceHeight)));
+  if (u1 <= u0 || v1 <= v0) return null;
+  return {
+    uvRect: [u0, v0, u1 - u0, v1 - v0],
+    destinationRect: {
+      x: (Number(baseRect.x) || 0) + u0 * sourceWidth,
+      y: (Number(baseRect.y) || 0) + v0 * sourceHeight,
+      width: (u1 - u0) * sourceWidth,
+      height: (v1 - v0) * sourceHeight,
+    },
+    visibleBounds: { x: left, y: top, width: right - left, height: bottom - top },
+  };
+}
+
 export function chainTransformDragScale(initialScale, startDistance, currentDistance) {
   const initial = Math.max(0.05, Number(initialScale) || 1);
   const ratio = Math.max(0.0001, Number(currentDistance) || 1) / Math.max(1, Number(startDistance) || 1);
@@ -240,6 +307,14 @@ export function screenToLayerLocal(x, y, cx, cy, rotation) {
   const cosine = Math.cos(-rotation);
   const sine = Math.sin(-rotation);
   return { x: dx * cosine - dy * sine, y: dx * sine + dy * cosine };
+}
+
+export function pointInOrientedRect(x, y, rect = {}) {
+  const centerX = Number(rect.centerX) || ((Number(rect.x) || 0) + (Number(rect.width) || 0) * 0.5);
+  const centerY = Number(rect.centerY) || ((Number(rect.y) || 0) + (Number(rect.height) || 0) * 0.5);
+  const local = screenToLayerLocal(x, y, centerX, centerY, Number(rect.rotation) || 0);
+  return Math.abs(local.x) <= Math.max(1, Number(rect.width) || 1) * 0.5
+    && Math.abs(local.y) <= Math.max(1, Number(rect.height) || 1) * 0.5;
 }
 
 function clamp01(value) {

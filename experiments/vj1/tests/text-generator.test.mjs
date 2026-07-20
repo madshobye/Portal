@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
-import { parseTextMarkdown, TEXT_GENERATOR_FRAGMENT_SHADER, textMaskSignature } from "../js/output/specialized/text-generator-renderer.js";
+import { parseTextMarkdown, TEXT_GENERATOR_FRAGMENT_SHADER, textMaskDimensions, textMaskSignature } from "../js/output/specialized/text-generator-renderer.js";
 import { textNodeRuntimeModule, textNodeShaderSource } from "../js/output/specialized/specialized-source-runtime.js";
 
 test("text generator exposes portable typography and persistent style parameters", () => {
@@ -22,10 +22,18 @@ test("text generator exposes portable typography and persistent style parameters
   assert.equal(definition.metadata.nodeOwnedNativeModule, true);
   assert.equal(definition.metadata.nodeOwnedNativeProcess, false);
   assert.equal(typeof definition.moduleExports.createTextMask, "function");
+  assert.equal(typeof definition.moduleExports.textMaskDimensions, "function");
   assert.equal(typeof definition.moduleExports.textMaskSignature, "function");
   assert.ok(definition.parts.some((part) => part.id === "text-layout-module" && part.kind === "javascript"));
   assert.ok(definition.parts.some((part) => part.id === "vertex-shader" && part.stage === "vertex"));
   assert.ok(definition.parts.some((part) => part.id === "fragment-shader" && part.stage === "fragment"));
+});
+
+test("text mask uses a stable bounded full-boundary raster instead of ROI dimensions", () => {
+  assert.deepEqual(textMaskDimensions(1920, 1080), { width: 1920, height: 1080 });
+  assert.deepEqual(textMaskDimensions(11760, 6615), { width: 4096, height: 2304 });
+  assert.match(TEXT_GENERATOR_FRAGMENT_SHADER, /renderUvRect\.xy \+ vTexCoord \* renderUvRect\.zw/);
+  assert.match(TEXT_GENERATOR_FRAGMENT_SHADER, /contentUvMatrix \* vec3\(boundaryUv, 1\.0\)/);
 });
 
 test("text markdown parser retains structure but strips legacy inline style syntax", () => {

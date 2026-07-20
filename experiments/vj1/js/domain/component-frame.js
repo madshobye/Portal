@@ -1,5 +1,4 @@
-import { VJ1 } from "../constants.js";
-import { componentTextureSize } from "./render-resolution.js?v=adaptive-component-demand-29";
+import { componentFrameSize } from "./render-settings.js";
 
 export const COMPONENT_FRAME_SHAPES = ["landscape", "portrait", "square"];
 export const COMPONENT_RESOLUTION_SCALES = [0.5, 1, 2];
@@ -14,9 +13,9 @@ export function normalizeComponentResolutionScale(value) {
 }
 
 export function componentFrameMetrics(render = {}, component = {}) {
-  const texture = componentTextureSize(render);
-  const textureWidth = positiveInt(texture.width, VJ1.renderWidth);
-  const textureHeight = positiveInt(texture.height, VJ1.renderHeight);
+  const texture = componentFrameSize(render);
+  const textureWidth = texture.width;
+  const textureHeight = texture.height;
   const longEdge = Math.max(textureWidth, textureHeight);
   const shortEdge = Math.min(textureWidth, textureHeight);
   const frameShape = normalizeComponentFrameShape(component.frameShape);
@@ -39,11 +38,6 @@ export function componentFrameMetrics(render = {}, component = {}) {
     width: Math.max(1, Math.round(base.width * effectiveScale)),
     height: Math.max(1, Math.round(base.height * effectiveScale)),
   };
-}
-
-function positiveInt(value, fallback) {
-  const number = Math.round(Number(value));
-  return Number.isFinite(number) && number > 0 ? number : fallback;
 }
 
 function clamp(value, min, max) {

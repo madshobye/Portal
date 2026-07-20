@@ -346,7 +346,7 @@ test("spatial effect transforms keep the effect boundary on the component frame"
     builderSource.indexOf("${effectCode}")
   );
 
-  assert.ok(maskSource.includes("abs(vTexCoord - vec2(0.5))"));
+  assert.ok(maskSource.includes("abs(renderUvFromLocal(vTexCoord) - vec2(0.5))"));
   assert.ok(!maskSource.includes("abs(uv - vec2(0.5))"));
 });
 
@@ -354,9 +354,9 @@ test("generator transforms change UV coordinates without changing the render tar
   const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
 
   assert.ok(builderSource.includes("uniform mat3 contentUvMatrix;"));
-  assert.ok(builderSource.includes("contentUvMatrix * vec3(vTexCoord, 1.0)"));
+  assert.ok(builderSource.includes("contentUvMatrix * vec3(componentUv, 1.0)"));
   assert.ok(!builderSource.includes("vec2 compositionUv = vec2(vTexCoord.x, 1.0 - vTexCoord.y)"));
-  assert.ok(builderSource.includes("return mix(vTexCoord, transformedUv"));
+  assert.ok(builderSource.includes("return mix(componentUv, transformedUv"));
   assert.ok(builderSource.includes("contentUvMatrix * vec3(baseUv, 1.0)"));
   assert.ok(builderSource.includes("vTexCoord = aTexCoord;"));
   assert.ok(!builderSource.includes("contentUvMatrix * vec3(aTexCoord, 1.0)"));
@@ -370,7 +370,7 @@ test("generator transforms change UV coordinates without changing the render tar
     builderSource.indexOf("function hasRenderQualityParam(")
   );
   assert.ok(shadertoyAdapter.includes("varying vec2 vTexCoord;"));
-  assert.ok(shadertoyAdapter.includes("vec2 baseUv = vTexCoord;"));
+  assert.ok(shadertoyAdapter.includes("vec2 baseUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;"));
   assert.doesNotMatch(shadertoyAdapter, /vec2 baseUv\s*=.*gl_FragCoord/);
 });
 
@@ -511,7 +511,8 @@ test("Shadertoy generator keeps mainImage source behind the compatibility wrappe
   assert.ok(fragmentSource.includes("void main()"));
   assert.ok(fragmentSource.includes("void vj1MainImage(out vec4 fragColor, in vec2 fragCoord)"));
   assert.ok(fragmentSource.includes("varying vec2 vTexCoord;"));
-  assert.ok(fragmentSource.includes("vec2 baseUv = vTexCoord;"));
+  assert.ok(fragmentSource.includes("uniform vec4 renderUvRect;"));
+  assert.ok(fragmentSource.includes("vec2 baseUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;"));
   assert.ok(fragmentSource.includes("shadertoyFragCoord = vec2(shaderUv.x, 1.0 - shaderUv.y) * iResolution.xy"));
   assert.ok(fragmentSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
   assert.ok(fragmentSource.includes("uniform float renderQuality;"));
@@ -662,7 +663,7 @@ test("standalone generator shaders receive the shared quality uniform", () => {
   assert.ok(fragmentSource.includes("precision mediump float;\nuniform float renderQuality;"));
   assert.equal((fragmentSource.match(/uniform float renderQuality;/g) || []).length, 1);
   assert.ok(fragmentSource.includes("vec2 vj1CompositionUv()"));
-  assert.ok(fragmentSource.includes("contentUvMatrix * vec3(vTexCoord, 1.0)"));
+  assert.ok(fragmentSource.includes("contentUvMatrix * vec3(componentUv, 1.0)"));
   assert.ok(fragmentSource.includes("vec2 uv = vj1CompositionUv()"));
   assert.ok(fragmentSource.includes("varying vec2 vTexCoord;"));
 });

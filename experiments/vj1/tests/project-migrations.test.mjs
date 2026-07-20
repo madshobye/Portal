@@ -25,11 +25,13 @@ import {
   migrateProjectV21ToV22,
   migrateProjectV22ToV23,
   migrateProjectV23ToV24,
+  migrateProjectV24ToV25,
+  migrateProjectV25ToV26,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 24);
+  assert.equal(CURRENT_PROJECT_VERSION, 26);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -384,6 +386,87 @@ test("v23 to v24 makes the persisted node graph authoritative", () => {
   assert.equal(migrated.nodes.authority, "node-graph");
   assert.deepEqual(migrated.nodes.groups, input.nodes.groups);
   assert.deepEqual(migrated.components, input.components, "the application compiler performs the one-time chain import");
+});
+
+test("v24 to v25 consolidates preview quality and removes persisted pixel geometry", () => {
+  const migrated = migrateProjectV24ToV25({
+    version: 24,
+    ui: { previewQualities: { scene: "full", live: "low" } },
+    render: {
+      outputs: [{ id: "output-main", name: "Main", width: 1920, height: 1080 }],
+      canvasSize: { width: 3840, height: 2160 },
+      componentTexture: { width: 960, height: 540 },
+    },
+    components: [{
+      id: "canvas-a",
+      type: "canvas",
+      previewQuality: "low",
+      canvas: { previewQuality: "full" },
+      chain: [],
+    }],
+  });
+  assert.equal(migrated.ui.previewQuality, "good");
+  assert.equal(Object.hasOwn(migrated.ui, "previewQualities"), false);
+  assert.equal(Object.hasOwn(migrated.components[0], "previewQuality"), false);
+  assert.equal(Object.hasOwn(migrated.components[0].canvas, "previewQuality"), false);
+  assert.deepEqual(migrated.render.outputs[0], { id: "output-main", name: "Main", aspectRatio: 16 / 9 });
+  assert.equal(Object.hasOwn(migrated.render, "canvasSize"), false);
+  assert.equal(Object.hasOwn(migrated.render, "componentTexture"), false);
+});
+
+test("v25 to v26 moves handle-authored rotation onto the oriented boundary", () => {
+  const migrated = migrateProjectV25ToV26({
+    version: 25,
+    components: [
+      {
+        id: "component-a",
+        nodeProjectionSignature: "old",
+        chain: [{
+          id: "group-a",
+          kind: "group",
+          transform: { x: 0.1, y: 0.2, scale: 1.5, rotation: 0.4 },
+          boundary: { x: 0, y: 0, width: 0.8, height: 0.8 },
+          chain: [{ id: "source-a", kind: "source", transform: { rotation: -0.2 } }],
+        }],
+      },
+      // This is the normal v24+ persisted shape: the compatibility chain is
+      // omitted because the generated node group is authoritative.
+      { id: "component-b", nodeProjectionSignature: "graph-signature" },
+    ],
+    nodes: { groups: [{
+      id: "vj1.component.component-b",
+      componentId: "component-b",
+      generatedBy: "vj1-component-compiler",
+      projectionSignature: "graph-signature",
+      nodes: [{
+        id: "source-b",
+        role: "source",
+        configuration: {
+          id: "source-b",
+          kind: "source",
+          transform: { x: 0.2, y: 0.1, scale: 0.75, rotation: -0.3 },
+          source: { type: "generator", generatorId: "plasma" },
+        },
+      }],
+      connections: [
+        { from: "$in.texture", to: "source-b.texture", type: "texture" },
+        { from: "source-b.texture", to: "$out.texture", type: "texture" },
+      ],
+    }] },
+  });
+  const group = migrated.components[0].chain[0];
+  assert.equal(group.boundary.rotation, 0.4);
+  assert.equal(group.transform.rotation, 0);
+  assert.equal(group.transform.scale, 1.5);
+  assert.equal(group.chain[0].boundary.rotation, -0.2);
+  assert.equal(group.chain[0].transform.rotation, 0);
+  assert.equal(migrated.components[0].nodeProjectionSignature, "");
+  assert.equal(Object.hasOwn(migrated.components[1], "chain"), false);
+  assert.equal(migrated.components[1].nodeProjectionSignature, "graph-signature");
+  assert.equal(migrated.nodes.groups[0].projectionSignature, "graph-signature");
+  assert.equal(migrated.nodes.groups[0].nodes[0].configuration.boundary.rotation, -0.3);
+  assert.equal(migrated.nodes.groups[0].nodes[0].configuration.transform.rotation, 0);
+  assert.equal(migrated.nodes.groups[0].nodes[0].configuration.source.generatorId, "plasma");
 });
 
 test("migration runner applies every adjacent step in order", () => {

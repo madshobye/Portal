@@ -11,7 +11,7 @@ VJ1 is a build-free browser VJ and projection-mapping app in `experiments/vj1`. 
 - **Scenes** route Components, Canvases, or Canvas recording frames to surfaces.
 - **Live** selects the program Scene and applies temporary performance overrides.
 
-Persisted Component/Canvas groups in `state.nodes` are the visual graph authority. `component.chain` is the materialized in-memory UI projection and compatibility shape; new saves do not persist it when a compiled group exists. Items remain sources, effects, or isolated Groups. Do not restore `component.source`, `component.shaderChain`, chain-level source params, or silent Test Pattern/black fallbacks. Current project schema is version **24**; format changes require one adjacent migration and focused tests.
+Persisted Component/Canvas groups in `state.nodes` are the visual graph authority. `component.chain` is the materialized in-memory UI projection and compatibility shape; new saves do not persist it when a compiled group exists. Items remain sources, effects, or isolated Groups. Do not restore `component.source`, `component.shaderChain`, chain-level source params, or silent Test Pattern/black fallbacks. Current project schema is version **26**; format changes require one adjacent migration and focused tests.
 
 Visual node graphs compile through the custom Component visual compiler into the existing allocation-stable direct renderer. Do not replace this with generic per-frame packet traversal. Preserve shader fusion, shared framebuffer targets, retained caches, specialized STL/model/terrain paths, and current resource reuse. If a visual relationship requires specialization, keep it behind a compiler/custom node boundary rather than introducing avoidable ping-pong buffers. Call-driven graph execution is for control, data, and utility groups. The generic Visual Source node owns source-family dispatch (`component`, `media`, `camera`, `black`, or `generator`) as compiled renderer metadata; the output host supplies the existing resource-specific methods. Direct placement and media/model cache decisions remain on their established optimized paths.
 
@@ -72,6 +72,10 @@ state -> visible route demand -> Component/Canvas textures
 
 Only visible dependencies render. Static nodes are signature-cached; dynamic nodes invalidate as needed. Recording frames are views into one parent Canvas texture. Raw WebGL stages consume explicit logical/physical target metadata from `render-target-contract.js`; coordinate conversion belongs in `content-coordinate-space.js`.
 
+Every bounded visual node has two separate concepts: its relative boundary in the parent and its content transform inside that boundary. Scaling or rotating the boundary changes clipping/placement; content translation, scale, and rotation change the image or procedural coordinate field inside it. `render-engine/roi` allocates only the visible boundary pixels, while `render-engine/render-view` reconstructs the complete boundary domain and ROI UV window. Media fit, native and Shadertoy generators, effects, nested Components, models, anatomy, terrain, mesh patterns, feature morph, Tile Texture, Test Pattern, and Text consume this same contract. A partly off-screen source therefore keeps its center, aspect, fit, procedural frequency, and projection rather than treating the visible crop as a new full frame.
+
+Text is the deliberate CPU-mask special case. Its node-owned layout uses a stable full-boundary mask domain so moving an ROI does not rebuild or squeeze text; the retained mask raster is capped to 4096 pixels on its longest edge before the GPU samples only the visible ROI. Standalone WebGL targets explicitly release discarded contexts, while ordinary output resizing preserves and resizes the retained model context instead of repeatedly creating contexts.
+
 p5 should not own coordinate, orientation, sizing, placement, or cache policy. Avoid extra WebGL contexts, per-frame buffers, pixel readbacks, and cross-context resizable canvas uploads.
 
 Component and Canvas thumbnails use a derived-asset, stale-while-revalidate pipeline. State changes invalidate the selected item and a latest-wins coordinator waits for the gesture/quiet boundary; the last successful thumbnail remains published throughout dirty, retry, readback, and encoding states. Capture is disabled during direct preview pointer gestures and is never run by standalone output renderers. One retained thumbnail-sized framebuffer downsamples the current component texture in the existing WebGL context before the only GPU readback, so a 4K source no longer causes a full-resolution CPU transfer. Jobs are serialized and idle-scheduled, WebP/PNG encoding uses asynchronous `toBlob`, persistence accepts the Blob directly, and the UI publishes a short object URL through a targeted Component-state update. Obsolete jobs cannot replace newer state, Canvas frame crops use the same coordinator, and failed/not-ready captures retain the prior image and retry without leaving the catalog item blank. Cache-bust tag: `thumbnail-pipeline-1`.
@@ -113,12 +117,12 @@ Scene transition duration and parameter fade are independent. Numeric Live value
 
 ## Current State and Next Checks
 
-- Full Node suite: **758 passing** on 2026-07-20. Metrics (**10**) and render-geometry (**12**) suites also pass.
+- Full Node suite: **778 passing** on 2026-07-20. Metrics (**10**) and render-geometry (**20**) suites also pass.
 - Latest changes were not browser-tested, by request.
-- Live parameters were manually confirmed working continuously by the user after the transport fix.
-- Current browser cache-bust tag for control/application and thumbnail capture: `thumbnail-pipeline-1`; render/compiler-specialized path: `node-program-hooks-15`; visual catalog path: `node-catalog-13`.
-- First manual check: keep Scene A live, open/edit a Component associated with Scene B, move several sliders, and confirm embedded Live preview and popup output remain on Scene A.
-- If a Scene still changes, inspect `VJ1_LIVE_PATCH_RESYNC`, transport revision/session metadata, and the explicit `ui.live.selectedSceneId`; do not add another fallback.
+- Live parameters, bounded media/generator movement, model and Eyeball rotation, output scaling, and the ROI behavior of the reported generators were manually confirmed by the user.
+- Current browser cache-bust tag for the ROI/control/output path is `source-roi-view-3`; thumbnail capture remains `thumbnail-pipeline-1`; render/compiler-specialized path is `node-program-hooks-15`; visual catalog path is `node-catalog-14`.
+- Preview body picking follows the same oriented node boundary hierarchy as rendering and resolves overlaps by visual stacking order. Selected handles alone receive priority. Legacy Canvas Component references with an untouched full boundary retain their normalized placement as the physical hit footprint, avoiding an invisible Canvas-wide grab area.
+- If a future Scene-identity regression appears, keep Scene A live while editing a Component associated with Scene B and inspect `VJ1_LIVE_PATCH_RESYNC`, transport revision/session metadata, and the explicit `ui.live.selectedSceneId`; do not add another fallback.
 - The worktree contains substantial ongoing user work. Preserve unrelated edits and avoid broad reversions.
 
 ## Verification

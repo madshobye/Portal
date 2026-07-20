@@ -444,8 +444,34 @@ test("video buffering never rewrites commanded playback intent", async () => {
   syncVideoPlayback(video, { speed: 1 });
   syncVideoPlayback(video, { speed: 1 });
   await Promise.resolve();
-  assert.equal(attempts, 2, "the runtime keeps converging toward Play while readiness is only observed state");
+  assert.equal(attempts, 1, "one pending browser play request is shared across repeated frame claims");
   assert.equal(element.paused, true, "a browser-reported pause is not treated as a new user command");
+});
+
+test("an expected lifecycle AbortError from video play is silent", async () => {
+  const previousError = console.error;
+  const errors = [];
+  const abort = new Error("play interrupted by pause");
+  abort.name = "AbortError";
+  const element = {
+    tagName: "VIDEO",
+    paused: true,
+    duration: 10,
+    currentTime: 0,
+    playbackRate: 1,
+    loop: false,
+    play: () => Promise.reject(abort),
+  };
+  console.error = (...args) => errors.push(args);
+  try {
+    syncVideoPlayback({ elt: element }, { speed: 1 });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    assert.deepEqual(errors, []);
+  } finally {
+    console.error = previousError;
+  }
 });
 
 test("media runtime pauses videos that are no longer claimed by the rendered frame", () => {
@@ -677,6 +703,246 @@ test("controller startup never publishes a false empty media snapshot before rec
     assert.deepEqual(messages.find((message) => message.type === "media-files")?.files, []);
     bridge.close();
   } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("stored project restore can become authoritative before Output recovery is announced", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let channel = null;
+  let state = { project: { folderName: "" }, components: [], metrics: { clients: 0, outputs: {} } };
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  let bridge = null;
+  try {
+    const store = {
+      getState: () => state,
+      getMetrics: () => state.metrics,
+      updateRuntime() {},
+      replace(next) { state = next; },
+    };
+    bridge = createControlBridge({
+      store,
+      mediaLibrary: { importFiles: async () => {}, getAllFiles: () => [] },
+      deferAnnouncement: true,
+    });
+    assert.equal(messages.some((message) => message.type === "control-hello"), false);
+
+    state = {
+      ...state,
+      project: { folderName: "show" },
+      components: [{ id: "component-a", thumbnail: "blob:folder-thumbnail" }],
+    };
+    assert.equal(bridge.announceControl(), true);
+    assert.equal(messages.some((message) => message.type === "control-hello"), true);
+
+    channel.onmessage({ data: {
+      type: "recovery-state",
+      state: {
+        project: { folderName: "show" },
+        components: [{ id: "component-a", thumbnail: "" }],
+        metrics: { clients: 0, outputs: {} },
+      },
+    } });
+    assert.equal(state.components[0].thumbnail, "blob:folder-thumbnail");
+    assert.equal(bridge.announceControl(), false);
+  } finally {
+    bridge?.close();
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("local project restore queues competing Output state and media until its outcome is known", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  let channel = null;
+  let state = { project: { folderName: "" }, components: [], metrics: { clients: 0, outputs: {} } };
+  let imports = 0;
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage() {}
+    close() {}
+  };
+  let bridge = null;
+  try {
+    const store = {
+      getState: () => state,
+      getMetrics: () => state.metrics,
+      updateRuntime() {},
+      replace(next) { state = next; },
+    };
+    bridge = createControlBridge({
+      store,
+      mediaLibrary: {
+        async importFiles() { imports++; },
+        getAllFiles: () => [],
+      },
+      deferAnnouncement: true,
+    });
+    bridge.beginProjectRestore();
+    bridge.announceControl();
+    channel.onmessage({ data: {
+      type: "recovery-state",
+      state: { project: { folderName: "show" }, components: [], metrics: { clients: 0, outputs: {} } },
+      files: [{ id: "media/a.png", file: { name: "a.png" } }],
+    } });
+    assert.equal(state.project.folderName, "", "transport recovery must not replace an active local restore");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(imports, 0, "Output media must not compete with the local directory import");
+
+    state = { ...state, components: [{ id: "component-a", thumbnail: "blob:folder-thumbnail" }] };
+    state.project = { folderName: "show" };
+    bridge.finishProjectRestore(true);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(imports, 0);
+    assert.equal(state.components[0].thumbnail, "blob:folder-thumbnail");
+  } finally {
+    bridge?.close();
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("queued Output state becomes the fallback when local project restore fails", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  let channel = null;
+  let state = { project: { folderName: "" }, components: [], metrics: { clients: 0, outputs: {} } };
+  let imports = 0;
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage() {}
+    close() {}
+  };
+  let bridge = null;
+  try {
+    bridge = createControlBridge({
+      store: {
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+        replace(next) { state = next; },
+      },
+      mediaLibrary: {
+        async importFiles() { imports++; },
+        getAllFiles: () => [],
+      },
+      deferAnnouncement: true,
+    });
+    bridge.beginProjectRestore();
+    bridge.announceControl();
+    channel.onmessage({ data: {
+      type: "recovery-state",
+      state: { project: { folderName: "fallback-show" }, components: [], metrics: { clients: 0, outputs: {} } },
+      files: [{ id: "media/a.png", file: { name: "a.png" } }],
+    } });
+    bridge.finishProjectRestore(false);
+    assert.equal(state.project.folderName, "fallback-show");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(imports, 1);
+  } finally {
+    bridge?.close();
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("output recovery publishes project state before importing media and never overwrites a later folder restore", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let channel = null;
+  let state = { project: { folderName: "" }, components: [], metrics: { clients: 0, outputs: {} } };
+  let replaceCount = 0;
+  let importStarted = false;
+  let finishImport = null;
+  let bridge = null;
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    const mediaLibrary = {
+      importFiles() {
+        importStarted = true;
+        return new Promise((resolve) => { finishImport = resolve; });
+      },
+      getAllFiles: () => [{ id: "media/a.png", file: { name: "a.png" } }],
+    };
+    const store = {
+      getState: () => state,
+      getMetrics: () => state.metrics,
+      updateRuntime() {},
+      replace(next) {
+        replaceCount++;
+        state = next;
+      },
+    };
+    bridge = createControlBridge({ store, mediaLibrary });
+    channel.onmessage({ data: {
+      type: "recovery-state",
+      state: {
+        project: { folderName: "show" },
+        components: [{ id: "component-a", thumbnail: "blob:output" }],
+        metrics: { clients: 0, outputs: {} },
+      },
+      files: [{ id: "media/a.png", file: { name: "a.png" } }],
+    } });
+
+    assert.equal(state.project.folderName, "show");
+    assert.equal(state.components[0].thumbnail, "");
+    assert.equal(importStarted, false, "media recovery must not hold the state publication task open");
+
+    // Simulate the stored-folder path hydrating the authoritative thumbnail
+    // while the deferred recovery media import is pending.
+    state = {
+      ...state,
+      components: [{ id: "component-a", thumbnail: "blob:folder-thumbnail" }],
+    };
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.equal(importStarted, true);
+    finishImport({ media: [], shaders: [] });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(replaceCount, 1, "media completion must not perform a second recovery replace");
+    assert.equal(state.components[0].thumbnail, "blob:folder-thumbnail");
+    assert.equal(messages.some((message) => message.type === "media-files"), true);
+  } finally {
+    bridge?.close();
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("output recovery sends lightweight state before its media snapshot", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let bridge = null;
+  globalThis.BroadcastChannel = class {
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    bridge = createOutputBridge({ mode: "output", outputId: "main" });
+    const files = [{ id: "media/a.png", file: { name: "a.png" } }];
+    bridge.recoveryState({ project: { folderName: "show" }, components: [] }, files);
+
+    const stateMessage = messages.find((message) => message.type === "recovery-state");
+    assert.ok(stateMessage);
+    assert.equal("files" in stateMessage, false);
+    assert.equal(stateMessage.state.project.folderName, "show");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const mediaMessage = messages.find((message) => message.type === "recovery-media-files");
+    assert.deepEqual(mediaMessage.files, files);
+    assert.equal(mediaMessage.folderName, "show");
+    assert.equal(mediaMessage.recoveryId, stateMessage.recoveryId);
+  } finally {
+    bridge?.close();
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
     else globalThis.BroadcastChannel = previousBroadcastChannel;
   }

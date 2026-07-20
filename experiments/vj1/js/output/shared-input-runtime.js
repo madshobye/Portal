@@ -117,8 +117,8 @@ export function cameraCaptureSettings(render = {}) {
   const frame = frameSize(render);
   const camera = render?.camera || {};
   return {
-    width: Math.max(160, Math.min(7680, Math.floor(Number(camera.width) || frame.width))),
-    height: Math.max(120, Math.min(4320, Math.floor(Number(camera.height) || frame.height))),
+    width: Math.max(160, Math.min(7680, Math.floor(frame.width))),
+    height: Math.max(120, Math.min(4320, Math.floor(frame.height))),
     front: camera.facingMode !== "environment",
     mirrored: camera.mirrored === true,
     maxResolution: camera.maxResolution === true,

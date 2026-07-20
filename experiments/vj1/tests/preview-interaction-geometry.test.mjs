@@ -9,9 +9,36 @@ import {
   hitTestChainItems,
   isPhysicalChainItem,
   logicalPixelsPerCssPixel,
+  pointInOrientedRect,
   resolveChainTransformDrag,
+  transformedRectVisibleRegion,
   transformHandleLayout,
 } from "../js/output/preview-interaction-geometry.js";
+
+test("a transformed Component reference exposes only the source window visible through a regional Canvas", () => {
+  const region = transformedRectVisibleRegion(
+    { x: 0, y: 0, width: 1000, height: 500 },
+    { x: 0, y: 0, width: 1000, height: 500 },
+    {},
+    { x: 250, y: 0, width: 500, height: 500 }
+  );
+
+  assert.deepEqual(region.uvRect, [0.25, 0, 0.5, 1]);
+  assert.deepEqual(region.destinationRect, { x: 250, y: 0, width: 500, height: 500 });
+  assert.deepEqual(region.visibleBounds, { x: 250, y: 0, width: 500, height: 500 });
+});
+
+test("regional Component windows invert scale before calculating source UVs", () => {
+  const region = transformedRectVisibleRegion(
+    { x: 0, y: 0, width: 1000, height: 500 },
+    { x: 0, y: 0, width: 1000, height: 500 },
+    { scale: 2 },
+    { x: 0, y: 0, width: 1000, height: 500 }
+  );
+
+  assert.deepEqual(region.uvRect, [0.25, 0.25, 0.5, 0.5]);
+  assert.deepEqual(region.destinationRect, { x: 250, y: 125, width: 500, height: 250 });
+});
 
 test("spatial effects participate in the same preview handle contract as sources", () => {
   assert.equal(isPhysicalChainItem({ kind: "effect", componentId: "alphaVignette" }), true);
@@ -36,6 +63,18 @@ test("preview hit policy returns the containing group for nested physical childr
   assert.equal(hit, group);
   group.enabled = false;
   assert.equal(hitTestChainItems({ chain: [group], component: {}, frame, x: 50, y: 50 }), null);
+});
+
+test("oriented boundary picking rejects points inside only the rotated AABB", () => {
+  const boundary = {
+    centerX: 100,
+    centerY: 100,
+    width: 120,
+    height: 30,
+    rotation: Math.PI / 4,
+  };
+  assert.equal(pointInOrientedRect(125, 125, boundary), true);
+  assert.equal(pointInOrientedRect(145, 80, boundary), false);
 });
 
 test("move scale and rotation drag calculations live outside the renderer", () => {

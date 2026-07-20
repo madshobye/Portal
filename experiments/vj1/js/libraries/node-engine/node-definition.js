@@ -58,6 +58,7 @@ export function defineNode(definition = {}) {
     workload: Object.values(NODE_EXECUTION_CLASSES).includes(definition.execution?.workload)
       ? definition.execution.workload
       : NODE_EXECUTION_CLASSES.INTERACTIVE,
+    roi: normalizeRoiPolicy(definition.execution?.roi, definition.execution?.stateful === true),
   });
 
   return Object.freeze({
@@ -87,6 +88,18 @@ export function defineNode(definition = {}) {
     // Like bindings, function objects are deliberately never serialized.
     moduleExports: freezeRecord(definition.moduleExports || {}),
     metadata: freezeRecord(definition.metadata || {}),
+  });
+}
+
+function normalizeRoiPolicy(value, stateful = false) {
+  const source = typeof value === "string" ? { mode: value } : value || {};
+  const mode = ["local", "neighborhood", "full-frame"].includes(source.mode)
+    ? source.mode
+    : stateful ? "full-frame" : "local";
+  return freezeRecord({
+    mode,
+    halo: positiveNumberOrZero(source.halo),
+    coordinateSpace: source.coordinateSpace === "full-frame" ? "full-frame" : "boundary",
   });
 }
 

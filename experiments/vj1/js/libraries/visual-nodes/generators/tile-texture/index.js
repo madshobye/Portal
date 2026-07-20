@@ -5,7 +5,7 @@ import {
   tileTextureNodeModuleParts,
   tileTextureNodeProcess,
   TileTextureNodeModuleExports,
-} from "./runtime.js";
+} from "./runtime.js?v=source-roi-view-3";
 
 const manifest = Object.freeze({
     id: "tileTexture",

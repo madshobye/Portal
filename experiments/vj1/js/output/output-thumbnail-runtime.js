@@ -298,11 +298,10 @@ function canvasFrameCrop(output, render, frames, frameId) {
   if (!frame) return null;
   const sourceWidth = Math.max(1, Number(output?.width || output?.canvas?.width) || 1);
   const sourceHeight = Math.max(1, Number(output?.height || output?.canvas?.height) || 1);
-  const { width: logicalWidth, height: logicalHeight } = canvasFrameSize(render);
   return {
-    x: Number(frame.x) * sourceWidth / logicalWidth,
-    y: Number(frame.y) * sourceHeight / logicalHeight,
-    width: Math.max(1, Number(frame.width) * sourceWidth / logicalWidth),
-    height: Math.max(1, Number(frame.height) * sourceHeight / logicalHeight),
+    x: Number(frame.x) * sourceWidth,
+    y: Number(frame.y) * sourceHeight,
+    width: Math.max(1, Number(frame.width) * sourceWidth),
+    height: Math.max(1, Number(frame.height) * sourceHeight),
   };
 }

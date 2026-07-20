@@ -1,5 +1,6 @@
 import { VJ1 } from "../constants.js";
-import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
+import { componentFrameSize } from "../domain/render-settings.js";
+import { normalizeAspectRatio } from "../libraries/render-engine/relative-geometry.js";
 
 export const SURFACE_DEMAND_OVERSCAN = 1;
 export const RECORDING_FRAME_DEMAND_SCALE = 1;
@@ -9,40 +10,24 @@ export function outputDefinitions(render = {}) {
     return render.outputs.map((output, index) => ({
       id: String(output.id || (index === 0 ? "output-main" : `output-${index + 1}`)),
       name: output.name || (index === 0 ? "Main output" : `Output ${index + 1}`),
-      width: positiveInt(output.width, VJ1.renderWidth, 1),
-      height: positiveInt(output.height, VJ1.renderHeight, 1),
+      aspectRatio: normalizeAspectRatio(output.aspectRatio, VJ1.renderWidth / VJ1.renderHeight),
     }));
   }
   return [{
     id: "output-main",
     name: "Main output",
-    width: positiveInt(render.frameWidth ?? render.width, VJ1.renderWidth, 1),
-    height: positiveInt(render.frameHeight ?? render.height, VJ1.renderHeight, 1),
+    aspectRatio: VJ1.renderWidth / VJ1.renderHeight,
   }];
 }
 
 export function frameSize(render = {}, outputId = "") {
   const outputs = outputDefinitions(render);
   const output = outputs.find((item) => item.id === outputId) || outputs[0];
-  return {
-    width: output.width,
-    height: output.height,
-  };
+  return containedAspectSize(hostViewportSize(render), output.aspectRatio);
 }
 
 export function worldSize(render = {}) {
-  const frame = frameSize(render);
-  const outputs = outputDefinitions(render);
-  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0);
-  const contentHeight = Math.max(...outputs.map((output) => output.height));
-  const fallbackWidth = contentWidth + Math.round(
-    Math.max(...outputs.map((output) => output.width)) * VJ1.outputWorldMarginRatio * 2
-  );
-  const fallbackHeight = Math.round(contentHeight * (1 + VJ1.outputWorldMarginRatio * 2));
-  return {
-    width: Math.max(frame.width, positiveInt(render.worldWidth, fallbackWidth, 1)),
-    height: Math.max(frame.height, positiveInt(render.worldHeight, fallbackHeight, 1)),
-  };
+  return hostViewportSize(render);
 }
 
 export function frameRenderRequest(render = {}, meta = {}) {
@@ -68,6 +53,33 @@ export function renderRequestKey(request = {}) {
   const requestInstance = request.renderIdentity ?? request.instanceId ?? "";
   const instance = requestInstance ? `:${requestInstance}` : "";
   return `${role}:${width}x${height}${instance}`;
+}
+
+// Resource identity deliberately stays size-based in renderRequestKey so a
+// moving crop can reuse its target. Evaluation identity must additionally
+// include the logical view: two equal-size ROIs can expose different parts of
+// one boundary and therefore cannot share rendered pixels.
+export function renderRequestStateKey(request = {}) {
+  const logicalWidth = Math.max(1, Number(request.logicalWidth) || Number(request.width) || 1);
+  const logicalHeight = Math.max(1, Number(request.logicalHeight) || Number(request.height) || 1);
+  const uv = Array.isArray(request.uvRect) && request.uvRect.length >= 4
+    ? request.uvRect.map((value) => Math.round((Number(value) || 0) * 1e6) / 1e6)
+    : [0, 0, 1, 1];
+  return `${renderRequestKey(request)}:${logicalWidth}x${logicalHeight}:${uv.join(",")}`;
+}
+
+// An immutable node produces the same pixels for every async placement. Strip
+// only placement identity so those nodes can share a retained target while the
+// first time/instance-dependent node and all of its descendants remain forked.
+// Dimensions and logical ROI stay in the request, so differently sized or
+// cropped instances never alias one another.
+export function instanceInvariantRenderRequest(request = {}) {
+  if (!(request.renderIdentity ?? request.instanceId ?? "")) return request;
+  return {
+    ...request,
+    renderIdentity: "",
+    instanceId: "",
+  };
 }
 
 export function mappedSurfaceSize(corners = []) {
@@ -154,9 +166,17 @@ export function sourceRenderDemand({
   const effectiveScale = Math.min(rasterSize.width / logicalWidth, rasterSize.height / logicalHeight);
   const maxSurfaceWidth = Math.max(1, Number(maxSurfaceSize.width) || rect.width);
   const maxSurfaceHeight = Math.max(1, Number(maxSurfaceSize.height) || rect.height);
+  // A recording-frame region can render directly at its mapped footprint.
+  // Do not derive that target from the shared full-Canvas request: a small
+  // frame would otherwise retain only its tiny share of those pixels and be
+  // enlarged into a visibly soft full-screen surface.
+  const regionalScale = Math.max(
+    1 / Math.max(rect.width, rect.height),
+    Math.min(desiredScale, maxSurfaceWidth / rect.width, maxSurfaceHeight / rect.height)
+  );
   const surfaceSize = {
-    width: quantizedDemandInt(rect.width * effectiveScale, maxSurfaceWidth),
-    height: quantizedDemandInt(rect.height * effectiveScale, maxSurfaceHeight),
+    width: quantizedDemandInt(rect.width * regionalScale, maxSurfaceWidth),
+    height: quantizedDemandInt(rect.height * regionalScale, maxSurfaceHeight),
   };
   return { footprint, demandFootprint, logicalSize: { width: logicalWidth, height: logicalHeight }, sampleRect: rect, rasterScale: effectiveScale, rasterSize, surfaceSize };
 }
@@ -174,16 +194,24 @@ export function outputFrameOffset(render = {}) {
 export function outputFrames(render = {}) {
   const outputs = outputDefinitions(render);
   const world = worldSize(render);
-  const gap = 0;
-  const contentWidth = outputs.reduce((sum, output) => sum + output.width, 0) + gap * Math.max(0, outputs.length - 1);
-  let x = Math.max(0, (world.width - contentWidth) * 0.5);
+  const marginX = world.width * VJ1.outputWorldMarginRatio;
+  const marginY = world.height * VJ1.outputWorldMarginRatio;
+  const availableWidth = Math.max(1, world.width - marginX * 2);
+  const availableHeight = Math.max(1, world.height - marginY * 2);
+  const aspectSum = outputs.reduce((sum, output) => sum + output.aspectRatio, 0);
+  const commonHeight = Math.min(availableHeight, availableWidth / Math.max(0.05, aspectSum));
+  const contentWidth = commonHeight * aspectSum;
+  let x = (world.width - contentWidth) * 0.5;
   return outputs.map((output) => {
+    const width = commonHeight * output.aspectRatio;
     const frame = {
       ...output,
       x,
-      y: Math.max(0, (world.height - output.height) * 0.5),
+      y: (world.height - commonHeight) * 0.5,
+      width,
+      height: commonHeight,
     };
-    x += output.width + gap;
+    x += width;
     return frame;
   });
 }
@@ -205,9 +233,12 @@ export function outputSpanRect(render = {}, outputIds = []) {
 }
 
 export function defaultProjectSurfaceMapping(render = {}, surfaces = []) {
-  const frame = frameSize(render);
-  const offset = outputFrameOffset(render);
-  const texture = componentTextureSize(render);
+  // Default mappings live in the shared preview world, so both their extent
+  // and origin must come from the same world-frame calculation. frameSize()
+  // describes a standalone host and can be larger than this preview frame.
+  const frame = outputFrames(render)[0] || { ...frameSize(render), x: 0, y: 0 };
+  const offset = { x: frame.x || 0, y: frame.y || 0 };
+  const texture = componentFrameSize(render);
   const surfaceList = Array.isArray(surfaces) ? surfaces : [];
   const cols = Math.max(1, Math.ceil(Math.sqrt(surfaceList.length || 1)));
   const rows = Math.max(1, Math.ceil((surfaceList.length || 1) / cols));
@@ -257,6 +288,23 @@ function positiveInt(value, fallback, min = 1) {
   const number = Math.round(Number(value));
   if (!Number.isFinite(number)) return fallback;
   return Math.max(min, number);
+}
+
+function hostViewportSize(render = {}) {
+  const host = render.hostViewport || {};
+  return {
+    width: positiveInt(host.width, VJ1.renderWidth, 1),
+    height: positiveInt(host.height, VJ1.renderHeight, 1),
+  };
+}
+
+function containedAspectSize(container = {}, aspectRatio = VJ1.renderWidth / VJ1.renderHeight) {
+  const width = Math.max(1, Number(container.width) || VJ1.renderWidth);
+  const height = Math.max(1, Number(container.height) || VJ1.renderHeight);
+  const aspect = normalizeAspectRatio(aspectRatio);
+  return width / height > aspect
+    ? { width: Math.max(1, Math.round(height * aspect)), height: Math.round(height) }
+    : { width: Math.round(width), height: Math.max(1, Math.round(width / aspect)) };
 }
 
 function quantizedDemandInt(value, max) {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import {
+  applyModelViewportProjection,
   modelCameraFov,
   modelDepthCutoff,
   modelImportBasis,
@@ -27,8 +28,11 @@ test("specialized model math owns viewport rotation depth and matrix calculation
   assert.deepEqual(viewport, {
     width: 320,
     height: 200,
+    renderWidth: 320,
+    renderHeight: 200,
     logicalWidth: 640,
     logicalHeight: 400,
+    uvRect: [0, 0, 1, 1],
     cameraZ: 184,
     unitScale: 1.3,
   });
@@ -51,6 +55,31 @@ test("specialized model math owns viewport rotation depth and matrix calculation
   assert.match(renderer, /from "\.\.\/libraries\/mesh-engine\/mesh-render-math\.js"/);
   assert.doesNotMatch(renderer, /function rawModelMatrices\(/);
   assert.doesNotMatch(renderer, /function transformedModelDepthRange\(/);
+});
+
+test("model ROI keeps the full boundary camera and uses an off-axis projection", () => {
+  const viewport = modelViewportMetrics(
+    { width: 200, height: 100 },
+    { width: 200, height: 100, logicalWidth: 400, logicalHeight: 100, uvRect: [0.5, 0, 0.5, 1] }
+  );
+  assert.equal(viewport.width, 400);
+  assert.equal(viewport.height, 100);
+  assert.equal(viewport.renderWidth, 200);
+  assert.equal(viewport.cameraZ, 92);
+
+  let frustum = null;
+  let perspectiveCalls = 0;
+  applyModelViewportProjection({
+    frustum: (...args) => { frustum = args; },
+    perspective: () => perspectiveCalls++,
+  }, Math.PI / 3, viewport);
+  assert.ok(frustum);
+  assert.equal(perspectiveCalls, 0);
+  assert.ok(frustum[0] >= 0, "right-half ROI starts at the full projection center");
+  assert.ok(frustum[1] > frustum[0]);
+
+  const matrices = rawModelMatrices(400, 100, 1, 1, [0, 0, 0], {}, Math.PI / 3, [0.5, 0, 0.5, 1]);
+  assert.ok(Math.abs(matrices.mvp[12] / matrices.mvp[15] + 1) < 1e-6, "full-boundary center maps to the ROI's left edge");
 });
 
 test("specialized model mesh cache owns bounded point and wire extraction", () => {
@@ -104,7 +133,7 @@ test("raw model WebGL programs and context resources live outside the output orc
   const rawModelRenderer = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
 
   assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
-  assert.match(specializedRuntime, /from "\.\.\/\.\.\/libraries\/mesh-engine\/mesh-render\/index\.js"/);
+  assert.match(specializedRuntime, /from "\.\.\/\.\.\/libraries\/mesh-engine\/mesh-render\/index\.js(?:\?v=[^"]+)?"/);
   assert.match(specializedRuntime, /Intentional allocation-stable fast path/);
   assert.doesNotMatch(specializedRuntime, /new NodeInstance\(/);
   assert.match(rawModelRenderer, /export const MeshRenderNode = defineNode\(/);

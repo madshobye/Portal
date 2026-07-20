@@ -1,4 +1,4 @@
-import { createOutputDefinition, normalizeRenderSettings, scaleRecordingFramesToCanvasSize } from "../domain/render-settings.js?v=screen-input-registry-1";
+import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
@@ -325,7 +325,6 @@ export function createModalController({
       });
     });
     bindOnce(host, "[data-render-preset]", (button) => applyRenderPreset(button.dataset.renderPreset));
-    bindOnce(host, "[data-camera-preset]", (button) => applyCameraPreset(button.dataset.cameraPreset));
     bindOnce(host, "[data-start-screen-capture]", startConfiguredScreenCapture);
     bindOnce(host, "[data-stop-screen-capture]", () => stopScreenCapture());
     bindScreenCaptureInputs(host);
@@ -410,11 +409,6 @@ export function createModalController({
     setText(modal.querySelector("[data-upscaling-amount-label]"), `${Math.round(renderSettings.upscaling.amount * 100)}%`);
     setText(modal.querySelector("[data-grayscale-amount-label]"), `${Math.round(renderSettings.postProcessing.grayscaleAmount * 100)}%`);
     setText(modal.querySelector("[data-noise-amount-label]"), `${Math.round(renderSettings.postProcessing.noiseAmount * 1000) / 10}%`);
-    const manualSurfaceTexture = renderSettings.surfaceTexture.mode === "manual";
-    modal.querySelectorAll("[data-manual-surface-texture]").forEach((element) => {
-      element.hidden = !manualSurfaceTexture;
-      element.querySelectorAll("input").forEach((input) => { input.disabled = !manualSurfaceTexture; });
-    });
     syncScreenCaptureStatus(host);
     applySettingsTab(host);
   }
@@ -569,55 +563,36 @@ export function createModalController({
 
   function updateRenderSetting(input, reason) {
     store.update((draft) => {
-      const previousRender = normalizeRenderSettings(draft.render);
       setByPath(draft, input.dataset.settingsUpdate, readInputValue(input));
       draft.render = normalizeRenderSettings(draft.render);
-      if (input.dataset.settingsUpdate.startsWith("render.canvasSize.")) {
-        draft.recordingFrames = scaleRecordingFramesToCanvasSize(
-          draft.recordingFrames,
-          previousRender.canvasSize,
-          draft.render.canvasSize
-        );
-      }
-      scaleMappingForRenderChange(draft, previousRender, draft.render);
     }, reason);
     syncSettingsModal(getHost(), store.getState());
   }
 
   function applyRenderPreset(preset) {
     const presets = {
-      wide: [960, 540], xga: [1024, 768], wxga: [1280, 800], hd: [1280, 720],
-      fhd: [1920, 1080], wuxga: [1920, 1200], "2k": [2048, 1080], "4k": [3840, 2160],
+      "16:9": 16 / 9,
+      "4:3": 4 / 3,
+      "16:10": 16 / 10,
+      "1:1": 1,
+      "9:16": 9 / 16,
     };
-    const [frameWidth, frameHeight] = presets[preset] || presets.wide;
+    const aspectRatio = presets[preset] || presets["16:9"];
     store.update((draft) => {
-      const previousRender = normalizeRenderSettings(draft.render);
       draft.render = normalizeRenderSettings({
         ...draft.render,
-        outputs: (draft.render.outputs || []).map((output, index) => index === 0 ? { ...output, width: frameWidth, height: frameHeight } : output),
+        outputs: (draft.render.outputs || []).map((output, index) => index === 0 ? { ...output, aspectRatio } : output),
       });
-      scaleMappingForRenderChange(draft, previousRender, draft.render);
     }, "render-preset");
   }
 
   function addConfiguredOutput() {
     store.update((draft) => {
       const previousRender = normalizeRenderSettings(draft.render);
-      const output = createOutputDefinition(previousRender.outputs.length, previousRender.frameWidth, previousRender.frameHeight);
+      const output = createOutputDefinition(previousRender.outputs.length, previousRender.outputs[0]?.aspectRatio);
       if (previousRender.outputs.some((item) => item.id === output.id)) output.id = `output-${Date.now().toString(36)}`;
       draft.render = normalizeRenderSettings({ ...previousRender, outputs: [...previousRender.outputs, output] });
     }, "add-output");
-  }
-
-  function applyCameraPreset(preset) {
-    const size = { sd: [640, 480], hd: [1280, 720], fhd: [1920, 1080], "4k": [3840, 2160] }[preset];
-    if (!size) return;
-    store.update((draft) => {
-      draft.render = normalizeRenderSettings({
-        ...draft.render,
-        camera: { ...draft.render?.camera, width: size[0], height: size[1], maxResolution: false },
-      });
-    }, "camera-preset");
   }
 
   function removeConfiguredOutput(outputId) {
@@ -635,21 +610,9 @@ export function createModalController({
 }
 
 export function scaleMappingForRenderChange(draft, previousRender, nextRender) {
-  const previous = normalizeRenderSettings(previousRender);
-  const next = normalizeRenderSettings(nextRender);
-  const scaleX = next.worldWidth / Math.max(1, previous.worldWidth);
-  const scaleY = next.worldHeight / Math.max(1, previous.worldHeight);
-  if (!Number.isFinite(scaleX) || !Number.isFinite(scaleY)) return;
-  if (Math.abs(scaleX - 1) < 0.0001 && Math.abs(scaleY - 1) < 0.0001) return;
-  const mapping = draft.mappings?.local;
-  if (!Array.isArray(mapping?.surfaces)) return;
-  for (const mappedSurface of mapping.surfaces) {
-    if (!Array.isArray(mappedSurface.corners)) continue;
-    mappedSurface.corners = mappedSurface.corners.map((corner) => ({
-      x: Math.round((Number(corner.x) || 0) * scaleX * 1000) / 1000,
-      y: Math.round((Number(corner.y) || 0) * scaleY * 1000) / 1000,
-    }));
-  }
+  // v25 mappings are relative to the output world and therefore remain valid
+  // when either the host size or an authored proportion changes.
+  return draft;
 }
 
 function normalizeSearchText(value) {

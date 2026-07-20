@@ -9,7 +9,7 @@ import { createInitialState } from "../js/domain/models.js";
 import { previewFitSignature, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
 import { isPointerInteractionNode, rememberScrollPositions, restoreScrollPositions } from "../js/control/dom-utils.js";
 import { scrollRegionTemplate } from "../js/control/view-primitives.js";
-import { applyOptimisticToggleIntent } from "../js/control/input-controller.js";
+import { applyOptimisticToggleIntent, boundaryFromScaleInput, isBoundaryScaleInput } from "../js/control/input-controller.js";
 import { activeRenderCost, activeWorkMetric, performanceHealthStep, rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
 import { mediaSourceParams } from "../js/control/source-control-schema.js";
 
@@ -295,10 +295,26 @@ test("all renderable chain elements expose shared quality opacity blend and plac
   assert.ok(parameterSource.includes("[RENDER_QUALITY_PARAM, ...CHAIN_GENERAL_PARAMS]"));
   assert.ok(parameterSource.includes("chainRenderQualityTarget(item, basePath)"));
   assert.ok(parameterSource.includes('{ id: "general", label: "General", html: general }'));
+  assert.ok(parameterSource.includes('createNumberParam("x", "Boundary X"'));
+  assert.ok(parameterSource.includes('createNumberParam("y", "Boundary Y"'));
+  assert.ok(parameterSource.includes('createNumberParam("scale", "Boundary scale"'));
+  assert.ok(parameterSource.includes('createNumberParam("rotation", "Boundary rotation"'));
+  assert.equal(parameterSource.includes('"Content rotation"'), false);
+  assert.equal(parameterSource.includes('"Boundary width"'), false);
+  assert.equal(parameterSource.includes('"Boundary height"'), false);
   assert.ok(componentSource.includes("chainGeneralControlsTemplate(item, base"));
   assert.ok(sceneLiveSource.includes("chainGeneralControlsTemplate(item, path"));
   assert.doesNotMatch(componentSource, /rangeTemplate\("Alpha", `\$\{base\}\.opacity`/);
   assert.doesNotMatch(sceneLiveSource, /liveRangeTemplate\("Alpha", componentId, `\$\{path\}\.opacity`/);
+});
+
+test("boundary scale controls write one aspect-preserving ROI change", () => {
+  const input = { dataset: { boundaryWidth: "0.8", boundaryHeight: "0.4" } };
+  assert.equal(isBoundaryScaleInput(input, "components.0.chain.0.boundary.scale"), true);
+  assert.deepEqual(boundaryFromScaleInput(input, Math.sqrt(0.32) * 2), {
+    width: 1.6,
+    height: 0.8,
+  });
 });
 
 test("paired HSV ranges render two accessible handles and shared range state", () => {
@@ -655,7 +671,7 @@ test("Live parameter commits preserve inspector DOM identity and preview-owned d
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.match(source, /if \(reason === "live:update"\) \{[\s\S]*?updatePreviewState\(state\);[\s\S]*?return;/);
-  assert.match(source, /reason !== "scrub:chain-transform" && reason !== "scrub:canvas-frame"/);
+  assert.match(source, /reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:canvas-frame"/);
 });
 
 test("Live source labels clip before their visibility control and General remains selectable", () => {
@@ -729,10 +745,10 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   assert.ok(componentSource.includes('if (item.source?.type === "component") return sourceTitle'));
   assert.ok(source.includes("data-preview-quality"));
   assert.ok(source.includes("data-preview-quality-label"));
-  assert.ok(source.includes('quality === "auto" ? "low" : quality === "low" ? "full" : "auto"'));
-  assert.ok(source.includes("internal Canvas raster follows the visible preview size"));
-  assert.ok(source.includes('workspace === "scene" || workspace === "live"'));
-  assert.ok(source.includes("draft.ui.previewQualities[workspace]"));
+  assert.ok(source.includes('quality === "auto" ? "good" : quality === "good" ? "low" : "auto"'));
+  assert.ok(source.includes("matches the display's native density"));
+  assert.ok(source.includes('["component", "canvas", "scene", "live"].includes(workspace)'));
+  assert.ok(source.includes("draft.ui.previewQuality = nextPreviewQuality"));
   assert.ok(!source.includes('data-update="${base}.canvas.previewQuality"'));
   assert.ok(source.includes("data-add-canvas-frame"));
   assert.ok(inputSource.includes("data-set-route-source-node"));
@@ -750,11 +766,12 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   assert.ok(!source.includes('data-update="${base}.x"'));
 });
 
-test("Scene and Live preview resolution supports automatic low and full demand", () => {
+test("all embedded previews share automatic, native-density Good, and reduced Low demand", () => {
   const options = { configuredDensity: 1.5, displayScale: 0.5, deviceScale: 2 };
   assert.equal(previewRasterDensity({ ...options, quality: "auto" }), 1);
   assert.equal(previewRasterDensity({ ...options, quality: "low" }), 0.5);
-  assert.equal(previewRasterDensity({ ...options, quality: "full" }), 1.5);
+  assert.equal(previewRasterDensity({ ...options, quality: "good" }), 2);
+  assert.equal(previewRasterDensity({ ...options, quality: "high" }), 1);
 });
 
 test("preview resolution controls reserve invariant space while labels and metrics change", () => {
@@ -816,11 +833,11 @@ test("preview fitting is invalidated only by layout viewport or output geometry"
     size: { width: 900, height: 600 },
     logical: { width: 1920, height: 1080 },
     viewport: { fit: "manual", zoom: 1.2, x: 4, y: 8 },
-    render: { outputs: [{ id: "main", width: 1920, height: 1080 }] },
+    render: { outputs: [{ id: "main", aspectRatio: 16 / 9 }] },
   };
   assert.equal(previewFitSignature(base), previewFitSignature({ ...base, unrelatedRenderState: { slider: 0.5 } }));
   assert.notEqual(previewFitSignature(base), previewFitSignature({ ...base, viewport: { ...base.viewport, zoom: 1.3 } }));
-  assert.notEqual(previewFitSignature(base), previewFitSignature({ ...base, render: { outputs: [{ id: "main", width: 1280, height: 720 }] } }));
+  assert.notEqual(previewFitSignature(base), previewFitSignature({ ...base, render: { outputs: [{ id: "main", aspectRatio: 4 / 3 }] } }));
 });
 
 test("Live preview holds a new Scene and retimes its transition until media preparation completes", () => {
@@ -883,36 +900,37 @@ test("project settings expose component upscaling and native-resolution post fil
   assert.ok(controllerSource.includes("These filters run at the component’s full target resolution after upscaling."));
 });
 
-test("project settings expose one adaptive surface texture policy", () => {
+test("project settings expose proportions, an adaptive ceiling, and no authored pixel dimensions", () => {
   const source = settingsModalTemplate(createInitialState());
-  assert.ok(source.includes('data-settings-update="render.componentTexture.width"'));
-  assert.ok(source.includes('data-settings-update="render.componentTexture.height"'));
-  assert.ok(source.includes('data-settings-update="render.surfaceTexture.mode"'));
-  assert.ok(source.includes('data-settings-update="render.surfaceTexture.maxWidth"'));
-  assert.ok(source.includes('data-settings-update="render.surfaceTexture.maxHeight"'));
+  assert.ok(source.includes('data-settings-update="render.canvasAspectRatio"'));
+  assert.ok(source.includes('data-settings-update="render.componentAspectRatio"'));
+  assert.ok(source.includes('data-settings-update="render.resolutionCeiling"'));
   assert.ok(source.includes('data-settings-update="render.sampling.surfaceOverscan"'));
   assert.ok(source.includes('data-settings-update="render.sampling.recordingFrameScale"'));
   assert.ok(source.includes('data-settings-update="render.sampling.limitCanvasToLogicalSize"'));
   assert.equal(source.includes('data-settings-update="render.edgeSoftness"'), false);
-  assert.ok(source.includes("Auto · projected pixel demand"));
-  assert.ok(source.includes("it never changes component dimensions"));
+  assert.ok(source.includes("Auto · current window"));
+  assert.ok(source.includes("without authoring a width and height"));
+  assert.ok(!source.includes("render.componentTexture"));
+  assert.ok(!source.includes("render.surfaceTexture"));
   assert.ok(!source.includes('data-settings-update="render.surfaceWidth"'));
   assert.ok(!source.includes('data-settings-update="render.surfaceHeight"'));
 });
 
-test("project settings expose common WXGA and WUXGA projector presets", () => {
+test("project settings expose proportion presets instead of projector pixel presets", () => {
   const source = `${readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8")}\n${settingsModalTemplate(createInitialState())}`;
-  assert.ok(source.includes('data-render-preset="wxga" title="1280 x 800"'));
-  assert.ok(source.includes('data-render-preset="wuxga" title="1920 x 1200"'));
-  assert.ok(source.includes("wxga: [1280, 800]"));
-  assert.ok(source.includes("wuxga: [1920, 1200]"));
+  for (const ratio of ["16:9", "4:3", "16:10", "1:1", "9:16"]) {
+    assert.ok(source.includes(`data-render-preset="${ratio}"`));
+  }
+  assert.ok(!source.includes("wxga"));
+  assert.ok(!source.includes("wuxga"));
 });
 
 test("project settings expose camera capture preferences", () => {
   const source = settingsModalTemplate(createInitialState(), "camera");
-  assert.ok(source.includes("data-camera-preset"));
-  assert.ok(source.includes('data-settings-update="render.camera.width"'));
-  assert.ok(source.includes('data-settings-update="render.camera.height"'));
+  assert.ok(!source.includes("data-camera-preset"));
+  assert.ok(!source.includes('data-settings-update="render.camera.width"'));
+  assert.ok(!source.includes('data-settings-update="render.camera.height"'));
   assert.ok(source.includes('data-settings-update="render.camera.facingMode"'));
   assert.ok(source.includes('data-settings-update="render.camera.mirrored"'));
   assert.ok(source.includes('data-settings-update="render.camera.maxResolution"'));
@@ -984,7 +1002,7 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(!previewSource.includes('outputWindowOpen && pendingState?.ui?.workspace !== "live"'));
   assert.ok(previewSource.includes('renderer.setState(previewSizedState(), { normalized: true });'));
   assert.ok(rendererSource.includes('setState(nextState, { normalized = false } = {})'));
-  assert.ok(outputSource.includes('renderer?.setState(state, { normalized: true });'));
+  assert.ok(outputSource.includes('renderer?.setState(runtimeState, { normalized: true });'));
   assert.ok(outputSource.includes("renderer.applyLivePatches(patches)"));
   assert.ok(previewSource.includes("renderer?.applyLivePatches(patches)"));
 });
@@ -1030,8 +1048,20 @@ test("multiple configured outputs have individual popup actions", () => {
   assert.ok(!controllerSource.includes("data-open-all-outputs"));
   assert.ok(controllerSource.includes("outputs.length === 1"));
   assert.ok(controllerSource.includes("dataset.outputsSignature"));
-  assert.ok(settingsHtml.includes("render.outputs.0.width"));
+  assert.ok(settingsHtml.includes("render.outputs.0.aspectRatio"));
   assert.ok(settingsHtml.includes("data-add-output"));
+});
+
+test("the debug button controls only the DOM output HUD, never surface labels", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.ok(shellSource.includes('id="toggle-output-hud"'));
+  assert.ok(controllerSource.includes('draft.global.showHud = draft.global.showHud === false'));
+  assert.ok(rendererSource.includes('this.hud.classList.toggle("is-hidden", !this.state.global.showHud)'));
+  assert.ok(rendererSource.includes("this.renderResolutionLabel()"));
+  assert.ok(!rendererSource.includes("renderOutputFrameOverlay"));
+  assert.ok(!controllerSource.includes("showLabels"));
 });
 
 test("topbar combines renderer health and fixed-width output fps", () => {
@@ -1081,7 +1111,7 @@ test("topbar combines renderer health and fixed-width output fps", () => {
   assert.ok(gpuTimerSource.includes('getExtension("EXT_disjoint_timer_query")'));
   assert.ok(rendererSource.includes("this.pruneRenderCaches();\n    this.gpuTimer.sealFrame"));
   assert.ok(rendererSource.includes("gpuSupported: this.gpuTimer.supported"));
-  assert.ok(previewSource.includes("draft.metrics.previewGpuMs = metrics.gpuMs || 0"));
+  assert.ok(previewSource.includes("runtimeMetrics.previewGpuMs = metrics.gpuMs || 0"));
   assert.ok(shellSource.includes('id="performance-summary"'));
   assert.ok(shellSource.includes('id="performance-analyze"'));
   assert.ok(performanceSessionSource.includes("DEFAULT_DURATION_MS = 10000"));
@@ -1419,4 +1449,12 @@ test("global selection supports cut and guarded delete shortcuts", () => {
   assert.ok(source.includes("writeClipboardPayload(event, payload)"));
   assert.ok(source.includes('event.key !== "Delete" && event.key !== "Backspace"'));
   assert.ok(source.includes("store.removeChainItem?.(value.componentId, value.itemId)"));
+});
+
+test("periodic preview metrics update only runtime state", () => {
+  const source = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  const metricsPath = source.slice(source.indexOf("function updateMetrics("), source.indexOf("function updateMapping("));
+
+  assert.ok(metricsPath.includes("store.updateRuntime((runtimeMetrics)"));
+  assert.ok(!metricsPath.includes("store.updateDerived("));
 });

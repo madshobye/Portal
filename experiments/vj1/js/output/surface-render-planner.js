@@ -1,4 +1,4 @@
-import { manualSurfaceTextureLimit } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
+import { surfaceTextureCeiling } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
 import {
   componentRenderInstanceKey,
   componentSourceView,
@@ -16,13 +16,15 @@ import { createSurfaceCompositionEngine } from "../libraries/composition-engine/
 // renderer supplies its established geometry policies directly. This closure
 // is compiled once and adds no node-runtime work to the frame loop.
 export const planSurfaceRoutes = createSurfaceCompositionEngine({
-  manualSurfaceTextureLimit,
+  surfaceTextureCeiling,
   componentRenderInstanceKey,
   componentSourceView,
   sharedComponentRenderRequests,
   createRenderRequest,
   sourceRenderDemand,
   surfaceDemandOverscan: SURFACE_DEMAND_OVERSCAN,
+  componentRegionSafe: (component) => component?.regionSafe === true,
+  componentFrameFanoutSafe: (component) => component?.frameFanoutSafe !== false,
 });
 
 export function stableSurfaceRenderRequest(render = {}, meta = {}) {

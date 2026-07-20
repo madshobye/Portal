@@ -4503,6 +4503,15 @@ button.text-list-main:hover {
   color: rgba(255, 255, 255, 0.54);
 }
 
+.output-client .output-fps {
+  right: 14px;
+  top: 14px;
+  gap: 9px;
+  padding: 8px 11px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
 .output-loading-dot {
   width: 7px;
   height: 7px;

@@ -9,8 +9,7 @@ import {
 import { createCanvasComponent, createCanvasFrame, createDefaultComponent, createDefaultSurface, createInitialState, createSceneFromState, directOutputSurfaceId, normalizeCameraSettings, normalizeComponentPipelineSettings, normalizeProjectionFit, normalizeSamplingSettings, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
 
 const render = {
-  componentTexture: { width: 1000, height: 700 },
-  surfaceTexture: { mode: "auto", maxWidth: 100, maxHeight: 100 },
+  componentAspectRatio: 10 / 7,
   pixelDensity: 0.5,
 };
 
@@ -23,15 +22,15 @@ test("generated visual objects use compact default names", () => {
 test("component frame shape derives landscape portrait and square from component dimensions", () => {
   assert.deepEqual(
     pickSize(componentFrameMetrics(render, { frameShape: "landscape", resolutionScale: 1 })),
-    { baseWidth: 1000, baseHeight: 700, width: 500, height: 350 }
+    { baseWidth: 10000 / 7, baseHeight: 1000, width: 714, height: 500 }
   );
   assert.deepEqual(
     pickSize(componentFrameMetrics(render, { frameShape: "portrait", resolutionScale: 1 })),
-    { baseWidth: 700, baseHeight: 1000, width: 350, height: 500 }
+    { baseWidth: 1000, baseHeight: 10000 / 7, width: 500, height: 714 }
   );
   assert.deepEqual(
     pickSize(componentFrameMetrics(render, { frameShape: "square", resolutionScale: 1 })),
-    { baseWidth: 700, baseHeight: 700, width: 350, height: 350 }
+    { baseWidth: 1000, baseHeight: 1000, width: 500, height: 500 }
   );
 });
 
@@ -40,9 +39,9 @@ test("component resolution scale multiplies the global density", () => {
   const normal = componentFrameMetrics(render, { frameShape: "landscape", resolutionScale: 1 });
   const high = componentFrameMetrics(render, { frameShape: "landscape", resolutionScale: 2 });
 
-  assert.deepEqual([low.effectiveScale, low.width, low.height], [0.25, 250, 175]);
-  assert.deepEqual([normal.effectiveScale, normal.width, normal.height], [0.5, 500, 350]);
-  assert.deepEqual([high.effectiveScale, high.width, high.height], [1, 1000, 700]);
+  assert.deepEqual([low.effectiveScale, low.width, low.height], [0.25, 357, 250]);
+  assert.deepEqual([normal.effectiveScale, normal.width, normal.height], [0.5, 714, 500]);
+  assert.deepEqual([high.effectiveScale, high.width, high.height], [1, 1429, 1000]);
 });
 
 test("component frame settings normalize to backward-compatible defaults", () => {
@@ -75,12 +74,15 @@ test("global visual time stretch defaults to one and stays within its live range
   assert.equal("timeScale" in sanitizeState({ global: { timeScale: 4 } }).global, false);
 });
 
-test("legacy fixed surface fields are removed and all projects enter automatic texture mode", () => {
+test("legacy fixed pixel fields are removed in favor of proportions and an optional ceiling", () => {
   const state = sanitizeState({
     render: { frameWidth: 1280, frameHeight: 720, surfaceWidth: 320, surfaceHeight: 180 },
   });
-  assert.deepEqual(state.render.surfaceTexture, { mode: "auto", maxWidth: 1280, maxHeight: 720 });
-  assert.deepEqual(state.render.componentTexture, { width: 320, height: 180 });
+  assert.equal(state.render.outputs[0].aspectRatio, 16 / 9);
+  assert.equal(state.render.componentAspectRatio, 16 / 9);
+  assert.equal(state.render.resolutionCeiling, "auto");
+  assert.equal(Object.hasOwn(state.render, "surfaceTexture"), false);
+  assert.equal(Object.hasOwn(state.render, "componentTexture"), false);
   assert.equal(Object.hasOwn(state.render, "surfaceWidth"), false);
   assert.equal(Object.hasOwn(state.render, "surfaceHeight"), false);
 
@@ -91,18 +93,17 @@ test("legacy fixed surface fields are removed and all projects enter automatic t
       surfaceTexture: { mode: "manual", maxWidth: 640, maxHeight: 360 },
     },
   });
-  assert.deepEqual(manual.render.surfaceTexture, { mode: "manual", maxWidth: 640, maxHeight: 360 });
-  assert.deepEqual(manual.render.componentTexture, { width: 640, height: 360 });
+  assert.equal(manual.render.resolutionCeiling, "auto");
+  assert.equal(Object.hasOwn(manual.render, "surfaceTexture"), false);
 });
 
-test("component resolution follows its independent texture dimensions", () => {
+test("component geometry follows its independent proportion without authored pixels", () => {
   const metrics = componentFrameMetrics({
-    outputs: [{ id: "main", width: 1920, height: 1080 }],
-    componentTexture: { width: 1920, height: 1080 },
-    surfaceTexture: { mode: "auto", maxWidth: 320, maxHeight: 180 },
+    outputs: [{ id: "main", aspectRatio: 16 / 9 }],
+    componentAspectRatio: 16 / 9,
     pixelDensity: 1,
   }, { frameShape: "landscape", resolutionScale: 1 });
-  assert.deepEqual(pickSize(metrics), { baseWidth: 1920, baseHeight: 1080, width: 1920, height: 1080 });
+  assert.deepEqual(pickSize(metrics), { baseWidth: 1000 * (16 / 9), baseHeight: 1000, width: 1778, height: 1000 });
 });
 
 test("adaptive sampling settings remain independent and accept half scale", () => {
@@ -156,7 +157,7 @@ test("component upscale and post settings normalize with neutral defaults", () =
 
 test("legacy frame settings migrate to one output and multiple outputs persist", () => {
   const legacy = sanitizeState({ render: { frameWidth: 1280, frameHeight: 720 } });
-  assert.deepEqual(legacy.render.outputs, [{ id: "output-main", name: "Main output", width: 1280, height: 720 }]);
+  assert.deepEqual(legacy.render.outputs, [{ id: "output-main", name: "Main output", aspectRatio: 16 / 9 }]);
 
   const multi = sanitizeState({
     render: {
@@ -167,9 +168,9 @@ test("legacy frame settings migrate to one output and multiple outputs persist",
     },
   });
   assert.equal(multi.render.outputs.length, 2);
-  assert.equal(multi.render.frameWidth, 1920);
-  assert.equal(multi.render.worldWidth, 4160);
-  assert.equal(multi.render.worldHeight, 1620);
+  assert.deepEqual(multi.render.outputs.map((output) => output.aspectRatio), [16 / 9, 8 / 5]);
+  assert.equal(Object.hasOwn(multi.render, "frameWidth"), false);
+  assert.equal(Object.hasOwn(multi.render, "worldWidth"), false);
 });
 
 test("configured outputs derive locked direct surfaces without enabling new routes", () => {
@@ -205,8 +206,6 @@ test("configured outputs derive locked direct surfaces without enabling new rout
 
 test("camera capture settings normalize resolution direction mirror and maximum mode", () => {
   assert.deepEqual(normalizeCameraSettings({}, 1280, 720), {
-    width: 1280,
-    height: 720,
     facingMode: "user",
     mirrored: false,
     maxResolution: false,
@@ -218,8 +217,6 @@ test("camera capture settings normalize resolution direction mirror and maximum 
     mirrored: true,
     maxResolution: true,
   }), {
-    width: 1920,
-    height: 1080,
     facingMode: "environment",
     mirrored: true,
     maxResolution: true,
@@ -280,9 +277,8 @@ test("legacy canvas layers migrate into ordinary Groups without retaining a para
   assert.equal(canvas.chain[0].opacity, 0.7);
   assert.equal(canvas.chain[0].blend, "screen");
   assert.equal(canvas.chain[0].chain[0].source.componentId, source.id);
-  assert.deepEqual(canvas.chain[0].chain[0].source.placement, {
-    scale: state.render.componentTexture.width / state.render.canvasSize.width,
-  });
+  assert.deepEqual(canvas.chain[0].chain[0].source.placement, { scale: 0.48 });
+  assert.equal(state.render.canvasAspectRatio, 2);
 });
 
 test("legacy canvas frames migrate to the shared registry and routes persist", () => {

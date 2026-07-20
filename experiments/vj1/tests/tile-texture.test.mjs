@@ -57,7 +57,8 @@ test("Tile Texture project forks supply the retained host with node-owned helper
 test("Tile Texture repeats its selected image with wrapped shader coordinates", () => {
   const source = createGeneratorSource("tileTexture", { imageId: "tiles.png", repeat: 8 });
   assert.equal(source.params.imageId, "tiles.png");
-  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /contentUvMatrix \* vec3\(vTexCoord, 1\.0\)/);
+  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /renderUvRect\.xy \+ vTexCoord \* renderUvRect\.zw/);
+  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /contentUvMatrix \* vec3\(boundaryUv, 1\.0\)/);
   assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /fract\(compositionUv \* repeatAmount/);
   assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /texture2D\(tileImage, tileUv\)/);
   const controls = generatorImageMediaControlTemplate("components.0.source", source, {

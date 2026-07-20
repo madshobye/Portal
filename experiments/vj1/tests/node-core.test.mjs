@@ -278,6 +278,7 @@ test("project-local helper edits become runtime module exports", () => {
             ...part,
             source: [
               "function createTextMask(_params, _width, _height, existing) { return existing || { forked: true }; }",
+              "function textMaskDimensions(width, height) { return { width, height }; }",
               "function textMaskSignature() { return 'forked-layout'; }",
               "function parseTextMarkdown() { return []; }",
             ].join("\n"),
@@ -289,6 +290,7 @@ test("project-local helper edits become runtime module exports", () => {
   const resolved = resolver.definition(base.id);
 
   assert.equal(resolved.moduleExports.textMaskSignature({}, 1, 1), "forked-layout");
+  assert.deepEqual(resolved.moduleExports.textMaskDimensions(3, 2), { width: 3, height: 2 });
   assert.deepEqual(resolved.moduleExports.createTextMask({}, 1, 1), { forked: true });
 });
 

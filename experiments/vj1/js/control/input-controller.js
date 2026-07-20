@@ -5,6 +5,7 @@ import { formatTrimTime, roundTrimTime } from "./component-view.js?v=scroll-regi
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { createLiveRenderPatch } from "../domain/live-render-patch.js?v=live-param-patch-1";
 import { bindMarkdownEditors } from "./markdown-editor.js?v=text-style-controls-1";
+import { nodeBoundaryWithUniformScale } from "../libraries/render-engine/roi/index.js";
 
 export function createInputController({
   store,
@@ -345,6 +346,13 @@ export function createInputController({
   function updatePathFromInput(input, reason) {
     const path = input.dataset.update;
     store.update((draft) => {
+      if (isBoundaryScaleInput(input, path)) {
+        const boundary = boundaryFromScaleInput(input, readInputValue(input));
+        setByPath(draft, path.replace(/\.scale$/, ".width"), boundary.width);
+        setByPath(draft, path.replace(/\.scale$/, ".height"), boundary.height);
+        syncSceneEdits(draft, path.replace(/\.scale$/, ".width"));
+        return;
+      }
       const setter = path.includes(".source.params.") ? setByPathCreate : setByPath;
       setter(draft, path, readInputValue(input));
       syncSceneEdits(draft, path);
@@ -449,6 +457,19 @@ export function createInputController({
     const componentId = input.dataset.liveComponentId;
     const path = input.dataset.liveUpdate;
     const value = readInputValue(input);
+    if (isBoundaryScaleInput(input, path)) {
+      const boundary = boundaryFromScaleInput(input, value);
+      const widthPath = path.replace(/\.scale$/, ".width");
+      const heightPath = path.replace(/\.scale$/, ".height");
+      updateLiveAware(true, (draft) => {
+        setLiveOverride(draft, componentId, widthPath, boundary.width);
+        setLiveOverride(draft, componentId, heightPath, boundary.height);
+      }, reason, [
+        createLiveRenderPatch(componentId, widthPath, boundary.width),
+        createLiveRenderPatch(componentId, heightPath, boundary.height),
+      ]);
+      return;
+    }
     updateLiveAware(true, (draft) => setLiveOverride(
       draft,
       componentId,
@@ -495,6 +516,21 @@ export function createInputController({
   }
 
   return { bind };
+}
+
+export function isBoundaryScaleInput(input, path = "") {
+  return path.endsWith(".boundary.scale") && input?.dataset?.boundaryWidth !== undefined && input?.dataset?.boundaryHeight !== undefined;
+}
+
+export function boundaryFromScaleInput(input, scale) {
+  const boundary = nodeBoundaryWithUniformScale({
+    width: Number(input.dataset.boundaryWidth) || 1,
+    height: Number(input.dataset.boundaryHeight) || 1,
+  }, scale);
+  return {
+    width: Math.round(boundary.width * 1e12) / 1e12,
+    height: Math.round(boundary.height * 1e12) / 1e12,
+  };
 }
 
 // A control's data attribute is the last user-commanded truth until the next

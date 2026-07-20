@@ -236,6 +236,7 @@ function visualCompilerHookFor(item, definition) {
     shaderInterface: metadata.shaderInterface || "effect",
     sampling: metadata.sampling || "unknown",
     fusible: metadata.fusible === true,
+    roi: metadata.roi || { mode: "local", halo: 0, coordinateSpace: "boundary" },
     // Pointwise/neighborhood effects consume the already composed texture and
     // therefore stay in Composition coordinates. Spatial field effects own a
     // physical field whose placement follows its containing Group.

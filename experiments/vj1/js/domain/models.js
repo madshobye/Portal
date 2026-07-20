@@ -1,10 +1,12 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
+import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=catalog-marker-four-state-1";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=boundary-authority-1";
 import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js";
+import { normalizeRelativeRect } from "../libraries/render-engine/relative-geometry.js";
+import { FULL_NODE_BOUNDARY, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
   createOutputDefinition,
   normalizeCameraSettings,
@@ -80,22 +82,19 @@ export function createCanvasComponent(index = 0, sourceComponentId = "") {
     activity: createProjectActivity(),
     catalogMarker: 0,
     canvas: {
-      previewQuality: "auto",
       frameThumbnails: {},
     },
   };
 }
 
-export function createCanvasFrame(index = 0, canvasWidth = VJ1.canvasWidth, canvasHeight = VJ1.canvasHeight) {
-  const width = Math.max(64, Math.round(Number(canvasWidth) * 0.25));
-  const height = Math.max(64, Math.round(Number(canvasHeight) * 0.25));
+export function createCanvasFrame(index = 0) {
   return {
     id: uid("canvas-frame"),
     name: index === 0 ? "Frame 1" : `Frame ${index + 1}`,
-    x: Math.round((Number(canvasWidth) - width) * 0.5),
-    y: Math.round((Number(canvasHeight) - height) * 0.5),
-    width,
-    height,
+    x: 0.375,
+    y: 0.375,
+    width: 0.25,
+    height: 0.25,
     activity: createProjectActivity(),
   };
 }
@@ -112,6 +111,7 @@ export function createComponentLayer(index = 0, source = { type: "generator", me
     opacity: 1,
     blend: "normal",
     transform: createDefaultTransform(),
+    boundary: { ...FULL_NODE_BOUNDARY },
   };
 }
 
@@ -235,10 +235,7 @@ export function createInitialState() {
         source: "recent",
         media: "recent",
       },
-      previewQualities: {
-        scene: "auto",
-        live: "auto",
-      },
+      previewQuality: "good",
       selectedSceneId: "",
       selectedSurfaceId: "surface-main",
       debugPreview: true,
@@ -273,31 +270,14 @@ export function createInitialState() {
       bpm: 120,
       crossfade: 1,
       showHud: true,
-      showLabels: true,
       calibrating: true,
       mappingHandleMode: "always",
     },
     render: {
-      width: VJ1.renderWidth,
-      height: VJ1.renderHeight,
-      frameWidth: VJ1.renderWidth,
-      frameHeight: VJ1.renderHeight,
-      worldWidth: Math.round(VJ1.renderWidth * (1 + VJ1.outputWorldMarginRatio * 2)),
-      worldHeight: Math.round(VJ1.renderHeight * (1 + VJ1.outputWorldMarginRatio * 2)),
       outputs: [createOutputDefinition(0)],
-      canvasSize: {
-        width: VJ1.canvasWidth,
-        height: VJ1.canvasHeight,
-      },
-      componentTexture: {
-        width: VJ1.renderWidth,
-        height: VJ1.renderHeight,
-      },
-      surfaceTexture: {
-        mode: "auto",
-        maxWidth: VJ1.renderWidth,
-        maxHeight: VJ1.renderHeight,
-      },
+      canvasAspectRatio: VJ1.canvasWidth / VJ1.canvasHeight,
+      componentAspectRatio: VJ1.renderWidth / VJ1.renderHeight,
+      resolutionCeiling: "auto",
       pixelDensity: 1,
       sampling: {
         surfaceOverscan: 1,
@@ -305,8 +285,6 @@ export function createInitialState() {
         limitCanvasToLogicalSize: true,
       },
       camera: {
-        width: VJ1.renderWidth,
-        height: VJ1.renderHeight,
         facingMode: "user",
         mirrored: false,
         maxResolution: false,
@@ -394,15 +372,15 @@ export function sanitizeState(input = {}) {
     metrics: { ...base.metrics, ...(input.metrics || {}) },
   };
   next.nodes = normalizeNodeProjectData(input.nodes);
+  delete next.global.showLabels;
   next.global.timeStretch = clampNumber(input.global?.timeStretch, -4, 4, 0);
 
   next.render = normalizeRenderSettings(input.render || {});
   next.components = normalizeComponents(input, base);
-  const canvasFrameBounds = next.render.canvasSize;
   const recordingFrames = Array.isArray(input.recordingFrames) ? input.recordingFrames : base.recordingFrames;
   const seenRecordingFrameIds = new Set();
   next.recordingFrames = recordingFrames
-    .map((frame, index) => normalizeCanvasFrame(frame, index, canvasFrameBounds.width, canvasFrameBounds.height))
+    .map((frame, index) => normalizeCanvasFrame(frame, index))
     .filter((frame) => {
       if (seenRecordingFrameIds.has(frame.id)) return false;
       seenRecordingFrameIds.add(frame.id);
@@ -424,7 +402,12 @@ export function sanitizeState(input = {}) {
     next.ui.selectedComponentId
   );
   next.ui.catalogSortModes = normalizeCatalogSortModes(next.ui.catalogSortModes);
-  next.ui.previewQualities = normalizePreviewQualities(next.ui.previewQualities);
+  next.ui.previewQuality = normalizePreviewQuality(
+    next.ui.previewQuality
+      ?? next.ui.previewQualities?.scene
+      ?? next.ui.previewQualities?.live
+  );
+  delete next.ui.previewQualities;
   const selectedComponent = next.components.find((component) => component.id === next.ui.selectedComponentId) || next.components[0];
   next.ui.selectedChainItemId = chainContainsItemId(selectedComponent?.chain, next.ui.selectedChainItemId)
     ? next.ui.selectedChainItemId
@@ -452,12 +435,10 @@ export function sanitizeState(input = {}) {
   return next;
 }
 
-function normalizePreviewQualities(value = {}) {
-  const normalize = (quality) => ["auto", "low", "full"].includes(quality) ? quality : "auto";
-  return {
-    scene: normalize(value?.scene),
-    live: normalize(value?.live),
-  };
+function normalizePreviewQuality(value) {
+  if (value === "full") return "good";
+  if (value === "high") return "good";
+  return ["auto", "good", "low"].includes(value) ? value : "good";
 }
 
 function normalizeWorkspaceSelectionIds(value = {}, components = [], selectedComponentId = "") {
@@ -720,23 +701,19 @@ export function normalizeComponent(component = {}) {
 }
 
 function normalizeCanvasComponentData(canvas = {}, selfId = "") {
-  const previewQuality = ["auto", "low", "full"].includes(canvas.previewQuality) ? canvas.previewQuality : "auto";
   const frameThumbnails = Object.fromEntries(Object.entries(canvas.frameThumbnails || {})
     .filter(([frameId, thumbnail]) => frameId && typeof thumbnail === "string" && thumbnail));
-  return { previewQuality, frameThumbnails };
+  return { frameThumbnails };
 }
 
-function normalizeCanvasFrame(frame = {}, index = 0, canvasWidth = VJ1.canvasWidth, canvasHeight = VJ1.canvasHeight) {
-  const fallback = createCanvasFrame(index, canvasWidth, canvasHeight);
-  const width = positiveInt(frame.width, fallback.width, 16, canvasWidth);
-  const height = positiveInt(frame.height, fallback.height, 16, canvasHeight);
+
+function normalizeCanvasFrame(frame = {}, index = 0) {
+  const fallback = createCanvasFrame(index);
+  const rect = normalizeRelativeRect(frame, fallback);
   return {
     id: frame.id || uid("canvas-frame"),
     name: frame.name || fallback.name,
-    x: Math.max(0, Math.min(canvasWidth - width, Number(frame.x) || 0)),
-    y: Math.max(0, Math.min(canvasHeight - height, Number(frame.y) || 0)),
-    width,
-    height,
+    ...rect,
     activity: normalizeProjectActivity(frame.activity, fallback.activity.createdAt),
   };
 }
@@ -758,6 +735,7 @@ export function normalizeComponentChainItem(item = {}) {
       params: pass.params,
       amount: pass.amount,
       transform: normalizeTransform(item.transform),
+      boundary: normalizeNodeBoundary(item.boundary),
       opacity: clamp01(item.opacity ?? 1),
       blend: item.blend || "normal",
     };
@@ -771,6 +749,7 @@ export function normalizeComponentChainItem(item = {}) {
       enabled: item.enabled !== false,
       collapsed: !!item.collapsed,
       transform: normalizeTransform(item.transform),
+      boundary: normalizeNodeBoundary(item.boundary),
       opacity: clamp01(item.opacity ?? 1),
       blend: item.blend || "normal",
       chain: Array.isArray(item.chain) ? item.chain.map(normalizeComponentChainItem) : [],
@@ -791,6 +770,7 @@ export function normalizeComponentChainItem(item = {}) {
     opacity: clamp01(item.opacity ?? 1),
     blend: item.blend || "normal",
     transform: normalizeTransform(item.transform),
+    boundary: normalizeNodeBoundary(item.boundary),
   };
 }
 
