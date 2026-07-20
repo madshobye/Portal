@@ -22,12 +22,12 @@
     <pre id="result">running...</pre>
     <script type="module">
       import { listShaderComponents } from "../js/shaders/shader-registry.js?v=alpha-feather-1";
-      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=fog-banks-1";
-      import { getGeneratorComponent } from "../js/graph/generator-registry.js?v=fog-banks-1";
+      import { getGeneratorShaderComponent } from "../js/shaders/generator-shaders.js?v=volumetric-clouds-1";
+      import { getGeneratorComponent } from "../js/graph/generator-registry.js?v=volumetric-clouds-1";
       import { createShaderBuilder } from "../js/shaders/shader-builder.js?v=render-coordinate-scope-3";
-      import { compileShaderSchedule } from "../js/graph/render-scheduler.js?v=hsv-alpha-key-1";
+      import { compileShaderSchedule } from "../js/graph/render-scheduler.js?v=volumetric-clouds-1";
 
-      const generators = ["gradient", "fireflies", "eyeball", "swayingTrees", "bezierStrokes", "shadertoyBaseWarp", "seascape", "paintDrips", "cloudyTunnel", "cherenkovVolume", "biomineLite"];
+      const generators = ["gradient", "fireflies", "eyeball", "swayingTrees", "bezierStrokes", "shadertoyBaseWarp", "seascape", "paintDrips", "volumetricClouds", "cloudyTunnel", "cherenkovVolume", "biomineLite"];
       const result = document.getElementById("result");
 
       new p5((sketch) => {

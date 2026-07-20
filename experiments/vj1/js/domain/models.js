@@ -1,5 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../graph/generator-registry.js?v=fog-banks-1";
+import { createGeneratorSource } from "../graph/generator-registry.js?v=volumetric-clouds-1";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";

@@ -3,15 +3,15 @@ import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
 import { canvasFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=chain-general-controls-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=volumetric-clouds-1";
 import { normalizeParamValue, normalizeParamValues } from "../graph/component-schema.js?v=text-style-controls-1";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../graph/render-node-runtime.js?v=adaptive-component-demand-29";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=chain-general-controls-1";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=fog-banks-1";
+import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=volumetric-clouds-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=volumetric-clouds-1";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=alpha-feather-1";
-import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=fog-banks-1";
+import { getGeneratorShaderComponent } from "../shaders/generator-shaders.js?v=volumetric-clouds-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { applyBlend } from "./blend-utils.js";
 import {
@@ -36,7 +36,7 @@ import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./c
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=canvas-global-resolution-1";
 import { drawBuffer } from "./render-draw-utils.js?v=render-diagnostics-1";
 import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
-import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=sun-rays-1";
+import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=volumetric-clouds-1";
 import {
   createRenderRequest,
   defaultProjectSurfaceMapping,
@@ -74,7 +74,7 @@ export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker
 export { parseObjMesh } from "./specialized/model-parsers.js?v=model-qem-4";
 export { modelDepthCutoff, transformedModelDepthRange } from "./specialized/model-render-math.js?v=camera-focal-length-1";
 export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=alpha-feather-1";
-export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=sun-rays-1";
+export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=volumetric-clouds-1";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=alpha-feather-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";

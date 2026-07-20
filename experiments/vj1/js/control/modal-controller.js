@@ -2,7 +2,7 @@ import { createOutputDefinition, normalizeRenderSettings, scaleRecordingFramesTo
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-marker-four-state-1";
 import { setClass, setText } from "./dom-utils.js?v=preview-pointer-deferral-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=catalog-markers-1";
+import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=volumetric-clouds-1";
 import { configuredOutputsTemplate, settingsModalTemplate } from "./settings-view.js?v=canvas-global-resolution-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
 

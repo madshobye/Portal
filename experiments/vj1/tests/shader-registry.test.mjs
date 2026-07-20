@@ -580,6 +580,27 @@ test("Fog preserves simplex attribution and emits bounded transparent premultipl
   assert.ok(!component.code.includes("fragColor = vec4(q,q,q, 1.0)"));
 });
 
+test("Volumetric Clouds keeps the supplied volume technique but removes the sky and sun", () => {
+  const component = getGeneratorShaderComponent("volumetricClouds");
+
+  assert.equal(component.type, "shadertoy");
+  assert.ok(component.code.includes("https://www.shadertoy.com/view/Xttcz2"));
+  assert.ok(component.code.includes("for (int stepIndex = 0; stepIndex < 48; stepIndex++)"));
+  assert.ok(component.code.includes("for (int octave = 0; octave < 4; octave++)"));
+  assert.ok(component.code.includes("float transmittance = 1.0"));
+  assert.ok(component.code.includes("float sampleAlpha = 1.0 - exp("));
+  assert.ok(component.code.includes("fragColor = vec4(premultiplied * amount, alpha)"));
+  assert.ok(component.code.includes("fragColor = vec4(0.0)"));
+  assert.ok(!component.code.includes("render_sky_color"));
+  assert.ok(!component.code.includes("backgroundColor"));
+  for (const id of ["speed", "density", "coverage", "scale", "detail", "raySteps", "softness", "thickness", "altitude", "cameraTilt", "fieldOfView", "windAngle", "absorption", "brightness", "seed", "amount"]) {
+    assert.ok(component.code.includes(`uniform float ${id};`), `missing Volumetric Clouds uniform ${id}`);
+  }
+  for (const id of ["cloudColor", "shadowColor"]) {
+    assert.ok(component.code.includes(`uniform vec4 ${id};`), `missing Volumetric Clouds color uniform ${id}`);
+  }
+});
+
 test("Galaxy preserves attribution and replaces Shadertoy channels with procedural noise and stars", () => {
   const component = getGeneratorShaderComponent("galaxy");
   const registry = getGeneratorComponent("galaxy");

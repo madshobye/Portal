@@ -1,7 +1,7 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=catalog-marker-four-state-1";
+import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=volumetric-clouds-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=chain-general-controls-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=volumetric-clouds-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
@@ -9,14 +9,14 @@ import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEdi
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=performance-health-dots-1";
 import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-marker-four-state-1";
-import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=source-param-schema-1";
+import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=volumetric-clouds-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=alpha-feather-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=catalog-marker-four-state-1";
+import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=volumetric-clouds-1";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=volumetric-clouds-1";
 import { componentCardBarTemplate, deepEditButtonTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=profile-edit-identity-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { createClipboardController } from "./clipboard-controller.js?v=clipboard-chain-target-1";
-import { createModalController } from "./modal-controller.js?v=catalog-markers-1";
+import { createModalController } from "./modal-controller.js?v=volumetric-clouds-1";
 import { createInputController } from "./input-controller.js?v=component-to-canvas-1";
 
 const performanceHealthClasses = Object.freeze([

@@ -274,6 +274,30 @@ test("Fog exposes transparent quality-aware atmosphere controls and a steady mod
   assert.equal(generatorIcon("fog"), "foggy");
 });
 
+test("Volumetric Clouds exposes a bounded quality-aware transparent volume", () => {
+  const component = getGeneratorComponent("volumetricClouds");
+  const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
+
+  assert.equal(component.name, "Volumetric Clouds");
+  assert.equal(component.category, "atmosphere");
+  for (const id of ["speed", "density", "coverage", "scale", "detail", "raySteps", "softness", "thickness", "altitude", "cameraTilt", "fieldOfView", "windAngle", "absorption", "brightness", "seed", "amount"]) {
+    assert.equal(params[id].type, "number", `missing numeric Volumetric Clouds control ${id}`);
+  }
+  for (const id of ["cloudColor", "shadowColor"]) {
+    assert.equal(params[id].type, "color", `missing Volumetric Clouds color ${id}`);
+  }
+  assert.equal(params.raySteps.max, 48);
+  assert.equal(params.detail.max, 4);
+  assert.equal(component.runtime.timeDependent({ speed: 0 }), false);
+  assert.equal(component.runtime.timeDependent({ speed: 0.2 }), true);
+  assert.equal(generatorIcon("volumetricClouds"), "filter_drama");
+  assert.ok(runtimeSource.includes('generatorId === "volumetricClouds"'));
+  assert.equal(qualityAdjustedGeneratorParams("volumetricClouds", { renderQuality: 0.5, raySteps: 28, detail: 3 }).raySteps, 28);
+  assert.equal(qualityAdjustedGeneratorParams("volumetricClouds", { renderQuality: 0, raySteps: 28, detail: 3 }).raySteps, 10);
+  assert.equal(qualityAdjustedGeneratorParams("volumetricClouds", { renderQuality: 1, raySteps: 28, detail: 3 }).raySteps, 42);
+});
+
 test("Seascape exposes bounded artistic controls", () => {
   const component = getGeneratorComponent("seascape");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));

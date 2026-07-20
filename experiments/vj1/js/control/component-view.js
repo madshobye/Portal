@@ -1,9 +1,9 @@
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { getGeneratorComponent } from "../graph/generator-registry.js?v=fog-banks-1";
+import { getGeneratorComponent } from "../graph/generator-registry.js?v=volumetric-clouds-1";
 import { getShaderComponent } from "../shaders/shader-registry.js?v=alpha-feather-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { generatorIcon } from "./picker-view.js?v=catalog-markers-1";
+import { generatorIcon } from "./picker-view.js?v=volumetric-clouds-1";
 import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=chain-general-controls-1";
 import { isModelMediaSource, isVideoMediaSource, mediaSourceParams, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=power-flicker-1";
