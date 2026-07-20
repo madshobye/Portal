@@ -1198,10 +1198,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         for (const input of editor.querySelectorAll("[data-node-part-source]")) {
           if (!input.readOnly) sources[input.dataset.nodePartSource] = input.value;
         }
-        store.update((draft) => {
-          draft.nodes = withProjectNodeFork(draft.nodes, definition, sources);
-        }, "update:node-fork");
-        setStatus(`${definition.name} project version saved`);
+        try {
+          store.update((draft) => {
+            draft.nodes = withProjectNodeFork(draft.nodes, definition, sources);
+          }, "update:node-fork");
+          setStatus(`${definition.name} project version saved`);
+        } catch (error) {
+          setStatus(`${definition.name} project version was not saved: ${error?.message || "invalid source"}`);
+        }
       });
     });
     scope.querySelectorAll("[data-reset-node-fork]").forEach((button) => {

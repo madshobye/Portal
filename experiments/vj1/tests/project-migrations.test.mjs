@@ -24,11 +24,12 @@ import {
   migrateProjectV20ToV21,
   migrateProjectV21ToV22,
   migrateProjectV22ToV23,
+  migrateProjectV23ToV24,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 23);
+  assert.equal(CURRENT_PROJECT_VERSION, 24);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -371,6 +372,18 @@ test("v22 to v23 adds empty project-owned node data without changing authored co
   });
   assert.deepEqual(migrated.project, input.project);
   assert.deepEqual(migrated.components, input.components);
+});
+
+test("v23 to v24 makes the persisted node graph authoritative", () => {
+  const input = {
+    version: 23,
+    components: [{ id: "component-a", chain: [{ id: "source-a", kind: "source" }] }],
+    nodes: { formatVersion: 1, groups: [{ id: "component-a" }] },
+  };
+  const migrated = migrateProjectV23ToV24(input);
+  assert.equal(migrated.nodes.authority, "node-graph");
+  assert.deepEqual(migrated.nodes.groups, input.nodes.groups);
+  assert.deepEqual(migrated.components, input.components, "the application compiler performs the one-time chain import");
 });
 
 test("migration runner applies every adjacent step in order", () => {

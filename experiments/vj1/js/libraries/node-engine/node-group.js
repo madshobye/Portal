@@ -1,5 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "./node-definition.js";
 import { NodeInstance } from "./node-runtime.js";
+import { NodeGraphProgram } from "./node-graph-program.js";
 
 export function defineNodeGroup(definition = {}) {
   const nodes = Object.freeze((definition.nodes || []).map((node) => Object.freeze({
@@ -41,18 +42,28 @@ export class NodeGroupInstance extends NodeInstance {
     this.registry = registry;
     this.children = new Map();
     const graph = definition.parts.find((part) => part.kind === NODE_PART_KINDS.GRAPH);
-    for (const child of graph?.nodes || []) {
-      const childDefinition = registry.get(child.type, child.version);
-      this.children.set(child.id, createNodeInstance(childDefinition, {
-        id: `${this.id}/${child.id}`,
-        parameters: child.parameters,
-        registry,
-        typeRegistry: this.typeRegistry,
-        clock: this.clock,
-      }));
+    if (typeof definition.program === "function") {
+      for (const child of graph?.nodes || []) {
+        const childDefinition = registry.get(child.type, child.version);
+        this.children.set(child.id, createNodeInstance(childDefinition, {
+          id: `${this.id}/${child.id}`,
+          parameters: child.parameters,
+          registry,
+          typeRegistry: this.typeRegistry,
+          clock: this.clock,
+        }));
+      }
     }
+    this.graphProgram = typeof definition.program !== "function"
+      ? new NodeGraphProgram(definition, {
+          registry,
+          typeRegistry: this.typeRegistry,
+          clock: this.clock,
+          createInstance: createNodeInstance,
+        })
+      : null;
     this.executor = async (inputs, context) => {
-      if (typeof definition.program !== "function") throw new Error(`NODE_GROUP_PROGRAM_MISSING:${definition.id}`);
+      if (this.graphProgram) return this.graphProgram.execute(inputs, context);
       const { parameters: _groupParameterOverrides, ...inheritedContext } = context;
       return definition.program(inputs, {
         ...context,
@@ -69,6 +80,8 @@ export class NodeGroupInstance extends NodeInstance {
   }
 
   dispose() {
+    this.graphProgram?.dispose();
+    this.graphProgram = null;
     for (const child of this.children.values()) child.dispose();
     this.children.clear();
     super.dispose();

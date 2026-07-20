@@ -10,11 +10,13 @@ import {
   defineNodeGroup,
   definePort,
   NodeArtifactCatalog,
+  NodeCompilerRegistry,
   nodeEditorPanels,
   nodeEditorProjection,
   NodeInstance,
   NodeRegistry,
   NODE_PART_KINDS,
+  NODE_COMPILER_TARGETS,
   numberType,
   recordType,
   materializeProjectNodeFork,
@@ -22,6 +24,8 @@ import {
   pinNodeVersion,
   serializeNodeDefinition,
   serializeNodeProjectData,
+  defineNodeCompiler,
+  validateProjectNodeFork,
 } from "../js/libraries/node-engine/index.js";
 import { ImageResizeNode } from "../js/libraries/image-engine/image-resize/index.js";
 import { SliderArtifact, SliderNode } from "../js/libraries/control-engine/slider/index.js";
@@ -150,6 +154,39 @@ test("compiled render programs reuse direct step state without generic node pack
   assert.equal("outputPackets" in program, false);
 });
 
+test("custom compiler backends produce opaque programs without generic frame traversal", () => {
+  let compileCalls = 0;
+  let executeCalls = 0;
+  const compiler = defineNodeCompiler({
+    id: "test.visual-compiler",
+    target: NODE_COMPILER_TARGETS.VISUAL,
+    accepts: (group) => group.nodeId === "test.visual-group",
+    compile: (group) => {
+      compileCalls++;
+      const fusedSteps = group.nodes.map((node) => node.value);
+      return {
+        execute(input) {
+          executeCalls++;
+          return fusedSteps.reduce((value, step) => value + step, input);
+        },
+      };
+    },
+  });
+  const registry = new NodeCompilerRegistry([compiler]);
+  const program = registry.compile({
+    id: "group-a",
+    nodeId: "test.visual-group",
+    compiler: { id: compiler.id },
+    nodes: [{ value: 2 }, { value: 3 }],
+  }, { target: NODE_COMPILER_TARGETS.VISUAL });
+
+  assert.equal(program.execute(1), 6);
+  assert.equal(program.execute(2), 7);
+  assert.equal(compileCalls, 1);
+  assert.equal(executeCalls, 2);
+  assert.equal("outputPackets" in program, false);
+});
+
 test("materialized shader nodes execute from their node-owned shader and parameters", async () => {
   const component = getEffectNodeComponent("ripple");
   const definition = component.nodeDefinition;
@@ -192,7 +229,7 @@ test("project-local shader forks become the visual resolver authority", () => {
   assert.equal(resolver.effect("invert").renderAuthority, "node-definition");
 });
 
-test("node editor projects every conceptual editor surface and project-local forks", () => {
+test("node editor projects every conceptual editor surface and project-local forks", async () => {
   const base = defineNode({
     id: "test.editor-node",
     name: "Editor Node",
@@ -225,6 +262,56 @@ test("node editor projects every conceptual editor surface and project-local for
   assert.equal(projection.panel("forks").data.forks[0].id, fork.id);
   assert.equal(materialized.metadata.projectLocal, true);
   assert.equal(materialized.metadata.baseNode.version, "1.0.0");
+  assert.deepEqual(await new NodeInstance(materialized).run({}, { parameters: { amount: 0.25 } }), { value: 0.5 });
+});
+
+test("invalid project JavaScript is rejected before it can become active", () => {
+  const base = defineNode({
+    id: "test.invalid-edit",
+    name: "Invalid edit",
+    description: "Validates project code before save.",
+    outlets: { value: "number" },
+    parts: [{ id: "logic", kind: NODE_PART_KINDS.JAVASCRIPT, entry: "process", source: "return 1;" }],
+    process: () => ({ value: 1 }),
+  });
+  const fork = createProjectNodeFork(base, {
+    overrides: { parts: [{ ...base.parts[0], source: "const value = await loadValue(); return value;" }] },
+  });
+  assert.throws(() => validateProjectNodeFork(base, fork), /await|Unexpected reserved word|Unexpected identifier/);
+});
+
+test("editable groups execute their graph directly without a scheduler", async () => {
+  const add = defineNode({
+    id: "test.graph-add",
+    name: "Graph add",
+    description: "Adds a configured amount.",
+    inlets: { value: "number" },
+    parameters: { amount: { type: "number", defaultValue: 1 } },
+    outlets: { value: "number" },
+    process: ({ value, amount }) => ({ value: value + amount }),
+  });
+  const group = defineNodeGroup({
+    id: "test.editable-graph",
+    name: "Editable graph",
+    description: "Runs a persisted graph on demand.",
+    inlets: { value: "number" },
+    outlets: { value: "number" },
+    nodes: [
+      { id: "first", type: add.id, parameters: { amount: 2 } },
+      { id: "second", type: add.id, parameters: { amount: 3 } },
+    ],
+    connections: [
+      { from: "$in.value", to: "first.value" },
+      { from: "first.value", to: "second.value" },
+      { from: "second.value", to: "$out.value" },
+    ],
+  });
+  const registry = new NodeRegistry([add, group]);
+  const instance = createNodeInstance(group, { registry });
+
+  assert.deepEqual(await instance.run({ value: 4 }), { value: 9 });
+  assert.equal(instance.graphProgram instanceof Object, true);
+  assert.equal("scheduler" in instance.graphProgram, false);
 });
 
 test("smart ports map declared numeric ranges automatically", async () => {

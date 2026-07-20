@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { createVj1NodePackage, projectArtifactViews } from "../js/app-node-package.js";
 import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../js/libraries/visual-nodes/index.js";
 import { compileComponentRenderPrograms } from "../js/libraries/composition-engine/index.js";
+import { buildProjectPayload } from "../js/services/project-serializer.js";
 import { createAppState } from "../js/app-state.js";
 import { createInitialState } from "../js/domain/models.js";
 import { selectedNodeEditorTemplate, withProjectNodeFork } from "../js/control/node-editor-view.js";
@@ -149,6 +150,29 @@ test("application state keeps persisted Component groups synchronized after stru
   assert.equal(after.nodes.groups.some((group) => group.componentId === after.ui.selectedComponentId), true);
 });
 
+test("persisted Component groups own configuration while chain remains an in-memory UI projection", () => {
+  const packageRoot = createVj1NodePackage();
+  const initial = createInitialState();
+  initial.components[0].chain = [{
+    id: "source-a",
+    kind: "source",
+    name: "Waves",
+    source: { type: "generator", generatorId: "waves", params: { renderQuality: 0.75 } },
+  }];
+  const prepared = packageRoot.prepareProjectState(initial);
+  const group = prepared.nodes.groups.find((item) => item.componentId === prepared.components[0].id);
+  const source = group.nodes.find((item) => item.role === "source");
+  const payload = buildProjectPayload(prepared, "2026-07-20T00:00:00.000Z");
+
+  assert.equal(prepared.nodes.authority, "node-graph");
+  assert.equal(source.configuration.source.generatorId, "waves");
+  assert.equal(Object.hasOwn(payload.components[0], "chain"), false);
+
+  const reloaded = packageRoot.prepareProjectState(payload);
+  assert.equal(reloaded.components[0].chain[0].source.generatorId, "waves");
+  assert.equal(reloaded.components[0].nodeProjectionSignature, group.projectionSignature);
+});
+
 test("Scenes and main output persist route composition and mapping groups", () => {
   const packageRoot = createVj1NodePackage();
   const surface = {
@@ -261,6 +285,7 @@ test("the selected task editor exposes node parts and saves a live project shade
   assert.match(html, /data-node-editor/);
   assert.match(html, /Shaders/);
   assert.match(html, /data-node-part-source="fragment-shader"/);
+  assert.match(html, /visual graphs retain their specialized compiler path/);
 
   state = {
     ...state,

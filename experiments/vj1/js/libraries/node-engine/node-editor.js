@@ -135,11 +135,15 @@ export function materializeProjectNodeFork(baseDefinition, fork) {
   if (fork?.base?.id !== baseDefinition.id || fork?.base?.version !== baseDefinition.version) {
     throw new Error(`NODE_FORK_BASE_MISMATCH:${fork?.id || "missing"}`);
   }
-  return defineNode({
+  const parts = fork.definition?.parts || baseDefinition.parts || [];
+  const graphChanged = changedParts(baseDefinition.parts, parts, NODE_PART_KINDS.GRAPH).length > 0;
+  const process = compiledForkProcess(baseDefinition, parts);
+  const materialized = defineNode({
     ...baseDefinition,
     ...fork.definition,
     id: fork.id,
     version: "0.1.0",
+    process,
     metadata: {
       ...baseDefinition.metadata,
       ...fork.definition?.metadata,
@@ -147,6 +151,54 @@ export function materializeProjectNodeFork(baseDefinition, fork) {
       baseNode: fork.base,
     },
   });
+  if (baseDefinition.implementation?.kind !== "group") return materialized;
+  return Object.freeze({
+    ...materialized,
+    // An edited group graph uses the deterministic call-driven executor.
+    // Unchanged built-in groups retain their specialized direct program.
+    program: graphChanged ? null : baseDefinition.program,
+  });
+}
+
+export function compileJavaScriptNodeProcess(source, definition = {}) {
+  const code = String(source || "").trim();
+  if (!code) throw new Error(`NODE_FORK_JAVASCRIPT_EMPTY:${definition.id || "missing"}`);
+  if (/^(?:async\s+)?function\b/.test(code) || /^(?:async\s*)?\(?[A-Za-z_$]/.test(code) && code.includes("=>")) {
+    const compiled = Function(`"use strict"; return (${code}\n);`)();
+    if (typeof compiled !== "function") throw new Error(`NODE_FORK_JAVASCRIPT_INVALID:${definition.id || "missing"}`);
+    return compiled;
+  }
+  const names = [...Object.keys(definition.inlets || {}), ...Object.keys(definition.parameters || {})]
+    .filter((name) => /^[A-Za-z_$][\w$]*$/.test(name));
+  return Function("inputs", "context", `"use strict"; const { ${names.join(", ")} } = inputs;\n${code}`);
+}
+
+export function validateProjectNodeFork(baseDefinition, fork) {
+  materializeProjectNodeFork(baseDefinition, fork);
+  const parts = fork?.definition?.parts || [];
+  for (const part of changedParts(baseDefinition.parts, parts, NODE_PART_KINDS.JAVASCRIPT)) {
+    const code = String(part.source || "").trim();
+    if (!code) throw new Error(`NODE_FORK_JAVASCRIPT_EMPTY:${baseDefinition.id}`);
+    if (/^(?:async\s+)?function\b/.test(code) || code.includes("=>")) compileJavaScriptNodeProcess(code, baseDefinition);
+    else Function("inputs", "context", `"use strict";\n${code}`);
+  }
+  return true;
+}
+
+function compiledForkProcess(baseDefinition, parts) {
+  if (baseDefinition.implementation?.kind !== "code" && baseDefinition.implementation?.kind !== "data") {
+    return baseDefinition.process;
+  }
+  const changed = changedParts(baseDefinition.parts, parts, NODE_PART_KINDS.JAVASCRIPT);
+  const processName = baseDefinition.process?.name || "";
+  const candidate = changed.find((part) => part.entry === "process" || (part.export && part.export === processName))
+    || (changed.length === 1 && !changed[0].export ? changed[0] : null);
+  return candidate ? compileJavaScriptNodeProcess(candidate.source, baseDefinition) : baseDefinition.process;
+}
+
+function changedParts(baseParts = [], nextParts = [], kind) {
+  const base = new Map((baseParts || []).filter((part) => part.kind === kind).map((part) => [part.id, part]));
+  return (nextParts || []).filter((part) => part.kind === kind && JSON.stringify(part) !== JSON.stringify(base.get(part.id)));
 }
 
 function editorPanel(id, name, editor, data, alwaysAvailable = false) {

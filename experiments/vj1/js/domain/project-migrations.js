@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
 
-export const CURRENT_PROJECT_VERSION = 23;
+export const CURRENT_PROJECT_VERSION = 24;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -48,6 +48,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   20: migrateProjectV20ToV21,
   21: migrateProjectV21ToV22,
   22: migrateProjectV22ToV23,
+  23: migrateProjectV23ToV24,
 });
 
 export function migrateProjectData(project = {}) {
@@ -543,9 +544,24 @@ export function migrateProjectV21ToV22(project) {
 // v23 introduces project-owned node definitions and graph state. Existing
 // projects keep their exact authored behavior and begin with no local nodes.
 export function migrateProjectV22ToV23(project) {
+  const { authority: _v24Authority, ...v23NodeData } = createEmptyNodeProjectData();
   return {
     ...project,
-    nodes: createEmptyNodeProjectData(),
+    nodes: v23NodeData,
+  };
+}
+
+// v24 makes persisted Component node groups authoritative. The application
+// compiler imports v23 chains into groups once; subsequent saves omit the
+// redundant chain projection.
+export function migrateProjectV23ToV24(project) {
+  return {
+    ...project,
+    nodes: {
+      ...createEmptyNodeProjectData(),
+      ...(project.nodes && typeof project.nodes === "object" ? project.nodes : {}),
+      authority: "node-graph",
+    },
   };
 }
 

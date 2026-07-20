@@ -25,7 +25,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
     scheduler: state.scheduler,
     nodes: serializeNodeProjectData(state.nodes),
     media: state.media,
-    components: persistedComponents(state.components),
+    components: persistedComponents(state.components, state.nodes),
     recordingFrames: state.recordingFrames,
     surfaces: state.surfaces,
     scenes: state.scenes,
@@ -34,9 +34,22 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
   };
 }
 
-export function persistedComponents(components = []) {
+export function persistedComponents(components = [], nodes = {}) {
+  const graphComponents = new Set((nodes?.groups || [])
+    .filter((group) => group.generatedBy === "vj1-component-compiler" && group.projectionSignature)
+    .map((group) => String(group.componentId || "")));
   return (components || []).map((component) => {
-    const { thumbnail: _derivedThumbnail, ...persisted } = component || {};
+    const {
+      thumbnail: _derivedThumbnail,
+      nodeProjectionSignature: _runtimeProjectionSignature,
+      ...componentData
+    } = component || {};
+    // Version 24 persists the node group as visual authority. `chain` remains
+    // an in-memory projection for the established Component/Canvas UI and is
+    // retained only when importing a not-yet-compiled legacy component.
+    const persisted = nodes?.authority === "node-graph" && graphComponents.has(String(component?.id || ""))
+      ? Object.fromEntries(Object.entries(componentData).filter(([key]) => key !== "chain"))
+      : componentData;
     if (persisted.type !== "canvas" || !persisted.canvas) return persisted;
     const {
       frameThumbnails: _derivedFrameThumbnails,

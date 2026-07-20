@@ -5,3 +5,5 @@ export * from "./node-group.js";
 export * from "./node-artifact.js";
 export * from "./node-editor.js";
 export * from "./node-project.js";
+export * from "./node-compiler.js";
+export * from "./node-graph-program.js";

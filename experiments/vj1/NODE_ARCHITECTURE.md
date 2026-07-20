@@ -24,6 +24,10 @@ services, or application state.
 - `node-runtime.js` owns direct execution, packets, automatic numeric-range
   mapping, smoothing, inlet throttling, node throttling, and output validation.
 - `node-group.js` owns expandable group manifests and code-owned group programs.
+- `node-graph-program.js` owns deterministic call-driven execution for
+  low-frequency control, data, and utility graphs.
+- `node-compiler.js` selects compiler backends. Visual groups compile to
+  opaque allocation-stable programs rather than generic packet traversal.
 - `node-artifact.js` projects nodes into product concepts such as components,
   controls, effects, and internal utilities.
 - `node-editor.js` maps editable node parts to editor panels.
@@ -53,7 +57,9 @@ wrappers.
 
 Node migration must preserve the current product model and interaction design.
 Component, Canvas, Scene, Live, mapping, catalog, inspector, and output behavior
-remain authoritative until a node-backed implementation proves equivalent.
+remain unchanged as product concepts while their persisted programs are node
+groups. `component.chain` is an in-memory UI compatibility projection of the
+persisted Component group, not a second saved authority.
 The technical graph may be expandable without forcing users into one enormous
 generic graph viewport.
 
@@ -112,11 +118,12 @@ work without owning a graph scheduler.
 
 ## Groups
 
-A group is both a node definition and an inspectable internal graph. Version
-one allows a code-owned `program` to execute the child nodes explicitly. The
-graph part exposes the intended child topology to editors and diagnostics.
-Later, a graph compiler can execute that same group topology without changing
-the child node implementations or their public contracts.
+A group is both a node definition and an inspectable internal graph. A
+code-owned `program` may execute child nodes explicitly. Editable utility and
+control groups without such a program execute through the deterministic
+call-driven graph program. Visual groups instead declare a compiler backend;
+the compiler may fuse or specialize the graph and returns one opaque direct
+program before rendering begins.
 
 ## Artifacts and views
 
@@ -167,10 +174,12 @@ application builds the editable node package; output and preview branches
 import node-owned algorithms directly and never construct the package, node
 instances, packets, or a scheduler.
 
-A scheduled graph executor is intentionally deferred. Direct program and group
-execution already gives the system genuine node ownership while preserving the
-established rendering path and allowing scheduler policy to be designed from
-measured needs later.
+There is intentionally no universal scheduled graph executor. Control, data,
+and utility graphs run when application code invokes them. Component visual
+graphs compile to the established direct renderer, preserving shader fusion,
+shared framebuffer targets, retained caches, specialized model/terrain paths,
+and allocation stability. A visual node boundary may therefore contain a
+specialized compiled renderer rather than forcing extra ping-pong buffers.
 
 ## Product-facing Node View
 
@@ -179,4 +188,6 @@ Its library rail lists every registered definition, its central structure view
 shows typed ports, implementation parts, and expandable group topology, and its
 inspector exposes parameters and editable JavaScript/shader parts. Saving an
 edit creates a project-local node fork; it does not mutate the built-in library
-or add editor work to the live render loop.
+or add editor work to the live render loop. Shader forks are compiled by the
+visual backend. Executable JavaScript process parts compile once when
+materialized, while edited utility group graphs use the call-driven program.

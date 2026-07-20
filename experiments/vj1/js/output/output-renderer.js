@@ -1344,9 +1344,8 @@ export class OutputRenderer {
   renderCanvasComponent(component, componentTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "component");
     const program = this.componentPrograms.get(component.id);
-    const state = program
-      ? program.execute(this, component, componentTime, renderRequest, renderBufferKey(component.id, "canvas"))
-      : this.renderComponentChainState(component, component.chain || [], componentTime, renderRequest, renderBufferKey(component.id, "canvas"));
+    if (!program) throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id || "unknown"}`);
+    const state = program.execute(this, component, componentTime, renderRequest, renderBufferKey(component.id, "canvas"));
     return state.buffer;
   }
 
@@ -1355,9 +1354,7 @@ export class OutputRenderer {
     const program = this.componentPrograms.get(component.id);
     const programChain = this.componentProgramChain(component);
     if (programChain.length) {
-      const state = program
-        ? program.execute(this, component, componentTime, renderRequest)
-        : this.renderComponentChainState(component, programChain, componentTime, renderRequest);
+      const state = program.execute(this, component, componentTime, renderRequest);
       return state.buffer;
     }
 
@@ -1432,9 +1429,8 @@ export class OutputRenderer {
   renderComponentChain(component, componentTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "component");
     const program = this.componentPrograms.get(component.id);
-    const state = program
-      ? program.execute(this, component, componentTime, renderRequest)
-      : this.renderComponentChainState(component, component.chain || [], componentTime, renderRequest);
+    if (!program) throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id || "unknown"}`);
+    const state = program.execute(this, component, componentTime, renderRequest);
     return state.buffer;
   }
 

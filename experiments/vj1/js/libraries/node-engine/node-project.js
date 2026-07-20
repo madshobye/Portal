@@ -3,6 +3,7 @@ export const NODE_PROJECT_FORMAT_VERSION = 1;
 export function createEmptyNodeProjectData() {
   return {
     formatVersion: NODE_PROJECT_FORMAT_VERSION,
+    authority: "node-graph",
     definitions: [],
     pins: [],
     instances: [],
@@ -17,6 +18,7 @@ export function normalizeNodeProjectData(value = {}) {
   const source = isRecord(value) ? value : {};
   return {
     formatVersion: positiveInteger(source.formatVersion, NODE_PROJECT_FORMAT_VERSION),
+    authority: source.authority === "node-graph" ? "node-graph" : "component-import",
     definitions: normalizeCollection(source.definitions),
     pins: normalizeCollection(source.pins),
     instances: normalizeCollection(source.instances),

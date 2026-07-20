@@ -892,7 +892,9 @@ test("canvas rendering evaluates ordinary sources, Groups, effects, and shared r
   assert.ok(source.includes("surface.outputFrameId"));
   assert.ok(plannerSource.includes("resolveRouteSourceNode(storedSurface)"));
   assert.ok(!source.includes('item.role === "canvas-layer"'));
-  assert.ok(canvasRenderer.includes("this.renderComponentChainState("));
+  assert.ok(canvasRenderer.includes("program.execute(this, component"));
+  assert.ok(canvasRenderer.includes("VJ1_COMPONENT_PROGRAM_MISSING"));
+  assert.ok(!canvasRenderer.includes("component.chain"));
   assert.ok(!canvasRenderer.includes('item.kind === "source"'));
 });
 

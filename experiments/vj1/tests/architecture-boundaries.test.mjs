@@ -53,9 +53,13 @@ test("output and preview hot paths use node-owned algorithms without node-runtim
   const outputBranch = app.slice(app.indexOf('if (mode === "output"'), app.indexOf("} else {"));
   const hotPath = `${renderer}\n${surfaceRuntime}\n${surfacePlanner}\n${outputBranch}`;
 
-  assert.doesNotMatch(hotPath, /\b(?:NodeInstance|createNodeInstance|createVj1NodePackage)\b/);
+  assert.doesNotMatch(hotPath, /\b(?:NodeInstance|NodeGraphProgram|NodeCompilerRegistry|createNodeInstance|createNodePacket|createVj1NodePackage)\b/);
   assert.doesNotMatch(hotPath, /(?:\.\.\/)+node\/node-runtime\.js|app-node-package\.js/);
   assert.match(surfacePlanner, /export const planSurfaceRoutes = createSurfaceCompositionEngine\(/);
+  assert.match(renderer, /fuseLocalShaderSchedule\(logicalSchedule\)/);
+  assert.match(renderer, /new SpecializedSourceRuntime\(/);
+  assert.match(renderer, /createSharedFramebufferTarget\(/);
+  assert.match(renderer, /stableComponentSignatures/);
 });
 
 test("visual nodes own their definitions instead of using aggregate manifests", () => {

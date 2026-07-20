@@ -36,9 +36,10 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 23);
+  assert.equal(payload.version, 24);
   assert.deepEqual(payload.nodes, {
     formatVersion: 1,
+    authority: "component-import",
     definitions: [],
     pins: [],
     instances: [],

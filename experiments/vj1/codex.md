@@ -11,7 +11,9 @@ VJ1 is a build-free browser VJ and projection-mapping app in `experiments/vj1`. 
 - **Scenes** route Components, Canvases, or Canvas recording frames to surfaces.
 - **Live** selects the program Scene and applies temporary performance overrides.
 
-`component.chain` is the only Component/Canvas graph authority. Items are sources, effects, or isolated Groups. Do not restore `component.source`, `component.shaderChain`, chain-level source params, or silent Test Pattern/black fallbacks. Current project schema is version **22**; format changes require one adjacent migration and focused tests.
+Persisted Component/Canvas groups in `state.nodes` are the visual graph authority. `component.chain` is the materialized in-memory UI projection and compatibility shape; new saves do not persist it when a compiled group exists. Items remain sources, effects, or isolated Groups. Do not restore `component.source`, `component.shaderChain`, chain-level source params, or silent Test Pattern/black fallbacks. Current project schema is version **24**; format changes require one adjacent migration and focused tests.
+
+Visual node graphs compile through the custom Component visual compiler into the existing allocation-stable direct renderer. Do not replace this with generic per-frame packet traversal. Preserve shader fusion, shared framebuffer targets, retained caches, specialized STL/model/terrain paths, and current resource reuse. If a visual relationship requires specialization, keep it behind a compiler/custom node boundary rather than introducing avoidable ping-pong buffers. Call-driven graph execution is for control, data, and utility groups.
 
 Every chain item shares one General contract: `opacity`, `blend`, and `transform`. An authored `params.amount` is algorithm-specific strength, never a second compositing-opacity authority.
 

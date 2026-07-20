@@ -1,8 +1,19 @@
 import { ComponentProgramNode } from "../component-program/index.js";
 import { LayerGroupNode } from "../layer-group/index.js";
 import { VisualSourceNode } from "../visual-source/index.js";
+import { defineNodeCompiler, NodeCompilerRegistry, NODE_COMPILER_TARGETS } from "../../node-engine/index.js";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
+export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";
+
+const componentVisualCompiler = defineNodeCompiler({
+  id: COMPONENT_VISUAL_COMPILER_ID,
+  target: NODE_COMPILER_TARGETS.VISUAL,
+  accepts: (group) => group?.generatedBy === COMPONENT_PROGRAM_GENERATOR,
+  compile: (group, { component }) => new CompiledComponentRenderProgram(group, component),
+});
+
+const componentCompilerRegistry = new NodeCompilerRegistry([componentVisualCompiler]);
 
 export function componentProgramGroupId(componentId) {
   return `vj1.component.${String(componentId || "missing")}`;
@@ -10,6 +21,7 @@ export function componentProgramGroupId(componentId) {
 
 export function compileComponentGroupTopology(component = {}, { definitions = new Map() } = {}) {
   const nodes = compileChainNodes(component.chain || [], `components.${component.id}.chain`, definitions);
+  const projectionSignature = componentChainSignature(component.chain || []);
   return {
     id: componentProgramGroupId(component.id),
     nodeId: ComponentProgramNode.id,
@@ -21,8 +33,72 @@ export function compileComponentGroupTopology(component = {}, { definitions = ne
     connections: linearConnections(nodes),
     publicInlets: {},
     publicOutlets: { texture: nodes.length ? `${nodes[nodes.length - 1].id}.texture` : "$in.texture" },
+    compiler: {
+      id: COMPONENT_VISUAL_COMPILER_ID,
+      target: NODE_COMPILER_TARGETS.VISUAL,
+      strategy: "allocation-stable-direct-render-program",
+    },
+    projectionSignature,
     generatedBy: COMPONENT_PROGRAM_GENERATOR,
   };
+}
+
+export function reconcileComponentGroupTopology(component = {}, existingGroup = null, options = {}) {
+  if (!existingGroup || existingGroup.generatedBy !== COMPONENT_PROGRAM_GENERATOR) {
+    const group = compileComponentGroupTopology(component, options);
+    return {
+      component: withProjectedChain(component, component.chain || [], group.projectionSignature),
+      group,
+      source: "component-import",
+    };
+  }
+
+  const storedSignature = String(existingGroup.projectionSignature || "");
+  if (!storedSignature) {
+    const group = compileComponentGroupTopology(component, options);
+    return {
+      component: withProjectedChain(component, component.chain || [], group.projectionSignature),
+      group,
+      source: "legacy-component-import",
+    };
+  }
+  const graphChain = componentChainFromGroup(existingGroup);
+  const graphSignature = componentChainSignature(graphChain);
+  const componentSignature = componentChainSignature(component.chain || []);
+  const projectionMarker = String(component.nodeProjectionSignature || "");
+  const compatibilityEdit = projectionMarker
+    && projectionMarker === storedSignature
+    && graphSignature === storedSignature
+    && componentSignature !== projectionMarker;
+
+  if (compatibilityEdit) {
+    const group = compileComponentGroupTopology(component, options);
+    return {
+      component: withProjectedChain(component, component.chain || [], group.projectionSignature),
+      group,
+      source: "component-projection-edit",
+    };
+  }
+
+  // Persisted graph configuration wins on load and after graph edits. The
+  // chain remains a materialized compatibility view for the current product
+  // UI; it is not a second persisted authority.
+  const group = {
+    ...existingGroup,
+    componentId: String(component.id || ""),
+    artifactType: component.type === "canvas" ? "canvas" : "component",
+    name: component.name || (component.type === "canvas" ? "Canvas" : "Component"),
+    projectionSignature: graphSignature,
+  };
+  return {
+    component: withProjectedChain(component, graphChain, graphSignature),
+    group,
+    source: graphSignature === storedSignature ? "node-graph" : "node-graph-edit",
+  };
+}
+
+export function componentChainFromGroup(group = {}) {
+  return materializeChain(group.nodes || [], [], group.id || "component-group");
 }
 
 export function componentProgramInstances(group = {}) {
@@ -40,7 +116,10 @@ export function compileComponentRenderPrograms(components = [], groups = []) {
     // boundary. Rendering therefore always consumes a Component program and
     // never needs a second raw-chain execution path.
     const group = groupByComponent.get(String(component.id || "")) || compileComponentGroupTopology(component);
-    return [component.id, new CompiledComponentRenderProgram(group, component)];
+    return [component.id, componentCompilerRegistry.compile(group, {
+      target: NODE_COMPILER_TARGETS.VISUAL,
+      component,
+    })];
   }));
 }
 
@@ -89,6 +168,7 @@ function compileChainNodes(chain, path, definitions) {
       nodeVersion: "0.1.0",
       role: item.kind || "source",
       parameters: parametersForItem(item),
+      configuration: cloneChainItem(item, { includeChildren: false }),
       statePath: itemPath,
       generatedBy: COMPONENT_PROGRAM_GENERATOR,
     };
@@ -164,7 +244,7 @@ function collectInstances(nodes, groupId, result) {
 function materializeChain(topologyNodes, currentChain, groupId) {
   const byId = new Map((currentChain || []).map((item) => [String(item.id || ""), item]));
   return topologyNodes.filter((node) => node.role !== "control").map((node) => {
-    const item = byId.get(String(node.id || ""));
+    const item = node.configuration || byId.get(String(node.id || ""));
     if (!item) throw new Error(`COMPONENT_PROGRAM_ITEM_MISSING:${groupId}:${node.id}`);
     if (node.role !== "group") return item;
     return {
@@ -172,6 +252,31 @@ function materializeChain(topologyNodes, currentChain, groupId) {
       chain: materializeChain(node.nodes || [], item.chain || [], `${groupId}/${node.id}`),
     };
   });
+}
+
+function withProjectedChain(component, chain, signature) {
+  return {
+    ...component,
+    chain: cloneJson(chain || []),
+    nodeProjectionSignature: signature,
+  };
+}
+
+function componentChainSignature(chain) {
+  return JSON.stringify(chain || []);
+}
+
+function cloneChainItem(item, { includeChildren = true } = {}) {
+  const value = { ...(item || {}) };
+  if (value.source) value.source = cloneJson(value.source);
+  if (value.params) value.params = cloneJson(value.params);
+  if (value.transform) value.transform = cloneJson(value.transform);
+  if (value.kind === "group") value.chain = includeChildren ? cloneJson(value.chain || []) : [];
+  return value;
+}
+
+function cloneJson(value) {
+  return value === undefined ? undefined : JSON.parse(JSON.stringify(value));
 }
 
 function parameterControlNodes(targetNode, definition) {

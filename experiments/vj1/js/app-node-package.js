@@ -19,6 +19,7 @@ import {
   VisualSourceNode,
   compileComponentGroupTopology,
   componentProgramInstances,
+  reconcileComponentGroupTopology,
 } from "./libraries/composition-engine/index.js";
 import {
   SCENE_PROGRAM_GENERATOR,
@@ -136,6 +137,9 @@ export function createVj1NodePackage() {
     ...visualComponents.map(visualElementArtifact),
   ]);
   const applicationProgram = compileApplicationProgramTopology();
+  const prepareProjectState = (state) => prepareVj1NodeProjectState(state, {
+    visualDefinitions,
+  });
   return Object.freeze({
     id: "vj1.application",
     version: "0.1.0",
@@ -148,20 +152,42 @@ export function createVj1NodePackage() {
     }),
     projectArtifacts: (state) => createProjectArtifactCatalog(state),
     projectViews: (state) => projectArtifactViews(state),
-    prepareProjectState: (state) => ({
-      ...state,
-      nodes: ensureVj1NodeProjectData(state?.nodes, state?.components, {
-        visualDefinitions,
-        scenes: state?.scenes,
-        surfaces: state?.surfaces,
-      }),
-    }),
+    prepareProjectState,
     editorProjection: (definition, options = {}) => nodeEditorProjection(definition, { nodeRegistry: registry, ...options }),
   });
 }
 
+export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] } = {}) {
+  const currentNodes = normalizeNodeProjectData(state?.nodes);
+  const topologyDefinitions = new Map([
+    ...visualDefinitions,
+    LayerGroupNode,
+    VisualSourceNode,
+  ].map((definition) => [definition.id, definition]));
+  const currentGroups = new Map(currentNodes.groups
+    .filter((group) => group.generatedBy === COMPONENT_PROGRAM_GENERATOR)
+    .map((group) => [String(group.componentId || ""), group]));
+  const reconciled = (state?.components || []).map((component) => reconcileComponentGroupTopology(
+    component,
+    currentGroups.get(String(component.id || "")) || null,
+    { definitions: topologyDefinitions }
+  ));
+  const components = reconciled.map((entry) => entry.component);
+  const componentGroups = reconciled.map((entry) => entry.group);
+  return {
+    ...state,
+    components,
+    nodes: ensureVj1NodeProjectData(currentNodes, components, {
+      visualDefinitions,
+      scenes: state?.scenes,
+      surfaces: state?.surfaces,
+      componentGroups,
+    }),
+  };
+}
+
 export function ensureVj1NodeProjectData(value = {}, components = [], {
-  visualDefinitions = [], scenes = [], surfaces = [],
+  visualDefinitions = [], scenes = [], surfaces = [], componentGroups: preparedComponentGroups = null,
 } = {}) {
   const current = normalizeNodeProjectData(value);
   const topologyDefinitions = new Map([
@@ -169,7 +195,7 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
     LayerGroupNode,
     VisualSourceNode,
   ].map((definition) => [definition.id, definition]));
-  const componentGroups = (components || []).map((component) => compileComponentGroupTopology(component, {
+  const componentGroups = preparedComponentGroups || (components || []).map((component) => compileComponentGroupTopology(component, {
     definitions: topologyDefinitions,
   }));
   const componentInstances = componentGroups.flatMap(componentProgramInstances);
@@ -226,6 +252,7 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
   }));
   return {
     ...current,
+    authority: "node-graph",
     definitions: mergeByKey(current.definitions, definitions, (item) => `${item.id}@${item.version}`),
     pins: mergeByKey(current.pins, [...MODEL_PREVIEW_NODE_DEFINITIONS, ...componentDefinitions, ...sceneDefinitions, ...applicationDefinitions, ...visualDefinitions.filter((definition) => requiredVisualNodeIds.has(definition.id))].map((definition) => ({
       nodeId: definition.id,

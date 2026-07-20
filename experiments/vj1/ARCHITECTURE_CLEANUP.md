@@ -15,9 +15,12 @@ User commands are authoritative desired state. Browser, decoder, network, GPU, a
 
 Persisted projects are migrated once on load. Version 18 converts legacy source/shader chains, Canvas layers/frames, route fields, time scale, and preview viewport aliases into the current model.
 
-Runtime code consumes only:
+Persisted node groups are the Component/Canvas program authority. Runtime code
+materializes the established `component.chain` shape from those groups for UI,
+readiness, metrics, and compatibility adapters. Runtime code consumes:
 
-- `component.chain` for visual nodes;
+- compiled Component visual programs for rendering;
+- the in-memory `component.chain` projection for non-render consumers;
 - `recordingFrames` for Canvas capture regions;
 - `sourceNodeId` for Scene routes;
 - `previewViewports[workspace]` for navigation;
