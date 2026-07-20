@@ -574,16 +574,17 @@ test("stable component cache refreshes the exact GPU buffer usage key", () => {
 
   assert.ok(lookup.includes("this.componentGpuBuffer.get(stableGpuKey)"));
   assert.ok(lookup.includes("this.componentBuffer.get(stableGpuKey)"));
-  assert.ok(lookup.includes("this.touchRenderCache(this.componentGpuBufferUse, stableGpuKey)"));
-  assert.ok(lookup.includes("this.touchRenderCache(this.componentBufferUse, stableGpuKey)"));
+  assert.ok(lookup.includes("this.renderCache.touch(\"gpu-buffer\", stableGpuKey, this.frameIndex)"));
+  assert.ok(lookup.includes("this.renderCache.touch(\"buffer\", stableGpuKey, this.frameIndex)"));
 });
 
 test("render-cache maintenance is periodic unless a hard cache limit is exceeded", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.match(source, /this\.frameIndex - this\.lastRenderCachePruneFrame < RENDER_CACHE_MAINTENANCE_FRAMES/);
-  assert.match(source, /this\.componentGpuBufferUse\.size > COMPONENT_GPU_BUFFER_CACHE_LIMIT/);
-  assert.match(source, /const RENDER_CACHE_MAINTENANCE_FRAMES = 120;/);
-  assert.match(source, /this\.frameIndex - this\.lastComponentTimePruneFrame >= COMPONENT_TIME_MAINTENANCE_FRAMES/);
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const cacheSource = readFileSync(new URL("../js/output/output-render-cache.js", import.meta.url), "utf8");
+  assert.match(cacheSource, /frameIndex - this\.lastPruneFrame < RENDER_CACHE_MAINTENANCE_FRAMES/);
+  assert.match(cacheSource, /this\.gpuBufferUse\.size > COMPONENT_GPU_BUFFER_CACHE_LIMIT/);
+  assert.match(cacheSource, /const RENDER_CACHE_MAINTENANCE_FRAMES = 120;/);
+  assert.match(rendererSource, /this\.frameIndex - this\.lastComponentTimePruneFrame >= COMPONENT_TIME_MAINTENANCE_FRAMES/);
 });
 
 test("component pipeline lowers physical render pixels but preserves logical output dimensions", () => {
@@ -818,10 +819,11 @@ test("current component thumbnails bypass full WebGL framebuffer readback", () =
 });
 
 test("sampled shader work retains its owning Component for deep performance links", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.ok(source.includes("this.componentProfileContext.push(meta)"));
-  assert.ok(source.includes("this.componentProfileContext.pop()"));
-  assert.ok(source.includes("...this.activeComponentProfileIdentity()"));
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const profileSource = readFileSync(new URL("../js/output/output-render-profile.js", import.meta.url), "utf8");
+  assert.ok(profileSource.includes("this.componentContext.push(meta)"));
+  assert.ok(profileSource.includes("this.componentContext.pop()"));
+  assert.ok(rendererSource.includes("...this.activeComponentProfileIdentity()"));
 });
 
 test("thumbnail capture is blocked while live preview rendering is disabled", () => {

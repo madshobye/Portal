@@ -247,6 +247,7 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   const speed = component.params.find((param) => param.id === "speed");
   const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const targetRuntimeSource = readFileSync(new URL("../js/output/shader-target-runtime.js", import.meta.url), "utf8");
   const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Base Warp");
@@ -265,7 +266,7 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.ok(builderSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
   assert.ok(rendererSource.includes('setShaderUniformIfPresent(shader, "iTime", shaderTime)'));
   assert.ok(rendererSource.includes("shaderDrawingBufferSize(target"));
-  assert.ok(rendererSource.includes("gl?.drawingBufferWidth"));
+  assert.ok(targetRuntimeSource.includes("gl?.drawingBufferWidth"));
   assert.ok(runtimeSource.includes('generatorId === "shadertoyBaseWarp"'));
 });
 
@@ -495,6 +496,7 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/raw-webgl-state.js", import.meta.url), "utf8"),
   ].join("\n");
+  const profileSource = readFileSync(new URL("../js/output/output-render-profile.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Terrain Flyover");
   assert.equal(component.category, "organic");
@@ -538,8 +540,8 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("terrainExpandedGridWireVertices(widthCells, depthCells)"));
   assert.ok(rendererSource.includes("gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW)"));
   assert.ok(rendererSource.includes("measureComponentProfile(meta, fn)"));
-  assert.ok(rendererSource.includes("const outermost = this.componentProfileDepth === 0"));
-  assert.ok(rendererSource.includes("if (outermost) this.frameProfile.componentWallMs += ms"));
+  assert.ok(profileSource.includes("const outermost = this.componentDepth === 0"));
+  assert.ok(profileSource.includes("if (outermost) this.frameProfile.componentWallMs += ms"));
   assert.ok(!rendererSource.includes("float rowTravel = fract("));
   assert.ok(rendererSource.includes("float distance = meshUv.y * rowSpacing - cameraTravel"));
   assert.ok(rendererSource.includes("travel * (cameraTravel + distance) + right * worldLateral"));

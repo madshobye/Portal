@@ -178,11 +178,12 @@ test("render recovery paths are observable and mapper overlays restore depth sta
 });
 
 test("detailed CPU pass attribution is sampled instead of instrumenting every frame", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.match(source, /this\.collectDetailedProfile = this\.frameIndex % 6 === 0/);
-  assert.match(source, /measureProfile\(bucket, meta, fn\) \{\s*if \(!this\.collectDetailedProfile\) return fn\(\)/);
-  assert.match(source, /measureComponentProfile\(meta, fn\) \{\s*if \(!this\.collectDetailedProfile\) return fn\(\)/);
-  assert.match(source, /const frameMs = Math\.max\(0, performance\.now\(\) - this\.frameStart\)/);
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const profileSource = readFileSync(new URL("../js/output/output-render-profile.js", import.meta.url), "utf8");
+  assert.match(profileSource, /this\.collectDetailed = frameIndex % this\.sampleInterval === 0/);
+  assert.match(profileSource, /measure\(bucket, meta, fn\) \{\s*if \(!this\.collectDetailed\) return fn\(\)/);
+  assert.match(profileSource, /measureComponent\(meta, fn\) \{\s*if \(!this\.collectDetailed\) return fn\(\)/);
+  assert.match(rendererSource, /const frameMs = Math\.max\(0, performance\.now\(\) - this\.frameStart\)/);
 });
 
 test("selected grain effects use the shared cached noise texture", () => {

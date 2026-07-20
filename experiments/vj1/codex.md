@@ -71,18 +71,19 @@ Scene transition duration and parameter fade are independent. Numeric Live value
 
 - `js/app.js`, `js/app-state.js`, `js/domain/models.js`: startup, state, normalization, Live render state.
 - `js/domain/project-migrations.js`, `scene-routing.js`, `change-event.js`: schema, routing, transaction classification.
-- `js/control/*`, `style.css`: workspaces, inspectors, gestures, modals, shared UI.
+- `js/control/*`, `style.css`: workspaces, inspectors, gestures, modals, shared UI; the shell delegates project-rail presentation, diagnostics, and profiling session ownership to focused controllers.
 - `js/graph/*`: chain compilation and scheduling.
 - `js/output/output-renderer.js`: render orchestration.
 - `js/output/component-render-*`, `surface-render-planner.js`, `output-surface-runtime.js`: intrinsic Component rendering and parent placement.
+- `js/output/output-render-cache.js`, `output-render-profile.js`, `shader-target-runtime.js`: bounded render-target caching, sampled CPU attribution, and low-level shader-target operations.
 - `js/output/embedded-preview-app.js`, `output-app.js`: preview/output lifecycle and Scene transitions.
 - `js/output/output-media-*`, `specialized/*`: media leases, readiness, models, terrain, morph, and specialized generators.
-- `js/services/project-folder-service.js`, `project-serializer.js`, `media-library-service.js`, `output-bridge-service.js`: persistence and transport.
+- `js/services/project-folder-service.js`, `project-history-store.js`, `project-derived-asset-store.js`, `project-serializer.js`, `media-library-service.js`, `output-bridge-service.js`: folder lifecycle, bounded history, derived rendition/thumbnail storage, serialization, and transport.
 - `tests/*.test.mjs`: contract and regression tests.
 
 ## Current State and Next Checks
 
-- Full Node suite: **612 passing** on 2026-07-20.
+- Full Node suite: **628 passing** on 2026-07-20.
 - Latest changes were not browser-tested, by request.
 - First manual check: keep Scene A live, open/edit a Component associated with Scene B, move several sliders, and confirm embedded Live preview and popup output remain on Scene A.
 - If a Scene still changes, inspect `VJ1_LIVE_PATCH_RESYNC`, transport revision/session metadata, and the explicit `ui.live.selectedSceneId`; do not add another fallback.

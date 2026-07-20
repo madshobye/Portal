@@ -341,7 +341,8 @@ test("component panel exposes frame shape and relative resolution controls", () 
 });
 
 test("control surfaces share one flat section module and concentric corner tokens", () => {
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const primitivesSource = readFileSync(new URL("../js/control/view-primitives.js", import.meta.url), "utf8");
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const pickerSource = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
@@ -373,7 +374,8 @@ test("topbar identity stays neutral until interaction", () => {
 
 test("collection workspaces keep controls fixed and scroll only their list bodies", () => {
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes("refs.projectRail.dataset.workspace = workspace"));
   assert.match(styleSource, /\.project-rail:is\(\[data-workspace="component"\][\s\S]*?overflow: hidden;/);
@@ -392,7 +394,8 @@ test("collection workspaces keep controls fixed and scroll only their list bodie
 });
 
 test("selection rerenders preserve every keyed catalog and chain viewport", () => {
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const sceneSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
   const pickerSource = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
@@ -420,7 +423,8 @@ test("scroll region primitive gives every rerendered viewport a stable identity"
 
 test("every workspace rail uses the same constrained first-column module", () => {
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
 
   assert.match(styleSource, /\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(styleSource, /\.rail-section \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/);
@@ -436,7 +440,8 @@ test("every workspace rail uses the same constrained first-column module", () =>
 test("render-chain, frame, and surface rows share the compact list density", () => {
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const sceneSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
 
   assert.match(styleSource, /\.component-chain-list \{[\s\S]*?gap: 3px;[\s\S]*?align-content: start;/);
@@ -527,7 +532,8 @@ test("scene surfaces expose projection cover contain and stretch", () => {
 });
 
 test("component catalogs expose shared local filtering", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(source.includes("componentFilterTemplate"));
   assert.ok(source.includes("data-component-filter-card"));
@@ -538,7 +544,8 @@ test("component catalogs expose shared local filtering", () => {
 });
 
 test("the primary workspace is architecturally named Component", () => {
-  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const shell = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   assert.ok(shell.includes('data-workspace="component"'));
   assert.ok(!shell.includes('data-workspace="compose"'));
@@ -548,20 +555,21 @@ test("the primary workspace is architecturally named Component", () => {
 });
 
 test("component catalogs expose stable per-view sorting modes", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const catalogSource = readFileSync(new URL("../js/control/catalog-view.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(source.includes("state.ui?.catalogSortModes?.[scope]"));
   assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", canvas: "recent", scene: "recent", source: "recent", media: "recent" }'));
   assert.ok(source.includes("ui.catalogSortModes[catalog] = mode"));
   assert.match(source, /if \(change\.projectRestore\) \{[\s\S]*?invalidateCatalogOrder\(\)/);
-  assert.ok(source.includes('catalogSortMode(state, "component")'));
-  assert.ok(source.includes('catalogSortMode(state, "canvas")'));
-  assert.ok(source.includes('catalogSortMode(state, "scene")'));
+  assert.ok(source.includes('catalogSortMode("component")'));
+  assert.ok(source.includes('catalogSortMode("canvas")'));
+  assert.ok(source.includes('catalogSortMode("scene")'));
   assert.ok(source.includes('catalogSortMode(state, "source")'));
   assert.match(source, /scope === "scene"\s*\? state\.scenes \|\| \[\]/);
   assert.match(source, /scope === "source"\s*\? sceneSourceNodes\(state\)/);
-  assert.ok(source.includes('componentCatalogToolsTemplate("scene", catalogSortMode(state, "scene"), "Filter scenes")'));
+  assert.ok(source.includes('componentCatalogToolsTemplate("scene", catalogSortMode("scene"), "Filter scenes")'));
   assert.ok(source.includes('sources: catalogItemsInSnapshot("source", sceneSourceNodes(state))'));
   assert.ok(source.includes("if (viewKey === activeCatalogViewKey) return"));
   assert.ok(source.includes("captureCatalogOrder(workspace, state)"));
@@ -573,8 +581,8 @@ test("component catalogs expose stable per-view sorting modes", () => {
   assert.ok(!catalogSource.includes('role="group" aria-label="Sort components"'));
   assert.ok(source.includes('["recent", "marker", "name", "created"]'));
   assert.ok(style.includes(".component-sort-toggle"));
-  assert.ok(source.includes('catalogItemsInSnapshot("canvas", canvasComponents(state))'));
-  assert.ok(source.includes('componentCatalogToolsTemplate("canvas", catalogSortMode(state, "canvas"), "Filter canvases")'));
+  assert.ok(source.includes('catalogItems("canvas", canvasComponents(state))'));
+  assert.ok(source.includes('componentCatalogToolsTemplate("canvas", catalogSortMode("canvas"), "Filter canvases")'));
 });
 
 test("Live scene cards expose reset only for retained temporary overrides", () => {
@@ -586,7 +594,7 @@ test("Live scene cards expose reset only for retained temporary overrides", () =
 });
 
 test("Live scenes expose separate scene-transition and parameter-fade durations", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const models = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
   assert.ok(source.includes('data-update="ui.live.transitionDuration"'));
   assert.ok(source.includes('data-update="ui.live.paramFadeDuration"'));
@@ -597,7 +605,7 @@ test("Live scenes expose separate scene-transition and parameter-fade durations"
 });
 
 test("Live exposes a phase-continuous global visual time stretch", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
 
   assert.match(source, /function liveToolsTemplate[\s\S]*?Live Scenes[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
   assert.ok(source.includes("Time stretch"));
@@ -681,7 +689,8 @@ test("output metrics use a targeted runtime state path", () => {
 });
 
 test("canvas uses the shared chain and exposes recording frames as scene routes", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const selectorsSource = readFileSync(new URL("../js/control/control-selectors.js", import.meta.url), "utf8");
   const modalSource = readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8");
@@ -726,7 +735,7 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   assert.ok(inputSource.includes("data-set-route-source-node"));
   assert.ok(!source.includes("data-assign-scene-source"));
   assert.ok(source.includes("sceneSourceNodes(state)"));
-  assert.ok(source.includes('catalogItemsInSnapshot("component", ordinaryComponents(state))'));
+  assert.ok(source.includes('catalogItems("component", ordinaryComponents(state))'));
   assert.ok(selectorsSource.includes('filter((component) => component.type !== "canvas")'));
   assert.ok(!source.includes("data-set-route-frame"));
   assert.ok(source.includes("state.recordingFrames || []"));
@@ -753,7 +762,8 @@ test("preview resolution controls reserve invariant space while labels and metri
 });
 
 test("compact text lists share one full-width item generator", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const primitives = readFileSync(new URL("../js/control/view-primitives.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
@@ -1027,6 +1037,7 @@ test("topbar combines renderer health and fixed-width output fps", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const gpuTimerSource = readFileSync(new URL("../js/output/gpu-timer-tracker.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  const performanceSessionSource = readFileSync(new URL("../js/control/control-performance-session.js", import.meta.url), "utf8");
 
   assert.ok(shellSource.includes('id="render-cost" class="performance-health-button"'));
   assert.ok(shellSource.includes('id="render-cost-dot"'));
@@ -1069,14 +1080,14 @@ test("topbar combines renderer health and fixed-width output fps", () => {
   assert.ok(previewSource.includes("draft.metrics.previewGpuMs = metrics.gpuMs || 0"));
   assert.ok(shellSource.includes('id="performance-summary"'));
   assert.ok(shellSource.includes('id="performance-analyze"'));
-  assert.ok(controllerSource.includes("performanceProfileDurationMs = 10000"));
+  assert.ok(performanceSessionSource.includes("DEFAULT_DURATION_MS = 10000"));
   assert.ok(controllerSource.includes("createRuntimeHotspotSmoother"));
   assert.ok(controllerSource.includes("summarizeRuntimeHotPasses(profiles, 16)"));
   assert.ok(!controllerSource.includes("running average of recent samples"));
   assert.ok(!controllerSource.includes("CPU rows can overlap because a component includes its child passes"));
-  assert.ok(controllerSource.includes('PerformanceObserver.supportedEntryTypes?.includes("longtask")'));
-  assert.ok(controllerSource.includes("performanceProfile.host.uiRenderMs"));
-  assert.ok(controllerSource.includes("analyzeVj1Project(latestState, { runtimeSamples: session.samples })"));
+  assert.ok(performanceSessionSource.includes('PerformanceObserver.supportedEntryTypes?.includes("longtask")'));
+  assert.ok(performanceSessionSource.includes("session.host.uiRenderMs"));
+  assert.ok(controllerSource.includes("analyzeVj1Project(state, { runtimeSamples: samples })"));
   assert.ok(controllerSource.includes("globalThis.__vj1LastProfileReport = report"));
   assert.ok(controllerSource.includes("downloadPerformanceProfile(report"));
   assert.ok(controllerSource.includes("showPerformanceResults(report)"));
@@ -1235,13 +1246,14 @@ test("performance overviews show the owning Component thumbnail without renderer
 test("topbar diagnostics expose an event-driven bounded console with copy and clear actions", () => {
   const shell = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const diagnosticsController = readFileSync(new URL("../js/control/control-diagnostics-controller.js", import.meta.url), "utf8");
   const app = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(shell.includes('id="diagnostics-toggle"'));
   assert.ok(shell.includes('id="diagnostics-summary"'));
-  assert.ok(controller.includes("diagnostics?.subscribe?."));
-  assert.ok(controller.includes('data-diagnostics-copy'));
-  assert.ok(controller.includes('data-diagnostics-clear'));
+  assert.ok(diagnosticsController.includes("diagnostics?.subscribe?."));
+  assert.ok(diagnosticsController.includes('data-diagnostics-copy'));
+  assert.ok(diagnosticsController.includes('data-diagnostics-clear'));
   assert.ok(app.includes("createDiagnosticsService"));
   assert.match(style, /\.diagnostics-summary\s*\{[\s\S]*position:\s*absolute/);
 });
@@ -1350,7 +1362,8 @@ test("components expose persistent instance synchronization without changing com
 });
 
 test("global clipboard routing follows clicked lists chains Groups and external images", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const clipboardSource = readFileSync(new URL("../js/control/clipboard-controller.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
 

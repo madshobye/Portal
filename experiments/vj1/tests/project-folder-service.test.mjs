@@ -190,10 +190,10 @@ test("project folder service creates only functional asset/cache folders and can
 });
 
 test("undo history is bounded and ordinary saves use the session index", () => {
-  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
-  const refresh = source.slice(source.indexOf("  async function refreshHistoryState"), source.indexOf("\n  function setHistoryState", source.indexOf("  async function refreshHistoryState")));
-  assert.match(source, /const maxRevisionEntries = 500;/);
-  assert.match(source, /const maxRevisionBytes = 512 \* 1024 \* 1024;/);
+  const source = readFileSync(new URL("../js/services/project-history-store.js", import.meta.url), "utf8");
+  const refresh = source.slice(source.indexOf("  async function refreshState"), source.indexOf("\n  async function writeRevision", source.indexOf("  async function refreshState")));
+  assert.match(source, /DEFAULT_MAX_REVISION_ENTRIES = 500;/);
+  assert.match(source, /DEFAULT_MAX_REVISION_BYTES = 512 \* 1024 \* 1024;/);
   assert.match(source, /revisionIndex\.undo\.push/);
   assert.match(source, /revisionIndex\.redo\.push/);
   assert.doesNotMatch(refresh, /\.values\(\)|getFile\(/);
@@ -202,6 +202,7 @@ test("undo history is bounded and ordinary saves use the session index", () => {
 
 test("every 500 committed revisions creates a scan-excluded cold project backup", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  const historySource = readFileSync(new URL("../js/services/project-history-store.js", import.meta.url), "utf8");
   const mediaLibrarySource = readFileSync(new URL("../js/services/media-library-service.js", import.meta.url), "utf8");
 
   assert.equal(COLD_BACKUP_ROOT, "backups");
@@ -209,7 +210,7 @@ test("every 500 committed revisions creates a scan-excluded cold project backup"
   assert.deepEqual(nextColdBackupRevision(498), { revision: 499, shouldBackup: false });
   assert.deepEqual(nextColdBackupRevision(499), { revision: 500, shouldBackup: true });
   assert.deepEqual(nextColdBackupRevision(999), { revision: 1000, shouldBackup: true });
-  assert.match(source, /project-backup-\$\{String\(checkpoint\.revision\)\.padStart\(9, "0"\)\}/);
+  assert.match(historySource, /project-backup-\$\{String\(checkpoint\.revision\)\.padStart\(9, "0"\)\}/);
   assert.match(source, /root === "revisions" \|\| root === COLD_BACKUP_ROOT \|\| root === RENDITION_ROOT/);
   assert.match(mediaLibrarySource, /if \(root && !\["media", "shaders"\]\.includes\(name\)\) continue;/);
 });
@@ -230,9 +231,9 @@ test("undo and redo reload project state without rescanning assets", () => {
 });
 
 test("rendition cache uses a bounded manifest instead of directory enumeration", () => {
-  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
-  const loadIndex = source.slice(source.indexOf("  async function loadIndexedRenditions"), source.indexOf("\n  async function indexRendition", source.indexOf("  async function loadIndexedRenditions")));
-  assert.match(source, /const maxIndexedRenditions = 1000;/);
-  assert.match(loadIndex, /getFileHandle\(renditionIndexFilename\)/);
+  const source = readFileSync(new URL("../js/services/project-derived-asset-store.js", import.meta.url), "utf8");
+  const loadIndex = source.slice(source.indexOf("  async loadIndexedRenditions"), source.indexOf("\n  async indexRendition", source.indexOf("  async loadIndexedRenditions")));
+  assert.match(source, /maxIndexedRenditions = 1000/);
+  assert.match(loadIndex, /getFileHandle\(this\.renditionIndexFilename\)/);
   assert.doesNotMatch(loadIndex, /\.entries\(\)|\.values\(\)/);
 });

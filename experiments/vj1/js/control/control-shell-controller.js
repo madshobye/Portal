@@ -8,16 +8,19 @@ import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPas
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=scroll-region-1";
-import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
+import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { canvasInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=scroll-region-1";
-import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { mappingInletsTemplate, mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=scroll-region-1";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSignificantComponentTemplate, sceneSurfacePillTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=scroll-region-1";
-import { componentCardBarTemplate, deepEditButtonTemplate, panelTemplate, projectEmptyTemplate, textListItemTemplate } from "./view-primitives.js?v=scroll-region-1";
+import { getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
+import { mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=scroll-region-1";
+import { liveInspectorTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=scroll-region-1";
+import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=scroll-region-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { createClipboardController } from "./clipboard-controller.js?v=clipboard-chain-target-1";
 import { createModalController } from "./modal-controller.js?v=screen-input-registry-2";
 import { createInputController } from "./input-controller.js?v=component-to-canvas-1";
+import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
+import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-controller-1";
+import { projectRailTemplate } from "./project-rail-view.js?v=project-rail-view-1";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -48,12 +51,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let deferredRenderTimer = 0;
   let activePointerCount = 0;
   let activeCatalogViewKey = "";
-  let performanceProfile = null;
-  let performanceProfileTimer = 0;
-  let performanceLongTaskObserver = null;
   let deepEditReturnContext = null;
-  let diagnosticsOpen = false;
-  let diagnosticsSnapshot = diagnostics?.summary?.() || emptyDiagnosticsSummary();
   const performanceHotspotSmoother = createRuntimeHotspotSmoother();
   let performanceHotspotComponentScope = "";
   const previewLayoutQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
@@ -62,6 +60,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   const catalogOrderSnapshots = { component: [], canvas: [], scene: [], source: [] };
   const activeParamViews = new Map();
   const replaceHtmlIfChanged = createHtmlCache();
+  const diagnosticsController = createControlDiagnosticsController({
+    diagnostics,
+    getRefs: () => refs,
+    replaceHtmlIfChanged,
+    setStatus,
+  });
   const clipboard = createClipboardController({
     root,
     store,
@@ -99,26 +103,35 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       clipboard.setChainItemTarget(componentId, itemId);
     },
   });
-  const performanceProfileDurationMs = 10000;
+  const performanceSession = createControlPerformanceSession({
+    getState: () => latestState,
+    metricForState: performanceMetricForState,
+    analyze: (state, samples) => analyzeVj1Project(state, { runtimeSamples: samples }),
+    onTick: () => renderTopbar(latestState),
+    onComplete: (report, sampleCount) => {
+      globalThis.__vj1LastProfileReport = report;
+      console.info("[VJ1_PROFILE_COMPLETE]", report);
+      showPerformanceResults(report);
+      setStatus(`Profile complete · ${sampleCount} samples analyzed`);
+      renderTopbar(latestState);
+    },
+  });
 
   function mount() {
     root.innerHTML = shellTemplate();
     refs = collectRefs(root);
     bindStaticEvents();
-    diagnostics?.subscribe?.((summary) => {
-      diagnosticsSnapshot = summary;
-      renderDiagnostics();
-    });
+    diagnosticsController.mount();
     previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState));
     restorePreviewPreference();
     store.subscribe((state, reason, change) => {
       latestState = state;
-      recordPerformanceStateEvent(reason);
+      performanceSession.recordStateEvent(reason);
       if (change.projectRestore) {
         invalidateCatalogOrder();
         deepEditReturnContext = null;
       }
-      if (reason === "output-metrics" || reason === "preview-metrics") capturePerformanceProfileSample(state, reason);
+      if (reason === "output-metrics" || reason === "preview-metrics") performanceSession.captureSample(state, reason);
       if (reason === "mapping-state") {
         renderTopbar(state);
         renderPreview(state);
@@ -230,7 +243,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function render(state) {
-    const profileRenderStarted = performanceProfile ? performance.now() : 0;
+    const profileRenderStarted = performanceSession.isActive() ? performance.now() : 0;
     prepareCatalogOrder(state);
     setClass(root, "has-project-open", hasOpenProject(state));
     setClass(root, "no-project-open", !hasOpenProject(state));
@@ -239,7 +252,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderStudio(state);
     renderInspector(state);
     renderPreview(state);
-    if (performanceProfile) pushBounded(performanceProfile.host.uiRenderMs, performance.now() - profileRenderStarted, 240);
+    if (performanceSession.isActive()) performanceSession.recordUiRender(performance.now() - profileRenderStarted);
     modals.render(state);
   }
 
@@ -279,17 +292,19 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       togglePerformanceSummary();
     });
     refs.performanceSummary.addEventListener("click", (event) => event.stopPropagation());
-    refs.performanceAnalyze.addEventListener("click", startPerformanceProfile);
+    refs.performanceAnalyze.addEventListener("click", () => {
+      closePerformanceSummary();
+      performanceSession.start();
+    });
     refs.performanceResultsHost.addEventListener("click", handlePerformanceResultsClick);
     window.addEventListener("click", closePerformanceSummary);
 
     refs.diagnosticsToggle?.addEventListener("click", (event) => {
       event.stopPropagation();
-      diagnosticsOpen = !diagnosticsOpen;
-      renderDiagnostics();
+      diagnosticsController.toggle();
     });
-    refs.diagnosticsSummary?.addEventListener("click", handleDiagnosticsClick);
-    window.addEventListener("click", closeDiagnostics);
+    refs.diagnosticsSummary?.addEventListener("click", diagnosticsController.handleClick);
+    window.addEventListener("click", diagnosticsController.close);
 
     refs.toggleLabels.addEventListener("click", () => {
       store.update((draft) => {
@@ -420,67 +435,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }
   }
 
-  function startPerformanceProfile() {
-    if (performanceProfile) return;
-    closePerformanceSummary();
-    const startedAt = performance.now();
-    performanceProfile = {
-      startedAt,
-      startedAtIso: new Date().toISOString(),
-      endsAt: startedAt + performanceProfileDurationMs,
-      samples: [],
-      host: {
-        uiRenderMs: [],
-        longTasks: [],
-        eventLoopLagMs: [],
-        stateEvents: {},
-        expectedTickAt: startedAt + 250,
-        memoryStartBytes: performanceMemoryBytes(),
-      },
-    };
-    startPerformanceHostObserver();
-    capturePerformanceProfileSample(latestState);
-    renderTopbar(latestState);
-    performanceProfileTimer = window.setInterval(() => {
-      if (performanceProfile) {
-        const now = performance.now();
-        pushBounded(performanceProfile.host.eventLoopLagMs, Math.max(0, now - performanceProfile.host.expectedTickAt), 80);
-        performanceProfile.host.expectedTickAt = now + 250;
-      }
-      if (!performanceProfile || performance.now() >= performanceProfile.endsAt) {
-        finishPerformanceProfile();
-        return;
-      }
-      renderTopbar(latestState);
-    }, 250);
-  }
-
-  function recordPerformanceStateEvent(reason) {
-    if (!performanceProfile) return;
-    const key = String(reason || "unknown");
-    performanceProfile.host.stateEvents[key] = (performanceProfile.host.stateEvents[key] || 0) + 1;
-  }
-
-  function startPerformanceHostObserver() {
-    if (typeof PerformanceObserver !== "function" || !PerformanceObserver.supportedEntryTypes?.includes("longtask")) return;
-    try {
-      performanceLongTaskObserver = new PerformanceObserver((list) => {
-        if (!performanceProfile) return;
-        for (const entry of list.getEntries()) {
-          pushBounded(performanceProfile.host.longTasks, {
-            durationMs: Number(entry.duration) || 0,
-            name: entry.name || "main-thread task",
-            startedAtMs: Number(entry.startTime) || 0,
-          }, 120);
-        }
-      });
-      performanceLongTaskObserver.observe({ type: "longtask", buffered: false });
-    } catch (error) {
-      console.warn("[VJ1_HOST_PROFILE_OBSERVER_FAILED]", { message: error?.message || String(error) });
-      performanceLongTaskObserver = null;
-    }
-  }
-
   function togglePerformanceSummary() {
     const opening = refs.performanceSummary.classList.contains("is-hidden");
     setClass(refs.performanceSummary, "is-hidden", !opening);
@@ -491,58 +445,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function closePerformanceSummary() {
     setClass(refs.performanceSummary, "is-hidden", true);
     refs.renderCost?.setAttribute("aria-expanded", "false");
-  }
-
-  function closeDiagnostics() {
-    if (!diagnosticsOpen) return;
-    diagnosticsOpen = false;
-    renderDiagnostics();
-  }
-
-  function renderDiagnostics() {
-    if (!refs.diagnosticsToggle || !refs.diagnosticsSummaryContent) return;
-    const snapshot = diagnosticsSnapshot || emptyDiagnosticsSummary();
-    const level = snapshot.level || "ok";
-    const iconName = level === "error" ? "error" : level === "warning" ? "warning" : level === "info" ? "info" : "check_circle";
-    const count = (snapshot.counts?.info || 0) + (snapshot.counts?.warning || 0) + (snapshot.counts?.error || 0);
-    refs.diagnosticsToggle.innerHTML = icon(iconName);
-    refs.diagnosticsToggle.classList.remove("is-ok", "is-info", "is-warning", "is-error");
-    refs.diagnosticsToggle.classList.add(`is-${level}`);
-    refs.diagnosticsToggle.title = level === "ok" ? "Diagnostics: OK" : `Diagnostics: ${count} entr${count === 1 ? "y" : "ies"}`;
-    refs.diagnosticsToggle.setAttribute("aria-label", level === "ok" ? "Open diagnostics, status OK" : `Open diagnostics, ${count} entries, status ${level}`);
-    refs.diagnosticsToggle.setAttribute("aria-expanded", diagnosticsOpen ? "true" : "false");
-    setClass(refs.diagnosticsSummary, "is-hidden", !diagnosticsOpen);
-    if (!diagnosticsOpen) return;
-    const entries = snapshot.entries || [];
-    replaceHtmlIfChanged(refs.diagnosticsSummaryContent, `
-      <div class="diagnostics-summary-header">
-        <span><strong>Diagnostics</strong><small>${entries.length ? `${count} captured entr${count === 1 ? "y" : "ies"}` : "No relevant console entries"}</small></span>
-        <span class="diagnostics-state is-${esc(level)}">${icon(iconName)} ${esc(level === "ok" ? "OK" : level)}</span>
-      </div>
-      <ol class="diagnostics-entry-list" data-scroll-region data-scroll-key="diagnostics-entries">
-        ${entries.length ? entries.slice().reverse().map(diagnosticEntryTemplate).join("") : `<li class="diagnostics-empty">${icon("check_circle")} Everything looks OK.</li>`}
-      </ol>
-      <div class="diagnostics-actions">
-        <button type="button" data-diagnostics-clear ${entries.length ? "" : "disabled"}>${icon("delete_sweep")} Clear</button>
-        <button type="button" data-diagnostics-copy ${entries.length ? "" : "disabled"}>${icon("content_copy")} Copy</button>
-      </div>`);
-  }
-
-  async function handleDiagnosticsClick(event) {
-    event.stopPropagation();
-    if (event.target.closest("[data-diagnostics-clear]")) {
-      diagnostics?.clear?.();
-      return;
-    }
-    if (!event.target.closest("[data-diagnostics-copy]")) return;
-    const text = diagnostics?.copyText?.() || "";
-    if (!text) return;
-    try {
-      await navigator.clipboard.writeText(text);
-      setStatus("Diagnostics copied");
-    } catch (error) {
-      setStatus(`Could not copy diagnostics: ${error?.message || error}`);
-    }
   }
 
   function renderPerformanceSummary(state) {
@@ -593,70 +495,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       </div>
       <ol class="performance-hotspot-list" data-scroll-region data-scroll-key="performance-hotspots">${rows}</ol>
     `);
-    refs.performanceAnalyze.disabled = !!performanceProfile;
-  }
-
-  function capturePerformanceProfileSample(state, reason = "active") {
-    if (!performanceProfile) return;
-    const outputFps = state.metrics?.clients > 0 ? Math.max(0, Number(state.metrics.fps) || 0) : 0;
-    const metric = reason === "preview-metrics"
-      ? {
-          source: "preview",
-          fps: Math.max(0, Number(state.metrics.previewFps) || 0),
-          cpuMs: Math.max(0, Number(state.metrics.previewFrameMs) || 0),
-          gpuMs: Math.max(0, Number(state.metrics.previewGpuMs) || 0),
-          gpuSupported: state.metrics.previewGpuSupported === true,
-          profile: state.metrics.previewProfile || null,
-          renderCost: Math.max(0, Number(state.metrics.previewRenderCost) || 0),
-        }
-      : reason === "output-metrics"
-        ? {
-            source: "output",
-            fps: outputFps,
-            cpuMs: Math.max(0, Number(state.metrics.frameMs) || 0),
-            gpuMs: Math.max(0, Number(state.metrics.gpuMs) || 0),
-            gpuSupported: state.metrics.gpuSupported === true,
-            profile: state.metrics.profile || null,
-            renderCost: Math.max(0, Number(state.metrics.renderCost) || 0),
-            transport: state.metrics.transport || null,
-          }
-        : { ...activeWorkMetric(state, outputFps), renderCost: activeRenderCost(state) };
-    if (!(metric.fps > 0)) return;
-    performanceProfile.samples.push({
-      sampledAt: new Date().toISOString(),
-      source: metric.source,
-      fps: metric.fps,
-      frameMs: metric.cpuMs,
-      gpuMs: metric.gpuMs,
-      gpuSupported: metric.gpuSupported,
-      renderCost: metric.renderCost,
-      profile: metric.profile ? structuredCloneSafe(metric.profile) : null,
-      transport: metric.transport ? structuredCloneSafe(metric.transport) : null,
-    });
-  }
-
-  function finishPerformanceProfile() {
-    if (!performanceProfile) return;
-    if (performanceProfileTimer) window.clearInterval(performanceProfileTimer);
-    performanceProfileTimer = 0;
-    performanceLongTaskObserver?.disconnect?.();
-    performanceLongTaskObserver = null;
-    const session = performanceProfile;
-    performanceProfile = null;
-    const report = {
-      kind: "vj1-runtime-profile",
-      durationMs: performanceProfileDurationMs,
-      startedAt: session.startedAtIso,
-      completedAt: new Date().toISOString(),
-      runtimeSamples: session.samples,
-      analysis: analyzeVj1Project(latestState, { runtimeSamples: session.samples }),
-      host: summarizePerformanceHost(session.host),
-    };
-    globalThis.__vj1LastProfileReport = report;
-    console.info("[VJ1_PROFILE_COMPLETE]", report);
-    showPerformanceResults(report);
-    setStatus(`Profile complete · ${session.samples.length} samples analyzed`);
-    renderTopbar(latestState);
+    refs.performanceAnalyze.disabled = performanceSession.isActive();
   }
 
   function showPerformanceResults(report) {
@@ -813,7 +652,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setClass(refs.projectMeta, "is-hidden", hasProject && !projectMeta);
     setClass(refs.closeProject, "is-hidden", !hasProject);
     setClass(refs.returnFromDeepEdit, "is-hidden", !hasProject || !deepEditReturnContext);
-    renderDiagnostics();
+    diagnosticsController.render();
     if (refs.returnFromDeepEdit && deepEditReturnContext) {
       const label = workspaceLabel(deepEditReturnContext.workspace);
       refs.returnFromDeepEdit.title = `Return to ${label}`;
@@ -824,16 +663,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setClass(refs.outputStatus, "is-live", outputConnected);
     setText(refs.outputStatusText, outputConnected ? `${Math.round(outputFps)}` : "-");
     const renderCost = activeRenderCost(state);
-    setClass(refs.renderCost, "is-active", !!performanceProfile);
-    const profileSeconds = performanceProfile
-      ? Math.max(1, Math.ceil((performanceProfile.endsAt - performance.now()) / 1000))
-      : 0;
+    setClass(refs.renderCost, "is-active", performanceSession.isActive());
+    const profileSeconds = performanceSession.remainingSeconds();
     const workMetric = activeWorkMetric(state, outputFps);
     const frameInterval = frameTimeFromFps(workMetric.fps);
     setPerformanceHealthDot(refs.renderCostDot, renderCost);
     setPerformanceHealthDot(refs.cpuTimeDot, frameInterval > 0 ? workMetric.cpuMs / frameInterval : 0);
     setPerformanceHealthDot(refs.gpuTimeDot, frameInterval > 0 ? workMetric.gpuMs / frameInterval : 0, workMetric.gpuSupported);
-    const healthTitle = performanceProfile
+    const healthTitle = performanceSession.isActive()
       ? `Profiling rendering… ${profileSeconds} second${profileSeconds === 1 ? "" : "s"} remaining`
       : `Overall ${formatRenderCost(renderCost)} · CPU ${formatTimeMs(workMetric.cpuMs)} · GPU ${workMetric.gpuSupported ? formatTimeMs(workMetric.gpuMs) : "unavailable"} · Output ${outputConnected ? `${Math.round(outputFps)} fps` : "closed"}`;
     refs.renderCost.title = healthTitle;
@@ -976,142 +813,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const hasProject = hasOpenProject(state);
     const workspace = currentWorkspace(state);
     refs.projectRail.dataset.workspace = workspace;
-    const html = hasProject ? railToolsTemplate(state, workspace) : "";
+    const html = hasProject ? projectRailTemplate(state, {
+      workspace,
+      catalogItems: (scope, items) => catalogItemsInSnapshot(scope, items),
+      catalogSortMode: (scope) => catalogSortMode(state, scope),
+    }) : "";
     if (replaceHtmlIfChanged(refs.projectRail, html, { scrollKey: `project-rail:${workspace}` })) bindRailEvents();
-  }
-
-  function railToolsTemplate(state, workspace) {
-    if (workspace === "component") return componentToolsTemplate(state);
-    if (workspace === "canvas") return canvasToolsTemplate(state);
-    if (workspace === "mapping") return mappingToolsTemplate(state);
-    if (workspace === "live") return liveToolsTemplate(state);
-    return sceneToolsTemplate(state);
-  }
-
-  function addableRailTitleTemplate(iconName, title, actionAttribute, actionLabel) {
-    return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${iconName}</span><span>${esc(title)}</span><button class="rail-title-add" type="button" ${actionAttribute} title="${esc(actionLabel)}" aria-label="${esc(actionLabel)}">${icon("add")}</button></div>`;
-  }
-
-  function componentToolsTemplate(state) {
-    const components = catalogItemsInSnapshot("component", ordinaryComponents(state));
-    return `
-      <div class="ui-section rail-section rail-list-section" data-component-filter-scope>
-        ${addableRailTitleTemplate("account_tree", "Components", "data-add-component", "Add component")}
-        ${componentCatalogToolsTemplate("component", catalogSortMode(state, "component"), "Filter components")}
-        <div class="component-card-list rail-scroll-list" data-scroll-region data-scroll-key="component-catalog" data-paste-scope="component-list">
-          ${components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create visual recipes")}
-        </div>
-      </div>
-    `;
-  }
-
-  function canvasToolsTemplate(state) {
-    const canvases = catalogItemsInSnapshot("canvas", canvasComponents(state));
-    const selectedCanvas = selectedCanvasComponent(state);
-    return `
-      <div class="ui-section rail-section rail-list-section" data-component-filter-scope>
-        ${addableRailTitleTemplate("dashboard_customize", "Canvases", "data-add-canvas-component", "Add canvas")}
-        ${componentCatalogToolsTemplate("canvas", catalogSortMode(state, "canvas"), "Filter canvases")}
-        <div class="component-card-list rail-scroll-list" data-scroll-region data-scroll-key="canvas-catalog" data-paste-scope="canvas-list">
-          ${canvases.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a canvas component")}
-        </div>
-      </div>
-      <div class="ui-section rail-section rail-list-section canvas-frame-rail-section">
-        ${addableRailTitleTemplate("select_all", "Frames", `data-add-canvas-frame data-canvas-component-id="${esc(selectedCanvas?.id || "")}" ${selectedCanvas ? "" : "disabled"}`, "Add recording frame")}
-        <div class="recording-frame-pills rail-scroll-list" data-scroll-region data-scroll-key="recording-frames">
-          ${(state.recordingFrames || []).map((frame, index) => canvasFramePillTemplate(frame, index, selectedCanvas)).join("") || emptyNote("Add a recording frame")}
-        </div>
-      </div>
-    `;
-  }
-
-  function sceneToolsTemplate(state) {
-    const scenes = catalogItemsInSnapshot("scene", state.scenes || []);
-    return `
-      <div class="ui-section rail-section rail-list-section" data-component-filter-scope>
-        ${addableRailTitleTemplate("auto_awesome_motion", "Scenes", "data-add-scene", "Add empty scene")}
-        ${componentCatalogToolsTemplate("scene", catalogSortMode(state, "scene"), "Filter scenes")}
-        <div class="scene-card-list rail-scroll-list" data-scroll-region data-scroll-key="scene-catalog" data-paste-scope="scene-list">
-          ${scenes.map((scene) => scenePillTemplate(scene, state)).join("") || emptyNote("Add a scene")}
-        </div>
-      </div>
-      ${sceneRailConfigTemplate(state)}
-      <div class="ui-section rail-section rail-list-section scene-surface-rail-section">
-        ${addableRailTitleTemplate("select_all", "Surfaces", "data-add-surface", "Add surface")}
-        <div class="surface-pills rail-scroll-list" data-scroll-region data-scroll-key="scene-surfaces" data-surface-reorder-list data-paste-scope="surface-list">
-          ${state.surfaces.map((surface) => sceneSurfacePillTemplate(surface, state)).join("")}
-        </div>
-      </div>
-    `;
-  }
-
-  function liveToolsTemplate(state) {
-    const transitionDuration = Math.max(0, Number(state.ui?.live?.transitionDuration) || 0);
-    const paramFadeDuration = Math.max(0, Number(state.ui?.live?.paramFadeDuration) || 0);
-    const timeStretch = Math.max(-4, Math.min(4, Number(state.global?.timeStretch) || 0));
-    const timeScale = timeStretch <= -4 ? 0 : 2 ** timeStretch;
-    const liveScene = state.scenes.find((scene) => scene.id === (state.ui?.live?.selectedSceneId || state.scenes[0]?.id));
-    const components = liveNavigableComponents(liveScene, state);
-    const scenes = catalogItemsInSnapshot("scene", state.scenes || []);
-    return `
-      <div class="ui-section rail-section rail-list-section" data-component-filter-scope>
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live Scenes</span></div>
-        ${componentCatalogToolsTemplate("scene", catalogSortMode(state, "scene"), "Filter scenes")}
-        <div class="scene-card-list live-scene-list rail-scroll-list" data-scroll-region data-scroll-key="live-scenes">
-          ${scenes.map((scene) => liveScenePillTemplate(scene, state)).join("") || emptyNote("Capture scenes first")}
-        </div>
-      </div>
-      <div class="ui-section rail-section rail-list-section live-component-rail-section">
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Scene components</span></div>
-        <div class="component-card-list live-component-picker-list rail-scroll-list" data-scroll-region data-scroll-key="live-components">
-          ${components.map((component) => liveComponentPillTemplate(component, state)).join("") || emptyNote("No active components")}
-        </div>
-      </div>
-      <div class="ui-section rail-section">
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">tune</span><span>Timing</span></div>
-        <label class="field range-field live-time-scale">
-          <span>Time stretch</span>
-          <output class="range-value" data-range-value>${timeStretch.toFixed(2)} · ${timeScale < 0.1 ? timeScale.toFixed(3) : timeScale.toFixed(2)}×</output>
-          <input type="range" min="-4" max="4" step="0.01" data-range-format="time-stretch" data-update="global.timeStretch" value="${timeStretch}" />
-        </label>
-        <label class="field range-field live-transition-duration">
-          <span>Transition</span>
-          <output class="range-value" data-range-value>${transitionDuration.toFixed(1)} s</output>
-          <input type="range" min="0" max="10" step="0.1" data-range-suffix=" s" data-update="ui.live.transitionDuration" value="${transitionDuration}" />
-        </label>
-        <label class="field range-field live-param-fade-duration">
-          <span>Param fade</span>
-          <output class="range-value" data-range-value>${paramFadeDuration.toFixed(2)} s</output>
-          <input type="range" min="0" max="10" step="0.05" data-range-suffix=" s" data-update="ui.live.paramFadeDuration" value="${paramFadeDuration}" />
-        </label>
-      </div>
-    `;
-  }
-
-  function mappingToolsTemplate(state) {
-    const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
-    return `
-      <div class="ui-section rail-section" data-component-filter-scope>
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">schema</span><span>Node Patch</span></div>
-        ${componentFilterTemplate()}
-        <div class="component-card-list" data-scroll-region data-scroll-key="mapping-components">
-          ${state.components.map((component) => componentPillTemplate(component, state)).join("") || emptyNote("Create a component")}
-        </div>
-      </div>
-      <div class="ui-section rail-section">
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">input</span><span>Inlets</span></div>
-        <div class="node-chip-list">
-          ${mappingInletsTemplate(selectedComponent)}
-        </div>
-      </div>
-      <div class="ui-section rail-section">
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">output</span><span>Outlets</span></div>
-        <div class="node-chip-list">
-          <div class="node-chip"><span>texture</span><small>component output</small></div>
-          <div class="node-chip"><span>event</span><small>manual lane</small></div>
-        </div>
-      </div>
-    `;
   }
 
   function renderStudio(state) {
@@ -1476,40 +1183,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   return { mount };
 }
 
-function componentPillTemplate(component, state) {
-  const selected = state.ui.selectedComponentId === component.id;
-  const fallbackIcon = component.type === "canvas" ? "dashboard_customize" : "account_tree";
-  const removeDisabled = component.type !== "canvas"
-    ? ordinaryComponents(state).length <= 1
-    : state.components.length <= 1;
-  return `
-    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(component.name.toLowerCase())}">
-      <button type="button" class="component-card ${selected ? "is-selected" : ""}" data-select-component="${esc(component.id)}">
-        ${thumbnailTemplate(component.thumbnail, fallbackIcon)}
-        ${componentCardBarTemplate(component.name)}
-      </button>
-      ${catalogMarkerButtonTemplate(component, "component")}
-      <button type="button" class="component-card-remove" data-remove-component="${esc(component.id)}" title="Remove" aria-label="Remove ${esc(component.name)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>
-    </div>
-  `;
-}
-
-function canvasFramePillTemplate(frame, index, component) {
-  const label = frame.name || `Frame ${index + 1}`;
-  return textListItemTemplate({
-    rowClass: "list-row compact-list-row",
-    leadingHtml: `<span class="text-list-static-icon" aria-hidden="true">${icon("select_all")}</span>`,
-    label,
-    meta: "Shared",
-    mainClass: "list-select recording-frame-label",
-    removeClass: "list-remove",
-    removeAttributes: `data-canvas-component-id="${esc(component?.id || "")}" data-remove-canvas-frame="${esc(frame.id)}"`,
-    removeTitle: "Remove recording frame",
-  });
-}
-
-
-
 function syncSelectedSceneSnapshot(state) {
   const scene = state.scenes.find((item) => item.id === state.ui.selectedSceneId);
   if (!scene) return;
@@ -1541,23 +1214,6 @@ function performanceComponentThumbnail(state, componentId, className) {
   return `<span class="performance-component-thumbnail ${esc(className)}">${thumbnailTemplate(component.thumbnail, fallbackIcon)}</span>`;
 }
 
-function emptyDiagnosticsSummary() {
-  return { level: "ok", counts: { info: 0, warning: 0, error: 0 }, entries: [] };
-}
-
-function diagnosticEntryTemplate(entry) {
-  const time = new Date(entry.lastAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-  const count = entry.count > 1 ? `<span class="diagnostics-repeat">×${entry.count}</span>` : "";
-  const source = entry.source ? `<span class="diagnostics-source">${esc(entry.source)}</span>` : "";
-  return `<li class="is-${esc(entry.level)}"><header><span>${icon(diagnosticIcon(entry.level))}<strong>${esc(entry.level)}</strong>${source}</span><span>${esc(time)} ${count}</span></header><pre>${esc(entry.message)}</pre></li>`;
-}
-
-function diagnosticIcon(level) {
-  if (level === "error") return "error";
-  if (level === "warning") return "warning";
-  return "info";
-}
-
 function workspaceLabel(workspace) {
   if (workspace === "component") return "Components";
   if (workspace === "canvas") return "Canvas";
@@ -1567,12 +1223,6 @@ function workspaceLabel(workspace) {
 
 function hasOpenProject(state) {
   return !!state?.project?.folderName;
-}
-
-function structuredCloneSafe(value) {
-  return typeof structuredClone === "function"
-    ? structuredClone(value)
-    : JSON.parse(JSON.stringify(value));
 }
 
 function downloadPerformanceProfile(report, projectName = "vj1") {
@@ -1589,60 +1239,6 @@ function downloadPerformanceProfile(report, projectName = "vj1") {
   link.download = `${timestamp}-${safeProjectName}.profile.json`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function pushBounded(items, value, limit) {
-  items.push(value);
-  if (items.length > limit) items.splice(0, items.length - limit);
-}
-
-function summarizePerformanceHost(host = {}) {
-  const uiRenderMs = numericValues(host.uiRenderMs);
-  const eventLoopLagMs = numericValues(host.eventLoopLagMs);
-  const longTasks = (host.longTasks || []).filter((item) => Number.isFinite(Number(item?.durationMs)));
-  const stateEvents = Object.entries(host.stateEvents || {})
-    .map(([reason, count]) => ({ reason, count: Math.max(0, Number(count) || 0) }))
-    .sort((a, b) => b.count - a.count);
-  const memoryEndBytes = performanceMemoryBytes();
-  const memoryStartBytes = host.memoryStartBytes === null || host.memoryStartBytes === undefined
-    ? null
-    : Number(host.memoryStartBytes);
-  return {
-    uiRenderCount: uiRenderMs.length,
-    uiRenderMsAvg: averageNumbers(uiRenderMs),
-    uiRenderMsP95: percentileNumbers(uiRenderMs, 0.95),
-    uiRenderMsMax: uiRenderMs.length ? Math.max(...uiRenderMs) : 0,
-    eventLoopLagMsP95: percentileNumbers(eventLoopLagMs, 0.95),
-    eventLoopLagMsMax: eventLoopLagMs.length ? Math.max(...eventLoopLagMs) : 0,
-    longTaskCount: longTasks.length,
-    longTaskTotalMs: longTasks.reduce((sum, item) => sum + Number(item.durationMs), 0),
-    longTaskMaxMs: longTasks.length ? Math.max(...longTasks.map((item) => Number(item.durationMs))) : 0,
-    longTasks: longTasks.slice().sort((a, b) => b.durationMs - a.durationMs).slice(0, 20),
-    stateEventCount: stateEvents.reduce((sum, item) => sum + item.count, 0),
-    topStateEvents: stateEvents.slice(0, 12),
-    memoryStartBytes: Number.isFinite(memoryStartBytes) ? memoryStartBytes : null,
-    memoryEndBytes,
-    memoryDeltaBytes: Number.isFinite(memoryStartBytes) && Number.isFinite(memoryEndBytes) ? memoryEndBytes - memoryStartBytes : null,
-  };
-}
-
-function performanceMemoryBytes() {
-  const value = Number(globalThis.performance?.memory?.usedJSHeapSize);
-  return Number.isFinite(value) ? value : null;
-}
-
-function numericValues(values = []) {
-  return values.map(Number).filter((value) => Number.isFinite(value) && value >= 0);
-}
-
-function averageNumbers(values = []) {
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-}
-
-function percentileNumbers(values = [], percentile = 0.95) {
-  if (!values.length) return 0;
-  const sorted = values.slice().sort((a, b) => a - b);
-  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.ceil(sorted.length * percentile) - 1))];
 }
 
 function formatNumber(value, precision = 1) {
@@ -1733,6 +1329,34 @@ export function activeWorkMetric(state, outputFps = 0) {
     renderers,
     source: renderers.map((renderer) => renderer.source).join(" + "),
   };
+}
+
+function performanceMetricForState(state, reason = "active") {
+  const outputFps = state.metrics?.clients > 0 ? Math.max(0, Number(state.metrics.fps) || 0) : 0;
+  if (reason === "preview-metrics") {
+    return {
+      source: "preview",
+      fps: Math.max(0, Number(state.metrics.previewFps) || 0),
+      cpuMs: Math.max(0, Number(state.metrics.previewFrameMs) || 0),
+      gpuMs: Math.max(0, Number(state.metrics.previewGpuMs) || 0),
+      gpuSupported: state.metrics.previewGpuSupported === true,
+      profile: state.metrics.previewProfile || null,
+      renderCost: Math.max(0, Number(state.metrics.previewRenderCost) || 0),
+    };
+  }
+  if (reason === "output-metrics") {
+    return {
+      source: "output",
+      fps: outputFps,
+      cpuMs: Math.max(0, Number(state.metrics.frameMs) || 0),
+      gpuMs: Math.max(0, Number(state.metrics.gpuMs) || 0),
+      gpuSupported: state.metrics.gpuSupported === true,
+      profile: state.metrics.profile || null,
+      renderCost: Math.max(0, Number(state.metrics.renderCost) || 0),
+      transport: state.metrics.transport || null,
+    };
+  }
+  return { ...activeWorkMetric(state, outputFps), renderCost: activeRenderCost(state) };
 }
 
 function componentRenderTime(profile) {

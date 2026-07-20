@@ -35,6 +35,9 @@ import { combineContentTransforms, isIdentityTransform, normalizedContentTransfo
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=canvas-global-resolution-1";
 import { drawBuffer } from "./render-draw-utils.js?v=render-diagnostics-1";
+import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=output-profile-runtime-1";
+import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "./output-render-cache.js?v=output-cache-runtime-1";
+import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, drawWithContentTransform, effectNeedsComposite, effectParamNumber, enumUniform, nextFxTargetSlot, resetShaderTarget, setDynamicShaderUniformIfPresent, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=shader-target-runtime-1";
 import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
 import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=volumetric-clouds-1";
 import {
@@ -77,6 +80,7 @@ export { modelDepthCutoff, transformedModelDepthRange } from "./specialized/mode
 export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=volumetric-clouds-1";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=alpha-feather-1";
+export { effectNeedsComposite } from "./shader-target-runtime.js?v=shader-target-runtime-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {
@@ -125,16 +129,14 @@ export class OutputRenderer {
     this.onChainItemSelect = onChainItemSelect;
     this.state = null;
     this.mapper = null;
-    this.componentSource = new Map();
+    this.renderCache = new OutputRenderCache();
+    this.componentSource = this.renderCache.sources;
     this.componentOutput = new Map();
-    this.componentBuffer = new Map();
-    this.componentGpuBuffer = new Map();
+    this.componentBuffer = this.renderCache.buffers;
+    this.componentGpuBuffer = this.renderCache.gpuBuffers;
     this.stableComponentSignatures = new Map();
     this.chainNodeRuntimes = new Map();
     this.sourceNodeRuntimes = new Map();
-    this.componentSourceUse = new Map();
-    this.componentBufferUse = new Map();
-    this.componentGpuBufferUse = new Map();
     this.eyeballUniformFrames = new Map();
     this.eyeballUniformFrameUse = new Map();
     this.generatorUniformStates = new Map();
@@ -199,18 +201,13 @@ export class OutputRenderer {
     });
     this.lastPixelDensity = 0;
     this.frameStart = 0;
-    this.frameProfile = createEmptyFrameProfile();
-    this.lastFrameProfile = createEmptyFrameProfile();
-    this.componentProfileDepth = 0;
-    this.componentProfileContext = [];
-    this.lastRenderCachePruneFrame = -RENDER_CACHE_MAINTENANCE_FRAMES;
+    this.profileRuntime = new OutputRenderProfile();
     this.lastComponentTimePruneFrame = -COMPONENT_TIME_MAINTENANCE_FRAMES;
     this.lastTickMs = 0;
     this.frameDeltaSeconds = 0;
     this.visualDeltaSeconds = 0;
     this.visualTime = 0;
     this.frameIndex = 0;
-    this.collectDetailedProfile = false;
     this.outputMediaStatus = createMediaReadinessStatus();
     this.scheduledEvents = [];
     this.manualScheduler = createManualScheduler();
@@ -297,17 +294,12 @@ export class OutputRenderer {
     disposeGraphics(this.mainMix);
     this.surfaceRuntime.dispose();
     this.disposeFxTargetGroups();
-    disposeGraphicsMap(this.componentSource);
     // Frame-local aliases; componentGpuBuffer owns these targets.
     this.componentOutput.clear();
-    disposeGraphicsMap(this.componentBuffer);
-    disposeGraphicsMap(this.componentGpuBuffer);
+    this.renderCache.dispose();
     this.stableComponentSignatures?.clear?.();
     this.chainNodeRuntimes?.clear?.();
     this.sourceNodeRuntimes?.clear?.();
-    this.componentSourceUse?.clear?.();
-    this.componentBufferUse?.clear?.();
-    this.componentGpuBufferUse?.clear?.();
     this.eyeballUniformFrames?.clear?.();
     this.eyeballUniformFrameUse?.clear?.();
     this.generatorUniformStates?.clear?.();
@@ -870,14 +862,11 @@ export class OutputRenderer {
   drawFrame() {
     this.gpuTimer.poll(this.frameIndex);
     this.frameStart = performance.now();
-    this.frameProfile = createEmptyFrameProfile();
-    this.componentProfileDepth = 0;
-    this.componentProfileContext.length = 0;
     this.frameIndex++;
     // Detailed pass attribution is diagnostic sampling, not render work. Six
     // frames provide 10 Hz detail at 60 fps while the full-frame CPU clock and
     // GPU query tracker continue to update normally.
-    this.collectDetailedProfile = this.frameIndex % 6 === 0;
+    this.profileRuntime.beginFrame(this.frameIndex);
     this.tickClock(this.frameStart);
     this.outputMediaStatus = this.outputMediaReadiness();
     this.scheduledEvents = this.state.scheduler?.manualLane === false
@@ -1113,8 +1102,8 @@ export class OutputRenderer {
         stableCached.width === outputRequest.width &&
         stableCached.height === outputRequest.height &&
         this.stableComponentSignatures.get(stableKey) === stableSignature) {
-      if (stableGpuCached) this.touchRenderCache(this.componentGpuBufferUse, stableGpuKey);
-      else this.touchRenderCache(this.componentBufferUse, stableGpuKey);
+      if (stableGpuCached) this.renderCache.touch("gpu-buffer", stableGpuKey, this.frameIndex);
+      else this.renderCache.touch("buffer", stableGpuKey, this.frameIndex);
       this.frameProfile.componentCacheHits++;
       this.cacheComponentOutput(component, outputKey, stableCached, outputRequest);
       return stableCached;
@@ -1219,7 +1208,7 @@ export class OutputRenderer {
       }
       this.componentGpuBuffer.set(key, target);
     }
-    this.touchRenderCache(this.componentGpuBufferUse, key);
+    this.renderCache.touch("gpu-buffer", key, this.frameIndex);
     return target;
   }
 
@@ -1954,7 +1943,7 @@ export class OutputRenderer {
       }
       this.componentSource.set(key, pg);
     }
-    this.touchRenderCache(this.componentSourceUse, key);
+    this.renderCache.touch("source", key, this.frameIndex);
     const source = {
       ...sourceWithNodeParams(item.source, {}, item.id),
       contentTransform: item.transform || {},
@@ -2080,7 +2069,7 @@ export class OutputRenderer {
       this.applyGraphicsFont(pg);
       this.componentSource.set(key, pg);
     }
-    this.touchRenderCache(this.componentSourceUse, key);
+    this.renderCache.touch("source", key, this.frameIndex);
     pg.push();
     pg.clear();
     this.safeDrawSourceToGraphics(pg, sourceFromPatchNode(node), component, componentTime, renderRequest);
@@ -2497,7 +2486,7 @@ export class OutputRenderer {
       this.applyGraphicsFont(pg);
       this.componentBuffer.set(key, pg);
     }
-    this.touchRenderCache(this.componentBufferUse, key);
+    this.renderCache.touch("buffer", key, this.frameIndex);
     return pg;
   }
 
@@ -2511,7 +2500,7 @@ export class OutputRenderer {
       if (!target) return this.getComponentBuffer(id, renderRequest);
       this.componentGpuBuffer.set(key, target);
     }
-    this.touchRenderCache(this.componentGpuBufferUse, key);
+    this.renderCache.touch("gpu-buffer", key, this.frameIndex);
     return target;
   }
 
@@ -2592,31 +2581,8 @@ export class OutputRenderer {
     return createRenderRequest(role, frameSize(this.state?.render || {}));
   }
 
-  touchRenderCache(useMap, key) {
-    useMap?.set?.(key, this.frameIndex);
-  }
-
   pruneRenderCaches() {
-    const underPressure = this.componentSourceUse.size > COMPONENT_SOURCE_CACHE_LIMIT ||
-      this.componentBufferUse.size > COMPONENT_BUFFER_CACHE_LIMIT ||
-      this.componentGpuBufferUse.size > COMPONENT_GPU_BUFFER_CACHE_LIMIT;
-    if (!underPressure && this.frameIndex - this.lastRenderCachePruneFrame < RENDER_CACHE_MAINTENANCE_FRAMES) return;
-    this.lastRenderCachePruneFrame = this.frameIndex;
-    pruneGraphicsMap(this.componentSource, this.componentSourceUse, {
-      maxItems: COMPONENT_SOURCE_CACHE_LIMIT,
-      currentFrame: this.frameIndex,
-      idleFrames: RENDER_CACHE_IDLE_FRAMES,
-    });
-    pruneGraphicsMap(this.componentBuffer, this.componentBufferUse, {
-      maxItems: COMPONENT_BUFFER_CACHE_LIMIT,
-      currentFrame: this.frameIndex,
-      idleFrames: RENDER_CACHE_IDLE_FRAMES,
-    });
-    pruneGraphicsMap(this.componentGpuBuffer, this.componentGpuBufferUse, {
-      maxItems: COMPONENT_GPU_BUFFER_CACHE_LIMIT,
-      currentFrame: this.frameIndex,
-      idleFrames: RENDER_CACHE_IDLE_FRAMES,
-    });
+    if (!this.renderCache.prune(this.frameIndex)) return;
     for (const key of Array.from(this.stableComponentSignatures.keys())) {
       const hasCpuEntry = Array.from(this.componentBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
       const hasGpuEntry = Array.from(this.componentGpuBuffer.keys()).some((bufferKey) => bufferKey.startsWith(`${key}:`));
@@ -2806,61 +2772,19 @@ export class OutputRenderer {
   }
 
   measureProfile(bucket, meta, fn) {
-    if (!this.collectDetailedProfile) return fn();
-    const started = performance.now();
-    const result = fn();
-    const ms = performance.now() - started;
-    this.frameProfile[bucket] += ms;
-    this.frameProfile.passSamples.push({ ...meta, ms });
-    return result;
+    return this.profileRuntime.measure(bucket, meta, fn);
   }
 
   measureComponentProfile(meta, fn) {
-    if (!this.collectDetailedProfile) return fn();
-    const started = performance.now();
-    const outermost = this.componentProfileDepth === 0;
-    this.componentProfileDepth++;
-    this.componentProfileContext.push(meta);
-    let result;
-    try {
-      result = fn();
-    } finally {
-      this.componentProfileContext.pop();
-      this.componentProfileDepth--;
-      const ms = performance.now() - started;
-      this.frameProfile.componentMs += ms;
-      if (outermost) this.frameProfile.componentWallMs += ms;
-      this.frameProfile.componentRenders++;
-      this.frameProfile.passSamples.push({ ...meta, ms });
-    }
-    return result;
+    return this.profileRuntime.measureComponent(meta, fn);
   }
 
   activeComponentProfileIdentity() {
-    const context = this.componentProfileContext[this.componentProfileContext.length - 1];
-    return context?.componentId ? {
-      componentId: context.componentId,
-      componentName: context.componentName || context.componentId,
-    } : {};
+    return this.profileRuntime.activeComponentIdentity();
   }
 
   finishFrameProfile() {
-    if (!this.collectDetailedProfile) return;
-    const profile = {
-      ...this.frameProfile,
-      totalMs: performance.now() - this.frameStart,
-      passSamples: this.frameProfile.passSamples
-        .slice()
-        .sort((a, b) => b.ms - a.ms)
-        .slice(0, 12)
-        .map((item) => ({ ...item, ms: roundMetric(item.ms) })),
-    };
-    profile.shaderMs = roundMetric(profile.shaderMs);
-    profile.sourceMs = roundMetric(profile.sourceMs);
-    profile.componentMs = roundMetric(profile.componentMs);
-    profile.componentWallMs = roundMetric(profile.componentWallMs);
-    profile.totalMs = roundMetric(profile.totalMs);
-    this.lastFrameProfile = profile;
+    return this.profileRuntime.finishFrame(this.frameStart);
   }
 
   renderShaderNodes(input, nodes, request = frameRenderRequest(this.state.render), timeSeconds = this.visualTime) {
@@ -3302,6 +3226,18 @@ export class OutputRenderer {
   get thumbnailEditTransformBaselines() {
     return this.thumbnailRuntime.transformBaselines;
   }
+
+  get frameProfile() {
+    return this.profileRuntime.frameProfile;
+  }
+
+  get lastFrameProfile() {
+    return this.profileRuntime.lastFrameProfile;
+  }
+
+  get collectDetailedProfile() {
+    return this.profileRuntime.collectDetailed;
+  }
 }
 
 function mappingStatusForReason(reason = "") {
@@ -3429,16 +3365,6 @@ function withScreenScissor(rect = {}, draw) {
 }
 
 
-function effectParamValue(component, params = {}, id, fallback = undefined) {
-  const param = (component?.params || []).find((item) => item.id === id);
-  return param ? normalizeParamValue(param, params[id]) : (params[id] ?? fallback);
-}
-
-function effectParamNumber(component, params = {}, id, fallback = 0) {
-  const value = Number(effectParamValue(component, params, id, fallback));
-  return Number.isFinite(value) ? value : fallback;
-}
-
 function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   if (value && typeof value === "object") {
@@ -3447,209 +3373,4 @@ function stableStringify(value) {
   return JSON.stringify(value);
 }
 
-function createEmptyFrameProfile() {
-  return {
-    shaderPasses: 0,
-    shaderChains: 0,
-    maxShaderChainLength: 0,
-    shaderHandoffs: 0,
-    componentCacheHits: 0,
-    stageCacheHits: 0,
-    stageRenders: 0,
-    shaderMs: 0,
-    sourceMs: 0,
-    componentMs: 0,
-    componentWallMs: 0,
-    componentRenders: 0,
-    surfaceRouteCandidates: 0,
-    surfaceRoutesVisible: 0,
-    surfaceRoutesCulled: 0,
-    componentRasterPixels: 0,
-    surfaceRasterPixels: 0,
-    directSourceComposites: 0,
-    avoidedSourceRasterPixels: 0,
-    directSurfaceSamples: 0,
-    avoidedSurfaceRasterPixels: 0,
-    totalMs: 0,
-    passSamples: [],
-  };
-}
-
-// Cache membership changes slowly during ordinary playback. Enforce hard size
-// limits immediately, but batch age-based bookkeeping so the hot frame path
-// does not allocate and sort several cache snapshots sixty times per second.
-const COMPONENT_SOURCE_CACHE_LIMIT = 48;
-const COMPONENT_BUFFER_CACHE_LIMIT = 48;
-const COMPONENT_GPU_BUFFER_CACHE_LIMIT = 64;
-const RENDER_CACHE_IDLE_FRAMES = 900;
-const RENDER_CACHE_MAINTENANCE_FRAMES = 120;
 const COMPONENT_TIME_MAINTENANCE_FRAMES = 120;
-
-function nextFxTargetSlot(targets = [], current = null) {
-  return targets[0] === current ? 1 : 0;
-}
-
-function roundMetric(value) {
-  return Math.round((Number(value) || 0) * 1000) / 1000;
-}
-
-function pruneGraphicsMap(map, useMap, { maxItems, currentFrame, idleFrames }) {
-  if (!map || !useMap) return 0;
-  const stale = staleRenderCacheKeys(useMap, { maxItems, currentFrame, idleFrames });
-  for (const key of stale) {
-    const item = map.get(key);
-    map.delete(key);
-    useMap.delete(key);
-    disposeGraphics(item);
-  }
-  return stale.length;
-}
-
-function staleRenderCacheKeys(useMap, { maxItems, currentFrame, idleFrames }) {
-  const entries = Array.from(useMap.entries()).sort((a, b) => a[1] - b[1]);
-  const stale = [];
-  for (const [key, frame] of entries) {
-    if (frame === currentFrame) continue;
-    const overLimit = entries.length - stale.length > maxItems;
-    const idle = currentFrame - frame > idleFrames;
-    if (overLimit || idle) stale.push(key);
-  }
-  return stale;
-}
-
-function disposeGraphicsMap(map) {
-  if (!map) return;
-  const seen = new Set();
-  for (const item of map.values()) {
-    if (!item || seen.has(item)) continue;
-    seen.add(item);
-    disposeGraphics(item);
-  }
-  map.clear();
-}
-
-function disposeGraphics(item) {
-  if (!item) return;
-  try {
-    item.remove?.();
-  } catch {}
-}
-
-
-function chainItemToShaderPass(item) {
-  return {
-    id: item.componentId || item.id,
-    instanceId: item.id || item.componentId || "",
-    enabled: item.enabled !== false,
-    params: item.params || {},
-    amount: item.amount,
-    transform: item.transform || {},
-    opacity: item.opacity ?? 1,
-    blend: item.blend || "normal",
-  };
-}
-
-export function effectNeedsComposite(item = {}) {
-  return (item.blend || "normal") !== "normal" || Math.abs((item.opacity ?? 1) - 1) > 0.0001;
-}
-
-
-function drawWithContentTransform(target, transform = {}, draw) {
-  if (typeof draw !== "function") return;
-  if (isIdentityTransform(transform)) {
-    draw();
-    return;
-  }
-  const width = Math.max(1, Number(target?.width) || 1);
-  const height = Math.max(1, Number(target?.height) || 1);
-  const value = contentTransformCanvasPlacement(transform, width, height);
-  target.push();
-  target.translate(value.centerX, value.centerY);
-  target.rotate(value.rotation);
-  target.scale(value.scale);
-  target.translate(-width * 0.5, -height * 0.5);
-  draw();
-  target.pop();
-}
-
-function shaderDrawingBufferSize(target, fallbackWidth, fallbackHeight) {
-  if (isSharedFramebufferTarget(target)) {
-    return {
-      width: Math.max(1, Number(target.width) || Number(fallbackWidth) || 1),
-      height: Math.max(1, Number(target.height) || Number(fallbackHeight) || 1),
-    };
-  }
-  const gl = target?._renderer?.GL || target?.drawingContext;
-  return {
-    width: Math.max(1, Number(gl?.drawingBufferWidth) || Number(fallbackWidth) || Number(target?.width) || 1),
-    height: Math.max(1, Number(gl?.drawingBufferHeight) || Number(fallbackHeight) || Number(target?.height) || 1),
-  };
-}
-
-function setShaderUniformIfPresent(shader, name, value) {
-  if (shader?.uniforms?.[name]) shader.setUniform(name, value);
-}
-
-// p5 caches a changed array uniform with `data.slice(0)`. Animation vectors
-// change every frame, so that cache creates garbage without ever skipping an
-// upload. The renderer already exposes the same typed upload path internally;
-// use it for known-dynamic values and retain the ordinary p5 cache for stable
-// uniforms such as resolution and transform matrices.
-function setDynamicShaderUniformIfPresent(shader, name, value) {
-  const uniform = shader?.uniforms?.[name];
-  if (!uniform) return;
-  if (typeof shader?._renderer?.updateUniformValue !== "function") {
-    shader.setUniform(name, value);
-    return;
-  }
-  shader._renderer.updateUniformValue(shader, uniform, value);
-  if (!Array.isArray(uniform._cachedData) || !Array.isArray(value)) return;
-  uniform._cachedData.length = value.length;
-  for (let index = 0; index < value.length; index++) uniform._cachedData[index] = value[index];
-}
-
-
-function enumUniform(param, value) {
-  const index = (param.values || []).indexOf(value);
-  return Math.max(0, index);
-}
-
-function drawShaderTarget(target, draw) {
-  if (isSharedFramebufferTarget(target)) {
-    return target.drawWebGL(() => {
-      push();
-      try {
-        noStroke();
-        return draw();
-      } finally {
-        pop();
-      }
-    });
-  }
-  target.push();
-  try {
-    return draw();
-  } finally {
-    target.pop();
-  }
-}
-
-function clearShaderTarget(target) {
-  if (isSharedFramebufferTarget(target)) clear();
-  else target.clear();
-}
-
-function applyShaderTarget(target, shaderProgram) {
-  if (isSharedFramebufferTarget(target)) shader(shaderProgram);
-  else target.shader(shaderProgram);
-}
-
-function resetShaderTarget(target) {
-  if (isSharedFramebufferTarget(target)) resetShader();
-  else target.resetShader();
-}
-
-function drawShaderTargetRect(target, widthPx, heightPx) {
-  if (isSharedFramebufferTarget(target)) rect(-widthPx / 2, -heightPx / 2, widthPx, heightPx);
-  else target.rect(-widthPx / 2, -heightPx / 2, widthPx, heightPx);
-}
