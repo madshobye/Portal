@@ -63,6 +63,43 @@ export function nodeDefinitionEditorTemplate(baseDefinition, state, nodePackage,
   `;
 }
 
+export function materializeProjectNodeDefinition(baseDefinition, state = {}) {
+  return materializeForkSafely(baseDefinition, activeForkFor(state?.nodes, baseDefinition));
+}
+
+export function withProjectNodeGraph(nodes, baseDefinition, graph) {
+  const graphPart = (baseDefinition.parts || []).find((part) => part.kind === "graph");
+  if (!graphPart) throw new Error(`NODE_GRAPH_PART_MISSING:${baseDefinition.id}`);
+  return withProjectNodeFork(nodes, baseDefinition, {
+    [graphPart.id]: JSON.stringify({
+      nodes: graph.nodes || [],
+      connections: graph.connections || [],
+      publicInlets: graph.publicInlets || {},
+      publicOutlets: graph.publicOutlets || {},
+    }),
+  });
+}
+
+export function withProjectGroupGraph(nodes, groupId, graph) {
+  const current = nodes && typeof nodes === "object" ? nodes : {};
+  const id = String(groupId || "");
+  let found = false;
+  const groups = (current.groups || []).map((group) => {
+    if (group.id !== id) return group;
+    found = true;
+    return {
+      ...group,
+      nodes: graph.nodes || [],
+      connections: graph.connections || [],
+      publicInlets: graph.publicInlets || {},
+      publicOutlets: graph.publicOutlets || {},
+      authoredConnections: true,
+    };
+  });
+  if (!found) throw new Error(`NODE_PROJECT_GROUP_MISSING:${id || "missing"}`);
+  return { ...current, groups };
+}
+
 export function withProjectNodeFork(nodes, baseDefinition, partSources = {}) {
   const current = nodes && typeof nodes === "object" ? nodes : {};
   const existing = activeForkFor(current, baseDefinition);

@@ -2,7 +2,13 @@ import { defineNode, NODE_IMPLEMENTATION_KINDS, NodeRegistry } from "./libraries
 import { defineNodeArtifact, NodeArtifactCatalog } from "./libraries/node-engine/index.js";
 import { nodeEditorProjection } from "./libraries/node-engine/index.js";
 import { normalizeNodeProjectData, serializeNodeArtifact, serializeNodeDefinition } from "./libraries/node-engine/index.js";
-import { listEffectNodeComponents, listGeneratorNodeComponents } from "./libraries/visual-nodes/index.js";
+import {
+  createNodePackageFromProject,
+  exportNodePackage,
+  importNodePackage,
+  installNodePackageIntoProject,
+} from "./libraries/node-engine/index.js";
+import { listEffectNodeComponents, listGeneratorNodeComponents } from "./libraries/visual-nodes/index.js?v=node-catalog-13";
 import { SliderArtifact, SliderNode } from "./libraries/control-engine/index.js";
 import { ValueControlNode } from "./libraries/control-engine/index.js";
 import { CacheEngineNode } from "./libraries/cache-engine/index.js";
@@ -35,13 +41,14 @@ import {
   ApplicationProgramRuntime,
   ApplicationProgramNode,
   applicationProgramInstances,
+  compileApplicationProgramPlan,
   compileApplicationProgramTopology,
 } from "./libraries/composition-engine/index.js";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
-import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js";
+import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=node-catalog-13";
 import {
   Convert3dFileToImageGroup,
   Detect3dFormatNode,
@@ -137,23 +144,90 @@ export function createVj1NodePackage() {
     ...visualComponents.map(visualElementArtifact),
   ]);
   const applicationProgram = compileApplicationProgramTopology();
+  let activeApplicationProgram = null;
   const prepareProjectState = (state) => prepareVj1NodeProjectState(state, {
     visualDefinitions,
   });
+  const applicationProgramForState = (state = {}) => (state?.nodes?.groups || [])
+    .find((group) => group.id === applicationProgram.id) || applicationProgram;
+  const createApplicationRuntime = ({ group = applicationProgram, ...options } = {}) => {
+    const runtime = new ApplicationProgramRuntime(group, { registry, ...options });
+    activeApplicationProgram = group;
+    return runtime;
+  };
   return Object.freeze({
     id: "vj1.application",
     version: "0.1.0",
     registry,
     artifacts,
     applicationProgram,
-    createApplicationRuntime: (options = {}) => new ApplicationProgramRuntime(applicationProgram, {
-      registry,
-      ...options,
-    }),
+    applicationProgramForState,
+    compileApplicationProgram: (group = applicationProgram) => compileApplicationProgramPlan(group),
+    applicationProgramStatus: (state = {}) => applicationProgramActivationStatus(
+      applicationProgramForState(state),
+      activeApplicationProgram
+    ),
+    createApplicationRuntime,
+    createProjectPackage: (state, manifest) => createNodePackageFromProject(state?.nodes, manifest),
+    exportProjectPackage: (state, manifest, options) => exportNodePackage(
+      createNodePackageFromProject(state?.nodes, manifest),
+      options
+    ),
+    installProjectPackage: (state, value, options) => {
+      const nodePackage = typeof value === "string" ? importNodePackage(value) : value;
+      const installed = installNodePackageIntoProject(nodePackage, state?.nodes, options);
+      return Object.freeze({
+        ...installed,
+        state: prepareProjectState({ ...state, nodes: installed.project }),
+      });
+    },
     projectArtifacts: (state) => createProjectArtifactCatalog(state),
     projectViews: (state) => projectArtifactViews(state),
     prepareProjectState,
     editorProjection: (definition, options = {}) => nodeEditorProjection(definition, { nodeRegistry: registry, ...options }),
+  });
+}
+
+function applicationProgramActivationStatus(projectGroup, activeGroup) {
+  try {
+    const projectPlan = compileApplicationProgramPlan(projectGroup);
+    const activePlan = activeGroup ? compileApplicationProgramPlan(activeGroup) : null;
+    const signature = applicationPlanSignature(projectPlan);
+    const activeSignature = activePlan ? applicationPlanSignature(activePlan) : "";
+    return Object.freeze({
+      valid: true,
+      active: !!activePlan && signature === activeSignature,
+      requiresRestart: !!activePlan && signature !== activeSignature,
+      signature,
+      activeSignature,
+      error: "",
+    });
+  } catch (error) {
+    return Object.freeze({
+      valid: false,
+      active: false,
+      requiresRestart: false,
+      signature: "",
+      activeSignature: "",
+      error: error?.message || String(error),
+    });
+  }
+}
+
+function applicationPlanSignature(plan = {}) {
+  return JSON.stringify({
+    services: (plan.services?.nodes || []).map((node) => ({
+    id: node.id,
+    role: node.role,
+    nodeId: node.nodeId,
+    nodeVersion: node.nodeVersion,
+    dependencies: [...(node.dependencies || [])].sort(),
+    })).sort((left, right) => left.id.localeCompare(right.id)),
+    dataflow: (plan.dataflow?.routes || []).map((route) => ({
+      from: `${route.sourceRole}.${route.sourcePort}`,
+      to: `${route.targetRole}.${route.targetPort}`,
+      type: route.type,
+    })).sort((left, right) => left.from.localeCompare(right.from) || left.to.localeCompare(right.to)),
   });
 }
 
@@ -200,12 +274,16 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
   }));
   const componentInstances = componentGroups.flatMap(componentProgramInstances);
   const requiredVisualNodeIds = new Set(componentInstances.map((instance) => instance.nodeId));
+  const existingGroupsById = new Map(current.groups.map((group) => [group.id, group]));
   const sceneGroups = [
     compileSceneGroupTopology({ id: "", name: "Working Scene" }, surfaces),
     ...(scenes || []).map((scene) => compileSceneGroupTopology(scene, surfaces)),
     compileOutputGroupTopology(),
-  ];
-  const applicationGroup = compileApplicationProgramTopology();
+  ].map((group) => reconcileGeneratedProgramTopology(group, existingGroupsById.get(group.id)));
+  const applicationGroup = reconcileGeneratedProgramTopology(
+    compileApplicationProgramTopology(),
+    existingGroupsById.get("vj1.application.program")
+  );
   const applicationInstances = applicationProgramInstances(applicationGroup);
   const sceneInstances = sceneProgramInstances(sceneGroups);
   const sceneDefinitions = [SurfaceRouteNode, SceneProgramNode, OutputProgramNode, SurfaceCompositionNode, MappingEngineNode];
@@ -284,6 +362,68 @@ function persistedGroupTopology(definition) {
     publicInlets: graph?.publicInlets || {},
     publicOutlets: graph?.publicOutlets || {},
   };
+}
+
+function inheritGroupNodeLayout(group, existingGroup) {
+  if (!existingGroup) return group;
+  return {
+    ...group,
+    nodes: inheritNodeLayout(group.nodes || [], existingGroup.nodes || []),
+  };
+}
+
+// Scene and Output nodes are projected from current project structure, while
+// their compatible connections may be authored in the graph editor. Surviving
+// relationships remain project truth; compiler defaults are added only for a
+// genuinely new generated node so a newly created Surface is usable without
+// resurrecting a connection the user intentionally removed.
+function reconcileGeneratedProgramTopology(group, existingGroup) {
+  const projected = inheritGroupNodeLayout(group, existingGroup);
+  if (!existingGroup?.authoredConnections) return projected;
+  const generatedNodeIds = new Set((projected.nodes || []).map((node) => String(node.id || "")));
+  const existingNodeIds = new Set((existingGroup.nodes || []).map((node) => String(node.id || "")));
+  const validEndpoint = (endpoint) => {
+    const nodeId = String(endpoint || "").split(".")[0];
+    return nodeId.startsWith("$") || generatedNodeIds.has(nodeId);
+  };
+  const connections = (existingGroup.connections || []).filter((edge) =>
+    validEndpoint(edge.from) && validEndpoint(edge.to)
+  );
+  const signatures = new Set(connections.map(connectionSignature));
+  for (const edge of projected.connections || []) {
+    const sourceId = String(edge.from || "").split(".")[0];
+    const targetId = String(edge.to || "").split(".")[0];
+    const touchesNewNode = (!sourceId.startsWith("$") && !existingNodeIds.has(sourceId)) ||
+      (!targetId.startsWith("$") && !existingNodeIds.has(targetId));
+    const signature = connectionSignature(edge);
+    const addsCompilerConnectionKind = Number(projected.topologyVersion || 0) > Number(existingGroup.topologyVersion || 0) && edge.phase === "setup";
+    if ((!touchesNewNode && !addsCompilerConnectionKind) || signatures.has(signature)) continue;
+    signatures.add(signature);
+    connections.push(edge);
+  }
+  return {
+    ...projected,
+    connections,
+    publicInlets: existingGroup.publicInlets || projected.publicInlets,
+    publicOutlets: existingGroup.publicOutlets || projected.publicOutlets,
+    authoredConnections: true,
+  };
+}
+
+function connectionSignature(edge = {}) {
+  return `${String(edge.from || "")}\u0000${String(edge.to || "")}\u0000${String(edge.type || "")}`;
+}
+
+function inheritNodeLayout(nodes, existingNodes) {
+  const existingById = new Map((existingNodes || []).map((node) => [node.id, node]));
+  return (nodes || []).map((node) => {
+    const existing = existingById.get(node.id);
+    return {
+      ...node,
+      ...(existing?.position ? { position: { ...existing.position } } : {}),
+      ...(node.nodes ? { nodes: inheritNodeLayout(node.nodes, existing?.nodes || []) } : {}),
+    };
+  });
 }
 
 function mergeByKey(existing = [], required = [], keyOf) {

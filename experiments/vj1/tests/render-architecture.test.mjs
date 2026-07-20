@@ -113,7 +113,10 @@ test("raw WebGL storage orientation is explicit and separate from Composition co
 });
 
 test("terrain preserves world-up camera Y until Composition placement converts it once", () => {
-  const source = readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8");
+  const source = [
+    readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/shaders.js", import.meta.url), "utf8"),
+  ].join("\n");
   const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
   assert.match(source, /float terrainClipYFromWorldUp\(float worldUpY\)/);
   assert.match(source, /return worldUpY;/);

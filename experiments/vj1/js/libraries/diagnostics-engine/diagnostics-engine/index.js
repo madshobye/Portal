@@ -129,32 +129,62 @@ export const DiagnosticsEngineNode = defineNode({
   name: "Diagnostics Engine",
   version: "0.1.0",
   description: "Captures, bounds, coalesces, summarizes, and publishes application diagnostics.",
-  implementation: NODE_IMPLEMENTATION_KINDS.NATIVE,
+  implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: {
-    service: { type: "any", required: true },
+    service: { type: "any", optional: true, description: "Optional host-owned service; otherwise the node owns one in instance state." },
+    host: { type: "any", optional: true },
     level: { type: { type: "enum", values: ["info", "warning", "error"] }, optional: true, defaultValue: "info" },
     values: { type: "any", optional: true },
     source: { type: "string", optional: true, defaultValue: "app" },
   },
-  parameters: { command: { type: { type: "enum", values: ["record", "clear", "summary"] }, defaultValue: "summary" } },
+  parameters: {
+    command: { type: { type: "enum", values: ["record", "clear", "summary"] }, defaultValue: "summary" },
+    maxEntries: { type: "number", defaultValue: 80, allowedRange: [1, 10000], clamp: true },
+    maxMessageLength: { type: "number", defaultValue: 4000, allowedRange: [64, 100000], clamp: true },
+  },
   outlets: { summary: { type: "any" } },
-  execution: { trigger: "manual", domain: "main", stateful: true },
+  execution: {
+    trigger: "manual",
+    domain: "main",
+    stateful: true,
+    dispose: (instance) => instance.state.service?.destroy?.(),
+  },
+  moduleBindings: { LEVELS },
   capabilities: ["diagnostics", "event-log", "observable-state", "graph-placeable"],
   presentation: { catalogs: ["graph", "diagnostics"], placeableOn: ["node-graph"] },
-  parts: [{
-    id: "diagnostics-engine",
-    name: "Diagnostics engine",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    export: "createDiagnosticsService",
-    source: [createDiagnosticsService, formatValues, formatValue].map((value) => value.toString()).join("\n\n"),
-  }],
+  parts: [
+    {
+      id: "diagnostics-engine",
+      name: "Diagnostics engine",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "createDiagnosticsService",
+      source: [createDiagnosticsService, formatValues, formatValue].map((value) => value.toString()).join("\n\n"),
+    },
+    {
+      id: "diagnostics-process",
+      name: "Diagnostics process entry",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "diagnosticsEngineNodeProcess",
+      entry: "process",
+      dependsOn: ["diagnostics-engine"],
+      source: diagnosticsEngineNodeProcess.toString(),
+    },
+  ],
   process: diagnosticsEngineNodeProcess,
 });
 
-export function diagnosticsEngineNodeProcess({ service, command = "summary", level = "info", values, source = "app" } = {}) {
+export function diagnosticsEngineNodeProcess({
+  service: suppliedService, host, command = "summary", level = "info", values, source = "app",
+  maxEntries = 80, maxMessageLength = 4000,
+} = {}, context = {}) {
+  const state = context.state || {};
+  const service = suppliedService || state.service || (state.service = createDiagnosticsService({ host, maxEntries, maxMessageLength }));
   if (!service || typeof service.summary !== "function") throw new TypeError("DIAGNOSTICS_SERVICE_REQUIRED");
   if (command === "record") service.record(level, Array.isArray(values) ? values : [values], source);
   else if (command === "clear") service.clear();

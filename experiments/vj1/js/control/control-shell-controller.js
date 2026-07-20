@@ -1,7 +1,7 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=screen-input-registry-1";
+import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-patch-contract-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=logical-component-frame-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=thumbnail-pipeline-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
@@ -21,8 +21,9 @@ import { createInputController } from "./input-controller.js?v=component-to-canv
 import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-controller-1";
 import { projectRailTemplate } from "./project-rail-view.js?v=project-rail-view-1";
-import { selectedNodeEditorTemplate, withProjectNodeFork, withoutProjectNodeFork } from "./node-editor-view.js";
-import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate } from "./node-library-view.js";
+import { selectedNodeEditorTemplate, withProjectGroupGraph, withProjectNodeFork, withProjectNodeGraph, withoutProjectNodeFork } from "./node-editor-view.js";
+import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=application-bootstrap-10";
+import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=application-bootstrap-10";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -1036,7 +1037,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-select-node-definition]").forEach((button) => {
       button.addEventListener("click", () => updateUi((ui) => {
         ui.selectedNodeDefinitionId = button.dataset.selectNodeDefinition;
+        ui.selectedNodeGroupId = "";
       }, "select-node-definition"));
+    });
+    refs.projectRail.querySelectorAll("[data-select-node-group]").forEach((button) => {
+      button.addEventListener("click", () => updateUi((ui) => {
+        ui.selectedNodeGroupId = button.dataset.selectNodeGroup;
+      }, "select-node-group"));
     });
     refs.projectRail.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
     refs.projectRail.querySelectorAll("[data-add-component]").forEach((button) => {
@@ -1159,6 +1166,33 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.studio.querySelector("[data-import-files]")?.addEventListener("click", () => refs.importFiles.click());
     refs.studio.querySelector("[data-reset-mapping]")?.addEventListener("click", () => {
       resetProjectMapping();
+    });
+    bindNodeGraphCanvas(refs.studio, {
+      registry: nodePackage?.registry,
+      onStatus: setStatus,
+      onGraphChange: (graph, action) => {
+        const target = selectedNodeWorkspaceTarget(latestState, nodePackage);
+        if (!target) return;
+        try {
+          store.update((draft) => {
+            draft.nodes = target.kind === "project-group"
+              ? withProjectGroupGraph(draft.nodes, target.id, graph)
+              : withProjectNodeGraph(draft.nodes, target.baseDefinition, graph);
+          }, `update:node-graph-${action}`);
+          if (target.id === "vj1.application.program") {
+            const activation = nodePackage?.applicationProgramStatus?.(store.getState());
+            setStatus(activation?.valid === false
+              ? `Application setup is incomplete: ${activation.error}`
+              : activation?.requiresRestart
+                ? "Application setup updated · reload after autosave to activate"
+                : "Application setup graph updated");
+          } else {
+            setStatus(`${target.definition.name} graph updated`);
+          }
+        } catch (error) {
+          setStatus(`${target.definition.name} graph was not updated: ${error?.message || "invalid graph"}`);
+        }
+      },
     });
   }
 

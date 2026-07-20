@@ -87,7 +87,7 @@ export function listEffectNodeComponents() { return [...effects]; }
 
 export function getGeneratorNodeShader(id) {
   const component = getGeneratorNodeComponent(id);
-  if (!component?.nodeDefinition?.parts?.some((part) => part.kind === "shader")) return null;
+  if (!component?.nodeDefinition?.metadata?.nodeOwnedShader) return null;
   return Object.freeze({ ...component, type: component.shaderInterface || component.type });
 }
 
@@ -95,6 +95,7 @@ export function getGeneratorNodeShader(id) {
 // node remains the catalog authority.
 export function getGeneratorShaderComponent(id) {
   const component = getGeneratorNodeComponent(id);
+  if (!component?.nodeDefinition?.metadata?.nodeOwnedShader) return null;
   const shaderPart = component?.nodeDefinition?.parts?.find((part) => part.kind === "shader");
   if (!shaderPart) return null;
   return Object.freeze({

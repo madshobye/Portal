@@ -21,6 +21,19 @@ export const Parse3dObjectGroup = defineNodeGroup({
     name: { type: "string", optional: true, defaultValue: "", description: "Optional filename used for format detection." },
     format: { type: { type: "enum", values: ["", "stl", "obj"] }, optional: true, defaultValue: "" },
   },
+  parameters: {
+    profile: {
+      type: { type: "enum", values: ["full", "preview"] },
+      defaultValue: "full",
+      editor: { type: "select" },
+    },
+    triangleLimit: {
+      type: "number",
+      defaultValue: 600,
+      allowedRange: [1, 10000],
+      clamp: true,
+    },
+  },
   outlets: {
     mesh: { type: MeshType, description: "Parsed canonical mesh." },
     format: { type: { type: "enum", values: ["stl", "obj"] }, description: "Detected source format." },
@@ -47,9 +60,9 @@ export const Parse3dObjectGroup = defineNodeGroup({
   ],
   publicInlets: { source: "detect.source", name: "detect.name", format: "detect.format" },
   publicOutlets: { mesh: ["stl.mesh", "obj.mesh"], format: "detect.format" },
-  program: async ({ source, name = "", format = "" }, { run }) => {
+  program: async ({ source, name = "", format = "", profile = "full", triangleLimit = 600 }, { run }) => {
     const detected = await run("detect", { source, name, format });
-    const parsed = await run(detected.format, { source });
+    const parsed = await run(detected.format, { source }, { parameters: { profile, triangleLimit } });
     return { mesh: parsed.mesh, format: detected.format };
   },
 });

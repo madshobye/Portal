@@ -4,7 +4,7 @@ import {
   applyThumbnailUrls,
   clearThumbnailUrls,
   createThumbnailUrlLease,
-} from "./component-thumbnail-store.js?v=thumbnail-url-lease-1";
+} from "./component-thumbnail-store.js?v=thumbnail-pipeline-1";
 import {
   canPersistDirectoryHandles,
   clearProjectDirectoryHandle,
@@ -17,7 +17,7 @@ import { createChangeEvent } from "../libraries/state-engine/state-command/index
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
 import { buildProjectPayload } from "./project-serializer.js?v=catalog-marker-four-state-1";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
-import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=project-derived-asset-store-1";
+import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=thumbnail-pipeline-1";
 import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";

@@ -1,17 +1,16 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=structural-live-patch-1";
+import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
 import { canvasFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
 import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=screen-input-registry-1";
 import { normalizeParamValue, normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/render-node-contract.js";
-import { compileComponentRenderPrograms } from "../libraries/composition-engine/index.js";
-import { activeSceneProgramSurfaces, compileSceneRenderPrograms } from "../libraries/composition-engine/index.js";
+import { activeSceneProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileSceneRenderPrograms, VISUAL_SOURCE_RENDERERS, visualSourceRenderer } from "../libraries/composition-engine/index.js?v=node-program-hooks-15";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=volumetric-clouds-1";
-import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js";
+import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=alpha-feather-1";
 import { applyBlend } from "./blend-utils.js";
 import {
@@ -28,7 +27,7 @@ import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaS
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=chain-only-authority-1";
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=screen-input-registry-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
-import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=canvas-global-resolution-1";
+import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=thumbnail-pipeline-1";
 import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=component-route-composite-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=surface-runtime-extraction-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
@@ -55,7 +54,7 @@ import {
 } from "./render-geometry.js?v=adaptive-component-demand-29";
 import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=tile-axis-1";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=node-program-hooks-15";
 import {
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,
@@ -91,7 +90,7 @@ export {
   terrainSurfaceGridVertices,
   terrainSurfaceTriangleIndices,
   terrainTriangleEdgeUvs,
-} from "./specialized/terrain-mesh.js?v=terrain-near-contract-2";
+} from "./specialized/terrain-mesh.js?v=node-program-hooks-15";
 export {
   canvasComponentPlacementRect,
   canvasFrameBorderHit,
@@ -111,6 +110,59 @@ export {
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
 } from "./component-render-layout.js?v=logical-component-frame-1";
+
+export function visualOperationRenderItem(operation = {}, item = {}, inheritedTransform = {}, effectComponent = null) {
+  const opcode = operation?.opcode || item?.kind;
+  const transformDomain = operation?.transformDomain || operation?.compilerHook?.transformDomain || "";
+  const inheritsGroupTransform = opcode !== "effect"
+    || transformDomain === "group-field"
+    || (!transformDomain && effectComponent?.transformSource === false);
+  // The common compiled path returns the authored object directly for
+  // composition effects. Besides preserving the correct coordinate domain,
+  // this avoids an object allocation and keeps local effects fusion-eligible.
+  if (isIdentityTransform(inheritedTransform) || !inheritsGroupTransform) return item;
+  return { ...item, transform: combineContentTransforms(inheritedTransform, item.transform || {}) };
+}
+
+const NATIVE_SOURCE_HOST_METHODS = Object.freeze({
+  "output/specialized:screenShare": "drawScreenShareGenerator",
+  "output/specialized:anatomy": "drawAnatomyGenerator",
+  "output/specialized:terrainFlyover": "drawTerrainGenerator",
+  "output/specialized:featureMorph": "drawFeatureMorphGenerator",
+  "output/specialized:featureMorphV2": "drawFeatureMorphGenerator",
+  "output/specialized:tileTexture": "drawTileTextureGenerator",
+  "output/specialized:text": "drawTextGenerator",
+  "output/specialized:meshPatterns": "drawMeshPatternsGenerator",
+});
+const BASIC_NATIVE_SOURCE_RENDERERS = new Set([
+  "output/specialized:black",
+  "output/specialized:checker",
+  "output/specialized:testPattern",
+]);
+const SOURCE_HOST_METHODS = Object.freeze({
+  [VISUAL_SOURCE_RENDERERS.COMPONENT]: "drawComponentReferenceSource",
+  [VISUAL_SOURCE_RENDERERS.MEDIA]: "drawMediaSource",
+  [VISUAL_SOURCE_RENDERERS.CAMERA]: "drawCameraSource",
+  [VISUAL_SOURCE_RENDERERS.BLACK]: "drawBlackSource",
+  [VISUAL_SOURCE_RENDERERS.GENERATOR]: "drawGeneratorSource",
+});
+
+export function compiledVisualSourceRenderer(operation = {}, source = {}) {
+  if (operation.backend === "source-runtime") {
+    const renderer = String(operation.renderer || operation.compilerHook?.renderer || "");
+    if (renderer) return renderer;
+  }
+  return visualSourceRenderer(source);
+}
+
+export function compiledNativeSourceRenderer(operation = {}, source = {}, generatorComponent = null) {
+  if (operation.backend === "native-specialized") {
+    const renderer = String(operation.renderer || operation.compilerHook?.renderer || "");
+    if (renderer) return renderer;
+  }
+  if (source.type !== "generator") return "";
+  return String(generatorComponent?.nodeDefinition?.metadata?.nativeRenderer || "");
+}
 
 export class OutputRenderer {
   constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect }) {
@@ -141,6 +193,7 @@ export class OutputRenderer {
     this.eyeballUniformFrameUse = new Map();
     this.generatorUniformStates = new Map();
     this.generatorUniformStateUse = new Map();
+    this.compiledNodeProcessContexts = new WeakMap();
     this.componentPatches = new Map();
     this.visualNodes = createProjectVisualNodeResolver();
     this.visualResolverOptions = Object.freeze({
@@ -150,6 +203,7 @@ export class OutputRenderer {
     this.visualForkSignature = "";
     this.componentPrograms = new Map();
     this.scenePrograms = new Map();
+    this.outputProgram = null;
     this.sceneProgramCache = new WeakMap();
     this.componentById = new Map();
     this.recordingFrameById = new Map();
@@ -167,6 +221,7 @@ export class OutputRenderer {
     this.thumbnailRuntime = new OutputThumbnailRuntime({
       getState: () => this.state,
       getComponentOutput: (componentId) => this.componentOutput.get(componentId),
+      canCapture: () => this.mode === "component",
       shouldUseThumbnailPreview: () => this.shouldUseThumbnailPreview(),
       isComponentReady: (component) => !this.componentHasPendingAssets(component),
       sendThumbnail: (...args) => this.sendThumbnail?.(...args),
@@ -568,6 +623,7 @@ export class OutputRenderer {
     }
     this.setCalibrate(this.shouldCalibrateFromState());
     this.syncMapperOverlayMode();
+    this.thumbnailRuntime.invalidateSelectedComponent();
   }
 
   applyLivePatches(patches = [], nowMs = performance.now()) {
@@ -608,6 +664,7 @@ export class OutputRenderer {
       });
     }
     for (const componentId of result.componentIds) this.refreshComponentLookup(componentId);
+    if (result.componentIds.length) this.thumbnailRuntime.invalidateSelectedComponent();
     return result;
   }
 
@@ -641,7 +698,8 @@ export class OutputRenderer {
   rebuildComponentPrograms() {
     this.componentPrograms = compileComponentRenderPrograms(
       this.state?.components || [],
-      this.state?.nodes?.groups || []
+      this.state?.nodes?.groups || [],
+      { resolveNodeDefinition: (node) => this.visualNodes.definition(node.nodeId) }
     );
   }
 
@@ -671,18 +729,32 @@ export class OutputRenderer {
   }
 
   rebuildScenePrograms() {
-    this.scenePrograms = compileSceneRenderPrograms(this.state || {}, this.state?.nodes?.groups || []);
-    if (this.state && typeof this.state === "object") this.sceneProgramCache.set(this.state, this.scenePrograms);
+    const groups = this.state?.nodes?.groups || [];
+    this.scenePrograms = compileSceneRenderPrograms(this.state || {}, groups);
+    this.outputProgram = compileOutputRenderProgram(groups);
+    if (this.state && typeof this.state === "object") {
+      this.sceneProgramCache.set(this.state, {
+        scenes: this.scenePrograms,
+        output: this.outputProgram,
+      });
+    }
   }
 
   sceneProgramSurfaces(state = this.state) {
     if (!state || typeof state !== "object") return [];
-    let programs = state === this.state ? this.scenePrograms : this.sceneProgramCache.get(state);
-    if (!programs) {
-      programs = compileSceneRenderPrograms(state, state.nodes?.groups || []);
-      this.sceneProgramCache.set(state, programs);
+    if (state === this.state) {
+      return activeSceneProgramSurfaces(state, this.scenePrograms, this.outputProgram);
     }
-    return activeSceneProgramSurfaces(state, programs);
+    let compiled = this.sceneProgramCache.get(state);
+    if (!compiled) {
+      const groups = state.nodes?.groups || [];
+      compiled = {
+        scenes: compileSceneRenderPrograms(state, groups),
+        output: compileOutputRenderProgram(groups),
+      };
+      this.sceneProgramCache.set(state, compiled);
+    }
+    return activeSceneProgramSurfaces(state, compiled.scenes, compiled.output);
   }
 
   componentProgramChain(component = {}) {
@@ -946,7 +1018,6 @@ export class OutputRenderer {
     else this.renderComponents();
     if (this.mode === "component") {
       this.measureGpu(drawingContext, () => this.renderComponentPreview());
-      if (!this.shouldUseThumbnailPreview()) this.captureSelectedComponentThumbnail();
       this.pruneRenderCaches();
       this.gpuTimer.sealFrame(this.frameIndex);
       this.finishFrameProfile();
@@ -1444,43 +1515,63 @@ export class OutputRenderer {
     return state;
   }
 
+  executeVisualRenderPlan(plan, component, componentTime, renderRequest, scopeId = component.id) {
+    if (plan?.format !== "vj1.visual-render-plan@1" || !Array.isArray(plan.operations)) {
+      throw new Error(`VJ1_VISUAL_RENDER_PLAN_INVALID:${plan?.id || component.id || "unknown"}`);
+    }
+    return this.renderComponentOperationsState(component, plan.operations, componentTime, renderRequest, scopeId);
+  }
+
   renderComponentChainState(component, chain, componentTime, renderRequest, scopeId = component.id, inheritedTransform = {}) {
+    return this.renderComponentOperationsState(component, chain, componentTime, renderRequest, scopeId, inheritedTransform);
+  }
+
+  // Compiled visual operations retain the existing direct GPU path. This is
+  // intentionally a tight specialized loop rather than generic runtime traversal:
+  // graph topology, node definitions, and compiler hooks were already resolved
+  // when the project state changed, outside the frame.
+  renderComponentOperationsState(component, operations, componentTime, renderRequest, scopeId = component.id, inheritedTransform = {}) {
     let state = this.transparentChainState(component, renderRequest);
-    for (let index = 0; index < (chain || []).length; index++) {
-      const item = chain[index];
+    for (let index = 0; index < (operations || []).length; index++) {
+      const operation = operations[index];
+      const item = operation?.configuration || operation;
+      const opcode = operation?.opcode || item?.kind;
       if (item.enabled === false) continue;
-      const renderedItem = isIdentityTransform(inheritedTransform)
-        ? item
-        : { ...item, transform: combineContentTransforms(inheritedTransform, item.transform || {}) };
+      const effectComponent = opcode === "effect" && !operation?.transformDomain
+        ? this.effectNodeComponent(item.componentId)
+        : null;
+      const renderedItem = visualOperationRenderItem(operation, item, inheritedTransform, effectComponent);
       const nodeId = renderBufferKey(component.id, scopeId, index, item.id || item.componentId || item.kind);
-      if (item.kind === "source") {
+      if (opcode === "source") {
         if (this.canDirectCompositeSource(renderedItem, renderRequest)) {
           state = this.renderDirectSourceNodeState(nodeId, state, component, renderedItem, componentTime, renderRequest);
           continue;
         }
-        const sourceState = this.renderComponentSourceItemState(component, renderedItem, componentTime, renderRequest, nodeId);
+        const sourceState = this.renderComponentSourceItemState(component, renderedItem, componentTime, renderRequest, nodeId, operation);
         // A source owns its coordinate-domain transform while retaining the
         // full Component framebuffer. Composite that already transformed frame
         // without moving or clipping the layer rectangle a second time.
         state = this.renderLayerNodeState(nodeId, state, sourceState, { ...renderedItem, transform: {} }, renderRequest);
         continue;
       }
-      if (item.kind === "effect") {
+      if (opcode === "effect") {
         const firstPass = chainItemToShaderPass(renderedItem);
         const firstJob = compileShaderSchedule([firstPass], this.visualResolverOptions)[0];
         if (isFusibleShaderJob(firstJob)) {
           const run = [renderedItem];
           let nextIndex = index + 1;
-          while (nextIndex < (chain || []).length) {
-            const nextItem = chain[nextIndex];
+          while (nextIndex < (operations || []).length) {
+            const nextOperation = operations[nextIndex];
+            const nextItem = nextOperation?.configuration || nextOperation;
             if (nextItem?.enabled === false) {
               nextIndex++;
               continue;
             }
-            if (nextItem?.kind !== "effect") break;
-            const renderedNextItem = isIdentityTransform(inheritedTransform)
-              ? nextItem
-              : { ...nextItem, transform: combineContentTransforms(inheritedTransform, nextItem.transform || {}) };
+            if ((nextOperation?.opcode || nextItem?.kind) !== "effect") break;
+            const nextEffectComponent = !nextOperation?.transformDomain
+              ? this.effectNodeComponent(nextItem.componentId)
+              : null;
+            const renderedNextItem = visualOperationRenderItem(nextOperation, nextItem, inheritedTransform, nextEffectComponent);
             const nextJob = compileShaderSchedule([chainItemToShaderPass(renderedNextItem)], this.visualResolverOptions)[0];
             if (!isFusibleShaderJob(nextJob)) break;
             run.push(renderedNextItem);
@@ -1496,10 +1587,10 @@ export class OutputRenderer {
         state = this.renderEffectNodeState(nodeId, state, renderedItem, componentTime, renderRequest);
         continue;
       }
-      if (item.kind === "group") {
-        const groupState = this.renderComponentChainState(
+      if (opcode === "group") {
+        const groupState = this.renderComponentOperationsState(
           component,
-          item.chain || [],
+          operation?.operations || item.chain || [],
           componentTime,
           renderRequest,
           renderBufferKey(scopeId, item.id || index),
@@ -1992,7 +2083,7 @@ export class OutputRenderer {
     ).buffer;
   }
 
-  renderComponentSourceItemState(component, item, componentTime, request, nodeId) {
+  renderComponentSourceItemState(component, item, componentTime, request, nodeId, operation = null) {
     const renderRequest = this.normalizeRenderRequest(request, "source");
     const key = renderBufferKey(nodeId, "source", renderRequestKey(renderRequest));
     let pg = this.componentSource.get(key);
@@ -2013,6 +2104,13 @@ export class OutputRenderer {
     const runtimeContext = this.nodeRuntimeContext(componentTime);
     const sourceSignature = stableStringify({
       source: staticSourceState(source),
+      execution: operation ? {
+        backend: operation.backend || "",
+        renderer: operation.renderer || operation.compilerHook?.renderer || "",
+        nodeId: operation.nodeId || "",
+        nodeVersion: operation.nodeVersion || "",
+        nodeModule: operation.nodeModuleRevision || operation.nodeProcessRevision || "",
+      } : null,
       media: staticMediaStateForSource(this.state?.media || [], source),
       runtimeMedia: runtimeMediaStateForSource(this.media, source),
       time: this.sourceRuntimeTimeKey(source, item, runtimeContext),
@@ -2028,7 +2126,7 @@ export class OutputRenderer {
     const result = runtime.evaluate(sourceSignature, () => {
       pg.push();
       pg.clear();
-      this.safeDrawSourceToGraphics(pg, source, component, componentTime, renderRequest);
+      this.safeDrawSourceToGraphics(pg, source, component, componentTime, renderRequest, operation);
       pg.pop();
       return pg;
     }, { frame: this.frameIndex, dirtyReason: "source" });
@@ -2139,9 +2237,9 @@ export class OutputRenderer {
     return pg;
   }
 
-  safeDrawSourceToGraphics(pg, source, component, componentTime, renderRequest = frameRenderRequest(this.state.render)) {
+  safeDrawSourceToGraphics(pg, source, component, componentTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
     try {
-      this.drawSourceToGraphics(pg, source, component, componentTime, renderRequest);
+      this.drawSourceToGraphics(pg, source, component, componentTime, renderRequest, operation);
     } catch (error) {
       console.error(`[VJ1_SOURCE_CRASH] ${error?.name || "Error"}: ${error?.message || String(error || "unknown")}`, {
         componentId: component.id,
@@ -2157,120 +2255,178 @@ export class OutputRenderer {
     }
   }
 
-  drawSourceToGraphics(pg, source, component, componentTime, renderRequest = frameRenderRequest(this.state.render)) {
-    if (source.type === "component") {
-      const sourceComponent = this.state.components.find((item) => item.id === source.componentId);
-      if (!sourceComponent || sourceComponent.id === component.id || sourceComponent.type === "canvas") return;
-      const sourceTime = this.componentTimes.get(sourceComponent.id) || componentTime;
-      const renderIdentity = componentRenderInstanceKey(sourceComponent, source.instanceId);
-      const placement = componentReferencePlacement(
-        component,
-        sourceComponent,
-        this.state.render,
-        { width: pg.width, height: pg.height },
-        source.placement
-      );
-      const placementTransform = combineContentTransforms(source.contentTransform, sourceComponent.transform);
-      const demandRect = transformedPlacementDemandRect(placement, placementTransform);
-      const sourceOutput = this.renderComponentForRequest(
-        sourceComponent,
-        componentInstanceTime(sourceComponent, sourceTime, source.instanceId),
-        componentReferenceRenderRequest(this.state.render, sourceComponent, demandRect, {
-          reason: "component-reference",
-          renderIdentity,
-        })
-      );
-      this.drawPlacedResultGeometry(pg, createPlacedRenderResult(sourceOutput, {
-        destinationRect: placement,
-        transform: placementTransform,
-        sourceIsWebGL: this.isShaderBuffer(sourceOutput),
-      }));
-    } else if (source.type === "media") {
-      const playback = {
-          start: source.start,
-          end: source.end,
-          speed: (this.isPlaybackActive() ? 1 : 0) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
+  drawSourceToGraphics(pg, source, component, componentTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
+    const rendererId = compiledVisualSourceRenderer(operation || {}, source);
+    const method = SOURCE_HOST_METHODS[rendererId];
+    if (!method || typeof this[method] !== "function") {
+      console.error("[VJ1_SOURCE_RENDERER_MISSING]", { rendererId, sourceType: source.type || "unknown" });
+      this.drawStandby(pg, `source renderer unavailable: ${source.type || "unknown"}`);
+      return;
+    }
+    this[method](pg, source, component, componentTime, renderRequest, operation);
+  }
+
+  drawComponentReferenceSource(pg, source, component, componentTime) {
+    const sourceComponent = this.state.components.find((item) => item.id === source.componentId);
+    if (!sourceComponent || sourceComponent.id === component.id || sourceComponent.type === "canvas") return;
+    const sourceTime = this.componentTimes.get(sourceComponent.id) || componentTime;
+    const renderIdentity = componentRenderInstanceKey(sourceComponent, source.instanceId);
+    const placement = componentReferencePlacement(
+      component,
+      sourceComponent,
+      this.state.render,
+      { width: pg.width, height: pg.height },
+      source.placement
+    );
+    const placementTransform = combineContentTransforms(source.contentTransform, sourceComponent.transform);
+    const demandRect = transformedPlacementDemandRect(placement, placementTransform);
+    const sourceOutput = this.renderComponentForRequest(
+      sourceComponent,
+      componentInstanceTime(sourceComponent, sourceTime, source.instanceId),
+      componentReferenceRenderRequest(this.state.render, sourceComponent, demandRect, {
+        reason: "component-reference",
+        renderIdentity,
+      })
+    );
+    this.drawPlacedResultGeometry(pg, createPlacedRenderResult(sourceOutput, {
+      destinationRect: placement,
+      transform: placementTransform,
+      sourceIsWebGL: this.isShaderBuffer(sourceOutput),
+    }));
+  }
+
+  drawMediaSource(pg, source, component, componentTime, renderRequest) {
+    const playback = {
+      start: source.start,
+      end: source.end,
+      speed: (this.isPlaybackActive() ? 1 : 0) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
+    };
+    const item = this.acquireMedia(source.mediaId, { playback, width: pg.width });
+    if (item?.video && isDrawableMedia(item.video)) {
+      drawWithContentTransform(pg, source.contentTransform, () => {
+        drawMediaFit(pg, item.video, 0, 0, pg.width, pg.height, mediaSourceFit(source));
+      });
+    }
+    else if (item?.image && isDrawableMedia(item.image)) {
+      const fit = mediaSourceFit(source);
+      const qualityRequest = qualityScaledRenderRequest({ width: pg.width, height: pg.height }, source.params || {});
+      const image = fit === "cover"
+        ? this.getImageRendition(item, qualityRequest.width, qualityRequest.height) || item.image
+        : item.image;
+      drawWithContentTransform(pg, source.contentTransform, () => {
+        drawMediaFit(pg, image, 0, 0, pg.width, pg.height, fit);
+      });
+    }
+    else if (item?.model || item?.modelData) {
+      this.drawModelSource(pg, item, source, componentTime, renderRequest);
+    }
+    else if (item?.modelError) this.drawStandby(pg, `3D model error: ${item.modelError}`, { forceVisible: true });
+    else if (item?.loadError || item?.imageError) this.drawStandby(pg, item?.loadError || "image load failed", { forceVisible: true });
+    else if (item) this.drawStandby(pg, item.loadStatus || "loading media");
+    else {
+      this.requestMissingMedia(source.mediaId);
+      this.drawStandby(pg, "media file not loaded");
+    }
+  }
+
+  drawCameraSource(pg, source) {
+    const camera = this.acquireCameraInput();
+    if (camera && isDrawableMedia(camera)) {
+      drawWithContentTransform(pg, source.contentTransform, () => {
+        drawCover(pg, camera, 0, 0, pg.width, pg.height);
+      });
+    }
+    else this.drawStandby(pg, this.cameraError || "camera");
+  }
+
+  drawBlackSource(pg) {
+    pg.background(0);
+  }
+
+  drawGeneratorSource(pg, source, _component, componentTime, renderRequest, operation) {
+    const generatorTime = instanceTime(source.instanceId || source.generatorId, componentTime);
+    if (typeof operation?.nodeProcess === "function") {
+      drawWithContentTransform(pg, source.contentTransform, () => {
+        this.executeCompiledVisualNodeProcess(operation, pg, source, generatorTime, renderRequest);
+      });
+      return;
+    }
+    const generatorComponent = this.generatorNodeComponent(source.generatorId);
+    const nativeRenderer = compiledNativeSourceRenderer(operation || {}, source, generatorComponent);
+    if (nativeRenderer && this.drawCompiledNativeSource(nativeRenderer, pg, source, generatorTime, renderRequest, operation)) return;
+    const shaderGenerator = this.generatorShaderComponent(generatorComponent.id);
+    if (shaderGenerator) {
+      if (this.drawShaderGenerator(pg, source, generatorTime, renderRequest)) return;
+      console.error("[VJ1_SHADER_GENERATOR_UNAVAILABLE]", {
+        generatorId: source.generatorId,
+        fallback: "transparent diagnostic standby",
+      });
+      this.drawStandby(pg, `shader unavailable: ${source.generatorId}`);
+      return;
+    }
+    drawWithContentTransform(pg, source.contentTransform, () => {
+      drawGenerator(pg, source.generatorId, generatorTime, source.params || {});
+    });
+  }
+
+  executeCompiledVisualNodeProcess(operation, target, source, time, renderRequest) {
+    let invocation = this.compiledNodeProcessContexts.get(operation);
+    if (!invocation) {
+      // One mutable invocation envelope per compiled operation avoids creating
+      // frame-local wrapper objects while preserving the ordinary node process
+      // signature used by editable project forks.
+      invocation = {
+        inputs: { source: null, params: null },
+        context: {
+          target: null,
+          source: null,
+          time: 0,
+          renderRequest: null,
+          executionClass: "live-frame",
+          renderHost: this,
+          // Stable capability bindings let direct nodes own their behavior
+          // without importing application/output internals or allocating
+          // frame-local adapters.
+          acquireScreenInput: this.acquireScreenInput.bind(this),
+          screenInputError: this.screenError.bind(this),
+          isDrawableMedia,
+          drawMediaFit,
+          drawStandby: this.drawStandby.bind(this),
+        },
       };
-      const item = this.acquireMedia(source.mediaId, { playback, width: pg.width });
-      if (item?.video && isDrawableMedia(item.video)) {
-        drawWithContentTransform(pg, source.contentTransform, () => {
-          drawMediaFit(pg, item.video, 0, 0, pg.width, pg.height, mediaSourceFit(source));
-        });
-      }
-      else if (item?.image && isDrawableMedia(item.image)) {
-        const fit = mediaSourceFit(source);
-        const qualityRequest = qualityScaledRenderRequest({ width: pg.width, height: pg.height }, source.params || {});
-        const image = fit === "cover"
-          ? this.getImageRendition(item, qualityRequest.width, qualityRequest.height) || item.image
-          : item.image;
-        drawWithContentTransform(pg, source.contentTransform, () => {
-          drawMediaFit(pg, image, 0, 0, pg.width, pg.height, fit);
-        });
-      }
-      else if (item?.model || item?.modelData) {
-        this.drawModelSource(pg, item, source, componentTime, renderRequest);
-      }
-      else if (item?.modelError) this.drawStandby(pg, `3D model error: ${item.modelError}`, { forceVisible: true });
-      else if (item?.loadError || item?.imageError) this.drawStandby(pg, item?.loadError || "image load failed", { forceVisible: true });
-      else if (item) this.drawStandby(pg, item.loadStatus || "loading media");
-      else {
-        this.requestMissingMedia(source.mediaId);
-        this.drawStandby(pg, "media file not loaded");
-      }
-    } else if (source.type === "camera") {
-      const camera = this.acquireCameraInput();
-      if (camera && isDrawableMedia(camera)) {
-        drawWithContentTransform(pg, source.contentTransform, () => {
-          drawCover(pg, camera, 0, 0, pg.width, pg.height);
-        });
-      }
-      else this.drawStandby(pg, this.cameraError || "camera");
-    } else if (source.type === "black") {
-      pg.background(0);
-    } else {
-      const generatorTime = instanceTime(source.instanceId || source.generatorId, componentTime);
-      if (source.generatorId === "screenShare") {
-        this.drawScreenShareGenerator(pg, source);
-        return;
-      }
-      if (source.generatorId === "anatomy") {
-        this.drawAnatomyGenerator(pg, source, generatorTime, renderRequest);
-        return;
-      }
-      if (source.generatorId === "terrainFlyover") {
-        this.drawTerrainGenerator(pg, source, generatorTime, renderRequest);
-        return;
-      }
-      if (source.generatorId === "featureMorph" || source.generatorId === "featureMorphV2") {
-        this.drawFeatureMorphGenerator(pg, source, generatorTime, renderRequest);
-        return;
-      }
-      if (source.generatorId === "tileTexture") {
-        this.drawTileTextureGenerator(pg, source, generatorTime, renderRequest);
-        return;
-      }
-      if (source.generatorId === "text") {
-        this.drawTextGenerator(pg, source, generatorTime, renderRequest);
-        return;
-      }
-      if (source.generatorId === "meshPatterns") {
-        this.drawMeshPatternsGenerator(pg, source, generatorTime, renderRequest);
-        return;
-      }
-      const shaderGenerator = this.generatorShaderComponent(this.generatorNodeComponent(source.generatorId).id);
-      if (shaderGenerator) {
-        if (this.drawShaderGenerator(pg, source, generatorTime, renderRequest)) return;
-        console.error("[VJ1_SHADER_GENERATOR_UNAVAILABLE]", {
-          generatorId: source.generatorId,
-          fallback: "transparent diagnostic standby",
-        });
-        this.drawStandby(pg, `shader unavailable: ${source.generatorId}`);
-        return;
-      }
+      this.compiledNodeProcessContexts.set(operation, invocation);
+    }
+    invocation.inputs.source = source;
+    invocation.inputs.params = source.params || {};
+    invocation.context.target = target;
+    invocation.context.source = source;
+    invocation.context.time = time;
+    invocation.context.renderRequest = renderRequest;
+    const result = operation.nodeProcess(invocation.inputs, invocation.context);
+    if (result && typeof result.then === "function") {
+      throw new Error(`VJ1_VISUAL_NODE_PROCESS_ASYNC:${operation.nodeProcessId || operation.nodeId || operation.id}`);
+    }
+    return result;
+  }
+
+  drawCompiledNativeSource(rendererId, pg, source, generatorTime, renderRequest, operation = null) {
+    const method = NATIVE_SOURCE_HOST_METHODS[rendererId];
+    if (method && typeof this[method] === "function") {
+      this[method](pg, source, generatorTime, renderRequest, operation);
+      return true;
+    }
+    if (BASIC_NATIVE_SOURCE_RENDERERS.has(rendererId)) {
       drawWithContentTransform(pg, source.contentTransform, () => {
         drawGenerator(pg, source.generatorId, generatorTime, source.params || {});
       });
+      return true;
     }
+    console.error("[VJ1_NATIVE_SOURCE_RENDERER_MISSING]", {
+      rendererId,
+      generatorId: source.generatorId,
+    });
+    this.drawStandby(pg, `native renderer unavailable: ${source.generatorId}`);
+    return true;
   }
 
   drawScreenShareGenerator(pg, source = {}) {
@@ -2336,46 +2492,46 @@ export class OutputRenderer {
     return status === "idle" || status === "loading";
   }
 
-  drawFeatureMorphGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+  drawFeatureMorphGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
     return this.specializedSources.drawFeatureMorph(pg, source, componentTime, {
       ...renderRequest,
       pixelDensity: this.requestPixelDensity(renderRequest),
-    });
+    }, operation);
   }
 
-  drawTileTextureGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+  drawTileTextureGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
     return this.specializedSources.drawTileTexture(pg, source, componentTime, {
       ...renderRequest,
       pixelDensity: this.requestPixelDensity(renderRequest),
-    });
+    }, operation);
   }
 
-  drawTextGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+  drawTextGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
     return this.specializedSources.drawText(pg, source, componentTime, {
       ...renderRequest,
       pixelDensity: this.requestPixelDensity(renderRequest),
-    });
+    }, operation);
   }
 
-  drawMeshPatternsGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+  drawMeshPatternsGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
     return this.specializedSources.drawMeshPatterns(pg, source, componentTime, {
       ...renderRequest,
       pixelDensity: this.requestPixelDensity(renderRequest),
-    });
+    }, operation);
   }
 
-  drawAnatomyGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+  drawAnatomyGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
     return this.specializedSources.drawAnatomy(pg, source, componentTime, {
       ...renderRequest,
       pixelDensity: this.requestPixelDensity(renderRequest),
-    });
+    }, operation);
   }
 
-  drawTerrainGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
+  drawTerrainGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
     return this.specializedSources.drawTerrain(pg, source, componentTime, {
       ...renderRequest,
       pixelDensity: this.requestPixelDensity(renderRequest),
-    });
+    }, operation);
   }
 
   drawModelSource(pg, item, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render)) {
@@ -3283,6 +3439,10 @@ export class OutputRenderer {
 
   captureSelectedComponentThumbnail() {
     return this.thumbnailRuntime.captureSelectedComponentThumbnail();
+  }
+
+  setThumbnailInteractionActive(active) {
+    this.thumbnailRuntime.setInteractionActive(active);
   }
 
   get thumbnailEditTransformBaselines() {

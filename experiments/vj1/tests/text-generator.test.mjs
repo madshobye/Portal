@@ -4,9 +4,11 @@ import { readFile } from "node:fs/promises";
 
 import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 import { parseTextMarkdown, TEXT_GENERATOR_FRAGMENT_SHADER, textMaskSignature } from "../js/output/specialized/text-generator-renderer.js";
+import { textNodeRuntimeModule, textNodeShaderSource } from "../js/output/specialized/specialized-source-runtime.js";
 
 test("text generator exposes portable typography and persistent style parameters", () => {
   const component = getGeneratorComponent("text");
+  const definition = component.nodeDefinition;
   assert.equal(component.category, "typography");
   assert.equal(component.runtime.timeDependent({}), false);
   assert.ok(component.params.some((param) => param.id === "text" && param.type === "text" && param.ui === "markdown"));
@@ -17,6 +19,13 @@ test("text generator exposes portable typography and persistent style parameters
   assert.ok(component.params.some((param) => param.id === "fillEnabled" && param.defaultValue === true));
   assert.ok(component.params.some((param) => param.id === "outlineEnabled" && param.defaultValue === false));
   assert.equal(createGeneratorSource("text", { text: 42 }).params.text, "42");
+  assert.equal(definition.metadata.nodeOwnedNativeModule, true);
+  assert.equal(definition.metadata.nodeOwnedNativeProcess, false);
+  assert.equal(typeof definition.moduleExports.createTextMask, "function");
+  assert.equal(typeof definition.moduleExports.textMaskSignature, "function");
+  assert.ok(definition.parts.some((part) => part.id === "text-layout-module" && part.kind === "javascript"));
+  assert.ok(definition.parts.some((part) => part.id === "vertex-shader" && part.stage === "vertex"));
+  assert.ok(definition.parts.some((part) => part.id === "fragment-shader" && part.stage === "fragment"));
 });
 
 test("text markdown parser retains structure but strips legacy inline style syntax", () => {
@@ -47,16 +56,37 @@ test("text shader performs GPU fill and outline composition", () => {
   assert.match(TEXT_GENERATOR_FRAGMENT_SHADER, /for \(int ring = 1; ring <= 3; ring\+\+\)/);
 });
 
+test("Text host adapter consumes the compiler-supplied node module and shaders", () => {
+  const createTextMask = () => "mask";
+  const signature = () => "signature";
+  const operation = {
+    nodeModule: { createTextMask, textMaskSignature: signature },
+    nodeShaders: { vertex: "node vertex", fragment: "node fragment" },
+  };
+
+  assert.strictEqual(textNodeRuntimeModule(operation).createTextMask, createTextMask);
+  assert.strictEqual(textNodeRuntimeModule(operation).textMaskSignature, signature);
+  assert.equal(textNodeShaderSource(operation, "vertex"), "node vertex");
+  assert.equal(textNodeShaderSource(operation, "fragment"), "node fragment");
+  assert.match(textNodeShaderSource({}, "fragment"), /uniform sampler2D textMask/);
+});
+
 test("text generator is routed through specialized cached rendering and compact editor", async () => {
+  const component = getGeneratorComponent("text");
   const [renderer, specialized, parameterView, inputController] = await Promise.all([
     readFile(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFile(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFile(new URL("../js/control/parameter-view.js", import.meta.url), "utf8"),
     readFile(new URL("../js/control/input-controller.js", import.meta.url), "utf8"),
   ]);
-  assert.match(renderer, /source\.generatorId === "text"/);
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:text");
+  assert.match(renderer, /"output\/specialized:text": "drawTextGenerator"/);
   assert.match(renderer, /this\.specializedSources\.drawText/);
   assert.match(specialized, /textMaskSignature/);
+  assert.match(specialized, /operation\?\.nodeModule/);
+  assert.match(specialized, /operation\?\.nodeShaders\?\.\[stage\]/);
+  assert.match(specialized, /nodeCodeRevision/);
+  assert.match(specialized, /nodeShaderRevision/);
   assert.match(specialized, /this\.textMasks\.get\(instanceId\)/);
   assert.match(specialized, /textMaskImage\(canvas, mask\?\.image/);
   assert.match(specialized, /setUniform\("textMask", mask\.image\)/);

@@ -1,4 +1,6 @@
-import { buildFeatureMorphField, matchSuperPointFeatures } from "./feature-morph-field.js?v=feature-morph-mesh-38";
+import { buildFeatureMorphField, matchSuperPointFeatures } from "./feature-morph-field.js?v=node-program-hooks-15";
+
+const FALLBACK_ANALYSIS_MODULE = Object.freeze({ buildFeatureMorphField, matchSuperPointFeatures });
 
 const INPUT_WIDTH = 640;
 const INPUT_HEIGHT = 480;
@@ -39,23 +41,24 @@ export class SuperPointPairService {
   externalKey(params = {}, media = {}) {
     const key = this.pairKey(params);
     const entry = this.entries.get(key);
-    if (entry?.persistentKey !== featureMorphPersistentKey(key, media.imageAFile, media.imageBFile)) return "idle:0";
+    if (entry?.persistentKey !== this.persistentKey(key, media, entry)) return "idle:0";
     return `${entry?.status || "idle"}:${entry?.revision || 0}`;
   }
 
   status(params = {}, media = {}) {
     const key = this.pairKey(params);
     const entry = this.entries.get(key);
-    if (entry?.persistentKey !== featureMorphPersistentKey(key, media.imageAFile, media.imageBFile)) return "idle";
+    if (entry?.persistentKey !== this.persistentKey(key, media, entry)) return "idle";
     return entry?.status || "idle";
   }
 
   request(params = {}, imageA, imageB, media = {}) {
     const key = this.pairKey(params);
-    const persistentKey = featureMorphPersistentKey(key, media.imageAFile, media.imageBFile);
+    const algorithmRevision = String(media.algorithmRevision || "legacy");
+    const persistentKey = this.persistentKey(key, media);
     let entry = this.entries.get(key);
     if (entry?.persistentKey === persistentKey) return entry;
-    entry = { key, persistentKey, status: "loading", detail: "checking saved landmarks", revision: ++sharedRevision, result: null, error: "" };
+    entry = { key, persistentKey, algorithmRevision, status: "loading", detail: "checking saved landmarks", revision: ++sharedRevision, result: null, error: "" };
     this.entries.set(key, entry);
     this.trimCache();
     withTimeout(
@@ -82,15 +85,15 @@ export class SuperPointPairService {
   }
 
   async resolvePair(params, imageA, imageB, media = {}, onProgress = () => {}) {
-    const persistentKey = featureMorphPersistentKey(this.pairKey(params), media.imageAFile, media.imageBFile);
+    const persistentKey = this.persistentKey(this.pairKey(params), media);
     const cached = await this.cache.load(persistentKey);
     if (cached) return cached;
-    const result = await this.computePair(params, imageA, imageB, onProgress);
+    const result = await this.computePair(params, imageA, imageB, onProgress, superPointAnalysisModule(media.nodeModule));
     await this.cache.save(persistentKey, result);
     return result;
   }
 
-  async computePair(params, imageA, imageB, onProgress = () => {}) {
+  async computePair(params, imageA, imageB, onProgress = () => {}, analysisModule = FALLBACK_ANALYSIS_MODULE) {
     if (!imageA || !imageB) throw new Error("Choose two image sources");
     onProgress("loading SuperPoint model");
     const session = await getSession();
@@ -100,14 +103,14 @@ export class SuperPointPairService {
     onProgress("analyzing image B");
     const featuresB = await detectFeatures(session, imageB, limit, params.fit || "cover");
     onProgress("matching landmarks");
-    const matches = matchSuperPointFeatures(featuresA, featuresB, {
+    const matches = analysisModule.matchSuperPointFeatures(featuresA, featuresB, {
       maxMatches: Math.max(8, Math.min(300, Math.round(Number(params.landmarkCount) || 64))),
       similarityThreshold: Number(params.matchThreshold) || 0.72,
     });
     if (matches.length < 4) throw new Error(`Only ${matches.length} reliable landmarks found; choose more related images`);
     return {
       matches,
-      field: buildFeatureMorphField(matches, {
+      field: analysisModule.buildFeatureMorphField(matches, {
         influence: Number(params.influence) || 0.18,
       }),
     };
@@ -116,10 +119,24 @@ export class SuperPointPairService {
   trimCache() {
     while (this.entries.size > 6) this.entries.delete(this.entries.keys().next().value);
   }
+
+  persistentKey(pairKey, media = {}, entry = null) {
+    // Status checks outside the compiled render operation do not know the node
+    // revision. In that case, compare against the entry's current revision;
+    // request() still replaces it immediately when edited node code arrives.
+    const algorithmRevision = media.algorithmRevision ?? entry?.algorithmRevision ?? "legacy";
+    return featureMorphPersistentKey(pairKey, media.imageAFile, media.imageBFile, algorithmRevision);
+  }
 }
 
-export function featureMorphPersistentKey(pairKey, imageAFile = {}, imageBFile = {}) {
-  return [CACHE_VERSION, pairKey, fileFingerprint(imageAFile), fileFingerprint(imageBFile)].join("|");
+export function superPointAnalysisModule(module = {}) {
+  return typeof module?.matchSuperPointFeatures === "function" && typeof module?.buildFeatureMorphField === "function"
+    ? module
+    : FALLBACK_ANALYSIS_MODULE;
+}
+
+export function featureMorphPersistentKey(pairKey, imageAFile = {}, imageBFile = {}, algorithmRevision = "legacy") {
+  return [CACHE_VERSION, pairKey, String(algorithmRevision || "legacy"), fileFingerprint(imageAFile), fileFingerprint(imageBFile)].join("|");
 }
 
 export function createSuperPointPersistentCache(database = globalThis.indexedDB) {

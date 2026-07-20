@@ -5,6 +5,7 @@ import {
   createNodeInstance,
   createNodePacket,
   createProjectNodeFork,
+  compileJavaScriptNodeModule,
   defineNode,
   defineNodeArtifact,
   defineNodeGroup,
@@ -28,6 +29,7 @@ import {
   validateProjectNodeFork,
 } from "../js/libraries/node-engine/index.js";
 import { ImageResizeNode } from "../js/libraries/image-engine/image-resize/index.js";
+import { ObjParserNode, StlParserNode } from "../js/libraries/mesh-engine/index.js";
 import { SliderArtifact, SliderNode } from "../js/libraries/control-engine/slider/index.js";
 import { getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/index.js";
@@ -209,6 +211,23 @@ test("materialized shader nodes execute from their node-owned shader and paramet
   assert.equal(component.renderAuthority, "node-definition");
 });
 
+test("calibration generators own executable editable JavaScript render modules", () => {
+  for (const id of ["black", "checker", "testPattern"]) {
+    const definition = getGeneratorComponent(id).nodeDefinition;
+    assert.equal(definition.metadata.nodeOwnedNativeProcess, true);
+    assert.equal(definition.implementation.kind, "code");
+    assert.ok(definition.parts.some((part) => part.kind === NODE_PART_KINDS.JAVASCRIPT && part.editable));
+    assert.equal(typeof compileJavaScriptNodeModule(definition.parts, definition).process, "function");
+  }
+
+  const definition = getGeneratorComponent("black").nodeDefinition;
+  const compiled = compileJavaScriptNodeModule(definition.parts, definition);
+  const calls = [];
+  const target = { background: (value) => calls.push(value) };
+  assert.strictEqual(compiled.process({}, { target }), target);
+  assert.deepEqual(calls, [0]);
+});
+
 test("project-local shader forks become the visual resolver authority", () => {
   const base = getEffectNodeComponent("ripple");
   const editedSource = `${base.code}\n// project edit`;
@@ -227,6 +246,86 @@ test("project-local shader forks become the visual resolver authority", () => {
   assert.equal(resolved.projectForkId, fork.id);
   assert.equal(resolved.renderAuthority, "project-node-fork");
   assert.equal(resolver.effect("invert").renderAuthority, "node-definition");
+});
+
+test("project-local native JavaScript forks become the compiled node process", () => {
+  const base = getGeneratorComponent("black").nodeDefinition;
+  const fork = createProjectNodeFork(base, {
+    forkId: "black-project",
+    overrides: {
+      parts: base.parts.map((part) => part.id === "black-algorithm"
+        ? { ...part, source: "function drawBlackNode(pg) { pg.background(7); }" }
+        : part),
+    },
+  });
+  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
+  const resolved = resolver.definition(base.id);
+  const calls = [];
+  const target = { background: (value) => calls.push(value) };
+
+  assert.equal(resolved.id, fork.id);
+  assert.strictEqual(resolved.process({}, { target }), target);
+  assert.deepEqual(calls, [7]);
+});
+
+test("project-local helper edits become runtime module exports", () => {
+  const base = getGeneratorComponent("text").nodeDefinition;
+  const fork = createProjectNodeFork(base, {
+    forkId: "text-layout-project",
+    overrides: {
+      parts: base.parts.map((part) => part.id === "text-layout-module"
+        ? {
+            ...part,
+            source: [
+              "function createTextMask(_params, _width, _height, existing) { return existing || { forked: true }; }",
+              "function textMaskSignature() { return 'forked-layout'; }",
+              "function parseTextMarkdown() { return []; }",
+            ].join("\n"),
+          }
+        : part),
+    },
+  });
+  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
+  const resolved = resolver.definition(base.id);
+
+  assert.equal(resolved.moduleExports.textMaskSignature({}, 1, 1), "forked-layout");
+  assert.deepEqual(resolved.moduleExports.createTextMask({}, 1, 1), { forked: true });
+});
+
+test("Terrain owns editable mesh topology helpers used by its retained GPU host", () => {
+  const base = getGeneratorComponent("terrainFlyover").nodeDefinition;
+  const meshPart = base.parts.find((part) => part.id === "terrain-mesh-module");
+  assert.equal(base.metadata.nodeOwnedNativeModule, true);
+  assert.equal(base.metadata.nodeOwnedNativeProcess, false);
+  assert.equal(meshPart.kind, NODE_PART_KINDS.JAVASCRIPT);
+  assert.match(meshPart.source, /function terrainSurfaceTriangleIndices/);
+  assert.deepEqual(base.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => part.id), [
+    "terrain-surface-vertex",
+    "terrain-surface-fragment",
+    "terrain-wire-vertex",
+    "terrain-wire-fragment",
+  ]);
+  assert.equal(base.moduleExports.terrainGridSize(200), 144);
+
+  const fork = createProjectNodeFork(base, {
+    forkId: "terrain-topology-project",
+    overrides: {
+      parts: base.parts.map((part) => part.id === "terrain-mesh-module"
+        ? {
+            ...part,
+            source: part.source.replace(
+              /function terrainGridSize\(value\) \{[\s\S]*?\n\}/,
+              "function terrainGridSize() { return 17; }"
+            ),
+          }
+        : part),
+    },
+  });
+  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
+  const resolved = resolver.definition(base.id);
+
+  assert.equal(resolved.moduleExports.terrainGridSize(200), 17);
+  assert.equal(typeof resolved.moduleExports.terrainSurfaceGridVertices, "function");
 });
 
 test("node editor projects every conceptual editor surface and project-local forks", async () => {
@@ -278,6 +377,102 @@ test("invalid project JavaScript is rejected before it can become active", () =>
     overrides: { parts: [{ ...base.parts[0], source: "const value = await loadValue(); return value;" }] },
   });
   assert.throws(() => validateProjectNodeFork(base, fork), /await|Unexpected reserved word|Unexpected identifier/);
+});
+
+test("editable JavaScript modules link helper parts into a stable process entry", async () => {
+  const base = defineNode({
+    id: "test.linked-module",
+    name: "Linked module",
+    description: "Compiles multiple editable JavaScript parts as one node module.",
+    inlets: { value: "number" },
+    outlets: { value: "number" },
+    parts: [
+      {
+        id: "math",
+        kind: NODE_PART_KINDS.JAVASCRIPT,
+        export: "scaleValue",
+        source: "function scaleValue(value) { return value * 2; }",
+      },
+      {
+        id: "process",
+        kind: NODE_PART_KINDS.JAVASCRIPT,
+        export: "linkedProcess",
+        entry: "process",
+        dependsOn: ["math"],
+        source: "function linkedProcess({ value }) { return { value: scaleValue(value) }; }",
+      },
+    ],
+    process: ({ value }) => ({ value: value * 2 }),
+  });
+  const fork = createProjectNodeFork(base, {
+    overrides: {
+      parts: base.parts.map((part) => part.id === "math"
+        ? { ...part, source: "function scaleValue(value) { return value * 3; }" }
+        : part),
+    },
+  });
+  const materialized = materializeProjectNodeFork(base, fork);
+  const module = compileJavaScriptNodeModule(fork.definition.parts, base);
+
+  assert.deepEqual(module.parts, ["math", "process"]);
+  assert.equal(module.exports.scaleValue(4), 12);
+  assert.deepEqual(await new NodeInstance(materialized).run({ value: 5 }), { value: 15 });
+});
+
+test("JavaScript module dependencies reject missing parts and cycles before activation", () => {
+  const definition = defineNode({
+    id: "test.module-errors",
+    name: "Module errors",
+    description: "Validates linked module dependencies.",
+    parts: [],
+    process: () => ({}),
+  });
+  assert.throws(() => compileJavaScriptNodeModule([
+    { id: "entry", kind: NODE_PART_KINDS.JAVASCRIPT, entry: "process", dependsOn: ["missing"], source: "return {};" },
+  ], definition), /NODE_FORK_JAVASCRIPT_DEPENDENCY_MISSING/);
+  assert.throws(() => compileJavaScriptNodeModule([
+    { id: "a", kind: NODE_PART_KINDS.JAVASCRIPT, dependsOn: ["b"], source: "function a() {}" },
+    { id: "b", kind: NODE_PART_KINDS.JAVASCRIPT, dependsOn: ["a"], source: "function b() {}" },
+  ], definition), /NODE_FORK_JAVASCRIPT_DEPENDENCY_CYCLE/);
+});
+
+test("STL and OBJ node modules execute their editable parser parts with explicit runtime bindings", async () => {
+  const stlModule = compileJavaScriptNodeModule(StlParserNode.parts, StlParserNode);
+  const objModule = compileJavaScriptNodeModule(ObjParserNode.parts, ObjParserNode);
+  const stl = await stlModule.process({
+    source: new TextEncoder().encode("solid t\nfacet normal 0 0 1\nouter loop\nvertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\nendloop\nendfacet\nendsolid t"),
+  });
+  const obj = await objModule.process({ source: "v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3" });
+
+  assert.equal(stl.mesh.triangleCount, 1);
+  assert.equal(obj.mesh.triangleCount, 1);
+  assert.equal(typeof stlModule.exports.parseStlMesh, "function");
+  assert.equal(typeof objModule.exports.parseObjMesh, "function");
+  assert.deepEqual(StlParserNode.parts.at(-1).dependsOn, ["stl-parser", "stl-source-reader"]);
+});
+
+test("a project STL parser fork changes parser-node execution", async () => {
+  const parserSource = [
+    "function forkMesh() {",
+    "  return attachLegacyTriangleView({ positions: new Float32Array([77, 0, 0, 0, 1, 0, 0, 0, 1]), faceNormals: new Float32Array([0, 0, 1]), triangleCount: 1, bounds: { min: [0, 0, 0], max: [77, 1, 1] }, sourceBounds: { min: [0, 0, 0], max: [77, 1, 1] } });",
+    "}",
+    "function parseStlMesh() { return forkMesh(); }",
+    "function parseStlPreviewMesh() { return forkMesh(); }",
+  ].join("\n");
+  const fork = createProjectNodeFork(StlParserNode, {
+    forkId: "stl-project",
+    overrides: {
+      parts: StlParserNode.parts.map((part) => part.id === "stl-parser"
+        ? { ...part, source: parserSource }
+        : part),
+    },
+  });
+  const materialized = materializeProjectNodeFork(StlParserNode, fork);
+  const result = await new NodeInstance(materialized, { parameters: { profile: "preview" } })
+    .run({ source: new ArrayBuffer(15) });
+
+  assert.equal(result.mesh.positions[0], 77);
+  assert.equal(materialized.moduleExports.parseStlPreviewMesh().positions[0], 77);
 });
 
 test("editable groups execute their graph directly without a scheduler", async () => {
@@ -406,6 +601,13 @@ test("the first image node owns its resize algorithm and emits an image frame", 
   assert.equal(result.frame.timestamp, 42);
   assert.equal(ImageResizeNode.parts[0].module.includes("image-engine/image-resize/index.js"), true);
   assert.equal(ImageResizeNode.parts[0].source.includes("function resizeRasterImage"), true);
+  assert.equal(ImageResizeNode.execution.workload, "bounded");
+  await assert.rejects(
+    () => instance.run({ image: source }, { executionClass: "live-frame" }),
+    /NODE_EXECUTION_CLASS_MISMATCH:core\.image\.resize:bounded:live-frame/
+  );
+  const oversized = new NodeInstance(ImageResizeNode, { parameters: { width: 3000, height: 3000, fit: "stretch" } });
+  await assert.rejects(() => oversized.run({ image: source }, { executionClass: "bounded" }), /IMAGE_RESIZE_CPU_BUDGET_EXCEEDED/);
 });
 
 test("group nodes can execute code-owned relationships without a graph scheduler", async () => {

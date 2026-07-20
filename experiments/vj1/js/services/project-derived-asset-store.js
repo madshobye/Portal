@@ -4,9 +4,9 @@ import {
   THUMBNAIL_ROOT,
   componentThumbnailFilename,
   parseComponentThumbnailFilename,
-  thumbnailDataUrlToBlob,
   thumbnailExtension,
-} from "./component-thumbnail-store.js?v=thumbnail-url-lease-1";
+  thumbnailValueToBlob,
+} from "./component-thumbnail-store.js?v=thumbnail-pipeline-1";
 
 export class ProjectDerivedAssetStore {
   constructor({ getProjectDirectory, isCurrentProject, mediaLibrary, onMediaFilesChanged, maxIndexedRenditions = 1000 }) {
@@ -116,10 +116,10 @@ export class ProjectDerivedAssetStore {
     return await root.getDirectoryHandle(RENDITION_DIR, { create: true });
   }
 
-  async writeComponentThumbnail(componentId, frameId, dataUrl) {
+  async writeComponentThumbnail(componentId, frameId, thumbnail) {
     const projectHandle = this.getProjectDirectory?.();
-    if (!projectHandle || !componentId || !dataUrl) return false;
-    const blob = thumbnailDataUrlToBlob(dataUrl);
+    if (!projectHandle || !componentId || !thumbnail) return false;
+    const blob = thumbnailValueToBlob(thumbnail);
     const extension = thumbnailExtension(blob);
     const directory = await this.thumbnailDirectory({ create: true, projectHandle });
     const filename = componentThumbnailFilename(componentId, frameId, extension);

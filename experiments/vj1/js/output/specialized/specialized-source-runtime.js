@@ -8,28 +8,121 @@ import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
 import { GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "../render-pass-shaders.js?v=render-coordinate-scope-3";
 import { advanceSpatialScale, qualityComputeMultiplier } from "../render-runtime-math.js?v=render-coordinate-scope-3";
 import { advanceRateClock } from "../../libraries/timing-engine/index.js";
-import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.js?v=adaptive-component-demand-29";
+import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.js?v=node-program-hooks-15";
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
 import { modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js";
 import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "../../libraries/mesh-engine/mesh-render-cache.js";
 import { disposeRawModelItemResources, drawRawParsedModelMode } from "../../libraries/mesh-engine/mesh-render/index.js";
 import { modelLodTargetTriangles, selectModelLod } from "../../libraries/mesh-engine/mesh-resolution/index.js";
-import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=madstodo-4";
-import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER, imageFitUniform } from "./feature-morph-shader.js?v=render-core-contract-1";
-import { mobileNetMorphFieldForStrategy, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-4";
-import { SuperPointPairService } from "./superpoint-service.js?v=surface-media-contract-4";
-import { TILE_TEXTURE_FRAGMENT_SHADER, TILE_TEXTURE_VERTEX_SHADER } from "./tile-texture-shader.js?v=render-core-contract-1";
+import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=node-program-hooks-15";
+import { TerrainNodeModuleExports as FALLBACK_TERRAIN_NODE_MODULE } from "./terrain-mesh.js?v=node-program-hooks-15";
+import {
+  FEATURE_MORPH_FRAGMENT_SHADER,
+  FEATURE_MORPH_VERTEX_SHADER,
+  imageFitUniform as fallbackImageFitUniform,
+} from "./feature-morph-shader.js?v=node-program-hooks-15";
+import {
+  buildFeatureMorphField as fallbackBuildFeatureMorphField,
+  buildFeatureMorphMesh as fallbackBuildFeatureMorphMesh,
+  matchSuperPointFeatures as fallbackMatchSuperPointFeatures,
+} from "./feature-morph-field.js?v=node-program-hooks-15";
+import { mobileNetAnalysisModule, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-6";
+import { SuperPointPairService } from "./superpoint-service.js?v=surface-media-contract-6";
+import {
+  TILE_TEXTURE_FRAGMENT_SHADER,
+  TILE_TEXTURE_VERTEX_SHADER,
+  tileRepeatAmount as fallbackTileRepeatAmount,
+} from "./tile-texture-shader.js?v=node-program-hooks-15";
+export { tileRepeatAmount } from "./tile-texture-shader.js?v=node-program-hooks-15";
+import {
+  createTextMask as fallbackCreateTextMask,
+  TEXT_GENERATOR_FRAGMENT_SHADER as FALLBACK_TEXT_FRAGMENT_SHADER,
+  TEXT_GENERATOR_VERTEX_SHADER as FALLBACK_TEXT_VERTEX_SHADER,
+  textMaskSignature as fallbackTextMaskSignature,
+} from "./text-generator-renderer.js?v=node-program-hooks-15";
+import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=mesh-topology-4";
 
-export function tileRepeatAmount(params = {}) {
-  const repeat = Math.max(0.001, Number(params.repeat) || 1);
-  const tileAxis = ["horizontal", "vertical"].includes(params.tileAxis) ? params.tileAxis : "both";
-  return [
-    tileAxis === "vertical" ? 1 : repeat,
-    tileAxis === "horizontal" ? 1 : repeat,
-  ];
+const FALLBACK_TEXT_NODE_MODULE = Object.freeze({
+  createTextMask: fallbackCreateTextMask,
+  textMaskSignature: fallbackTextMaskSignature,
+});
+
+const FALLBACK_ANATOMY_NODE_MODULE = Object.freeze({
+  anatomyPartFitScale,
+  drawProceduralAnatomy,
+});
+
+export function anatomyNodeRuntimeModule(operation = {}) {
+  const module = operation?.nodeModule;
+  return typeof module?.anatomyPartFitScale === "function" && typeof module?.drawProceduralAnatomy === "function"
+    ? module
+    : FALLBACK_ANATOMY_NODE_MODULE;
 }
-import { createTextMask, TEXT_GENERATOR_FRAGMENT_SHADER, TEXT_GENERATOR_VERTEX_SHADER, textMaskSignature } from "./text-generator-renderer.js?v=text-style-controls-1";
-import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=mesh-topology-2";
+
+// This is the narrow host boundary for the Text node. The compiler supplies
+// editable algorithm exports and shader sources; the specialized runtime owns
+// only context-bound targets, mask images, and their bounded caches.
+export function textNodeRuntimeModule(operation = {}) {
+  const module = operation?.nodeModule;
+  return typeof module?.createTextMask === "function" && typeof module?.textMaskSignature === "function"
+    ? module
+    : FALLBACK_TEXT_NODE_MODULE;
+}
+
+export function textNodeShaderSource(operation = {}, stage = "fragment") {
+  return operation?.nodeShaders?.[stage] || (stage === "vertex"
+    ? FALLBACK_TEXT_VERTEX_SHADER
+    : FALLBACK_TEXT_FRAGMENT_SHADER);
+}
+
+// Terrain's node owns the pure topology/math module. The host keeps the
+// context-bound WebGL programs and retained buffers. Installed/forked node
+// modules are validated before compilation, so the hot path needs only this
+// single capability check rather than revalidating every helper each frame.
+export function terrainNodeRuntimeModule(operation = {}) {
+  const module = operation?.nodeModule;
+  return typeof module?.terrainSurfaceGridVertices === "function"
+    ? module
+    : FALLBACK_TERRAIN_NODE_MODULE;
+}
+
+const FALLBACK_TILE_TEXTURE_NODE_MODULE = Object.freeze({ tileRepeatAmount: fallbackTileRepeatAmount });
+
+export function tileTextureNodeRuntimeModule(operation = {}) {
+  const module = operation?.nodeModule;
+  return typeof module?.tileRepeatAmount === "function" ? module : FALLBACK_TILE_TEXTURE_NODE_MODULE;
+}
+
+export function tileTextureNodeShaderSource(operation = {}, stage = "fragment") {
+  const id = stage === "vertex" ? "tile-texture-vertex" : "tile-texture-fragment";
+  return operation?.nodeShaders?.[id] || (stage === "vertex"
+    ? TILE_TEXTURE_VERTEX_SHADER
+    : TILE_TEXTURE_FRAGMENT_SHADER);
+}
+
+const FALLBACK_FEATURE_MORPH_NODE_MODULE = Object.freeze({
+  imageFitUniform: fallbackImageFitUniform,
+  buildFeatureMorphField: fallbackBuildFeatureMorphField,
+  buildFeatureMorphMesh: fallbackBuildFeatureMorphMesh,
+  matchSuperPointFeatures: fallbackMatchSuperPointFeatures,
+});
+
+export function featureMorphNodeRuntimeModule(operation = {}, { requireAnalysis = true } = {}) {
+  const module = operation?.nodeModule;
+  return typeof module?.imageFitUniform === "function" && (!requireAnalysis || (
+    typeof module?.buildFeatureMorphField === "function" &&
+    typeof module?.matchSuperPointFeatures === "function"
+  ))
+    ? module
+    : FALLBACK_FEATURE_MORPH_NODE_MODULE;
+}
+
+export function featureMorphNodeShaderSource(operation = {}, stage = "fragment") {
+  const id = stage === "vertex" ? "feature-morph-vertex" : "feature-morph-fragment";
+  return operation?.nodeShaders?.[id] || (stage === "vertex"
+    ? FEATURE_MORPH_VERTEX_SHADER
+    : FEATURE_MORPH_FRAGMENT_SHADER);
+}
 
 export class SpecializedSourceRuntime {
   constructor({
@@ -60,9 +153,13 @@ export class SpecializedSourceRuntime {
     this.superPointPairs = new SuperPointPairService();
     this.mobileNetMorphPairs = new MobileNetMorphPairService();
     this.featureMorphShader = null;
+    this.featureMorphShaderRevision = "";
     this.featureMorphV2Shader = null;
+    this.featureMorphV2ShaderRevision = "";
     this.tileTextureShader = null;
+    this.tileTextureShaderRevision = "";
     this.textGeneratorShader = null;
+    this.textGeneratorShaderRevision = "";
     this.textMasks = new Map();
     this.meshPatterns = new MeshPatternRenderer({ frameIndex: this.frameIndex });
     this.presentationShaders = new Map();
@@ -75,12 +172,20 @@ export class SpecializedSourceRuntime {
     return null;
   }
 
-  drawFeatureMorph(pg, source = {}, componentTime = 0, renderRequest = {}) {
+  drawFeatureMorph(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const params = source.params || {};
     const isMobileNet = source.generatorId === "featureMorphV2";
+    const nodeModule = featureMorphNodeRuntimeModule(operation, { requireAnalysis: !isMobileNet });
     const pairService = isMobileNet ? this.mobileNetMorphPairs : this.superPointPairs;
     const targetKey = isMobileNet ? "featureMorphV2" : "featureMorph";
     const shaderKey = isMobileNet ? "featureMorphV2Shader" : "featureMorphShader";
+    const shaderRevisionKey = isMobileNet ? "featureMorphV2ShaderRevision" : "featureMorphShaderRevision";
+    const shaderRevision = String(
+      operation?.nodeShaderProgramRevisions?.["feature-morph"] ||
+      operation?.nodeShaderRevision ||
+      operation?.nodeModuleRevision ||
+      "legacy"
+    );
     const imageAId = params.imageAId || "";
     const imageBId = params.imageBId || "";
     if (!imageAId || !imageBId) {
@@ -99,6 +204,8 @@ export class SpecializedSourceRuntime {
     const entry = pairService.request(params, itemA.image, itemB.image, {
       imageAFile: itemA.file,
       imageBFile: itemB.file,
+      nodeModule,
+      algorithmRevision: String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy"),
     });
     if (entry.status === "loading") {
       this.drawStandby(pg, entry.detail || (isMobileNet ? "matching MobileNet regions" : "finding SuperPoint landmarks"));
@@ -111,12 +218,22 @@ export class SpecializedSourceRuntime {
 
     const target = this.getTarget(targetKey, pg.width, pg.height, renderRequest.pixelDensity, {
       preferSharedFramebuffer: true,
+      onContextDiscard: () => {
+        this[shaderKey] = null;
+        this[shaderRevisionKey] = "";
+      },
     });
-    if (!this[shaderKey]) this[shaderKey] = target.createShader(FEATURE_MORPH_VERTEX_SHADER, FEATURE_MORPH_FRAGMENT_SHADER);
+    if (!this[shaderKey] || this[shaderRevisionKey] !== shaderRevision) {
+      this[shaderKey] = target.createShader(
+        featureMorphNodeShaderSource(operation, "vertex"),
+        featureMorphNodeShaderSource(operation, "fragment")
+      );
+      this[shaderRevisionKey] = shaderRevision;
+    }
     const shaderProgram = this[shaderKey];
     const morphStrategy = isMobileNet ? (params.morphStrategy || "elastic") : "flow";
     const morphField = isMobileNet
-      ? mobileNetMorphFieldForStrategy(entry.result, morphStrategy)
+      ? mobileNetAnalysisModule(nodeModule).mobileNetMorphFieldForStrategy(entry.result, morphStrategy)
       : entry.result.field;
     const flowImage = featureMorphFlowImage(morphField);
     const autoSpeed = Math.max(0, Number(params.autoSpeed) || 0);
@@ -138,8 +255,8 @@ export class SpecializedSourceRuntime {
       shaderProgram.setUniform("flowPhases", morphField.phases || 1);
       shaderProgram.setUniform("flowLayers", morphField.layers || 1);
       shaderProgram.setUniform("morphStrategy", morphStrategy === "rigid" || morphStrategy === "elastic" ? 1 : morphStrategy === "fluid" ? 2 : 0);
-      shaderProgram.setUniform("fitA", imageFitUniform(itemA.image, pg.width, pg.height, fit));
-      shaderProgram.setUniform("fitB", imageFitUniform(itemB.image, pg.width, pg.height, fit));
+      shaderProgram.setUniform("fitA", nodeModule.imageFitUniform(itemA.image, pg.width, pg.height, fit));
+      shaderProgram.setUniform("fitB", nodeModule.imageFitUniform(itemB.image, pg.width, pg.height, fit));
       shaderProgram.setUniform("contentUvMatrix", contentTransformUvMatrices(source.contentTransform).sampling);
       drawShaderTargetRect(target, pg.width, pg.height);
       resetShaderTarget(target);
@@ -147,8 +264,15 @@ export class SpecializedSourceRuntime {
     this.presentGeneratedTarget(pg, target);
   }
 
-  drawTileTexture(pg, source = {}, componentTime = 0, renderRequest = {}) {
+  drawTileTexture(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const params = source.params || {};
+    const nodeModule = tileTextureNodeRuntimeModule(operation);
+    const shaderRevision = String(
+      operation?.nodeShaderProgramRevisions?.["tile-texture"] ||
+      operation?.nodeShaderRevision ||
+      operation?.nodeModuleRevision ||
+      "legacy"
+    );
     const imageId = params.imageId || "";
     if (!imageId) {
       this.drawStandby(pg, "choose a tileable texture");
@@ -162,13 +286,23 @@ export class SpecializedSourceRuntime {
     }
     const target = this.getTarget("tileTexture", pg.width, pg.height, renderRequest.pixelDensity, {
       preferSharedFramebuffer: true,
+      onContextDiscard: () => {
+    this.tileTextureShader = null;
+    this.tileTextureShaderRevision = "";
+      },
     });
-    if (!this.tileTextureShader) this.tileTextureShader = target.createShader(TILE_TEXTURE_VERTEX_SHADER, TILE_TEXTURE_FRAGMENT_SHADER);
+    if (!this.tileTextureShader || this.tileTextureShaderRevision !== shaderRevision) {
+      this.tileTextureShader = target.createShader(
+        tileTextureNodeShaderSource(operation, "vertex"),
+        tileTextureNodeShaderSource(operation, "fragment")
+      );
+      this.tileTextureShaderRevision = shaderRevision;
+    }
     drawShaderTarget(target, () => {
       clearShaderTarget(target);
       applyShaderTarget(target, this.tileTextureShader);
       this.tileTextureShader.setUniform("tileImage", item.image);
-      this.tileTextureShader.setUniform("repeatAmount", tileRepeatAmount(params));
+      this.tileTextureShader.setUniform("repeatAmount", nodeModule.tileRepeatAmount(params));
       this.tileTextureShader.setUniform("offsetAmount", [Number(params.offsetX) || 0, Number(params.offsetY) || 0]);
       this.tileTextureShader.setUniform("scrollSpeed", [Number(params.scrollX) || 0, Number(params.scrollY) || 0]);
       this.tileTextureShader.setUniform("time", componentTime);
@@ -179,17 +313,28 @@ export class SpecializedSourceRuntime {
     this.presentGeneratedTarget(pg, target);
   }
 
-  drawText(pg, source = {}, _componentTime = 0, renderRequest = {}) {
+  drawText(pg, source = {}, _componentTime = 0, renderRequest = {}, operation = null) {
     const params = source.params || {};
+    const nodeModule = textNodeRuntimeModule(operation);
+    const createTextMask = nodeModule.createTextMask;
+    const textMaskSignature = nodeModule.textMaskSignature;
+    const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
+    const shaderRevision = String(operation?.nodeShaderRevision || operation?.nodeModuleRevision || "legacy");
+    const vertexShader = textNodeShaderSource(operation, "vertex");
+    const fragmentShader = textNodeShaderSource(operation, "fragment");
     const target = this.getTarget("text", pg.width, pg.height, renderRequest.pixelDensity, {
       preferSharedFramebuffer: true,
-      onContextDiscard: () => { this.textGeneratorShader = null; },
+      onContextDiscard: () => {
+        this.textGeneratorShader = null;
+        this.textGeneratorShaderRevision = "";
+      },
     });
-    if (!this.textGeneratorShader) {
-      this.textGeneratorShader = target.createShader(TEXT_GENERATOR_VERTEX_SHADER, TEXT_GENERATOR_FRAGMENT_SHADER);
+    if (!this.textGeneratorShader || this.textGeneratorShaderRevision !== shaderRevision) {
+      this.textGeneratorShader = target.createShader(vertexShader, fragmentShader);
+      this.textGeneratorShaderRevision = shaderRevision;
     }
     const instanceId = source.instanceId || source.generatorId || "text";
-    const signature = textMaskSignature(params, pg.width, pg.height);
+    const signature = `${codeRevision}:${textMaskSignature(params, pg.width, pg.height)}`;
     let mask = this.textMasks.get(instanceId);
     if (!mask || mask.signature !== signature) {
       const canvas = createTextMask(params, pg.width, pg.height, mask?.canvas || null);
@@ -222,11 +367,11 @@ export class SpecializedSourceRuntime {
     this.presentGeneratedTarget(pg, target);
   }
 
-  drawMeshPatterns(pg, source = {}, componentTime = 0, renderRequest = {}) {
+  drawMeshPatterns(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const target = this.getTarget("meshPatterns", pg.width, pg.height, renderRequest.pixelDensity, {
       preferSharedFramebuffer: true,
     });
-    const drawn = this.meshPatterns.draw(target, source, componentTime, renderRequest);
+    const drawn = this.meshPatterns.draw(target, source, componentTime, renderRequest, operation);
     if (!drawn) {
       this.drawStandby(pg, "mesh topology unavailable");
       return false;
@@ -245,8 +390,9 @@ export class SpecializedSourceRuntime {
     });
   }
 
-  drawAnatomy(pg, source = {}, componentTime = 0, renderRequest = {}) {
+  drawAnatomy(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const params = source.params || {};
+    const nodeModule = anatomyNodeRuntimeModule(operation);
     const target = this.getModelTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
     const viewport = modelViewportMetrics(target, renderRequest);
     const renderMode = params.renderMode || "surface";
@@ -271,16 +417,16 @@ export class SpecializedSourceRuntime {
       target.rotateX(rotation[0]);
       target.rotateY(rotation[1]);
       target.rotateZ(rotation[2]);
-      const scale = viewport.unitScale * modelScale * anatomyPartFitScale(params.part);
+      const scale = viewport.unitScale * modelScale * nodeModule.anatomyPartFitScale(params.part);
       target.scale(scale, -scale, scale * depth);
-      drawProceduralAnatomy(target, params, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
+      nodeModule.drawProceduralAnatomy(target, params, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
       target.pop();
     });
     markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft);
     this.presentGeneratedTarget(pg, target);
   }
 
-  drawTerrain(pg, source = {}, componentTime = 0, renderRequest = {}) {
+  drawTerrain(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const params = source.params || {};
     const target = this.getTerrainTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
     const style = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
@@ -304,12 +450,18 @@ export class SpecializedSourceRuntime {
       )),
     };
     const sky = normalizedModelColor(params.skyColor, [108, 165, 212, 255]);
+    const terrainModule = terrainNodeRuntimeModule(operation);
+    const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
+    const shaderRevision = String(operation?.nodeShaderRevision || operation?.nodeModuleRevision || "legacy");
+    const surfaceShaderRevision = String(operation?.nodeShaderProgramRevisions?.surface || shaderRevision);
+    const wireShaderRevision = String(operation?.nodeShaderProgramRevisions?.wire || shaderRevision);
+    const nodeShaders = operation?.nodeShaders || null;
     this.measureGpu(target, () => {
       target.push();
       target.clear();
       if (style !== 1) target.background(sky[0] * 255, sky[1] * 255, sky[2] * 255, sky[3] * 255);
-      if (style !== 1) drawTerrainSurface(target, this.terrainSurfaceResources, flightParams, flightTime, target.width, target.height, style, sky);
-      if (style >= 1) drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height, renderRequest);
+      if (style !== 1) drawTerrainSurface(target, this.terrainSurfaceResources, flightParams, flightTime, target.width, target.height, style, sky, terrainModule, codeRevision, nodeShaders, surfaceShaderRevision);
+      if (style >= 1) drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, target.width, target.height, renderRequest, terrainModule, codeRevision, nodeShaders, wireShaderRevision);
       target.pop();
     });
     // Camera/projected coordinates are already in screen-down Composition
@@ -539,9 +691,13 @@ export class SpecializedSourceRuntime {
     this.rateClocks.clear();
     this.terrainScalePhases.clear();
     this.featureMorphShader = null;
+    this.featureMorphShaderRevision = "";
     this.featureMorphV2Shader = null;
+    this.featureMorphV2ShaderRevision = "";
     this.tileTextureShader = null;
+    this.tileTextureShaderRevision = "";
     this.textGeneratorShader = null;
+    this.textGeneratorShaderRevision = "";
     this.textMasks.clear();
     this.meshPatterns.dispose();
     this.presentationShaders.clear();

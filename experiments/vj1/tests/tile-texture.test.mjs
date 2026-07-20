@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
+import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/index.js";
+import { createProjectNodeFork, NODE_PART_KINDS } from "../js/libraries/node-engine/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
-import { TILE_TEXTURE_FRAGMENT_SHADER } from "../js/output/specialized/tile-texture-shader.js";
+import { TILE_TEXTURE_FRAGMENT_SHADER, TILE_TEXTURE_VERTEX_SHADER } from "../js/output/specialized/tile-texture-shader.js";
 import { generatorImageMediaControlTemplate } from "../js/control/generator-media-view.js";
-import { tileRepeatAmount } from "../js/output/specialized/specialized-source-runtime.js";
+import { tileRepeatAmount, tileTextureNodeRuntimeModule, tileTextureNodeShaderSource } from "../js/output/specialized/specialized-source-runtime.js";
 
 test("Tile Texture exposes repeat offset and optional scrolling controls", () => {
   const component = getGeneratorComponent("tileTexture");
@@ -22,6 +24,34 @@ test("Tile Texture exposes repeat offset and optional scrolling controls", () =>
   assert.deepEqual(tileRepeatAmount({ repeat: 8, tileAxis: "both" }), [8, 8]);
   assert.deepEqual(tileRepeatAmount({ repeat: 8, tileAxis: "horizontal" }), [8, 1]);
   assert.deepEqual(tileRepeatAmount({ repeat: 8, tileAxis: "vertical" }), [1, 8]);
+  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
+  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeProcess, false);
+  assert.deepEqual(component.nodeDefinition.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => part.id), [
+    "tile-texture-vertex",
+    "tile-texture-fragment",
+  ]);
+});
+
+test("Tile Texture project forks supply the retained host with node-owned helpers and shaders", () => {
+  const base = getGeneratorComponent("tileTexture").nodeDefinition;
+  const fork = createProjectNodeFork(base, {
+    forkId: "tile-texture-project",
+    overrides: {
+      parts: base.parts.map((part) => part.id === "tile-repeat-module"
+        ? { ...part, source: "function tileRepeatAmount() { return [3, 4]; }" }
+        : part),
+    },
+  });
+  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
+  const resolved = resolver.definition(base.id);
+  const operation = {
+    nodeModule: resolved.moduleExports,
+    nodeShaders: Object.fromEntries(resolved.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => [part.id, part.source])),
+  };
+
+  assert.deepEqual(tileTextureNodeRuntimeModule(operation).tileRepeatAmount({ repeat: 8 }), [3, 4]);
+  assert.equal(tileTextureNodeShaderSource(operation, "vertex"), TILE_TEXTURE_VERTEX_SHADER);
+  assert.equal(tileTextureNodeShaderSource(operation, "fragment"), TILE_TEXTURE_FRAGMENT_SHADER);
 });
 
 test("Tile Texture repeats its selected image with wrapped shader coordinates", () => {

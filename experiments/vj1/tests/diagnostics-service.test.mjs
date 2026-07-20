@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createDiagnosticsService, DiagnosticsEngineNode, diagnosticsEngineNodeProcess } from "../js/libraries/diagnostics-engine/diagnostics-engine/index.js";
+import { NodeInstance } from "../js/libraries/node-engine/index.js";
 
 function fakeHost() {
   const listeners = new Map();
@@ -88,4 +89,12 @@ test("diagnostics engine node owns the service policy", () => {
   });
   assert.equal(result.summary.counts.warning, 1);
   assert.match(DiagnosticsEngineNode.parts[0].source, /function createDiagnosticsService/);
+});
+
+test("diagnostics engine node owns a persistent service when the host does not inject one", async () => {
+  const node = new NodeInstance(DiagnosticsEngineNode, { parameters: { command: "record" } });
+  const result = await node.run({ host: fakeHost(), level: "warning", values: ["owned warning"], source: "node" });
+  assert.equal(result.summary.counts.warning, 1);
+  assert.equal(node.state.service.summary().entries[0].source, "node");
+  node.dispose();
 });

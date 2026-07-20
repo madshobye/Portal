@@ -1,6 +1,8 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
 import { numberType, optionalType, recordType, valueType } from "../../node-engine/node-types.js";
 
+export const MAX_CPU_RESIZE_PIXELS = 4_194_304;
+
 export const RasterImageType = recordType("raster-image", {
   width: numberType(),
   height: numberType(),
@@ -18,7 +20,7 @@ export const ImageResizeNode = defineNode({
   id: "core.image.resize",
   name: "Image Resize",
   version: "0.1.0",
-  description: "Resamples a raster image and emits an atomic image frame containing its transform and timestamp.",
+  description: "Bounded CPU resampling for thumbnails and utility jobs; live renderers must select a browser-native or GPU backend.",
   implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: {
     image: {
@@ -68,23 +70,40 @@ export const ImageResizeNode = defineNode({
     pure: true,
     asynchronous: false,
     maxHz: 30,
+    workload: "bounded",
   },
-  capabilities: ["image-processing", "produces-image", "worker-safe", "graph-placeable"],
+  moduleBindings: { MAX_CPU_RESIZE_PIXELS },
+  capabilities: ["image-processing", "produces-image", "worker-safe", "graph-placeable", "bounded-cpu"],
   presentation: {
     catalogs: ["graph", "image"],
     placeableOn: ["node-graph"],
     previewOutput: "frame",
   },
-  parts: [{
-    id: "resize-algorithm",
-    name: "Resize algorithm",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    export: "resizeRasterImage",
-    source: resizeRasterImage.toString(),
-  }],
+  parts: [
+    {
+      id: "resize-algorithm",
+      name: "Resize algorithm",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      exports: ["resizeRasterImage", "resizePlan"],
+      source: [resizeRasterImage, resizePlan, pixel, positiveDimension, positiveChannels, clampIndex, identityTransform2d]
+        .map((fn) => fn.toString()).join("\n\n"),
+    },
+    {
+      id: "resize-process",
+      name: "Resize process entry",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "resizeRasterNodeProcess",
+      entry: "process",
+      dependsOn: ["resize-algorithm"],
+      source: resizeRasterNodeProcess.toString(),
+    },
+  ],
   process: resizeRasterNodeProcess,
 });
 
@@ -114,6 +133,9 @@ export function resizeRasterImage(source, { width, height, fit = "contain" } = {
   if (sourceData.length < sourceWidth * sourceHeight * channels) throw new RangeError("IMAGE_RESIZE_SOURCE_DATA_SHORT");
 
   const target = resizePlan(sourceWidth, sourceHeight, positiveDimension(width), positiveDimension(height), fit);
+  if (target.width * target.height > MAX_CPU_RESIZE_PIXELS) {
+    throw new RangeError(`IMAGE_RESIZE_CPU_BUDGET_EXCEEDED:${target.width}x${target.height}:${MAX_CPU_RESIZE_PIXELS}`);
+  }
   const OutputArray = sourceData.constructor;
   const output = new OutputArray(target.width * target.height * channels);
   const scaleX = target.sourceWidth / target.width;

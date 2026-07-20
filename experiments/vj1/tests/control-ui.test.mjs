@@ -675,7 +675,9 @@ test("local UI controls use the UI-only state path", () => {
   assert.match(controller, /function updateUi\(recipe, reason\)[\s\S]*?store\.updateUi\(recipe, reason\)/);
   assert.match(controller, /updateUi\(\(ui\) => \{[\s\S]*?updatePreviewViewportForUi\(ui, \(viewport\) => zoomViewport/);
   assert.match(controller, /ui\.catalogSortModes\[catalog\] = mode/);
-  assert.match(app, /\["live", "runtime", "derived"\]\.includes\(change\.scope\)[\s\S]*?projectService\.scheduleAutoSave\(change\);[\s\S]*?change\.scope === "ui"/);
+  assert.match(app, /application\.bindInput\("storage", "value", \(\{ change \}\) => \{[\s\S]*?\["live", "runtime", "derived"\]\.includes\(change\.scope\)[\s\S]*?projectService\.scheduleAutoSave\(change\)/);
+  assert.match(app, /application\.bindInput\("live-synchronization", "state", \(\{ state, reason, change \}\) => \{[\s\S]*?\["runtime", "derived", "ui"\]\.includes\(change\.scope\)/);
+  assert.match(app, /application\.emit\("data-store", "snapshot", \{ state, reason, change \}\)/);
   assert.match(projectService, /if \(event\.phase === "edit" \|\| event\.phase === "scrub"\) return;/);
   assert.ok(!projectService.includes('event.scope === "ui"'));
 });
@@ -1222,7 +1224,8 @@ test("Nodes is a reachable library workspace with structure and editing surfaces
   assert.match(controller, /nodeLibraryStudioTemplate/);
   assert.match(controller, /nodeLibraryInspectorTemplate/);
   assert.match(view, /data-select-node-definition/);
-  assert.match(view, /Internal group structure/);
+  assert.match(view, /nodeGraphCanvasTemplate/);
+  assert.match(controller, /bindNodeGraphCanvas/);
   assert.match(view, /nodeDefinitionEditorTemplate/);
 });
 

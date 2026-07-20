@@ -3,7 +3,7 @@ import { createOutputTransportProfiler, transportTimestampMs } from "./output-tr
 import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=transport-derived-assets-1";
 import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js";
 
-export function createControlBridge({ store, mediaLibrary, diagnostics = null }) {
+export function createControlBridge({ store, mediaLibrary, diagnostics = null, subscribeStore = true }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const sessionId = `control-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const clients = new Map();
@@ -93,7 +93,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null })
 
   channel.postMessage({ type: "control-hello", sessionId });
 
-  const unsubscribeLiveState = store.subscribe?.((_state, _reason, change = {}) => {
+  function acceptStateChange(_state, _reason, change = {}) {
     if (change.scope !== "live") return;
     if (!Array.isArray(change.livePatches) || !change.livePatches.length) {
       sendState();
@@ -105,7 +105,8 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null })
       return;
     }
     flushLivePatches();
-  });
+  }
+  const unsubscribeLiveState = subscribeStore ? store.subscribe?.(acceptStateChange) : null;
 
   function sendState(stateOverride = null, { targetClientId = "" } = {}) {
     if (!targetClientId) {
@@ -169,6 +170,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null })
     sendState,
     sendRenderPatches,
     sendMediaFiles,
+    acceptStateChange,
     command,
     close: () => {
       cancelPendingLivePatches();

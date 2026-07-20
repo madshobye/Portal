@@ -1,7 +1,8 @@
 import { ComponentProgramNode } from "../component-program/index.js";
 import { LayerGroupNode } from "../layer-group/index.js";
-import { VisualSourceNode } from "../visual-source/index.js";
+import { VisualSourceNode, visualSourceRenderer } from "../visual-source/index.js";
 import { defineNodeCompiler, NodeCompilerRegistry, NODE_COMPILER_TARGETS } from "../../node-engine/index.js";
+import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=node-program-hooks-15";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";
@@ -10,7 +11,9 @@ const componentVisualCompiler = defineNodeCompiler({
   id: COMPONENT_VISUAL_COMPILER_ID,
   target: NODE_COMPILER_TARGETS.VISUAL,
   accepts: (group) => group?.generatedBy === COMPONENT_PROGRAM_GENERATOR,
-  compile: (group, { component }) => new CompiledComponentRenderProgram(group, component),
+  compile: (group, { component, resolveNodeDefinition }) => new CompiledComponentRenderProgram(group, component, {
+    resolveNodeDefinition,
+  }),
 });
 
 const componentCompilerRegistry = new NodeCompilerRegistry([componentVisualCompiler]);
@@ -30,7 +33,7 @@ export function compileComponentGroupTopology(component = {}, { definitions = ne
     artifactType: component.type === "canvas" ? "canvas" : "component",
     name: component.name || (component.type === "canvas" ? "Canvas" : "Component"),
     nodes,
-    connections: linearConnections(nodes),
+    connections: linearConnections(nodes, definitions),
     publicInlets: {},
     publicOutlets: { texture: nodes.length ? `${nodes[nodes.length - 1].id}.texture` : "$in.texture" },
     compiler: {
@@ -55,7 +58,7 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
 
   const storedSignature = String(existingGroup.projectionSignature || "");
   if (!storedSignature) {
-    const group = compileComponentGroupTopology(component, options);
+    const group = inheritGroupNodeLayout(compileComponentGroupTopology(component, options), existingGroup);
     return {
       component: withProjectedChain(component, component.chain || [], group.projectionSignature),
       group,
@@ -72,7 +75,7 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
     && componentSignature !== projectionMarker;
 
   if (compatibilityEdit) {
-    const group = compileComponentGroupTopology(component, options);
+    const group = inheritGroupNodeLayout(compileComponentGroupTopology(component, options), existingGroup);
     return {
       component: withProjectedChain(component, component.chain || [], group.projectionSignature),
       group,
@@ -88,6 +91,7 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
     componentId: String(component.id || ""),
     artifactType: component.type === "canvas" ? "canvas" : "component",
     name: component.name || (component.type === "canvas" ? "Canvas" : "Component"),
+    nodes: refreshVisualCompilerHooks(existingGroup.nodes || [], options.definitions || new Map()),
     projectionSignature: graphSignature,
   };
   return {
@@ -97,8 +101,23 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
   };
 }
 
+function inheritGroupNodeLayout(group, existingGroup) {
+  const inherit = (nodes, existingNodes) => {
+    const existingById = new Map((existingNodes || []).map((node) => [node.id, node]));
+    return (nodes || []).map((node) => {
+      const existing = existingById.get(node.id);
+      return {
+        ...node,
+        ...(existing?.position ? { position: { ...existing.position } } : {}),
+        ...(node.nodes ? { nodes: inherit(node.nodes, existing?.nodes || []) } : {}),
+      };
+    });
+  };
+  return { ...group, nodes: inherit(group.nodes || [], existingGroup?.nodes || []) };
+}
+
 export function componentChainFromGroup(group = {}) {
-  return materializeChain(group.nodes || [], [], group.id || "component-group");
+  return visualRenderPlanConfiguration(compileVisualRenderPlan(group, {}));
 }
 
 export function componentProgramInstances(group = {}) {
@@ -107,7 +126,7 @@ export function componentProgramInstances(group = {}) {
   return result;
 }
 
-export function compileComponentRenderPrograms(components = [], groups = []) {
+export function compileComponentRenderPrograms(components = [], groups = [], { resolveNodeDefinition = null } = {}) {
   const groupByComponent = new Map((groups || [])
     .filter((group) => group.generatedBy === COMPONENT_PROGRAM_GENERATOR)
     .map((group) => [group.componentId, group]));
@@ -119,26 +138,32 @@ export function compileComponentRenderPrograms(components = [], groups = []) {
     return [component.id, componentCompilerRegistry.compile(group, {
       target: NODE_COMPILER_TARGETS.VISUAL,
       component,
+      resolveNodeDefinition,
     })];
   }));
 }
 
 export class CompiledComponentRenderProgram {
-  constructor(group, component) {
+  constructor(group, component, { resolveNodeDefinition = null } = {}) {
     this.id = group.id;
     this.componentId = group.componentId;
     this.group = group;
-    this.chain = materializeChain(group.nodes || [], component.chain || [], group.id);
+    this.plan = compileVisualRenderPlan(group, component, { resolveDefinition: resolveNodeDefinition });
+    this.chain = visualRenderPlanConfiguration(this.plan);
     this.generatedBy = COMPONENT_PROGRAM_GENERATOR;
   }
 
   execute(renderHost, component, componentTime, renderRequest, scopeId = component.id) {
-    return renderHost.renderComponentChainState(component, this.chain, componentTime, renderRequest, scopeId);
+    if (typeof renderHost.executeVisualRenderPlan !== "function") throw new Error("VJ1_VISUAL_RENDER_PLAN_HOST_MISSING");
+    return renderHost.executeVisualRenderPlan(this.plan, component, componentTime, renderRequest, scopeId);
   }
 
   replaceChainItem(itemId, nextItem) {
     const result = replaceMaterializedChainItem(this.chain, String(itemId || ""), nextItem);
-    if (result.changed) this.chain = result.chain;
+    if (result.changed) {
+      this.chain = result.chain;
+      this.plan.replaceConfiguration(itemId, nextItem);
+    }
     return result.changed;
   }
 }
@@ -169,14 +194,30 @@ function compileChainNodes(chain, path, definitions) {
       role: item.kind || "source",
       parameters: parametersForItem(item),
       configuration: cloneChainItem(item, { includeChildren: false }),
+      compilerHook: visualCompilerHookFor(item, definitions.get(nodeTypeForItem(item))),
       statePath: itemPath,
       generatedBy: COMPONENT_PROGRAM_GENERATOR,
     };
     if (item.kind === "group") {
       node.nodes = compileChainNodes(item.chain || [], `${itemPath}.chain`, definitions);
-      node.connections = linearConnections(node.nodes);
+      node.connections = linearConnections(node.nodes, definitions);
     }
     return [...parameterControlNodes(node, definitions.get(node.nodeId)), node];
+  });
+}
+
+function refreshVisualCompilerHooks(nodes, definitions) {
+  return (nodes || []).map((node) => {
+    const definition = definitions.get(node.nodeId);
+    const configuration = node.configuration || { kind: node.role };
+    const compilerHook = definition || node.role === "group"
+      ? visualCompilerHookFor(configuration, definition)
+      : node.compilerHook;
+    return {
+      ...node,
+      ...(compilerHook ? { compilerHook } : {}),
+      ...(node.nodes ? { nodes: refreshVisualCompilerHooks(node.nodes, definitions) } : {}),
+    };
   });
 }
 
@@ -185,6 +226,35 @@ function nodeTypeForItem(item = {}) {
   if (item.kind === "group") return LayerGroupNode.id;
   if (item.source?.type === "generator") return `vj1.visual.generator.${item.source.generatorId || "unknown"}`;
   return VisualSourceNode.id;
+}
+
+function visualCompilerHookFor(item, definition) {
+  const metadata = definition?.metadata || {};
+  if (item.kind === "group") return { id: VISUAL_COMPILER_HOOKS.GROUP };
+  if (item.kind === "effect") return {
+    id: VISUAL_COMPILER_HOOKS.SHADER_EFFECT,
+    shaderInterface: metadata.shaderInterface || "effect",
+    sampling: metadata.sampling || "unknown",
+    fusible: metadata.fusible === true,
+    // Pointwise/neighborhood effects consume the already composed texture and
+    // therefore stay in Composition coordinates. Spatial field effects own a
+    // physical field whose placement follows its containing Group.
+    transformDomain: metadata.transformSource === false ? "group-field" : "composition",
+  };
+  if (metadata.nativeRenderer) return {
+    id: VISUAL_COMPILER_HOOKS.NATIVE_SOURCE,
+    renderer: metadata.nativeRenderer,
+    allocationStable: metadata.allocationStableDirectPath === true,
+  };
+  if (metadata.nodeOwnedShader) return {
+    id: VISUAL_COMPILER_HOOKS.SHADER_GENERATOR,
+    shaderInterface: metadata.shaderInterface || "generator",
+  };
+  return {
+    id: VISUAL_COMPILER_HOOKS.SOURCE,
+    renderer: visualSourceRenderer(item.source || {}),
+    allocationStable: true,
+  };
 }
 
 function parametersForItem(item = {}) {
@@ -202,7 +272,7 @@ function parametersForItem(item = {}) {
   };
 }
 
-function linearConnections(nodes = []) {
+function linearConnections(nodes = [], definitions = new Map()) {
   const connections = [];
   const renderNodes = nodes.filter((node) => node.role !== "control");
   for (const control of nodes.filter((node) => node.role === "control")) {
@@ -217,12 +287,18 @@ function linearConnections(nodes = []) {
   for (let index = 0; index < renderNodes.length; index++) {
     connections.push({
       from: index === 0 ? "$in.texture" : `${renderNodes[index - 1].id}.texture`,
-      to: `${renderNodes[index].id}.texture`,
+      to: `${renderNodes[index].id}.${textureInletId(renderNodes[index], definitions)}`,
       type: "texture",
     });
   }
   if (renderNodes.length) connections.push({ from: `${renderNodes[renderNodes.length - 1].id}.texture`, to: "$out.texture", type: "texture" });
   return connections;
+}
+
+function textureInletId(node, definitions) {
+  const definition = definitions.get(node.nodeId);
+  const inlet = Object.values(definition?.inlets || {}).find((port) => (port.type?.type || port.type) === "texture");
+  return inlet?.id || "texture";
 }
 
 function collectInstances(nodes, groupId, result) {

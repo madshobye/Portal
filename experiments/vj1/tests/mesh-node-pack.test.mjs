@@ -129,13 +129,14 @@ test("Mesh Render owns WebGL and bounded SVG backends", () => {
 
 test("Convert 3D File to Image exposes recursive prepare render and resize structure", async () => {
   const converted = await convert3dFileToImage({
-    source: binaryStl(),
+    source: binaryStlWithTriangles(1000),
     name: "asset.stl",
     profile: "thumbnail",
   });
   const graph = Convert3dFileToImageGroup.parts.find((part) => part.kind === "graph");
 
   assert.equal(converted.format, "stl");
+  assert.equal(modelTriangleCount(converted.mesh), 600, "thumbnail parsing must remain bounded before rendering");
   assert.equal(converted.renderResult.backend, "svg");
   assert.deepEqual(graph.nodes.map((node) => node.id), ["prepare", "render", "resize"]);
   assert.match(converted.image.data, /^<svg/);
@@ -177,5 +178,17 @@ function binaryStl() {
   view.setUint32(80, 1, true);
   const values = [0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 2, 0];
   values.forEach((value, index) => view.setFloat32(84 + index * 4, value, true));
+  return buffer;
+}
+
+function binaryStlWithTriangles(count) {
+  const buffer = new ArrayBuffer(84 + count * 50);
+  const view = new DataView(buffer);
+  view.setUint32(80, count, true);
+  for (let triangle = 0; triangle < count; triangle++) {
+    const offset = 84 + triangle * 50;
+    const values = [0, 0, 1, triangle, 0, 0, triangle + 1, 0, 0, triangle, 1, 0];
+    values.forEach((value, index) => view.setFloat32(offset + index * 4, value, true));
+  }
   return buffer;
 }

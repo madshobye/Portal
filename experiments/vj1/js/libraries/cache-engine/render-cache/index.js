@@ -105,9 +105,9 @@ export const CacheEngineNode = defineNode({
   name: "Render Cache Engine",
   version: "0.1.0",
   description: "Owns bounded source, raster-buffer, and GPU-buffer caches with idle and pressure pruning.",
-  implementation: NODE_IMPLEMENTATION_KINDS.NATIVE,
+  implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: {
-    engine: { type: "any", required: true },
+    engine: { type: "any", optional: true, description: "Optional host-owned cache; otherwise the node owns one in instance state." },
     key: { type: "string", optional: true, defaultValue: "" },
     kind: { type: { type: "enum", values: ["source", "buffer", "gpu-buffer"] }, optional: true, defaultValue: "buffer" },
     frameIndex: { type: "number", optional: true, defaultValue: 0 },
@@ -116,25 +116,56 @@ export const CacheEngineNode = defineNode({
     command: { type: { type: "enum", values: ["touch", "prune", "dispose"] }, defaultValue: "prune" },
   },
   outlets: { result: { type: "any" } },
-  execution: { trigger: "manual", domain: "main", stateful: true, asynchronous: false },
+  execution: {
+    trigger: "manual",
+    domain: "main",
+    stateful: true,
+    asynchronous: false,
+    dispose: (instance) => instance.state.engine?.dispose?.(),
+  },
+  moduleBindings: {
+    COMPONENT_SOURCE_CACHE_LIMIT,
+    COMPONENT_BUFFER_CACHE_LIMIT,
+    COMPONENT_GPU_BUFFER_CACHE_LIMIT,
+    RENDER_CACHE_IDLE_FRAMES,
+    RENDER_CACHE_MAINTENANCE_FRAMES,
+  },
   capabilities: ["cache-engine", "render-cache", "resource-lifetime", "graph-placeable", "live-fast-path"],
   presentation: { catalogs: ["graph", "cache"], placeableOn: ["node-graph"] },
-  parts: [{
-    id: "render-cache-policy",
-    name: "Render cache policy",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    export: "OutputRenderCache",
-    source: [OutputRenderCache, staleRenderCacheKeys, pruneResourceMap, disposeResourceMap, disposeResource]
-      .map((value) => value.toString()).join("\n\n"),
-  }],
+  parts: [
+    {
+      id: "render-cache-policy",
+      name: "Render cache policy",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      exports: ["OutputRenderCache", "staleRenderCacheKeys"],
+      source: [OutputRenderCache, staleRenderCacheKeys, pruneResourceMap, disposeResourceMap, disposeResource]
+        .map((value) => value.toString()).join("\n\n"),
+    },
+    {
+      id: "render-cache-process",
+      name: "Render cache process entry",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "cacheEngineNodeProcess",
+      entry: "process",
+      dependsOn: ["render-cache-policy"],
+      source: cacheEngineNodeProcess.toString(),
+    },
+  ],
   process: cacheEngineNodeProcess,
 });
 
-export function cacheEngineNodeProcess({ engine, command = "prune", key = "", kind = "buffer", frameIndex = 0 } = {}) {
-  if (!(engine instanceof OutputRenderCache)) throw new TypeError("CACHE_ENGINE_INSTANCE_REQUIRED");
+export function cacheEngineNodeProcess({ engine: suppliedEngine, command = "prune", key = "", kind = "buffer", frameIndex = 0 } = {}, context = {}) {
+  const state = context.state || {};
+  const engine = suppliedEngine || state.engine || (state.engine = new OutputRenderCache());
+  if (!engine || typeof engine.touch !== "function" || typeof engine.prune !== "function" || typeof engine.dispose !== "function") {
+    throw new TypeError("CACHE_ENGINE_INSTANCE_REQUIRED");
+  }
   if (command === "touch") engine.touch(kind, key, frameIndex);
   else if (command === "dispose") engine.dispose();
   else engine.prune(frameIndex);

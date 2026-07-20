@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { listGeneratorNodeComponents } from "../js/libraries/visual-nodes/index.js";
 
 const jsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../js");
 const libraryRoot = resolve(jsRoot, "libraries");
@@ -72,13 +73,31 @@ test("visual nodes own their definitions instead of using aggregate manifests", 
   ]) assert.equal(moduleSet.has(resolve(jsRoot, removed)), false, `${removed} must not return`);
   const generatorNodes = collectModules(resolve(libraryRoot, "visual-nodes/generators"));
   const effectNodes = collectModules(resolve(libraryRoot, "visual-nodes/effects"));
-  assert.equal(generatorNodes.length, 31);
-  assert.equal(effectNodes.length, 33);
-  assert.equal(generatorNodes.every((filename) => filename.endsWith(`${sep}index.js`)), true);
-  assert.equal(effectNodes.every((filename) => filename.endsWith(`${sep}index.js`)), true);
+  const generatorEntries = generatorNodes.filter((filename) => filename.endsWith(`${sep}index.js`));
+  const effectEntries = effectNodes.filter((filename) => filename.endsWith(`${sep}index.js`));
+  assert.equal(generatorEntries.length, 31);
+  assert.equal(effectEntries.length, 33);
+  // A node may split a substantial implementation into private sibling
+  // modules, but every such module must remain inside a folder with one public
+  // node entry point.
+  for (const filename of [...generatorNodes, ...effectNodes]) {
+    assert.equal(moduleSet.has(resolve(dirname(filename), "index.js")), true, `${moduleName(filename)} needs a sibling node entry point`);
+  }
   assert.equal(moduleSet.has(resolve(jsRoot, "graph/visual-node-adapter.js")), false);
   assert.doesNotMatch(renderer, /return component\.chain \|\| \[\]/);
   assert.match(renderer, /VJ1_COMPONENT_PROGRAM_MISSING/);
+});
+
+test("every native generator owns executable node code", () => {
+  const nativeGenerators = listGeneratorNodeComponents().filter((component) => component.nodeDefinition.metadata.nativeRenderer);
+  assert.equal(nativeGenerators.length > 0, true);
+  assert.deepEqual(
+    nativeGenerators.filter((component) => component.nodeDefinition.metadata.nodeOwnedNativeModule !== true).map((component) => component.id),
+    []
+  );
+  for (const component of nativeGenerators) {
+    assert.ok(component.nodeDefinition.parts.some((part) => part.kind === "javascript"), `${component.id} needs editable JavaScript`);
+  }
 });
 
 test("each reusable library and executable node has an explicit folder boundary", () => {

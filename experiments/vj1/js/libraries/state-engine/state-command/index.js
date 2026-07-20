@@ -62,15 +62,39 @@ export const StateCommandNode = defineNode({
   inlets: { command: { type: "any", required: true } },
   outlets: { event: { type: "any" } },
   execution: { trigger: "input-change", domain: "main", pure: true },
-  parts: [{
-    id: "change-command-policy",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    name: "Change command policy",
-    source: createChangeEvent.toString(),
-  }],
+  moduleBindings: { PROJECT_RESTORE_PREFIXES, STRUCTURAL_CHANGE_PREFIXES },
+  parts: [
+    {
+      id: "change-command-policy",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      name: "Change command policy",
+      exports: ["createChangeEvent", "StateCommandEngine"],
+      source: [createChangeEvent, StateCommandEngine, isStructuralChange, historyPolicy, parseReason]
+        .map((value) => value.toString()).join("\n\n"),
+    },
+    {
+      id: "state-command-process",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      name: "State command process entry",
+      export: "stateCommandNodeProcess",
+      entry: "process",
+      dependsOn: ["change-command-policy"],
+      source: stateCommandNodeProcess.toString(),
+    },
+  ],
   capabilities: ["state-commands", "change-classification"],
-  process: ({ command }) => ({ event: createChangeEvent(command) }),
+  process: stateCommandNodeProcess,
 });
+
+export function stateCommandNodeProcess({ command } = {}) {
+  return { event: createChangeEvent(command) };
+}
 
 function isStructuralChange(reason) {
   return STRUCTURAL_CHANGE_PREFIXES.some((prefix) => reason === prefix || reason.startsWith(prefix));

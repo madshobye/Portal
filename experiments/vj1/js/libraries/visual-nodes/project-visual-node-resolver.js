@@ -3,9 +3,15 @@ import {
   componentFromNodeDefinition,
   getEffectNodeComponent,
   getGeneratorNodeComponent,
+  listEffectNodeComponents,
+  listGeneratorNodeComponents,
 } from "./catalog.js";
 
 export function createProjectVisualNodeResolver(state = {}) {
+  const componentByNodeId = new Map([
+    ...listGeneratorNodeComponents(),
+    ...listEffectNodeComponents(),
+  ].map((component) => [component.nodeDefinition.id, component]));
   const activeForks = new Map();
   for (const fork of state?.nodes?.forks || []) {
     if (fork?.active === false || !fork?.base?.id) continue;
@@ -37,6 +43,10 @@ export function createProjectVisualNodeResolver(state = {}) {
       const component = resolve(getGeneratorNodeComponent(id));
       if (!component?.nodeDefinition?.parts?.some((part) => part.kind === "shader")) return null;
       return Object.freeze({ ...component, type: component.shaderInterface || component.type });
+    },
+    definition: (nodeId) => {
+      const component = resolve(componentByNodeId.get(String(nodeId || "")));
+      return component?.nodeDefinition || null;
     },
     activeForks,
   });

@@ -17,7 +17,7 @@ import {
   sanitizeState,
   syncLiveSnapshotFromScene,
   uid,
-} from "./domain/models.js?v=screen-input-registry-1";
+} from "./domain/models.js?v=live-patch-contract-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";
@@ -100,6 +100,37 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     emit({ reason: change, scope: "derived", history: "none" });
   }
 
+  function setComponentThumbnail(componentId, frameId = "", thumbnail = "") {
+    if (!componentId || !thumbnail) return { updated: false, previous: "" };
+    const index = state.components.findIndex((component) => component.id === componentId);
+    if (index < 0) return { updated: false, previous: "" };
+    const current = state.components[index];
+    const previous = frameId && current.type === "canvas"
+      ? current.canvas?.frameThumbnails?.[frameId] || ""
+      : current.thumbnail || "";
+    if (previous === thumbnail) return { updated: false, previous };
+    let component;
+    if (frameId && current.type === "canvas") {
+      component = {
+        ...current,
+        canvas: {
+          ...(current.canvas || {}),
+          frameThumbnails: {
+            ...(current.canvas?.frameThumbnails || {}),
+            [frameId]: thumbnail,
+          },
+        },
+      };
+    } else {
+      component = { ...current, thumbnail };
+    }
+    const components = state.components.slice();
+    components[index] = component;
+    state = { ...state, components };
+    emit({ reason: "component-thumbnail", scope: "derived", history: "none" });
+    return { updated: true, previous };
+  }
+
   function updateLive(recipe, change = "live:update") {
     const draft = { ...state, ui: clone(state.ui) };
     recipe(draft);
@@ -137,6 +168,8 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     updateUi,
     updateRuntime,
     updateDerived,
+    setComponentThumbnail,
+    isDebugPreviewEnabled: () => state.ui?.debugPreview !== false,
     updateLive,
     updateMapping,
     subscribe,

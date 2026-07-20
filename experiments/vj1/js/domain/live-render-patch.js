@@ -68,6 +68,14 @@ function resolvePatchPath(target, parts) {
     cursor = cursor[part];
   }
   const leaf = parts.at(-1);
-  if (cursor == null || typeof cursor !== "object" || !(leaf in cursor)) return null;
+  if (cursor == null || typeof cursor !== "object") return null;
+  // Params are deliberately extensible maps: persisted nodes may omit values
+  // that currently equal their schema defaults. A Live slider must be able to
+  // author that optional leaf without relaxing any structural path segment.
+  if (!(leaf in cursor) && !isOptionalParamLeaf(parts)) return null;
   return { target: cursor, leaf };
+}
+
+function isOptionalParamLeaf(parts) {
+  return parts.length >= 2 && parts.at(-2) === "params" && typeof parts.at(-1) === "string";
 }

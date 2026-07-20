@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=screen-input-registry-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=screen-input-registry-1";
+import { createAppState } from "./app-state.js?v=thumbnail-pipeline-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=thumbnail-pipeline-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=screen-input-registry-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=thumbnail-pipeline-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=remote-diagnostics-1";
-import { installOutputApp } from "./output/output-app.js?v=screen-input-registry-1";
+import { installOutputApp } from "./output/output-app.js?v=thumbnail-pipeline-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
 
@@ -22,9 +22,32 @@ if (mode === "output" || mode === "preview" || mode === "component") {
 async function installControlApp() {
   // Control-only composition keeps node catalog/editor metadata completely out
   // of output and preview render processes; no live-frame work is introduced.
-  const { createVj1NodePackage } = await import("./app-node-package.js");
+  const { createVj1NodePackage } = await import("./app-node-package.js?v=application-bootstrap-10");
+  const { applicationProgramFromProjectData, loadStoredApplicationProgram } = await import("./services/application-program-loader.js?v=application-bootstrap-10");
   const nodePackage = createVj1NodePackage();
+  const fixtureUrl = fixtureStateUrl();
+  let fixtureState = null;
+  let applicationBootstrap;
+  if (fixtureUrl) {
+    try {
+      fixtureState = await loadFixtureState(fixtureUrl);
+      applicationBootstrap = {
+        group: applicationProgramFromProjectData(fixtureState, nodePackage),
+        source: "fixture",
+        warning: "",
+      };
+    } catch (error) {
+      applicationBootstrap = {
+        group: nodePackage.applicationProgram,
+        source: "rejected",
+        warning: error?.message || String(error),
+      };
+    }
+  } else {
+    applicationBootstrap = await loadStoredApplicationProgram(nodePackage);
+  }
   const application = await nodePackage.createApplicationRuntime({
+    group: applicationBootstrap.group,
     factories: {
       timing: (_dependencies, { definition }) => ({
         scale: (timeStretch) => definition.process({ timeStretch }).scale,
@@ -46,6 +69,10 @@ async function installControlApp() {
         store: dependencies["data-store"],
         mediaLibrary: dependencies["media-lifecycle"],
         diagnostics: dependencies.diagnostics,
+        // Application dataflow owns state delivery. The bridge retains its
+        // direct patch transport but does not create a hidden parallel store
+        // subscription when instantiated by the node program.
+        subscribeStore: false,
       }),
       storage: (dependencies) => createProjectFolderService({
         mediaLibrary: dependencies["media-lifecycle"],
@@ -65,8 +92,15 @@ async function installControlApp() {
   const diagnostics = application.get("diagnostics");
   const store = application.get("data-store");
   const initialWorkspace = getInitialWorkspace();
-  const fixtureUrl = fixtureStateUrl();
   store.setWorkspace(initialWorkspace);
+  if (applicationBootstrap.warning) {
+    store.updateDerived((draft) => {
+      draft.project.warnings = [
+        ...(draft.project.warnings || []),
+        `Application graph was rejected; built-in setup is active: ${applicationBootstrap.warning}`,
+      ];
+    }, "application-program-rejected");
+  }
   persistWorkspace(initialWorkspace);
   const mediaLibrary = application.get("media-lifecycle");
   const bridge = application.get("live-synchronization");
@@ -84,24 +118,17 @@ async function installControlApp() {
     });
   }
 
-  createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics, nodePackage }).mount();
-
-  store.subscribe((state, reason, change) => {
-    if (reason === "workspace") persistWorkspace(state.ui.workspace);
-    if (reason === "live:scene") persistLiveScenePreference(state);
-    if (change.projectRestore) {
-      const preferredSceneId = preferredLiveSceneId(state);
-      if (preferredSceneId && preferredSceneId !== String(state.ui.live?.selectedSceneId || "")) {
-        store.restoreLiveScene(preferredSceneId);
-        return;
-      }
-    }
-    // Live render truth and its revisioned param patches are owned by the
-    // output bridge. Keeping that responsibility out of project/autosave
-    // delivery avoids rebuilding a full output snapshot for every scrub.
+  application.bindInput("storage", "value", ({ change }) => {
     if (["live", "runtime", "derived"].includes(change.scope)) return;
     projectService.scheduleAutoSave(change);
-    if (change.scope === "ui") return;
+  });
+
+  application.bindInput("live-synchronization", "state", ({ state, reason, change }) => {
+    if (change.scope === "live") {
+      bridge.acceptStateChange(state, reason, change);
+      return;
+    }
+    if (["runtime", "derived", "ui"].includes(change.scope)) return;
     if (state.ui.workspace === "scene" && change.topic === "mapping-state") {
       bridge.command("sync-mapping", { mappings: state.mappings });
       return;
@@ -117,9 +144,7 @@ async function installControlApp() {
       bridge.sendRenderPatches(renderPatches, { coalesce: change.phase === "scrub" });
       return;
     }
-    if (change.phase === "edit") {
-      return;
-    }
+    if (change.phase === "edit") return;
     if (change.phase === "scrub") {
       sendScrubState();
       return;
@@ -128,15 +153,29 @@ async function installControlApp() {
       bridge.sendState();
     }
   });
-  if (fixtureUrl) {
-    loadFixtureState(fixtureUrl)
-      .then((state) => {
-        state.ui = { ...state.ui, workspace: initialWorkspace };
-        store.replace(state, "fixture");
-      })
-      .catch((error) => {
-        console.warn(`[vj1] Could not load fixture state: ${error.message}`);
-      });
+
+  createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics, nodePackage }).mount();
+
+  store.subscribe((state, reason, change) => {
+    if (reason === "workspace") persistWorkspace(state.ui.workspace);
+    if (reason === "live:scene") persistLiveScenePreference(state);
+    if (change.projectRestore) {
+      const preferredSceneId = preferredLiveSceneId(state);
+      if (preferredSceneId && preferredSceneId !== String(state.ui.live?.selectedSceneId || "")) {
+        store.restoreLiveScene(preferredSceneId);
+        return;
+      }
+    }
+    // The compiled state.snapshot edges decide whether Live transport and
+    // storage receive this emission. Dispatch is event-driven and happens
+    // only on store changes; it never enters the visual frame loop.
+    application.emit("data-store", "snapshot", { state, reason, change });
+  });
+  if (fixtureState) {
+    fixtureState.ui = { ...fixtureState.ui, workspace: initialWorkspace };
+    store.replace(fixtureState, "fixture");
+  } else if (fixtureUrl) {
+    console.warn(`[vj1] Could not load fixture state: ${applicationBootstrap.warning || "unknown error"}`);
   } else {
     projectService.restoreStoredFolder();
   }

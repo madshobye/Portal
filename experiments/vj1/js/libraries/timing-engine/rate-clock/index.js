@@ -21,18 +21,36 @@ export const RateClockNode = defineNode({
   execution: { trigger: "frame", domain: "main", pure: true, asynchronous: false },
   capabilities: ["timing", "phase-continuity", "graph-placeable", "live-fast-path"],
   presentation: { catalogs: ["graph", "timing"], placeableOn: ["node-graph"] },
-  parts: [{
-    id: "rate-clock-algorithm",
-    name: "Rate clock algorithm",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    export: "advanceRateClock",
-    source: advanceRateClock.toString(),
-  }],
-  process: ({ previous, baseTime, rate }) => ({ clock: advanceRateClock(previous, baseTime, rate) }),
+  parts: [
+    {
+      id: "rate-clock-algorithm",
+      name: "Rate clock algorithm",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "advanceRateClock",
+      source: advanceRateClock.toString(),
+    },
+    {
+      id: "rate-clock-process",
+      name: "Rate clock process entry",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "rateClockNodeProcess",
+      entry: "process",
+      dependsOn: ["rate-clock-algorithm"],
+      source: rateClockNodeProcess.toString(),
+    },
+  ],
+  process: rateClockNodeProcess,
 });
+
+export function rateClockNodeProcess({ previous, baseTime, rate }) {
+  return { clock: advanceRateClock(previous, baseTime, rate) };
+}
 
 export function advanceRateClock(previous, baseTime, rate) {
   const now = Number(baseTime) || 0;

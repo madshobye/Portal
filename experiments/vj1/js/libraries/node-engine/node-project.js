@@ -49,6 +49,7 @@ export function serializeNodeDefinition(definition = {}) {
     execution: definition.execution,
     parts: definition.parts,
     capabilities: definition.capabilities,
+    dependencies: definition.dependencies,
     presentation: definition.presentation,
     migrations: definition.migrations,
     metadata: definition.metadata,

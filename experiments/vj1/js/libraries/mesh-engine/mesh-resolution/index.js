@@ -39,38 +39,61 @@ export const MeshResolutionNode = defineNode({
     statistics: { type: MeshResolutionStatsType },
   },
   execution: { trigger: "input-change", domain: "worker", pure: true, asynchronous: true },
+  moduleBindings: {
+    MODEL_LOD_TRIANGLE_LEVELS,
+    attachLegacyTriangleView,
+    modelTriangleCount,
+    buildMeshoptimizerLods,
+    indexedMeshToTriangleSoup,
+  },
   capabilities: ["mesh-processing", "mesh-resolution", "worker-safe", "graph-placeable"],
   presentation: { catalogs: ["graph", "mesh"], placeableOn: ["node-graph"], previewOutput: "mesh" },
-  parts: [{
-    id: "mesh-resolution-policy",
-    name: "Mesh resolution algorithm",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    export: "buildAutomaticModelLods",
-    source: [
-      buildAutomaticModelLods,
-      simplifyMeshByQuadricError,
-      selectModelLod,
-      modelLodTargetTriangles,
-    ].map((fn) => fn.toString()).join("\n\n"),
-  }],
-  process: ({ mesh, mode, targetTriangles }) => {
-    const sourceTriangles = modelTriangleCount(mesh);
-    const result = mode === "single"
-      ? attachLegacyTriangleView(buildMeshoptimizerLods(mesh, [targetTriangles])[0])
-      : buildAutomaticModelLods(mesh);
-    return {
-      mesh: result,
-      statistics: {
-        sourceTriangles,
-        resultTriangles: modelTriangleCount(result),
-        levels: (result.lods || [result]).map(modelTriangleCount),
-      },
-    };
-  },
+  parts: [
+    {
+      id: "mesh-resolution-policy",
+      name: "Mesh resolution algorithm",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      exports: ["buildAutomaticModelLods", "selectModelLod", "modelLodTargetTriangles"],
+      source: [
+        buildAutomaticModelLods,
+        simplifyMeshByQuadricError,
+        selectModelLod,
+        modelLodTargetTriangles,
+      ].map((fn) => fn.toString()).join("\n\n"),
+    },
+    {
+      id: "mesh-resolution-process",
+      name: "Mesh resolution process entry",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "meshResolutionNodeProcess",
+      entry: "process",
+      dependsOn: ["mesh-resolution-policy"],
+      source: meshResolutionNodeProcess.toString(),
+    },
+  ],
+  process: meshResolutionNodeProcess,
 });
+
+export function meshResolutionNodeProcess({ mesh, mode, targetTriangles } = {}) {
+  const sourceTriangles = modelTriangleCount(mesh);
+  const result = mode === "single"
+    ? attachLegacyTriangleView(buildMeshoptimizerLods(mesh, [targetTriangles])[0])
+    : buildAutomaticModelLods(mesh);
+  return {
+    mesh: result,
+    statistics: {
+      sourceTriangles,
+      resultTriangles: modelTriangleCount(result),
+      levels: (result.lods || [result]).map(modelTriangleCount),
+    },
+  };
+}
 
 export function buildAutomaticModelLods(mesh = {}, levels = MODEL_LOD_TRIANGLE_LEVELS) {
   const sourceTriangleCount = modelTriangleCount(mesh);

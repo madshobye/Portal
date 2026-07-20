@@ -7,3 +7,4 @@ export * from "./node-editor.js";
 export * from "./node-project.js";
 export * from "./node-compiler.js";
 export * from "./node-graph-program.js";
+export * from "./node-package.js";

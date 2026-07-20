@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { ProjectDerivedAssetStore } from "../js/services/project-derived-asset-store.js";
 import { RENDITION_DIR, RENDITION_ROOT } from "../js/services/media-rendition-service.js";
+import { THUMBNAIL_DIR, THUMBNAIL_ROOT } from "../js/services/component-thumbnail-store.js";
 
 test("derived asset store owns rendition deduplication, manifest indexing, and publication", async () => {
   const project = new MemoryDirectory("project");
@@ -35,6 +36,13 @@ test("derived asset store owns rendition deduplication, manifest indexing, and p
 
   store.reset();
   assert.equal(await store.writeMediaRendition("media/photo.png", 320, 180, blob, "rev-1"), true);
+
+  const thumbnail = new Blob(["thumbnail"], { type: "image/webp" });
+  assert.equal(await store.writeComponentThumbnail("component-a", "", thumbnail), true);
+  const thumbnailRoot = await project.getDirectoryHandle(THUMBNAIL_ROOT);
+  const thumbnails = await thumbnailRoot.getDirectoryHandle(THUMBNAIL_DIR);
+  const thumbnailFile = await thumbnails.getFileHandle("component-a__component.webp");
+  assert.equal(thumbnailFile.value, thumbnail);
 });
 
 class MemoryDirectory {

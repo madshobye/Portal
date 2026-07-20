@@ -6,5 +6,7 @@ export * from "./component-program/index.js";
 export * from "./surface-route/index.js";
 export * from "./scene-program/index.js";
 export * from "./output-program/index.js";
-export * from "./shared/component-program-compiler.js";
+export * from "./shared/component-program-compiler.js?v=node-program-hooks-15";
 export * from "./shared/scene-program-compiler.js";
+export * from "./shared/visual-render-plan.js?v=node-program-hooks-15";
+export * from "./shared/program-graph-compiler.js";

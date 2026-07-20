@@ -205,6 +205,12 @@ export const CORE_VALUE_TYPES = Object.freeze([
     validate: (value) => !!value && typeof value === "object" && typeof value.type === "string",
   },
   {
+    id: "service",
+    name: "Service",
+    description: "A setup-time application service or capability handle.",
+    validate: (value) => !!value && (typeof value === "object" || typeof value === "function"),
+  },
+  {
     id: "record",
     name: "Record",
     description: "A structurally typed named value.",

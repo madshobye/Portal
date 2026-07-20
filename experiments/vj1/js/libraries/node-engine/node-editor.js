@@ -136,14 +136,15 @@ export function materializeProjectNodeFork(baseDefinition, fork) {
     throw new Error(`NODE_FORK_BASE_MISMATCH:${fork?.id || "missing"}`);
   }
   const parts = fork.definition?.parts || baseDefinition.parts || [];
-  const graphChanged = changedParts(baseDefinition.parts, parts, NODE_PART_KINDS.GRAPH).length > 0;
-  const process = compiledForkProcess(baseDefinition, parts);
+  const graphChanged = executableGraphChanged(baseDefinition.parts, parts);
+  const runtimeModule = compiledForkModule(baseDefinition, parts);
   const materialized = defineNode({
     ...baseDefinition,
     ...fork.definition,
     id: fork.id,
     version: "0.1.0",
-    process,
+    process: runtimeModule.process,
+    moduleExports: runtimeModule.exports,
     metadata: {
       ...baseDefinition.metadata,
       ...fork.definition?.metadata,
@@ -173,32 +174,154 @@ export function compileJavaScriptNodeProcess(source, definition = {}) {
   return Function("inputs", "context", `"use strict"; const { ${names.join(", ")} } = inputs;\n${code}`);
 }
 
+export function compileJavaScriptNodeModule(parts = [], definition = {}) {
+  const moduleParts = orderJavaScriptModuleParts(parts, definition.id);
+  if (!moduleParts.length) throw new Error(`NODE_FORK_JAVASCRIPT_EMPTY:${definition.id || "missing"}`);
+  const entry = moduleEntryPart(moduleParts, definition);
+  const emitted = [];
+  const exportNames = new Set();
+  let entryName = "";
+  for (const [index, part] of moduleParts.entries()) {
+    const result = emitJavaScriptModulePart(part, definition, index);
+    emitted.push(`// node-part:${part.id}\n${result.source}`);
+    for (const name of result.exports) exportNames.add(name);
+    if (part === entry) entryName = result.entryName || result.exports[0] || "";
+  }
+  if (entry && !entryName) throw new Error(`NODE_FORK_JAVASCRIPT_ENTRY_INVALID:${definition.id}:${entry.id}`);
+  const exportsSource = [...exportNames].map((name) => `${JSON.stringify(name)}: ${name}`).join(",\n");
+  const bindings = Object.entries(definition.moduleBindings || {})
+    .filter(([name]) => /^[A-Za-z_$][\w$]*$/.test(name));
+  let compiled;
+  try {
+    compiled = Function(...bindings.map(([name]) => name), `"use strict";\n${emitted.join("\n\n")}\nreturn { process: ${entryName || "null"}, exports: { ${exportsSource} } };`)(
+      ...bindings.map(([, value]) => value)
+    );
+  } catch (error) {
+    throw new SyntaxError(`NODE_FORK_JAVASCRIPT_MODULE_INVALID:${definition.id || "missing"}:${error.message}`);
+  }
+  if (entry && typeof compiled.process !== "function") throw new Error(`NODE_FORK_JAVASCRIPT_ENTRY_INVALID:${definition.id}:${entry.id}`);
+  return Object.freeze({
+    process: compiled.process,
+    exports: Object.freeze(compiled.exports),
+    parts: Object.freeze(moduleParts.map((part) => part.id)),
+  });
+}
+
 export function validateProjectNodeFork(baseDefinition, fork) {
   materializeProjectNodeFork(baseDefinition, fork);
   const parts = fork?.definition?.parts || [];
-  for (const part of changedParts(baseDefinition.parts, parts, NODE_PART_KINDS.JAVASCRIPT)) {
+  const changedJavaScript = changedParts(baseDefinition.parts, parts, NODE_PART_KINDS.JAVASCRIPT);
+  for (const part of changedJavaScript) {
     const code = String(part.source || "").trim();
     if (!code) throw new Error(`NODE_FORK_JAVASCRIPT_EMPTY:${baseDefinition.id}`);
-    if (/^(?:async\s+)?function\b/.test(code) || code.includes("=>")) compileJavaScriptNodeProcess(code, baseDefinition);
-    else Function("inputs", "context", `"use strict";\n${code}`);
+  }
+  if (changedJavaScript.length) {
+    const moduleParts = parts.filter((part) => part.kind === NODE_PART_KINDS.JAVASCRIPT);
+    if (moduleEntryPart(moduleParts, baseDefinition)) compileJavaScriptNodeModule(moduleParts, baseDefinition);
+    else for (const part of changedJavaScript) compileJavaScriptNodeProcess(part.source, baseDefinition);
   }
   return true;
 }
 
-function compiledForkProcess(baseDefinition, parts) {
+function compiledForkModule(baseDefinition, parts) {
   if (baseDefinition.implementation?.kind !== "code" && baseDefinition.implementation?.kind !== "data") {
-    return baseDefinition.process;
+    return { process: baseDefinition.process, exports: baseDefinition.moduleExports || {} };
   }
   const changed = changedParts(baseDefinition.parts, parts, NODE_PART_KINDS.JAVASCRIPT);
+  if (!changed.length) return { process: baseDefinition.process, exports: baseDefinition.moduleExports || {} };
+  const moduleParts = (parts || []).filter((part) => part.kind === NODE_PART_KINDS.JAVASCRIPT);
+  const moduleEntry = moduleEntryPart(moduleParts, baseDefinition);
+  if (moduleEntry) {
+    const compiled = compileJavaScriptNodeModule(moduleParts, baseDefinition);
+    return { process: compiled.process, exports: compiled.exports };
+  }
   const processName = baseDefinition.process?.name || "";
   const candidate = changed.find((part) => part.entry === "process" || (part.export && part.export === processName))
     || (changed.length === 1 && !changed[0].export ? changed[0] : null);
-  return candidate ? compileJavaScriptNodeProcess(candidate.source, baseDefinition) : baseDefinition.process;
+  return {
+    process: candidate ? compileJavaScriptNodeProcess(candidate.source, baseDefinition) : baseDefinition.process,
+    exports: baseDefinition.moduleExports || {},
+  };
+}
+
+function moduleEntryPart(parts, definition) {
+  const explicit = parts.filter((part) => part.entry === "process");
+  if (explicit.length > 1) throw new Error(`NODE_FORK_JAVASCRIPT_MULTIPLE_ENTRIES:${definition.id || "missing"}`);
+  if (explicit.length) return explicit[0];
+  const processName = definition.process?.name || "";
+  return processName ? parts.find((part) => partExports(part).includes(processName)) || null : null;
+}
+
+function orderJavaScriptModuleParts(parts, definitionId) {
+  const items = (parts || []).filter((part) => part.kind === NODE_PART_KINDS.JAVASCRIPT);
+  const byId = new Map(items.map((part) => [part.id, part]));
+  const result = [];
+  const visiting = new Set();
+  const visited = new Set();
+  const visit = (part) => {
+    if (visited.has(part.id)) return;
+    if (visiting.has(part.id)) throw new Error(`NODE_FORK_JAVASCRIPT_DEPENDENCY_CYCLE:${definitionId || "missing"}:${part.id}`);
+    visiting.add(part.id);
+    for (const dependencyId of part.dependsOn || []) {
+      const dependency = byId.get(String(dependencyId || ""));
+      if (!dependency) throw new Error(`NODE_FORK_JAVASCRIPT_DEPENDENCY_MISSING:${definitionId || "missing"}:${part.id}:${dependencyId}`);
+      visit(dependency);
+    }
+    visiting.delete(part.id);
+    visited.add(part.id);
+    result.push(part);
+  };
+  for (const part of items) visit(part);
+  return result;
+}
+
+function emitJavaScriptModulePart(part, definition, index) {
+  const code = String(part.source || "").trim();
+  if (!code) throw new Error(`NODE_FORK_JAVASCRIPT_EMPTY:${definition.id || "missing"}:${part.id}`);
+  const exports = partExports(part);
+  const explicitEntry = part.entry === "process";
+  if (!exports.length && explicitEntry) {
+    const name = `__nodeProcess${index}`;
+    const inputNames = [...Object.keys(definition.inlets || {}), ...Object.keys(definition.parameters || {})]
+      .filter((value) => /^[A-Za-z_$][\w$]*$/.test(value));
+    return {
+      source: `${part.asynchronous === true ? "async " : ""}function ${name}(inputs, context) { const { ${inputNames.join(", ")} } = inputs;\n${code}\n}`,
+      exports: [],
+      entryName: name,
+    };
+  }
+  const exportName = exports[0] || "";
+  let source = code
+    .replace(/^\s*export\s+default\s+/, exportName ? `const ${exportName} = ` : "")
+    .replace(/(^|\n)\s*export\s+(?=(?:async\s+)?function\b|class\b|const\b|let\b|var\b)/g, "$1");
+  const expression = /^(?:async\s*)?(?:function\s*\(|\(?[A-Za-z_$][\w$]*(?:\s*,[^)]*)?\)?\s*=>)/.test(source);
+  if (exportName && expression) source = `const ${exportName} = (${source});`;
+  return { source, exports, entryName: explicitEntry ? exportName : "" };
+}
+
+function partExports(part) {
+  const values = [...(Array.isArray(part.exports) ? part.exports : []), ...(part.export ? [part.export] : [])];
+  return [...new Set(values.map((value) => String(value || "")).filter((value) => /^[A-Za-z_$][\w$]*$/.test(value)))];
 }
 
 function changedParts(baseParts = [], nextParts = [], kind) {
   const base = new Map((baseParts || []).filter((part) => part.kind === kind).map((part) => [part.id, part]));
   return (nextParts || []).filter((part) => part.kind === kind && JSON.stringify(part) !== JSON.stringify(base.get(part.id)));
+}
+
+function executableGraphChanged(baseParts = [], nextParts = []) {
+  const base = (baseParts || []).find((part) => part.kind === NODE_PART_KINDS.GRAPH);
+  const next = (nextParts || []).find((part) => part.kind === NODE_PART_KINDS.GRAPH);
+  return graphExecutionSignature(base) !== graphExecutionSignature(next);
+}
+
+function graphExecutionSignature(graph = {}) {
+  return JSON.stringify({
+    nodes: (graph?.nodes || []).map(({ position: _position, ...node }) => node),
+    connections: graph?.connections || [],
+    publicInlets: graph?.publicInlets || {},
+    publicOutlets: graph?.publicOutlets || {},
+  });
 }
 
 function editorPanel(id, name, editor, data, alwaysAvailable = false) {

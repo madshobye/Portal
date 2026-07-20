@@ -1,5 +1,5 @@
 import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
 import {
   canvasFrameBorderHit,
   canvasRectCorners,

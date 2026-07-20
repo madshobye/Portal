@@ -12,7 +12,7 @@ const generatorOutlets = Object.freeze([textureOutlet("texture", "Texture")]);
 const effectInlets = Object.freeze([textureInlet("texture", "Texture")]);
 const effectOutlets = Object.freeze([textureOutlet("texture", "Texture")]);
 
-export function defineGeneratorNode(manifest = {}, shader = null) {
+export function defineGeneratorNode(manifest = {}, shader = null, nativeModule = null) {
   const component = defineVisualComponent({
     ...manifest,
     kind: "generator",
@@ -23,7 +23,7 @@ export function defineGeneratorNode(manifest = {}, shader = null) {
     outlets: manifest.outlets || generatorOutlets,
     params: manifest.params || [],
   });
-  return materializedComponent(component, shader, shader ? "" : `output/specialized:${manifest.id}`);
+  return materializedComponent(component, shader, shader ? "" : `output/specialized:${manifest.id}`, nativeModule);
 }
 
 export function defineEffectNode(manifest = {}) {
@@ -57,13 +57,15 @@ export function defineEffectNode(manifest = {}) {
   return materializedComponent(component, { name: `${component.name} shader`, code: component.code, type: component.type });
 }
 
-function materializedComponent(manifest, shader = null, nativeRenderer = "") {
-  const definition = materializeVisualNodeDefinition(manifest, { shader, nativeRenderer });
+function materializedComponent(manifest, shader = null, nativeRenderer = "", nativeModule = null) {
+  const definition = materializeVisualNodeDefinition(manifest, { shader, nativeRenderer, nativeModule });
   return componentFromNodeDefinition(manifest, definition, { renderAuthority: "node-definition" });
 }
 
 export function componentFromNodeDefinition(base, definition, additions = {}) {
-  const shaderPart = definition.parts.find((part) => part.kind === "shader");
+  const shaderPart = definition.metadata?.nodeOwnedShader
+    ? definition.parts.find((part) => part.kind === "shader")
+    : null;
   const originalParams = new Map((base.params || []).map((parameter) => [parameter.id, parameter]));
   const params = Object.values(definition.parameters || {}).map((parameter) => {
     const original = originalParams.get(parameter.id) || {};

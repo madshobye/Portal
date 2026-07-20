@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { CacheEngineNode, cacheEngineNodeProcess, OutputRenderCache } from "../js/libraries/cache-engine/render-cache/index.js";
+import { NodeInstance } from "../js/libraries/node-engine/index.js";
 
 test("render cache batches maintenance and disposes idle resources", () => {
   const cache = new OutputRenderCache();
@@ -39,4 +40,14 @@ test("cache engine node owns policy while the renderer retains its direct fast p
   assert.equal(cache.sourceUse.get("a"), 4);
   assert.match(CacheEngineNode.parts[0].source, /class OutputRenderCache/);
   assert.match(CacheEngineNode.parts[0].source, /function staleRenderCacheKeys/);
+});
+
+test("cache engine node owns its cache when no optimized host instance is supplied", async () => {
+  const node = new NodeInstance(CacheEngineNode, { parameters: { command: "touch" } });
+  await node.run({ kind: "source", key: "owned", frameIndex: 7 });
+  assert.equal(node.state.engine.sourceUse.get("owned"), 7);
+  let removed = 0;
+  node.state.engine.sources.set("owned", { remove: () => removed++ });
+  node.dispose();
+  assert.equal(removed, 1);
 });

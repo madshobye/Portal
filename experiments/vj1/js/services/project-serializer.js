@@ -10,6 +10,8 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       selectedSurfaceId: state.ui.selectedSurfaceId,
       selectedComponentId: state.ui.selectedComponentId,
       selectedChainItemId: state.ui.selectedChainItemId,
+      selectedNodeDefinitionId: state.ui.selectedNodeDefinitionId || "",
+      selectedNodeGroupId: state.ui.selectedNodeGroupId || "",
       workspaceSelectionIds: state.ui.workspaceSelectionIds,
       catalogSortModes: state.ui.catalogSortModes,
       previewQualities: state.ui.previewQualities,

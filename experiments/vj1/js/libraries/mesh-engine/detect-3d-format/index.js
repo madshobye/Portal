@@ -15,20 +15,39 @@ export const Detect3dFormatNode = defineNode({
   },
   outlets: { format: { type: { type: "enum", values: FORMATS } } },
   execution: { trigger: "input-change", domain: "worker", pure: true, asynchronous: true },
+  moduleBindings: { FORMATS },
   capabilities: ["format-detection", "mesh-parser", "graph-placeable"],
   presentation: { catalogs: ["graph", "mesh"], placeableOn: ["node-graph"] },
-  parts: [{
-    id: "format-detector",
-    name: "Format detector",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    export: "detect3dFormat",
-    source: detect3dFormat.toString(),
-  }],
-  process: async ({ source, name, format }) => ({ format: await detect3dFormat(source, { name, format }) }),
+  parts: [
+    {
+      id: "format-detector",
+      name: "Format detector",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "detect3dFormat",
+      source: [detect3dFormat, sourcePrefix].map((fn) => fn.toString()).join("\n\n"),
+    },
+    {
+      id: "format-detector-process",
+      name: "Format detector process entry",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "detect3dFormatNodeProcess",
+      entry: "process",
+      dependsOn: ["format-detector"],
+      source: detect3dFormatNodeProcess.toString(),
+    },
+  ],
+  process: detect3dFormatNodeProcess,
 });
+
+export async function detect3dFormatNodeProcess({ source, name, format } = {}) {
+  return { format: await detect3dFormat(source, { name, format }) };
+}
 
 export async function detect3dFormat(source, { name = "", format = "" } = {}) {
   const explicit = String(format || "").toLowerCase();

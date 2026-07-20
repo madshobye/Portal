@@ -1,5 +1,5 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=screen-input-registry-1";
+import { OutputRenderer } from "./output-renderer.js?v=thumbnail-pipeline-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
@@ -18,6 +18,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let started = false;
   let setupStarted = false;
   let resizeObserver = null;
+  let observedResizeFrame = 0;
+  let observedResizeSignature = "";
   let observedStage = null;
   let settleResizeFrame = 0;
   let settleResizeToken = 0;
@@ -45,6 +47,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let canvasCommitFrame = 0;
   let pendingCanvasCommit = null;
   let canvasFitSignature = "";
+  const thumbnailObjectUrls = new Map();
 
   function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state }) {
     const modeChanged = !!renderer && pendingMode !== mode;
@@ -132,6 +135,9 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     activeRetimedTransitionSceneId = "";
     resizeObserver?.disconnect?.();
     resizeObserver = null;
+    if (observedResizeFrame) cancelAnimationFrame(observedResizeFrame);
+    observedResizeFrame = 0;
+    observedResizeSignature = "";
     observedStage = null;
     cancelSettledResize();
     viewportController?.destroy?.();
@@ -187,9 +193,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     });
     await renderer.setup(previewSizedState(size), { normalized: true });
     importMediaFilesIfChanged(true);
-    resizeObserver = new ResizeObserver(() => {
-      if (!layoutSettleActive) resizeToStage();
-    });
+    // ResizeObserver callbacks run inside layout delivery. Resizing a p5
+    // canvas synchronously from that callback can produce another notification
+    // in the same delivery cycle. Coalesce onto the next frame and ignore
+    // duplicate integer sizes; the renderer still receives every visible size.
+    resizeObserver = new ResizeObserver(scheduleObservedStageResize);
     observeCurrentStage();
   }
 
@@ -228,6 +236,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       event.preventDefault();
       pointerActive = true;
       activePointerId = event.pointerId;
+      renderer?.setThumbnailInteractionActive?.(true);
       element.setPointerCapture?.(event.pointerId);
       const position = point(event);
       renderer?.mousePressed?.(position.x, position.y);
@@ -244,6 +253,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       activePointerId = null;
       element.releasePointerCapture?.(event.pointerId);
       renderer?.mouseReleased?.();
+      renderer?.setThumbnailInteractionActive?.(false);
     };
     element.addEventListener("pointerdown", onPointerDown);
     element.addEventListener("pointermove", onPointerMove);
@@ -256,6 +266,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       element.removeEventListener("pointercancel", finishPointer);
       pointerActive = false;
       activePointerId = null;
+      renderer?.setThumbnailInteractionActive?.(false);
     };
   }
 
@@ -293,7 +304,23 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     if (!resizeObserver || observedStage === stage) return;
     if (observedStage) resizeObserver.unobserve?.(observedStage);
     observedStage = stage;
+    observedResizeSignature = "";
     if (observedStage) resizeObserver.observe(observedStage);
+  }
+
+  function scheduleObservedStageResize(entries = []) {
+    const entry = entries.find((candidate) => candidate.target === observedStage) || entries.at(-1);
+    const rect = entry?.contentRect;
+    const signature = rect
+      ? `${Math.floor(Number(rect.width) || 0)}:${Math.floor(Number(rect.height) || 0)}`
+      : "";
+    if (signature && signature === observedResizeSignature) return;
+    observedResizeSignature = signature;
+    if (layoutSettleActive || observedResizeFrame) return;
+    observedResizeFrame = requestAnimationFrame(() => {
+      observedResizeFrame = 0;
+      if (!layoutSettleActive) resizeToStage();
+    });
   }
 
   function scheduleSettledResize({ revealAfterDraw = false } = {}) {
@@ -516,6 +543,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       onPanStart: () => {
         pointerActive = false;
         activePointerId = null;
+        renderer?.setThumbnailInteractionActive?.(false);
       },
     });
     viewportController.stage = stage;
@@ -548,20 +576,25 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     if (!componentId || !thumbnail) return;
     // The store is the newest toggle authority. Reject an in-flight capture
     // from a frame that started before live preview rendering was disabled.
-    if (store.getState()?.ui?.debugPreview === false) return;
-    store.updateDerived((draft) => {
-      const component = draft.components.find((item) => item.id === componentId);
-      if (!component) return;
-      if (meta.frameId && component.type === "canvas") {
-        component.canvas ||= {};
-        component.canvas.frameThumbnails ||= {};
-        if (component.canvas.frameThumbnails[meta.frameId] !== thumbnail) {
-          component.canvas.frameThumbnails[meta.frameId] = thumbnail;
-        }
-      } else if (component.thumbnail !== thumbnail) {
-        component.thumbnail = thumbnail;
-      }
-    }, "component-thumbnail");
+    const debugPreviewEnabled = typeof store.isDebugPreviewEnabled === "function"
+      ? store.isDebugPreviewEnabled()
+      : store.getState()?.ui?.debugPreview !== false;
+    if (!debugPreviewEnabled) return false;
+    const key = `${componentId}:${meta.frameId || ""}`;
+    const isBlob = typeof Blob === "function" && thumbnail instanceof Blob;
+    const publishedThumbnail = isBlob ? URL.createObjectURL(thumbnail) : thumbnail;
+    const result = typeof store.setComponentThumbnail === "function"
+      ? store.setComponentThumbnail(componentId, meta.frameId || "", publishedThumbnail)
+      : publishThumbnailThroughDerivedState(componentId, meta.frameId || "", publishedThumbnail);
+    if (result?.updated === false) {
+      if (isBlob) URL.revokeObjectURL(publishedThumbnail);
+      return false;
+    }
+    if (isBlob) {
+      const previousObjectUrl = thumbnailObjectUrls.get(key);
+      thumbnailObjectUrls.set(key, publishedThumbnail);
+      if (previousObjectUrl && previousObjectUrl !== publishedThumbnail) deferThumbnailUrlRevoke(previousObjectUrl);
+    }
     projectService.writeComponentThumbnail(componentId, meta.frameId || "", thumbnail).catch((error) => {
       console.warn("[VJ1_THUMBNAIL_WRITE_FAILED]", {
         componentId,
@@ -570,6 +603,27 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
         message: error?.message || String(error),
       });
     });
+    return true;
+  }
+
+  function publishThumbnailThroughDerivedState(componentId, frameId, thumbnail) {
+    let updated = false;
+    store.updateDerived((draft) => {
+      const component = draft.components.find((item) => item.id === componentId);
+      if (!component) return;
+      if (frameId && component.type === "canvas") {
+        component.canvas ||= {};
+        component.canvas.frameThumbnails ||= {};
+        if (component.canvas.frameThumbnails[frameId] !== thumbnail) {
+          component.canvas.frameThumbnails[frameId] = thumbnail;
+          updated = true;
+        }
+      } else if (component.thumbnail !== thumbnail) {
+        component.thumbnail = thumbnail;
+        updated = true;
+      }
+    }, "component-thumbnail");
+    return { updated };
   }
 
   function updateChainTransform(componentId, itemId, transform, meta = {}) {
@@ -673,6 +727,14 @@ export function retimeEmbeddedLiveTransition(state, startedAtMs = Date.now() + 5
       startedAtMs,
     },
   };
+}
+
+function deferThumbnailUrlRevoke(url) {
+  if (typeof requestAnimationFrame !== "function") {
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    return;
+  }
+  requestAnimationFrame(() => requestAnimationFrame(() => URL.revokeObjectURL(url)));
 }
 
 function previewSceneId(state) {

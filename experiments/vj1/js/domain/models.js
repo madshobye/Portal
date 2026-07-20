@@ -1,5 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
+import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
 import { normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
@@ -223,6 +223,7 @@ export function createInitialState() {
       selectedComponentId: components[0].id,
       selectedChainItemId: components[0].chain[0]?.id || "",
       selectedNodeDefinitionId: "",
+      selectedNodeGroupId: "",
       workspaceSelectionIds: {
         component: components[0].id,
         canvas: "",
@@ -510,6 +511,7 @@ export function createLiveRenderState(state = createInitialState()) {
   next.ui.selectedSceneId = scene?.id || "";
   next.global.calibrating = false;
   applyLiveComponentOverrides(next, live.componentOverrides);
+  materializeLivePatchTargets(next);
 
   const transition = live.transition;
   const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
@@ -523,6 +525,7 @@ export function createLiveRenderState(state = createInitialState()) {
     fromState.ui.selectedSceneId = transition.fromSceneId || fromState.ui.selectedSceneId || "";
     fromState.global.calibrating = false;
     applyLiveComponentOverrides(fromState, transition.fromComponentOverrides);
+    materializeLivePatchTargets(fromState);
     fromState.ui.live.transition = null;
     next.liveTransition = {
       id: transition.id || `${transition.fromSceneId || "scene"}:${sceneId}:${startedAtMs}`,
@@ -533,6 +536,37 @@ export function createLiveRenderState(state = createInitialState()) {
     };
   }
   return next;
+}
+
+// Live controls edit a normalized view of optional model values. Materialize
+// only the containers/structural transform that those controls address before
+// this cloned state crosses the render transport boundary. This is not render
+// traversal work and it does not expand the persisted project model.
+function materializeLivePatchTargets(state) {
+  for (const component of state.components || []) {
+    component.transform = normalizeTransform(component.transform);
+    materializeLiveChainPatchTargets(component.chain);
+  }
+}
+
+function materializeLiveChainPatchTargets(chain = []) {
+  for (const item of chain || []) {
+    if (!item || typeof item !== "object") continue;
+    item.transform = normalizeTransform(item.transform);
+    if (item.kind === "effect") {
+      if (!item.params || typeof item.params !== "object") item.params = {};
+      continue;
+    }
+    if (item.kind === "source") {
+      if (
+        item.source &&
+        ["generator", "media"].includes(item.source.type) &&
+        (!item.source.params || typeof item.source.params !== "object")
+      ) item.source.params = {};
+      continue;
+    }
+    if (item.kind === "group") materializeLiveChainPatchTargets(item.chain);
+  }
 }
 
 function applyLiveComponentOverrides(state, overrides = {}) {

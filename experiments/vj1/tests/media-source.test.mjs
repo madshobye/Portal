@@ -9,7 +9,7 @@ import { getGeneratorNodeComponent as getGeneratorComponent, listGeneratorNodeCo
 import { RenderNodeRuntime, textureStateKey } from "../js/libraries/render-engine/render-node-contract.js";
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
-import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-5";
+import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-6";
 import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js?v=render-core-contract-1";
 import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSafeNearDistance, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
 import { terrainCameraView } from "../js/output/specialized/specialized-source-runtime.js";
@@ -455,7 +455,7 @@ test("low poly anatomy generator exposes body part and stl-style 3d controls", (
   const rendererSource = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/anatomy-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/generators/anatomy/runtime.js", import.meta.url), "utf8"),
   ].join("\n");
 
   assert.equal(component.name, "Low Poly Anatomy");
@@ -470,7 +470,9 @@ test("low poly anatomy generator exposes body part and stl-style 3d controls", (
   for (const id of ["expression", "mouthOpen", "brow", "eyeSquint", "fingerBend", "limbBend", "heartPulse"]) {
     assert.ok(params[id], `missing anatomy behavior param ${id}`);
   }
-  assert.ok(rendererSource.includes('source.generatorId === "anatomy"'));
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:anatomy");
+  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
+  assert.ok(rendererSource.includes('"output/specialized:anatomy": "drawAnatomyGenerator"'));
   assert.ok(rendererSource.includes("drawProceduralAnatomy("));
   assert.ok(rendererSource.includes("anatomyTaperedSegment("));
   assert.ok(rendererSource.includes("anatomyProfileVolume("));
@@ -494,6 +496,8 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-mesh.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/shaders.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/render-engine/raw-webgl-state.js", import.meta.url), "utf8"),
   ].join("\n");
   const profileSource = readFileSync(new URL("../js/output/output-render-profile.js", import.meta.url), "utf8");
@@ -510,13 +514,15 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
     assert.equal(params[id].type, "color", `missing terrain color ${id}`);
   }
   assert.equal(generatorIcon("terrainFlyover"), "landscape");
-  assert.ok(rendererSource.includes("source.generatorId === \"terrainFlyover\""));
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:terrainFlyover");
+  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
+  assert.ok(rendererSource.includes('"output/specialized:terrainFlyover": "drawTerrainGenerator"'));
   assert.ok(rendererSource.includes("this.targets = new Map()"));
   assert.ok(rendererSource.includes("this.getTerrainTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity)"));
   assert.ok(rendererSource.includes("disposeGraphicsMap(this.targets)"));
   assert.ok(rendererSource.includes("this.terrainSurfaceResources = new Map()"));
   assert.ok(rendererSource.includes("drawTerrainSurface(target, this.terrainSurfaceResources"));
-  assert.ok(rendererSource.includes("updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow)"));
+  assert.ok(rendererSource.includes("updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow, terrainModule, moduleRevision)"));
   assert.ok(rendererSource.includes("gl.drawElements(gl.TRIANGLES, resources.count, gl.UNSIGNED_SHORT, 0)"));
   assert.ok(rendererSource.includes("terrainSurfaceGridVertices(widthCells, depthCells)"));
   assert.ok(rendererSource.includes("terrainSurfaceTriangleIndices(widthCells, depthCells, baseRow)"));
@@ -1184,9 +1190,11 @@ test("active output can return project state and files to a refreshed control wi
 
 test("component preview follows the shared preview toggle", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const thumbnailSource = readFileSync(new URL("../js/output/output-thumbnail-runtime.js", import.meta.url), "utf8");
 
   assert.ok(rendererSource.includes('(this.mode === "preview" || this.mode === "component") && this.state?.ui?.debugPreview === false'));
-  assert.ok(rendererSource.includes("if (!this.shouldUseThumbnailPreview()) this.captureSelectedComponentThumbnail()"));
+  assert.ok(rendererSource.includes("this.thumbnailRuntime.invalidateSelectedComponent()"));
+  assert.ok(thumbnailSource.includes("if (!this.sendThumbnail || !this.canCapture() || this.shouldUseThumbnailPreview())"));
   assert.ok(rendererSource.includes("this.renderSelectedChainTransformOverlay()"));
   assert.ok(rendererSource.includes("renderCanvasThumbnailEditPreview(component)"));
   assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(component)"));

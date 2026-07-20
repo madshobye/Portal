@@ -18,6 +18,17 @@ export const Prepare3dAssetGroup = defineNodeGroup({
     format: { type: { type: "enum", values: ["", "stl", "obj"] }, optional: true, defaultValue: "" },
   },
   parameters: {
+    profile: {
+      type: { type: "enum", values: ["full", "preview"] },
+      defaultValue: "full",
+      editor: { type: "select" },
+    },
+    triangleLimit: {
+      type: "number",
+      defaultValue: 600,
+      allowedRange: [1, 10000],
+      clamp: true,
+    },
     resolution: {
       type: { type: "enum", values: ["source", "automatic", "single"] },
       defaultValue: "automatic",
@@ -48,9 +59,10 @@ export const Prepare3dAssetGroup = defineNodeGroup({
 });
 
 async function prepare3dAssetProgram({
-  source, name = "", format = "", resolution = "automatic", targetTriangles = 25000,
+  source, name = "", format = "", profile = "full", triangleLimit = 600,
+  resolution = "automatic", targetTriangles = 25000,
 } = {}, { run }) {
-  const parsed = await run("parse", { source, name, format });
+  const parsed = await run("parse", { source, name, format }, { parameters: { profile, triangleLimit } });
   if (resolution === "source") return parsed;
   const resolved = await run("resolution", { mesh: parsed.mesh }, {
     parameters: { mode: resolution, targetTriangles },
@@ -77,6 +89,8 @@ export async function prepare3dAsset(inputs = {}) {
   const instance = createNodeInstance(Prepare3dAssetGroup, {
     registry: Prepare3dAssetNodeRegistry,
     parameters: {
+      profile: inputs.profile,
+      triangleLimit: inputs.triangleLimit,
       resolution: inputs.resolution,
       targetTriangles: inputs.targetTriangles,
     },

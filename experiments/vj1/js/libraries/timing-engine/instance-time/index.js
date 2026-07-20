@@ -14,18 +14,36 @@ export const InstanceTimeNode = defineNode({
   execution: { trigger: "frame", domain: "main", pure: true },
   capabilities: ["timing", "instance-phase", "graph-placeable", "live-fast-path"],
   presentation: { catalogs: ["graph", "timing"], placeableOn: ["node-graph"] },
-  parts: [{
-    id: "instance-time-algorithm",
-    name: "Instance time algorithm",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    export: "instanceTime",
-    source: [instanceTime, instanceTimeOffset].map((fn) => fn.toString()).join("\n\n"),
-  }],
-  process: ({ instanceId, baseTime }) => ({ time: instanceTime(instanceId, baseTime) }),
+  parts: [
+    {
+      id: "instance-time-algorithm",
+      name: "Instance time algorithm",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "instanceTime",
+      source: [instanceTime, instanceTimeOffset].map((fn) => fn.toString()).join("\n\n"),
+    },
+    {
+      id: "instance-time-process",
+      name: "Instance time process entry",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "instanceTimeNodeProcess",
+      entry: "process",
+      dependsOn: ["instance-time-algorithm"],
+      source: instanceTimeNodeProcess.toString(),
+    },
+  ],
+  process: instanceTimeNodeProcess,
 });
+
+export function instanceTimeNodeProcess({ instanceId, baseTime } = {}) {
+  return { time: instanceTime(instanceId, baseTime) };
+}
 
 export function componentInstanceTime(component = {}, baseTime = 0, instanceId = "") {
   if (component?.syncInstances !== false) return Number(baseTime) || 0;

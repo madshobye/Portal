@@ -10,10 +10,12 @@ import {
   createDefaultComponent,
   createEmptySceneFromState,
   createInitialState,
+  createLiveRenderState,
   createSceneFromState,
   sceneSourceNodeId,
   syncLiveSnapshotFromScene,
 } from "../js/domain/models.js?v=world-frame-27";
+import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
 import { DataStoreNode, ObservableDataStore } from "../js/libraries/data-store/data-store/index.js";
@@ -235,6 +237,29 @@ test("Live slider updates use the lightweight live-only state path", () => {
   const liveComponent = store.getLiveRenderState().components.find((item) => item.id === componentId);
   assert.equal(liveComponent.opacity, 0.35);
   assert.deepEqual(liveComponent.transform, { x: 0.4, y: 0, scale: 1.5, rotation: 0 });
+});
+
+test("Live render baseline materializes every optional slider patch target", () => {
+  const state = createInitialState();
+  const component = state.components[0];
+  delete component.transform;
+  component.chain.push(createComponentEffect("hsvAlphaKey"));
+  component.chain.push(createComponentLayer(2, { type: "media", mediaId: "still.png" }));
+
+  const baseline = createLiveRenderState(state);
+  const result = applyLiveRenderPatches(baseline, [
+    createLiveRenderPatch(component.id, "transform.scale", 1.25),
+    createLiveRenderPatch(component.id, "chain.1.params.hueMin", 170),
+    createLiveRenderPatch(component.id, "chain.2.source.params.alphaCut", 4),
+  ]);
+
+  assert.equal(result.applied, true);
+  assert.equal(baseline.components[0].transform.scale, 1.25);
+  assert.equal(baseline.components[0].chain[1].params.hueMin, 170);
+  assert.equal(baseline.components[0].chain[2].source.params.alphaCut, 4);
+  assert.equal(applyLiveRenderPatches(baseline, [
+    createLiveRenderPatch(component.id, "transform.typo", 1),
+  ]).applied, false, "unknown structural leaves remain invalid");
 });
 
 test("persistent scrubs retain one baseline and reconcile Live truth on commit", () => {
@@ -1079,6 +1104,23 @@ test("derived cache updates do not become project transactions", () => {
   assert.equal(events.at(-1).scope, "derived");
   assert.equal(events.at(-1).history, "none");
   assert.equal(store.getState().components[0].id, componentId);
+});
+
+test("thumbnail replacement publishes atomically without clearing the previous derived image", () => {
+  const initial = createInitialState();
+  initial.components[0].thumbnail = "blob:previous";
+  const store = createAppState(initial);
+  const componentId = store.getState().components[0].id;
+  const events = [];
+  store.subscribe((_state, _reason, event) => events.push(event));
+
+  assert.equal(store.getState().components[0].thumbnail, "blob:previous");
+  const result = store.setComponentThumbnail(componentId, "", "blob:replacement");
+
+  assert.deepEqual(result, { updated: true, previous: "blob:previous" });
+  assert.equal(store.getState().components[0].thumbnail, "blob:replacement");
+  assert.equal(events.at(-1).scope, "derived");
+  assert.equal(events.at(-1).history, "none");
 });
 
 test("mapping feedback updates only the mapping slice while retaining project history semantics", () => {

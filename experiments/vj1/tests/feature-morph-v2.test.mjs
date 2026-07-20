@@ -2,12 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { featureMorphMediaControlsTemplate } from "../js/control/feature-morph-view.js";
-import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
+import { createGeneratorSource, createProjectVisualNodeResolver, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
+import { compileJavaScriptNodeModule, createProjectNodeFork, NODE_PART_KINDS } from "../js/libraries/node-engine/index.js";
 import {
   buildMobileNetMorphField,
   buildRigidMlsMorphField,
   matchMobileNetFeatures,
+  mobileNetAnalysisModule,
   mobileNetMorphFieldForStrategy,
   MobileNetMorphPairService,
   mobileNetMorphPersistentKey,
@@ -31,6 +33,45 @@ test("Feature Morph V2 exposes MobileNet semantic analysis controls", () => {
   assert.deepEqual(params.fit.values, ["cover", "contain", "stretch"]);
   assert.equal(component.runtime.timeDependent({ autoSpeed: 0 }), false);
   assert.equal(component.runtime.timeDependent({ autoSpeed: 0.5 }), true);
+  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
+  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeProcess, false);
+  assert.deepEqual(component.nodeDefinition.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => part.id), [
+    "feature-morph-vertex",
+    "feature-morph-fragment",
+  ]);
+  const compiled = compileJavaScriptNodeModule(component.nodeDefinition.parts, component.nodeDefinition);
+  assert.equal(typeof compiled.process, "function");
+  assert.equal(typeof compiled.exports.imageFitUniform, "function");
+  assert.equal(compiled.exports.matchSuperPointFeatures, undefined);
+  assert.ok(!component.nodeDefinition.parts.some((part) => part.id === "feature-morph-analysis-module"));
+  assert.equal(typeof compiled.exports.matchMobileNetFeatures, "function");
+  assert.equal(typeof compiled.exports.buildMobileNetMorphField, "function");
+  assert.equal(typeof compiled.exports.buildRigidMlsMorphField, "function");
+  assert.ok(component.nodeDefinition.parts.some((part) => part.id === "feature-morph-v2-analysis-module"));
+});
+
+test("Feature Morph V2 project forks supply its real analysis algorithms", () => {
+  const base = getGeneratorComponent("featureMorphV2").nodeDefinition;
+  const fork = createProjectNodeFork(base, {
+    forkId: "feature-morph-v2-project",
+    overrides: {
+      parts: base.parts.map((part) => part.id === "feature-morph-v2-analysis-module" ? {
+        ...part,
+        source: [
+          "function matchMobileNetFeatures() { return ['v2-project-fork']; }",
+          "function buildMobileNetMorphField() { return { width: 9 }; }",
+          "function mobileNetMorphFieldForStrategy() { return { strategy: 'forked' }; }",
+          "function buildRigidMlsMorphField() { return { phases: 13 }; }",
+        ].join("\n"),
+      } : part),
+    },
+  });
+  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
+  const module = mobileNetAnalysisModule(resolver.definition(base.id).moduleExports);
+
+  assert.deepEqual(module.matchMobileNetFeatures(), ["v2-project-fork"]);
+  assert.deepEqual(module.buildMobileNetMorphField(), { width: 9 });
+  assert.deepEqual(module.mobileNetMorphFieldForStrategy(), { strategy: "forked" });
 });
 
 test("rigid MLS builds paired inverse maps with anchored endpoints", () => {
@@ -152,6 +193,18 @@ test("MobileNet pair cache ignores render-only controls and fingerprints image f
   );
 });
 
+test("MobileNet analysis cache follows V2 node code revisions", () => {
+  const service = new MobileNetMorphPairService({ cache: { load: async () => null, save: async () => {} } });
+  const params = { imageAId: "a", imageBId: "b", featureGrid: 8 };
+  const files = { imageAFile: { name: "a.png" }, imageBFile: { name: "b.png" } };
+  const pairKey = service.pairKey(params);
+
+  assert.notEqual(
+    mobileNetMorphPersistentKey(pairKey, files.imageAFile, files.imageBFile, "v2-analysis-a"),
+    mobileNetMorphPersistentKey(pairKey, files.imageAFile, files.imageBFile, "v2-analysis-b")
+  );
+});
+
 test("MobileNet runtime status rejects analysis from replaced image files", () => {
   const service = new MobileNetMorphPairService({ cache: { load: async () => null, save: async () => {} } });
   const params = { imageAId: "status-a", imageBId: "status-b", featureGrid: 8, patchScale: 1, matchThreshold: 0.2, spatialCoherence: 0.12, fit: "cover" };
@@ -214,6 +267,7 @@ test("Feature Morph V2 remains dynamic only while media or MobileNet analysis is
 });
 
 test("Feature Morph V2 uses CDN MobileNet without SuperPoint and exposes two image inputs", () => {
+  const component = getGeneratorComponent("featureMorphV2");
   const serviceSource = readFileSync(new URL("../js/output/specialized/mobilenet-morph-service.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const controls = featureMorphMediaControlsTemplate("components.0.source", { params: {} }, { media: [] }, {
@@ -226,7 +280,8 @@ test("Feature Morph V2 uses CDN MobileNet without SuperPoint and exposes two ima
   assert.ok(serviceSource.includes("extractMobileNetSpatialGrid"));
   assert.ok(serviceSource.includes("imageFeatureCache"));
   assert.ok(!serviceSource.includes("superpoint"));
-  assert.ok(rendererSource.includes('source.generatorId === "featureMorphV2"'));
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:featureMorphV2");
+  assert.ok(rendererSource.includes('"output/specialized:featureMorphV2": "drawFeatureMorphGenerator"'));
   assert.match(controls, /Image A/);
   assert.match(controls, /Image B/);
   assert.match(controls, /MobileNet input/);

@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=screen-input-registry-1";
-import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=param-fade-1";
+import { sanitizeState } from "../domain/models.js?v=live-patch-contract-1";
+import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=remote-diagnostics-1";
-import { OutputRenderer } from "./output-renderer.js?v=screen-input-registry-1";
+import { OutputRenderer } from "./output-renderer.js?v=thumbnail-pipeline-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 
@@ -34,6 +34,8 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   let bridge = null;
   let renderFont = null;
   let resizeObserver = null;
+  let observedResizeFrame = 0;
+  let observedResizeSignature = "";
   let diagnosticForwarder = null;
   const fixtureUrl = fixtureStateUrl();
 
@@ -42,6 +44,8 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     renderer = null;
     resizeObserver?.disconnect?.();
     resizeObserver = null;
+    if (observedResizeFrame) cancelAnimationFrame(observedResizeFrame);
+    observedResizeFrame = 0;
     diagnosticForwarder?.destroy?.();
     diagnosticForwarder = null;
     diagnostics?.destroy?.();
@@ -57,7 +61,22 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     fitOutputCanvas(size);
     const stage = document.querySelector("#output-stage");
     resizeObserver = typeof ResizeObserver === "function"
-      ? new ResizeObserver(() => resizeOutputIfNeeded(pendingState, mode, renderer))
+      ? new ResizeObserver((entries = []) => {
+          const rect = entries.at(-1)?.contentRect;
+          const signature = rect
+            ? `${Math.floor(Number(rect.width) || 0)}:${Math.floor(Number(rect.height) || 0)}`
+            : "";
+          if (signature && signature === observedResizeSignature) return;
+          observedResizeSignature = signature;
+          if (observedResizeFrame) return;
+          // Leave ResizeObserver's layout-delivery cycle before resizeCanvas
+          // mutates the output canvas. This prevents undelivered notification
+          // loops while retaining one resize per displayed browser frame.
+          observedResizeFrame = requestAnimationFrame(() => {
+            observedResizeFrame = 0;
+            resizeOutputIfNeeded(pendingState, mode, renderer);
+          });
+        })
       : null;
     if (resizeObserver && stage) resizeObserver.observe(stage);
     pixelDensity(1);

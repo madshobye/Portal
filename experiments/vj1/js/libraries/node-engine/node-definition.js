@@ -20,6 +20,13 @@ export const NODE_PART_KINDS = Object.freeze({
   UI: "ui",
 });
 
+export const NODE_EXECUTION_CLASSES = Object.freeze({
+  LIVE_FRAME: "live-frame",
+  INTERACTIVE: "interactive",
+  BOUNDED: "bounded",
+  OFFLINE: "offline",
+});
+
 export function defineNode(definition = {}) {
   const id = requiredText(definition.id, "NODE_DEFINITION_MISSING_ID");
   const name = String(definition.name || definition.label || id);
@@ -31,6 +38,7 @@ export function defineNode(definition = {}) {
   const parameters = normalizePortCollection(definition.parameters, "parameter");
   const parts = Object.freeze((definition.parts || []).map((part, index) => normalizePart(part, index)));
   const capabilities = Object.freeze(uniqueStrings(definition.capabilities));
+  const dependencies = Object.freeze((definition.dependencies || []).map(normalizeNodeDependency));
   const presentation = freezeRecord({
     ...definition.presentation,
     catalogs: Object.freeze(uniqueStrings(definition.presentation?.catalogs)),
@@ -47,6 +55,9 @@ export function defineNode(definition = {}) {
     stateful: definition.execution?.stateful === true,
     asynchronous: definition.execution?.asynchronous === true,
     maxHz: positiveNumberOrZero(definition.execution?.maxHz),
+    workload: Object.values(NODE_EXECUTION_CLASSES).includes(definition.execution?.workload)
+      ? definition.execution.workload
+      : NODE_EXECUTION_CLASSES.INTERACTIVE,
   });
 
   return Object.freeze({
@@ -63,9 +74,18 @@ export function defineNode(definition = {}) {
     execution,
     parts,
     capabilities,
+    dependencies,
     presentation,
     migrations: Object.freeze([...(definition.migrations || [])]),
     process: typeof definition.process === "function" ? definition.process : null,
+    // Runtime-only imports supplied to editable JavaScript modules. They are
+    // intentionally excluded by serializeNodeDefinition; projects persist the
+    // node version and source edits, not live function objects.
+    moduleBindings: freezeRecord(definition.moduleBindings || {}),
+    // Runtime-only compiled helper exports. Visual compiler hooks can consume
+    // these without moving helper logic back into a host switch statement.
+    // Like bindings, function objects are deliberately never serialized.
+    moduleExports: freezeRecord(definition.moduleExports || {}),
     metadata: freezeRecord(definition.metadata || {}),
   });
 }
@@ -109,7 +129,10 @@ export class NodeRegistry {
     const key = registryKey(normalized.id, normalized.version);
     if (this.versions.has(key)) throw new Error(`NODE_ALREADY_REGISTERED:${key}`);
     this.versions.set(key, normalized);
-    this.latest.set(normalized.id, normalized);
+    const currentLatest = this.latest.get(normalized.id);
+    if (!currentLatest || compareNormalizedVersions(normalized.version, currentLatest.version) > 0) {
+      this.latest.set(normalized.id, normalized);
+    }
     return normalized;
   }
 
@@ -135,7 +158,7 @@ export class NodeRegistry {
     const nodeId = String(id || "");
     return Array.from(this.versions.values())
       .filter((definition) => definition.id === nodeId)
-      .sort((left, right) => left.version.localeCompare(right.version, undefined, { numeric: true }));
+      .sort((left, right) => compareNormalizedVersions(left.version, right.version));
   }
 }
 
@@ -227,6 +250,12 @@ function registryKey(id, version) {
   return `${String(id || "")}@${String(version || "")}`;
 }
 
+function compareNormalizedVersions(left, right) {
+  const leftParts = /^([0-9]+)\.([0-9]+)\.([0-9]+)/.exec(left).slice(1).map(Number);
+  const rightParts = /^([0-9]+)\.([0-9]+)\.([0-9]+)/.exec(right).slice(1).map(Number);
+  return leftParts[0] - rightParts[0] || leftParts[1] - rightParts[1] || leftParts[2] - rightParts[2];
+}
+
 function requiredText(value, error) {
   const text = String(value || "").trim();
   if (!text) throw new Error(error);
@@ -235,6 +264,16 @@ function requiredText(value, error) {
 
 function uniqueStrings(values = []) {
   return Array.from(new Set((values || []).map((value) => String(value || "").trim()).filter(Boolean)));
+}
+
+function normalizeNodeDependency(value) {
+  const source = typeof value === "string" ? { id: value } : value || {};
+  const id = requiredText(source.id || source.nodeId, "NODE_DEPENDENCY_MISSING_ID");
+  return Object.freeze({
+    id,
+    range: String(source.range || source.version || "*"),
+    optional: source.optional === true,
+  });
 }
 
 function positiveNumberOrZero(value) {

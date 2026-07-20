@@ -4,10 +4,15 @@ import { NodeGraphProgram } from "./node-graph-program.js";
 
 export function defineNodeGroup(definition = {}) {
   const nodes = Object.freeze((definition.nodes || []).map((node) => Object.freeze({
+    ...node,
     id: String(node.id || ""),
     type: String(node.type || node.nodeType || ""),
     version: String(node.version || ""),
     parameters: Object.freeze({ ...(node.parameters || {}) }),
+    ...(node.position ? { position: Object.freeze({
+      x: Number(node.position.x) || 0,
+      y: Number(node.position.y) || 0,
+    }) } : {}),
   })));
   if (nodes.some((node) => !node.id || !node.type)) throw new Error(`NODE_GROUP_CHILD_INVALID:${definition.id || "missing"}`);
   const connections = Object.freeze((definition.connections || []).map((connection) => Object.freeze({

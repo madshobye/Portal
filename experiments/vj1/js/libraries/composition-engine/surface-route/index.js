@@ -14,8 +14,17 @@ export const SurfaceRouteNode = defineNode({
   parts: [{
     id: "surface-route",
     kind: NODE_PART_KINDS.JAVASCRIPT,
+    language: "javascript",
+    editable: true,
+    module: import.meta.url,
     name: "Surface routing",
-    source: "({ texture, surface }) => ({ route: { texture, surface } })",
+    export: "surfaceRouteNodeProcess",
+    entry: "process",
+    source: surfaceRouteNodeProcess.toString(),
   }],
-  process: ({ texture, surface }) => ({ route: { texture, surface } }),
+  process: surfaceRouteNodeProcess,
 });
+
+export function surfaceRouteNodeProcess({ texture, surface } = {}) {
+  return { route: { texture, surface } };
+}

@@ -1,7 +1,7 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=volumetric-clouds-1";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=live-patch-contract-1";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
+import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=scroll-region-1";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";

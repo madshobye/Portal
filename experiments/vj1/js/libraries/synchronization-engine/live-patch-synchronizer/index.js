@@ -72,16 +72,52 @@ export const LivePatchSynchronizerNode = defineNode({
   inlets: { patches: { type: "any", required: true } },
   outlets: { packet: { type: "any" } },
   parameters: { coalesce: { type: "boolean", defaultValue: true } },
-  execution: { trigger: "input-change", domain: "main", stateful: true },
-  parts: [{
-    id: "patch-revision-engine",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    name: "Patch coalescing and revision engine",
-    source: LivePatchSynchronizer.toString(),
-  }],
+  execution: {
+    trigger: "input-change",
+    domain: "main",
+    stateful: true,
+    dispose: (instance) => instance.state.synchronizer?.cancelPending?.(),
+  },
+  parts: [
+    {
+      id: "patch-revision-engine",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      name: "Patch coalescing and revision engine",
+      export: "LivePatchSynchronizer",
+      source: [LivePatchSynchronizer, defaultSchedule].map((value) => value.toString()).join("\n\n"),
+    },
+    {
+      id: "live-patch-process",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      name: "Live patch process entry",
+      export: "livePatchSynchronizerNodeProcess",
+      entry: "process",
+      dependsOn: ["patch-revision-engine"],
+      source: livePatchSynchronizerNodeProcess.toString(),
+    },
+  ],
   capabilities: ["synchronization", "patch-coalescing", "revision-ordering"],
-  process: ({ patches }) => ({ packet: { patches: [...(patches || [])] } }),
+  process: livePatchSynchronizerNodeProcess,
 });
+
+export function livePatchSynchronizerNodeProcess({ patches = [], coalesce = true } = {}, context = {}) {
+  const state = context.state || {};
+  const synchronizer = state.synchronizer || (state.synchronizer = new LivePatchSynchronizer());
+  if (!coalesce) synchronizer.cancelPending();
+  synchronizer.queue(patches);
+  const packet = synchronizer.flush();
+  return { packet: packet || {
+    baseRevision: synchronizer.revision,
+    revision: synchronizer.revision,
+    patches: [],
+  } };
+}
 
 function defaultSchedule(callback) {
   if (typeof queueMicrotask === "function") queueMicrotask(callback);

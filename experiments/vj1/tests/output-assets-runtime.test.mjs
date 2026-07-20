@@ -10,6 +10,7 @@ import { createControlBridge, createOutputBridge } from "../js/services/output-b
 import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
+import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
 
 test("media runtime deduplicates and throttles missing-file requests", () => {
   const previousMillis = globalThis.millis;
@@ -761,6 +762,43 @@ test("output bridge owns realtime Live-state delivery independently of animation
   }
 });
 
+test("Application graph can own bridge state delivery without a hidden store subscription", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let subscribed = false;
+  globalThis.BroadcastChannel = class {
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    const state = { metrics: { clients: 0, outputs: {} } };
+    const bridge = createControlBridge({
+      subscribeStore: false,
+      store: {
+        subscribe() { subscribed = true; return () => {}; },
+        getLiveRenderState: () => state,
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+
+    assert.equal(subscribed, false);
+    bridge.acceptStateChange(state, "scrub:live", {
+      scope: "live",
+      phase: "scrub",
+      livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.75)],
+    });
+    await Promise.resolve();
+    assert.equal(messages.filter((message) => message.type === "live-patch").at(-1).patches[0].value, 0.75);
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
 test("persistent Component scrubs use the same small revisioned patch transport", async () => {
   const previousBroadcastChannel = globalThis.BroadcastChannel;
   const messages = [];
@@ -853,6 +891,68 @@ test("Live render patches mutate only the addressed Component path", () => {
   ]);
   assert.equal(failed.applied, false);
   assert.equal(state.components[0].chain[0].params.amount, beforeAtomicFailure);
+});
+
+test("Live render patches may author omitted parameter defaults but not structure", () => {
+  const state = {
+    components: [{
+      id: "component-a",
+      chain: [
+        { kind: "effect", params: { amount: 1 } },
+        { kind: "source", source: { type: "media", params: {} } },
+      ],
+    }],
+  };
+  const result = applyLiveRenderPatches(state, [
+    createLiveRenderPatch("component-a", "chain.0.params.hueMin", 170),
+    createLiveRenderPatch("component-a", "chain.1.source.params.alphaCut", 4),
+  ]);
+
+  assert.equal(result.applied, true);
+  assert.equal(state.components[0].chain[0].params.hueMin, 170);
+  assert.equal(state.components[0].chain[1].source.params.alphaCut, 4);
+  assert.equal(applyLiveRenderPatches(state, [
+    createLiveRenderPatch("component-a", "chain.0.typo", 1),
+  ]).applied, false);
+});
+
+test("revisioned slider patches update the compiled visual plan without rebuilding it", () => {
+  const component = {
+    id: "component-a",
+    type: "chain",
+    chain: [{
+      id: "source-a",
+      kind: "source",
+      enabled: true,
+      opacity: 1,
+      blend: "normal",
+      transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+      source: { type: "generator", generatorId: "noise", params: { scale: 1 } },
+    }],
+  };
+  const persistedGroup = compileComponentGroupTopology(component);
+  const renderer = new OutputRenderer({ mode: "output" });
+  renderer.state = {
+    components: [component],
+    nodes: { groups: [persistedGroup] },
+    recordingFrames: [],
+    surfaces: [],
+    ui: { live: { paramFadeDuration: 0 } },
+  };
+  renderer.rebuildComponentPrograms();
+  renderer.rebuildRouteLookups();
+  const program = renderer.componentPrograms.get(component.id);
+  const originalPlan = program.plan;
+  assert.strictEqual(program.plan.operations[0].configuration, component.chain[0]);
+  assert.notStrictEqual(program.plan.operations[0].configuration, persistedGroup.nodes[0].configuration);
+
+  const result = renderer.applyLivePatches([
+    createLiveRenderPatch(component.id, "chain.0.source.params.scale", 3),
+  ]);
+
+  assert.equal(result.applied, true);
+  assert.strictEqual(program.plan, originalPlan, "a parameter scrub does not recompile the plan");
+  assert.equal(program.plan.operations[0].configuration.source.params.scale, 3);
 });
 
 test("Live numeric patches preserve target truth while the renderer interpolates display values", () => {

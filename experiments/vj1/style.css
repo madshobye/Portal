@@ -3487,6 +3487,197 @@ button.text-list-main:hover {
   font-size: 8px;
 }
 
+.node-graph-authoring {
+  margin-top: 14px;
+  border: 1px solid #26312f;
+  border-radius: var(--radius-section);
+  overflow: hidden;
+  background: #080a0a;
+}
+
+.node-graph-authoring > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 40px;
+  padding: 7px 10px;
+  border-bottom: 1px solid #26312f;
+  background: var(--panel);
+}
+
+.node-graph-authoring > header > span {
+  display: grid;
+}
+
+.node-graph-authoring > header small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.node-graph-canvas {
+  position: relative;
+  width: var(--node-graph-width);
+  min-width: 100%;
+  height: var(--node-graph-height);
+  min-height: 430px;
+  overflow: hidden;
+  background-color: #0b0d0d;
+  background-image: radial-gradient(#26312f 0.8px, transparent 0.8px);
+  background-size: 18px 18px;
+}
+
+.node-graph-authoring:has(.node-graph-canvas) {
+  overflow-x: auto;
+}
+
+.node-graph-wires {
+  position: absolute;
+  inset: 0;
+  width: var(--node-graph-width);
+  height: var(--node-graph-height);
+  overflow: visible;
+}
+
+.node-graph-wires path {
+  fill: none;
+  stroke: color-mix(in srgb, var(--cyan) 70%, #26312f);
+  stroke-width: 2;
+  opacity: 0.78;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.node-graph-wires path:hover,
+.node-graph-wires path:focus {
+  stroke: var(--orange);
+  stroke-width: 4;
+  outline: none;
+}
+
+.node-graph-card {
+  position: absolute;
+  z-index: 2;
+  border: 1px solid #34413f;
+  border-radius: 9px;
+  background: #111817;
+  box-shadow: 0 7px 22px #0009;
+  user-select: none;
+}
+
+.node-graph-card.is-boundary {
+  border-color: #3c5b56;
+  background: #0d1211;
+}
+
+.node-graph-card > header {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 20px;
+  align-items: center;
+  gap: 5px;
+  min-height: 43px;
+  padding: 5px 6px;
+  border-bottom: 1px solid #26312f;
+  cursor: grab;
+}
+
+.node-graph-card.is-boundary > header {
+  grid-template-columns: 18px minmax(0, 1fr);
+  cursor: default;
+}
+
+.node-graph-card > header:active {
+  cursor: grabbing;
+}
+
+.node-graph-card > header > span {
+  display: grid;
+  min-width: 0;
+}
+
+.node-graph-card > header strong,
+.node-graph-card > header small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-graph-card > header small,
+.node-graph-port small {
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.node-graph-card > header button {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  height: 19px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+}
+
+.node-graph-card > header button:hover {
+  color: var(--orange);
+}
+
+.node-graph-card-ports {
+  position: absolute;
+  top: 53px;
+  display: grid;
+  gap: 1px;
+  width: calc(50% + 18px);
+}
+
+.node-graph-card-ports.is-inlets { left: -5px; }
+.node-graph-card-ports.is-outlets { right: -5px; }
+
+.node-graph-port {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  height: 21px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 8px;
+  text-align: left;
+}
+
+.node-graph-port.is-outlet {
+  grid-template-columns: minmax(0, 1fr) 10px;
+  text-align: right;
+}
+
+.node-graph-port.is-outlet i { grid-column: 2; grid-row: 1; }
+.node-graph-port.is-outlet span { grid-column: 1; grid-row: 1; }
+.node-graph-port small { display: none; }
+
+.node-graph-port i {
+  width: 9px;
+  height: 9px;
+  border: 1px solid var(--cyan);
+  border-radius: 50%;
+  background: #111817;
+  box-shadow: 0 0 6px color-mix(in srgb, var(--cyan) 45%, transparent);
+}
+
+.node-graph-port.is-parameter i {
+  border-color: var(--orange);
+  border-radius: 2px;
+}
+
+.node-graph-port:hover i,
+.node-graph-port.is-pending-connection i {
+  background: var(--cyan);
+  box-shadow: 0 0 10px var(--cyan);
+}
+
 @media (max-width: 900px) {
   .node-structure-canvas { grid-template-columns: 1fr; }
 }

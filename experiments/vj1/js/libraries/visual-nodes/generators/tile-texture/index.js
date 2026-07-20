@@ -1,6 +1,11 @@
 import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
 import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
+import {
+  tileTextureNodeModuleParts,
+  tileTextureNodeProcess,
+  TileTextureNodeModuleExports,
+} from "./runtime.js";
 
 const manifest = Object.freeze({
     id: "tileTexture",
@@ -21,5 +26,10 @@ const manifest = Object.freeze({
     ],
   });
 
-export const VisualComponent = defineGeneratorNode(manifest, null);
+export const VisualComponent = defineGeneratorNode(manifest, null, {
+  direct: false,
+  process: tileTextureNodeProcess,
+  exports: TileTextureNodeModuleExports,
+  parts: tileTextureNodeModuleParts(),
+});
 export default VisualComponent;

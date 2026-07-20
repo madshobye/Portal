@@ -1,6 +1,11 @@
 import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
 import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
+import {
+  anatomyNodeModuleParts,
+  anatomyNodeProcess,
+  AnatomyNodeExports,
+} from "./node-module.js";
 
 const manifest = Object.freeze({
     id: "anatomy",
@@ -38,5 +43,10 @@ const manifest = Object.freeze({
     ],
   });
 
-export const VisualComponent = defineGeneratorNode(manifest, null);
+export const VisualComponent = defineGeneratorNode(manifest, null, {
+  direct: false,
+  process: anatomyNodeProcess,
+  exports: AnatomyNodeExports,
+  parts: anatomyNodeModuleParts(),
+});
 export default VisualComponent;

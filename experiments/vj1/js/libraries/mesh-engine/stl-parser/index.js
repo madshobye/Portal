@@ -1,6 +1,8 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
 import { attachLegacyTriangleView, MeshType, modelTriangleNormal, normalizeModelVector } from "../mesh-types.js";
 
+export const DEFAULT_STL_PREVIEW_TRIANGLES = 600;
+
 export function parseStlMesh(source) {
   const bytes = sourceBytes(source);
   if (bytes.byteLength < 15) throw new Error("STL file is empty");
@@ -12,6 +14,34 @@ export function parseStlMesh(source) {
   }
   const triangles = parseAsciiStl(new TextDecoder("utf-8").decode(bytes));
   if (!triangles.length) throw new Error("STL contained no triangles");
+  return normalizeParsedMesh(triangles);
+}
+
+// The bounded thumbnail path is part of the STL parser node itself. Binary STL
+// can be sampled without allocating the complete triangle mesh, which is
+// important for large library assets that will only become a small preview.
+export function parseStlPreviewMesh(source, limit = DEFAULT_STL_PREVIEW_TRIANGLES) {
+  const bytes = sourceBytes(source);
+  if (bytes.byteLength < 15) throw new Error("STL file is empty");
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const declaredTriangles = bytes.byteLength >= 84 ? view.getUint32(80, true) : 0;
+  if (declaredTriangles > 0 && 84 + declaredTriangles * 50 === bytes.byteLength) {
+    const triangles = [];
+    const count = Math.min(previewTriangleLimit(limit), declaredTriangles);
+    for (let sample = 0; sample < count; sample++) {
+      const triangleIndex = Math.min(declaredTriangles - 1, Math.floor(sample * declaredTriangles / count));
+      const offset = 84 + triangleIndex * 50 + 12;
+      const vertices = [];
+      for (let corner = 0; corner < 3; corner++) {
+        const vertexOffset = offset + corner * 12;
+        vertices.push([0, 1, 2].map((axis) => view.getFloat32(vertexOffset + axis * 4, true)));
+      }
+      triangles.push({ normal: modelTriangleNormal(vertices), vertices });
+    }
+    return normalizeParsedMesh(triangles);
+  }
+  const triangles = parseAsciiStlPreview(new TextDecoder("utf-8").decode(bytes), limit);
+  if (!triangles.length) throw new Error("STL contained no previewable triangles");
   return normalizeParsedMesh(triangles);
 }
 
@@ -28,6 +58,19 @@ export const StlParserNode = defineNode({
       description: "An ArrayBuffer, typed array, Blob, File, or file-like STL source.",
     },
   },
+  parameters: {
+    profile: {
+      type: { type: "enum", values: ["full", "preview"] },
+      defaultValue: "full",
+      editor: { type: "select" },
+    },
+    triangleLimit: {
+      type: "number",
+      defaultValue: DEFAULT_STL_PREVIEW_TRIANGLES,
+      allowedRange: [1, 10000],
+      clamp: true,
+    },
+  },
   outlets: {
     mesh: {
       type: MeshType,
@@ -41,23 +84,55 @@ export const StlParserNode = defineNode({
     asynchronous: true,
   },
   capabilities: ["mesh-parser", "stl-parser", "worker-safe", "graph-placeable"],
+  moduleBindings: { attachLegacyTriangleView, modelTriangleNormal, normalizeModelVector, DEFAULT_STL_PREVIEW_TRIANGLES },
   presentation: {
     catalogs: ["graph", "mesh"],
     placeableOn: ["node-graph"],
     previewOutput: "mesh",
   },
-  parts: [{
-    id: "stl-parser",
-    name: "STL parser",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    export: "parseStlMesh",
-    source: stlParserSource(),
-  }],
-  process: async ({ source }) => ({ mesh: parseStlMesh(await binarySource(source)) }),
+  parts: [
+    {
+      id: "stl-parser",
+      name: "STL parser algorithm",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      exports: ["parseStlMesh", "parseStlPreviewMesh"],
+      source: stlParserSource(),
+    },
+    {
+      id: "stl-source-reader",
+      name: "STL source reader",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "binarySource",
+      source: binarySource.toString(),
+    },
+    {
+      id: "stl-process",
+      name: "STL process entry",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "stlParserNodeProcess",
+      entry: "process",
+      dependsOn: ["stl-parser", "stl-source-reader"],
+      source: stlParserNodeProcess.toString(),
+    },
+  ],
+  process: stlParserNodeProcess,
 });
+
+export async function stlParserNodeProcess(inputs = {}) {
+  const binary = await binarySource(inputs.source);
+  return { mesh: inputs.profile === "preview"
+    ? parseStlPreviewMesh(binary, inputs.triangleLimit)
+    : parseStlMesh(binary) };
+}
 
 export async function binarySource(source) {
   if (source instanceof ArrayBuffer || ArrayBuffer.isView(source)) return source;
@@ -126,6 +201,23 @@ function parseAsciiStl(text = "") {
   return triangles;
 }
 
+function parseAsciiStlPreview(text = "", limit = DEFAULT_STL_PREVIEW_TRIANGLES) {
+  const samples = [];
+  const pending = [];
+  let triangleSerial = 0;
+  let randomState = 0x85ebca6b;
+  const vertexRe = /vertex\s+([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:e[-+]?\d+)?)\s+([-+]?\d*\.?\d+(?:e[-+]?\d+)?)/gi;
+  let match;
+  while ((match = vertexRe.exec(text))) {
+    pending.push([Number(match[1]), Number(match[2]), Number(match[3])]);
+    if (pending.length < 3) continue;
+    const vertices = pending.splice(0, 3);
+    randomState = xorshift32(randomState + triangleSerial + 1);
+    reservoirTriangle(samples, { normal: modelTriangleNormal(vertices), vertices }, triangleSerial++, limit, randomState);
+  }
+  return samples;
+}
+
 function normalizeParsedMesh(triangles) {
   const sourceBounds = emptyBounds();
   for (const triangle of triangles) {
@@ -177,17 +269,44 @@ function vectorLength(vector = []) {
   return Math.hypot(Number(vector[0]) || 0, Number(vector[1]) || 0, Number(vector[2]) || 0);
 }
 
+function reservoirTriangle(samples, triangle, serial, limit, randomState) {
+  const capacity = previewTriangleLimit(limit);
+  if (samples.length < capacity) {
+    samples.push(triangle);
+    return;
+  }
+  const slot = randomState % (serial + 1);
+  if (slot < capacity) samples[slot] = triangle;
+}
+
+function previewTriangleLimit(limit) {
+  return Math.max(1, Math.floor(Number(limit) || DEFAULT_STL_PREVIEW_TRIANGLES));
+}
+
+function xorshift32(value) {
+  let result = value >>> 0;
+  result ^= result << 13;
+  result ^= result >>> 17;
+  result ^= result << 5;
+  return result >>> 0;
+}
+
 function stlParserSource() {
   return [
     parseStlMesh,
+    parseStlPreviewMesh,
     sourceBytes,
     parseBinaryStl,
     parseAsciiStl,
+    parseAsciiStlPreview,
     normalizeParsedMesh,
     emptyBounds,
     includeBounds,
     normalizationTransform,
     normalizedBounds,
     vectorLength,
+    reservoirTriangle,
+    previewTriangleLimit,
+    xorshift32,
   ].map((fn) => fn.toString()).join("\n\n");
 }

@@ -8,6 +8,14 @@ export function graphicsToPngBlob(graphics) {
   return new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
 }
 
+export async function graphicsToThumbnailBlob(graphics) {
+  const canvas = graphics?.canvas || graphics?.elt;
+  if (!canvas?.toBlob) return null;
+  const webp = await canvasToBlob(canvas, "image/webp", COMPONENT_THUMBNAIL_QUALITY);
+  if (webp?.type === "image/webp") return webp;
+  return await canvasToBlob(canvas, "image/png");
+}
+
 export function componentThumbnailSignature(component = {}, render = {}) {
   try {
     return JSON.stringify({
@@ -22,40 +30,6 @@ export function componentThumbnailSignature(component = {}, render = {}) {
   } catch {
     const clock = typeof globalThis.millis === "function" ? globalThis.millis() : Date.now();
     return `${component.id}:${clock}`;
-  }
-}
-
-export function graphicsToThumbnail(
-  graphics,
-  width = COMPONENT_THUMBNAIL_WIDTH,
-  height = COMPONENT_THUMBNAIL_HEIGHT,
-  cropRect = null
-) {
-  try {
-    const source = graphics?.canvas || graphics?.elt;
-    if (!source) return "";
-    const sourceWidth = source.videoWidth || source.naturalWidth || source.width || width;
-    const sourceHeight = source.videoHeight || source.naturalHeight || source.height || height;
-    const sx = Math.max(0, Math.min(sourceWidth - 1, Number(cropRect?.x) || 0));
-    const sy = Math.max(0, Math.min(sourceHeight - 1, Number(cropRect?.y) || 0));
-    const sw = Math.max(1, Math.min(sourceWidth - sx, Number(cropRect?.width) || sourceWidth));
-    const sh = Math.max(1, Math.min(sourceHeight - sy, Number(cropRect?.height) || sourceHeight));
-    const thumbnailSize = fittedThumbnailSize(sw, sh, width, height);
-    const canvas = document.createElement("canvas");
-    canvas.width = thumbnailSize.width;
-    canvas.height = thumbnailSize.height;
-    const context = canvas.getContext("2d");
-    if (!context) return "";
-    context.imageSmoothingEnabled = true;
-    context.imageSmoothingQuality = "high";
-    if (cropRect) context.drawImage(source, sx, sy, sw, sh, 0, 0, thumbnailSize.width, thumbnailSize.height);
-    else context.drawImage(source, 0, 0, sourceWidth, sourceHeight, 0, 0, thumbnailSize.width, thumbnailSize.height);
-    const webp = canvas.toDataURL("image/webp", COMPONENT_THUMBNAIL_QUALITY);
-    if (webp.startsWith("data:image/webp")) return webp;
-    return canvas.toDataURL("image/png");
-  } catch (error) {
-    console.warn("[VJ1_THUMBNAIL_CAPTURE_FAILED]", { message: error?.message || String(error) });
-    return "";
   }
 }
 
@@ -74,4 +48,8 @@ export function fittedThumbnailSize(
     width: Math.max(1, Math.round(sw * scale)),
     height: Math.max(1, Math.round(sh * scale)),
   };
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
 }

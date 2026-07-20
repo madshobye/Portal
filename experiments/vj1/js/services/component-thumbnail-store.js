@@ -30,6 +30,16 @@ export function thumbnailDataUrlToBlob(dataUrl = "") {
   return new Blob([data], { type: match[1].toLowerCase() });
 }
 
+export function thumbnailValueToBlob(value) {
+  if (typeof Blob === "function" && value instanceof Blob) {
+    if (value.type !== "image/webp" && value.type !== "image/png") {
+      throw new TypeError("Thumbnail Blob must be WebP or PNG.");
+    }
+    return value;
+  }
+  return thumbnailDataUrlToBlob(value);
+}
+
 export function thumbnailExtension(blob) {
   return blob?.type === "image/png" ? "png" : "webp";
 }

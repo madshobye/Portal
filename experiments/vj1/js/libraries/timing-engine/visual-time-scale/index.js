@@ -11,18 +11,36 @@ export const VisualTimeScaleNode = defineNode({
   execution: { trigger: "input-change", domain: "main", pure: true },
   capabilities: ["timing", "numeric-control", "graph-placeable"],
   presentation: { catalogs: ["graph", "timing"], placeableOn: ["node-graph"] },
-  parts: [{
-    id: "visual-time-scale",
-    name: "Visual time scale",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    export: "globalVisualTimeScale",
-    source: globalVisualTimeScale.toString(),
-  }],
-  process: ({ timeStretch }) => ({ scale: globalVisualTimeScale({ timeStretch }) }),
+  parts: [
+    {
+      id: "visual-time-scale",
+      name: "Visual time scale",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "globalVisualTimeScale",
+      source: globalVisualTimeScale.toString(),
+    },
+    {
+      id: "visual-time-scale-process",
+      name: "Visual time scale process entry",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      export: "visualTimeScaleNodeProcess",
+      entry: "process",
+      dependsOn: ["visual-time-scale"],
+      source: visualTimeScaleNodeProcess.toString(),
+    },
+  ],
+  process: visualTimeScaleNodeProcess,
 });
+
+export function visualTimeScaleNodeProcess({ timeStretch } = {}) {
+  return { scale: globalVisualTimeScale({ timeStretch }) };
+}
 
 export function globalVisualTimeScale(global = {}) {
   const stretch = Number(global?.timeStretch);

@@ -31,6 +31,7 @@ export const Convert3dFileToImageGroup = defineNodeGroup({
     profile: { type: { type: "enum", values: ["live", "thumbnail"] }, defaultValue: "live", editor: { type: "select" } },
     resolution: { type: { type: "enum", values: ["source", "automatic", "single"] }, defaultValue: "automatic", editor: { type: "select" } },
     targetTriangles: { type: "number", defaultValue: 25000, allowedRange: [256, 120000], clamp: true },
+    previewTriangles: { type: "number", defaultValue: 600, allowedRange: [1, 10000], clamp: true },
     width: { type: "number", defaultValue: 100, allowedRange: [1, 16384], clamp: true },
     height: { type: "number", defaultValue: 100, allowedRange: [1, 16384], clamp: true },
     fit: { type: { type: "enum", values: ["contain", "cover", "stretch"] }, defaultValue: "contain" },
@@ -72,6 +73,8 @@ async function convert3dFileToImageProgram(inputs = {}, { run }) {
     // Thumbnails reuse the general parser node but deliberately avoid building
     // QEM LODs; the SVG render node applies its bounded display sampling.
     parameters: {
+      profile: thumbnail ? "preview" : "full",
+      triangleLimit: inputs.previewTriangles || 600,
       resolution: thumbnail ? "source" : (inputs.resolution || "automatic"),
       targetTriangles: inputs.targetTriangles || 25000,
     },
@@ -91,10 +94,16 @@ async function convert3dFileToImageProgram(inputs = {}, { run }) {
   const renderResult = rendered.result;
   let image = renderResult.image;
   if (inputs.rasterImage) {
+    if (!thumbnail) {
+      // Deliberate specialization boundary: the reusable CPU resize node is a
+      // bounded utility, never an implicit live-frame fallback.
+      throw new Error("IMAGE_RESIZE_LIVE_BACKEND_REQUIRED");
+    }
     const resized = await run("resize", {
       image: inputs.rasterImage,
       transform: inputs.contentTransform,
     }, {
+      executionClass: "bounded",
       parameters: { width: inputs.width, height: inputs.height, fit: inputs.fit },
     });
     image = resized.frame;
@@ -121,6 +130,7 @@ export async function convert3dFileToImage(inputs = {}) {
       profile: inputs.profile,
       resolution: inputs.resolution,
       targetTriangles: inputs.targetTriangles,
+      previewTriangles: inputs.previewTriangles,
       width: inputs.width,
       height: inputs.height,
       fit: inputs.fit,

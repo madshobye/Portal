@@ -1,4 +1,4 @@
-import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
+import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
 import { patchNodeDegree, planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { compileComponentPatch } from "../graph/render-scheduler.js?v=chain-only-authority-1";
 import { effectIcon, esc, icon } from "./template-utils.js?v=power-flicker-1";

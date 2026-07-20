@@ -1,6 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
 
-export function materializeVisualNodeDefinition(component = {}, { shader = null, nativeRenderer = "" } = {}) {
+export function materializeVisualNodeDefinition(component = {}, { shader = null, nativeRenderer = "", nativeModule = null } = {}) {
   const base = component.nodeDefinition || component;
   const shaderSource = String(shader?.code || "");
   if (shaderSource) {
@@ -28,6 +28,24 @@ export function materializeVisualNodeDefinition(component = {}, { shader = null,
     });
   }
   if (!nativeRenderer) return base;
+  if (typeof nativeModule?.process === "function") {
+    return defineNode({
+      ...base,
+      implementation: NODE_IMPLEMENTATION_KINDS.CODE,
+      process: nativeModule.process,
+      moduleBindings: nativeModule.bindings || {},
+      moduleExports: nativeModule.exports || {},
+      metadata: {
+        ...base.metadata,
+        ...visualExecutionMetadata(component),
+        nativeRenderer,
+        nodeOwnedNativeModule: true,
+        nodeOwnedNativeProcess: nativeModule.direct !== false,
+        allocationStableDirectPath: true,
+      },
+      parts: nativeModule.parts || [],
+    });
+  }
   return defineNode({
     ...base,
     process: executeVisualNode,

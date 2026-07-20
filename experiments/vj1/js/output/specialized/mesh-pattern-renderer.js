@@ -1,7 +1,15 @@
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=canvas-global-resolution-1";
 import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=render-core-contract-1";
 import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
-import { generateMeshPatternTopology, meshPatternTopologySignature } from "./mesh-pattern-algorithms.js?v=mesh-topology-1";
+import { generateMeshPatternTopology, meshPatternTopologySignature } from "./mesh-pattern-algorithms.js?v=mesh-topology-4";
+import { meshPatternPalette as fallbackMeshPatternPalette } from "../../libraries/visual-nodes/generators/mesh-patterns/palette.js?v=node-program-hooks-15";
+export { meshPatternPalette } from "../../libraries/visual-nodes/generators/mesh-patterns/palette.js?v=node-program-hooks-15";
+import {
+  MESH_PATTERN_FILL_FRAGMENT_SHADER,
+  MESH_PATTERN_FILL_VERTEX_SHADER,
+  MESH_PATTERN_WIRE_FRAGMENT_SHADER,
+  MESH_PATTERN_WIRE_VERTEX_SHADER,
+} from "../../libraries/visual-nodes/generators/mesh-patterns/shaders.js?v=node-program-hooks-15";
 import { compileRawShader, linkSpecializedProgram } from "../../libraries/render-engine/raw-webgl-utils.js";
 import {
   beginRawWebGlState,
@@ -13,103 +21,32 @@ import {
 
 const MAX_CPU_TOPOLOGIES = 32;
 const MAX_GPU_TOPOLOGIES = 24;
+const FALLBACK_MESH_PATTERN_NODE_MODULE = Object.freeze({
+  generateMeshPatternTopology,
+  meshPatternTopologySignature,
+  meshPatternPalette: fallbackMeshPatternPalette,
+});
 
-const SHARED_VERTEX_GLSL = `
-uniform mat3 contentPlacementMatrix;
-uniform float rotation;
-uniform vec2 offset;
-uniform float time;
-uniform float speed;
-uniform float motion;
-
-vec2 animatedMeshUv(vec2 uv) {
-  vec2 centered = uv - 0.5;
-  float phase = time * speed;
-  float angle = rotation + phase * motion * 0.08;
-  float cosine = cos(angle);
-  float sine = sin(angle);
-  centered = mat2(cosine, -sine, sine, cosine) * centered;
-  centered *= 1.0 + sin(phase * 0.73) * motion * 0.018;
-  return centered + 0.5 + offset * 0.12;
+export function meshPatternNodeRuntimeModule(operation = {}) {
+  const module = operation?.nodeModule;
+  return typeof module?.generateMeshPatternTopology === "function" &&
+    typeof module?.meshPatternTopologySignature === "function" &&
+    typeof module?.meshPatternPalette === "function"
+    ? module
+    : FALLBACK_MESH_PATTERN_NODE_MODULE;
 }
 
-vec2 meshClip(vec2 uv) {
-  vec3 placed = contentPlacementMatrix * vec3(animatedMeshUv(uv), 1.0);
-  vec2 screenUv = placed.xy / max(abs(placed.z), 0.00001);
-  return vec2(screenUv.x * 2.0 - 1.0, 1.0 - screenUv.y * 2.0);
-}
-`;
+const FALLBACK_MESH_PATTERN_SHADERS = Object.freeze({
+  "mesh-pattern-fill-vertex": MESH_PATTERN_FILL_VERTEX_SHADER,
+  "mesh-pattern-fill-fragment": MESH_PATTERN_FILL_FRAGMENT_SHADER,
+  "mesh-pattern-wire-vertex": MESH_PATTERN_WIRE_VERTEX_SHADER,
+  "mesh-pattern-wire-fragment": MESH_PATTERN_WIRE_FRAGMENT_SHADER,
+});
 
-const FILL_VERTEX_SHADER = `
-precision highp float;
-attribute vec2 aPosition;
-attribute float aColorSlot;
-varying float vColorSlot;
-${SHARED_VERTEX_GLSL}
-void main() {
-  vColorSlot = aColorSlot;
-  gl_Position = vec4(meshClip(aPosition), 0.0, 1.0);
+export function meshPatternNodeShaderSource(operation = {}, id = "") {
+  return operation?.nodeShaders?.[id] || FALLBACK_MESH_PATTERN_SHADERS[id] || "";
 }
-`;
 
-const FILL_FRAGMENT_SHADER = `
-precision highp float;
-uniform vec4 palette0;
-uniform vec4 palette1;
-uniform vec4 palette2;
-uniform vec4 palette3;
-uniform float fillOpacity;
-uniform float amount;
-varying float vColorSlot;
-vec4 paletteColor(float slot) {
-  if (slot < 0.5) return palette0;
-  if (slot < 1.5) return palette1;
-  if (slot < 2.5) return palette2;
-  return palette3;
-}
-void main() {
-  vec4 color = paletteColor(vColorSlot);
-  float alpha = color.a * fillOpacity * amount;
-  gl_FragColor = vec4(color.rgb * alpha, alpha);
-}
-`;
-
-const WIRE_VERTEX_SHADER = `
-precision highp float;
-attribute vec2 aStart;
-attribute vec2 aEnd;
-attribute float aSide;
-attribute float aAlong;
-attribute float aColorSlot;
-uniform vec2 resolution;
-uniform float thickness;
-varying float vColorSlot;
-${SHARED_VERTEX_GLSL}
-void main() {
-  vec2 startClip = meshClip(aStart);
-  vec2 endClip = meshClip(aEnd);
-  vec2 direction = endClip - startClip;
-  float magnitude = max(length(direction), 0.000001);
-  vec2 normal = vec2(-direction.y, direction.x) / magnitude;
-  vec2 pixelScale = vec2(2.0 / max(resolution.x, 1.0), 2.0 / max(resolution.y, 1.0));
-  vec2 position = mix(startClip, endClip, aAlong) + normal * pixelScale * thickness * 0.5 * aSide;
-  vColorSlot = aColorSlot;
-  gl_Position = vec4(position, 0.0, 1.0);
-}
-`;
-
-const WIRE_FRAGMENT_SHADER = `
-precision highp float;
-uniform vec4 wireColor;
-uniform float wireOpacity;
-uniform float amount;
-varying float vColorSlot;
-void main() {
-  float stressAccent = 0.82 + 0.06 * clamp(vColorSlot, 0.0, 3.0);
-  float alpha = wireColor.a * wireOpacity * amount;
-  gl_FragColor = vec4(wireColor.rgb * alpha * stressAccent, alpha);
-}
-`;
 
 export class MeshPatternRenderer {
   constructor({ frameIndex = () => 0 } = {}) {
@@ -118,22 +55,34 @@ export class MeshPatternRenderer {
     this.contexts = new Map();
   }
 
-  draw(target, source = {}, componentTime = 0, renderRequest = {}) {
+  draw(target, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const gl = target?.drawingContext;
     if (!gl) return false;
     const params = source.params || {};
     const viewport = renderTargetPixelSize(target);
-    const signature = meshPatternTopologySignature(params, viewport.width / viewport.height);
+    const nodeModule = meshPatternNodeRuntimeModule(operation);
+    const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
+    const topologySignature = nodeModule.meshPatternTopologySignature(params, viewport.width / viewport.height);
+    const signature = `${codeRevision}:${topologySignature}`;
     let topology = this.cpuTopologies.get(signature);
     if (!topology) {
-      topology = generateMeshPatternTopology(params, viewport.width / viewport.height);
+      topology = nodeModule.generateMeshPatternTopology(params, viewport.width / viewport.height);
       this.cpuTopologies.set(signature, { topology, lastUsedFrame: this.frameIndex() });
       pruneCpuTopologies(this.cpuTopologies);
     } else {
       topology.lastUsedFrame = this.frameIndex();
       topology = topology.topology;
     }
-    const context = this.contextFor(gl);
+    const fillShaderRevision = String(operation?.nodeShaderProgramRevisions?.["mesh-pattern-fill"] || operation?.nodeShaderRevision || "legacy");
+    const wireShaderRevision = String(operation?.nodeShaderProgramRevisions?.["mesh-pattern-wire"] || operation?.nodeShaderRevision || "legacy");
+    const shaderConfiguration = {
+      revision: `${fillShaderRevision}:${wireShaderRevision}`,
+      fillVertex: meshPatternNodeShaderSource(operation, "mesh-pattern-fill-vertex"),
+      fillFragment: meshPatternNodeShaderSource(operation, "mesh-pattern-fill-fragment"),
+      wireVertex: meshPatternNodeShaderSource(operation, "mesh-pattern-wire-vertex"),
+      wireFragment: meshPatternNodeShaderSource(operation, "mesh-pattern-wire-fragment"),
+    };
+    const context = this.contextFor(gl, shaderConfiguration);
     if (!context) return false;
     let resources = context.topologies.get(signature);
     if (resources && !topologyResourcesValid(gl, resources)) {
@@ -156,7 +105,7 @@ export class MeshPatternRenderer {
     } else {
       resources.lastUsedFrame = this.frameIndex();
     }
-    const palette = meshPatternPalette(params);
+    const palette = nodeModule.meshPatternPalette(params);
     const background = parseColor(params.backgroundColor, "#08070c00");
     const placement = contentTransformUvMatrices(source.contentTransform).placement;
     const drawMode = String(params.drawMode || "fill + wire");
@@ -178,13 +127,14 @@ export class MeshPatternRenderer {
     return true;
   }
 
-  contextFor(gl) {
+  contextFor(gl, shaderConfiguration) {
     let context = this.contexts.get(gl);
-    if (context && programsValid(gl, context)) return context;
-    if (context) disposeContext(gl, context);
-    context = createContext(gl);
-    if (context) this.contexts.set(gl, context);
-    return context;
+    if (context && context.shaderRevision === shaderConfiguration.revision && programsValid(gl, context)) return context;
+    const replacement = createContext(gl, shaderConfiguration, context?.topologies);
+    if (!replacement) return null;
+    if (context) disposePrograms(gl, context);
+    this.contexts.set(gl, replacement);
+    return replacement;
   }
 
   dispose() {
@@ -194,35 +144,6 @@ export class MeshPatternRenderer {
   }
 }
 
-export function meshPatternPalette(params = {}) {
-  const count = clamp(Math.round(Number(params.colorCount) || 4), 2, 4);
-  const base = parseColor(params.baseColor, "#e34b7fff");
-  const custom = [
-    base,
-    parseColor(params.colorB, "#27c7c7ff"),
-    parseColor(params.colorC, "#f0c541ff"),
-    parseColor(params.colorD, "#45246dff"),
-  ];
-  const harmony = String(params.palette || "triadic").toLowerCase();
-  if (harmony === "custom") return Array.from({ length: 4 }, (_value, index) => custom[index % count]);
-  const hsl = rgbToHsl(base);
-  const offsets = {
-    analogous: [-0.09, -0.03, 0.03, 0.09],
-    complementary: [0, 0.5, 0.06, 0.56],
-    triadic: [0, 1 / 3, 2 / 3, 1 / 6],
-    "split complementary": [0, 5 / 12, 7 / 12, 0.5],
-    tetradic: [0, 0.25, 0.5, 0.75],
-    monochrome: [0, 0, 0, 0],
-  }[harmony] || [0, 1 / 3, 2 / 3, 1 / 6];
-  const generated = offsets.map((offset, index) => {
-    const lightness = harmony === "monochrome"
-      ? clamp(hsl[2] + (index - (count - 1) * 0.5) * 0.13, 0.08, 0.92)
-      : clamp(hsl[2] + (index % 2 ? 0.06 : -0.035), 0.08, 0.92);
-    const rgb = hslToRgb([(hsl[0] + offset + 1) % 1, hsl[1], lightness]);
-    return [...rgb, base[3]];
-  });
-  return Array.from({ length: 4 }, (_value, index) => generated[index % count]);
-}
 
 function drawMeshPasses(gl, context, resources, options) {
   const state = beginRawWebGlState(gl, "mesh-patterns");
@@ -292,16 +213,16 @@ function setSharedUniforms(gl, program, options) {
   gl.uniform1f(program.motion, clamp(finite(options.params.motion, 0.35), 0, 2));
 }
 
-function createContext(gl) {
+function createContext(gl, shaderConfiguration, topologies = new Map()) {
   const fillProgram = linkSpecializedProgram(
     gl,
-    compileRawShader(gl, gl.VERTEX_SHADER, FILL_VERTEX_SHADER),
-    compileRawShader(gl, gl.FRAGMENT_SHADER, FILL_FRAGMENT_SHADER)
+    compileRawShader(gl, gl.VERTEX_SHADER, shaderConfiguration.fillVertex),
+    compileRawShader(gl, gl.FRAGMENT_SHADER, shaderConfiguration.fillFragment)
   );
   const wireProgram = linkSpecializedProgram(
     gl,
-    compileRawShader(gl, gl.VERTEX_SHADER, WIRE_VERTEX_SHADER),
-    compileRawShader(gl, gl.FRAGMENT_SHADER, WIRE_FRAGMENT_SHADER)
+    compileRawShader(gl, gl.VERTEX_SHADER, shaderConfiguration.wireVertex),
+    compileRawShader(gl, gl.FRAGMENT_SHADER, shaderConfiguration.wireFragment)
   );
   if (!fillProgram || !wireProgram) {
     if (fillProgram) gl.deleteProgram(fillProgram);
@@ -309,6 +230,7 @@ function createContext(gl) {
     return null;
   }
   return {
+    shaderRevision: shaderConfiguration.revision,
     fill: {
       program: fillProgram,
       position: gl.getAttribLocation(fillProgram, "aPosition"),
@@ -335,7 +257,7 @@ function createContext(gl) {
       opacity: gl.getUniformLocation(wireProgram, "wireOpacity"),
       amount: gl.getUniformLocation(wireProgram, "amount"),
     },
-    topologies: new Map(),
+    topologies: topologies || new Map(),
   };
 }
 
@@ -433,6 +355,10 @@ function pruneGpuTopologies(gl, cache, protectedKey) {
 function disposeContext(gl, context) {
   for (const resources of context?.topologies?.values?.() || []) disposeTopologyResources(gl, resources);
   context?.topologies?.clear?.();
+  disposePrograms(gl, context);
+}
+
+function disposePrograms(gl, context) {
   try {
     if (context?.fill?.program && gl.isProgram(context.fill.program)) gl.deleteProgram(context.fill.program);
     if (context?.wire?.program && gl.isProgram(context.wire.program)) gl.deleteProgram(context.wire.program);
@@ -467,34 +393,6 @@ function parseColor(value, fallback) {
   return [0, 2, 4, 6].map((offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255);
 }
 
-function rgbToHsl(color) {
-  const [red, green, blue] = color;
-  const maximum = Math.max(red, green, blue);
-  const minimum = Math.min(red, green, blue);
-  const lightness = (maximum + minimum) * 0.5;
-  if (maximum === minimum) return [0, 0, lightness];
-  const delta = maximum - minimum;
-  const saturation = lightness > 0.5 ? delta / (2 - maximum - minimum) : delta / (maximum + minimum);
-  let hue = maximum === red
-    ? (green - blue) / delta + (green < blue ? 6 : 0)
-    : maximum === green ? (blue - red) / delta + 2 : (red - green) / delta + 4;
-  hue /= 6;
-  return [hue, saturation, lightness];
-}
-
-function hslToRgb([hue, saturation, lightness]) {
-  if (saturation === 0) return [lightness, lightness, lightness];
-  const q = lightness < 0.5 ? lightness * (1 + saturation) : lightness + saturation - lightness * saturation;
-  const p = 2 * lightness - q;
-  const channel = (offset) => {
-    let value = (hue + offset + 1) % 1;
-    if (value < 1 / 6) return p + (q - p) * 6 * value;
-    if (value < 0.5) return q;
-    if (value < 2 / 3) return p + (q - p) * (2 / 3 - value) * 6;
-    return p;
-  };
-  return [channel(1 / 3), channel(0), channel(-1 / 3)];
-}
 
 function clamp(value, minimum, maximum) {
   return Math.max(minimum, Math.min(maximum, value));

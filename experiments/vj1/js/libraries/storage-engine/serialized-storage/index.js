@@ -62,15 +62,42 @@ export const SerializedStorageNode = defineNode({
   inlets: { job: { type: "any", required: true } },
   outlets: { result: { type: "any" }, pending: { type: "number" } },
   execution: { trigger: "input-change", domain: "main", stateful: true, asynchronous: true },
-  parts: [{
-    id: "serialized-task-queue",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    name: "Serialized task queue",
-    source: SerializedTaskQueue.toString(),
-  }],
+  parts: [
+    {
+      id: "serialized-task-queue",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      name: "Serialized task queue",
+      export: "SerializedTaskQueue",
+      source: SerializedTaskQueue.toString(),
+    },
+    {
+      id: "serialized-storage-process",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      name: "Serialized storage process entry",
+      export: "serializedStorageNodeProcess",
+      entry: "process",
+      dependsOn: ["serialized-task-queue"],
+      source: serializedStorageNodeProcess.toString(),
+    },
+  ],
   capabilities: ["storage", "serialized-writes", "retry-retention"],
-  process: async ({ job }, context = {}) => ({
-    result: typeof context.write === "function" ? await context.write(job) : job,
-    pending: 0,
-  }),
+  process: serializedStorageNodeProcess,
 });
+
+export async function serializedStorageNodeProcess({ job } = {}, context = {}) {
+  const state = context.state || {};
+  state.write = context.write;
+  state.onError = context.onError;
+  const queue = state.queue || (state.queue = new SerializedTaskQueue({
+    worker: (task) => typeof state.write === "function" ? state.write(task) : task,
+    onError: (error) => typeof state.onError === "function" ? state.onError(error) : false,
+  }));
+  const result = await queue.enqueue(job);
+  return { result, pending: queue.size };
+}

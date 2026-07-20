@@ -101,19 +101,82 @@ export const MediaInputLifecycleNode = defineNode({
   version: "0.1.0",
   description: "Shares demanded media inputs, bounds retries, and releases idle resources after a grace period.",
   implementation: NODE_IMPLEMENTATION_KINDS.CODE,
-  inlets: { demand: { type: "boolean", required: true }, signature: { type: "string" } },
+  inlets: {
+    demand: { type: "boolean", required: true },
+    signature: { type: "string", optional: true, defaultValue: "default" },
+    setup: { type: "any", optional: true, description: "Capability that acquires the requested host media resource." },
+    lifecycle: { type: "any", optional: true, description: "Optional allocation-stable host lifecycle instance." },
+  },
   outlets: { resource: { type: "any", optional: true }, status: { type: "string" } },
   parameters: {
     idleGraceMs: { type: "number", defaultValue: 750, allowedRange: [0, 60000] },
     retryMs: { type: "number", defaultValue: 3000, allowedRange: [0, 60000] },
   },
-  execution: { trigger: "input-change", domain: "main", stateful: true, asynchronous: true },
-  parts: [{
-    id: "media-input-lifecycle",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    name: "Demand, retry, and release lifecycle",
-    source: MediaInputLifecycle.toString(),
-  }],
+  execution: {
+    trigger: "input-change",
+    domain: "main",
+    stateful: true,
+    asynchronous: true,
+    dispose: (instance) => instance.state.lifecycle?.release?.(),
+  },
+  parts: [
+    {
+      id: "media-input-lifecycle",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      name: "Demand, retry, and release lifecycle",
+      export: "MediaInputLifecycle",
+      source: MediaInputLifecycle.toString(),
+    },
+    {
+      id: "media-input-process",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      name: "Media lifecycle process entry",
+      export: "mediaInputLifecycleNodeProcess",
+      entry: "process",
+      dependsOn: ["media-input-lifecycle"],
+      source: mediaInputLifecycleNodeProcess.toString(),
+    },
+  ],
   capabilities: ["media-input", "resource-sharing", "bounded-retry"],
-  process: ({ demand, signature }) => ({ resource: null, status: demand ? `requested:${signature || "default"}` : "idle" }),
+  process: mediaInputLifecycleNodeProcess,
 });
+
+export function mediaInputLifecycleNodeProcess(inputs = {}, context = {}) {
+  const state = context.state || {};
+  let lifecycle = inputs.lifecycle || state.lifecycle;
+  if (!lifecycle) {
+    lifecycle = new MediaInputLifecycle({
+      idleGraceMs: inputs.idleGraceMs,
+      retryMs: inputs.retryMs,
+      clock: typeof context.clock === "function" ? context.clock : undefined,
+      onError: typeof context.onError === "function" ? context.onError : undefined,
+      onReady: typeof context.onReady === "function" ? context.onReady : undefined,
+    });
+    state.lifecycle = lifecycle;
+  }
+  if (typeof lifecycle.beginFrame !== "function" || typeof lifecycle.acquire !== "function" || typeof lifecycle.endFrame !== "function") {
+    throw new TypeError("MEDIA_INPUT_LIFECYCLE_REQUIRED");
+  }
+  lifecycle.beginFrame();
+  let resource = lifecycle.resource || null;
+  if (inputs.demand) {
+    const setup = typeof inputs.setup === "function" ? inputs.setup : context.setup;
+    if (typeof setup === "function") resource = lifecycle.acquire(inputs.signature || "default", setup) || lifecycle.resource || null;
+    else lifecycle.fail("media input setup unavailable", inputs.signature || "default");
+  }
+  lifecycle.endFrame();
+  const status = lifecycle.error
+    ? `error:${lifecycle.error}`
+    : lifecycle.resource
+      ? "ready"
+      : lifecycle.requested
+        ? `requested:${inputs.signature || "default"}`
+        : "idle";
+  return { ...(resource ? { resource } : {}), status };
+}

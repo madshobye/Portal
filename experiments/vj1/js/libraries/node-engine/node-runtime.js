@@ -37,6 +37,7 @@ export class NodeInstance {
 
   async run(inputs = {}, context = {}) {
     this.assertActive();
+    assertExecutionContext(this.definition, context);
     if (typeof this.executor !== "function") throw new Error(`NODE_NOT_EXECUTABLE:${this.definition.id}`);
     const timestamp = packetTimestamp(context.timestamp, this.clock());
     const normalizedInputs = { ...this.parameters };
@@ -161,6 +162,18 @@ export class NodeInstance {
   assertActive() {
     if (this.disposed) throw new Error(`NODE_INSTANCE_DISPOSED:${this.id}`);
   }
+}
+
+export function assertExecutionContext(definition, context = {}) {
+  const requested = context.executionClass || context.workload || "";
+  const workload = definition?.execution?.workload || "interactive";
+  if (requested === "live-frame" && (workload === "bounded" || workload === "offline")) {
+    throw new Error(`NODE_EXECUTION_CLASS_MISMATCH:${definition.id}:${workload}:live-frame`);
+  }
+  if (requested === "interactive" && workload === "offline") {
+    throw new Error(`NODE_EXECUTION_CLASS_MISMATCH:${definition.id}:offline:interactive`);
+  }
+  return true;
 }
 
 export function createNodePacket(value, {

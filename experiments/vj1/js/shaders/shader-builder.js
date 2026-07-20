@@ -1,4 +1,4 @@
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-13";
 
 export function createShaderBuilder({ getCustomCode, onStatus, getComponent = getShaderComponent } = {}) {
   const cache = new Map();
