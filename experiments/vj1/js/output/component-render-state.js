@@ -1,4 +1,4 @@
-import { isDrawableMedia } from "./media-utils.js?v=video-load-hold-1";
+import { isDrawableMedia } from "./media-utils.js?v=runtime-diagnostics-1";
 
 export function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
@@ -53,6 +53,9 @@ function runtimeMediaStateForIds(media = new Map(), ids = new Set()) {
       present: true,
       ready: isReadyMediaItem(item),
       revision: Math.max(0, Number(item.revision) || 0),
+      ...(item.videoFrameDriven === true
+        ? { videoFrameRevision: Math.max(0, Number(item.videoFrameRevision) || 0) }
+        : {}),
       fileKey: item.fileKey || "",
       error: item.loadError || item.imageError || item.modelError || "",
       kind: item.video ? "video" : item.image ? "image" : (item.model || item.modelData) ? "model" : "loading",

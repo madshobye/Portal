@@ -19,21 +19,21 @@ import {
   unwrapRenderTarget,
 } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
-import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
+import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
 import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
-import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=video-load-hold-1";
-import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=video-load-hold-1";
+import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=runtime-diagnostics-1";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=runtime-diagnostics-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
-import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=chain-only-authority-1";
-import { OutputMediaRuntime } from "./output-media-runtime.js?v=screen-input-registry-1";
+import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runtime-diagnostics-1";
+import { OutputMediaRuntime } from "./output-media-runtime.js?v=runtime-diagnostics-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
-import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=thumbnail-pipeline-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=periodic-preview-maintenance-1";
+import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=runtime-diagnostics-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=async-frame-fanout-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform, transformedRectBounds, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=transform-hit-contract-4";
-import { drawBuffer } from "./render-draw-utils.js?v=render-diagnostics-1";
+import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=output-profile-runtime-1";
 import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
 import { FULL_NODE_BOUNDARY, isFullNodeBoundary, nodeBoundaryPixelRect, nodeRoiRequest, sameNodeBoundary } from "../libraries/render-engine/roi/index.js";
@@ -80,7 +80,7 @@ import {
   sharedComponentRenderRequests,
 } from "./component-render-layout.js?v=logical-component-frame-1";
 
-export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=madstodo-4";
+export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
 export { parseObjMesh } from "../libraries/mesh-engine/obj-parser/index.js";
 export { modelDepthCutoff, transformedModelDepthRange } from "../libraries/mesh-engine/mesh-render-math.js";
 export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=alpha-feather-1";
@@ -215,6 +215,7 @@ export class OutputRenderer {
     this.visualForkSignature = "";
     this.componentPrograms = new Map();
     this.componentRegionSafety = new WeakMap();
+    this.componentVideoPresence = new WeakMap();
     this.scenePrograms = new Map();
     this.outputProgram = null;
     this.sceneProgramCache = new WeakMap();
@@ -601,6 +602,7 @@ export class OutputRenderer {
     const preparedState = normalized ? nextState : sanitizeState(nextState);
     this.clearLiveParamFades();
     this.state = this.previewInteraction?.reconcileIncomingState(preparedState) || preparedState;
+    this.componentVideoPresence = new WeakMap();
     this.pruneComponentTimes();
     this.rebuildVisualNodeResolver();
     this.rebuildComponentPrograms();
@@ -1253,6 +1255,7 @@ export class OutputRenderer {
     const outputKey = renderBufferKey(component.id, renderRequestStateKey(outputRequest));
     const cached = this.componentOutput.get(outputKey);
     if (cached) {
+      this.claimRetainedComponentMedia(component);
       this.frameProfile.componentCacheHits++;
       return cached;
     }
@@ -1270,6 +1273,9 @@ export class OutputRenderer {
         stableCached.width === outputRequest.width &&
         stableCached.height === outputRequest.height &&
         this.stableComponentSignatures.get(stableKey) === stableSignature) {
+      // A retained frame still owns its live media. Without renewing this
+      // lease, endFrame() pauses a cached video after its first decoded frame.
+      this.claimRetainedComponentMedia(component);
       if (stableGpuCached) this.renderCache.touch("gpu-buffer", stableGpuKey, this.frameIndex);
       else this.renderCache.touch("buffer", stableGpuKey, this.frameIndex);
       this.frameProfile.componentCacheHits++;
@@ -1762,6 +1768,81 @@ export class OutputRenderer {
     return visitComponent(component);
   }
 
+  videoPlaybackOptions(source = {}, component = {}) {
+    return {
+      start: source.start,
+      end: source.end,
+      speed: (this.isPlaybackActive() ? 1 : 0) *
+        globalVisualTimeScale(this.state?.global) *
+        (Number(source.speed) || 1) *
+        Math.max(0, Number(component.speed) || 0),
+    };
+  }
+
+  claimRetainedComponentMedia(component = {}, visiting = new Set()) {
+    if (!component?.id || visiting.has(component.id) || !this.componentContainsVideo(component)) return;
+    visiting.add(component.id);
+    const visit = (chain = []) => {
+      for (const item of chain || []) {
+        if (!item || item.enabled === false) continue;
+        if (item.kind === "group") {
+          visit(item.chain || []);
+          continue;
+        }
+        if (item.kind !== "source") continue;
+        const source = sourceWithNodeParams(item.source, {}, item.id);
+        if (source.type === "component") {
+          const dependency = this.state?.components?.find((candidate) => candidate.id === source.componentId);
+          if (dependency) this.claimRetainedComponentMedia(dependency, visiting);
+          continue;
+        }
+        if (source.type !== "media") continue;
+        const runtimeItem = this.media.get(source.mediaId);
+        const mediaMeta = (this.state?.media || []).find((entry) => entry.id === source.mediaId);
+        if (mediaMeta?.type !== "video" && !runtimeItem?.video) continue;
+        this.acquireMedia(source.mediaId, {
+          playback: this.videoPlaybackOptions(source, component),
+        });
+      }
+    };
+    visit(component.chain || []);
+    visiting.delete(component.id);
+  }
+
+  componentContainsVideo(component = {}, visiting = new Set()) {
+    if (!component?.id) return false;
+    const cached = this.componentVideoPresence.get(component);
+    if (cached != null) return cached;
+    if (visiting.has(component.id)) return false;
+    visiting.add(component.id);
+    let containsVideo = false;
+    const visit = (chain = []) => {
+      for (const item of chain || []) {
+        if (!item || item.enabled === false) continue;
+        if (item.kind === "group") {
+          visit(item.chain || []);
+          if (containsVideo) return;
+          continue;
+        }
+        if (item.kind !== "source") continue;
+        const source = sourceWithNodeParams(item.source, {}, item.id);
+        if (source.type === "component") {
+          const dependency = this.state?.components?.find((candidate) => candidate.id === source.componentId);
+          if (dependency && this.componentContainsVideo(dependency, visiting)) containsVideo = true;
+        } else if (source.type === "media") {
+          const runtimeItem = this.media.get(source.mediaId);
+          const mediaMeta = (this.state?.media || []).find((entry) => entry.id === source.mediaId);
+          containsVideo = mediaMeta?.type === "video" || !!runtimeItem?.video || /\.(mp4|m4v|mov|webm|ogv)$/i.test(source.mediaId || "");
+        }
+        if (containsVideo) return;
+      }
+    };
+    visit(component.chain || []);
+    visiting.delete(component.id);
+    this.componentVideoPresence.set(component, containsVideo);
+    return containsVideo;
+  }
+
   renderDirectSourceNodeState(nodeId, inputState, component, item, componentTime, renderRequest) {
     const source = {
       ...sourceWithNodeParams(item.source, {}, item.id),
@@ -1827,11 +1908,7 @@ export class OutputRenderer {
       });
     }
     if (source.type === "media") {
-      const playback = {
-          start: source.start,
-          end: source.end,
-          speed: (this.isPlaybackActive() ? 1 : 0) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
-      };
+      const playback = this.videoPlaybackOptions(source, component);
       const media = this.acquireMedia(source.mediaId, { playback, width: renderRequest.width });
       if (media?.video && isDrawableMedia(media.video)) {
         return createPlacedRenderResult(media.video, {
@@ -2374,7 +2451,12 @@ export class OutputRenderer {
     // source draw and Output readiness traversal own those lifecycle actions.
     const runtimeItem = this.media.get(mediaId);
     if (!mediaMeta || !isReadyMediaItem(runtimeItem)) return true;
-    if (mediaMeta.type === "video" || runtimeItem?.video) return true;
+    if (mediaMeta.type === "video" || runtimeItem?.video) {
+      // Modern video elements report decoded-frame presentation directly.
+      // Their revision is part of the stable component signature, so the
+      // chain only needs renderer-frame invalidation on older browsers.
+      return runtimeItem?.videoFrameDriven !== true;
+    }
     if (mediaMeta.type === "model" || runtimeItem?.model || runtimeItem?.modelData) {
       const params = source.params || {};
       return Math.abs(Number(params.spinX) || 0) > 0.0001 ||
@@ -2517,7 +2599,11 @@ export class OutputRenderer {
     const mediaId = source.mediaId || "";
     const mediaMeta = (this.state?.media || []).find((entry) => entry.id === mediaId);
     const runtimeItem = this.media.get(mediaId);
-    if (mediaMeta?.type === "video" || runtimeItem?.video) return runtimeContext.frame;
+    if (mediaMeta?.type === "video" || runtimeItem?.video) {
+      return runtimeItem?.videoFrameDriven === true
+        ? Math.max(0, Number(runtimeItem.videoFrameRevision) || 0)
+        : runtimeContext.frame;
+    }
     if (mediaMeta?.type === "model" || runtimeItem?.model || runtimeItem?.modelData) {
       const params = source.params || owner.params || {};
       const spinning = Math.abs(Number(params.spinX) || 0) +
@@ -2657,11 +2743,7 @@ export class OutputRenderer {
   }
 
   drawMediaSource(pg, source, component, componentTime, renderRequest) {
-    const playback = {
-      start: source.start,
-      end: source.end,
-      speed: (this.isPlaybackActive() ? 1 : 0) * globalVisualTimeScale(this.state?.global) * (Number(source.speed) || 1) * Math.max(0, Number(component.speed) || 0),
-    };
+    const playback = this.videoPlaybackOptions(source, component);
     const item = this.acquireMedia(source.mediaId, { playback, width: pg.width });
     if (item?.video && isDrawableMedia(item.video)) {
       drawWithContentTransform(pg, source.contentTransform, (view) => {

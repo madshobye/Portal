@@ -150,7 +150,7 @@ test("output renderer delegates surface demand planning", () => {
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const mapperSource = readFileSync(new URL("../js/libraries/mapping-engine/mapping-engine/index.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=periodic-preview-maintenance-1"'));
+  assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=runtime-diagnostics-1"'));
   assert.ok(runtimeSource.includes('from "./surface-render-planner.js?v=async-frame-fanout-1"'));
   assert.ok(runtimeSource.includes("const { routes, metrics } = planSurfaceRoutes({"));
   assert.ok(runtimeSource.includes("surfaceProgram: renderer.sceneProgramSurfaces(renderer.state)"));
@@ -173,6 +173,35 @@ test("surface routes compose component placement opacity and blend at the parent
     surface: { ...route.surface, finalBlend: "multiply" },
   }), "multiply");
   assert.equal(surfaceRouteOpacity({ component: {}, surface: {} }), 1);
+});
+
+test("direct recording-frame views stay in the mapper shader instead of p5 sub-texture copies", () => {
+  const calls = [];
+  const renderer = {
+    mapper: {
+      drawTexture(...args) { calls.push(args); },
+    },
+  };
+  const runtime = new OutputSurfaceRuntime(renderer);
+  const texture = { width: 1000, height: 500 };
+  const mapperSurface = { id: "direct", corners: [] };
+  runtime.drawDirectSurfaceView({
+    texture,
+    sourceRect: { x: 650, y: 100, width: 250, height: 300 },
+  }, {
+    surface: { projectionFit: "cover" },
+    mapped: { mapperSurface },
+  }, 0.75);
+
+  assert.equal(calls.length, 1);
+  assert.strictEqual(calls[0][0], texture);
+  assert.strictEqual(calls[0][1], mapperSurface);
+  assert.equal(calls[0][2], "cover");
+  assert.equal(calls[0][3], 0);
+  assert.deepEqual(calls[0][4], {
+    sourceRect: { x: 650, y: 100, width: 250, height: 300 },
+    opacity: 0.75,
+  });
 });
 
 test("surface runtime derives transition progress without owning wall-clock state", () => {

@@ -1,4 +1,4 @@
-import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=video-load-hold-1";
+import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=runtime-diagnostics-1";
 import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
 import { graphicsToPngBlob } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
@@ -7,6 +7,10 @@ import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
 import { SharedInputRuntime } from "./shared-input-runtime.js?v=screen-input-registry-1";
 
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=screen-input-registry-1";
+
+let videoFrameCallbackUnavailableReported = false;
+let videoFrameCallbackFailureReported = false;
+let rasterDecodeApiFallbackReported = false;
 
 export class OutputMediaRuntime {
   constructor({
@@ -292,6 +296,10 @@ function createMediaRuntimeItem(id, file, sourceRevision = "") {
     loading: false,
     lastMediaUse: 0,
     inactiveFrameCount: 0,
+    videoFrameDriven: false,
+    videoFrameRevision: 0,
+    videoFrameCallbackId: null,
+    videoFrameElement: null,
   };
 }
 
@@ -387,9 +395,20 @@ function ensureMediaRuntimeItemLoaded(item, request = {}) {
 
 function loadRasterImage(item, request, lifecycle) {
   const resizeWidth = rasterVariantWidth(request?.width);
-  const canResizeDecode = !/\.gif$/i.test(item.id || "") && resizeWidth > 0 &&
+  const resizeDecodeWanted = !/\.gif$/i.test(item.id || "") && resizeWidth > 0;
+  const canResizeDecode = resizeDecodeWanted &&
     typeof globalThis.createImageBitmap === "function" && typeof globalThis.createImage === "function";
   if (!canResizeDecode) {
+    if (resizeDecodeWanted && !rasterDecodeApiFallbackReported) {
+      rasterDecodeApiFallbackReported = true;
+      console.warn("[VJ1_RASTER_RESIZE_DECODE_UNAVAILABLE]", {
+        fallback: "decode the native raster through p5 loadImage",
+        missing: [
+          typeof globalThis.createImageBitmap === "function" ? "" : "createImageBitmap",
+          typeof globalThis.createImage === "function" ? "" : "p5 createImage",
+        ].filter(Boolean),
+      });
+    }
     loadRasterImageFromUrl(item, lifecycle);
     return;
   }
@@ -523,6 +542,7 @@ function ensureVideoRuntimeItemLoaded(item) {
     element.preload = "auto";
     element.setAttribute?.("muted", "");
     element.setAttribute?.("playsinline", "");
+    startVideoFrameTracking(item, element, isCurrent);
   }
   element?.addEventListener?.("loadeddata", markReady, { once: true });
   element?.addEventListener?.("canplay", markReady, { once: true });
@@ -585,6 +605,7 @@ function unloadMediaRuntimeItem(item) {
   if (!item) return;
   item.loadToken++;
   item.loading = false;
+  stopVideoFrameTracking(item);
   item.video?.stop?.();
   item.video?.remove?.();
   item.video = null;
@@ -621,6 +642,72 @@ function unloadMediaRuntimeItem(item) {
   item.imageRenditions?.clear?.();
   item.imageRenditionOrder = [];
   item.revision++;
+}
+
+function startVideoFrameTracking(item, element, isCurrent) {
+  stopVideoFrameTracking(item);
+  if (!item || !element) return;
+  if (typeof element.requestVideoFrameCallback !== "function") {
+    if (!videoFrameCallbackUnavailableReported) {
+      videoFrameCallbackUnavailableReported = true;
+      console.warn("[VJ1_VIDEO_FRAME_CALLBACK_UNAVAILABLE]", {
+        fallback: "invalidate video components on every renderer frame",
+        message: "HTMLVideoElement.requestVideoFrameCallback is unavailable",
+      });
+    }
+    return;
+  }
+  item.videoFrameDriven = true;
+  item.videoFrameElement = element;
+  const onFrame = (_now, metadata = {}) => {
+    if (!item.videoFrameDriven || item.videoFrameElement !== element || !isCurrent()) return;
+    // The decoded frame—not the renderer tick—is the media dirty signal. This
+    // lets a 30 fps clip retain its rendered component on the intervening
+    // frames of a 60 fps Preview/Output loop without changing playback.
+    item.videoFrameRevision = Math.max(0, Number(item.videoFrameRevision) || 0) + 1;
+    item.videoFrameMediaTime = Math.max(0, Number(metadata.mediaTime) || Number(element.currentTime) || 0);
+    try {
+      item.videoFrameCallbackId = element.requestVideoFrameCallback(onFrame);
+    } catch (error) {
+      // A browser may withdraw the callback while the media element is being
+      // torn down. Fall back to renderer-frame invalidation in that case.
+      item.videoFrameDriven = false;
+      item.videoFrameCallbackId = null;
+      reportVideoFrameCallbackFailure(error);
+    }
+  };
+  try {
+    item.videoFrameCallbackId = element.requestVideoFrameCallback(onFrame);
+  } catch (error) {
+    item.videoFrameDriven = false;
+    item.videoFrameCallbackId = null;
+    item.videoFrameElement = null;
+    reportVideoFrameCallbackFailure(error);
+  }
+}
+
+function reportVideoFrameCallbackFailure(error) {
+  if (videoFrameCallbackFailureReported) return;
+  videoFrameCallbackFailureReported = true;
+  console.warn("[VJ1_VIDEO_FRAME_CALLBACK_FAILED]", {
+    fallback: "invalidate video components on every renderer frame",
+    message: error?.message || String(error || "video frame callback failed"),
+  });
+}
+
+function stopVideoFrameTracking(item) {
+  if (!item) return;
+  const element = item.videoFrameElement;
+  const callbackId = item.videoFrameCallbackId;
+  item.videoFrameDriven = false;
+  item.videoFrameCallbackId = null;
+  item.videoFrameElement = null;
+  if (callbackId == null || typeof element?.cancelVideoFrameCallback !== "function") return;
+  try {
+    element.cancelVideoFrameCallback(callbackId);
+  } catch (_error) {
+    // The element may already have released its decoder during disposal.
+  }
 }
 
 function isMediaRuntimeItemLoaded(item) {

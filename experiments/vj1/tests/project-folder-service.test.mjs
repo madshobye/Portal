@@ -260,7 +260,8 @@ test("completed project transactions enter a serialized immutable save queue", (
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   const engine = readFileSync(new URL("../js/libraries/storage-engine/serialized-storage/index.js", import.meta.url), "utf8");
   assert.match(source, /event\.history === "record" \? 0 : autosaveDelayMs/);
-  assert.match(source, /saveQueue\.enqueue\(\{ reason: saveReason, recordHistory, payload: JSON\.parse\(json\), json \}\)/);
+  assert.match(source, /saveQueue\.enqueue\(\{ reason: saveReason, recordHistory, payload, json \}\)/);
+  assert.doesNotMatch(source, /payload: JSON\.parse\(json\)/);
   assert.match(engine, /while \(this\.pending\.length\)/);
   assert.match(engine, /this\.pending\.unshift\(task\)/);
 });

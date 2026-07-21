@@ -35,6 +35,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   let projectLoadBlocked = false;
   let pendingHistory = false;
   let pendingSaveReason = "";
+  let directoryPickerUnavailableReported = false;
   const thumbnailUrlLease = createThumbnailUrlLease();
   let fileObserver = null;
   let observedChangeQueue = Promise.resolve();
@@ -85,7 +86,16 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   });
 
   async function openFolder() {
-    if (!window.showDirectoryPicker) return { fallback: true };
+    if (!window.showDirectoryPicker) {
+      if (!directoryPickerUnavailableReported) {
+        directoryPickerUnavailableReported = true;
+        console.warn("[VJ1_DIRECTORY_PICKER_UNAVAILABLE]", {
+          fallback: "legacy file input without a persistent project folder",
+          message: "window.showDirectoryPicker is unavailable",
+        });
+      }
+      return { fallback: true };
+    }
     isOpening = true;
     let opened = false;
     try {
@@ -395,7 +405,17 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     const delay = immediate || reason === "live:scene" || event.history === "record" ? 0 : autosaveDelayMs;
     autosaveTimer = setTimeout(() => {
       autosaveTimer = null;
-      flushAutoSave();
+      const startedAt = monotonicNow();
+      const save = flushAutoSave();
+      const elapsedMs = monotonicNow() - startedAt;
+      if (elapsedMs >= 40) {
+        console.warn("[VJ1_AUTOSAVE_PREPARE_SLOW]", {
+          reason: pendingSaveReason || reason || "change",
+          elapsedMs: Math.round(elapsedMs * 10) / 10,
+          message: "building and serializing project.json blocked the main thread before storage began",
+        });
+      }
+      void save;
     }, delay);
   }
 
@@ -407,7 +427,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     pendingSaveReason = "";
     const payload = buildProjectPayload(store.getState(), new Date().toISOString());
     const json = JSON.stringify(payload, null, 2);
-    return saveQueue.enqueue({ reason: saveReason, recordHistory, payload: JSON.parse(json), json });
+    // buildProjectPayload already returns a detached persistable snapshot.
+    // Re-parsing the just-created JSON doubled the synchronous autosave cost
+    // for effect-heavy projects and is unnecessary for queue ownership.
+    return saveQueue.enqueue({ reason: saveReason, recordHistory, payload, json });
   }
 
   async function saveProject({ reason = "manual", recordHistory = true, payload: suppliedPayload = null, json: suppliedJson = "" } = {}) {
@@ -679,6 +702,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     writeMediaRendition: (...args) => derivedAssets.writeMediaRendition(...args),
     writeComponentThumbnail: (...args) => derivedAssets.writeComponentThumbnail(...args),
   };
+}
+
+function monotonicNow() {
+  return typeof globalThis.performance?.now === "function" ? globalThis.performance.now() : Date.now();
 }
 
 function mergeMediaCatalogMarkers(imported = [], authored = []) {

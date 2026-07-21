@@ -10,7 +10,7 @@ import {
   directFitRects,
   scaledComponentSampleRect,
 } from "./component-render-layout.js?v=canvas-global-resolution-1";
-import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=render-diagnostics-1";
+import { boundedSampleRect, drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import { planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=async-frame-fanout-1";
 import {
   createSharedFramebufferTarget,
@@ -382,21 +382,25 @@ export class OutputSurfaceRuntime {
   }
 
   drawDirectSurfaceView(view, route = {}, opacity = 1) {
-    const rect = route.mapped?.directRect || cornersRect(route.mapped?.mapperSurface?.corners || []);
-    const sourceRect = view?.sourceRect;
+    const requestedSourceRect = view?.sourceRect;
     const texture = view?.texture;
-    if (!texture || !sourceRect || !rect || opacity <= 0) return;
-    const fit = directFitRects(sourceRect.width, sourceRect.height, rect, route.surface?.projectionFit || "contain");
-    const drawable = isSharedFramebufferTarget(texture) ? unwrapRenderTarget(texture) : texture;
-    resetShader();
-    imageMode(CORNER);
-    tint(255, 255 * opacity);
-    image(drawable,
-      fit.destination.x - width * 0.5, fit.destination.y - height * 0.5,
-      fit.destination.width, fit.destination.height,
-      sourceRect.x + fit.source.x, sourceRect.y + fit.source.y,
-      fit.source.width, fit.source.height);
-    noTint();
+    const mapperSurface = route.mapped?.mapperSurface;
+    if (!texture || !requestedSourceRect || !mapperSurface || opacity <= 0) return;
+    const sourceRect = boundedSampleRect(texture, requestedSourceRect, texture.width, texture.height);
+    // A recording frame is a texture view, not a new raster. Sample it with
+    // the same mapping shader used by projected surfaces so shared
+    // framebuffers stay in the main GL context. p5.image's source-rectangle
+    // path can ask Chromium to copy a sub-texture with a negative internal
+    // offset after a WebGL source resize; it also duplicates the crop/fit
+    // rules maintained by the mapper. This remains one direct shader draw and
+    // introduces no surface buffer or readback.
+    this.renderer.mapper.drawTexture(
+      texture,
+      mapperSurface,
+      route.surface?.projectionFit || "contain",
+      0,
+      { sourceRect, opacity }
+    );
   }
 
   drawSurfaceRoute(target, route = {}, { compositeOpacity = 1 } = {}) {

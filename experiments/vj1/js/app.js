@@ -1,12 +1,13 @@
 import { createAppState } from "./app-state.js?v=boundary-authority-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=periodic-preview-maintenance-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=runtime-diagnostics-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=observer-abort-fallback-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=runtime-diagnostics-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=queued-recovery-1";
-import { installOutputApp } from "./output/output-app.js?v=periodic-preview-maintenance-1";
+import { installOutputApp } from "./output/output-app.js?v=runtime-diagnostics-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
+import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js?v=runtime-diagnostics-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -14,6 +15,7 @@ const mode = getClientMode();
 if (mode === "output" || mode === "preview" || mode === "component") {
   const diagnostics = createDiagnosticsService();
   diagnostics.install();
+  reportBrowserCompatibility({ mode });
   installOutputApp({ root, mode, diagnostics });
 } else {
   installControlApp();
@@ -58,6 +60,7 @@ async function installControlApp() {
       diagnostics: () => {
         const service = createDiagnosticsService();
         service.install();
+        reportBrowserCompatibility({ mode: "control" });
         return service;
       },
       "data-store": (dependencies) => createAppState(null, {

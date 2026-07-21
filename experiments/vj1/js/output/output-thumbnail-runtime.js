@@ -5,6 +5,7 @@ import {
 import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { normalizedContentTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
 import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=render-core-contract-1";
+import { boundedSampleRect } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import {
   componentThumbnailSignature,
   fittedThumbnailSize,
@@ -146,6 +147,13 @@ export class OutputThumbnailRuntime {
           this.processNextCapture();
         }, { timeout: CAPTURE_RETRY_MS });
       } else {
+        if (!this.idleCallbackUnavailableReported) {
+          this.idleCallbackUnavailableReported = true;
+          console.warn("[VJ1_IDLE_CALLBACK_UNAVAILABLE]", {
+            fallback: "run thumbnail capture directly after the settle timer",
+            message: "requestIdleCallback is unavailable",
+          });
+        }
         this.processNextCapture();
       }
     }, Math.max(0, delay));
@@ -249,10 +257,11 @@ export class OutputThumbnailRuntime {
       const y = flip ? size.height : 0;
       const height = flip ? -size.height : size.height;
       if (crop) {
+        const sample = boundedSampleRect(source, crop, sourceWidth, sourceHeight);
         target.image(
           unwrapRenderTarget(source),
           0, y, size.width, height,
-          crop.x, crop.y, crop.width, crop.height
+          sample.x, sample.y, sample.width, sample.height
         );
       } else {
         target.image(unwrapRenderTarget(source), 0, y, size.width, height);

@@ -28,10 +28,7 @@ export function drawBuffer(pg, source, x, y, width, height, sourceIsWebGL = fals
 }
 
 export function drawSampleRect(pg, source, sampleRect = {}, x = 0, y = 0, width = pg.width, height = pg.height) {
-  const sx = Math.max(0, Number(sampleRect.x) || 0);
-  const sy = Math.max(0, Number(sampleRect.y) || 0);
-  const sw = Math.max(1, Number(sampleRect.width) || source?.width || width);
-  const sh = Math.max(1, Number(sampleRect.height) || source?.height || height);
+  const { x: sx, y: sy, width: sw, height: sh } = boundedSampleRect(source, sampleRect, width, height);
   try {
     pg.image(source, x, y, width, height, sx, sy, sw, sh);
   } catch (error) {
@@ -46,7 +43,49 @@ export function drawSampleRect(pg, source, sampleRect = {}, x = 0, y = 0, width 
   }
 }
 
+export function boundedSampleRect(source, sampleRect = {}, fallbackWidth = 1, fallbackHeight = 1) {
+  const unwrapped = unwrapRenderTarget(source) || source;
+  const drawable = unwrapped?.canvas || unwrapped?.elt || unwrapped;
+  const sourceWidth = Math.max(1, Number(source?.width ?? drawable?.width ?? drawable?.videoWidth ?? drawable?.naturalWidth) || Number(fallbackWidth) || 1);
+  const sourceHeight = Math.max(1, Number(source?.height ?? drawable?.height ?? drawable?.videoHeight ?? drawable?.naturalHeight) || Number(fallbackHeight) || 1);
+  const requested = {
+    x: Number(sampleRect?.x) || 0,
+    y: Number(sampleRect?.y) || 0,
+    width: Math.max(1, Number(sampleRect?.width) || sourceWidth),
+    height: Math.max(1, Number(sampleRect?.height) || sourceHeight),
+  };
+  const x = Math.min(sourceWidth - 1, Math.max(0, requested.x));
+  const y = Math.min(sourceHeight - 1, Math.max(0, requested.y));
+  const bounded = {
+    x,
+    y,
+    width: Math.max(1, Math.min(requested.width, sourceWidth - x)),
+    height: Math.max(1, Math.min(requested.height, sourceHeight - y)),
+  };
+  if (rectChanged(requested, bounded)) reportSampleRectClamp(source, requested, bounded, { width: sourceWidth, height: sourceHeight });
+  return bounded;
+}
+
 const reportedSampleDrawFailures = new WeakMap();
+const reportedSampleRectClamps = new WeakSet();
+
+function rectChanged(a, b) {
+  return Math.abs(a.x - b.x) > 0.001 || Math.abs(a.y - b.y) > 0.001 ||
+    Math.abs(a.width - b.width) > 0.001 || Math.abs(a.height - b.height) > 0.001;
+}
+
+function reportSampleRectClamp(source, requested, bounded, sourceSize) {
+  if (source && (typeof source === "object" || typeof source === "function")) {
+    if (reportedSampleRectClamps.has(source)) return;
+    reportedSampleRectClamps.add(source);
+  }
+  console.warn("[VJ1_SAMPLE_RECT_OUT_OF_BOUNDS]", {
+    requested,
+    bounded,
+    sourceSize,
+    message: "the sample rectangle was clipped before texture upload to prevent an invalid GPU copy",
+  });
+}
 
 function reportSampleDrawFailure(source, target, error, recovered) {
   if (source && (typeof source === "object" || typeof source === "function")) {

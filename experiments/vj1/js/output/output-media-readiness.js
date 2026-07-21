@@ -1,4 +1,4 @@
-import { collectMediaIdsFromSource, createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=video-load-hold-1";
+import { collectMediaIdsFromSource, createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=runtime-diagnostics-1";
 
 export function collectOutputMediaReadiness({ mode = "output", state = null, media = new Map(), acquireMedia = null } = {}) {
   const status = createMediaReadinessStatus();

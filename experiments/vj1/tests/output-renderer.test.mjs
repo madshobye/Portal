@@ -997,7 +997,8 @@ test("Canvas recording-frame thumbnails crop the rendered Canvas by logical fram
   assert.ok(source.includes("component.canvas?.frameThumbnails?.[frame.id]"));
   assert.ok(source.includes("canvasFrameCrop(output, state.render, state.recordingFrames, job.frameId)"));
   assert.ok(source.includes("job.frameId ? { frameId: job.frameId } : {}"));
-  assert.ok(source.includes("crop.x, crop.y, crop.width, crop.height"));
+  assert.ok(source.includes("const sample = boundedSampleRect(source, crop, sourceWidth, sourceHeight)"));
+  assert.ok(source.includes("sample.x, sample.y, sample.width, sample.height"));
 });
 
 test("component thumbnails downsample on the GPU before a small readback", () => {

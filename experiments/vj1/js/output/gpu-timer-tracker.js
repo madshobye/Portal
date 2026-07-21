@@ -120,6 +120,13 @@ export class GpuTimerTracker {
     }
     this.apis.set(gl, api);
     if (api) this.supported = true;
+    else if (!this.reportedFailures.has("unsupported")) {
+      this.reportedFailures.add("unsupported");
+      console.warn("[VJ1_GPU_TIMER_UNAVAILABLE]", {
+        fallback: "report CPU render timing without GPU query timing",
+        message: "EXT_disjoint_timer_query is unavailable for this WebGL context",
+      });
+    }
     return api;
   }
 

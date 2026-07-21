@@ -1062,6 +1062,65 @@ test("video readiness stays latched through temporary decoder readyState dips", 
   assert.equal(isReadyMediaItem(item), true);
 });
 
+test("decoded video frames invalidate render caches instead of renderer ticks", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  const source = { type: "media", mediaId: "clips/loop.mov" };
+  component.chain = [createComponentLayer(0, source)];
+  state.components = [component];
+  state.media = [{ id: "clips/loop.mov", path: "clips/loop.mov", type: "video", size: 42 }];
+  renderer.state = state;
+  const runtimeItem = {
+    ready: true,
+    video: { elt: { tagName: "VIDEO", videoWidth: 640, videoHeight: 360, readyState: 4 } },
+    videoFrameDriven: true,
+    videoFrameRevision: 3,
+  };
+  renderer.media.set("clips/loop.mov", runtimeItem);
+
+  assert.equal(renderer.sourceIsFrameDynamic(source), false);
+  assert.equal(renderer.sourceRuntimeTimeKey(source, component.chain[0], { frame: 100 }), 3);
+  const first = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
+  assert.ok(first);
+
+  runtimeItem.videoFrameRevision = 4;
+  const next = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
+  assert.ok(next);
+  assert.notEqual(next, first, "a newly presented video frame invalidates the retained component");
+
+  runtimeItem.videoFrameDriven = false;
+  assert.equal(renderer.sourceIsFrameDynamic(source), true, "older browsers retain renderer-frame invalidation");
+  assert.equal(renderer.sourceRuntimeTimeKey(source, component.chain[0], { frame: 100 }), 100);
+});
+
+test("retained video components renew playback ownership without rerendering", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const state = createInitialState();
+  const child = createDefaultComponent(1);
+  child.speed = 0.5;
+  child.chain = [createComponentLayer(0, {
+    type: "media",
+    mediaId: "clips/loop.mov",
+    start: 1,
+    end: 4,
+    speed: 2,
+  })];
+  const parent = createCanvasComponent(0, child.id);
+  state.components = [child, parent];
+  state.media = [{ id: "clips/loop.mov", path: "clips/loop.mov", type: "video", size: 42 }];
+  renderer.state = state;
+  renderer.media.set("clips/loop.mov", { video: { elt: {} } });
+  const claims = [];
+  renderer.acquireMedia = (id, options) => claims.push({ id, options });
+
+  renderer.claimRetainedComponentMedia(parent);
+
+  assert.equal(claims.length, 1);
+  assert.equal(claims[0].id, "clips/loop.mov");
+  assert.deepEqual(claims[0].options.playback, { start: 1, end: 4, speed: 1 });
+});
+
 test("output readiness includes images referenced by media-backed generators", () => {
   const previousMillis = globalThis.millis;
   globalThis.millis = () => 4000;
@@ -1230,7 +1289,13 @@ test("output playback control pauses output clocks while the editor preview rema
   assert.ok(rendererSource.includes("if (!playing) return"));
   assert.ok(rendererSource.includes('return this.mode !== "output" || this.state?.global?.playing !== false'));
   assert.ok(rendererSource.includes("this.isPlaybackActive() ? 1 : 0"));
-  assert.equal((rendererSource.match(/globalVisualTimeScale\(this\.state\?\.global\).*Number\(source\.speed\)/g) || []).length, 2);
+  const playbackOptions = rendererSource.slice(
+    rendererSource.indexOf("  videoPlaybackOptions("),
+    rendererSource.indexOf("  claimRetainedComponentMedia(")
+  );
+  assert.ok(playbackOptions.includes("globalVisualTimeScale(this.state?.global)"));
+  assert.ok(playbackOptions.includes("Number(source.speed)"));
+  assert.equal((rendererSource.match(/this\.videoPlaybackOptions\(source, component\)/g) || []).length, 3);
   assert.ok(bridgeSource.includes("const clientWatchdog = setInterval"));
 });
 

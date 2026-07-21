@@ -79,6 +79,22 @@ test("media signature helpers cover media-backed generators and runtime readines
     generatorId: "tileTexture",
     params: { imageId: "tile" },
   }), [{ id: "tile", present: true, ready: true, revision: 0, fileKey: "", error: "", kind: "loading" }]);
+  const videoElement = { tagName: "VIDEO", videoWidth: 640, videoHeight: 360, readyState: 4 };
+  assert.deepEqual(runtimeMediaStateForSource(new Map([["clip", {
+    ready: true,
+    video: { elt: videoElement },
+    videoFrameDriven: true,
+    videoFrameRevision: 7,
+  }]]), { type: "media", mediaId: "clip" }), [{
+    id: "clip",
+    present: true,
+    ready: true,
+    revision: 0,
+    videoFrameRevision: 7,
+    fileKey: "",
+    error: "",
+    kind: "video",
+  }]);
   assert.deepEqual(createMediaReadinessStatus(), {
     blocked: false,
     total: 0,
@@ -102,7 +118,7 @@ test("runtime cache policy has one owner outside the output orchestrator", () =>
   });
   assert.equal(componentRuntimeTimeKey({ runtime }, {}, { frame: 8, time: 2.75 }), 2);
   assert.equal(componentRuntimeTimeKey({ runtime: { cacheable: false } }, {}, { frame: 8, time: 2.75 }), 8);
-  assert.match(renderer, /from "\.\/component-render-state\.js\?v=video-load-hold-1"/);
+  assert.match(renderer, /from "\.\/component-render-state\.js\?v=runtime-diagnostics-1"/);
   assert.doesNotMatch(renderer, /function staticComponentGraphState\(/);
   assert.doesNotMatch(renderer, /function collectMediaIdsFromSource\(/);
 });

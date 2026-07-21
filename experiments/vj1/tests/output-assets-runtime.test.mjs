@@ -345,6 +345,8 @@ test("video import stays metadata-only until an active render acquires it", () =
   const previousRevokeUrl = URL.revokeObjectURL;
   let ready = null;
   let loopCalls = 0;
+  let frameCallback = null;
+  const cancelledFrameCallbacks = [];
   const attributes = new Map();
   const element = {
     tagName: "VIDEO",
@@ -352,8 +354,14 @@ test("video import stays metadata-only until an active render acquires it", () =
     defaultMuted: false,
     playsInline: false,
     preload: "",
+    currentTime: 0,
     addEventListener() {},
     setAttribute(name, value) { attributes.set(name, value); },
+    requestVideoFrameCallback(callback) {
+      frameCallback = callback;
+      return 41;
+    },
+    cancelVideoFrameCallback(id) { cancelledFrameCallbacks.push(id); },
   };
   const video = {
     elt: element,
@@ -374,18 +382,25 @@ test("video import stays metadata-only until an active render acquires it", () =
     runtime.importFiles([{ id: "media/clip.mp4", file: { name: "clip.mp4", size: 20, lastModified: 1, type: "video/mp4" } }]);
     assert.equal(ready, null, "the library snapshot does not instantiate a video decoder");
     runtime.beginFrame();
-    runtime.acquireMedia(runtime.media.get("media/clip.mp4"));
+    const item = runtime.media.get("media/clip.mp4");
+    runtime.acquireMedia(item);
     assert.equal(element.muted, true);
     assert.equal(element.defaultMuted, true);
     assert.equal(element.playsInline, true);
     assert.equal(element.preload, "auto");
     assert.equal(attributes.has("muted"), true);
     assert.equal(attributes.has("playsinline"), true);
+    assert.equal(item.videoFrameDriven, true);
+    assert.equal(item.videoFrameRevision, 0);
+    frameCallback(100, { mediaTime: 1.25 });
+    assert.equal(item.videoFrameRevision, 1, "a decoded frame advances the media dirty revision");
+    assert.equal(item.videoFrameMediaTime, 1.25);
     assert.equal(loopCalls, 0, "decode setup does not start playback");
     ready();
     assert.equal(runtime.media.get("media/clip.mp4").ready, true);
     assert.equal(loopCalls, 0);
     runtime.dispose();
+    assert.deepEqual(cancelledFrameCallbacks, [41], "disposing media cancels the pending decoded-frame callback");
   } finally {
     if (previousCreateVideo === undefined) delete globalThis.createVideo;
     else globalThis.createVideo = previousCreateVideo;
