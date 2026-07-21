@@ -26,6 +26,7 @@ The application root (`app.js`, state, controllers, output hosts, services) conf
 - `media-engine`: media/input lifecycle contracts.
 - `mesh-engine`: STL/OBJ parsers, format detection, mesh preparation/resolution, mesh rendering, and file-to-image groups.
 - `image-engine`: reusable image operations such as resize.
+- `isf-engine`: ISF 2 metadata parsing, first-class project nodes, GLSL host adaptation, and relative multipass descriptions.
 - `control-engine`, `data-store`, `state-engine`, `storage-engine`, `synchronization-engine`, `timing-engine`, and `diagnostics-engine`: non-render infrastructure.
 - `visual-nodes`: one folder per generator/effect with metadata, editable JavaScript, shaders, and runtime parts where applicable.
 
@@ -57,6 +58,14 @@ Important invariants:
 - `cover`, `contain`, and `stretch` are explicit route choices and must retain their normal meanings.
 - Avoid extra WebGL contexts, pixel readbacks, resizable cross-context canvas uploads, and unnecessary ping-pong buffers.
 - No silent media/render fallback. Emit structured `VJ1_*` diagnostics.
+
+### ISF shaders
+
+Project `.fs`, `.frag`, and `.glsl` files with an ISF 2 JSON header are discovered as first-class generator or effect nodes. Their declared scalar, boolean, enum, point, and color inputs become ordinary VJ1 parameters; source, metadata, version, description, ports, and editable shader part remain visible in Nodes. The source file is the base authority and is excluded from `project.json`; only references and edited project forks persist.
+
+Single-pass ISF shares the normal cached shader/target path. Multipass execution is invoked only for ISF that declares passes: named transient targets retain one framebuffer, persistent targets use the required two-target swap, float targets request a float shared framebuffer, and relative WIDTH/HEIGHT expressions are evaluated from current render demand. Standard TIME, TIMEDELTA, FRAMEINDEX, PASSINDEX, DATE, RENDERSIZE, image-size, and normalized/pixel sampling contracts are host-bound. Raw ISF `gl_FragCoord` is compiler-virtualized from boundary UV and logical `RENDERSIZE`; never bind it to preview framebuffer pixels, because resizing or ROI would move procedural centers. Ordinary VJ1 effects retain their established fusion and two-target path.
+
+Current Component chains have one image inlet. ISF transitions, auxiliary images, audio, and FFT files remain represented as node ports but are omitted from the visual catalog with `VJ1_ISF_MULTI_INPUT_REQUIRES_NODE_GRAPH`; never bind them silently to the primary image. They should activate when graph-level multi-input placement is implemented.
 
 Effects remain sequential. Shader fusion, direct placement, retained framebuffers, specialized model/terrain paths, and cache reuse must survive node-system work. Do not force optimized paths into a pure generic traversal when a compiled direct node or custom renderer is healthier.
 
@@ -124,8 +133,8 @@ Transitions may prepare media before activation. Missing required media blacks o
 
 ## Handover Status
 
-- Current uncommitted work includes the parsed STL/OBJ shared target, direct-frame cleanup, quiet routine model-cache diagnostics, lower-frequency/lifecycle-aware autosave, and compact node-project persistence.
-- Full automated suite passes: **814/814**. The real `mappertest` project also passes an in-memory compact save/load/save equivalence check.
+- Current uncommitted work includes the parsed STL/OBJ shared target, direct-frame cleanup, quiet routine model-cache diagnostics, lower-frequency/lifecycle-aware autosave, compact node-project persistence, and the ISF engine/runtime integration.
+- Full automated suite passes: **826/826**. File-backed nodes may be unresolved between the lightweight project snapshot and asset scan: UI and rendering treat them as pending/dynamic, and graph compilation temporarily represents a pending source as transparent or a pending effect as pass-through. Their IDs never enter the strict built-in catalog and the temporary result is never cached as stable; the same graph activates when asset definitions arrive. The real `mappertest` project also passes an in-memory compact save/load/save equivalence check.
 - Latest changes were not browser-tested, following the user's request. The user should reload and verify that the skull appears normally without repeated `glCopySubTextureCHROMIUM` errors. If `VJ1_MODEL_SHARED_RENDER_FAILED` appears, inspect the raw mesh renderer against `SharedFramebufferTarget` rather than restoring a cross-context canvas upload.
 - Routine model cache-hit/write and LOD-ready success events are intentionally silent; cache failures, non-manifold topology, and simplification limits remain diagnostic warnings.
 - `VJ1_AUTOSAVE_PREPARE_SLOW` should no longer follow ordinary Component selection. Lifecycle writes are best-effort because Chrome cannot guarantee completion of asynchronous folder writes after shutdown begins; normal committed autosaves remain the crash-safety boundary.

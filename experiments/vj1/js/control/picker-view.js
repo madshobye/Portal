@@ -1,6 +1,7 @@
 import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
+import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 function getByPath(target, path) {
   return String(path || "").split(".").filter(Boolean).reduce((value, segment) => value?.[segment], target);
@@ -48,7 +49,8 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
   const mediaItems = allowedCategory
     ? allMediaItems.filter((item) => elementMediaCategory(item) === allowedCategory)
     : allMediaItems;
-  const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
+  const generators = [...listGeneratorComponents(), ...listProjectIsfVisualComponents(state).filter((component) => component.kind === "generator")]
+    .filter((generator) => generator.id !== "black");
   const sourceFilter = allowedCategory || picker?.filter || "all";
   const isMediaValuePicker = picker?.valueMode === "mediaId";
   return `
@@ -173,8 +175,10 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
   const components = owner?.type === "canvas"
     ? componentItems.filter((component) => component.id !== picker.componentId && component.type !== "canvas")
     : [];
-  const generators = listGeneratorComponents().filter((generator) => generator.id !== "black");
-  const effects = listShaderComponents();
+  const projectIsf = listProjectIsfVisualComponents(state);
+  const generators = [...listGeneratorComponents(), ...projectIsf.filter((component) => component.kind === "generator")]
+    .filter((generator) => generator.id !== "black");
+  const effects = [...listShaderComponents(), ...projectIsf.filter((component) => component.kind === "effect")];
   return `
     <div class="modal-backdrop"></div>
     <section class="modal-panel element-modal" role="dialog" aria-modal="true" aria-label="Add element">

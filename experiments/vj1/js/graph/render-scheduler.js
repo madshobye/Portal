@@ -40,7 +40,12 @@ export function compileComponentPatch(component = {}, renderRequest = {}, resolv
 function graphForComponentChain(component, request, outputId, resolvers) {
   const chain = (component.chain || []).filter((item) => item.enabled !== false);
   const nodes = chain
-    .map((item, index) => withRenderRequest(chainNodeForItem(component, item, index, resolvers), request));
+    .map((item, index) => chainNodeForItem(component, item, index, resolvers))
+    // File-backed visual definitions are derived after the lightweight
+    // project snapshot. Until they arrive, a source contributes transparent
+    // content and an effect is pass-through, represented by no graph node.
+    .filter(Boolean)
+    .map((node) => withRenderRequest(node, request));
   const edges = [];
   for (let index = 0; index < nodes.length - 1; index++) {
     edges.push(textureEdge(nodes[index].id, nodes[index + 1].id));
@@ -114,6 +119,7 @@ function chainNodeForItem(component, item, index, resolvers = {}) {
     });
   }
   const sourceComponent = sourceComponentFor(item.source, resolvers.getGeneratorComponent);
+  if (!sourceComponent) return null;
   return createVisualNode(sourceComponent, {
     id: `${sourceComponent.id || "component"}:source:${index}:${item.id}`,
     role: "source",
@@ -238,7 +244,9 @@ function withRenderRequest(node, request) {
 }
 
 function effectNodeForPass(ownerComponent, pass, index, getEffectComponent = getShaderComponent) {
-  const effectComponent = getEffectComponent(pass.id);
+  let effectComponent = null;
+  try { effectComponent = getEffectComponent(pass.id); } catch { return null; }
+  if (!effectComponent) return null;
   return createVisualNode(effectComponent, {
     id: `${ownerComponent.id || "component"}:effect:${index}:${pass.id}`,
     role: "effect",
@@ -260,7 +268,9 @@ function effectNodeForPass(ownerComponent, pass, index, getEffectComponent = get
 }
 
 function sourceComponentFor(source = {}, resolveGenerator = getGeneratorComponent) {
-  if (source.type === "generator") return resolveGenerator(source.generatorId);
+  if (source.type === "generator") {
+    try { return resolveGenerator(source.generatorId); } catch { return null; }
+  }
   return {
     id: `source.${source.type || "black"}`,
     kind: "source",

@@ -1,10 +1,10 @@
 import { createAppState } from "./app-state.js?v=boundary-authority-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=runtime-diagnostics-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=inspector-pending-node-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=compact-project-nodes-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=isf-nodes-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=queued-recovery-1";
-import { installOutputApp } from "./output/output-app.js?v=runtime-diagnostics-1";
+import { installOutputApp } from "./output/output-app.js?v=isf-coordinates-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
 import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js?v=runtime-diagnostics-1";
@@ -24,7 +24,7 @@ if (mode === "output" || mode === "preview" || mode === "component") {
 async function installControlApp() {
   // Control-only composition keeps node catalog/editor metadata completely out
   // of output and preview render processes; no live-frame work is introduced.
-  const { createVj1NodePackage } = await import("./app-node-package.js?v=compact-project-nodes-1");
+  const { createVj1NodePackage } = await import("./app-node-package.js?v=isf-nodes-1");
   const { applicationProgramFromProjectData, loadStoredApplicationProgram } = await import("./services/application-program-loader.js?v=application-bootstrap-10");
   const nodePackage = createVj1NodePackage();
   const fixtureUrl = fixtureStateUrl();

@@ -16,7 +16,8 @@ export function createShaderBuilder({ getCustomCode, onStatus, getComponent = ge
       const factory = typeof target?.createShader === "function" ? target : globalThis;
       const fragmentSource = usesShadertoyInterface(component, code)
         ? shadertoyFragmentSource(code, component)
-        : component?.type === "fragment" ? standaloneFragmentSource(code, component) : fragmentShaderSource(code, component);
+        : component?.type === "isf" ? code
+          : component?.type === "fragment" ? standaloneFragmentSource(code, component) : fragmentShaderSource(code, component);
       const shader = factory.createShader(vertexShaderSource(), fragmentSource);
       cache.set(key, shader);
       onStatus?.("Shader ready", "");

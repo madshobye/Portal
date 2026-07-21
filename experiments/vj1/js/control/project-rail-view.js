@@ -1,7 +1,7 @@
 import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { canvasComponents, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInletsTemplate } from "./mapping-view.js?v=scroll-region-1";
-import { liveComponentPillTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSurfacePillTemplate } from "./scene-live-view.js?v=scroll-region-1";
+import { liveComponentPillTemplate, liveNavigableComponents, liveScenePillTemplate, scenePillTemplate, sceneRailConfigTemplate, sceneSurfacePillTemplate } from "./scene-live-view.js?v=isf-nodes-1";
 import { componentCardBarTemplate, textListItemTemplate } from "./view-primitives.js?v=scroll-region-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 

@@ -995,7 +995,8 @@ test("live source controls use dynamic param metadata", () => {
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path, viewParams)"));
-  assert.ok(source.includes("getGeneratorComponent(source.generatorId).params"));
+  assert.ok(source.includes("visualGeneratorComponent(state, source.generatorId)?.params"));
+  assert.ok(source.includes("listProjectIsfVisualComponents(state)"));
   assert.ok(source.includes("mediaSourceParams(source, media)"));
   assert.ok(source.includes("paramControlsTemplate(params,"));
   assert.ok(parameterSource.includes("export function paramControlTemplate"));

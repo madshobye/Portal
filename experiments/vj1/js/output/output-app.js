@@ -3,7 +3,7 @@ import { sanitizeState } from "../domain/models.js?v=boundary-authority-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=queued-recovery-1";
-import { OutputRenderer } from "./output-renderer.js?v=runtime-diagnostics-1";
+import { OutputRenderer } from "./output-renderer.js?v=isf-runtime-4";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 

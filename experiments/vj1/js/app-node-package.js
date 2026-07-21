@@ -59,6 +59,7 @@ import {
   Prepare3dAssetGroup,
   StlParserNode,
 } from "./libraries/mesh-engine/index.js";
+import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 const ProjectComponentNode = semanticProjectNode("vj1.project.component", "Component", "A task-oriented visual program composed from reusable nodes.", "texture");
 const ProjectCanvasNode = semanticProjectNode("vj1.project.canvas", "Canvas", "A spatial visual program containing reusable Components and elements.", "texture");
@@ -233,8 +234,11 @@ function applicationPlanSignature(plan = {}) {
 
 export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] } = {}) {
   const currentNodes = normalizeNodeProjectData(state?.nodes);
+  const projectVisualDefinitions = listProjectIsfVisualComponents({ ...state, nodes: currentNodes })
+    .map((component) => component.nodeDefinition);
   const topologyDefinitions = new Map([
     ...visualDefinitions,
+    ...projectVisualDefinitions,
     LayerGroupNode,
     VisualSourceNode,
   ].map((definition) => [definition.id, definition]));
@@ -253,6 +257,7 @@ export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] 
     components,
     nodes: ensureVj1NodeProjectData(currentNodes, components, {
       visualDefinitions,
+      projectVisualDefinitions,
       scenes: state?.scenes,
       surfaces: state?.surfaces,
       componentGroups,
@@ -261,11 +266,12 @@ export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] 
 }
 
 export function ensureVj1NodeProjectData(value = {}, components = [], {
-  visualDefinitions = [], scenes = [], surfaces = [], componentGroups: preparedComponentGroups = null,
+  visualDefinitions = [], projectVisualDefinitions = [], scenes = [], surfaces = [], componentGroups: preparedComponentGroups = null,
 } = {}) {
   const current = normalizeNodeProjectData(value);
   const topologyDefinitions = new Map([
     ...visualDefinitions,
+    ...projectVisualDefinitions,
     LayerGroupNode,
     VisualSourceNode,
   ].map((definition) => [definition.id, definition]));

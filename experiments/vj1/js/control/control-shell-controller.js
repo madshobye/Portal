@@ -1,7 +1,7 @@
 import { VJ1, WORKSPACES } from "../constants.js";
 import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-patch-contract-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=runtime-diagnostics-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=isf-coordinates-1";
 import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
@@ -9,14 +9,14 @@ import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEdi
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=scroll-region-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
-import { canvasInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=scroll-region-1";
+import { canvasInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=inspector-pending-node-1";
 import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
 import { mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=scroll-region-1";
-import { liveInspectorTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=scroll-region-1";
+import { liveInspectorTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=inspector-pending-node-1";
 import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=scroll-region-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { createClipboardController } from "./clipboard-controller.js?v=clipboard-chain-target-1";
-import { createModalController } from "./modal-controller.js?v=screen-input-registry-2";
+import { createModalController } from "./modal-controller.js?v=inspector-pending-node-1";
 import { createInputController } from "./input-controller.js?v=component-to-canvas-1";
 import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-controller-1";

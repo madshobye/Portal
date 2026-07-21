@@ -26,9 +26,13 @@ export function shaderParamControlsTemplate(component, pass, basePath, options =
 // Components may override either authored set with `primaryParamIds` /
 // `detailParamIds` without requiring a custom inspector.
 export function componentParamViews(component = {}) {
-  const visible = (component.params || []).filter((param) => param?.id !== "seed" && param?.id !== RENDER_QUALITY_PARAM.id);
-  const explicitPrimary = new Set(component.primaryParamIds || []);
-  const explicitDetails = new Set(component.detailParamIds || []);
+  // Project state is intentionally published before its asset scan finishes.
+  // File-backed visual nodes can therefore be unresolved for a render or two;
+  // an empty parameter view is the correct pending state for both generators
+  // and effects, not an inspector crash.
+  const visible = (component?.params || []).filter((param) => param?.id !== "seed" && param?.id !== RENDER_QUALITY_PARAM.id);
+  const explicitPrimary = new Set(component?.primaryParamIds || []);
+  const explicitDetails = new Set(component?.detailParamIds || []);
   if (explicitPrimary.size || explicitDetails.size) {
     const primary = visible.filter((param) => explicitPrimary.has(param.id) || !explicitDetails.has(param.id));
     const details = visible.filter((param) => explicitDetails.has(param.id));

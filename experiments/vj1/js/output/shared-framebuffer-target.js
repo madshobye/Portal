@@ -163,19 +163,21 @@ export class SharedFramebufferTarget {
   }
 }
 
-export function createSharedFramebufferTarget(width, height, { depth = false } = {}) {
+export function createSharedFramebufferTarget(width, height, { depth = false, format = null } = {}) {
   if (typeof globalThis.createFramebuffer !== "function") {
     reportFramebufferUnavailable();
     return null;
   }
   try {
-    const framebuffer = globalThis.createFramebuffer({
+    const options = {
       width: Math.max(1, Math.round(Number(width) || 1)),
       height: Math.max(1, Math.round(Number(height) || 1)),
       density: 1,
       depth,
       antialias: false,
-    });
+    };
+    if (format != null) options.format = format;
+    const framebuffer = globalThis.createFramebuffer(options);
     return new SharedFramebufferTarget(framebuffer);
   } catch (error) {
     console.error("[VJ1_FRAMEBUFFER_CREATE_FAILED]", error);

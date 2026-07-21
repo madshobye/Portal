@@ -850,7 +850,9 @@ function normalizeSource(source) {
   const end = Math.max(0, Number(source.end) || 0);
   const params = source.params && typeof source.params === "object" ? { ...source.params } : {};
   const generatorSource = source.type === "generator"
-    ? createGeneratorSource(source.generatorId, params)
+    ? String(source.generatorId).startsWith("isf-")
+      ? { type: "generator", generatorId: source.generatorId, params }
+      : createGeneratorSource(source.generatorId, params)
     : null;
   const placement = normalizeRelativePlacement(source.placement);
   return {

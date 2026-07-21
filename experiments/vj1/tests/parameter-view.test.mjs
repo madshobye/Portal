@@ -2,8 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { colorParamControlTemplate, paramControlTemplate, paramControlsTemplate, screenInputParamControlTemplate } from "../js/control/parameter-view.js";
+import { colorParamControlTemplate, componentParamViews, paramControlTemplate, paramControlsTemplate, screenInputParamControlTemplate } from "../js/control/parameter-view.js";
 import { paramRangePairTemplate } from "../js/control/template-utils.js";
+
+test("parameter views tolerate a file-backed node while its definition is pending", () => {
+  assert.deepEqual(componentParamViews(null), { primary: [], details: [] });
+});
 
 test("parameter view owns reusable inspector controls outside the controller", () => {
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");

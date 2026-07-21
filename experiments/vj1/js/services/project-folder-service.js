@@ -19,6 +19,7 @@ import { buildProjectPayload } from "./project-serializer.js?v=compact-project-n
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
 import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
 import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
+import { mergeProjectIsfDefinitions } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
 export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=compact-project-nodes-1";
@@ -334,6 +335,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       media: preserveMediaCatalog && Array.isArray(projectData.media)
         ? projectData.media.map((item) => ({ ...item }))
         : mergeMediaCatalogMarkers(imported.media, projectData.media),
+      nodes: mergeProjectIsfDefinitions(projectData.nodes || currentState.nodes, imported.shaders),
       shaders: imported.shaders[0]
         ? {
             ...(projectData.shaders || store.getState().shaders),
@@ -387,6 +389,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       draft.project.folderName = dirHandle?.name || draft.project.folderName;
       draft.project.warnings = (draft.project.warnings || []).filter((warning) => !String(warning).startsWith("Folder change ("));
       draft.media = mergeMediaCatalogMarkers(imported.media, draft.media);
+      draft.nodes = mergeProjectIsfDefinitions(draft.nodes, imported.shaders, { authoritative: true });
       if (imported.shaders[0]) {
         draft.shaders = {
           ...draft.shaders,
@@ -693,7 +696,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   }
 
   function mergeObservedAssets(imported) {
-    store.updateDerived((draft) => {
+    const hasProjectIsf = imported.shaders?.some((shader) => /\/\*\s*\{/.test(shader.code || ""));
+    const merge = (draft) => {
       const byId = new Map((draft.media || []).map((item) => [item.id, item]));
       for (const item of imported.media || []) {
         const previous = byId.get(item.id);
@@ -703,10 +707,15 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         });
       }
       draft.media = Array.from(byId.values());
+      // Imported ISF is project-authored node code and must use the persistent
+      // update path. Ordinary shader/media observation remains derived state.
+      if (hasProjectIsf) draft.nodes = mergeProjectIsfDefinitions(draft.nodes, imported.shaders);
       if (imported.shaders?.[0]) {
         draft.shaders = { ...draft.shaders, customName: imported.shaders[0].name, customCode: imported.shaders[0].code };
       }
-    }, "project-observed-asset-update");
+    };
+    if (hasProjectIsf) store.update(merge, "project-observed-isf-update");
+    else store.updateDerived(merge, "project-observed-asset-update");
     if (imported.shaders?.length) bridge.sendState();
   }
 

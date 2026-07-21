@@ -2,11 +2,12 @@ import { componentFrameMetrics } from "../domain/component-frame.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { generatorIcon } from "./picker-view.js?v=volumetric-clouds-1";
-import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=screen-input-registry-1";
+import { generatorIcon } from "./picker-view.js?v=isf-nodes-1";
+import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=inspector-pending-node-1";
 import { isModelMediaSource, isVideoMediaSource, mediaSourceParams, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=power-flicker-1";
 import { deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js?v=scroll-region-1";
+import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 
 export function canvasInspectorTemplate(component, state) {
@@ -72,10 +73,10 @@ export function sourceIcon(source = {}) {
   return sourceTypeIcon(source.type || "generator");
 }
 
-export function sourceChainItemDisplayName(item = {}, media = null, component = null) {
-  if (item.source?.type === "component") return sourceTitle(item.source, media, component);
+export function sourceChainItemDisplayName(item = {}, media = null, component = null, state = null) {
+  if (item.source?.type === "component") return sourceTitle(item.source, media, component, state);
   if (!item.name || isGenericLayerName(item.name) || item.name === item.source?.componentId) {
-    return sourceTitle(item.source || {}, media, component);
+    return sourceTitle(item.source || {}, media, component, state);
   }
   return item.name;
 }
@@ -161,7 +162,7 @@ function chainItemRowTemplate(item, component, state, index, base, depth = 0) {
   const selected = state.ui.selectedChainItemId === item.id;
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
-  const label = chainItemLabel(item, media, referencedComponent);
+  const label = chainItemLabel(item, media, referencedComponent, state);
   const iconName = chainItemIcon(item);
   const kindLabel = item.kind === "source" ? item.source?.type || "source" : item.kind === "group" ? `${item.chain?.length || 0} item group` : "effect";
   const row = textListItemTemplate({
@@ -224,13 +225,13 @@ function selectedChainItemTemplate(item, component, state, base, nodeEditorHtml 
 
 function selectedChainItemTitleTemplate(item, component, state, base) {
   if (item.kind === "effect") {
-    const effectComponent = getShaderComponent(item.componentId);
+    const effectComponent = visualEffectComponent(state, item.componentId);
     return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(effectComponent?.name || item.componentId)}</span></div>`;
   }
   if (item.kind === "group") return editableSectionTitleTemplate("account_tree", base + ".name", item.name || "Group");
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
-  const displayName = sourceChainItemDisplayName(item, media, referencedComponent);
+  const displayName = sourceChainItemDisplayName(item, media, referencedComponent, state);
   const staticTitle = component?.type === "canvas" && item.source?.type === "component";
   return staticTitle
     ? `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span>${deepEditButtonTemplate(referencedComponent?.id, { className: "header-edit-button", label: `Edit ${displayName}` })}</div>`
@@ -244,7 +245,7 @@ function selectedChainItemContentTemplate(item, component, state, base, paramVie
 }
 
 function effectChainItemTemplate(item, component, state, base, paramView = "primary") {
-  const effectComponent = getShaderComponent(item.componentId);
+  const effectComponent = visualEffectComponent(state, item.componentId);
   const params = (componentParamViews(effectComponent)[paramView] || []).map(effectDisplayParam);
   if (!params.length) return "";
   return `
@@ -275,7 +276,7 @@ function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = 
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   if (paramView === "details") {
     if (item.source?.type === "generator") {
-      const generator = getGeneratorComponent(item.source.generatorId);
+      const generator = visualGeneratorComponent(state, item.source.generatorId);
       if (!componentParamViews(generator).details.length) return "";
     } else if (item.source?.type === "media") {
       if (!componentParamViews({ params: mediaSourceParams(item.source, media) }).details.length) return "";
@@ -321,7 +322,7 @@ function sourcePickerTemplate(item, state, base, paramView = "primary") {
         <button type="button" class="source-choice-button" data-open-source-choice="${esc(`${base}.source`)}" ${isModelMediaSource(source, media) ? 'data-source-choice-category="model"' : ""}>
           ${icon(sourceIcon(source))}
           <span>
-            <strong>${esc(sourceTitle(source, media))}</strong>
+            <strong>${esc(sourceTitle(source, media, null, state))}</strong>
             <small>${esc(sourceSubtitle(source, media))}</small>
           </span>
           ${icon("chevron_right")}
@@ -347,9 +348,12 @@ function mediaSourceControlsTemplate(base, source = {}, media = null, paramView 
   })}</div>`;
 }
 
-function sourceTitle(source = {}, media = null, component = null) {
+function sourceTitle(source = {}, media = null, component = null, state = null) {
   if (source.type === "component") return component?.name || source.componentId || "Component";
-  if (source.type === "generator") return getGeneratorComponent(source.generatorId).label || getGeneratorComponent(source.generatorId).name;
+  if (source.type === "generator") {
+    const generator = visualGeneratorComponent(state, source.generatorId);
+    return generator?.label || generator?.name || source.generatorId;
+  }
   if (source.type === "media") return media?.name || source.mediaId || "Media";
   if (source.type === "camera") return "Live camera";
   if (source.type === "black") return "Black";
@@ -365,8 +369,8 @@ function sourceSubtitle(source = {}, media = null) {
   return "Source";
 }
 
-function chainItemLabel(item = {}, media = null, component = null) {
-  if (item.kind === "source") return sourceChainItemDisplayName(item, media, component);
+function chainItemLabel(item = {}, media = null, component = null, state = null) {
+  if (item.kind === "source") return sourceChainItemDisplayName(item, media, component, state);
   if (item.kind === "group") return item.name || "Group";
   return item.name || item.componentId || "Effect";
 }
@@ -461,7 +465,7 @@ function modelSourceControlsTemplate(base, source = {}, paramView = "primary") {
 }
 
 function generatorParamControlsTemplate(base, source = {}, state = {}, paramView = "primary") {
-  const component = getGeneratorComponent(source.generatorId);
+  const component = visualGeneratorComponent(state, source.generatorId);
   if (!component?.params?.length) return "";
   const params = componentParamViews(component)[paramView] || [];
   if (!params.length) return "";
@@ -487,6 +491,17 @@ function generatorParamControlsTemplate(base, source = {}, state = {}, paramView
       })}
     </div>
   `;
+}
+
+function visualGeneratorComponent(state, id) {
+  const project = state ? listProjectIsfVisualComponents(state).find((component) => component.kind === "generator" && component.id === id) : null;
+  if (project) return project;
+  try { return getGeneratorComponent(id); } catch { return null; }
+}
+
+function visualEffectComponent(state, id) {
+  return listProjectIsfVisualComponents(state).find((component) => component.kind === "effect" && component.id === id)
+    || getShaderComponent(id);
 }
 
 function pathForComponent(state, component) {

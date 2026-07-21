@@ -3,13 +3,14 @@ import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=scroll-region-1";
+import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=isf-nodes-1";
 import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=screen-input-registry-1";
+import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=inspector-pending-node-1";
 import { mediaSourceParams } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { componentCardBarTemplate, deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, scrollRegionTemplate, selectablePillTemplate } from "./view-primitives.js?v=scroll-region-1";
+import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
@@ -158,13 +159,14 @@ export function sceneSignificantComponentTemplate(component, state) {
     paths,
     attrs: "data-update",
     media: state.media || [],
+    state,
   });
   if (!controls) return "";
   return `<section class="ui-section focus-panel scene-significant-panel"><header class="ui-section-header panel-title"><span class="material-symbols-rounded">star</span><span>Significant · ${esc(component.name)}</span>${deepEditButtonTemplate(component.id, { className: "header-edit-button", label: `Edit ${component.name}` })}</header>${controls}</section>`;
 }
 
 function significantChainControls(chain, options) {
-  const { componentId, relativeBase, updateBase, paths, attrs, media = [] } = options;
+  const { componentId, relativeBase, updateBase, paths, attrs, media = [], state = {} } = options;
   return (chain || []).map((item, index) => {
     const relativePath = `${relativeBase}.${index}`;
     const updatePath = `${updateBase}.${index}`;
@@ -194,8 +196,8 @@ function significantChainControls(chain, options) {
       return `${own}${nested}`;
     }
     const definitions = item.kind === "effect"
-      ? getShaderComponent(item.componentId)?.params || []
-      : sourceLiveParams(item.source || {}, media.find((entry) => entry.id === item.source?.mediaId));
+      ? visualEffectComponent(state, item.componentId)?.params || []
+      : sourceLiveParams(item.source || {}, media.find((entry) => entry.id === item.source?.mediaId), state);
     const significant = definitions.filter((param) => significantParamPath(
       paths,
       relativePath,
@@ -216,12 +218,12 @@ function significantChainControls(chain, options) {
         source: item.kind === "source",
       }),
       valueFor: (param) => item.kind === "effect"
-        ? paramCurrentValue(getShaderComponent(item.componentId), values, param)
+        ? paramCurrentValue(visualEffectComponent(state, item.componentId), values, param)
         : normalizeParamValue(param, values.params[param.id]),
       attrs,
       isSignificant: () => attrs === "data-update",
     }) : "";
-    return `<div class="live-significant-group"><span>${esc(item.name || item.componentId || sourceChainItemDisplayName(item))}</span>${contentControls}${compositeControls}${transformControls}</div>`;
+    return `<div class="live-significant-group"><span>${esc(item.name || item.componentId || sourceChainItemDisplayName(item, null, null, state))}</span>${contentControls}${compositeControls}${transformControls}</div>`;
   }).join("");
 }
 
@@ -339,13 +341,13 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
 
 function liveChainItemContentTemplate(item, componentId, path, paramView = "primary", state = {}) {
   if (item.kind === "effect") {
-    const component = getShaderComponent(item.componentId);
+    const component = visualEffectComponent(state, item.componentId);
     const params = (componentParamViews(component)[paramView] || []).map(effectDisplayParam);
     return params.length ? liveShaderParamControlsTemplate(component, item, componentId, path, params) : "";
   }
   if (item.kind === "group") return "";
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
-  const params = sourceLiveParams(item.source || {}, media);
+  const params = sourceLiveParams(item.source || {}, media, state);
   const viewParams = componentParamViews({ params })[paramView] || [];
   if (paramView === "details") return viewParams.length ? liveSourceParamControlsTemplate(item, componentId, path, viewParams) : "";
   return liveSourceParamControlsTemplate(item, componentId, path, viewParams);
@@ -388,11 +390,11 @@ function firstLiveChainItem(chain, base = "chain") {
 }
 
 function liveChainItemLabel(item, state = {}) {
-  if (item.kind === "effect") return getShaderComponent(item.componentId)?.name || item.componentId;
+  if (item.kind === "effect") return visualEffectComponent(state, item.componentId)?.name || item.componentId;
   if (item.kind === "group") return item.name || "Group";
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   const component = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
-  return sourceChainItemDisplayName(item, media, component);
+  return sourceChainItemDisplayName(item, media, component, state);
 }
 
 function liveShaderParamControlsTemplate(component, item, componentId, itemPath, params = component?.params || []) {
@@ -422,10 +424,21 @@ function liveSourceParamControlsTemplate(item, componentId, itemPath, params = [
   `;
 }
 
-function sourceLiveParams(source = {}, media = null) {
-  if (source.type === "generator") return getGeneratorComponent(source.generatorId).params || [];
+function sourceLiveParams(source = {}, media = null, state = {}) {
+  if (source.type === "generator") return visualGeneratorComponent(state, source.generatorId)?.params || [];
   if (source.type === "media") return mediaSourceParams(source, media);
   return [];
+}
+
+function visualGeneratorComponent(state, id) {
+  const project = listProjectIsfVisualComponents(state).find((component) => component.kind === "generator" && component.id === id);
+  if (project) return project;
+  try { return getGeneratorComponent(id); } catch { return null; }
+}
+
+function visualEffectComponent(state, id) {
+  return listProjectIsfVisualComponents(state).find((component) => component.kind === "effect" && component.id === id)
+    || getShaderComponent(id);
 }
 
 function liveParamAttrs(componentId) {
