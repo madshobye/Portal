@@ -49,10 +49,10 @@ export function applyThumbnailUrls(components = [], entries = []) {
   for (const entry of entries || []) {
     const component = byId.get(String(entry.componentId));
     if (!component || !entry.url) continue;
-    if (entry.frameId && component.type === "canvas") {
-      component.canvas ||= {};
-      component.canvas.frameThumbnails ||= {};
-      component.canvas.frameThumbnails[entry.frameId] = entry.url;
+    if (entry.frameId && component.type === "scene") {
+      component.scene ||= {};
+      component.scene.frameThumbnails ||= {};
+      component.scene.frameThumbnails[entry.frameId] = entry.url;
     } else if (!entry.frameId) {
       component.thumbnail = entry.url;
     }
@@ -63,7 +63,7 @@ export function applyThumbnailUrls(components = [], entries = []) {
 export function clearThumbnailUrls(components = []) {
   for (const component of components || []) {
     component.thumbnail = "";
-    if (component.type === "canvas" && component.canvas) component.canvas.frameThumbnails = {};
+    if (component.type === "scene" && component.scene) component.scene.frameThumbnails = {};
   }
   return components;
 }
@@ -75,8 +75,8 @@ export function stateWithoutThumbnailUrls(state = {}) {
       components: state.components.map((component) => ({
         ...component,
         thumbnail: "",
-        ...(component.type === "canvas" && component.canvas
-          ? { canvas: { ...component.canvas, frameThumbnails: {} } }
+        ...(component.type === "scene" && component.scene
+          ? { scene: { ...component.scene, frameThumbnails: {} } }
           : {}),
       })),
     } : {}),

@@ -43,7 +43,7 @@ export function nodeLibraryStudioTemplate(state, nodePackage) {
   const graph = definition.parts?.find((part) => part.kind === "graph");
   const visualProjectProgram = target.kind === "project-group" && !!target.group.componentId;
   const routeProjectProgram = target.kind === "project-group" && (
-    target.group.sceneId !== undefined || target.group.id === "vj1.output.main"
+    target.group.mappingId !== undefined || target.group.id === "vj1.output.main"
   );
   const applicationProjectProgram = target.kind === "project-group" && target.group.id === "vj1.application.program";
   return `
@@ -172,7 +172,7 @@ function portsFromPublic(ports, role) {
 
 function projectGroupKind(group) {
   if (group.componentId) return group.artifactType === "canvas" ? "canvas" : "component";
-  if (group.sceneId !== undefined) return "scene";
+  if (group.mappingId !== undefined) return "mapping";
   if (group.id === "vj1.output.main") return "output";
   if (group.id === "vj1.application.program") return "application";
   return "group";
@@ -181,7 +181,7 @@ function projectGroupKind(group) {
 function projectGroupInspectorTemplate(group, { applicationStatus = null } = {}) {
   const nodesEditable = !!group.componentId;
   const applicationProgram = group.id === "vj1.application.program";
-  const connectionsEditable = nodesEditable || group.sceneId !== undefined || group.id === "vj1.output.main" || applicationProgram;
+  const connectionsEditable = nodesEditable || group.mappingId !== undefined || group.id === "vj1.output.main" || applicationProgram;
   const topologyLabel = applicationProgram
     ? applicationStatus?.valid === false
       ? "Executable wiring invalid"

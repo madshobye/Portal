@@ -11,6 +11,7 @@ export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-r
 let videoFrameCallbackUnavailableReported = false;
 let videoFrameCallbackFailureReported = false;
 let rasterDecodeApiFallbackReported = false;
+const MAX_IMAGE_VARIANT_WIDTH = 8192;
 
 export class OutputMediaRuntime {
   constructor({
@@ -128,7 +129,7 @@ export class OutputMediaRuntime {
     if (!item) return null;
     item.lastMediaUse = ++this.mediaUseSerial;
     this.activeMediaItems.add(item);
-    recordRasterDemand(item, width);
+    recordImageDemand(item, width);
     ensureMediaRuntimeItemLoaded(item, { width: item.imageDemandWidth || width });
     if (isVideoRuntimeItem(item) && item.video && playback) this.claimVideoPlayback(item.video, playback);
     return item;
@@ -182,6 +183,11 @@ export class OutputMediaRuntime {
 
   getImageRendition(item, rw, rh) {
     if (!item?.image || !isDrawableMedia(item.image)) return null;
+    // SVG is already rasterized at the largest active render demand. Never
+    // route it through the persisted raster-rendition cache: an older PNG
+    // rendition may have been produced from the SVG's small intrinsic size
+    // and would permanently hide a newer, sharper vector rasterization.
+    if (isVectorRuntimeItem(item)) return item.image;
     const widthPx = Math.max(1, Math.floor(Number(rw) || 1));
     const heightPx = Math.max(1, Math.floor(Number(rh) || 1));
     const key = mediaRenditionKey(item.id, widthPx, heightPx, item.sourceRevision);
@@ -266,7 +272,9 @@ function createMediaRuntimeItem(id, file, sourceRevision = "") {
     loadError: "",
     video: null,
     image: null,
+    svgSource: null,
     imageVariantWidth: 0,
+    imageVariantDemandWidth: 0,
     imageSourceWidth: 0,
     imageDemandWidth: 0,
     imageError: "",
@@ -335,7 +343,7 @@ function loadMediaItem(item, request = {}) {
   };
   if (/\.svg$/i.test(item.id)) {
     if (!item.url) item.url = URL.createObjectURL(item.file);
-    loadSvgImage(item.url, item, { isCurrent, markReady, markError });
+    loadSvgImage(item.url, item, request, { isCurrent, markReady, markError });
   } else if (/\.(png|jpe?g|gif|webp|bmp)$/i.test(item.id)) {
     loadRasterImage(item, request, { isCurrent, markReady, markError });
   } else if (/\.stl$/i.test(item.id)) {
@@ -383,6 +391,10 @@ function loadMediaItem(item, request = {}) {
 
 function ensureMediaRuntimeItemLoaded(item, request = {}) {
   if (!item || !item.file || item.loading || item.loadError) return item;
+  if (shouldUpgradeSvgVariant(item)) {
+    rasterizeSvgVariant(item, item.imageDemandWidth);
+    return item;
+  }
   if (shouldUpgradeRasterVariant(item)) {
     loadMediaItem(item, { width: item.imageDemandWidth });
     return item;
@@ -575,11 +587,12 @@ function ensurePersistedRenditionLoaded(item, key) {
   );
 }
 
-function loadSvgImage(url, item, lifecycle) {
+function loadSvgImage(url, item, request, lifecycle) {
   const image = new Image();
   image.onload = () => {
     if (!lifecycle.isCurrent()) return;
-    item.image = image;
+    item.svgSource = image;
+    rasterizeSvgVariant(item, request?.width || item.imageDemandWidth, { bumpRevision: false });
     item.imageError = "";
     lifecycle.markReady();
   };
@@ -590,6 +603,44 @@ function loadSvgImage(url, item, lifecycle) {
   };
   image.decoding = "async";
   image.src = url;
+}
+
+function rasterizeSvgVariant(item, width, { bumpRevision = true } = {}) {
+  const source = item?.svgSource;
+  if (!source) return false;
+  const demandWidth = rasterVariantWidth(width) || 512;
+  const currentDemandWidth = Number(item.imageVariantDemandWidth) || Number(item.imageVariantWidth) || Number(item.image?.width) || 0;
+  if (item.image && demandWidth <= currentDemandWidth) return false;
+  const sourceWidth = Math.max(1, Number(source.naturalWidth) || Number(source.width) || 300);
+  const sourceHeight = Math.max(1, Number(source.naturalHeight) || Number(source.height) || 150);
+  const requestedHeight = Math.max(1, Math.round(demandWidth * sourceHeight / sourceWidth));
+  const boundScale = Math.min(1, MAX_IMAGE_VARIANT_WIDTH / Math.max(demandWidth, requestedHeight));
+  const targetWidth = Math.max(1, Math.round(demandWidth * boundScale));
+  const targetHeight = Math.max(1, Math.round(requestedHeight * boundScale));
+  const image = typeof globalThis.createImage === "function"
+    ? globalThis.createImage(targetWidth, targetHeight)
+    : null;
+  const context = image?.canvas?.getContext?.("2d") || image?.drawingContext;
+  if (!image || typeof context?.drawImage !== "function") {
+    if (!item.image) item.image = source;
+    item.imageVariantWidth = sourceWidth;
+    item.imageVariantDemandWidth = demandWidth;
+    item.imageSourceWidth = Number.POSITIVE_INFINITY;
+    return false;
+  }
+  context.drawImage(source, 0, 0, targetWidth, targetHeight);
+  image.setModified?.(true);
+  replaceRuntimeImage(item, image);
+  item.imageVariantWidth = targetWidth;
+  item.imageVariantDemandWidth = demandWidth;
+  // A vector has no finite source-resolution ceiling. Demand may therefore
+  // upgrade the cached raster again without mistaking intrinsic SVG metadata
+  // for the maximum useful resolution.
+  item.imageSourceWidth = Number.POSITIVE_INFINITY;
+  item.ready = true;
+  item.loading = false;
+  if (bumpRevision) item.revision++;
+  return true;
 }
 
 function disposeMediaRuntimeItem(item) {
@@ -612,7 +663,10 @@ function unloadMediaRuntimeItem(item) {
   item.image?.remove?.();
   if (typeof Image !== "undefined" && item.image instanceof Image) item.image.src = "";
   item.image = null;
+  if (typeof Image !== "undefined" && item.svgSource instanceof Image) item.svgSource.src = "";
+  item.svgSource = null;
   item.imageVariantWidth = 0;
+  item.imageVariantDemandWidth = 0;
   item.imageSourceWidth = 0;
   item.imageDemandWidth = 0;
   disposeRawModelItemResources(item);
@@ -714,15 +768,15 @@ function isMediaRuntimeItemLoaded(item) {
   return !!(item && (item.video || item.image || item.model || item.modelData || item.url));
 }
 
-function recordRasterDemand(item, width) {
-  if (!isRasterRuntimeItem(item)) return;
+function recordImageDemand(item, width) {
+  if (!isRasterRuntimeItem(item) && !isVectorRuntimeItem(item)) return;
   item.imageDemandWidth = Math.max(Number(item.imageDemandWidth) || 0, rasterVariantWidth(width));
 }
 
 function rasterVariantWidth(width) {
   const requestedWidth = Math.max(0, Math.floor(Number(width) || 0));
   return requestedWidth
-    ? Math.max(512, Math.min(4096, Math.ceil(requestedWidth / 256) * 256))
+    ? Math.max(512, Math.min(MAX_IMAGE_VARIANT_WIDTH, Math.ceil(requestedWidth / 256) * 256))
     : 0;
 }
 
@@ -735,8 +789,19 @@ function shouldUpgradeRasterVariant(item) {
   return !source || source > variant;
 }
 
+function shouldUpgradeSvgVariant(item) {
+  if (!isVectorRuntimeItem(item) || !item.svgSource || !item.image) return false;
+  const demand = Number(item.imageDemandWidth) || 0;
+  const variantDemand = Number(item.imageVariantDemandWidth) || Number(item.imageVariantWidth) || Number(item.image?.width) || 0;
+  return demand > variantDemand;
+}
+
 function isRasterRuntimeItem(item) {
   return !!item && /\.(png|jpe?g|gif|webp|bmp)$/i.test(item.id || "");
+}
+
+function isVectorRuntimeItem(item) {
+  return !!item && /\.svg$/i.test(item.id || "");
 }
 
 function replaceRuntimeImage(item, image) {

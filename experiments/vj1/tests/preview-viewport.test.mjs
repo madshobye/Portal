@@ -2,13 +2,30 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  previewCanvasLogicalSize,
   previewViewportForUi,
   resolveViewportForFit,
   updatePreviewViewportForUi,
   zoomViewport,
 } from "../js/output/preview-viewport.js";
 
-test("automatic viewport fits are resolved per workspace mode", () => {
+test("every embedded workspace uses one full-stage preview canvas contract", () => {
+  const render = {
+    sceneAspectRatio: 16 / 9,
+    outputs: [{ id: "main", name: "Main", aspectRatio: 16 / 9 }],
+    hostViewport: { width: 1000, height: 700, mode: "preview", outputId: "" },
+  };
+  const component = previewCanvasLogicalSize({ mode: "component", workspace: "component", render });
+  const scene = previewCanvasLogicalSize({ mode: "component", workspace: "scene", render });
+  const mapping = previewCanvasLogicalSize({ mode: "preview", workspace: "mapping", render });
+  const live = previewCanvasLogicalSize({ mode: "live", workspace: "live", render });
+  assert.deepEqual(component, { width: 1000, height: 700 });
+  assert.deepEqual(scene, component);
+  assert.deepEqual(mapping, component);
+  assert.deepEqual(live, component);
+});
+
+test("automatic viewport fits use the same rule in Component, Scene, Mapping, and Live", () => {
   const render = {
     outputs: [{ id: "main", name: "Main", aspectRatio: 16 / 9 }],
     hostViewport: { width: 960, height: 540, mode: "preview", outputId: "" },
@@ -17,12 +34,18 @@ test("automatic viewport fits are resolved per workspace mode", () => {
   const storedFrameFit = { fit: "frame", zoom: 1.5, x: 42, y: -18 };
 
   assert.deepEqual(
-    resolveViewportForFit({ mode: "component", stageSize, viewport: storedFrameFit, render }),
+    resolveViewportForFit({ mode: "component", workspace: "component", stageSize, viewport: storedFrameFit, render }),
     { fit: "frame", zoom: 1, x: 0, y: 0 }
   );
-  assert.equal(
-    resolveViewportForFit({ mode: "preview", stageSize, viewport: storedFrameFit, render }).zoom,
-    2
+  for (const [mode, workspace] of [["component", "scene"], ["preview", "mapping"], ["live", "live"]]) {
+    assert.deepEqual(
+      resolveViewportForFit({ mode, workspace, stageSize, viewport: storedFrameFit, render }),
+      { fit: "frame", zoom: 2, x: 0, y: 0 }
+    );
+  }
+  assert.deepEqual(
+    resolveViewportForFit({ mode: "live", stageSize, viewport: { fit: "world", zoom: 5, x: 3, y: 4 }, render }),
+    { fit: "world", zoom: 1, x: 0, y: 0 }
   );
 });
 
@@ -31,8 +54,8 @@ test("manual viewport navigation is retained independently per workspace", () =>
     workspace: "component",
     previewViewports: {
       component: { fit: "manual", zoom: 2.25, x: 80, y: -30 },
-      canvas: { fit: "frame", zoom: 1, x: 0, y: 0 },
       scene: { fit: "frame", zoom: 1, x: 0, y: 0 },
+      mapping: { fit: "manual", zoom: 1.25, x: 0, y: 0 },
       live: { fit: "manual", zoom: 0.75, x: -12, y: 20 },
     },
   };
@@ -42,4 +65,23 @@ test("manual viewport navigation is retained independently per workspace", () =>
   ui.workspace = "live";
   assert.deepEqual(previewViewportForUi(ui), { fit: "manual", zoom: 0.75, x: -12, y: 20 });
   assert.equal(ui.previewViewports.component.zoom, 4.5);
+});
+
+test("Mapping viewport survives render-state normalization", async () => {
+  const { normalizePreviewViewports } = await import("../js/domain/render-settings.js");
+  const normalized = normalizePreviewViewports({
+    mapping: { fit: "manual", zoom: 2.4, x: 18, y: -9 },
+    canvas: { fit: "manual", zoom: 5, x: 0, y: 0 },
+  });
+  assert.deepEqual(normalized.mapping, { fit: "manual", zoom: 2.4, x: 18, y: -9 });
+  assert.equal(Object.hasOwn(normalized, "canvas"), false);
+});
+
+test("Live full-frame demand remains independent from its inset World presentation", async () => {
+  const { outputSpanFitScale } = await import("../js/output/render-geometry.js");
+  const render = {
+    outputs: [{ id: "main", aspectRatio: 2 }],
+    hostViewport: { width: 1000, height: 1000, mode: "preview", outputId: "" },
+  };
+  assert.equal(outputSpanFitScale(render), 2);
 });

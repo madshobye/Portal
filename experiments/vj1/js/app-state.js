@@ -1,9 +1,9 @@
 import {
-  applySceneForEditing,
-  applySceneSnapshotToState,
+  applyMappingForEditing,
+  projectSelectedMapping,
   clone,
-  createCanvasComponent,
-  createCanvasFrame,
+  createSceneComponent,
+  createFrameSlot,
   createDefaultComponent,
   createDefaultSurface,
   createComponentEffect,
@@ -11,22 +11,23 @@ import {
   createComponentLayer,
   createInitialState,
   createLiveRenderState,
-  createEmptySceneFromState,
-  createSceneSurfaceSnapshot,
-  createSceneFromState,
+  materializeLiveTargetSurfaceRoutes,
+  createEmptyMappingFromState,
+  createMappingFromState,
   sanitizeState,
-  syncLiveSnapshotFromScene,
+  syncFrameProportionsFromMapping,
+  syncLiveRoutesFromMapping,
   uid,
-} from "./domain/models.js?v=boundary-authority-1";
+} from "./domain/models.js?v=frame-projection-aspect-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";
 import { createChangeEvent } from "./libraries/state-engine/state-command/index.js";
-import { canvasFrameSize } from "./domain/render-settings.js?v=canvas-global-resolution-1";
+import { sceneFrameSize } from "./domain/render-settings.js?v=canvas-global-resolution-1";
 import { nextCatalogMarker } from "./domain/catalog-marker.js?v=catalog-marker-four-state-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
-import { copyComponentAsCanvas, pasteClipboardPayload } from "./domain/clipboard.js?v=canvas-global-resolution-1";
-import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=scene-catalog-markers-1";
+import { copyComponentAsScene, pasteClipboardPayload } from "./domain/clipboard.js?v=canvas-global-resolution-1";
+import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-source-target-1";
 import { ObservableDataStore } from "./libraries/data-store/data-store/index.js";
 
 export function createAppState(initial = null, { prepareState = null, classifyChange = createChangeEvent } = {}) {
@@ -70,6 +71,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       // stable-diff the complete project for every pointer/keyboard sample.
       pendingEditBaseline ||= getState();
       recipe(state);
+      projectSelectedMapping(state);
       refreshLiveSelectedSceneSnapshot(state);
       emit(event);
       return;
@@ -105,18 +107,18 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     const index = state.components.findIndex((component) => component.id === componentId);
     if (index < 0) return { updated: false, previous: "" };
     const current = state.components[index];
-    const previous = frameId && current.type === "canvas"
-      ? current.canvas?.frameThumbnails?.[frameId] || ""
+    const previous = frameId && current.type === "scene"
+      ? current.scene?.frameThumbnails?.[frameId] || ""
       : current.thumbnail || "";
     if (previous === thumbnail) return { updated: false, previous };
     let component;
-    if (frameId && current.type === "canvas") {
+    if (frameId && current.type === "scene") {
       component = {
         ...current,
-        canvas: {
-          ...(current.canvas || {}),
+        scene: {
+          ...(current.scene || {}),
           frameThumbnails: {
-            ...(current.canvas?.frameThumbnails || {}),
+            ...(current.scene?.frameThumbnails || {}),
             [frameId]: thumbnail,
           },
         },
@@ -140,17 +142,23 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
   }
 
   function updateMapping(mappingId, mapping, status = "Mapping updated", change = "mapping-state") {
-    const id = String(mappingId || "local");
     // Mapping feedback is a small, already-normalized renderer payload. Do not
     // send it through the generic whole-project clone/sanitize path: large
     // media projects otherwise make every mapping commit proportional to all
     // unrelated project data. The ordinary change event still owns history,
     // autosave, and output synchronization.
+    const selectedId = String(state.ui?.selectedMappingId || "");
+    const mappings = state.mappings.map((entry) => String(entry.id) === selectedId
+      ? { ...entry, calibration: clone(mapping) }
+      : entry);
     state = {
       ...state,
-      mappings: { ...(state.mappings || {}), [id]: clone(mapping) },
+      mappings,
+      frames: state.frames.map((frame) => ({ ...frame })),
+      mappingCalibration: clone(mapping),
       ui: { ...state.ui, mappingStatus: status || "Mapping updated" },
     };
+    syncFrameProportionsFromMapping(state, mappings.find((entry) => String(entry.id) === selectedId));
     pendingEditBaseline = null;
     emit(change);
   }
@@ -174,7 +182,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     updateMapping,
     subscribe,
     cycleCatalogMarker(kind, id) {
-      const collection = kind === "media" ? "media" : kind === "scene" ? "scenes" : "components";
+      const collection = kind === "media" ? "media" : kind === "mapping" ? "mappings" : "components";
       if (!(state[collection] || []).some((item) => item.id === id)) return false;
       update((draft) => {
         const item = (draft[collection] || []).find((entry) => entry.id === id);
@@ -219,7 +227,11 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         rememberWorkspaceComponent(draft, draft.ui.workspace, current);
         draft.ui.workspace = WORKSPACES.includes(workspace) ? workspace : "scene";
         restoreWorkspaceComponent(draft, draft.ui.workspace);
-        draft.global.calibrating = draft.ui.workspace === "scene";
+        draft.global.calibrating = draft.ui.workspace === "mapping";
+        if (draft.ui.workspace === "mapping") {
+          const mapping = draft.mappings.find((item) => item.id === draft.ui.selectedMappingId) || draft.mappings[0];
+          if (mapping) projectSelectedMapping(draft, mapping);
+        }
       }, "workspace");
     },
     getLiveRenderState() {
@@ -227,23 +239,23 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       // truth avoids cloning the complete project twice before transport.
       return createLiveRenderState(state);
     },
-    getSceneRenderState(id) {
+    getMappingRenderState(id) {
       const current = getState();
-      const scene = current.scenes.find((item) => String(item.id) === String(id));
-      return scene ? applySceneForEditing(current, scene) : createLiveRenderState(current);
+      const scene = current.mappings.find((item) => String(item.id) === String(id));
+      return scene ? applyMappingForEditing(current, scene) : createLiveRenderState(current);
     },
     getRenderState() {
       const current = getState();
       if (current.ui?.workspace === "live") return createLiveRenderState(current);
-      if (current.ui?.workspace === "scene") {
-        const scene = current.scenes.find((item) => item.id === current.ui.selectedSceneId) || current.scenes[0];
-        return scene ? applySceneForEditing(current, scene) : current;
+      if (current.ui?.workspace === "mapping") {
+        const scene = current.mappings.find((item) => item.id === current.ui.selectedMappingId) || current.mappings[0];
+        return scene ? applyMappingForEditing(current, scene) : current;
       }
       return current;
     },
     addComponent() {
       update((draft) => {
-        const componentCount = draft.components.filter((item) => item.type !== "canvas").length;
+        const componentCount = draft.components.filter((item) => item.type !== "scene" && !item.systemRole).length;
         const component = createDefaultComponent(componentCount, { empty: componentCount > 10 });
         draft.components.push(component);
         draft.ui.selectedComponentId = component.id;
@@ -251,73 +263,81 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         rememberWorkspaceComponent(draft, "component", component);
       }, "add-component");
     },
-    addCanvasComponent() {
+    addScene() {
       update((draft) => {
-        const component = createCanvasComponent(
-          draft.components.filter((item) => item.type === "canvas").length
+        const component = createSceneComponent(
+          draft.components.filter((item) => item.type === "scene").length
         );
         draft.components.push(component);
         draft.ui.selectedComponentId = component.id;
         draft.ui.selectedChainItemId = component.chain[0]?.id || "";
-        rememberWorkspaceComponent(draft, "canvas", component);
-      }, "add-canvas-component");
+        rememberWorkspaceComponent(draft, "scene", component);
+      }, "add-scene");
     },
-    copyComponentToCanvas(componentId) {
-      if (!state.components.some((item) => item.id === componentId && item.type !== "canvas")) {
+    copyComponentToScene(componentId) {
+      if (!state.components.some((item) => item.id === componentId && item.type !== "scene" && !item.systemRole)) {
         return { converted: false, reason: "missing-component" };
       }
       let result = { converted: false, reason: "missing-component" };
       update((draft) => {
-        result = copyComponentAsCanvas(draft, componentId);
+        result = copyComponentAsScene(draft, componentId);
         if (!result.converted) return;
-        draft.ui.workspace = "canvas";
+        draft.ui.workspace = "scene";
         draft.global.calibrating = false;
-      }, "convert-component-to-canvas");
+      }, "convert-component-to-scene");
       return result;
     },
-    addCanvasFrame(canvasComponentId) {
+    addFrame(sceneComponentId) {
       update((draft) => {
-        const component = draft.components.find((item) => item.id === canvasComponentId && item.type === "canvas");
+        const component = draft.components.find((item) => item.id === sceneComponentId && item.type === "scene");
         if (!component) return;
-        component.canvas ||= { frameThumbnails: {} };
-        const canvasSize = canvasFrameSize(draft.render);
-        draft.recordingFrames ||= [];
-        draft.recordingFrames.push(createCanvasFrame(
-          draft.recordingFrames.length,
-          canvasSize.width,
-          canvasSize.height
-        ));
-      }, "add-canvas-frame");
+        component.scene ||= { frameThumbnails: {} };
+        const sceneSize = sceneFrameSize(draft.render);
+        draft.frames ||= [];
+        const frame = createFrameSlot(
+          draft.frames.filter((item) => item.kind !== "output").length,
+          sceneSize.width,
+          sceneSize.height
+        );
+        draft.frames.push(frame);
+        draft.ui.selectedFrameId = frame.id;
+        draft.ui.selectedChainItemId = "";
+      }, "add-frame");
     },
-    removeCanvasFrame(canvasComponentId, frameId) {
+    removeFrame(sceneComponentId, frameId) {
       update((draft) => {
-        draft.recordingFrames = (draft.recordingFrames || []).filter((frame) => frame.id !== frameId);
+        if (draft.frames?.some((frame) => frame.id === frameId && frame.kind === "output")) return;
+        draft.frames = (draft.frames || []).filter((frame) => frame.id !== frameId);
         for (const component of draft.components || []) {
-          if (component.type === "canvas" && component.canvas?.frameThumbnails) {
-            delete component.canvas.frameThumbnails[frameId];
+          if (component.type === "scene" && component.scene?.frameThumbnails) {
+            delete component.scene.frameThumbnails[frameId];
           }
         }
-        for (const surface of draft.surfaces || []) {
-          if (surface.outputFrameId === frameId) {
-            surface.sourceNodeId = "";
-            surface.outputFrameId = "";
-          }
-        }
-        for (const scene of draft.scenes || []) {
-          for (const surface of scene.snapshot?.surfaces || []) {
-            if (surface.outputFrameId === frameId) {
+        for (const mapping of draft.mappings || []) {
+          for (const surface of mapping.surfaces || []) {
+            if (surface.outputFrameId === frameId || surface.frameSlotId === frameId) {
               surface.sourceNodeId = "";
               surface.outputFrameId = "";
+              surface.frameSlotId = "";
             }
           }
         }
-      }, "remove-canvas-frame");
+        if (draft.ui.selectedFrameId === frameId) draft.ui.selectedFrameId = "";
+      }, "remove-frame");
+    },
+    selectFrame(id) {
+      if (!state.frames?.some((frame) => frame.id === id)) return;
+      updateUi((ui) => {
+        ui.selectedFrameId = id;
+        ui.selectedChainItemId = "";
+      }, "select-frame");
     },
     selectChainItem(id) {
       const selected = state.components.find((component) => component.id === state.ui.selectedComponentId);
       if (!findChainItemLocation(selected?.chain, id)) return;
       updateUi((ui) => {
         ui.selectedChainItemId = id;
+        ui.selectedFrameId = "";
       }, "select-chain-item");
     },
     removeChainItem(componentId, itemId) {
@@ -334,16 +354,16 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       update((draft) => {
         const component = draft.components.find((item) => item.id === componentId);
         if (!component) return;
-        if (source.type === "component" && component.type !== "canvas") return;
+        if (source.type === "component" && component.type !== "scene") return;
         const layer = createComponentLayer(component.chain?.length || 0, source);
         initializeLiveChainInsertion(draft, component.id, layer);
-        if (source.type === "component" && component.type === "canvas") {
-          const referenced = draft.components.find((item) => item.id === source.componentId && item.type !== "canvas");
+        if (source.type === "component" && component.type === "scene") {
+          const referenced = draft.components.find((item) => item.id === source.componentId && item.type !== "scene");
           if (!referenced) return;
           const metrics = componentFrameMetrics(draft.render, referenced);
-          const canvasWidth = canvasFrameSize(draft.render).width;
+          const sceneWidth = sceneFrameSize(draft.render).width;
           layer.source.placement = {
-            scale: metrics.baseWidth / canvasWidth,
+            scale: metrics.baseWidth / sceneWidth,
           };
         }
         component.chain ||= [];
@@ -383,10 +403,8 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     },
     reorderSurfaces(fromId, toId) {
       update((draft) => {
-        moveById(draft.surfaces, fromId, toId);
-        for (const scene of draft.scenes || []) {
-          moveById(scene.snapshot?.surfaces, fromId, toId);
-        }
+        const mapping = draft.mappings.find((item) => item.id === draft.ui.selectedMappingId);
+        if (mapping) moveById(mapping.surfaces, fromId, toId);
       }, "reorder-surfaces");
     },
     removeComponent(id) {
@@ -394,11 +412,8 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         if (draft.components.length <= 1) return;
         draft.components = draft.components.filter((component) => component.id !== id);
         draft.ui.selectedComponentId = draft.components[0]?.id || "";
-        for (const surface of draft.surfaces) {
-          if (surface.componentId === id) surface.componentId = draft.ui.selectedComponentId;
-        }
-        for (const scene of draft.scenes) {
-          for (const surface of scene.snapshot?.surfaces || []) {
+        for (const mapping of draft.mappings) {
+          for (const surface of mapping.surfaces || []) {
             if (surface.componentId === id) surface.componentId = draft.ui.selectedComponentId;
           }
         }
@@ -408,104 +423,134 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     },
     addSurface() {
       update((draft) => {
-        const mappedSurfaces = draft.surfaces.filter((item) => item.destination?.type !== "direct");
+        const mapping = draft.mappings.find((item) => item.id === draft.ui.selectedMappingId);
+        if (!mapping) return;
+        const mappedSurfaces = mapping.surfaces.filter((item) => item.destination?.type !== "direct");
         const surface = createDefaultSurface(mappedSurfaces.length);
         surface.id = uid("surface");
         surface.name = `Srf ${mappedSurfaces.length + 1}`;
         surface.mappingId = surface.id;
-        draft.surfaces.push(surface);
+        mapping.surfaces.push(surface);
         draft.ui.selectedSurfaceId = surface.id;
-        const selectedSceneId = String(draft.ui.selectedSceneId || "");
-        for (const scene of draft.scenes) {
-          scene.snapshot ||= { surfaces: [] };
-          scene.snapshot.surfaces.push(createSceneSurfaceSnapshot({
-            ...surface,
-            enabled: String(scene.id) === selectedSceneId,
-          }));
-        }
-        const liveScene = draft.scenes.find((scene) => String(scene.id) === String(draft.ui.live?.selectedSceneId || ""));
-        syncLiveSnapshotFromScene(draft, liveScene);
+        syncLiveRoutesFromMapping(draft, mapping);
       }, "add-surface");
     },
     removeSurface(id) {
       update((draft) => {
-        const target = draft.surfaces.find((surface) => surface.id === id);
+        const mapping = draft.mappings.find((item) => item.id === draft.ui.selectedMappingId);
+        if (!mapping) return;
+        const target = mapping.surfaces.find((surface) => surface.id === id);
         if (target?.destination?.type === "direct") return;
-        draft.surfaces = draft.surfaces.filter((surface) => surface.id !== id);
-        draft.ui.selectedSurfaceId = draft.surfaces[0]?.id || "";
-        if (Array.isArray(draft.mappings?.local?.surfaces)) {
-          draft.mappings.local.surfaces = draft.mappings.local.surfaces.filter((surface) => surface.name !== id);
-        }
-        for (const scene of draft.scenes) {
-          if (scene.snapshot?.surfaces) {
-            scene.snapshot.surfaces = scene.snapshot.surfaces.filter((surface) => surface.id !== id);
-          }
+        mapping.surfaces = mapping.surfaces.filter((surface) => surface.id !== id);
+        draft.ui.selectedSurfaceId = mapping.surfaces[0]?.id || "";
+        if (Array.isArray(mapping.calibration?.surfaces)) {
+          mapping.calibration.surfaces = mapping.calibration.surfaces.filter((surface) => surface.name !== id && surface.id !== id);
         }
       }, "remove-surface");
     },
-    saveScene(name) {
+    saveMapping(name) {
       update((draft) => {
-        const scene = createSceneFromState(draft, name);
-        draft.scenes.push(scene);
-        draft.ui.selectedSceneId = scene.id;
-      }, "save-scene");
+        const scene = createMappingFromState(draft, name);
+        draft.mappings.push(scene);
+        draft.ui.selectedMappingId = scene.id;
+      }, "save-mapping");
     },
-    addScene(name) {
+    addMapping(name) {
       update((draft) => {
-        const scene = createEmptySceneFromState(draft, name);
-        draft.scenes.push(scene);
-        applySceneSnapshotToState(draft, scene);
-        draft.ui.selectedSceneId = scene.id;
-      }, "add-scene");
+        const scene = createEmptyMappingFromState(draft, name);
+        draft.mappings.push(scene);
+        projectSelectedMapping(draft, scene);
+        draft.ui.selectedMappingId = scene.id;
+      }, "add-mapping");
     },
-    selectScene(id) {
+    selectMapping(id) {
       const current = getState();
-      const scene = current.scenes.find((item) => String(item.id) === String(id));
-      if (scene) replace(applySceneForEditing(current, scene), "select-scene");
+      const scene = current.mappings.find((item) => String(item.id) === String(id));
+      if (scene) replace(applyMappingForEditing(current, scene), "select-mapping");
     },
     selectLiveScene(id) {
       update((draft) => {
-        const scene = draft.scenes.find((item) => String(item.id) === String(id));
+        const scene = draft.components.find((item) => item.type === "scene" && String(item.id) === String(id));
         if (!scene) return;
+        const mapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
         draft.ui.live.sceneOverrides ||= {};
         const previousSceneId = String(draft.ui.live.selectedSceneId || "");
-        if (previousSceneId === String(scene.id)) return;
-        const previousScene = draft.scenes.find((item) => String(item.id) === previousSceneId);
-        const previousSnapshot = draft.ui.live.sceneSnapshot || previousScene?.snapshot || null;
+        const previousTarget = draft.components.find((item) =>
+          !item.systemRole && String(item.id) === String(draft.ui.live.selectedComponentId || "")
+        ) || draft.components.find((item) => item.type === "scene" && String(item.id) === previousSceneId);
+        if (previousSceneId === String(scene.id) && String(previousTarget?.id || "") === String(scene.id)) return;
+        const previousRoutes = draft.ui.live.surfaceRoutes || (previousTarget
+          ? materializeLiveTargetSurfaceRoutes(draft, previousTarget, mapping)
+          : null);
         const previousOverrides = clone(draft.ui.live.componentOverrides || {});
-        if (previousSceneId && Object.keys(draft.ui.live.componentOverrides || {}).length) {
-          draft.ui.live.sceneOverrides[previousSceneId] = clone(draft.ui.live.componentOverrides);
+        if (previousTarget?.id && Object.keys(draft.ui.live.componentOverrides || {}).length) {
+          draft.ui.live.sceneOverrides[previousTarget.id] = clone(draft.ui.live.componentOverrides);
         }
         const durationMs = Math.round(Math.max(0, Number(draft.ui.live.transitionDuration) || 0) * 1000);
-        draft.ui.live.transition = durationMs > 0 && previousSceneId && previousSnapshot
+        draft.ui.live.transition = durationMs > 0 && previousSceneId && previousRoutes
           ? {
               id: uid("live-transition"),
               fromSceneId: previousSceneId,
-              fromSnapshot: clone(previousSnapshot),
+              fromTargetId: previousTarget?.id || previousSceneId,
+              fromSurfaceRoutes: clone(previousRoutes),
               fromComponentOverrides: previousOverrides,
               startedAtMs: Date.now() + 50,
               durationMs,
             }
           : null;
         draft.ui.live.selectedSceneId = scene.id;
-        const activeComponentId = scene.snapshot?.surfaces?.find((surface) => surface.enabled !== false && surface.componentId)?.componentId || "";
-        draft.ui.live.selectedComponentId = activeComponentId;
-        draft.ui.live.sceneSnapshot = clone(scene.snapshot);
+        draft.ui.live.selectedComponentId = scene.id;
+        draft.ui.live.surfaceRoutes = materializeLiveTargetSurfaceRoutes(draft, scene, mapping);
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
       }, "live:scene");
     },
+    selectLiveComponent(id) {
+      update((draft) => {
+        const target = draft.components.find((item) =>
+          item.type !== "scene" && !item.systemRole && String(item.id) === String(id)
+        );
+        if (!target || String(draft.ui.live.selectedComponentId || "") === String(target.id)) return;
+        const mapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
+        const sceneId = String(draft.ui.live.selectedSceneId || "");
+        const scene = draft.components.find((item) => item.type === "scene" && String(item.id) === sceneId);
+        const previousTarget = draft.components.find((item) =>
+          !item.systemRole && String(item.id) === String(draft.ui.live.selectedComponentId || "")
+        ) || scene;
+        const previousRoutes = draft.ui.live.surfaceRoutes || (previousTarget
+          ? materializeLiveTargetSurfaceRoutes(draft, previousTarget, mapping)
+          : null);
+        draft.ui.live.sceneOverrides ||= {};
+        if (previousTarget?.id && Object.keys(draft.ui.live.componentOverrides || {}).length) {
+          draft.ui.live.sceneOverrides[previousTarget.id] = clone(draft.ui.live.componentOverrides);
+        }
+        const durationMs = Math.round(Math.max(0, Number(draft.ui.live.transitionDuration) || 0) * 1000);
+        draft.ui.live.transition = durationMs > 0 && previousTarget && previousRoutes
+          ? {
+              id: uid("live-transition"),
+              fromSceneId: sceneId,
+              fromTargetId: previousTarget.id,
+              fromSurfaceRoutes: clone(previousRoutes),
+              fromComponentOverrides: clone(draft.ui.live.componentOverrides || {}),
+              startedAtMs: Date.now() + 50,
+              durationMs,
+            }
+          : null;
+        draft.ui.live.selectedComponentId = target.id;
+        draft.ui.live.surfaceRoutes = materializeLiveTargetSurfaceRoutes(draft, target, mapping);
+        draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[target.id] || {});
+      }, "live:target");
+    },
     restoreLiveScene(id) {
       updateLive((draft) => {
-        const scene = draft.scenes.find((item) => String(item.id) === String(id));
+        const scene = draft.components.find((item) => item.type === "scene" && String(item.id) === String(id));
         if (!scene) return;
+        const mapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
         draft.ui.live.sceneOverrides ||= {};
         draft.ui.live.selectedSceneId = scene.id;
-        draft.ui.live.sceneSnapshot = clone(scene.snapshot);
+        draft.ui.live.surfaceRoutes = materializeLiveTargetSurfaceRoutes(draft, scene, mapping);
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
         draft.ui.live.transition = null;
-        draft.ui.live.selectedComponentId = scene.snapshot?.surfaces?.find((surface) =>
-          surface.enabled !== false && surface.componentId
-        )?.componentId || "";
+        draft.ui.live.selectedComponentId = scene.id;
       }, { reason: "live:scene-restore", history: "none" });
     },
     resetLiveScene(id) {
@@ -514,44 +559,38 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         if (!sceneId) return;
         draft.ui.live.sceneOverrides ||= {};
         delete draft.ui.live.sceneOverrides[sceneId];
-        if (String(draft.ui.live.selectedSceneId || "") === sceneId) {
+        if (String(draft.ui.live.selectedComponentId || "") === sceneId) {
           draft.ui.live.componentOverrides = {};
         }
       }, "live:reset");
     },
-    deleteScene(id) {
+    deleteMapping(id) {
       update((draft) => {
-        draft.scenes = draft.scenes.filter((scene) => String(scene.id) !== String(id));
-        if (draft.ui.live?.sceneOverrides) delete draft.ui.live.sceneOverrides[String(id)];
-        if (String(draft.ui.selectedSceneId) === String(id)) draft.ui.selectedSceneId = draft.scenes[0]?.id || "";
-        if (String(draft.ui.live?.selectedSceneId) === String(id)) {
-          const fallback = draft.scenes[0];
-          draft.ui.live.selectedSceneId = fallback?.id || "";
-          draft.ui.live.sceneSnapshot = fallback?.snapshot ? clone(fallback.snapshot) : null;
-          draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides?.[fallback?.id] || {});
-        }
-        const selectedScene = draft.scenes.find((scene) => scene.id === draft.ui.selectedSceneId);
-        if (selectedScene) applySceneSnapshotToState(draft, selectedScene);
-      }, "delete-scene");
+        draft.mappings = draft.mappings.filter((scene) => String(scene.id) !== String(id));
+        if (String(draft.ui.selectedMappingId) === String(id)) draft.ui.selectedMappingId = draft.mappings[0]?.id || "";
+        const selectedScene = draft.mappings.find((scene) => scene.id === draft.ui.selectedMappingId);
+        if (selectedScene) projectSelectedMapping(draft, selectedScene);
+        refreshLiveSelectedSceneSnapshot(draft);
+      }, "delete-mapping");
     },
   };
 }
 
 function rememberWorkspaceComponent(draft, workspace, component) {
-  if (workspace !== "component" && workspace !== "canvas") return;
-  if (!component || (workspace === "canvas") !== (component.type === "canvas")) return;
-  draft.ui.workspaceSelectionIds ||= { component: "", canvas: "" };
+  if (workspace !== "component" && workspace !== "scene") return;
+  if (!component || (workspace === "scene") !== (component.type === "scene")) return;
+  draft.ui.workspaceSelectionIds ||= { component: "", scene: "" };
   draft.ui.workspaceSelectionIds[workspace] = component.id;
 }
 
 function restoreWorkspaceComponent(draft, workspace) {
-  if (workspace !== "component" && workspace !== "canvas") return;
-  draft.ui.workspaceSelectionIds ||= { component: "", canvas: "" };
-  const wantsCanvas = workspace === "canvas";
+  if (workspace !== "component" && workspace !== "scene") return;
+  draft.ui.workspaceSelectionIds ||= { component: "", scene: "" };
+  const wantsScene = workspace === "scene";
   const rememberedId = draft.ui.workspaceSelectionIds[workspace];
   const component = draft.components.find((item) =>
-    item.id === rememberedId && (item.type === "canvas") === wantsCanvas
-  ) || draft.components.find((item) => (item.type === "canvas") === wantsCanvas);
+    item.id === rememberedId && (item.type === "scene") === wantsScene
+  ) || draft.components.find((item) => (item.type === "scene") === wantsScene);
   if (!component) return;
   draft.ui.workspaceSelectionIds[workspace] = component.id;
   draft.ui.selectedComponentId = component.id;
@@ -578,8 +617,13 @@ function removeChainItemFromChain(chain = [], itemId = "") {
 
 function refreshLiveSelectedSceneSnapshot(state) {
   const liveSceneId = String(state.ui?.live?.selectedSceneId || "");
-  const liveScene = state.scenes?.find((scene) => String(scene.id) === liveSceneId);
-  syncLiveSnapshotFromScene(state, liveScene);
+  const liveScene = state.components?.find((scene) => scene.type === "scene" && String(scene.id) === liveSceneId);
+  const liveTarget = state.components?.find((component) =>
+    !component.systemRole && String(component.id) === String(state.ui?.live?.selectedComponentId || "")
+  ) || liveScene;
+  const mapping = state.mappings?.find((item) => String(item.id) === String(state.ui?.selectedMappingId || "")) || state.mappings?.[0];
+  if (!liveTarget) return;
+  state.ui.live.surfaceRoutes = materializeLiveTargetSurfaceRoutes(state, liveTarget, mapping);
 }
 
 function reconcileLiveOverridesWithPersistentEdits(previous, next) {
@@ -599,12 +643,12 @@ function reconcileLiveOverridesWithPersistentEdits(previous, next) {
     sceneId,
     rebaseBank(bank),
   ]));
-  const selectedSceneId = String(next.ui.live.selectedSceneId || "");
-  if (selectedSceneId) {
+  const selectedTargetId = String(next.ui.live.selectedComponentId || next.ui.live.selectedSceneId || "");
+  if (selectedTargetId) {
     if (Object.keys(next.ui.live.componentOverrides).length) {
-      next.ui.live.sceneOverrides[selectedSceneId] = clone(next.ui.live.componentOverrides);
+      next.ui.live.sceneOverrides[selectedTargetId] = clone(next.ui.live.componentOverrides);
     } else {
-      delete next.ui.live.sceneOverrides[selectedSceneId];
+      delete next.ui.live.sceneOverrides[selectedTargetId];
     }
   }
 }

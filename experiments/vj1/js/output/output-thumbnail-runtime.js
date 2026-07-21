@@ -2,7 +2,7 @@ import {
   createSharedFramebufferTarget,
   unwrapRenderTarget,
 } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
-import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
+import { sceneFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { normalizedContentTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
 import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=render-core-contract-1";
 import { boundedSampleRect } from "./render-draw-utils.js?v=runtime-diagnostics-1";
@@ -70,6 +70,7 @@ export class OutputThumbnailRuntime {
   captureEditTransformBaselines() {
     this.transformBaselines.clear();
     for (const component of this.getState()?.components || []) {
+      if (component.systemRole) continue;
       for (const item of nestedChainItems(component.chain || [])) {
         if (item?.id) this.transformBaselines.set(`${component.id}:${item.id}`, normalizedContentTransform(item.transform));
       }
@@ -102,11 +103,11 @@ export class OutputThumbnailRuntime {
       liveKeys.add(component.id);
       changed = this.enqueue({ key: component.id, componentId: component.id, frameId: "", signature }) || changed;
     }
-    if (component.type === "canvas") {
-      for (const frame of state.recordingFrames || []) {
+    if (component.type === "scene") {
+      for (const frame of state.frames || []) {
         const frameKey = `${component.id}:${frame.id}`;
         const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
-        if (component.canvas?.frameThumbnails?.[frame.id] && this.signatures.get(frameKey) === frameSignature) continue;
+        if (component.scene?.frameThumbnails?.[frame.id] && this.signatures.get(frameKey) === frameSignature) continue;
         liveKeys.add(frameKey);
         changed = this.enqueue({
           key: frameKey,
@@ -199,7 +200,7 @@ export class OutputThumbnailRuntime {
     if (!component || component.id !== job.componentId) return true;
     const componentSignature = componentThumbnailSignature(component, state.render);
     const currentSignature = job.frameId
-      ? frameThumbnailSignature(componentSignature, state.recordingFrames?.find((frame) => frame.id === job.frameId))
+      ? frameThumbnailSignature(componentSignature, state.frames?.find((frame) => frame.id === job.frameId))
       : componentSignature;
     if (currentSignature !== job.signature) {
       this.invalidateSelectedComponent();
@@ -211,7 +212,7 @@ export class OutputThumbnailRuntime {
     if (!this.isComponentReady(component)) return false;
     const output = this.getComponentOutput(component.id);
     if (!output) return false;
-    const crop = job.frameId ? canvasFrameCrop(output, state.render, state.recordingFrames, job.frameId) : null;
+    const crop = job.frameId ? sceneFrameCrop(output, state.render, state.frames, job.frameId) : null;
     if (job.frameId && !crop) return true;
     const readback = this.readSmallThumbnail(output, crop);
     if (!readback) return false;
@@ -229,7 +230,7 @@ export class OutputThumbnailRuntime {
     const latestComponent = latestState?.components?.find((item) => item.id === job.componentId);
     const latestComponentSignature = latestComponent && componentThumbnailSignature(latestComponent, latestState.render);
     const latestSignature = job.frameId
-      ? frameThumbnailSignature(latestComponentSignature, latestState.recordingFrames?.find((frame) => frame.id === job.frameId))
+      ? frameThumbnailSignature(latestComponentSignature, latestState.frames?.find((frame) => frame.id === job.frameId))
       : latestComponentSignature;
     if (latestSignature !== job.signature) {
       this.invalidateSelectedComponent();
@@ -302,7 +303,7 @@ function selectedComponent(state) {
   return state?.components?.find((item) => item.id === state.ui?.selectedComponentId) || state?.components?.[0] || null;
 }
 
-function canvasFrameCrop(output, render, frames, frameId) {
+function sceneFrameCrop(output, render, frames, frameId) {
   const frame = (frames || []).find((item) => item.id === frameId);
   if (!frame) return null;
   const sourceWidth = Math.max(1, Number(output?.width || output?.canvas?.width) || 1);

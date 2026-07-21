@@ -1,26 +1,25 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { applySceneSnapshotToState, createLiveRenderState, createSceneSnapshot, sceneSourceNodes, syncLiveSnapshotFromScene } from "../domain/models.js?v=live-patch-contract-1";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes, syncLiveRoutesFromMapping } from "../domain/models.js?v=frame-projection-aspect-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=isf-coordinates-1";
-import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=render-coordinate-scope-3";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=boundary-media-demand-1";
+import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=preview-visible-demand-1";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=scroll-region-1";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=topbar-technical-views-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
-import { canvasInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=inspector-pending-node-1";
-import { canvasComponents, getSelectedScene, ordinaryComponents, selectedCanvasComponent } from "./control-selectors.js?v=control-selectors-extraction-1";
-import { mappingInspectorTemplate, mappingStudioTemplate } from "./mapping-view.js?v=scroll-region-1";
-import { liveInspectorTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "./scene-live-view.js?v=inspector-pending-node-1";
+import { sceneFrameInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=frame-projection-aspect-1";
+import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=live-source-target-1";
+import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=live-source-target-1";
 import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=scroll-region-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { createClipboardController } from "./clipboard-controller.js?v=clipboard-chain-target-1";
-import { createModalController } from "./modal-controller.js?v=inspector-pending-node-1";
-import { createInputController } from "./input-controller.js?v=component-to-canvas-1";
+import { createModalController } from "./modal-controller.js?v=scene-mapping-1";
+import { createInputController } from "./input-controller.js?v=scene-mapping-1";
 import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-controller-1";
-import { projectRailTemplate } from "./project-rail-view.js?v=project-rail-view-1";
+import { projectRailTemplate } from "./project-rail-view.js?v=live-source-target-1";
 import { selectedNodeEditorTemplate, withProjectGroupGraph, withProjectNodeFork, withProjectNodeGraph, withoutProjectNodeFork } from "./node-editor-view.js";
 import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=application-bootstrap-10";
 import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=application-bootstrap-10";
@@ -60,7 +59,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   const previewLayoutQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
     ? window.matchMedia("(max-width: 1100px)")
     : null;
-  const catalogOrderSnapshots = { component: [], canvas: [], scene: [], source: [] };
+  const catalogOrderSnapshots = { component: [], scene: [], mapping: [], source: [] };
   const activeParamViews = new Map();
   const replaceHtmlIfChanged = createHtmlCache();
   const diagnosticsController = createControlDiagnosticsController({
@@ -95,8 +94,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     bindCatalogSortControls,
     resetProjectMapping,
     currentWorkspace,
-    applySelectedSceneSnapshot,
-    syncSelectedSceneSnapshot,
+    refreshSelectedMappingProjection,
   });
   const embeddedPreview = createEmbeddedPreviewApp({
     store,
@@ -165,7 +163,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         // Component preview gestures own an immediate local state overlay.
         // Feeding their store echo straight back into the same renderer makes
         // it rebuild lookup state twice per pointer frame.
-        if (!patchedLivePreview && reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:canvas-frame") updatePreviewState(state);
+        if (!patchedLivePreview && reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:scene-frame") updatePreviewState(state);
         return;
       }
       if (change.phase === "color") {
@@ -359,7 +357,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function switchWorkspace(workspace) {
     const targetWorkspace = WORKSPACES.includes(workspace) ? workspace : "scene";
-    const mappingActive = targetWorkspace === "scene";
+    const mappingActive = targetWorkspace === "mapping";
     if (typeof store.setWorkspace === "function") store.setWorkspace(targetWorkspace);
     else {
       store.update((draft) => {
@@ -381,7 +379,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         selectedComponentId: latestState.ui?.selectedComponentId || "",
       };
     }
-    switchWorkspace(component.type === "canvas" ? "canvas" : "component");
+    switchWorkspace(component.type === "scene" ? "scene" : "component");
     store.selectComponent?.(component.id);
     if (chainItemId) store.selectChainItem?.(chainItemId);
   }
@@ -391,7 +389,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     deepEditReturnContext = null;
     if (!context) return;
     switchWorkspace(context.workspace);
-    if ((context.workspace === "component" || context.workspace === "canvas") &&
+    if ((context.workspace === "component" || context.workspace === "scene") &&
         latestState.components?.some((item) => item.id === context.selectedComponentId)) {
       store.selectComponent?.(context.selectedComponentId);
     }
@@ -757,26 +755,26 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const viewKey = `${state.project.folderName || state.project.name || "project"}:${workspace}`;
     if (viewKey === activeCatalogViewKey) return;
     activeCatalogViewKey = viewKey;
-    if (["component", "canvas", "scene"].includes(workspace)) captureCatalogOrder(workspace, state);
-    if (workspace === "scene") captureCatalogOrder("source", state);
+    if (["component", "scene", "mapping"].includes(workspace)) captureCatalogOrder(workspace, state);
+    if (workspace === "mapping") captureCatalogOrder("source", state);
     if (workspace === "live") captureCatalogOrder("scene", state);
   }
 
   function invalidateCatalogOrder() {
     activeCatalogViewKey = "";
     catalogOrderSnapshots.component = [];
-    catalogOrderSnapshots.canvas = [];
     catalogOrderSnapshots.scene = [];
+    catalogOrderSnapshots.mapping = [];
     catalogOrderSnapshots.source = [];
   }
 
   function captureCatalogOrder(scope, state) {
-    const items = scope === "scene"
-      ? state.scenes || []
+    const items = scope === "mapping"
+      ? state.mappings || []
       : scope === "source"
         ? sceneSourceNodes(state)
-        : scope === "canvas"
-          ? canvasComponents(state)
+        : scope === "scene"
+          ? sceneComponents(state)
           : ordinaryComponents(state);
     catalogOrderSnapshots[scope] = sortComponentCatalog(items, catalogSortMode(state, scope)).map((item) => item.id);
   }
@@ -800,14 +798,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       button.addEventListener("click", () => {
         const catalog = button.dataset.catalogSortScope;
         const mode = button.dataset.catalogSort;
-        if (!["component", "canvas", "scene", "source", "media"].includes(catalog) || !["recent", "marker", "name", "created"].includes(mode)) return;
+        if (!["component", "scene", "mapping", "source", "media"].includes(catalog) || !["recent", "marker", "name", "created"].includes(mode)) return;
         updateUi((ui) => {
-          ui.catalogSortModes ||= { component: "recent", canvas: "recent", scene: "recent", source: "recent", media: "recent" };
+          ui.catalogSortModes ||= { component: "recent", scene: "recent", mapping: "recent", source: "recent", media: "recent" };
           ui.catalogSortModes[catalog] = mode;
         }, `catalog-sort:${catalog}`);
         if (catalog !== "media") captureCatalogOrder(catalog, latestState);
         if (catalog === "source") renderInspector(latestState);
-        else if (catalog === "component" || catalog === "canvas" || catalog === "scene") renderProjectRail(latestState);
+        else if (catalog === "component" || catalog === "scene" || catalog === "mapping") renderProjectRail(latestState);
       });
     });
   }
@@ -841,12 +839,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       `)) bindStudioEvents();
       return;
     }
-    if (currentWorkspace(state) === "mapping") {
-      embeddedPreview.pause();
-      const html = mappingStudioTemplate(state);
-      if (replaceHtmlIfChanged(refs.studio, html)) bindStudioEvents();
-      return;
-    }
     if (currentWorkspace(state) === "nodes") {
       embeddedPreview.pause();
       if (replaceHtmlIfChanged(refs.studio, nodeLibraryStudioTemplate(state, nodePackage), { scrollKey: "node-library-workspace" })) bindStudioEvents();
@@ -874,12 +866,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function renderPreview(state) {
-    if (currentWorkspace(state) === "mapping" || currentWorkspace(state) === "nodes" || previewLayoutQuery?.matches) return;
+    if (currentWorkspace(state) === "nodes" || previewLayoutQuery?.matches) return;
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
     const workspace = currentWorkspace(state);
-    const kind = workspace === "component" || workspace === "canvas" ? "component" : "preview";
-    const previewState = workspace === "live" ? createLiveRenderState(state) : state;
+    const kind = workspace === "component" || workspace === "scene"
+      ? "component"
+      : workspace === "live"
+        ? "live"
+        : "preview";
+    const previewState = workspace === "live"
+      ? createLiveScenePreviewState(state)
+      : workspace === "mapping"
+        ? store.getMappingRenderState(state.ui.selectedMappingId)
+        : state;
     if (!previewHost.querySelector("[data-embedded-preview-stage]")) {
       replaceHtmlIfChanged(previewHost, `
         <div class="embedded-preview-stage" data-embedded-preview-stage></div>
@@ -899,18 +899,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setClass(handleButton, "is-active", state.global.mappingHandleMode !== "near");
     setClass(handleButton, "is-hidden", kind !== "preview");
     const qualityButton = previewHost.querySelector("[data-preview-quality]");
-    const supportsPreviewQuality = ["component", "canvas", "scene", "live"].includes(workspace);
+    const supportsPreviewQuality = ["component", "scene", "mapping", "live"].includes(workspace);
     const previewQuality = ["auto", "good", "low"].includes(state.ui?.previewQuality)
       ? state.ui.previewQuality
       : "good";
     const qualityLabels = { auto: "Auto", good: "Good", low: "Low" };
-    const qualitySubject = workspace === "canvas"
-      ? "Canvas"
+    const qualitySubject = workspace === "scene"
+      ? "Scene"
       : workspace === "component"
         ? "Component"
         : workspace === "live"
           ? "Live"
-          : "Scene";
+          : "Mapping";
     const qualityDescriptions = {
       auto: `Auto: ${qualitySubject} preview adapts to its visible size`,
       good: `Good: ${qualitySubject} preview matches the display's native density`,
@@ -942,9 +942,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function updatePreviewState(state) {
     const workspace = currentWorkspace(state);
-    if (workspace === "mapping" || workspace === "nodes" || previewLayoutQuery?.matches) return;
-    const kind = workspace === "component" || workspace === "canvas" ? "component" : "preview";
-    embeddedPreview.setState(workspace === "live" ? createLiveRenderState(state) : state, kind);
+    if (workspace === "nodes" || previewLayoutQuery?.matches) return;
+    const kind = workspace === "component" || workspace === "scene"
+      ? "component"
+      : workspace === "live"
+        ? "live"
+        : "preview";
+    const previewState = workspace === "live"
+      ? createLiveScenePreviewState(state)
+      : workspace === "mapping"
+        ? store.getMappingRenderState(state.ui.selectedMappingId)
+        : state;
+    embeddedPreview.setState(previewState, kind);
   }
 
   function renderInspector(state) {
@@ -978,29 +987,25 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       replaceInspectorHtml(html, state);
       return;
     }
-    if (currentWorkspace(state) === "mapping") {
-      const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
-      html = panelTemplate(
-        "schema",
-        "Nodes",
-        mappingInspectorTemplate(selectedComponent, state)
-      );
-      replaceInspectorHtml(html, state);
-      return;
-    }
-    if (currentWorkspace(state) === "canvas") {
-      const selectedCanvas = selectedCanvasComponent(state);
+    if (currentWorkspace(state) === "scene") {
+      const selectedScene = selectedSceneComponent(state);
+      const selectedFrame = state.frames?.find((frame) => frame.id === state.ui.selectedFrameId) || null;
       html = `${panelTemplate(
         "dashboard_customize",
-        selectedCanvas?.name || "Canvas",
-        selectedCanvas ? canvasInspectorTemplate(selectedCanvas, state) : emptyNote("Create a canvas component"),
-        selectedCanvas ? {
-          titlePath: `${pathForComponent(state, selectedCanvas)}.name`,
-          headerActionHtml: componentHeaderAddButtonTemplate(selectedCanvas),
+        selectedScene?.name || "Scene",
+        selectedScene ? sceneInspectorTemplate(selectedScene, state) : emptyNote("Create a scene"),
+        selectedScene ? {
+          titlePath: `${pathForComponent(state, selectedScene)}.name`,
+          headerActionHtml: componentHeaderAddButtonTemplate(selectedScene),
         } : {}
-      )}${selectedCanvas ? componentSelectedChainSettingsTemplate(selectedCanvas, state, {
-        nodeEditorHtml: selectedNodeEditorTemplate(selectedCanvas, state, nodePackage),
-      }) : ""}`;
+      )}${selectedScene && selectedFrame
+        ? panelTemplate("select_all", selectedFrame.name || "Frame", sceneFrameInspectorTemplate(selectedFrame, selectedScene, state), selectedFrame.kind === "user" ? {
+          titlePath: `frames.${state.frames.findIndex((frame) => frame.id === selectedFrame.id)}.name`,
+          className: "scene-frame-panel",
+        } : { className: "scene-frame-panel" })
+        : selectedScene ? componentSelectedChainSettingsTemplate(selectedScene, state, {
+          nodeEditorHtml: selectedNodeEditorTemplate(selectedScene, state, nodePackage),
+        }) : ""}`;
       replaceInspectorHtml(html, state);
       return;
     }
@@ -1009,17 +1014,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       replaceInspectorHtml(html, state);
       return;
     }
-    const selectedScene = getSelectedScene(state);
-    const selectedRoute = selectedScene?.snapshot?.surfaces?.find((surface) => surface.id === selectedSurface?.id);
-    const sceneComponent = state.components.find((component) => component.id === selectedRoute?.componentId);
     html = `
-      ${panelTemplate("select_all", selectedSurface?.name || "Surface", selectedSurface ? sceneSurfaceTemplate(selectedSurface, state, {
+      ${panelTemplate("select_all", selectedSurface?.name || "Surface", selectedSurface ? mappingSurfaceTemplate(selectedSurface, state, {
         sources: catalogItemsInSnapshot("source", sceneSourceNodes(state)),
         sortMode: catalogSortMode(state, "source"),
       }) : emptyNote("No surface"), selectedSurface && selectedSurface.destination?.type !== "direct"
         ? { titlePath: `${pathForSurface(state, selectedSurface)}.name` }
         : {})}
-      ${sceneSignificantComponentTemplate(sceneComponent, state)}
     `;
     replaceInspectorHtml(html, state);
   }
@@ -1054,15 +1055,27 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-add-surface]").forEach((button) => {
       button.addEventListener("click", () => store.addSurface());
     });
-    refs.projectRail.querySelector("[data-add-scene]")?.addEventListener("click", () => {
-      const name = `Scn ${latestState.scenes.length + 1}`;
-      store.addScene(name);
+    refs.projectRail.querySelector("[data-add-mapping]")?.addEventListener("click", () => {
+      const name = `Map ${latestState.mappings.length + 1}`;
+      store.addMapping(name);
     });
-    refs.projectRail.querySelectorAll("[data-select-scene]").forEach((button) => {
-      button.addEventListener("click", () => store.selectScene(button.dataset.selectScene));
+    refs.projectRail.querySelectorAll("[data-select-mapping]").forEach((button) => {
+      button.addEventListener("click", () => store.selectMapping(button.dataset.selectMapping));
     });
     refs.projectRail.querySelectorAll("[data-live-scene]").forEach((button) => {
       button.addEventListener("click", () => store.selectLiveScene(button.dataset.liveScene));
+    });
+    refs.projectRail.querySelectorAll("[data-live-target-component]").forEach((button) => {
+      button.addEventListener("click", () => store.selectLiveComponent?.(button.dataset.liveTargetComponent));
+    });
+    refs.projectRail.querySelectorAll("[data-live-source-kind]").forEach((button) => {
+      button.addEventListener("click", () => updateUi((ui) => {
+        ui.live ||= {};
+        ui.live.sourceKind = button.dataset.liveSourceKind === "component" ? "component" : "scene";
+      }, "live-source-kind"));
+    });
+    refs.projectRail.querySelectorAll("[data-select-frame]").forEach((button) => {
+      button.addEventListener("click", () => store.selectFrame?.(button.dataset.selectFrame));
     });
     refs.projectRail.querySelectorAll("[data-live-component]").forEach((button) => {
       button.addEventListener("click", () => updateUi((ui) => {
@@ -1076,8 +1089,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         store.resetLiveScene?.(button.dataset.resetLiveScene);
       });
     });
-    refs.projectRail.querySelectorAll("[data-delete-scene]").forEach((button) => {
-      button.addEventListener("click", () => store.deleteScene(button.dataset.deleteScene));
+    refs.projectRail.querySelectorAll("[data-delete-mapping]").forEach((button) => {
+      button.addEventListener("click", () => store.deleteMapping(button.dataset.deleteMapping));
     });
     bindCatalogMarkerControls(refs.projectRail);
     refs.projectRail.querySelectorAll("[data-surface-reorder-list]").forEach((list) => {
@@ -1095,7 +1108,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         const id = button.dataset.catalogMarkerId || "";
         if (!store.cycleCatalogMarker?.(kind, id)) return;
         if (kind !== "media") {
-          const catalog = kind === "scene" ? "scene" : latestState.components.find((item) => item.id === id)?.type === "canvas" ? "canvas" : "component";
+          const catalog = kind === "mapping" ? "mapping" : latestState.components.find((item) => item.id === id)?.type === "scene" ? "scene" : "component";
           captureCatalogOrder(catalog, latestState);
           if (kind === "component") captureCatalogOrder("source", latestState);
         }
@@ -1116,7 +1129,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     bindButton("[data-preview-zoom-in]", () => nudgePreviewZoom(1.2));
     bindButton("[data-preview-quality]", () => {
       store.update((draft) => {
-        if (!["component", "canvas", "scene", "live"].includes(currentWorkspace(draft))) return;
+        if (!["component", "scene", "mapping", "live"].includes(currentWorkspace(draft))) return;
         draft.ui.previewQuality = nextPreviewQuality(draft.ui.previewQuality);
       }, "preview-quality");
     });
@@ -1130,6 +1143,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       const rect = stage?.getBoundingClientRect?.();
       updateUi((ui) => {
         updatePreviewViewportForUi(ui, frameFitViewport({
+          workspace: currentWorkspace(latestState),
           stageSize: {
             width: Math.max(1, Math.floor(rect?.width || previewHost.clientWidth || 960)),
             height: Math.max(1, Math.floor(rect?.height || previewHost.clientHeight || 540)),
@@ -1255,14 +1269,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function resetProjectMapping(surfaceId = "") {
     store.update((draft) => {
-      draft.mappings ||= {};
-      const mappedSurfaces = draft.surfaces.filter((surface) => surface.destination?.type !== "direct");
+      const mapping = draft.mappings.find((item) => item.id === draft.ui.selectedMappingId);
+      if (!mapping) return;
+      const mappedSurfaces = mapping.surfaces.filter((surface) => surface.destination?.type !== "direct");
       const defaults = defaultProjectSurfaceMapping(draft.render, mappedSurfaces);
-      const existing = Array.isArray(draft.mappings.local?.surfaces) ? draft.mappings.local.surfaces : [];
+      const existing = Array.isArray(mapping.calibration?.surfaces) ? mapping.calibration.surfaces : [];
       const existingById = new Map(existing.map((surface) => [surface.id || surface.name, surface]));
       const defaultById = new Map(defaults.map((surface) => [surface.id || surface.name, surface]));
-      draft.mappings.local = {
-        ...(draft.mappings.local || {}),
+      mapping.calibration = {
+        ...(mapping.calibration || {}),
         surfaces: mappedSurfaces.map((surface) => {
           const id = surface.id || surface.name;
           const fallback = defaultById.get(id);
@@ -1289,18 +1304,11 @@ function formatOutputAspect(value) {
   return common?.[1] || `${Math.round(ratio * 1000) / 1000}:1`;
 }
 
-function syncSelectedSceneSnapshot(state) {
-  const scene = state.scenes.find((item) => item.id === state.ui.selectedSceneId);
-  if (!scene) return;
-  scene.snapshot = createSceneSnapshot(state);
-  syncLiveSnapshotFromScene(state, scene);
-}
-
-function applySelectedSceneSnapshot(state) {
-  const scene = getSelectedScene(state);
-  if (!scene) return;
-  applySceneSnapshotToState(state, scene);
-  syncLiveSnapshotFromScene(state, scene);
+function refreshSelectedMappingProjection(state) {
+  const mapping = getSelectedMapping(state);
+  if (!mapping) return;
+  projectSelectedMapping(state, mapping);
+  syncLiveRoutesFromMapping(state, mapping);
 }
 
 
@@ -1310,22 +1318,22 @@ function nextPreviewQuality(value) {
 }
 
 function currentWorkspace(state) {
-  return WORKSPACES.includes(state.ui?.workspace) ? state.ui.workspace : "scene";
+  return WORKSPACES.includes(state.ui?.workspace) ? state.ui.workspace : "mapping";
 }
 
 function performanceComponentThumbnail(state, componentId, className) {
   const component = state.components?.find((item) => item.id === componentId);
   if (!component) return "";
-  const fallbackIcon = component.type === "canvas" ? "dashboard_customize" : "account_tree";
+  const fallbackIcon = component.type === "scene" ? "dashboard_customize" : "account_tree";
   return `<span class="performance-component-thumbnail ${esc(className)}">${thumbnailTemplate(component.thumbnail, fallbackIcon)}</span>`;
 }
 
 function workspaceLabel(workspace) {
   if (workspace === "component") return "Components";
-  if (workspace === "canvas") return "Canvas";
+  if (workspace === "scene") return "Scenes";
   if (workspace === "live") return "Live";
   if (workspace === "nodes") return "Nodes";
-  return "Scenes";
+  return "Mapping";
 }
 
 function hasOpenProject(state) {
@@ -1544,11 +1552,13 @@ function bindComponentFilters(scope) {
 }
 
 function pathForSurface(state, surface) {
-  return `surfaces.${state.surfaces.findIndex((item) => item.id === surface.id)}`;
+  const mappingIndex = state.mappings.findIndex((item) => item.id === state.ui.selectedMappingId);
+  const surfaceIndex = state.mappings[mappingIndex]?.surfaces?.findIndex((item) => item.id === surface.id) ?? -1;
+  return `mappings.${mappingIndex}.surfaces.${surfaceIndex}`;
 }
 
-function pathForScene(state, scene) {
-  return `scenes.${state.scenes.findIndex((item) => item.id === scene.id)}`;
+function pathForMapping(state, mapping) {
+  return `mappings.${state.mappings.findIndex((item) => item.id === mapping.id)}`;
 }
 
 function pathForComponent(state, component) {

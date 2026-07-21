@@ -3,86 +3,109 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
-import { canvasComponents, ordinaryComponents } from "../js/control/control-selectors.js";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveScenePillTemplate, scenePillTemplate, sceneSignificantComponentTemplate, sceneSurfaceTemplate } from "../js/control/scene-live-view.js";
-import { createSceneFromState, createInitialState } from "../js/domain/models.js?v=render-coordinate-scope-3";
+import { sceneComponents, ordinaryComponents } from "../js/control/control-selectors.js";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveScenePillTemplate, mappingPillTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate } from "../js/control/mapping-live-view.js";
+import { projectRailTemplate } from "../js/control/project-rail-view.js";
+import { createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js?v=render-coordinate-scope-3";
 
 function stateWithScene() {
   const state = createInitialState();
-  const scene = createSceneFromState(state, "Scene Test");
-  state.scenes.push(scene);
-  state.ui.selectedSceneId = scene.id;
-  state.ui.live.selectedSceneId = scene.id;
-  return { state, scene };
+  const liveScene = createSceneComponent(0, state.components[0].id);
+  state.components.push(liveScene);
+  const mapping = createMappingFromState(state, "Mapping Test");
+  state.mappings.push(mapping);
+  state.ui.selectedMappingId = mapping.id;
+  state.ui.live.selectedSceneId = liveScene.id;
+  const normalized = sanitizeState(state);
+  return {
+    state: normalized,
+    mapping: normalized.mappings.find((item) => item.id === mapping.id),
+    liveScene: normalized.components.find((item) => item.id === liveScene.id),
+  };
 }
 
-test("Scene and Live presentation lives outside the control orchestrator", () => {
-  const { state, scene } = stateWithScene();
+test("Mapping and Live Scene presentation lives outside the control orchestrator", () => {
+  const { state, mapping, liveScene } = stateWithScene();
   const surface = state.surfaces[0];
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.match(scenePillTemplate(scene, state), /data-select-scene=/);
-  assert.match(liveScenePillTemplate(scene, state), /data-live-scene=/);
-  assert.match(liveScenePillTemplate(scene, state), /data-cycle-catalog-marker="scene"/);
+  assert.match(mappingPillTemplate(mapping, state), /data-select-mapping=/);
+  assert.match(liveScenePillTemplate(liveScene, state), /data-live-scene=/);
+  assert.match(liveScenePillTemplate(liveScene, state), /data-cycle-catalog-marker="scene"/);
   assert.match(liveInspectorTemplate(state), /live-component-card|No components/);
-  const surfaceTemplate = sceneSurfaceTemplate(surface, state);
+  const surfaceTemplate = mappingSurfaceTemplate(surface, state);
   assert.match(surfaceTemplate, /class="sculpt-card"/);
-  assert.match(surfaceTemplate, /data-set-route-source-node=""/);
+  assert.match(surfaceTemplate, /data-set-route-frame-id=""/);
   assert.match(surfaceTemplate, />Empty</);
-  assert.match(controller, /from "\.\/scene-live-view\.js\?v=[^"]+"/);
+  assert.match(controller, /from "\.\/mapping-live-view\.js\?v=[^"]+"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
-  assert.doesNotMatch(controller, /function sceneSurfaceTemplate\(/);
+  assert.doesNotMatch(controller, /function mappingSurfaceTemplate\(/);
+  assert.doesNotMatch(controller, /sceneSignificantComponentTemplate/);
 });
 
-test("Scene fingerprints use a selected recording frame thumbnail instead of its Canvas thumbnail", () => {
-  const { state, scene } = stateWithScene();
-  const canvas = { ...state.components[0], id: "canvas-a", type: "canvas", thumbnail: "canvas-thumb", canvas: { frameThumbnails: { "frame-a": "frame-thumb" } } };
-  state.components = [canvas];
-  state.recordingFrames = [{ id: "frame-a", name: "Frame A", x: 0, y: 0, width: 0.5, height: 0.5 }];
-  scene.snapshot.surfaces[0] = {
-    ...scene.snapshot.surfaces[0],
-    sourceNodeId: "recording-frame:canvas-a:frame-a",
-    componentId: canvas.id,
+test("Live uses one source catalog with Scenes selected by default and a Component filter", () => {
+  const { state, liveScene } = stateWithScene();
+  const component = state.components.find((candidate) => candidate.type !== "scene" && !candidate.systemRole);
+  const scenesHtml = projectRailTemplate(state, { workspace: "live" });
+  assert.match(scenesHtml, /data-live-source-kind="scene" aria-pressed="true"/);
+  assert.match(scenesHtml, /data-live-source-kind="component" aria-pressed="false"/);
+  assert.match(scenesHtml, new RegExp(`data-live-scene="${liveScene.id}"`));
+  assert.doesNotMatch(scenesHtml, /data-live-target-component=/);
+
+  state.ui.live.sourceKind = "component";
+  const componentsHtml = projectRailTemplate(state, { workspace: "live" });
+  assert.match(componentsHtml, /data-live-source-kind="scene" aria-pressed="false"/);
+  assert.match(componentsHtml, /data-live-source-kind="component" aria-pressed="true"/);
+  assert.match(componentsHtml, new RegExp(`data-live-target-component="${component.id}"`));
+  assert.doesNotMatch(componentsHtml, /data-live-scene=/);
+});
+
+test("Mapping cards intentionally avoid render thumbnails", () => {
+  const { state, mapping } = stateWithScene();
+  const scene = { ...state.components[0], id: "scene-a", type: "scene", thumbnail: "scene-thumb", scene: { frameThumbnails: { "frame-a": "frame-thumb" } } };
+  state.components = [scene];
+  state.frames = [{ id: "frame-a", name: "Frame A", x: 0, y: 0, width: 0.5, height: 0.5 }];
+  mapping.surfaces[0] = {
+    ...mapping.surfaces[0],
+    sourceNodeId: "recording-frame:scene-a:frame-a",
+    componentId: scene.id,
     outputFrameId: "frame-a",
   };
 
-  const html = scenePillTemplate(scene, state);
-  assert.match(html, /src="frame-thumb"/);
-  assert.doesNotMatch(html, /src="canvas-thumb"/);
+  const html = mappingPillTemplate(mapping, state);
+  assert.doesNotMatch(html, /src="frame-thumb"/);
+  assert.doesNotMatch(html, /src="scene-thumb"/);
+  assert.match(html, /display_settings/);
 });
 
 test("Live Scene reset is absent until temporary parameters exist", () => {
-  const { state, scene } = stateWithScene();
-  assert.doesNotMatch(liveScenePillTemplate(scene, state), /data-reset-live-scene/);
+  const { state, liveScene } = stateWithScene();
+  assert.doesNotMatch(liveScenePillTemplate(liveScene, state), /data-reset-live-scene/);
 
   state.ui.live.componentOverrides = { [state.components[0].id]: { opacity: 0.5 } };
-  state.ui.live.sceneOverrides[scene.id] = state.ui.live.componentOverrides;
-  assert.match(liveScenePillTemplate(scene, state), /data-reset-live-scene/);
+  state.ui.live.sceneOverrides[liveScene.id] = state.ui.live.componentOverrides;
+  assert.match(liveScenePillTemplate(liveScene, state), /data-reset-live-scene/);
 });
 
-test("Scene surface source catalogs show a full-width selection without reordering the three-column list", () => {
-  const { state, scene } = stateWithScene();
-  const sources = [
-    { id: "component:a", type: "component", name: "A", thumbnail: "a.png", componentId: "a" },
-    { id: "component:b", type: "component", name: "B", thumbnail: "b.png", componentId: "b" },
-    { id: "component:c", type: "component", name: "C", thumbnail: "c.png", componentId: "c" },
-  ];
-  const sceneSurface = scene.snapshot.surfaces[0];
-  sceneSurface.sourceNodeId = "component:b";
-  const html = sceneSurfaceTemplate(state.surfaces[0], state, { sources });
+test("Mapping surface source catalogs contain only Frame slots", () => {
+  const { state, mapping, liveScene } = stateWithScene();
+  const mappingSurface = mapping.surfaces[0];
+  const frame = state.frames[0];
+  mappingSurface.frameSlotId = frame.id;
+  mappingSurface.outputFrameId = frame.id;
+  const html = mappingSurfaceTemplate(state.surfaces[0], state);
   const list = html.slice(html.indexOf('<div class="component-card-list assignment-card-list"'));
   const styles = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  assert.match(html, /class="component-card assignment-selected-card is-selected" data-selected-route-source="component:b"/);
+  assert.match(html, /class="component-card assignment-selected-card is-selected"/);
   assert.match(html, /data-catalog-sort-scope="source"/);
   assert.ok(html.indexOf("assignment-selected-card") < html.indexOf("component-catalog-tools"), "current component appears before search and sorting");
   assert.ok(html.indexOf("component-catalog-tools") < html.indexOf("assignment-card-list"), "search and sorting appear before the component list");
-  assert.equal((html.match(/data-cycle-catalog-marker="component"/g) || []).length, 3);
-  assert.match(html, /data-edit-component="b"/);
-  assert.equal((html.match(/data-set-route-source-node="component:b"/g) || []).length, 1, "selected source remains in the catalog");
-  assert.ok(list.indexOf('data-set-route-source-node=""') < list.indexOf('data-set-route-source-node="component:a"'));
-  assert.ok(list.indexOf('data-set-route-source-node="component:a"') < list.indexOf('data-set-route-source-node="component:b"'));
-  assert.ok(list.indexOf('data-set-route-source-node="component:b"') < list.indexOf('data-set-route-source-node="component:c"'));
+  assert.equal((html.match(/data-set-route-frame-id=/g) || []).length, state.frames.length + 1);
+  assert.match(html, /Filter frames/);
+  assert.match(html, />Main output<\/span>/);
+  assert.doesNotMatch(html, new RegExp(`${liveScene.name} · Main output`));
+  assert.doesNotMatch(list, /component:a|component:b|component:c/);
   assert.match(styles, /\.assignment-selected-card \{[\s\S]*?width: 100%;/);
   assert.match(styles, /\.assignment-card-list \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
 });
@@ -94,9 +117,9 @@ test("catalog presentation and component selectors have single owners", () => {
   assert.match(catalog, /data-catalog-sort-scope="component"/);
   assert.match(catalog, /data-component-filter/);
   assert.doesNotMatch(catalog, /<span>Changed<\/span>/);
-  assert.equal(ordinaryComponents(state).every((component) => component.type !== "canvas"), true);
-  assert.equal(canvasComponents(state).every((component) => component.type === "canvas"), true);
-  assert.equal(ordinaryComponents(state).length + canvasComponents(state).length, state.components.length);
+  assert.equal(ordinaryComponents(state).every((component) => component.type !== "scene"), true);
+  assert.equal(sceneComponents(state).every((component) => component.type === "scene"), true);
+  assert.equal(ordinaryComponents(state).length + sceneComponents(state).length, state.components.length);
 });
 
 test("Live navigates components by thumbnail and Scene exposes marked significant params", () => {
@@ -114,10 +137,10 @@ test("Live navigates components by thumbnail and Scene exposes marked significan
 });
 
 test("Live separates a Component's public controls from its element inspector", () => {
-  const { state, scene } = stateWithScene();
+  const { state, mapping } = stateWithScene();
   const component = state.components[0];
-  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
-  scene.snapshot.surfaces[0].componentId = component.id;
+  mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  mapping.surfaces[0].componentId = component.id;
   component.significantParams = ["chain.0.source.params.renderQuality", "chain.0.transform.scale"];
   state.ui.live.selectedComponentId = component.id;
 
@@ -148,7 +171,7 @@ test("Live separates a Component's public controls from its element inspector", 
 });
 
 test("Live component-source rows resolve user-facing component names", () => {
-  const { state, scene } = stateWithScene();
+  const { state, mapping } = stateWithScene();
   const owner = state.components[0];
   const referenced = {
     ...owner,
@@ -157,8 +180,8 @@ test("Live component-source rows resolve user-facing component names", () => {
     chain: [],
   };
   state.components.push(referenced);
-  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(owner.id)}`;
-  scene.snapshot.surfaces[0].componentId = owner.id;
+  mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(owner.id)}`;
+  mapping.surfaces[0].componentId = owner.id;
   owner.chain.unshift({
     id: "nested-component",
     kind: "source",
@@ -189,10 +212,10 @@ test("Scene significant controls include generic chain transforms", () => {
 });
 
 test("source parameters marked at their persisted path are published in Live", () => {
-  const { state, scene } = stateWithScene();
+  const { state, mapping } = stateWithScene();
   const component = state.components[0];
-  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
-  scene.snapshot.surfaces[0].componentId = component.id;
+  mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  mapping.surfaces[0].componentId = component.id;
   component.significantParams = ["chain.0.source.params.renderQuality"];
   state.ui.live.selectedComponentId = component.id;
 
@@ -204,7 +227,7 @@ test("source parameters marked at their persisted path are published in Live", (
 });
 
 test("image source schema automatically exposes cut and feather in Live and published controls", () => {
-  const { state, scene } = stateWithScene();
+  const { state, mapping } = stateWithScene();
   const component = state.components[0];
   const source = component.chain[0];
   source.source = {
@@ -213,8 +236,8 @@ test("image source schema automatically exposes cut and feather in Live and publ
     params: { renderQuality: 0.5, fit: "contain", alphaCut: 2, alphaFeather: 4 },
   };
   state.media.push({ id: source.source.mediaId, name: "cutout.png", type: "image" });
-  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
-  scene.snapshot.surfaces[0].componentId = component.id;
+  mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  mapping.surfaces[0].componentId = component.id;
   state.ui.live.selectedComponentId = component.id;
   state.ui.live.selectedChainItemId = source.id;
   state.ui.live.componentView = "elements";
@@ -231,7 +254,7 @@ test("image source schema automatically exposes cut and feather in Live and publ
 });
 
 test("Live publishes significant source parameters nested inside Groups", () => {
-  const { state, scene } = stateWithScene();
+  const { state, mapping } = stateWithScene();
   const component = state.components[0];
   const source = component.chain[0];
   component.chain = [{
@@ -248,8 +271,8 @@ test("Live publishes significant source parameters nested inside Groups", () => 
     "chain.0.chain.0.source.params.renderQuality",
     "chain.0.chain.0.transform.scale",
   ];
-  scene.snapshot.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
-  scene.snapshot.surfaces[0].componentId = component.id;
+  mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  mapping.surfaces[0].componentId = component.id;
   state.ui.live.selectedComponentId = component.id;
   state.ui.live.componentView = "controls";
 

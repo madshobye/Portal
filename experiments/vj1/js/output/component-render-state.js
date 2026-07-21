@@ -135,7 +135,7 @@ function staticComponentState(component = {}, includeTransform = true) {
     frameShape: component.frameShape || "landscape",
     resolutionScale: Number(component.resolutionScale) || 1,
     ...(includeTransform ? { transform: normalizedStaticTransform(component.transform) } : {}),
-    canvas: component.type === "canvas" ? {} : null,
+    canvas: component.type === "scene" ? {} : null,
     chain: staticChainState(component.chain || []),
   };
 }

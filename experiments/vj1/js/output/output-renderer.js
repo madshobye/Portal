@@ -1,13 +1,13 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
-import { canvasFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
+import { sceneFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=screen-input-registry-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=frame-projection-aspect-1";
 import { normalizeParamValue, normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/render-node-contract.js";
-import { activeSceneProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileSceneRenderPrograms, VISUAL_SOURCE_RENDERERS, visualSourceRenderer } from "../libraries/composition-engine/index.js?v=node-program-hooks-15";
+import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, VISUAL_SOURCE_RENDERERS, visualSourceRenderer } from "../libraries/composition-engine/index.js?v=scene-mapping-1";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=pending-project-node-1";
 import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js?v=pending-project-node-1";
@@ -26,14 +26,14 @@ import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=run
 import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=runtime-diagnostics-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runtime-diagnostics-1";
-import { OutputMediaRuntime } from "./output-media-runtime.js?v=quiet-model-cache-1";
+import { OutputMediaRuntime } from "./output-media-runtime.js?v=boundary-media-demand-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=runtime-diagnostics-1";
-import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=async-frame-fanout-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=preview-visible-demand-1";
+import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=preview-visible-demand-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform, transformedRectBounds, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
-import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=transform-hit-contract-4";
+import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=viewport-handle-scale-1";
 import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=output-profile-runtime-1";
 import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
@@ -51,18 +51,19 @@ import {
   outputFrames,
   outputFrameOffset,
   instanceInvariantRenderRequest,
+  mappingWorldRender,
   renderRequestKey,
   renderRequestStateKey,
   RECORDING_FRAME_DEMAND_SCALE,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=instance-invariant-prefix-1";
-import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js";
+} from "./render-geometry.js?v=boundary-media-demand-1";
+import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=preview-visible-demand-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
 import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=shared-raw-model-1";
 import {
-  canvasMaxRasterSize,
-  canvasPreviewRenderRequest,
+  sceneMaxRasterSize,
+  scenePreviewRenderRequest,
   componentAdaptiveRasterLimit,
   componentLogicalPreviewRect,
   componentPreviewRenderRequest,
@@ -79,7 +80,7 @@ import {
   resolutionScaledStrokeWidth,
   routeSourceLookupKey,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=logical-component-frame-1";
+} from "./component-render-layout.js?v=frame-projection-aspect-1";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
 export { parseObjMesh } from "../libraries/mesh-engine/obj-parser/index.js";
@@ -100,10 +101,10 @@ export {
   terrainTriangleEdgeUvs,
 } from "./specialized/terrain-mesh.js?v=node-program-hooks-15";
 export {
-  canvasComponentPlacementRect,
-  canvasFrameBorderHit,
-  canvasMaxRasterSize,
-  canvasPreviewRenderRequest,
+  sceneComponentPlacementRect,
+  sceneFrameBorderHit,
+  sceneMaxRasterSize,
+  scenePreviewRenderRequest,
   componentAdaptiveRasterLimit,
   componentLogicalPreviewRect,
   componentPreviewRenderRequest,
@@ -115,12 +116,12 @@ export {
   componentRenderInstanceKey,
   componentSourceView,
   directFitRects,
-  moveCanvasFrameRect,
+  moveSceneFrameRect,
   resolutionScaledStrokeWidth,
-  resizeCanvasFrameRect,
+  resizeSceneFrameRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=logical-component-frame-1";
+} from "./component-render-layout.js?v=frame-projection-aspect-1";
 
 export function visualOperationRenderItem(operation = {}, item = {}, inheritedTransform = {}, effectComponent = null) {
   const opcode = operation?.opcode || item?.kind;
@@ -177,7 +178,7 @@ export function compiledNativeSourceRenderer(operation = {}, source = {}, genera
 }
 
 export class OutputRenderer {
-  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendChainBoundary, sendCanvasFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect }) {
+  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendChainBoundary, sendSceneFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect, onSceneFrameSelect }) {
     this.mode = mode;
     this.outputId = outputId;
     this.hud = hud;
@@ -187,11 +188,12 @@ export class OutputRenderer {
     this.sendThumbnail = sendThumbnail;
     this.sendChainTransform = sendChainTransform;
     this.sendChainBoundary = sendChainBoundary;
-    this.sendCanvasFrame = sendCanvasFrame;
+    this.sendSceneFrame = sendSceneFrame;
     this.sendMediaRendition = sendMediaRendition;
     this.requestMediaFiles = requestMediaFiles;
     this.onSurfaceSelect = onSurfaceSelect;
     this.onChainItemSelect = onChainItemSelect;
+    this.onSceneFrameSelect = onSceneFrameSelect;
     this.state = null;
     this.mapper = null;
     this.renderCache = new OutputRenderCache();
@@ -217,9 +219,9 @@ export class OutputRenderer {
     this.componentPrograms = new Map();
     this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
-    this.scenePrograms = new Map();
+    this.mappingPrograms = new Map();
     this.outputProgram = null;
-    this.sceneProgramCache = new WeakMap();
+    this.mappingProgramCache = new WeakMap();
     this.componentById = new Map();
     this.recordingFrameById = new Map();
     this.routeSourceNodeById = new Map();
@@ -267,6 +269,7 @@ export class OutputRenderer {
     this.smoothedRenderCost = 0;
     this.smoothedGpuMs = 0;
     this.lastGpuSampleId = -1;
+    this.presentedRenderResolution = null;
     this.gpuTimer = new GpuTimerTracker();
     this.specializedSources = new SpecializedSourceRuntime({
       media: () => this.media,
@@ -310,7 +313,7 @@ export class OutputRenderer {
     this.state = normalized ? initialState : sanitizeState(initialState || {});
     this.rebuildVisualNodeResolver();
     this.rebuildComponentPrograms();
-    this.rebuildScenePrograms();
+    this.rebuildMappingPrograms();
     this.rebuildRouteLookups();
     if (this.shouldUseThumbnailPreview()) this.captureThumbnailEditTransformBaselines();
     this.applyPixelDensity();
@@ -514,7 +517,8 @@ export class OutputRenderer {
     this.mapper.clearSurfaces();
     this.mapperSurfaces.clear();
     const mappedSurfaces = this.state.surfaces.filter((surface) => surface.destination?.type !== "direct");
-    const defaultMappingById = new Map(defaultProjectSurfaceMapping(this.state.render, mappedSurfaces).map((surface) => [
+    const projectRender = this.mappingProjectRender();
+    const defaultMappingById = new Map(defaultProjectSurfaceMapping(projectRender, mappedSurfaces).map((surface) => [
       surface.id || surface.name,
       surface,
     ]));
@@ -559,7 +563,7 @@ export class OutputRenderer {
   }
 
   directSurfaceCorners(surface) {
-    const rect = outputSpanRect(this.state?.render || {}, surface.destination?.outputIds || []);
+    const rect = outputSpanRect(this.mappingProjectRender(), surface.destination?.outputIds || []);
     if (!rect) return null;
     const topLeft = this.worldPointToDisplay({ x: rect.x, y: rect.y });
     const bottomRight = this.worldPointToDisplay({ x: rect.x + rect.width, y: rect.y + rect.height });
@@ -571,11 +575,11 @@ export class OutputRenderer {
   }
 
   projectMappingSurfaceCorners(surfaceId = "") {
-    const surface = this.state?.mappings?.local?.surfaces?.find((item) =>
+    const surface = this.state?.mappingCalibration?.surfaces?.find((item) =>
       String(item?.id || item?.name || "") === String(surfaceId)
     );
-    const world = worldSize(this.state?.render || {});
-    const relative = this.state?.mappings?.local?.coordinateSpace === "relative";
+    const world = worldSize(this.mappingProjectRender());
+    const relative = this.state?.mappingCalibration?.coordinateSpace === "relative";
     return Array.isArray(surface?.corners) && surface.corners.length === 4
       ? surface.corners.map((corner) => ({
           x: (Number(corner.x) || 0) * (relative ? world.width : 1),
@@ -587,6 +591,10 @@ export class OutputRenderer {
   worldPointToDisplay(point = {}) {
     const x = Number(point.x) || 0;
     const y = Number(point.y) || 0;
+    // Only a standalone Output window converts the shared project world into
+    // a presentation cover. Embedded Live is an editor preview like Scene:
+    // its p5 canvas fills the host, while the authored Output frame retains
+    // its own aspect and margin inside that world.
     if (this.mode !== "output") return { x, y };
     const offset = this.outputFrameOffset();
     const transform = this.outputFrameTransform();
@@ -622,7 +630,7 @@ export class OutputRenderer {
     this.pruneComponentTimes();
     this.rebuildVisualNodeResolver();
     this.rebuildComponentPrograms();
-    this.rebuildScenePrograms();
+    this.rebuildMappingPrograms();
     this.rebuildRouteLookups();
     const nextCameraSignature = cameraSettingsSignature(this.state.render);
     if (previousCameraSignature && previousCameraSignature !== nextCameraSignature) this.releaseCameraInput();
@@ -778,33 +786,33 @@ export class OutputRenderer {
     return this.visualNodes.generatorShader(id);
   }
 
-  rebuildScenePrograms() {
+  rebuildMappingPrograms() {
     const groups = this.state?.nodes?.groups || [];
-    this.scenePrograms = compileSceneRenderPrograms(this.state || {}, groups);
+    this.mappingPrograms = compileMappingRenderPrograms(this.state || {}, groups);
     this.outputProgram = compileOutputRenderProgram(groups);
     if (this.state && typeof this.state === "object") {
-      this.sceneProgramCache.set(this.state, {
-        scenes: this.scenePrograms,
+      this.mappingProgramCache.set(this.state, {
+        mappings: this.mappingPrograms,
         output: this.outputProgram,
       });
     }
   }
 
-  sceneProgramSurfaces(state = this.state) {
+  mappingProgramSurfaces(state = this.state) {
     if (!state || typeof state !== "object") return [];
     if (state === this.state) {
-      return activeSceneProgramSurfaces(state, this.scenePrograms, this.outputProgram);
+      return activeMappingProgramSurfaces(state, this.mappingPrograms, this.outputProgram);
     }
-    let compiled = this.sceneProgramCache.get(state);
+    let compiled = this.mappingProgramCache.get(state);
     if (!compiled) {
       const groups = state.nodes?.groups || [];
       compiled = {
-        scenes: compileSceneRenderPrograms(state, groups),
+        mappings: compileMappingRenderPrograms(state, groups),
         output: compileOutputRenderProgram(groups),
       };
-      this.sceneProgramCache.set(state, compiled);
+      this.mappingProgramCache.set(state, compiled);
     }
-    return activeSceneProgramSurfaces(state, compiled.scenes, compiled.output);
+    return activeMappingProgramSurfaces(state, compiled.mappings, compiled.output);
   }
 
   componentProgramChain(component = {}) {
@@ -815,7 +823,7 @@ export class OutputRenderer {
 
   rebuildRouteLookups() {
     const components = this.state?.components || [];
-    const frames = this.state?.recordingFrames || [];
+    const frames = this.state?.frames || [];
     const sourceNodes = sceneSourceNodes(this.state || {});
     this.componentById = new Map(components.map((component) => [component.id, component]));
     this.recordingFrameById = new Map(frames.map((frame) => [frame.id, frame]));
@@ -833,7 +841,7 @@ export class OutputRenderer {
   }
 
   refreshRecordingFrameLookup(frameId) {
-    const frame = this.state?.recordingFrames?.find((item) => item.id === frameId);
+    const frame = this.state?.frames?.find((item) => item.id === frameId);
     if (frame) this.recordingFrameById.set(frameId, frame);
     else this.recordingFrameById.delete(frameId);
   }
@@ -872,11 +880,20 @@ export class OutputRenderer {
   }
 
   renderResolutionSize(render = this.state?.render || {}) {
+    if (this.mode !== "output" && this.presentedRenderResolution) {
+      return { ...this.presentedRenderResolution };
+    }
     const frame = this.displayCanvasSize(render);
-    const density = this.renderPixelDensity(render);
+    const estimatedDensity = this.renderPixelDensity(render);
+    const context = typeof drawingContext !== "undefined" ? drawingContext : null;
+    const actualWidth = Math.round(Number(context?.drawingBufferWidth) || 0);
+    const actualHeight = Math.round(Number(context?.drawingBufferHeight) || 0);
+    const widthPx = actualWidth > 0 ? actualWidth : Math.round(frame.width * estimatedDensity);
+    const heightPx = actualHeight > 0 ? actualHeight : Math.round(frame.height * estimatedDensity);
+    const density = Math.max(0.125, Math.min(4, Math.min(widthPx / frame.width, heightPx / frame.height)));
     return {
-      width: Math.max(1, Math.round(frame.width * density)),
-      height: Math.max(1, Math.round(frame.height * density)),
+      width: Math.max(1, widthPx),
+      height: Math.max(1, heightPx),
       density,
     };
   }
@@ -885,6 +902,101 @@ export class OutputRenderer {
     const size = this.renderResolutionSize(render);
     const densityLabel = size.density === 1 ? "" : ` @${formatDensity(size.density)}x`;
     return `${size.width}x${size.height}${densityLabel}`;
+  }
+
+  previewViewportZoomLabel(render = this.state?.render || {}) {
+    const zoom = Math.max(0.1, Math.min(6, Number(render.previewViewportZoom) || 1));
+    return `${zoom.toFixed(2)}x view`;
+  }
+
+  previewViewportTransform(render = this.state?.render || {}) {
+    if (this.mode === "output") return { zoom: 1, x: 0, y: 0 };
+    const userZoom = Math.max(0.1, Math.min(6, Number(render.previewViewportZoom) || 1));
+    const userX = Number(render.previewViewportX) || 0;
+    const userY = Number(render.previewViewportY) || 0;
+    // Component/Scene editing already uses the fixed p5 canvas as its logical
+    // world. Mapping and Live instead own an aspect-stable project world that
+    // must first be contained in that canvas, then receive the same user zoom.
+    if (this.mode === "component") return { zoom: userZoom, x: userX, y: userY };
+    const host = this.displayCanvasSize(render);
+    const project = worldSize(this.mappingProjectRender());
+    const baseScale = Math.min(
+      host.width / Math.max(1, project.width),
+      host.height / Math.max(1, project.height)
+    );
+    const zoom = Math.max(0.01, baseScale * userZoom);
+    return {
+      zoom,
+      x: userX + (host.width * 0.5 - project.width * 0.5) * zoom,
+      y: userY + (host.height * 0.5 - project.height * 0.5) * zoom,
+    };
+  }
+
+  withPreviewViewportTransform(draw) {
+    if (typeof draw !== "function") return undefined;
+    const viewport = this.previewViewportTransform();
+    if (this.mode === "output" || (viewport.zoom === 1 && viewport.x === 0 && viewport.y === 0)) return draw();
+    push();
+    try {
+      translate(viewport.x, viewport.y);
+      scale(viewport.zoom);
+      return draw();
+    } finally {
+      pop();
+    }
+  }
+
+  previewDisplayPointToWorld(point = {}) {
+    const viewport = this.previewViewportTransform();
+    const centerX = this.displayCanvasSize().width * 0.5;
+    const centerY = this.displayCanvasSize().height * 0.5;
+    return {
+      x: ((Number(point.x) || 0) - centerX - viewport.x) / viewport.zoom + centerX,
+      y: ((Number(point.y) || 0) - centerY - viewport.y) / viewport.zoom + centerY,
+    };
+  }
+
+  previewDiagnosticHudMarkup(fps, render = this.state?.render || {}) {
+    const logical = this.displayCanvasSize(render);
+    const context = typeof drawingContext !== "undefined" ? drawingContext : null;
+    const backingWidth = Math.max(1, Math.round(Number(context?.drawingBufferWidth) || logical.width));
+    const backingHeight = Math.max(1, Math.round(Number(context?.drawingBufferHeight) || logical.height));
+    const browserWidth = Math.max(1, Math.round(Number(globalThis.window?.innerWidth) || logical.width));
+    const browserHeight = Math.max(1, Math.round(Number(globalThis.window?.innerHeight) || logical.height));
+    const p5WindowWidth = Math.max(1, Math.round(Number(globalThis.windowWidth) || browserWidth));
+    const p5WindowHeight = Math.max(1, Math.round(Number(globalThis.windowHeight) || browserHeight));
+    const hostWidth = Math.max(1, Math.round(Number(render.hostViewport?.width) || logical.width));
+    const hostHeight = Math.max(1, Math.round(Number(render.hostViewport?.height) || logical.height));
+    const configuredDensity = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+    const previewScale = Math.max(0.125, Math.min(8, Number(render.previewRasterScale) || 1));
+    const effectiveDensity = this.renderPixelDensity(render);
+    let actualP5Density = Number(this.lastPixelDensity) || effectiveDensity;
+    if (typeof pixelDensity === "function") {
+      try {
+        actualP5Density = Number(pixelDensity()) || actualP5Density;
+      } catch (_error) {
+        // The diagnostic overlay must never interfere with rendering if p5 is
+        // between canvas allocations during a resize.
+      }
+    }
+    return [
+      `<span>${Math.round(this.smoothedFps || fps)} fps</span><span class="output-resolution">render ${this.renderResolutionLabel(render)}</span><span>${this.previewViewportZoomLabel(render)}</span><span>pan ${Number(render.previewViewportX) || 0},${Number(render.previewViewportY) || 0}</span>`,
+      `<span>p5 canvas ${logical.width}x${logical.height}</span><span>backing ${backingWidth}x${backingHeight}</span>`,
+      `<span>windowWidth ${p5WindowWidth}</span><span>windowHeight ${p5WindowHeight}</span><span>browser ${browserWidth}x${browserHeight}</span><span>host ${hostWidth}x${hostHeight}</span>`,
+      `<span>density param ${formatDensity(configuredDensity)}x</span><span>preview scale ${formatDensity(previewScale)}x</span><span>effective ${formatDensity(effectiveDensity)}x</span><span>p5 ${formatDensity(actualP5Density)}x</span>`,
+    ].map((line) => `<span class="preview-debug-line">${line}</span>`).join("");
+  }
+
+  recordPresentedRenderRequest(request = {}) {
+    const width = Math.max(1, Math.round(Number(request?.width) || 1));
+    const height = Math.max(1, Math.round(Number(request?.height) || 1));
+    const current = this.presentedRenderResolution;
+    if (current && current.width * current.height >= width * height) return;
+    this.presentedRenderResolution = {
+      width,
+      height,
+      density: this.renderPixelDensity(this.state?.render || {}),
+    };
   }
 
   syncMapperOverlayMode() {
@@ -914,7 +1026,7 @@ export class OutputRenderer {
 
   currentMappingSignature() {
     try {
-      return JSON.stringify(this.state?.mappings?.local || null);
+      return JSON.stringify(this.state?.mappingCalibration || null);
     } catch (error) {
       console.warn("[VJ1_MAPPING_SIGNATURE_FAILED]", { fallback: "mapping acknowledgement disabled for invalid state", message: error?.message || String(error) });
       return "";
@@ -922,7 +1034,7 @@ export class OutputRenderer {
   }
 
   applyProjectMapping(signature = this.currentMappingSignature()) {
-    const mapping = this.state?.mappings?.local;
+    const mapping = this.state?.mappingCalibration;
     if (mapping?.surfaces?.length) {
       this.mapper?.importConfig?.(this.mappingForRenderMode(mapping), { replace: false, silent: true });
     }
@@ -930,7 +1042,8 @@ export class OutputRenderer {
   }
 
   mappingForRenderMode(mapping) {
-    const world = worldSize(this.state?.render || {});
+    const projectRender = this.mappingProjectRender();
+    const world = worldSize(projectRender);
     const worldMapping = mapping?.coordinateSpace === "relative"
       ? mapMappingCorners(mapping, (corner) => ({
           x: (Number(corner.x) || 0) * world.width,
@@ -942,10 +1055,15 @@ export class OutputRenderer {
   }
 
   outputFrameTransform() {
-    const projectFrame = this.mode === "output"
-      ? outputFrameForId(this.state?.render || {}, this.outputId)
+    const presentationMode = this.mode === "output";
+    const projectFrame = presentationMode
+      ? outputFrameForId(this.mappingProjectRender(), this.outputId)
       : this.outputFrameSize(this.state?.render || {});
     const outputFrame = this.displayCanvasSize(this.state?.render || {});
+    // One uniform cover transform is the presentation authority for direct
+    // output and every mapped surface. The popup may have different
+    // proportions from its configured Output; crop the excess axis instead
+    // of letterboxing, while keeping every projected layer locked together.
     const scale = Math.max(
       outputFrame.width / Math.max(1, projectFrame.width),
       outputFrame.height / Math.max(1, projectFrame.height)
@@ -961,7 +1079,8 @@ export class OutputRenderer {
     const worldMapping = this.mode === "output"
       ? mapMappingCorners(mapping, (corner) => this.displayPointToWorld(corner))
       : mapping;
-    const world = worldSize(this.state?.render || {});
+    const projectRender = this.mappingProjectRender();
+    const world = worldSize(projectRender);
     const normalized = mapMappingCorners(worldMapping, (corner) => ({
       x: (Number(corner.x) || 0) / Math.max(1, world.width),
       y: (Number(corner.y) || 0) / Math.max(1, world.height),
@@ -978,10 +1097,14 @@ export class OutputRenderer {
 
   outputFrameOffset() {
     if (this.mode === "output") {
-      const frame = outputFrameForId(this.state?.render || {}, this.outputId);
+      const frame = outputFrameForId(this.mappingProjectRender(), this.outputId);
       return { x: frame?.x || 0, y: frame?.y || 0 };
     }
     return outputFrameOffset(this.state?.render || {});
+  }
+
+  mappingProjectRender() {
+    return mappingWorldRender(this.state?.render || {});
   }
 
   markLocalMapping(mapping = this.mappingFromRenderMode(this.mapper?.exportData?.())) {
@@ -1092,6 +1215,7 @@ export class OutputRenderer {
       this.updateHudAndMetrics();
       return;
     }
+    this.presentedRenderResolution = null;
     this.scheduledEvents = this.state.scheduler?.manualLane === false
       ? []
       : this.manualScheduler.drain({ frame: this.frameIndex, time: this.visualTime });
@@ -1099,21 +1223,25 @@ export class OutputRenderer {
     if (this.shouldUseThumbnailPreview()) this.renderThumbnailComponents();
     else this.renderComponents();
     if (this.mode === "component") {
-      this.measureGpu(drawingContext, () => this.renderComponentPreview());
+      this.measureGpu(drawingContext, () => this.withPreviewViewportTransform(() => this.renderComponentPreview()));
       this.pruneRenderCaches();
       this.gpuTimer.sealFrame(this.frameIndex);
       this.finishFrameProfile();
       this.updateHudAndMetrics();
       return;
     }
-    this.renderSurfaces();
-    this.measureGpu(drawingContext, () => {
-      const outputBlackout = this.isOutputBlackout();
-      const restoreCalibrate = outputBlackout && this.mapper?.isCalibrating?.();
-      if (restoreCalibrate) this.mapper.setCalibrate(false);
-      this.mapper.drawOverlays();
-      this.renderSelectedSurfaceOverlay();
-      if (restoreCalibrate) this.mapper.setCalibrate(true);
+    this.withPreviewViewportTransform(() => {
+      this.renderSurfaces();
+      this.measureGpu(drawingContext, () => {
+        const outputBlackout = this.isOutputBlackout();
+        const restoreCalibrate = outputBlackout && this.mapper?.isCalibrating?.();
+        if (restoreCalibrate) this.mapper.setCalibrate(false);
+        const pointer = this.previewDisplayPointToWorld({ x: globalThis.mouseX, y: globalThis.mouseY });
+        this.mapper.drawOverlays(pointer.x, pointer.y);
+        this.renderMappingFrameOverlay();
+        this.renderSelectedSurfaceOverlay();
+        if (restoreCalibrate) this.mapper.setCalibrate(true);
+      });
     });
     this.pruneRenderCaches();
     this.gpuTimer.sealFrame(this.frameIndex);
@@ -1165,7 +1293,7 @@ export class OutputRenderer {
 
   renderSelectedSurfaceOverlay() {
     if (this.mode === "output") return;
-    if (this.state?.ui?.workspace !== "scene") return;
+    if (this.state?.ui?.workspace !== "mapping") return;
     const surfaceId = this.state?.ui?.selectedSurfaceId;
     if (!surfaceId) return;
     const calibrating = !!this.mapper?.isCalibrating?.();
@@ -1204,13 +1332,43 @@ export class OutputRenderer {
     if (gl?.enable) gl.enable(gl.DEPTH_TEST);
   }
 
+  renderMappingFrameOverlay() {
+    if (this.mode !== "preview" || this.state?.ui?.workspace !== "mapping") return;
+    // The guide is authored geometry, so it must use the same canonical world
+    // as Surface corners. The surrounding p5 transform presents both together.
+    const frames = outputFrames(this.mappingProjectRender());
+    if (!frames.length) return;
+    const gl = drawingContext;
+    if (gl?.disable) gl.disable(gl.DEPTH_TEST);
+    resetShader();
+    push();
+    noFill();
+    rectMode(CORNER);
+    stroke(101, 224, 211, 190);
+    strokeWeight(2);
+    for (const frame of frames) {
+      rect(
+        Number(frame.x || 0) - width * 0.5,
+        Number(frame.y || 0) - height * 0.5,
+        Math.max(1, Number(frame.width) || 1),
+        Math.max(1, Number(frame.height) || 1)
+      );
+    }
+    pop();
+    if (gl?.enable) gl.enable(gl.DEPTH_TEST);
+  }
+
   shouldRevealSurfaceOverlay(surfaceId) {
     const mapped = this.mapperSurfaces.get(surfaceId);
     const corners = mapped?.mapperSurface?.corners;
     if (!Array.isArray(corners)) return false;
     if (mapped?.mapperSurface?.dragging !== -1) return true;
-    const px = typeof mouseX === "number" ? mouseX : -99999;
-    const py = typeof mouseY === "number" ? mouseY : -99999;
+    const pointer = this.previewDisplayPointToWorld({
+      x: typeof mouseX === "number" ? mouseX : -99999,
+      y: typeof mouseY === "number" ? mouseY : -99999,
+    });
+    const px = pointer.x;
+    const py = pointer.y;
     const radius = this.mapper?.pickRadius || 60;
     return corners.some((corner) => {
       const dx = px - corner.x;
@@ -1236,8 +1394,8 @@ export class OutputRenderer {
     for (const component of this.state.components || []) {
       if (neededComponentIds.size && !neededComponentIds.has(component.id)) continue;
       const componentTime = this.componentTimes.get(component.id) || 0;
-      const request = component.type === "canvas"
-        ? canvasPreviewRenderRequest(this.state?.render || {}, component, width, height, { reason: "component-preview", renderIdentity: component.id })
+      const request = component.type === "scene"
+        ? scenePreviewRenderRequest(this.state?.render || {}, component, width, height, { reason: "component-preview", renderIdentity: component.id })
         : componentPreviewRenderRequest(
             this.state.render,
             component,
@@ -1251,6 +1409,7 @@ export class OutputRenderer {
         componentTime,
         request
       );
+      this.recordPresentedRenderRequest(request);
       this.componentOutput.set(component.id, output);
       const rect = containedRect(this.mainMix.width, this.mainMix.height, output.width, output.height);
       this.mainMix.push();
@@ -1275,7 +1434,7 @@ export class OutputRenderer {
   renderComponentForRequest(component, componentTime, request = frameRenderRequest(this.state.render)) {
     const outputRequest = this.normalizeRenderRequest(request, "component");
     const pipeline = normalizeComponentPipelineSettings(this.state?.render || {});
-    const renderRequest = component?.type === "canvas"
+    const renderRequest = component?.type === "scene"
       ? outputRequest
       : componentPipelineSourceRequest(outputRequest, pipeline);
     const outputKey = renderBufferKey(component.id, renderRequestStateKey(outputRequest));
@@ -1308,14 +1467,14 @@ export class OutputRenderer {
       this.cacheComponentOutput(component, outputKey, stableCached, outputRequest);
       return stableCached;
     }
-    if (component.type === "canvas") {
+    if (component.type === "scene") {
       const output = this.measureComponentProfile({
         type: "component",
         componentId: component.id,
-        componentName: component.name || component.id || "Canvas",
+        componentName: component.name || component.id || "Scene",
         width: outputRequest.width,
         height: outputRequest.height,
-      }, () => this.renderCanvasComponent(component, componentTime, renderRequest));
+      }, () => this.renderSceneComponent(component, componentTime, renderRequest));
       this.cacheComponentOutput(component, outputKey, output, outputRequest);
       if (stableSignature) this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
       return output;
@@ -1472,7 +1631,7 @@ export class OutputRenderer {
     this.stableComponentSignatures.set(stableKey, signature);
   }
 
-  renderCanvasComponent(component, componentTime, request = frameRenderRequest(this.state.render)) {
+  renderSceneComponent(component, componentTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "component");
     const program = this.componentPrograms.get(component.id);
     if (!program) throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id || "unknown"}`);
@@ -1718,7 +1877,7 @@ export class OutputRenderer {
 
   canDirectCompositeSource(item = {}, renderRequest = {}) {
     // Direct placement uses the allocation as its complete coordinate frame.
-    // A regional Canvas request is only a window into a larger logical frame,
+    // A regional Scene request is only a window into a larger logical frame,
     // so route it through the render-view-aware source implementation.
     if (renderRequest.regionView === true) return false;
     const source = item.source || {};
@@ -1726,7 +1885,9 @@ export class OutputRenderer {
     const dependency = source.type === "component"
       ? this.state?.components?.find((component) => component.id === source.componentId)
       : null;
-    const media = source.type === "media" ? this.acquireMedia(source.mediaId, { width: renderRequest.width }) : null;
+    const media = source.type === "media"
+      ? this.acquireMedia(source.mediaId, { width: mediaSourceDemandWidth(renderRequest, source) })
+      : null;
     const camera = source.type === "camera" ? this.acquireCameraInput() : null;
     return !!directPlacementKind({
       source,
@@ -1751,17 +1912,17 @@ export class OutputRenderer {
       if (item?.kind === "group") return visit(item.chain);
       if (item?.kind === "effect") {
         const effect = this.effectNodeComponent(item.componentId);
-        // Recording-frame ROI must be pixel-equivalent to a full Canvas crop.
+        // Frame ROI must be pixel-equivalent to a full Scene crop.
         // Effects that sample neighboring/arbitrary source coordinates need
         // a halo/global adapter and therefore retain the established full-
-        // Canvas path for now. Local filters remain region-safe.
+        // Scene path for now. Local filters remain region-safe.
         return !!effect?.code && effect.runtime?.roi?.mode === "local" && effect.sampling === "local";
       }
       if (item?.kind !== "source") return false;
       if (item.source?.type === "black") return true;
       if (item.source?.type === "component") {
         const dependency = this.state?.components?.find((candidate) => candidate.id === item.source.componentId);
-        return !!dependency && dependency.type !== "canvas" && this.componentRegionSafe(dependency, visiting);
+        return !!dependency && dependency.type !== "scene" && this.componentRegionSafe(dependency, visiting);
       }
       if (item.source?.type === "media" || item.source?.type === "camera") return true;
       if (item.source?.type !== "generator") return false;
@@ -1773,12 +1934,12 @@ export class OutputRenderer {
     return safe;
   }
 
-  canvasComponentRegionSafe(component = {}) {
-    return component.type === "canvas" && this.componentRegionSafe(component);
+  sceneComponentRegionSafe(component = {}) {
+    return component.type === "scene" && this.componentRegionSafe(component);
   }
 
-  canvasComponentFrameFanoutSafe(component = {}, visiting = new Set()) {
-    if (component?.type !== "canvas" || !component.id) return false;
+  sceneComponentFrameFanoutSafe(component = {}, visiting = new Set()) {
+    if (component?.type !== "scene" || !component.id) return false;
     const visitChain = (chain) => (chain || []).every((item) => {
       if (item?.enabled === false) return true;
       if (item?.kind === "group") return visitChain(item.chain);
@@ -1914,7 +2075,7 @@ export class OutputRenderer {
     const target = { width: output.width, height: output.height };
     if (source.type === "component") {
       const dependency = this.state.components.find((item) => item.id === source.componentId);
-      if (!dependency || dependency.id === component.id || dependency.type === "canvas") return null;
+      if (!dependency || dependency.id === component.id || dependency.type === "scene") return null;
       const placement = componentReferencePlacement(component, dependency, this.state.render, target, source.placement);
       const placementTransform = combineContentTransforms(source.contentTransform, dependency.transform);
       const demandRect = transformedPlacementDemandRect(placement, placementTransform);
@@ -1938,7 +2099,10 @@ export class OutputRenderer {
     }
     if (source.type === "media") {
       const playback = this.videoPlaybackOptions(source, component);
-      const media = this.acquireMedia(source.mediaId, { playback, width: renderRequest.width });
+      const media = this.acquireMedia(source.mediaId, {
+        playback,
+        width: mediaSourceDemandWidth(renderRequest, source),
+      });
       if (media?.video && isDrawableMedia(media.video)) {
         return createPlacedRenderResult(media.video, {
           destinationRect: fullTargetRect(target),
@@ -1949,8 +2113,9 @@ export class OutputRenderer {
       if (media?.image && isDrawableMedia(media.image)) {
         const fit = mediaSourceFit(source);
         const qualityRequest = qualityScaledRenderRequest(renderRequest, source.params || {});
+        const renditionDemand = mediaSourceDemandSize(qualityRequest, source);
         const texture = fit === "cover"
-          ? this.getImageRendition(media, qualityRequest.width, qualityRequest.height) || media.image
+          ? this.getImageRendition(media, renditionDemand.width, renditionDemand.height) || media.image
           : media.image;
         return createPlacedRenderResult(texture, {
           destinationRect: fullTargetRect(target),
@@ -2720,7 +2885,7 @@ export class OutputRenderer {
 
   drawComponentReferenceSource(pg, source, component, componentTime, renderRequest) {
     const sourceComponent = this.state.components.find((item) => item.id === source.componentId);
-    if (!sourceComponent || sourceComponent.id === component.id || sourceComponent.type === "canvas") return;
+    if (!sourceComponent || sourceComponent.id === component.id || sourceComponent.type === "scene") return;
     const sourceTime = this.componentTimes.get(sourceComponent.id) || componentTime;
     const renderIdentity = componentRenderInstanceKey(sourceComponent, source.instanceId);
     const view = renderView(pg, renderRequest);
@@ -2781,7 +2946,10 @@ export class OutputRenderer {
 
   drawMediaSource(pg, source, component, componentTime, renderRequest) {
     const playback = this.videoPlaybackOptions(source, component);
-    const item = this.acquireMedia(source.mediaId, { playback, width: pg.width });
+    const item = this.acquireMedia(source.mediaId, {
+      playback,
+      width: mediaSourceDemandWidth(renderRequest, source),
+    });
     if (item?.video && isDrawableMedia(item.video)) {
       drawWithContentTransform(pg, source.contentTransform, (view) => {
         drawMediaFit(pg, item.video, 0, 0, view.width, view.height, mediaSourceFit(source));
@@ -2791,8 +2959,13 @@ export class OutputRenderer {
       const fit = mediaSourceFit(source);
       const view = renderView(pg, renderRequest);
       const qualityRequest = qualityScaledRenderRequest({ width: view.width, height: view.height }, source.params || {});
+      const renditionDemand = mediaSourceDemandSize({
+        ...qualityRequest,
+        logicalWidth: renderRequest.logicalWidth,
+        logicalHeight: renderRequest.logicalHeight,
+      }, source);
       const image = fit === "cover"
-        ? this.getImageRendition(item, qualityRequest.width, qualityRequest.height) || item.image
+        ? this.getImageRendition(item, renditionDemand.width, renditionDemand.height) || item.image
         : item.image;
       drawWithContentTransform(pg, source.contentTransform, (renderView) => {
         drawMediaFit(pg, image, 0, 0, renderView.width, renderView.height, fit);
@@ -3805,7 +3978,7 @@ export class OutputRenderer {
 
   renderSurfaces() { return this.surfaceRuntime.renderSurfaces(); }
 
-  renderSingleSceneSurfaces() { return this.surfaceRuntime.renderSingleSceneSurfaces(); }
+  renderMappingSurfaces() { return this.surfaceRuntime.renderMappingSurfaces(); }
 
   currentLiveTransition(nowMs = Date.now()) { return this.surfaceRuntime.currentLiveTransition(nowMs); }
 
@@ -3887,14 +4060,14 @@ export class OutputRenderer {
     push();
     imageMode(CORNER);
     if (this.shouldUseThumbnailPreview()) {
-      // A Canvas thumbnail is the flattened composition authority. Rebuilding
-      // a paused Canvas from referenced Component thumbnails omits media and
+      // A Scene thumbnail is the flattened composition authority. Rebuilding
+      // a paused Scene from referenced Component thumbnails omits media and
       // effects and can therefore show an entirely different image. Keep that
-      // reconstruction only as a last-resort fallback for old Canvases that
+      // reconstruction only as a last-resort fallback for old Scenes that
       // have never published their own thumbnail.
-      const drewCanvasSnapshot = component?.type === "canvas" && this.renderCanvasThumbnailSnapshotPreview(component);
-      const drewCanvasFallback = component?.type === "canvas" && !drewCanvasSnapshot && this.renderCanvasThumbnailEditPreview(component);
-      if (!drewCanvasSnapshot && !drewCanvasFallback) this.renderFlattenedThumbnailEditPreview(component);
+      const drewSceneSnapshot = component?.type === "scene" && this.renderSceneThumbnailSnapshotPreview(component);
+      const drewSceneFallback = component?.type === "scene" && !drewSceneSnapshot && this.renderSceneThumbnailEditPreview(component);
+      if (!drewSceneSnapshot && !drewSceneFallback) this.renderFlattenedThumbnailEditPreview(component);
     } else if (source) {
       const rect = this.componentPreviewRect(component, source);
       image(unwrapRenderTarget(source), rect.x - width / 2, rect.y - height / 2, rect.width, rect.height);
@@ -3904,7 +4077,7 @@ export class OutputRenderer {
     }
     pop();
     this.renderComponentFrameOverlay(component, source);
-    this.renderCanvasRecordingFrames(component, source);
+    this.renderSceneFrames(component, source);
     this.renderSelectedChainTransformOverlay();
   }
 
@@ -3932,11 +4105,11 @@ export class OutputRenderer {
       scale(editScale);
       drawImageCoverCrop(thumbnail.img, -rect.width * 0.5, -rect.height * 0.5, rect.width, rect.height);
       pop();
-    });
+    }, this.previewViewportTransform());
     return true;
   }
 
-  renderCanvasThumbnailSnapshotPreview(component) {
+  renderSceneThumbnailSnapshotPreview(component) {
     const thumbnail = this.getThumbnailImage(component);
     if (!thumbnail?.ready || !thumbnail.img) return false;
     const rect = this.componentPreviewRect(component);
@@ -3948,11 +4121,11 @@ export class OutputRenderer {
         rect.width,
         rect.height
       );
-    });
+    }, this.previewViewportTransform());
     return true;
   }
 
-  renderCanvasThumbnailEditPreview(component) {
+  renderSceneThumbnailEditPreview(component) {
     const rect = this.componentPreviewRect(component);
     let drawn = 0;
     const drawChain = (chain, parentTransform = normalizedContentTransform(), parentOpacity = 1) => {
@@ -3968,7 +4141,7 @@ export class OutputRenderer {
         }
         if (item.kind !== "source" || item.source?.type !== "component") continue;
         const dependency = this.state.components.find((candidate) => candidate.id === item.source.componentId);
-        if (!dependency || dependency.type === "canvas") continue;
+        if (!dependency || dependency.type === "scene") continue;
         const thumbnail = this.getThumbnailImage(dependency);
         if (!thumbnail?.ready || !thumbnail.img) continue;
         const placement = componentReferencePlacement(component, dependency, this.state.render, rect, item.source?.placement);
@@ -3991,24 +4164,26 @@ export class OutputRenderer {
         drawn++;
       }
     };
-    withScreenScissor(rect, () => drawChain(component.chain || []));
+    withScreenScissor(rect, () => drawChain(component.chain || []), this.previewViewportTransform());
     return drawn > 0;
   }
 
   componentPreviewRect(component, source = null) {
-    return componentLogicalPreviewRect(this.state?.render || {}, component || {}, width, height);
+    return componentLogicalPreviewRect(this.state?.render || {}, component || {}, width, height, {
+      sceneEditorWorld: this.mode === "component" && this.state?.ui?.workspace === "scene",
+    });
   }
 
   renderComponentFrameOverlay(component, source = null) {
     return this.previewInteraction.renderComponentFrameOverlay(component, source);
   }
 
-  renderCanvasRecordingFrames(component, source = null) {
-    return this.previewInteraction.renderCanvasRecordingFrames(component, source);
+  renderSceneFrames(component, source = null) {
+    return this.previewInteraction.renderSceneFrames(component, source);
   }
 
-  canvasRecordingFrameRects(component, source = null) {
-    return this.previewInteraction.canvasRecordingFrameRects(component, source);
+  sceneFrameRects(component, source = null) {
+    return this.previewInteraction.sceneFrameRects(component, source);
   }
 
   renderSelectedChainTransformOverlay() {
@@ -4022,11 +4197,13 @@ export class OutputRenderer {
   }
 
   mousePressed(x, y) {
-    return this.previewInteraction.mousePressed(x, y);
+    const point = this.previewDisplayPointToWorld({ x, y });
+    return this.previewInteraction.mousePressed(point.x, point.y);
   }
 
   mouseDragged(x, y) {
-    return this.previewInteraction.mouseDragged(x, y);
+    const point = this.previewDisplayPointToWorld({ x, y });
+    return this.previewInteraction.mouseDragged(point.x, point.y);
   }
 
   mouseReleased() {
@@ -4041,16 +4218,16 @@ export class OutputRenderer {
     return result;
   }
 
-  startCanvasFrameDrag(x, y) {
-    return this.previewInteraction.startCanvasFrameDrag(x, y);
+  startSceneFrameDrag(x, y) {
+    return this.previewInteraction.startSceneFrameDrag(x, y);
   }
 
-  updateCanvasFrameDrag(x, y) {
-    return this.previewInteraction.updateCanvasFrameDrag(x, y);
+  updateSceneFrameDrag(x, y) {
+    return this.previewInteraction.updateSceneFrameDrag(x, y);
   }
 
-  applyLocalCanvasFrame(componentId, frameId, rect) {
-    return this.previewInteraction.applyLocalCanvasFrame(frameId, rect);
+  applyLocalSceneFrame(componentId, frameId, rect) {
+    return this.previewInteraction.applyLocalSceneFrame(frameId, rect);
   }
 
   isCalibrating() {
@@ -4106,8 +4283,8 @@ export class OutputRenderer {
     return this.previewInteraction.chainTransformDrag;
   }
 
-  get canvasFrameDrag() {
-    return this.previewInteraction.canvasFrameDrag;
+  get sceneFrameDrag() {
+    return this.previewInteraction.sceneFrameDrag;
   }
 
   loadMapping() {
@@ -4196,6 +4373,7 @@ export class OutputRenderer {
       const resolution = `<span class="output-resolution">${this.renderResolutionLabel()}</span>`;
       this.hud.classList.toggle("is-hidden", !this.state.global.showHud);
       this.hud.classList.toggle("is-loading", mediaLoading);
+      this.hud.classList.remove("is-diagnostic");
       const markup = `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>${resolution}`;
       if (this.hud.innerHTML !== markup) this.hud.innerHTML = markup;
     }
@@ -4326,6 +4504,24 @@ export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
   });
 }
 
+export function mediaSourceDemandSize(request = {}, source = {}) {
+  const descriptor = request && typeof request === "object" ? request : { width: request };
+  const baseWidth = Math.max(1, Number(descriptor.logicalWidth) || Number(descriptor.width) || 1);
+  const baseHeight = Math.max(1, Number(descriptor.logicalHeight) || Number(descriptor.height) || 1);
+  const contentScale = Math.max(1, Math.abs(Number(source?.contentTransform?.scale) || 1));
+  // Physical/logical divergence normally means ROI clipping, not reduced
+  // quality. Only an explicit qualityScale may lower source detail.
+  const qualityScale = Math.max(0.01, Math.min(1, Number(descriptor.qualityScale) || 1));
+  return {
+    width: baseWidth * contentScale * qualityScale,
+    height: baseHeight * contentScale * qualityScale,
+  };
+}
+
+export function mediaSourceDemandWidth(request = {}, source = {}) {
+  return mediaSourceDemandSize(request, source).width;
+}
+
 function containedRect(containerWidth, containerHeight, contentWidth, contentHeight) {
   const cw = Math.max(1, Number(containerWidth) || 1);
   const ch = Math.max(1, Number(containerHeight) || 1);
@@ -4364,17 +4560,22 @@ function drawImageCoverCrop(source, x, y, targetWidth, targetHeight) {
 
 // Editor-only clip for transformed stale thumbnails. This changes GL scissor
 // state around an existing draw; it does not create a render target or pass.
-function withScreenScissor(rect = {}, draw) {
+function withScreenScissor(rect = {}, draw, viewport = {}) {
   const gl = typeof drawingContext !== "undefined" ? drawingContext : null;
   if (!gl?.scissor || !gl?.enable || typeof draw !== "function") return draw?.();
   const canvasWidth = Math.max(1, Number(typeof width === "number" ? width : gl.drawingBufferWidth) || 1);
   const canvasHeight = Math.max(1, Number(typeof height === "number" ? height : gl.drawingBufferHeight) || 1);
   const scaleX = Math.max(0.0001, Number(gl.drawingBufferWidth) || canvasWidth) / canvasWidth;
   const scaleY = Math.max(0.0001, Number(gl.drawingBufferHeight) || canvasHeight) / canvasHeight;
-  const left = Math.max(0, Math.min(canvasWidth, Number(rect.x) || 0));
-  const top = Math.max(0, Math.min(canvasHeight, Number(rect.y) || 0));
-  const right = Math.max(left, Math.min(canvasWidth, left + Math.max(0, Number(rect.width) || 0)));
-  const bottom = Math.max(top, Math.min(canvasHeight, top + Math.max(0, Number(rect.height) || 0)));
+  const zoom = Math.max(0.1, Math.min(6, Number(viewport.zoom) || 1));
+  const panX = Number(viewport.x) || 0;
+  const panY = Number(viewport.y) || 0;
+  const transformedLeft = canvasWidth * 0.5 + ((Number(rect.x) || 0) - canvasWidth * 0.5) * zoom + panX;
+  const transformedTop = canvasHeight * 0.5 + ((Number(rect.y) || 0) - canvasHeight * 0.5) * zoom + panY;
+  const left = Math.max(0, Math.min(canvasWidth, transformedLeft));
+  const top = Math.max(0, Math.min(canvasHeight, transformedTop));
+  const right = Math.max(left, Math.min(canvasWidth, transformedLeft + Math.max(0, Number(rect.width) || 0) * zoom));
+  const bottom = Math.max(top, Math.min(canvasHeight, transformedTop + Math.max(0, Number(rect.height) || 0) * zoom));
   const wasEnabled = gl.isEnabled?.(gl.SCISSOR_TEST) === true;
   const previousBox = gl.getParameter?.(gl.SCISSOR_BOX);
   gl.enable(gl.SCISSOR_TEST);

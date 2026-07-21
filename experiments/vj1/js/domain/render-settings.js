@@ -30,9 +30,9 @@ export function normalizeRenderSettings(render = {}) {
   return {
     ...stripLegacyPixelGeometry(render),
     outputs,
-    canvasAspectRatio: normalizeAspectRatio(
-      render.canvasAspectRatio,
-      VJ1.canvasWidth / VJ1.canvasHeight
+    sceneAspectRatio: normalizeAspectRatio(
+      render.sceneAspectRatio,
+      VJ1.sceneWidth / VJ1.sceneHeight
     ),
     componentAspectRatio: normalizeAspectRatio(
       render.componentAspectRatio,
@@ -51,22 +51,16 @@ export function normalizeRenderSettings(render = {}) {
 
 // This is an aspect-based mathematical space used by interactions and shader
 // coordinates. It is not a requested backing-buffer resolution.
-export function canvasFrameSize(render = {}) {
-  return compositionLogicalSize(render.canvasAspectRatio ?? (VJ1.canvasWidth / VJ1.canvasHeight));
+export function sceneFrameSize(render = {}) {
+  return compositionLogicalSize(render.sceneAspectRatio ?? (VJ1.sceneWidth / VJ1.sceneHeight));
 }
 
 export function componentFrameSize(render = {}) {
   return compositionLogicalSize(render.componentAspectRatio ?? (VJ1.renderWidth / VJ1.renderHeight));
 }
 
-export function normalizeCanvasSize(size = {}) {
-  const aspectRatio = positiveRatio(size?.width, size?.height, VJ1.canvasWidth / VJ1.canvasHeight);
-  return compositionLogicalSize(aspectRatio);
-}
-
-// Kept as a no-op compatibility export for callers being migrated. Recording
-// frames are relative in v25 and therefore never scale when a host resizes.
-export function scaleRecordingFramesToCanvasSize(frames = []) {
+// Frames are relative and therefore never scale when a host resizes.
+export function scaleFramesToSceneSize(frames = []) {
   return frames;
 }
 
@@ -98,7 +92,7 @@ export function normalizeSamplingSettings(sampling = {}) {
   return {
     surfaceOverscan: clampNumber(sampling?.surfaceOverscan, 0.5, 2, 1),
     recordingFrameScale: clampNumber(sampling?.recordingFrameScale, 0.5, 2, 1),
-    limitCanvasToLogicalSize: sampling?.limitCanvasToLogicalSize !== false,
+    limitSceneToLogicalSize: sampling?.limitSceneToLogicalSize !== false,
   };
 }
 
@@ -138,7 +132,7 @@ export function normalizeComponentPipelineSettings(render = {}) {
 }
 
 export function normalizePreviewViewport(viewport = {}) {
-  const fit = ["frame", "world", "manual"].includes(viewport.fit) ? viewport.fit : "frame";
+  const fit = ["frame", "world", "manual"].includes(viewport.fit) ? viewport.fit : "world";
   return {
     zoom: clampNumber(viewport.zoom, 0.1, 6, 1),
     x: clampNumber(viewport.x, -100000, 100000, 0),
@@ -148,7 +142,7 @@ export function normalizePreviewViewport(viewport = {}) {
 }
 
 export function normalizePreviewViewports(viewports = {}) {
-  const keys = ["component", "canvas", "scene", "live"];
+  const keys = ["component", "scene", "mapping", "live"];
   return Object.fromEntries(keys.map((key) => [key, normalizePreviewViewport(viewports?.[key] || {})]));
 }
 

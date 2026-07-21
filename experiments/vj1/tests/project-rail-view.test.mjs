@@ -20,26 +20,23 @@ test("project rail renders each workspace through one view boundary", () => {
   };
 
   const component = projectRailTemplate(state, { ...options, workspace: "component" });
-  const canvas = projectRailTemplate(state, { ...options, workspace: "canvas" });
   const scene = projectRailTemplate(state, { ...options, workspace: "scene" });
   const live = projectRailTemplate(state, { ...options, workspace: "live" });
   const mapping = projectRailTemplate(state, { ...options, workspace: "mapping" });
 
   assert.match(component, /data-add-component/);
   assert.match(component, /data-scroll-key="component-catalog"/);
-  assert.match(canvas, /data-add-canvas-component/);
-  assert.match(canvas, /data-scroll-key="recording-frames"/);
   assert.match(scene, /data-add-scene/);
-  assert.match(scene, /data-scroll-key="scene-surfaces"/);
-  assert.match(live, /data-scroll-key="live-scenes"/);
+  assert.match(scene, /data-scroll-key="recording-frames"/);
+  assert.match(live, /data-scroll-key="live-sources:scene"/);
   assert.match(live, /data-update="global\.timeStretch"/);
-  assert.match(mapping, /data-scroll-key="mapping-components"/);
-  assert.deepEqual(catalogScopes, ["component", "canvas", "scene", "scene"]);
-  assert.deepEqual(sortScopes, ["component", "canvas", "scene", "scene"]);
+  assert.match(mapping, /data-scroll-key="mapping-catalog"/);
+  assert.match(mapping, /data-scroll-key="mapping-surfaces"/);
+  assert.deepEqual(catalogScopes, ["component", "scene", "scene", "mapping"]);
+  assert.deepEqual(sortScopes, ["component", "scene", "scene", "mapping"]);
 });
 
-test("unknown project workspace uses the scene rail", () => {
+test("unknown project workspace has no implicit domain alias", () => {
   const html = projectRailTemplate(createInitialState(), { workspace: "unknown" });
-  assert.match(html, /data-add-scene/);
-  assert.match(html, /data-scroll-key="scene-catalog"/);
+  assert.equal(html, "");
 });

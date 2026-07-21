@@ -6,7 +6,7 @@ import {
   normalizeComponentFrameShape,
   normalizeComponentResolutionScale,
 } from "../js/domain/component-frame.js";
-import { createCanvasComponent, createCanvasFrame, createDefaultComponent, createDefaultSurface, createInitialState, createSceneFromState, directOutputSurfaceId, normalizeCameraSettings, normalizeComponentPipelineSettings, normalizeProjectionFit, normalizeSamplingSettings, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
+import { createSceneComponent, createFrameSlot, createDefaultComponent, createDefaultSurface, createInitialState, createMappingFromState, directOutputSurfaceId, normalizeCameraSettings, normalizeComponentPipelineSettings, normalizeProjectionFit, normalizeSamplingSettings, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
 
 const render = {
   componentAspectRatio: 10 / 7,
@@ -15,7 +15,7 @@ const render = {
 
 test("generated visual objects use compact default names", () => {
   assert.equal(createDefaultComponent(1).name, "Comp 2");
-  assert.equal(createCanvasComponent(1).name, "Canv 2");
+  assert.equal(createSceneComponent(1).name, "Scene 2");
   assert.equal(createDefaultSurface(1).name, "Srf 2");
 });
 
@@ -110,17 +110,17 @@ test("adaptive sampling settings remain independent and accept half scale", () =
   assert.deepEqual(normalizeSamplingSettings({}), {
     surfaceOverscan: 1,
     recordingFrameScale: 1,
-    limitCanvasToLogicalSize: true,
+    limitSceneToLogicalSize: true,
   });
   assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.5, recordingFrameScale: 0.5 }), {
     surfaceOverscan: 0.5,
     recordingFrameScale: 0.5,
-    limitCanvasToLogicalSize: true,
+    limitSceneToLogicalSize: true,
   });
-  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.1, recordingFrameScale: 8, limitCanvasToLogicalSize: false }), {
+  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.1, recordingFrameScale: 8, limitSceneToLogicalSize: false }), {
     surfaceOverscan: 0.5,
     recordingFrameScale: 2,
-    limitCanvasToLogicalSize: false,
+    limitSceneToLogicalSize: false,
   });
 });
 
@@ -193,9 +193,10 @@ test("configured outputs derive locked direct surfaces without enabling new rout
 
   direct[1].enabled = true;
   direct[1].feather = 0.2;
+  const selectedMapping = normalized.mappings.find((mapping) => mapping.id === normalized.ui.selectedMappingId);
+  selectedMapping.surfaces = normalized.surfaces;
   const reduced = sanitizeState({
     ...normalized,
-    surfaces: normalized.surfaces,
     render: { ...normalized.render, outputs: [normalized.render.outputs[0]] },
   });
   const reducedDirect = reduced.surfaces.filter((surface) => surface.destination?.type === "direct");
@@ -223,24 +224,28 @@ test("camera capture settings normalize resolution direction mirror and maximum 
   });
 });
 
-test("surface projection fit defaults to cover and persists in scene snapshots", () => {
+test("surface projection fit defaults to cover and persists in its Mapping", () => {
   assert.equal(createDefaultSurface(0).projectionFit, "cover");
   assert.equal(createDefaultSurface(0).feather, 0);
   assert.equal(normalizeProjectionFit("contain"), "contain");
   assert.equal(normalizeProjectionFit("stretch"), "stretch");
   assert.equal(normalizeProjectionFit("invalid"), "cover");
 
-  const state = sanitizeState({ surfaces: [{ id: "surface-a", projectionFit: "contain" }] });
-  const scene = createSceneFromState(state, "Fit scene");
+  const initial = createInitialState();
+  initial.mappings[0].surfaces = [{ id: "surface-a", projectionFit: "contain" }];
+  const state = sanitizeState(initial);
+  const scene = createMappingFromState(state, "Fit scene");
   assert.equal(state.surfaces[0].projectionFit, "contain");
-  assert.equal(scene.snapshot.surfaces[0].projectionFit, "contain");
+  assert.equal(scene.surfaces[0].projectionFit, "contain");
 });
 
 test("surface feather is a physical surface property and is clamped", () => {
-  const state = sanitizeState({ surfaces: [{ id: "surface-a", feather: 0.75 }] });
+  const initial = createInitialState();
+  initial.mappings[0].surfaces = [{ id: "surface-a", feather: 0.75 }];
+  const state = sanitizeState(initial);
   assert.equal(state.surfaces[0].feather, 0.5);
-  const scene = createSceneFromState(state, "Feather scene");
-  assert.equal("feather" in scene.snapshot.surfaces[0], false);
+  const scene = createMappingFromState(state, "Feather scene");
+  assert.equal(scene.surfaces[0].feather, 0.5);
 });
 
 test("legacy canvas layers migrate into ordinary Groups without retaining a parallel layer model", () => {
@@ -269,56 +274,58 @@ test("legacy canvas layers migrate into ordinary Groups without retaining a para
       },
     }],
   });
-  const canvas = state.components.find((component) => component.id === "legacy-canvas");
-  assert.equal("layers" in canvas.canvas, false);
-  assert.equal(canvas.chain.length, 1);
-  assert.equal(canvas.chain[0].role, "group");
-  assert.equal("layout" in canvas.chain[0], false);
-  assert.equal(canvas.chain[0].opacity, 0.7);
-  assert.equal(canvas.chain[0].blend, "screen");
-  assert.equal(canvas.chain[0].chain[0].source.componentId, source.id);
-  assert.deepEqual(canvas.chain[0].chain[0].source.placement, { scale: 0.48 });
-  assert.equal(state.render.canvasAspectRatio, 2);
+  const scene = state.components.find((component) => component.id === "legacy-canvas");
+  assert.equal("layers" in scene.scene, false);
+  assert.equal(scene.chain.length, 1);
+  assert.equal(scene.chain[0].role, "group");
+  assert.equal("layout" in scene.chain[0], false);
+  assert.equal(scene.chain[0].opacity, 0.7);
+  assert.equal(scene.chain[0].blend, "screen");
+  assert.equal(scene.chain[0].chain[0].source.componentId, source.id);
+  assert.deepEqual(scene.chain[0].chain[0].source.placement, { scale: 0.48 });
+  assert.equal(state.render.sceneAspectRatio, 2);
 });
 
-test("legacy canvas frames migrate to the shared registry and routes persist", () => {
+test("Scene Frame configuration is reconciled against stable Mapping frame slots", () => {
   const source = createDefaultComponent(0);
-  const canvas = createCanvasComponent(0, source.id);
-  const frameId = "legacy-recording-frame";
-  canvas.canvas.frames = [{ id: frameId, name: "Legacy frame", x: 10, y: 20, width: 640, height: 360 }];
+  const canvas = createSceneComponent(0, source.id);
+  const frameId = "frame-slot-a";
+  canvas.scene.frames = [{ frameId, componentId: source.id, fit: "contain", feather: 0.2 }];
   const state = sanitizeState({
+    version: createInitialState().version,
     components: [source, canvas],
-    surfaces: [{ id: "surface-a", componentId: canvas.id, outputFrameId: frameId }],
+    frames: [{ id: frameId, name: "Frame A", x: 0, y: 0, width: 1, height: 1 }],
+    surfaces: [{ id: "surface-a", frameSlotId: frameId }],
   });
-  const scene = createSceneFromState(state, "Frame scene");
-  assert.equal("frames" in state.components.find((component) => component.id === canvas.id).canvas, false);
-  assert.equal(state.recordingFrames[0].id, frameId);
-  assert.equal(state.surfaces[0].sourceNodeId, `recording-frame:${canvas.id}:${frameId}`);
-  assert.equal(state.surfaces[0].outputFrameId, frameId);
-  assert.equal(scene.snapshot.surfaces[0].outputFrameId, frameId);
+  const scene = createMappingFromState(state, "Frame scene");
+  const config = state.components.find((component) => component.id === canvas.id).scene.frames.find((entry) => entry.frameId === frameId);
+  assert.deepEqual(config, { frameId, componentId: source.id, fit: "contain" });
+  assert.equal(state.frames.some((frame) => frame.id === frameId), true);
+  assert.equal(scene.surfaces[0].frameSlotId, frameId);
 });
 
 test("ordinary components and recording frames share one Scene source-node abstraction", () => {
   const component = createDefaultComponent(0);
   component.id = "component-a";
   component.name = "Visual A";
-  const canvas = createCanvasComponent(0, component.id);
+  const canvas = createSceneComponent(0, component.id);
   canvas.id = "canvas-a";
   canvas.name = "Wide Canvas";
   const state = sanitizeState({
-    version: 19,
+    version: createInitialState().version,
     components: [component, canvas],
-    recordingFrames: [{ id: "frame-a", name: "Frame 1", x: 0, y: 0, width: 1920, height: 1080 }],
+    frames: [{ id: "frame-a", name: "Frame 1", x: 0, y: 0, width: 1920, height: 1080 }],
   });
   const nodes = sceneSourceNodes(state);
   assert.deepEqual(nodes.map((node) => ({ type: node.type, name: node.name })), [
     { type: "component", name: "Visual A" },
     { type: "component", name: "Wide Canvas" },
+    { type: "recording-frame", name: "Wide Canvas · Main output" },
     { type: "recording-frame", name: "Wide Canvas · Frame 1" },
   ]);
   assert.equal(resolveSceneSourceNode(state, nodes[1].id).componentId, canvas.id);
   assert.equal(resolveSceneSourceNode(state, nodes[1].id).outputFrameId, "");
-  assert.equal(resolveSceneSourceNode(state, nodes[2].id).outputFrameId, state.recordingFrames[0].id);
+  assert.equal(resolveSceneSourceNode(state, nodes[2].id).outputFrameId, state.frames[0].id);
 });
 
 test("stable Scene source IDs are the only runtime routing authority", () => {
@@ -334,11 +341,11 @@ test("stable Scene source IDs are the only runtime routing authority", () => {
 });
 
 test("recording-frame source nodes prefer their Canvas-specific cropped thumbnail", () => {
-  const canvas = createCanvasComponent(0);
-  const frame = createCanvasFrame(0);
+  const canvas = createSceneComponent(0);
+  const frame = createFrameSlot(0);
   canvas.thumbnail = "whole-canvas";
-  canvas.canvas.frameThumbnails = { [frame.id]: "cropped-frame" };
-  const nodes = sceneSourceNodes({ components: [canvas], recordingFrames: [frame] });
+  canvas.scene.frameThumbnails = { [frame.id]: "cropped-frame" };
+  const nodes = sceneSourceNodes({ components: [canvas], frames: [frame] });
   assert.equal(nodes.find((node) => node.type === "component").thumbnail, "whole-canvas");
   assert.equal(nodes.find((node) => node.type === "recording-frame").thumbnail, "cropped-frame");
 });
@@ -346,11 +353,11 @@ test("recording-frame source nodes prefer their Canvas-specific cropped thumbnai
 test("recording-frame source recency combines only its Canvas and shared frame", () => {
   const nested = createDefaultComponent(0);
   nested.activity = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-10T00:00:00.000Z", lastUsedAt: "" };
-  const canvas = createCanvasComponent(0, nested.id);
+  const canvas = createSceneComponent(0, nested.id);
   canvas.activity = { createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z", lastUsedAt: "" };
-  const frame = createCanvasFrame(0);
+  const frame = createFrameSlot(0);
   frame.activity = { createdAt: "2026-01-04T00:00:00.000Z", updatedAt: "2026-01-05T00:00:00.000Z", lastUsedAt: "" };
-  const node = sceneSourceNodes({ components: [nested, canvas], recordingFrames: [frame] })
+  const node = sceneSourceNodes({ components: [nested, canvas], frames: [frame] })
     .find((item) => item.type === "recording-frame");
 
   assert.equal(node.createdAt, frame.activity.createdAt);
@@ -358,12 +365,54 @@ test("recording-frame source recency combines only its Canvas and shared frame",
   assert.equal(node.recentAt, new Date(frame.activity.updatedAt).getTime());
 });
 
-test("an intentionally empty shared recording-frame registry stays empty", () => {
+test("the shared Frame registry always includes the derived Main output Frame", () => {
   const state = sanitizeState({
-    components: [createCanvasComponent(0)],
-    recordingFrames: [],
+    components: [createSceneComponent(0)],
+    frames: [],
   });
-  assert.deepEqual(state.recordingFrames, []);
+  assert.equal(state.frames.length, 1);
+  assert.equal(state.frames[0].kind, "output");
+  assert.equal(state.frames[0].name, "Main output");
+  assert.equal(state.frames[0].locked, false);
+  assert.equal(state.frames[0].keepProportions, true);
+});
+
+test("Output Frames retain authored placement and scale while following Output proportions", () => {
+  const state = sanitizeState(createInitialState());
+  const outputFrame = state.frames.find((frame) => frame.kind === "output");
+  Object.assign(outputFrame, { x: 0.1, y: 0.2, width: 0.5, height: 0.5, keepProportions: true });
+  const normalized = sanitizeState(state);
+  const frame = normalized.frames.find((candidate) => candidate.id === outputFrame.id);
+  const sceneAspect = normalized.render.sceneAspectRatio;
+  const outputAspect = normalized.render.outputs[0].aspectRatio;
+
+  assert.ok(Math.abs(sceneAspect * frame.width / frame.height - outputAspect) < 1e-9);
+  assert.ok(Math.abs((frame.x + frame.width * 0.5) - 0.35) < 1e-9);
+  assert.ok(Math.abs((frame.y + frame.height * 0.5) - 0.45) < 1e-9);
+  assert.ok(Math.abs(frame.width * frame.height - 0.25) < 1e-9);
+});
+
+test("assigned projection geometry governs a proportion-locked user Frame", () => {
+  const state = createInitialState();
+  const frame = createFrameSlot(0);
+  state.frames.push(frame);
+  const mapping = state.mappings[0];
+  const surface = mapping.surfaces.find((candidate) => candidate.destination?.type !== "direct");
+  surface.frameSlotId = frame.id;
+  surface.outputFrameId = frame.id;
+  mapping.calibration = {
+    surfaces: [{
+      id: surface.id,
+      w: 400,
+      h: 200,
+      corners: [{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 360, y: 200 }, { x: 40, y: 200 }],
+    }],
+  };
+
+  const normalized = sanitizeState(state);
+  const governed = normalized.frames.find((candidate) => candidate.id === frame.id);
+  const projectedAspect = ((400 + 320) * 0.5) / Math.hypot(40, 200);
+  assert.ok(Math.abs(normalized.render.sceneAspectRatio * governed.width / governed.height - projectedAspect) < 1e-9);
 });
 
 function pickSize(metrics) {

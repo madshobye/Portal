@@ -1,13 +1,13 @@
-import { clone, createCanvasComponent, createSceneSurfaceSnapshot, syncLiveSnapshotFromScene, uid } from "./models.js?v=render-coordinate-scope-3";
+import { clone, createSceneComponent, createMappingSurface, syncLiveRoutesFromMapping, uid } from "./models.js?v=render-coordinate-scope-3";
 import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
-import { canvasFrameSize } from "./render-settings.js?v=canvas-global-resolution-1";
+import { sceneFrameSize } from "./render-settings.js?v=canvas-global-resolution-1";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
 import { initializeLiveChainInsertion } from "./scene-routing.js?v=chain-only-authority-1";
 
 export const VJ1_CLIPBOARD_TYPE = "application/x-vj1-item";
 
 export function clipboardPayloadForTarget(state = {}, target = {}) {
-  if (target.kind === "component-list" || target.kind === "canvas-list") {
+  if (target.kind === "component-list" || target.kind === "scene-list") {
     const value = state.components?.find((item) => item.id === target.itemId);
     return value ? { kind: "component", value: clone(value) } : null;
   }
@@ -16,12 +16,13 @@ export function clipboardPayloadForTarget(state = {}, target = {}) {
     const value = findChainItem(component?.chain, target.itemId);
     return value ? { kind: "chain-item", value: clone(value) } : null;
   }
-  if (target.kind === "scene-list") {
-    const value = state.scenes?.find((item) => item.id === target.itemId);
-    return value ? { kind: "scene", value: clone(value) } : null;
+  if (target.kind === "mapping-list") {
+    const value = state.mappings?.find((item) => item.id === target.itemId);
+    return value ? { kind: "mapping", value: clone(value) } : null;
   }
   if (target.kind === "surface-list") {
-    const value = state.surfaces?.find((item) => item.id === target.itemId && item.destination?.type !== "direct");
+    const mapping = state.mappings?.find((item) => item.id === state.ui?.selectedMappingId);
+    const value = mapping?.surfaces?.find((item) => item.id === target.itemId && item.destination?.type !== "direct");
     return value ? { kind: "surface", value: clone(value) } : null;
   }
   if (target.kind === "media-item") {
@@ -35,27 +36,27 @@ export function pasteClipboardPayload(draft = {}, payload = {}, target = {}) {
   if (!payload?.kind || !payload.value) return { pasted: false, reason: "empty" };
   if (payload.kind === "component") return pasteComponent(draft, payload.value, target);
   if (payload.kind === "chain-item") return pasteChainItem(draft, payload.value, target);
-  if (payload.kind === "scene") return pasteScene(draft, payload.value, target);
+  if (payload.kind === "mapping") return pasteMapping(draft, payload.value, target);
   if (payload.kind === "surface") return pasteSurface(draft, payload.value, target);
   if (payload.kind === "media") return pasteMedia(draft, payload.value, target);
   return { pasted: false, reason: "unsupported" };
 }
 
-export function copyComponentAsCanvas(draft = {}, componentId = "") {
-  const source = draft.components?.find((item) => item.id === componentId && item.type !== "canvas");
+export function copyComponentAsScene(draft = {}, componentId = "") {
+  const source = draft.components?.find((item) => item.id === componentId && item.type !== "scene");
   if (!source) return { converted: false, reason: "missing-component" };
 
-  const canvasCount = (draft.components || []).filter((item) => item.type === "canvas").length;
-  const defaults = createCanvasComponent(canvasCount);
+  const sceneCount = (draft.components || []).filter((item) => item.type === "scene").length;
+  const defaults = createSceneComponent(sceneCount);
   const copy = {
     ...clone(source),
     id: defaults.id,
-    type: "canvas",
-    name: uniqueDerivedName(`${source.name || "Component"} Canvas`, draft.components || []),
+    type: "scene",
+    name: uniqueDerivedName(`${source.name || "Component"} Scene`, draft.components || []),
     thumbnail: "",
     chain: (source.chain || []).map(regenerateChainItemIds),
     activity: defaults.activity,
-    canvas: defaults.canvas,
+    scene: defaults.scene,
   };
 
   draft.components ||= [];
@@ -63,9 +64,9 @@ export function copyComponentAsCanvas(draft = {}, componentId = "") {
   draft.ui ||= {};
   draft.ui.selectedComponentId = copy.id;
   draft.ui.selectedChainItemId = copy.chain[0]?.id || "";
-  draft.ui.workspaceSelectionIds ||= { component: "", canvas: "" };
-  draft.ui.workspaceSelectionIds.canvas = copy.id;
-  return { converted: true, kind: "canvas", id: copy.id };
+  draft.ui.workspaceSelectionIds ||= { component: "", scene: "" };
+  draft.ui.workspaceSelectionIds.scene = copy.id;
+  return { converted: true, kind: "scene", id: copy.id };
 }
 
 export function chainPasteTarget(state = {}, componentId = "", selectedItemId = "") {
@@ -80,29 +81,29 @@ export function chainPasteTarget(state = {}, componentId = "", selectedItemId = 
 }
 
 function pasteComponent(draft, source, target) {
-  if (source.type !== "canvas" && target.kind === "canvas-list" && target.itemId) {
+  if (source.type !== "scene" && target.kind === "scene-list" && target.itemId) {
     target = { kind: "chain", componentId: target.itemId, itemId: "" };
   }
-  if ((target.kind === "chain" || target.kind === "group") && source.type !== "canvas") {
+  if ((target.kind === "chain" || target.kind === "group") && source.type !== "scene") {
     const component = targetComponent(draft, target);
-    if (component?.type !== "canvas") return { pasted: false, reason: "components-only-in-canvas" };
+    if (component?.type !== "scene") return { pasted: false, reason: "components-only-in-scene" };
     return insertIntoTarget(draft, target, createComponentReferenceLayer(draft, component, source));
   }
-  if (target.kind !== "component-list" && target.kind !== "canvas-list") return { pasted: false, reason: "wrong-target" };
-  if ((source.type === "canvas") !== (target.kind === "canvas-list")) return { pasted: false, reason: "wrong-list" };
+  if (target.kind !== "component-list" && target.kind !== "scene-list") return { pasted: false, reason: "wrong-target" };
+  if ((source.type === "scene") !== (target.kind === "scene-list")) return { pasted: false, reason: "wrong-list" };
   const copy = clone(source);
   copy.id = uid("component");
-  copy.name = uniqueCopyName(source.name || (source.type === "canvas" ? "Canvas" : "Component"), draft.components || []);
+  copy.name = uniqueCopyName(source.name || (source.type === "scene" ? "Scene" : "Component"), draft.components || []);
   copy.thumbnail = "";
   delete copy.activity;
   copy.chain = (copy.chain || []).map(regenerateChainItemIds);
-  if (copy.canvas) copy.canvas.frameThumbnails = {};
+  if (copy.scene) copy.scene.frameThumbnails = {};
   draft.components ||= [];
   draft.components.push(copy);
   draft.ui.selectedComponentId = copy.id;
   draft.ui.selectedChainItemId = copy.chain?.[0]?.id || "";
-  draft.ui.workspaceSelectionIds ||= { component: "", canvas: "" };
-  draft.ui.workspaceSelectionIds[copy.type === "canvas" ? "canvas" : "component"] = copy.id;
+  draft.ui.workspaceSelectionIds ||= { component: "", scene: "" };
+  draft.ui.workspaceSelectionIds[copy.type === "scene" ? "scene" : "component"] = copy.id;
   return { pasted: true, kind: "component", id: copy.id };
 }
 
@@ -110,44 +111,39 @@ function pasteChainItem(draft, source, target) {
   target = componentListChainTarget(draft, target);
   if (target.kind !== "chain" && target.kind !== "group") return { pasted: false, reason: "wrong-target" };
   const component = targetComponent(draft, target);
-  if (!component || (component.type !== "canvas" && containsComponentReference(source))) {
-    return { pasted: false, reason: "components-only-in-canvas" };
+  if (!component || (component.type !== "scene" && containsComponentReference(source))) {
+    return { pasted: false, reason: "components-only-in-scene" };
   }
   return insertIntoTarget(draft, target, regenerateChainItemIds(clone(source)));
 }
 
-function pasteScene(draft, source, target) {
-  if (target.kind !== "scene-list") return { pasted: false, reason: "wrong-target" };
+function pasteMapping(draft, source, target) {
+  if (target.kind !== "mapping-list") return { pasted: false, reason: "wrong-target" };
   const copy = clone(source);
-  copy.id = uid("scene");
-  copy.name = uniqueCopyName(source.name || "Scene", draft.scenes || []);
-  draft.scenes ||= [];
-  draft.scenes.push(copy);
-  draft.ui.selectedSceneId = copy.id;
-  return { pasted: true, kind: "scene", id: copy.id };
+  copy.id = uid("mapping");
+  copy.name = uniqueCopyName(source.name || "Mapping", draft.mappings || []);
+  draft.mappings ||= [];
+  draft.mappings.push(copy);
+  draft.ui.selectedMappingId = copy.id;
+  return { pasted: true, kind: "mapping", id: copy.id };
 }
 
 function pasteSurface(draft, source, target) {
   if (target.kind !== "surface-list" || source.destination?.type === "direct") return { pasted: false, reason: "wrong-target" };
+  const mapping = draft.mappings?.find((item) => item.id === draft.ui?.selectedMappingId);
+  if (!mapping) return { pasted: false, reason: "missing-mapping" };
   const copy = clone(source);
   copy.id = uid("surface");
   copy.mappingId = copy.id;
-  copy.name = uniqueCopyName(source.name || "Surface", (draft.surfaces || []).filter((item) => item.destination?.type !== "direct"));
+  copy.name = uniqueCopyName(source.name || "Surface", (mapping.surfaces || []).filter((item) => item.destination?.type !== "direct"));
   copy.finalShaderChain = (copy.finalShaderChain || []).map((pass) => ({ ...pass, id: uid("shader") }));
-  draft.surfaces ||= [];
-  draft.surfaces.push(copy);
-  for (const mapping of Object.values(draft.mappings || {})) {
-    if (!Array.isArray(mapping?.surfaces)) continue;
-    const mapped = mapping.surfaces.find((item) => item.name === source.id || item.name === source.mappingId);
-    if (mapped) mapping.surfaces.push({ ...clone(mapped), name: copy.id });
+  mapping.surfaces ||= [];
+  mapping.surfaces.push(createMappingSurface(copy));
+  if (Array.isArray(mapping.calibration?.surfaces)) {
+    const calibrated = mapping.calibration.surfaces.find((item) => item.name === source.id || item.id === source.id);
+    if (calibrated) mapping.calibration.surfaces.push({ ...clone(calibrated), id: copy.id, name: copy.id });
   }
-  for (const scene of draft.scenes || []) {
-    scene.snapshot ||= { surfaces: [] };
-    scene.snapshot.surfaces ||= [];
-    scene.snapshot.surfaces.push(createSceneSurfaceSnapshot(copy));
-  }
-  const liveScene = draft.scenes?.find((scene) => String(scene.id) === String(draft.ui.live?.selectedSceneId || ""));
-  syncLiveSnapshotFromScene(draft, liveScene);
+  syncLiveRoutesFromMapping(draft, mapping);
   draft.ui.selectedSurfaceId = copy.id;
   return { pasted: true, kind: "surface", id: copy.id };
 }
@@ -185,8 +181,8 @@ function insertIntoTarget(draft, target, item) {
   return { pasted: true, kind: "chain-item", id: item.id };
 }
 
-function createComponentReferenceLayer(draft, canvas, source) {
-  const canvasWidth = canvasFrameSize(draft.render).width;
+function createComponentReferenceLayer(draft, scene, source) {
+  const sceneWidth = sceneFrameSize(draft.render).width;
   const metrics = componentFrameMetrics(draft.render || {}, source);
   return regenerateChainItemIds({
     id: uid("chain"),
@@ -198,7 +194,7 @@ function createComponentReferenceLayer(draft, canvas, source) {
     source: {
       type: "component",
       componentId: source.id,
-      placement: { scale: metrics.baseWidth / canvasWidth },
+      placement: { scale: metrics.baseWidth / sceneWidth },
     },
   });
 }
@@ -220,7 +216,7 @@ function targetComponent(draft, target) {
 }
 
 function componentListChainTarget(draft, target) {
-  if ((target.kind !== "component-list" && target.kind !== "canvas-list") || !target.itemId) return target;
+  if ((target.kind !== "component-list" && target.kind !== "scene-list") || !target.itemId) return target;
   const component = draft.components?.find((item) => item.id === target.itemId);
   return component ? { kind: "chain", componentId: component.id, itemId: "" } : target;
 }
@@ -245,7 +241,7 @@ function uniqueCopyName(name, items) {
 }
 
 function uniqueDerivedName(name, items) {
-  const base = String(name || "Canvas");
+  const base = String(name || "Scene");
   const used = new Set((items || []).map((item) => item.name));
   if (!used.has(base)) return base;
   let suffix = 2;

@@ -129,7 +129,7 @@ test("media pickers defer image video and model resources until cards approach t
 });
 
 test("element picker filters media and render elements by explicit category", () => {
-  const owner = { id: "canvas", type: "canvas", name: "Canvas", chain: [] };
+  const owner = { id: "canvas", type: "scene", name: "Canvas", chain: [] };
   const component = { id: "component", type: "chain", name: "Source", chain: [] };
   const html = elementPickerTemplate({
     components: [owner, component],
@@ -270,13 +270,13 @@ test("range params render their label and value above a full-width slider", () =
   assert.ok(styleSource.includes("grid-column: 1 / -1;"));
 });
 
-test("Component Canvas and Live inspectors give range tracks their own full-width row", () => {
+test("Component Scene and Live inspectors give range tracks their own full-width row", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes("refs.inspector.dataset.workspace = currentWorkspace(state);"));
   assert.match(styleSource, /\.range-field input\[type="range"\] \{[\s\S]*?grid-column: 1 \/ -1;/);
-  assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\], \[data-workspace="canvas"\], \[data-workspace="live"\]\) \.param-range-pair \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/);
+  assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\], \[data-workspace="scene"\], \[data-workspace="live"\]\) \.param-range-pair \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/);
   assert.ok(!styleSource.includes(".live-chain-pass .range-field"));
   assert.ok(!styleSource.includes(".chain-pass .range-field"));
   assert.ok(!styleSource.includes(".live-chain-pass .chain-param-list"));
@@ -285,9 +285,17 @@ test("Component Canvas and Live inspectors give range tracks their own full-widt
   assert.match(styleSource, /\.chain-param-list \{[\s\S]*?gap: var\(--range-stack-gap\);/);
 });
 
+test("every Scene Frame exposes proportion locking and Output Frames remain interactive", () => {
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const interactionSource = readFileSync(new URL("../js/output/component-preview-interaction.js", import.meta.url), "utf8");
+  assert.ok(componentSource.includes("Keep proportions"));
+  assert.ok(componentSource.includes(".keepProportions"));
+  assert.doesNotMatch(interactionSource, /frame\.kind === "output"/);
+});
+
 test("all renderable chain elements expose shared quality opacity blend and placement through General", () => {
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const sceneLiveSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
   assert.ok(parameterSource.includes('createNumberParam("opacity", "Opacity"'));
@@ -366,7 +374,7 @@ test("control surfaces share one flat section module and concentric corner token
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes('class="ui-section rail-section"'));
-  assert.ok(primitivesSource.includes('class="ui-section focus-panel"'));
+  assert.ok(primitivesSource.includes('class="ui-section focus-panel${className'));
   assert.ok(pickerSource.includes('class="ui-section element-section"'));
   assert.ok(settingsSource.includes('class="ui-section element-section"'));
   assert.ok(styleSource.includes("--section-inset: 6px;"));
@@ -396,30 +404,32 @@ test("collection workspaces keep controls fixed and scroll only their list bodie
   assert.ok(controllerSource.includes("refs.projectRail.dataset.workspace = workspace"));
   assert.match(styleSource, /\.project-rail:is\(\[data-workspace="component"\][\s\S]*?overflow: hidden;/);
   assert.match(styleSource, /> \.rail-list-section \{[\s\S]*?flex: 1 1 0;[\s\S]*?min-height: 0;/);
-  assert.match(styleSource, /\.project-rail\[data-workspace="live"\] > \.live-component-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
-  assert.match(controllerSource, /class="ui-section rail-section rail-list-section live-component-rail-section"[\s\S]*?<span>Scene components<\/span>/);
-  assert.match(styleSource, /\.project-rail\[data-workspace="scene"\] > \.scene-surface-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
-  assert.match(controllerSource, /class="ui-section rail-section rail-list-section scene-surface-rail-section"[\s\S]*?"Surfaces"/);
-  assert.match(styleSource, /\.project-rail\[data-workspace="canvas"\] > \.canvas-frame-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
-  assert.match(controllerSource, /class="ui-section rail-section rail-list-section canvas-frame-rail-section"[\s\S]*?"Frames"/);
+  assert.match(controllerSource, /<span>Live sources<\/span>[\s\S]*?data-live-source-kind="scene"[\s\S]*?data-live-source-kind="component"/);
+  assert.match(styleSource, /\.project-rail\[data-workspace="mapping"\] > \.mapping-surface-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
+  assert.match(controllerSource, /class="ui-section rail-section rail-list-section mapping-surface-rail-section"[\s\S]*?"Surfaces"/);
+  assert.match(styleSource, /\.project-rail\[data-workspace="scene"\] > \.scene-frame-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
+  assert.match(controllerSource, /class="ui-section rail-section rail-list-section scene-frame-rail-section"[\s\S]*?"Frames"/);
   assert.match(styleSource, /\.rail-list-section > \.rail-scroll-list \{[\s\S]*?overflow-y: auto;[\s\S]*?scrollbar-gutter: stable;/);
   assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\][\s\S]*?overflow: hidden;/);
+  assert.match(styleSource, /\.studio-inspector\[data-workspace="scene"\] > \.scene-frame-panel \{[\s\S]*?flex: 0 0 auto;[\s\S]*?grid-template-rows: auto auto;/);
   assert.match(styleSource, /\.component-chain-list,[\s\S]*?align-content: start;[\s\S]*?overflow-y: auto;/);
   assert.match(controllerSource, /class="component-card-list rail-scroll-list"/);
-  assert.match(controllerSource, /class="scene-card-list rail-scroll-list"/);
+  assert.match(controllerSource, /class="scene-card-list live-scene-list rail-scroll-list"/);
+  assert.match(controllerSource, /class="mapping-text-list rail-scroll-list"/);
 });
 
 test("selection rerenders preserve every keyed catalog and chain viewport", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
     + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const sceneSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const sceneSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   const pickerSource = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
   const domSource = readFileSync(new URL("../js/control/dom-utils.js", import.meta.url), "utf8");
 
-  for (const key of ["component-catalog", "canvas-catalog", "recording-frames", "scene-catalog", "scene-surfaces", "live-scenes", "live-components", "mapping-components"]) {
+  for (const key of ["component-catalog", "scene-catalog", "recording-frames", "mapping-catalog", "mapping-surfaces"]) {
     assert.ok(controllerSource.includes(`data-scroll-region data-scroll-key="${key}"`), `missing scroll region: ${key}`);
   }
+  assert.ok(controllerSource.includes('data-scroll-key="live-sources:${sourceKind}"'));
   assert.ok(componentSource.includes("scrollRegionTemplate(`component-chain:${component.id}`"));
   assert.ok(componentSource.includes("scrollRegionTemplate(`chain-params:${component.id}:${item.id}:${view.id}`"));
   assert.ok(sceneSource.includes('data-scroll-region data-scroll-key="live-controls:${esc(component.id)}"'));
@@ -445,9 +455,9 @@ test("every workspace rail uses the same constrained first-column module", () =>
   assert.match(styleSource, /\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);/);
   assert.match(styleSource, /\.rail-section \{[\s\S]*?width: 100%;[\s\S]*?min-width: 0;/);
   assert.match(controllerSource, /addableRailTitleTemplate\("account_tree", "Components", "data-add-component"/);
-  assert.match(controllerSource, /addableRailTitleTemplate\("dashboard_customize", "Canvases", "data-add-canvas-component"/);
-  assert.match(controllerSource, /addableRailTitleTemplate\("auto_awesome_motion", "Scenes", "data-add-scene"/);
-  assert.match(controllerSource, /addableRailTitleTemplate\("select_all", "Frames", `data-add-canvas-frame/);
+  assert.match(controllerSource, /addableRailTitleTemplate\("dashboard_customize", "Scenes", "data-add-scene"/);
+  assert.match(controllerSource, /addableRailTitleTemplate\("auto_awesome_motion", "Mappings", "data-add-mapping"/);
+  assert.match(controllerSource, /addableRailTitleTemplate\("select_all", "Frames", `data-add-frame/);
   assert.match(controllerSource, /addableRailTitleTemplate\("select_all", "Surfaces", "data-add-surface"/);
   assert.match(styleSource, /\.rail-title-add \{[\s\S]*?width: 22px;[\s\S]*?margin-left: auto;/);
   assert.doesNotMatch(styleSource, /\.capture-row/);
@@ -458,14 +468,14 @@ test("render-chain, frame, and surface rows share the compact list density", () 
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
     + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
-  const sceneSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const sceneSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
 
   assert.match(styleSource, /\.component-chain-list \{[\s\S]*?gap: 3px;[\s\S]*?align-content: start;/);
   assert.match(styleSource, /\.compact-list-row \{[\s\S]*?--text-list-leading-size: 27px;[\s\S]*?min-height: 34px;/);
   assert.match(styleSource, /\.compact-list-row \.enable-toggle,[\s\S]*?\.compact-list-row \.text-list-static-icon,[\s\S]*?height: 28px;[\s\S]*?min-height: 28px;/);
   assert.match(componentSource, /rowClass: "chain-item-row compact-list-row"/);
-  assert.match(controllerSource, /function canvasFramePillTemplate[\s\S]*?rowClass: "list-row compact-list-row"/);
-  assert.match(sceneSource, /function sceneSurfacePillTemplate[\s\S]*?rowClass: "list-row compact-list-row"/);
+  assert.match(controllerSource, /function framePillTemplate[\s\S]*?rowClass: "list-row compact-list-row"/);
+  assert.match(sceneSource, /function mappingSurfacePillTemplate[\s\S]*?rowClass: "list-row compact-list-row"/);
   assert.match(styleSource, /\.chain-group-drop-zone \{[\s\S]*?min-height: 14px;/);
 });
 
@@ -537,19 +547,20 @@ test("movie trim keeps two handles while sharing the ordinary slider geometry", 
   assert.match(styleSource, /\.video-trim-slider input\[type="range"\]:active::\-webkit-slider-thumb,[\s\S]*?background: var\(--accent-strong\);/);
 });
 
-test("scene surfaces expose projection cover contain and stretch", () => {
-  const source = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+test("Mapping surfaces expose projection cover contain and stretch", () => {
+  const source = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   assert.ok(!source.includes("Scene assignment"));
   assert.ok(source.includes('const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"]'));
   assert.ok(source.includes("Projection fit"));
-  assert.ok(source.includes("sceneBase}.projectionFit"));
+  assert.ok(source.includes("mappingBase}.projectionFit"));
   assert.ok(source.includes('rangeTemplate("Feather", `${surfaceBase}.feather`'));
-  assert.ok(source.indexOf("Projection fit") < source.indexOf("componentAssignmentTemplate(sceneBase"));
+  assert.ok(source.indexOf("Projection fit") < source.indexOf("componentAssignmentTemplate(mappingBase"));
 });
 
 test("component catalogs expose shared local filtering", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
-    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(source.includes("componentFilterTemplate"));
   assert.ok(source.includes("data-component-filter-card"));
@@ -576,20 +587,20 @@ test("component catalogs expose stable per-view sorting modes", () => {
   const catalogSource = readFileSync(new URL("../js/control/catalog-view.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(source.includes("state.ui?.catalogSortModes?.[scope]"));
-  assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", canvas: "recent", scene: "recent", source: "recent", media: "recent" }'));
+  assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", scene: "recent", mapping: "recent", source: "recent", media: "recent" }'));
   assert.ok(source.includes("ui.catalogSortModes[catalog] = mode"));
   assert.match(source, /if \(change\.projectRestore\) \{[\s\S]*?invalidateCatalogOrder\(\)/);
   assert.ok(source.includes('catalogSortMode("component")'));
-  assert.ok(source.includes('catalogSortMode("canvas")'));
   assert.ok(source.includes('catalogSortMode("scene")'));
+  assert.ok(source.includes('catalogSortMode("mapping")'));
   assert.ok(source.includes('catalogSortMode(state, "source")'));
-  assert.match(source, /scope === "scene"\s*\? state\.scenes \|\| \[\]/);
+  assert.match(source, /scope === "mapping"\s*\? state\.mappings \|\| \[\]/);
   assert.match(source, /scope === "source"\s*\? sceneSourceNodes\(state\)/);
-  assert.ok(source.includes('componentCatalogToolsTemplate("scene", catalogSortMode("scene"), "Filter scenes")'));
+  assert.ok(source.includes('componentCatalogToolsTemplate("mapping", catalogSortMode("mapping"), "Filter mappings")'));
   assert.ok(source.includes('sources: catalogItemsInSnapshot("source", sceneSourceNodes(state))'));
   assert.ok(source.includes("if (viewKey === activeCatalogViewKey) return"));
   assert.ok(source.includes("captureCatalogOrder(workspace, state)"));
-  assert.match(controllerSource, /import \{[^}]*canvasComponents[^}]*\} from "\.\/control-selectors\.js/);
+  assert.match(controllerSource, /import \{[^}]*sceneComponents[^}]*\} from "\.\/control-selectors\.js/);
   assert.ok(catalogSource.includes('data-catalog-sort="${nextMode}"'));
   assert.ok(catalogSource.includes("(activeIndex + 1) % modes.length"));
   assert.ok(catalogSource.includes('["marker", "Marked", "keep"]'));
@@ -598,13 +609,13 @@ test("component catalogs expose stable per-view sorting modes", () => {
   assert.ok(!catalogSource.includes('role="group" aria-label="Sort components"'));
   assert.ok(source.includes('["recent", "marker", "name", "created"]'));
   assert.ok(style.includes(".component-sort-toggle"));
-  assert.ok(source.includes('catalogItems("canvas", canvasComponents(state))'));
-  assert.ok(source.includes('componentCatalogToolsTemplate("canvas", catalogSortMode("canvas"), "Filter canvases")'));
+  assert.ok(source.includes('catalogItems("scene", sceneComponents(state))'));
+  assert.ok(source.includes('componentCatalogToolsTemplate("scene", catalogSortMode("scene"), "Filter scenes")'));
 });
 
 test("Live scene cards expose reset only for retained temporary overrides", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
-  const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const sceneLiveSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   assert.ok(sceneLiveSource.includes("data-reset-live-scene"));
   assert.ok(sceneLiveSource.includes("state.ui?.live?.sceneOverrides"));
   assert.ok(source.includes("store.resetLiveScene"));
@@ -624,7 +635,7 @@ test("Live scenes expose separate scene-transition and parameter-fade durations"
 test("Live exposes a phase-continuous global visual time stretch", () => {
   const source = readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
 
-  assert.match(source, /function liveToolsTemplate[\s\S]*?Live Scenes[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
+  assert.match(source, /function liveToolsTemplate[\s\S]*?Live sources[\s\S]*?data-live-source-kind="scene"[\s\S]*?data-live-source-kind="component"[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
   assert.ok(source.includes("Time stretch"));
   assert.ok(source.includes('data-update="global.timeStretch"'));
   assert.ok(source.includes('min="-4" max="4" step="0.01"'));
@@ -671,7 +682,7 @@ test("Live parameter commits preserve inspector DOM identity and preview-owned d
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.match(source, /if \(reason === "live:update"\) \{[\s\S]*?updatePreviewState\(state\);[\s\S]*?return;/);
-  assert.match(source, /reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:canvas-frame"/);
+  assert.match(source, /reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:scene-frame"/);
 });
 
 test("Live source labels clip before their visibility control and General remains selectable", () => {
@@ -695,7 +706,14 @@ test("local UI controls use the UI-only state path", () => {
   assert.match(app, /application\.bindInput\("live-synchronization", "state", \(\{ state, reason, change \}\) => \{[\s\S]*?\["runtime", "derived", "ui"\]\.includes\(change\.scope\)/);
   assert.match(app, /application\.emit\("data-store", "snapshot", \{ state, reason, change \}\)/);
   assert.match(projectService, /if \(event\.phase === "edit" \|\| event\.phase === "scrub"\) return;/);
-  assert.match(projectService, /if \(event\.scope === "ui" && !immediate\) return;/);
+  assert.match(projectService, /event\.scope === "ui" && !immediate && !previewViewportCheckpoint/);
+});
+
+test("Mapping preview draws an editor-only output frame without another render target", () => {
+  const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.match(renderer, /renderMappingFrameOverlay\(\)/);
+  assert.match(renderer, /this\.mode !== "preview" \|\| this\.state\?\.ui\?\.workspace !== "mapping"/);
+  assert.doesNotMatch(renderer, /renderMappingFrameOverlay[\s\S]{0,900}createGraphics\(/);
 });
 
 test("output metrics use a targeted runtime state path", () => {
@@ -707,7 +725,7 @@ test("output metrics use a targeted runtime state path", () => {
   assert.ok(!bridge.includes("store.getState().metrics.outputs"));
 });
 
-test("canvas uses the shared chain and exposes recording frames as scene routes", () => {
+test("Scene uses the shared chain and exposes Frames as Mapping routes", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
     + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
@@ -717,7 +735,7 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(!source.includes("Build a larger visual with the same sources"));
   assert.ok(!source.includes("<span>Sampling</span>"));
-  assert.match(source, /function canvasToolsTemplate[\s\S]*?Canvases[\s\S]*?addableRailTitleTemplate\("select_all", "Frames"/);
+  assert.match(source, /function sceneToolsTemplate[\s\S]*?Scenes[\s\S]*?addableRailTitleTemplate\("select_all", "Frames"/);
   assert.ok(source.includes('class="recording-frame-pills rail-scroll-list"'));
   assert.ok(!source.includes('class="canvas-inspector-section"'));
   assert.ok(componentSource.includes("componentUnifiedChainTemplate(component, state, base)"));
@@ -730,35 +748,34 @@ test("canvas uses the shared chain and exposes recording frames as scene routes"
   assert.ok(!unifiedChainSource.includes("chain-add-button"));
   assert.match(componentSource, /export function componentHeaderAddButtonTemplate[\s\S]*?class="rail-title-add"[\s\S]*?data-open-element-picker/);
   assert.match(source, /currentWorkspace\(state\) === "component"[\s\S]*?headerActionHtml: componentHeaderAddButtonTemplate\(selectedComponent\)/);
-  assert.match(source, /currentWorkspace\(state\) === "canvas"[\s\S]*?headerActionHtml: componentHeaderAddButtonTemplate\(selectedCanvas\)/);
+  assert.match(source, /currentWorkspace\(state\) === "scene"[\s\S]*?headerActionHtml: componentHeaderAddButtonTemplate\(selectedScene\)/);
   assert.match(style, /\.chain-list-section \{[\s\S]*?padding: var\(--section-inset\);[\s\S]*?background: var\(--panel-2\);/);
   assert.match(componentSource, /function componentSelectedChainSettingsTemplate[\s\S]*?<section class="ui-section focus-panel chain-settings-panel" aria-label="Selected element parameters">/);
   assert.match(source, /currentWorkspace\(state\) === "component"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedComponent, state, \{/);
-  assert.match(source, /currentWorkspace\(state\) === "canvas"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedCanvas, state, \{/);
+  assert.match(source, /currentWorkspace\(state\) === "scene"[\s\S]*?componentSelectedChainSettingsTemplate\(selectedScene, state, \{/);
   assert.ok(!source.includes('emptyNote("Select a chain item")'));
   assert.match(style, /\.chain-item-editor \{[\s\S]*?padding: 0;[\s\S]*?background: transparent;/);
-  assert.ok(source.includes('workspace === "component" || workspace === "canvas" ? "component"'));
+  assert.match(source, /workspace === "component" \|\| workspace === "scene"[\s\S]*?workspace === "live"[\s\S]*?"live"/);
   assert.ok(modalSource.includes("data-add-element-component"));
   assert.ok(modalSource.includes('type: "component"'));
-  assert.ok(componentSource.includes('component?.type === "canvas" && item.source?.type === "component"'));
-  assert.ok(componentSource.includes('isCanvasComponentPlacement ? "" : `<label class="field">Component'));
+  assert.ok(componentSource.includes('component?.type === "scene" && item.source?.type === "component"'));
+  assert.ok(componentSource.includes('isSceneComponentPlacement ? "" : `<label class="field">Component'));
   assert.ok(componentSource.includes('if (item.source?.type === "component") return sourceTitle'));
   assert.ok(source.includes("data-preview-quality"));
   assert.ok(source.includes("data-preview-quality-label"));
   assert.ok(source.includes('quality === "auto" ? "good" : quality === "good" ? "low" : "auto"'));
   assert.ok(source.includes("matches the display's native density"));
-  assert.ok(source.includes('["component", "canvas", "scene", "live"].includes(workspace)'));
+  assert.ok(source.includes('["component", "scene", "mapping", "live"].includes(workspace)'));
   assert.ok(source.includes("draft.ui.previewQuality = nextPreviewQuality"));
   assert.ok(!source.includes('data-update="${base}.canvas.previewQuality"'));
-  assert.ok(source.includes("data-add-canvas-frame"));
-  assert.ok(inputSource.includes("data-set-route-source-node"));
+  assert.ok(source.includes("data-add-frame"));
+  assert.ok(inputSource.includes("data-set-route-frame-id"));
   assert.ok(!source.includes("data-assign-scene-source"));
   assert.ok(source.includes("sceneSourceNodes(state)"));
   assert.ok(source.includes('catalogItems("component", ordinaryComponents(state))'));
-  assert.ok(selectorsSource.includes('filter((component) => component.type !== "canvas")'));
-  assert.ok(!source.includes("data-set-route-frame"));
-  assert.ok(source.includes("state.recordingFrames || []"));
-  assert.ok(!source.includes("component.canvas?.frames"));
+  assert.ok(selectorsSource.includes('filter((component) => component.type !== "scene" && !component.systemRole)'));
+  assert.ok(source.includes("state.frames || []"));
+  assert.ok(!source.includes("component.scene?.frames"));
   assert.ok(!source.includes("Surface sample rects"));
   assert.ok(!source.includes("Canvas sample rect"));
   assert.ok(!source.includes("data-add-canvas-layer"));
@@ -789,7 +806,7 @@ test("compact text lists share one full-width item generator", () => {
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(primitives.includes("function textListItemTemplate("));
-  assert.match(source, /function canvasFramePillTemplate[\s\S]*?return textListItemTemplate\(/);
+  assert.match(source, /function framePillTemplate[\s\S]*?return textListItemTemplate\(/);
   assert.match(primitives, /function selectablePillTemplate[\s\S]*?return textListItemTemplate\(/);
   assert.match(componentSource, /function chainItemRowTemplate[\s\S]*?const row = textListItemTemplate\(/);
   assert.ok(style.includes(".text-list-item {"));
@@ -809,7 +826,7 @@ test("compact text lists share one full-width item generator", () => {
 
 test("Live navigates referenced components separately and edits one selected nested element", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
-  const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const sceneLiveSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   assert.match(controllerSource, /currentWorkspace\(state\) === "live"[\s\S]*?html = liveInspectorTemplate\(state\);/);
   assert.match(sceneLiveSource, /function liveComponentTemplate[\s\S]*?<article class="ui-section focus-panel live-component-card">[\s\S]*?<header class="ui-section-header panel-title live-component-head">/);
   assert.ok(!sceneLiveSource.includes('class="live-panel"'));
@@ -840,16 +857,16 @@ test("preview fitting is invalidated only by layout viewport or output geometry"
   assert.notEqual(previewFitSignature(base), previewFitSignature({ ...base, render: { outputs: [{ id: "main", aspectRatio: 4 / 3 }] } }));
 });
 
-test("Live preview holds a new Scene and retimes its transition until media preparation completes", () => {
+test("embedded Live preview switches Scenes immediately without media-preparation staging", () => {
   const current = { ui: { workspace: "live", selectedSceneId: "scene-being-edited", live: { selectedSceneId: "scene-a" } } };
   const incoming = {
     ui: { workspace: "live", selectedSceneId: "another-editor-scene", live: { selectedSceneId: "scene-b" } },
     liveTransition: { startedAtMs: 100, durationMs: 1000, fromState: current },
   };
-  assert.equal(shouldPrepareEmbeddedLiveState(incoming, current), true);
+  assert.equal(shouldPrepareEmbeddedLiveState(incoming, current), false);
   assert.equal(
     shouldPrepareEmbeddedLiveState({ ...incoming, ui: { ...incoming.ui, selectedSceneId: "scene-a" } }, current),
-    true,
+    false,
     "editor Scene selection must not alter Live preview routing"
   );
   assert.equal(
@@ -902,12 +919,12 @@ test("project settings expose component upscaling and native-resolution post fil
 
 test("project settings expose proportions, an adaptive ceiling, and no authored pixel dimensions", () => {
   const source = settingsModalTemplate(createInitialState());
-  assert.ok(source.includes('data-settings-update="render.canvasAspectRatio"'));
+  assert.ok(source.includes('data-settings-update="render.sceneAspectRatio"'));
   assert.ok(source.includes('data-settings-update="render.componentAspectRatio"'));
   assert.ok(source.includes('data-settings-update="render.resolutionCeiling"'));
   assert.ok(source.includes('data-settings-update="render.sampling.surfaceOverscan"'));
   assert.ok(source.includes('data-settings-update="render.sampling.recordingFrameScale"'));
-  assert.ok(source.includes('data-settings-update="render.sampling.limitCanvasToLogicalSize"'));
+  assert.ok(source.includes('data-settings-update="render.sampling.limitSceneToLogicalSize"'));
   assert.equal(source.includes('data-settings-update="render.edgeSoftness"'), false);
   assert.ok(source.includes("Auto · current window"));
   assert.ok(source.includes("without authoring a width and height"));
@@ -968,9 +985,11 @@ test("project settings keep one modal DOM and patch tab values in place", () => 
 });
 
 test("Scene plus control creates an empty Scene instead of capturing current assignments", () => {
-  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8")
+    + readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   assert.ok(source.includes("data-add-scene"));
-  assert.ok(source.includes("store.addScene(name)"));
+  assert.ok(source.includes("store.addScene?.()"));
   assert.ok(!source.includes("data-scene-name"));
   assert.ok(!source.includes('data-save-scene title="Capture scene"'));
 });
@@ -1021,7 +1040,7 @@ test("opening an output never changes the Live Scene", () => {
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes('buildOutputUrl("output", { outputId: output.id })'));
-  assert.ok(!controllerSource.includes("store.selectLiveScene(state.ui.selectedSceneId);"));
+  assert.ok(!controllerSource.includes("store.selectLiveScene(state.ui.selectedMappingId);"));
   assert.ok(controllerSource.includes("Opening a display is infrastructure, not a Live performance command"));
   assert.ok(!controllerSource.includes("const initialSceneId ="));
   assert.ok(controllerSource.includes("store.selectLiveScene(button.dataset.liveScene)"));
@@ -1029,12 +1048,12 @@ test("opening an output never changes the Live Scene", () => {
   assert.ok(bridgeSource.includes("targetClientId"));
   assert.ok(!bridgeSource.includes("initialSceneAccepted"));
   assert.ok(!bridgeSource.includes("initialSceneId"));
-  assert.ok(appSource.includes('state.ui.workspace === "scene"'));
+  assert.ok(appSource.includes('state.ui.workspace === "mapping"'));
   assert.ok(appSource.includes('bridge.command("sync-mapping"'));
   assert.ok(appSource.includes("bridge.sendState();"));
   assert.ok(!appSource.includes("isSceneSurfaceOutputChange(reason)"));
   assert.ok(!appSource.includes("bridge.sendState(store.getRenderState())"));
-  assert.ok(!appSource.includes('if (state.ui.workspace === "scene") return;'));
+  assert.ok(!appSource.includes('if (state.ui.workspace === "mapping") return;'));
   assert.ok(!controllerSource.includes("setTimeout(() => bridge.sendState(), 350)"));
 });
 
@@ -1196,7 +1215,7 @@ test("component selection modal exposes the shared persisted catalog sorting", (
   const state = {
     media: [],
     components: [
-      { id: "canvas", name: "Canvas", type: "canvas" },
+      { id: "canvas", name: "Canvas", type: "scene" },
       { id: "beta", name: "Beta", type: "component" },
       { id: "alpha", name: "Alpha", type: "component" },
     ],
@@ -1223,21 +1242,25 @@ test("workspace view buttons are compact icons with accessible names", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  for (const label of ["Components", "Canvas", "Scenes", "Nodes", "Live"]) {
+  for (const label of ["Components", "Scenes", "Mapping", "Nodes", "Live"]) {
     assert.ok(shellSource.includes(`title="${label}" aria-label="${label}"`));
     assert.ok(!shellSource.includes(`<span>${label}</span>`));
   }
-  assert.ok(!shellSource.includes('data-workspace="mapping"'));
+  assert.ok(shellSource.includes('data-workspace="mapping"'));
   const projectButtonIndex = shellSource.indexOf('id="open-folder-main"');
   const viewSwitchIndex = shellSource.indexOf('class="workspace-switch workspace-view-switch"');
   const closeProjectIndex = shellSource.indexOf('id="close-project"');
   const topActionsIndex = shellSource.indexOf('class="top-actions"');
   const liveButtonIndex = shellSource.indexOf('data-workspace="live"');
+  const technicalSwitchIndex = shellSource.indexOf('class="workspace-switch workspace-tool-switch"');
+  const previewButtonIndex = shellSource.indexOf('id="toggle-preview"');
   assert.ok(projectButtonIndex < closeProjectIndex && closeProjectIndex < viewSwitchIndex);
   assert.ok(viewSwitchIndex < liveButtonIndex && liveButtonIndex < topActionsIndex);
-  assert.equal((shellSource.slice(viewSwitchIndex, topActionsIndex).match(/data-workspace=/g) || []).length, 5);
-  assert.ok(shellSource.indexOf('data-workspace="scene"') < shellSource.indexOf('data-workspace="nodes"'));
-  assert.ok(shellSource.indexOf('data-workspace="nodes"') < liveButtonIndex);
+  assert.equal((shellSource.slice(viewSwitchIndex, topActionsIndex).match(/data-workspace=/g) || []).length, 3);
+  assert.equal((shellSource.slice(technicalSwitchIndex).match(/data-workspace=/g) || []).length, 2);
+  assert.ok(previewButtonIndex < technicalSwitchIndex);
+  assert.ok(technicalSwitchIndex < shellSource.indexOf('data-workspace="mapping"'));
+  assert.ok(shellSource.indexOf('data-workspace="mapping"') < shellSource.indexOf('data-workspace="nodes"'));
   assert.ok(shellSource.indexOf('data-workspace="scene"') < liveButtonIndex);
   assert.ok(shellSource.includes('class="project-title-control"'));
   assert.match(styleSource, /\.icon-buttonish\.close-project-button \{[\s\S]*?position: static;[\s\S]*?width: 26px;[\s\S]*?height: 26px;/);
@@ -1269,7 +1292,7 @@ test("referenced Components share one capture-phase deep edit command with a ret
   assert.ok(primitives.includes('data-edit-chain-item="${esc(chainItemId)}"'));
   assert.ok(shell.includes('id="return-from-deep-edit"'));
   assert.match(controller, /root\.addEventListener\("click",[\s\S]*?data-edit-component[\s\S]*?}, true\);/);
-  assert.ok(controller.includes('switchWorkspace(component.type === "canvas" ? "canvas" : "component")'));
+  assert.ok(controller.includes('switchWorkspace(component.type === "scene" ? "scene" : "component")'));
   assert.ok(controller.includes('openComponentEditor(button.dataset.editComponent, button.dataset.editChainItem || "")'));
   assert.ok(controller.includes("if (chainItemId) store.selectChainItem?.(chainItemId)"));
   assert.ok(controller.includes("function returnFromDeepEdit()"));
@@ -1358,7 +1381,7 @@ test("3d model controls use full-width slider rows", () => {
 test("seed params stay internal and are not rendered as sliders", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const sceneLiveSource = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const sceneLiveSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
   assert.ok(parameterSource.includes('param?.id !== "seed"'));
@@ -1408,7 +1431,7 @@ test("components expose persistent instance synchronization without changing com
   assert.ok(controllerSource.includes("Sync instances"));
   assert.ok(controllerSource.includes(".syncInstances"));
   assert.ok(controllerSource.includes('data-toggle-path="${base}.syncInstances"'));
-  assert.ok(controllerSource.includes("each Canvas placement and surface its own phase"));
+  assert.ok(controllerSource.includes("each Scene placement and Surface its own phase"));
 });
 
 test("global clipboard routing follows clicked lists chains Groups and external images", () => {
@@ -1423,8 +1446,8 @@ test("global clipboard routing follows clicked lists chains Groups and external 
   assert.ok(clipboardSource.includes('window.addEventListener("pointerdown", rememberTarget, true)'));
   assert.ok(clipboardSource.includes('chainItem.closest("[data-chain-reorder-list]")'));
   assert.ok(source.includes('data-paste-scope="component-list"'));
-  assert.ok(source.includes('data-paste-scope="canvas-list"'));
   assert.ok(source.includes('data-paste-scope="scene-list"'));
+  assert.ok(source.includes('data-paste-scope="mapping-list"'));
   assert.ok(source.includes('data-paste-scope="surface-list"'));
   assert.ok(clipboardSource.includes("imageFilesFromTransfer"));
   assert.ok(clipboardSource.includes("imageUrlFromTransfer"));

@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
 
-export const CURRENT_PROJECT_VERSION = 26;
+export const CURRENT_PROJECT_VERSION = 28;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -51,6 +51,8 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   23: migrateProjectV23ToV24,
   24: migrateProjectV24ToV25,
   25: migrateProjectV25ToV26,
+  26: migrateProjectV26ToV27,
+  27: migrateProjectV27ToV28,
 });
 
 export function migrateProjectData(project = {}) {
@@ -709,6 +711,137 @@ function migrateRelativeProjectState(project = {}) {
     mappings: migrateRelativeMappings(project.mappings, world.width, world.height),
     components: Array.isArray(project.components) ? project.components.map(migrateComponentBoundaries) : project.components,
     nodes: migrateNodeProjectBoundaries(project.nodes),
+  };
+}
+
+// v27 makes the product model explicit: Canvas Components become Scenes and
+// the former Scene route presets become Mappings. The old `mappings` object
+// held low-level surface calibration, so it moves to `surfaceMappings` before
+// the preset collection takes the canonical `mappings` name. Live's
+// selectedSceneId already referred to the authored visual Scene and is kept.
+export function migrateProjectV26ToV27(project) {
+  const ui = project.ui && typeof project.ui === "object" ? project.ui : {};
+  const selections = ui.workspaceSelectionIds && typeof ui.workspaceSelectionIds === "object"
+    ? ui.workspaceSelectionIds
+    : {};
+  const sortModes = ui.catalogSortModes && typeof ui.catalogSortModes === "object"
+    ? ui.catalogSortModes
+    : {};
+  const {
+    canvas: legacySceneSortMode,
+    scene: legacyMappingSortMode,
+    ...canonicalSortModes
+  } = sortModes;
+  const workspace = ui.workspace === "canvas"
+    ? "scene"
+    : ui.workspace === "scene"
+      ? "mapping"
+      : ui.workspace === "mapping"
+        ? "nodes"
+        : ui.workspace;
+  const components = Array.isArray(project.components)
+    ? project.components.map((component) => {
+        if (component?.type !== "canvas") return component;
+        const { canvas, ...rest } = component;
+        return { ...rest, type: "scene", scene: canvas && typeof canvas === "object" ? canvas : {} };
+      })
+    : project.components;
+  const render = project.render && typeof project.render === "object" ? project.render : {};
+  const sampling = render.sampling && typeof render.sampling === "object" ? render.sampling : {};
+  const {
+    canvasAspectRatio,
+    sampling: _sampling,
+    ...renderRest
+  } = render;
+  const {
+    limitCanvasToLogicalSize,
+    ...samplingRest
+  } = sampling;
+  const {
+    scenes: legacyMappings,
+    mappings: legacySurfaceMappings,
+    recordingFrames,
+    ...projectRest
+  } = project;
+  return {
+    ...projectRest,
+    components,
+    frames: Array.isArray(recordingFrames) ? recordingFrames : [],
+    mappings: Array.isArray(legacyMappings) ? legacyMappings : [],
+    surfaceMappings: legacySurfaceMappings && typeof legacySurfaceMappings === "object"
+      ? legacySurfaceMappings
+      : {},
+    render: {
+      ...renderRest,
+      sceneAspectRatio: canvasAspectRatio,
+      sampling: {
+        ...samplingRest,
+        limitSceneToLogicalSize: limitCanvasToLogicalSize,
+      },
+    },
+    ui: {
+      ...ui,
+      workspace,
+      selectedMappingId: ui.selectedSceneId || "",
+      workspaceSelectionIds: {
+        component: selections.component || "",
+        scene: selections.canvas || "",
+      },
+      catalogSortModes: {
+        ...canonicalSortModes,
+        scene: legacySceneSortMode || "recent",
+        mapping: legacyMappingSortMode || "recent",
+      },
+      selectedSceneId: undefined,
+    },
+  };
+}
+
+// v28 makes Mapping ownership direct. A Mapping is no longer a saved snapshot
+// over one global Surface list: it owns complete Surface definitions and its
+// calibration. The root Surface/calibration fields become runtime projections
+// and are therefore not part of canonical project data after this migration.
+// Alpha projects may contain incomplete route snapshots; preserving what can be
+// matched by Surface id is sufficient and unresolved data is intentionally
+// discarded instead of retaining a second authority.
+export function migrateProjectV27ToV28(project) {
+  const physicalById = new Map((Array.isArray(project.surfaces) ? project.surfaces : [])
+    .filter((surface) => surface?.id)
+    .map((surface) => [String(surface.id), surface]));
+  const calibration = project.surfaceMappings?.local && typeof project.surfaceMappings.local === "object"
+    ? project.surfaceMappings.local
+    : {};
+  const mappings = (Array.isArray(project.mappings) ? project.mappings : []).map((mapping) => {
+    const routes = Array.isArray(mapping?.surfaces)
+      ? mapping.surfaces
+      : Array.isArray(mapping?.snapshot?.surfaces)
+        ? mapping.snapshot.surfaces
+        : [];
+    const { snapshot: _snapshot, ...mappingData } = mapping || {};
+    return {
+      ...mappingData,
+      surfaces: routes.map((route) => ({
+        ...(physicalById.get(String(route?.id || "")) || {}),
+        ...(route || {}),
+      })),
+      calibration: mapping?.calibration && typeof mapping.calibration === "object"
+        ? mapping.calibration
+        : calibration,
+    };
+  });
+  const {
+    surfaces: _runtimeSurfaces,
+    surfaceMappings: _runtimeCalibration,
+    ...projectData
+  } = project;
+  const live = project.ui?.live && typeof project.ui.live === "object" ? project.ui.live : {};
+  const { mappingSnapshot: _mappingSnapshot, ...liveData } = live;
+  return {
+    ...projectData,
+    mappings,
+    ui: project.ui && typeof project.ui === "object"
+      ? { ...project.ui, live: liveData }
+      : project.ui,
   };
 }
 

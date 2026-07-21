@@ -25,7 +25,7 @@ export function latestProjectActivity(activity = EMPTY_ACTIVITY) {
 export function stampChangedProjectItems(previous = {}, next = {}, now = new Date().toISOString()) {
   const timestamp = normalizeTimestamp(now) || new Date().toISOString();
   stampCollection(previous.components, next.components, timestamp, componentActivitySignature);
-  stampCollection(previous.recordingFrames, next.recordingFrames, timestamp, frameActivitySignature);
+  stampCollection(previous.frames, next.frames, timestamp, frameActivitySignature);
   return next;
 }
 
@@ -38,7 +38,7 @@ export function touchComponentUsed(state, componentId, now = new Date().toISOStr
 }
 
 export function touchRecordingFrameUsed(state, frameId, now = new Date().toISOString()) {
-  const frame = state?.recordingFrames?.find((item) => item.id === frameId);
+  const frame = state?.frames?.find((item) => item.id === frameId);
   if (!frame) return false;
   frame.activity = normalizeProjectActivity(frame.activity, now);
   frame.activity.lastUsedAt = normalizeTimestamp(now);
@@ -55,10 +55,10 @@ function stampCollection(previousItems = [], nextItems = [], timestamp, signatur
 }
 
 function componentActivitySignature(component = {}) {
-  const { activity: _activity, thumbnail: _thumbnail, canvas, ...ownData } = component;
-  if (!canvas || typeof canvas !== "object") return stableStringify(ownData);
-  const { frameThumbnails: _frameThumbnails, ...canvasData } = canvas;
-  return stableStringify({ ...ownData, canvas: canvasData });
+  const { activity: _activity, thumbnail: _thumbnail, scene, ...ownData } = component;
+  if (!scene || typeof scene !== "object") return stableStringify(ownData);
+  const { frameThumbnails: _frameThumbnails, ...sceneData } = scene;
+  return stableStringify({ ...ownData, scene: sceneData });
 }
 
 function frameActivitySignature(frame = {}) {

@@ -13,20 +13,24 @@ import {
 
 test("project payload preserves the selected component chain item", () => {
   const state = {
-    version: 5,
+    version: 28,
     project: {},
-    recordingFrames: [{ id: "frame-a", x: 10, y: 20, width: 640, height: 360 }],
+    frames: [{ id: "frame-a", x: 10, y: 20, width: 640, height: 360 }],
     ui: {
-      selectedSceneId: "scene-a",
+      selectedMappingId: "mapping-a",
       selectedSurfaceId: "surface-a",
       selectedComponentId: "component-a",
       selectedChainItemId: "chain-effect-b",
-      workspaceSelectionIds: { component: "component-a", canvas: "canvas-b" },
-      catalogSortModes: { component: "name", scene: "created" },
+      workspaceSelectionIds: { component: "component-a", scene: "scene-b" },
+      catalogSortModes: { component: "name", scene: "created", mapping: "recent" },
       previewQuality: "good",
+      previewViewports: {
+        component: { fit: "manual", zoom: 1.5, x: 20, y: -10 },
+        live: { fit: "world", zoom: 1, x: 0, y: 0 },
+      },
       live: {
         selectedSceneId: "scene-live",
-        sceneSnapshot: { surfaces: [{ id: "surface-a", componentId: "component-a" }] },
+        surfaceRoutes: { surfaces: [{ id: "surface-a", componentId: "component-a" }] },
         componentOverrides: { "component-a": { opacity: 0.5 } },
         transitionDuration: 2.5,
         paramFadeDuration: 0.75,
@@ -36,7 +40,7 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 26);
+  assert.equal(payload.version, 28);
   assert.deepEqual(payload.nodes, {
     formatVersion: 1,
     authority: "component-import",
@@ -52,13 +56,16 @@ test("project payload preserves the selected component chain item", () => {
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
   assert.equal(payload.ui.previewQuality, state.ui.previewQuality);
+  assert.deepEqual(payload.ui.previewViewports, state.ui.previewViewports);
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
-  assert.deepEqual(payload.ui.live.sceneSnapshot, state.ui.live.sceneSnapshot);
+  assert.equal(payload.ui.live.surfaceRoutes, undefined);
   assert.equal(payload.ui.live.transitionDuration, 2.5);
   assert.equal(payload.ui.live.paramFadeDuration, 0.75);
   assert.equal(payload.ui.live.transition, undefined);
   assert.equal(payload.ui.live.componentOverrides, undefined);
-  assert.deepEqual(payload.recordingFrames, state.recordingFrames);
+  assert.deepEqual(payload.frames, state.frames);
+  assert.equal(payload.surfaces, undefined);
+  assert.equal(payload.mappingCalibration, undefined);
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   assert.ok(source.includes("selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
   assert.ok(source.includes("workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds"));
@@ -67,6 +74,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes(": mergeMediaCatalogMarkers(imported.media, projectData.media)"));
   assert.ok(source.includes("draft.media = mergeMediaCatalogMarkers(imported.media, draft.media)"));
   assert.ok(source.includes("previewQuality: projectUi?.previewQuality || currentUi.previewQuality"));
+  assert.ok(source.includes("previewViewports: projectUi?.previewViewports || currentUi.previewViewports"));
   assert.ok(!source.includes("legacyRecordingFrames"));
   assert.ok(source.includes("data = migrateProjectData(data)"));
   assert.ok(source.includes("projectLoadBlocked = true"));
@@ -86,12 +94,18 @@ test("UI-only selection waits for an authored save or browser lifecycle checkpoi
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
 
   assert.match(source, /const autosaveDelayMs = 5000;/);
-  assert.match(source, /if \(event\.scope === "ui" && !immediate\) return;/);
+  assert.match(source, /event\.scope === "ui" && !immediate && !previewViewportCheckpoint/);
   assert.match(source, /addEventListener\?\.\("visibilitychange"/);
   assert.match(source, /visibilityState === "hidden"/);
   assert.match(source, /addEventListener\?\.\("pagehide"/);
   assert.match(source, /addEventListener\?\.\("beforeunload"/);
-  assert.match(source, /if \(hasPendingAutoSave\(\)\) \{[\s\S]*?flushAutoSave\("project-close-checkpoint"\)/);
+  assert.match(source, /function flushPendingAutoSave\(reason\)[\s\S]*?void flushAutoSave\(reason\)/);
+});
+
+test("preview viewport navigation receives one quiet checkpoint instead of relying on unload", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  assert.match(source, /const previewViewportCheckpoint = event\.scope === "ui" && reason\.startsWith\("preview-"\);/);
+  assert.match(source, /event\.scope === "ui" && !immediate && !previewViewportCheckpoint/);
 });
 
 test("project payload persists canonical render settings without derived geometry aliases", () => {
@@ -109,11 +123,15 @@ test("project payload persists canonical render settings without derived geometr
     worldWidth: 2880,
     worldHeight: 1620,
     outputGap: 0,
+    previewRasterScale: 2,
+    previewViewportZoom: 1.25,
   };
   const persisted = persistedRenderSettings(render);
   assert.deepEqual(persisted.outputs, [{ id: "main", name: "Main output", aspectRatio: 16 / 9 }]);
   assert.equal(Object.hasOwn(persisted, "componentTexture"), false);
   assert.equal(Object.hasOwn(persisted, "canvasSize"), false);
+  assert.equal(Object.hasOwn(persisted, "previewRasterScale"), false);
+  assert.equal(Object.hasOwn(persisted, "previewViewportZoom"), false);
   assert.equal(persisted.pixelDensity, 1.5);
   for (const key of ["width", "height", "frameWidth", "frameHeight", "worldScale", "worldWidth", "worldHeight", "outputGap"]) {
     assert.equal(Object.hasOwn(persisted, key), false);
@@ -206,23 +224,29 @@ test("project history signature ignores UI-only save noise", () => {
   assert.notEqual(projectHistorySignature(base), projectHistorySignature(material));
 });
 
+test("project load restores the Mapping test-pattern preference and selected Frame", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+  assert.match(source, /selectedFrameId: projectUi\?\.selectedFrameId \|\| currentUi\.selectedFrameId/);
+  assert.match(source, /mappingTestPattern: projectUi\?\.mappingTestPattern \?\? currentUi\.mappingTestPattern/);
+});
+
 test("project payload and undo signature exclude derived thumbnails and activity", () => {
   const state = {
-    version: 19,
-    project: {}, ui: {}, global: { calibrating: true }, render: {}, scheduler: {}, media: [], recordingFrames: [], surfaces: [], scenes: [], mappings: {}, shaders: {},
+    version: 28,
+    project: {}, ui: {}, global: { calibrating: true }, render: {}, scheduler: {}, media: [], frames: [], mappings: [], shaders: {},
     components: [{
-      id: "canvas-a",
-      type: "canvas",
+      id: "scene-a",
+      type: "scene",
       thumbnail: "data:image/webp;base64,AAA=",
       activity: { updatedAt: "later" },
-      canvas: { width: 100, height: 50, frameThumbnails: { frame: "blob:frame" } },
+      scene: { width: 100, height: 50, frameThumbnails: { frame: "blob:frame" } },
     }],
   };
   const payload = buildProjectPayload(state, "2026-07-18T00:00:00.000Z");
   assert.equal(Object.hasOwn(payload.components[0], "thumbnail"), false);
-  assert.equal(Object.hasOwn(payload.components[0].canvas, "frameThumbnails"), false);
-  assert.equal(Object.hasOwn(payload.components[0].canvas, "width"), false);
-  assert.equal(Object.hasOwn(payload.components[0].canvas, "height"), false);
+  assert.equal(Object.hasOwn(payload.components[0].scene, "frameThumbnails"), false);
+  assert.equal(Object.hasOwn(payload.components[0].scene, "width"), false);
+  assert.equal(Object.hasOwn(payload.components[0].scene, "height"), false);
   const changedDerived = structuredClone(payload);
   changedDerived.components[0].activity.updatedAt = "newest";
   changedDerived.global.calibrating = false;

@@ -6,14 +6,14 @@ import {
   createComponentEffect,
   createComponentGroup,
   createComponentLayer,
-  createCanvasComponent,
+  createSceneComponent,
   createDefaultComponent,
-  createEmptySceneFromState,
+  createEmptyMappingFromState,
   createInitialState,
   createLiveRenderState,
-  createSceneFromState,
+  createMappingFromState,
   sceneSourceNodeId,
-  syncLiveSnapshotFromScene,
+  syncLiveRoutesFromMapping,
 } from "../js/domain/models.js?v=world-frame-27";
 import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
@@ -66,22 +66,22 @@ test("UI-only updates preserve project data and emit an explicit UI scope", () =
   assert.equal(observedEvent.scope, "ui");
   assert.equal(after.ui.debugPreview, !before.ui.debugPreview);
   assert.deepEqual(after.components, before.components);
-  assert.deepEqual(after.scenes, before.scenes);
+  assert.deepEqual(after.mappings, before.mappings);
   assert.deepEqual(after.surfaces, before.surfaces);
 });
 
 test("catalog markers cycle through star heart and pin across authored catalogs", () => {
   const state = createInitialState();
   const component = state.components[0];
-  const scene = createEmptySceneFromState(state, "Marked scene");
+  const mapping = createEmptyMappingFromState(state, "Marked mapping");
   const media = { id: "media/photo.png", name: "photo.png", type: "image", catalogMarker: 0 };
-  state.scenes = [scene];
+  state.mappings = [mapping];
   state.media = [media];
   const store = createAppState(state);
 
   for (const [kind, id, collection] of [
     ["component", component.id, "components"],
-    ["scene", scene.id, "scenes"],
+    ["mapping", mapping.id, "mappings"],
     ["media", media.id, "media"],
   ]) {
     assert.equal(store.cycleCatalogMarker(kind, id), true);
@@ -119,7 +119,7 @@ test("component selection updates recent-use metadata through the local fast pat
   assert.equal(observedEvent.scope, "ui");
 });
 
-test("new Scenes begin with no enabled or assigned Components", () => {
+test("new Mappings begin with no enabled or assigned Scene Frames", () => {
   const initial = createInitialState();
   const component = initial.components[0];
   for (const surface of initial.surfaces) {
@@ -128,18 +128,18 @@ test("new Scenes begin with no enabled or assigned Components", () => {
     surface.sourceNodeId = sceneSourceNodeId(component.id);
   }
 
-  const empty = createEmptySceneFromState(initial, "Blank");
-  assert.ok(empty.snapshot.surfaces.length > 0);
-  assert.ok(empty.snapshot.surfaces.every((surface) => surface.enabled === false));
-  assert.ok(empty.snapshot.surfaces.every((surface) => surface.componentId === ""));
-  assert.ok(empty.snapshot.surfaces.every((surface) => surface.sourceNodeId === ""));
+  const empty = createEmptyMappingFromState(initial, "Blank");
+  assert.ok(empty.surfaces.length > 0);
+  assert.ok(empty.surfaces.every((surface) => surface.enabled === false));
+  assert.ok(empty.surfaces.every((surface) => surface.componentId === ""));
+  assert.ok(empty.surfaces.every((surface) => surface.sourceNodeId === ""));
 
   const store = createAppState(initial);
-  store.addScene("Blank");
+  store.addMapping("Blank");
   const next = store.getState();
-  const scene = next.scenes.at(-1);
-  assert.equal(scene.name, "Blank");
-  assert.equal(next.ui.selectedSceneId, scene.id);
+  const mapping = next.mappings.at(-1);
+  assert.equal(mapping.name, "Blank");
+  assert.equal(next.ui.selectedMappingId, mapping.id);
   assert.ok(next.surfaces.every((surface) => surface.enabled === false));
   assert.ok(next.surfaces.every((surface) => surface.componentId === ""));
 });
@@ -163,7 +163,7 @@ test("new Components start empty only after the visible Component list exceeds t
   const elevenState = createInitialState();
   elevenState.components = [
     ...Array.from({ length: 11 }, (_, index) => createDefaultComponent(index)),
-    ...Array.from({ length: 3 }, (_, index) => createCanvasComponent(index)),
+    ...Array.from({ length: 3 }, (_, index) => createSceneComponent(index)),
   ];
   const elevenStore = createAppState(elevenState);
   elevenStore.addComponent();
@@ -280,178 +280,123 @@ test("persistent scrubs retain one baseline and reconcile Live truth on commit",
   assert.equal(store.getState().ui.live.componentOverrides[component.id]?.opacity, undefined);
 });
 
-test("render state uses selected scene in scene workspace and live scene in live workspace", () => {
+test("render state uses the selected Mapping in Mapping workspace and selected Scene in Live", () => {
   const state = createInitialState();
-  const sceneComponent = createDefaultComponent(0);
-  sceneComponent.id = "component-scene";
-  sceneComponent.name = "Scene Component";
+  const mappingComponent = createDefaultComponent(0);
+  mappingComponent.id = "component-mapping";
   const liveComponent = createDefaultComponent(1);
   liveComponent.id = "component-live";
-  liveComponent.name = "Live Component";
-  state.components = [sceneComponent, liveComponent];
+  const liveScene = createSceneComponent(0, liveComponent.id);
+  liveScene.id = "scene-live";
+  state.components = [mappingComponent, liveComponent, liveScene];
 
-  state.surfaces[0].componentId = sceneComponent.id;
-  state.surfaces[0].sourceNodeId = sceneSourceNodeId(sceneComponent.id);
-  const sceneSnapshot = createSceneFromState(state, "Scene Selected");
-  state.surfaces[0].componentId = liveComponent.id;
-  state.surfaces[0].sourceNodeId = sceneSourceNodeId(liveComponent.id);
-  const liveSnapshot = createSceneFromState(state, "Live Selected");
-  state.scenes = [sceneSnapshot, liveSnapshot];
-  state.ui.workspace = "scene";
-  state.ui.selectedSceneId = sceneSnapshot.id;
-  state.ui.live.selectedSceneId = liveSnapshot.id;
+  state.surfaces[0].componentId = mappingComponent.id;
+  state.surfaces[0].sourceNodeId = sceneSourceNodeId(mappingComponent.id);
+  const mapping = createMappingFromState(state, "Selected Mapping");
+  mapping.surfaces[0].frameSlotId = state.frames[0].id;
+  mapping.surfaces[0].outputFrameId = state.frames[0].id;
+  state.mappings = [mapping];
+  state.ui.workspace = "mapping";
+  state.ui.selectedMappingId = mapping.id;
+  state.ui.live.selectedSceneId = liveScene.id;
 
   const store = createAppState(state);
-  assert.equal(store.getRenderState().surfaces[0].componentId, sceneComponent.id);
+  assert.equal(store.getRenderState().surfaces[0].componentId, "vj1-system-mapping-test-pattern");
 
   store.setWorkspace("live");
-  assert.equal(store.getRenderState().surfaces[0].componentId, liveComponent.id);
+  assert.equal(store.getRenderState().surfaces[0].componentId, liveScene.id);
 });
 
-test("edits refresh the scene selected by Live without changing Live's scene selection", () => {
+function liveSceneMappingFixture() {
   const state = createInitialState();
-  const first = createDefaultComponent(0);
-  first.id = "component-first";
-  const second = createDefaultComponent(1);
-  second.id = "component-second";
-  state.components = [first, second];
-  state.surfaces[0].componentId = first.id;
-  state.surfaces[0].sourceNodeId = sceneSourceNodeId(first.id);
-  const firstScene = createSceneFromState(state, "First");
-  state.surfaces[0].componentId = second.id;
-  state.surfaces[0].sourceNodeId = sceneSourceNodeId(second.id);
-  const secondScene = createSceneFromState(state, "Second");
-  state.scenes = [firstScene, secondScene];
+  const source = state.components[0];
+  const firstScene = createSceneComponent(0, source.id);
+  const secondScene = createSceneComponent(1, source.id);
+  const frameId = state.frames[0].id;
+  firstScene.scene.frames = [{ frameId, componentId: "", fit: "cover", feather: 0.1 }];
+  secondScene.scene.frames = [{ frameId, componentId: "", fit: "contain", feather: 0.2 }];
+  state.components.push(firstScene, secondScene);
+  const mapping = createMappingFromState(state, "Mapping 1");
+  mapping.surfaces[0].frameSlotId = frameId;
+  mapping.surfaces[0].outputFrameId = frameId;
+  state.mappings = [mapping];
+  state.ui.selectedMappingId = mapping.id;
   state.ui.live.selectedSceneId = firstScene.id;
-  state.ui.live.sceneSnapshot = structuredClone(secondScene.snapshot);
+  state.ui.live.surfaceRoutes = null;
+  return { state, source, firstScene, secondScene, mapping, frameId };
+}
 
+test("Mapping edits refresh Live without changing the selected Live Scene", () => {
+  const { state, firstScene, mapping } = liveSceneMappingFixture();
   const store = createAppState(state);
-  assert.equal(store.getLiveRenderState().surfaces[0].componentId, first.id);
-
   store.update((draft) => {
-    draft.scenes[0].snapshot.surfaces[0].sourceNodeId = sceneSourceNodeId(second.id);
-    draft.scenes[0].snapshot.surfaces[0].componentId = second.id;
-  }, "scene-edit");
+    draft.mappings[0].surfaces[0].opacity = 0.37;
+  }, "mapping-edit");
   assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
-  assert.equal(store.getLiveRenderState().surfaces[0].componentId, second.id);
-
-  store.selectLiveScene(secondScene.id);
-  assert.equal(store.getLiveRenderState().surfaces[0].componentId, second.id);
+  assert.equal(store.getState().ui.selectedMappingId, mapping.id);
+  assert.equal(store.getLiveRenderState().surfaces[0].opacity, 0.37);
 });
 
-test("an empty Live selection initializes independently from the Scene selection", () => {
-  const state = createInitialState();
-  const firstScene = createSceneFromState(state, "First");
-  const secondScene = createSceneFromState(state, "Second");
-  state.scenes = [firstScene, secondScene];
-  state.ui.selectedSceneId = secondScene.id;
+test("an empty Live selection initializes to the first authored Scene independently from Mapping", () => {
+  const { state, firstScene, mapping } = liveSceneMappingFixture();
   state.ui.live.selectedSceneId = "";
-  state.ui.live.sceneSnapshot = null;
-
   const store = createAppState(state);
   assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
-
-  store.setWorkspace("live");
-  assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
-  assert.notEqual(store.getState().ui.live.selectedSceneId, store.getState().ui.selectedSceneId);
+  assert.equal(store.getState().ui.selectedMappingId, mapping.id);
 });
 
-test("Live scene transitions default to an immediate cut with no transition render state", () => {
-  const state = createInitialState();
-  const firstScene = createSceneFromState(state, "First");
-  const secondScene = createSceneFromState(state, "Second");
-  state.scenes = [firstScene, secondScene];
-  state.ui.live.selectedSceneId = firstScene.id;
-  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
+test("Live Scene cuts restore and timed transitions keep the selected Mapping", () => {
+  const { state, firstScene, secondScene, mapping } = liveSceneMappingFixture();
   const store = createAppState(state);
-
   store.selectLiveScene(secondScene.id);
-
-  assert.equal(store.getState().ui.live.transitionDuration, 0);
-  assert.equal(store.getState().ui.live.paramFadeDuration, 0);
   assert.equal(store.getState().ui.live.transition, null);
   assert.equal(store.getLiveRenderState().liveTransition, undefined);
-  assert.equal(store.getState().ui.live.selectedSceneId, secondScene.id);
-});
+  assert.equal(store.getState().ui.selectedMappingId, mapping.id);
 
-test("restoring the last Live Scene does not create a transition or project history", () => {
-  const state = createInitialState();
-  const firstScene = createSceneFromState(state, "First");
-  state.surfaces[0].opacity = 0.25;
-  const secondScene = createSceneFromState(state, "Second");
-  state.scenes = [firstScene, secondScene];
-  state.ui.live.selectedSceneId = firstScene.id;
-  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
-  state.ui.live.transitionDuration = 4;
-  const store = createAppState(state);
   let observedEvent = null;
   store.subscribe((_snapshot, _reason, event) => {
     if (event.reason === "live:scene-restore") observedEvent = event;
   });
-
-  store.restoreLiveScene(secondScene.id);
-
-  assert.equal(store.getState().ui.live.selectedSceneId, secondScene.id);
-  assert.equal(store.getState().ui.live.transition, null);
-  assert.equal(store.getLiveRenderState().liveTransition, undefined);
-  assert.equal(store.getLiveRenderState().surfaces[0].opacity, secondScene.snapshot.surfaces[0].opacity);
+  store.restoreLiveScene(firstScene.id);
+  assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
   assert.equal(observedEvent.scope, "live");
   assert.equal(observedEvent.history, "none");
-});
 
-test("nonzero Live transition duration retains the source scene for synchronized rendering", () => {
-  const state = createInitialState();
-  const firstScene = createSceneFromState(state, "First");
-  state.surfaces[0].opacity = 0.25;
-  const secondScene = createSceneFromState(state, "Second");
-  state.scenes = [firstScene, secondScene];
-  state.ui.live.selectedSceneId = firstScene.id;
-  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
-  state.ui.live.transitionDuration = 1.5;
-  const store = createAppState(state);
-
+  store.update((draft) => { draft.ui.live.transitionDuration = 1.5; }, "transition-duration");
   const activationStartedAt = Date.now();
   store.selectLiveScene(secondScene.id);
-
   const renderState = store.getLiveRenderState();
   assert.equal(renderState.liveTransition.durationMs, 1500);
-  assert.equal(renderState.liveTransition.fromState.surfaces[0].opacity, firstScene.snapshot.surfaces[0].opacity);
-  assert.equal(renderState.surfaces[0].opacity, secondScene.snapshot.surfaces[0].opacity);
+  assert.equal(renderState.liveTransition.fromState.surfaces[0].frameFit, "cover");
+  assert.equal(renderState.surfaces[0].frameFit, "contain");
+  assert.equal(renderState.liveTransition.fromState.surfaces[0].frameFeather, undefined);
+  assert.equal(renderState.surfaces[0].frameFeather, undefined);
   assert.ok(renderState.liveTransition.startedAtMs >= activationStartedAt + 50);
 });
 
-test("Live temporary overrides persist per scene until explicitly reset", () => {
-  const state = createInitialState();
-  const firstScene = createSceneFromState(state, "First");
-  const secondScene = createSceneFromState(state, "Second");
-  state.scenes = [firstScene, secondScene];
-  state.ui.live.selectedSceneId = firstScene.id;
-  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
-  const componentId = state.components[0].id;
+test("Live temporary overrides persist per authored Scene until explicitly reset", () => {
+  const { state, source, firstScene, secondScene } = liveSceneMappingFixture();
   const store = createAppState(state);
-
   store.update((draft) => {
-    draft.ui.live.componentOverrides[componentId] = { opacity: 0.25 };
+    draft.ui.live.componentOverrides[source.id] = { opacity: 0.25 };
   }, "live:update");
   store.selectLiveScene(secondScene.id);
   assert.deepEqual(store.getState().ui.live.componentOverrides, {});
-
   store.update((draft) => {
-    draft.ui.live.componentOverrides[componentId] = { speed: 2 };
+    draft.ui.live.componentOverrides[source.id] = { speed: 2 };
   }, "live:update");
   store.selectLiveScene(firstScene.id);
-  assert.equal(store.getState().ui.live.componentOverrides[componentId].opacity, 0.25);
-
+  assert.equal(store.getState().ui.live.componentOverrides[source.id].opacity, 0.25);
   store.resetLiveScene(firstScene.id);
   assert.deepEqual(store.getState().ui.live.componentOverrides, {});
   store.selectLiveScene(secondScene.id);
-  assert.equal(store.getState().ui.live.componentOverrides[componentId].speed, 2);
+  assert.equal(store.getState().ui.live.componentOverrides[source.id].speed, 2);
 });
 
 test("persistent component edits overwrite conflicting Live params but retain unrelated temporary params", () => {
   const state = createInitialState();
-  const scene = createSceneFromState(state, "Live scene");
-  state.scenes = [scene];
+  const scene = createMappingFromState(state, "Live scene");
+  state.mappings = [scene];
   state.ui.live.selectedSceneId = scene.id;
   const componentId = state.components[0].id;
   const source = state.components[0].chain[0];
@@ -480,7 +425,7 @@ test("persistent component edits overwrite conflicting Live params but retain un
 test("ordinary components reject nested component sources while Canvas accepts them", () => {
   const state = createInitialState();
   const source = createDefaultComponent(1);
-  const canvas = createCanvasComponent(0);
+  const canvas = createSceneComponent(0);
   state.components.push(source, canvas);
   const store = createAppState(state);
   const ordinary = store.getState().components[0];
@@ -506,7 +451,7 @@ test("ordinary components reject nested component sources while Canvas accepts t
 
 test("surface reorder updates active surfaces and scene snapshots", () => {
   const state = createInitialState();
-  state.scenes = [createSceneFromState(state, "Scene 1")];
+  state.mappings = [createMappingFromState(state, "Scene 1")];
   const [firstSurface, secondSurface] = state.surfaces;
   const store = createAppState(state);
 
@@ -515,8 +460,8 @@ test("surface reorder updates active surfaces and scene snapshots", () => {
 
   assert.equal(next.surfaces[0].id, secondSurface.id);
   assert.equal(next.surfaces[1].id, firstSurface.id);
-  assert.equal(next.scenes[0].snapshot.surfaces[0].id, secondSurface.id);
-  assert.equal(next.scenes[0].snapshot.surfaces[1].id, firstSurface.id);
+  assert.equal(next.mappings[0].surfaces[0].id, secondSurface.id);
+  assert.equal(next.mappings[0].surfaces[1].id, firstSurface.id);
 });
 
 test("all user-created projection surfaces can be removed", () => {
@@ -530,106 +475,66 @@ test("all user-created projection surfaces can be removed", () => {
   assert.ok(next.surfaces.some((surface) => surface.destination?.type === "direct"));
 });
 
-test("new surfaces and route edits update the pending Live snapshot for the same scene", () => {
-  const state = createInitialState();
-  const second = createDefaultComponent(1);
-  second.id = "component-second";
-  state.components.push(second);
-  const scene = createSceneFromState(state, "Shared scene");
-  state.scenes = [scene];
-  state.ui.selectedSceneId = scene.id;
-  state.ui.live.selectedSceneId = scene.id;
-  state.ui.live.sceneSnapshot = structuredClone(scene.snapshot);
-
+test("new Surfaces join the selected Mapping and refresh its pending Live route", () => {
+  const { state, firstScene, mapping, frameId } = liveSceneMappingFixture();
   const store = createAppState(state);
   store.addSurface();
-  let next = store.getState();
-  const added = next.surfaces.at(-1);
-  assert.ok(next.ui.live.sceneSnapshot.surfaces.some((surface) => surface.id === added.id));
-
-  const selectedScene = next.scenes.find((item) => item.id === scene.id);
-  const selectedRoute = selectedScene.snapshot.surfaces.find((surface) => surface.id === added.id);
-  selectedRoute.sourceNodeId = sceneSourceNodeId(second.id);
-  selectedRoute.componentId = second.id;
-  syncLiveSnapshotFromScene(next, selectedScene);
-  store.replace(next, "scene-route-edit");
-
-  assert.equal(
-    store.getLiveRenderState().surfaces.find((surface) => surface.id === added.id).componentId,
-    second.id
-  );
-});
-
-test("new surfaces start empty and are enabled only in the selected Scene", () => {
-  const state = createInitialState();
-  const firstScene = createSceneFromState(state, "First");
-  const selectedScene = createSceneFromState(state, "Selected");
-  state.scenes = [firstScene, selectedScene];
-  state.ui.selectedSceneId = selectedScene.id;
-  state.ui.live.selectedSceneId = firstScene.id;
-  state.ui.live.sceneSnapshot = structuredClone(firstScene.snapshot);
-
-  const store = createAppState(state);
-  store.addSurface();
-
-  const next = store.getState();
-  const added = next.surfaces.at(-1);
-  const firstRoute = next.scenes[0].snapshot.surfaces.find((surface) => surface.id === added.id);
-  const selectedRoute = next.scenes[1].snapshot.surfaces.find((surface) => surface.id === added.id);
-
-  assert.equal(added.componentId, "");
-  assert.equal(added.sourceNodeId, "");
-  assert.equal(firstRoute.enabled, false);
-  assert.equal(firstRoute.componentId, "");
-  assert.equal(selectedRoute.enabled, true);
-  assert.equal(selectedRoute.componentId, "");
-  assert.equal(store.getLiveRenderState().surfaces.find((surface) => surface.id === added.id).enabled, false);
-});
-
-test("route edits in a different Scene do not replace Live's selected scene", () => {
-  const state = createInitialState();
-  const liveScene = createSceneFromState(state, "Live scene");
-  const editedScene = createSceneFromState(state, "Edited scene");
-  state.scenes = [liveScene, editedScene];
-  state.ui.selectedSceneId = editedScene.id;
-  state.ui.live.selectedSceneId = liveScene.id;
-  state.ui.live.sceneSnapshot = structuredClone(liveScene.snapshot);
-  const original = structuredClone(state.ui.live.sceneSnapshot);
-
-  syncLiveSnapshotFromScene(state, editedScene);
-
-  assert.deepEqual(state.ui.live.sceneSnapshot, original);
-});
-
-test("persistent component parameter edits cannot promote the editor Scene to Live", () => {
-  const state = createInitialState();
-  const liveScene = createSceneFromState(state, "Live scene");
-  const editedScene = createSceneFromState(state, "Edited scene");
-  state.scenes = [liveScene, editedScene];
-  state.ui.selectedSceneId = editedScene.id;
-  state.ui.live.selectedSceneId = liveScene.id;
-  state.ui.live.sceneSnapshot = structuredClone(liveScene.snapshot);
-  const componentId = state.components[0].id;
-  const store = createAppState(state);
+  const added = store.getState().surfaces.at(-1);
+  let route = store.getState().mappings[0].surfaces.find((surface) => surface.id === added.id);
+  assert.equal(route.enabled, true);
+  assert.equal(route.frameSlotId, "");
+  assert.ok(store.getState().ui.live.surfaceRoutes.surfaces.some((surface) => surface.id === added.id));
 
   store.update((draft) => {
-    draft.components[0].opacity = 0.37;
-  }, "scrub:components.0.opacity");
+    route = draft.mappings[0].surfaces.find((surface) => surface.id === added.id);
+    route.frameSlotId = frameId;
+    route.outputFrameId = frameId;
+  }, "mapping-route-edit");
+  const rendered = store.getLiveRenderState().surfaces.find((surface) => surface.id === added.id);
+  assert.equal(rendered.componentId, firstScene.id);
+  assert.equal(rendered.frameSlotId, frameId);
+  assert.equal(store.getState().ui.selectedMappingId, mapping.id);
+});
 
+test("new Surfaces belong only to the selected Mapping", () => {
+  const { state, firstScene, mapping } = liveSceneMappingFixture();
+  const otherMapping = createMappingFromState(state, "Mapping 2");
+  state.mappings.unshift(otherMapping);
+  state.ui.selectedMappingId = mapping.id;
+  const store = createAppState(state);
+  store.addSurface();
+  const next = store.getState();
+  const added = next.surfaces.at(-1);
+  const otherRoute = next.mappings.find((item) => item.id === otherMapping.id).surfaces.find((surface) => surface.id === added.id);
+  const selectedRoute = next.mappings.find((item) => item.id === mapping.id).surfaces.find((surface) => surface.id === added.id);
+  assert.equal(otherRoute, undefined);
+  assert.equal(selectedRoute.enabled, true);
+  assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
+});
+
+test("persistent Component edits cannot promote the editor Mapping or another Scene to Live", () => {
+  const { state, source, firstScene, mapping } = liveSceneMappingFixture();
+  const otherMapping = createMappingFromState(state, "Mapping 2");
+  state.mappings.push(otherMapping);
+  state.ui.selectedMappingId = otherMapping.id;
+  const store = createAppState(state);
+  store.update((draft) => {
+    draft.components.find((component) => component.id === source.id).opacity = 0.37;
+  }, "scrub:component-opacity");
   const persistent = store.getState();
   const rendered = store.getLiveRenderState();
-  assert.equal(persistent.ui.selectedSceneId, editedScene.id);
-  assert.equal(persistent.ui.live.selectedSceneId, liveScene.id);
-  assert.equal(rendered.ui.live.selectedSceneId, liveScene.id);
-  assert.equal(rendered.ui.selectedSceneId, liveScene.id);
-  assert.equal(rendered.components.find((component) => component.id === componentId).opacity, 0.37);
+  assert.equal(persistent.ui.selectedMappingId, otherMapping.id);
+  assert.equal(persistent.ui.live.selectedSceneId, firstScene.id);
+  assert.equal(rendered.ui.selectedMappingId, otherMapping.id);
+  assert.equal(rendered.components.find((component) => component.id === source.id).opacity, 0.37);
+  assert.notEqual(persistent.ui.selectedMappingId, mapping.id);
 });
 
 test("Canvas components use ordinary source and effect chain items", () => {
   const state = createInitialState();
   const source = createDefaultComponent(0);
   source.id = "source-component";
-  const canvas = createCanvasComponent(0, source.id);
+  const canvas = createSceneComponent(0, source.id);
   canvas.id = "canvas-component";
   state.components = [source, canvas];
   state.ui.selectedComponentId = canvas.id;
@@ -646,14 +551,14 @@ test("Canvas components use ordinary source and effect chain items", () => {
   assert.ok(!nextCanvas.chain.some((item) => item.role === "canvas-layer"));
 });
 
-test("new Canvas components start empty", () => {
+test("new Scenes start empty", () => {
   const state = createInitialState();
   state.components[0].name = "Loop A";
   const store = createAppState(state);
 
-  store.addCanvasComponent();
+  store.addScene();
 
-  const canvas = store.getState().components.find((component) => component.type === "canvas");
+  const canvas = store.getState().components.find((component) => component.type === "scene");
   assert.ok(canvas);
   assert.deepEqual(canvas.chain, []);
   assert.equal(store.getState().ui.selectedComponentId, canvas.id);
@@ -669,16 +574,16 @@ test("copying a Component as Canvas preserves the original and opens the new Can
   state.ui.workspace = "component";
   const store = createAppState(state);
 
-  const result = store.copyComponentToCanvas(component.id);
+  const result = store.copyComponentToScene(component.id);
   const next = store.getState();
   const canvas = next.components.find((item) => item.id === result.id);
 
   assert.equal(result.converted, true);
   assert.equal(next.components.find((item) => item.id === component.id).type, "chain");
-  assert.equal(canvas.type, "canvas");
-  assert.equal(next.ui.workspace, "canvas");
+  assert.equal(canvas.type, "scene");
+  assert.equal(next.ui.workspace, "scene");
   assert.equal(next.ui.selectedComponentId, canvas.id);
-  assert.equal(next.ui.workspaceSelectionIds.canvas, canvas.id);
+  assert.equal(next.ui.workspaceSelectionIds.scene, canvas.id);
   assert.equal(next.global.calibrating, false);
 });
 
@@ -686,14 +591,14 @@ test("Canvas workspace selects a Canvas and components are added as ordinary sou
   const state = createInitialState();
   const source = createDefaultComponent(0);
   source.id = "source-component";
-  const canvas = createCanvasComponent(0);
+  const canvas = createSceneComponent(0);
   canvas.id = "canvas-component";
   state.render.canvasSize = { width: 2000, height: 1000 };
   state.components = [source, canvas];
   state.ui.selectedComponentId = source.id;
   const store = createAppState(state);
 
-  store.setWorkspace("canvas");
+  store.setWorkspace("scene");
   store.addChainSource(canvas.id, { type: "component", componentId: source.id });
   const next = store.getState();
   const nextCanvas = next.components.find((component) => component.id === canvas.id);
@@ -713,31 +618,31 @@ test("Component and Canvas workspaces remember their own selected component", ()
   firstComponent.id = "component-first";
   const secondComponent = createDefaultComponent(1);
   secondComponent.id = "component-second";
-  const firstCanvas = createCanvasComponent(0);
+  const firstCanvas = createSceneComponent(0);
   firstCanvas.id = "canvas-first";
-  const secondCanvas = createCanvasComponent(1);
+  const secondCanvas = createSceneComponent(1);
   secondCanvas.id = "canvas-second";
   state.components = [firstComponent, secondComponent, firstCanvas, secondCanvas];
   state.ui.workspace = "component";
   state.ui.selectedComponentId = firstComponent.id;
-  state.ui.workspaceSelectionIds = { component: firstComponent.id, canvas: firstCanvas.id };
+  state.ui.workspaceSelectionIds = { component: firstComponent.id, scene: firstCanvas.id };
   const store = createAppState(state);
 
   store.selectComponent(secondComponent.id);
-  store.setWorkspace("canvas");
+  store.setWorkspace("scene");
   assert.equal(store.getState().ui.selectedComponentId, firstCanvas.id);
 
   store.selectComponent(secondCanvas.id);
-  store.setWorkspace("scene");
+  store.setWorkspace("mapping");
   store.setWorkspace("component");
   assert.equal(store.getState().ui.selectedComponentId, secondComponent.id);
 
   store.setWorkspace("live");
-  store.setWorkspace("canvas");
+  store.setWorkspace("scene");
   assert.equal(store.getState().ui.selectedComponentId, secondCanvas.id);
   assert.deepEqual(store.getState().ui.workspaceSelectionIds, {
     component: secondComponent.id,
-    canvas: secondCanvas.id,
+    scene: secondCanvas.id,
   });
 });
 
@@ -752,48 +657,54 @@ test("entering Scene view preserves a surface source across catalog reorder", ()
   state.components = [first, second];
   state.surfaces[0].sourceNodeId = `component:${encodeURIComponent(second.id)}`;
   state.surfaces[0].componentId = first.id;
-  state.scenes = [createSceneFromState(state, "Stable assignment")];
-  state.ui.selectedSceneId = state.scenes[0].id;
+  state.mappings = [createMappingFromState(state, "Stable assignment")];
+  state.ui.selectedMappingId = state.mappings[0].id;
   state.ui.workspace = "component";
   state.ui.catalogSortModes.scene = "recent";
   const store = createAppState(state);
 
-  store.setWorkspace("scene");
-  const route = store.getState().scenes[0].snapshot.surfaces.find((surface) => surface.id === state.surfaces[0].id);
+  store.setWorkspace("mapping");
+  const route = store.getState().mappings[0].surfaces.find((surface) => surface.id === state.surfaces[0].id);
   assert.equal(route.sourceNodeId, `component:${encodeURIComponent(second.id)}`);
   assert.equal(route.componentId, second.id);
 });
 
-test("canvas recording frames are shared across canvases and removed routes clear safely", () => {
+test("Frame slots are shared while each Scene owns Frame configuration and removed routes clear safely", () => {
   const state = createInitialState();
   const source = createDefaultComponent(0);
-  const firstCanvas = createCanvasComponent(0, source.id);
-  const secondCanvas = createCanvasComponent(1, source.id);
+  const firstCanvas = createSceneComponent(0, source.id);
+  const secondCanvas = createSceneComponent(1, source.id);
   state.components = [source, firstCanvas, secondCanvas];
-  const frameId = state.recordingFrames[0].id;
-  firstCanvas.canvas.frameThumbnails = { [frameId]: "first-crop" };
-  secondCanvas.canvas.frameThumbnails = { [frameId]: "second-crop" };
+  const frameId = state.frames[0].id;
+  firstCanvas.scene.frameThumbnails = { [frameId]: "first-crop" };
+  secondCanvas.scene.frameThumbnails = { [frameId]: "second-crop" };
   state.surfaces[0].componentId = firstCanvas.id;
   state.surfaces[0].outputFrameId = frameId;
+  state.surfaces[0].frameSlotId = frameId;
   state.surfaces[1].componentId = secondCanvas.id;
   state.surfaces[1].outputFrameId = frameId;
-  state.scenes = [createSceneFromState(state, "Canvas scene")];
+  state.surfaces[1].frameSlotId = frameId;
+  state.mappings = [createMappingFromState(state, "Canvas scene")];
   const store = createAppState(state);
 
-  store.addCanvasFrame(firstCanvas.id);
-  assert.equal(store.getState().recordingFrames.length, 2);
-  assert.equal("frames" in store.getState().components.find((component) => component.id === firstCanvas.id).canvas, false);
-  assert.equal("frames" in store.getState().components.find((component) => component.id === secondCanvas.id).canvas, false);
+  store.addFrame(firstCanvas.id);
+  assert.equal(store.getState().frames.length, 3);
+  assert.equal(store.getState().components.find((component) => component.id === firstCanvas.id).scene.frames.length, 3);
+  assert.equal(store.getState().components.find((component) => component.id === secondCanvas.id).scene.frames.length, 3);
 
-  store.removeCanvasFrame(firstCanvas.id, frameId);
+  store.removeFrame(firstCanvas.id, frameId);
   const next = store.getState();
-  assert.equal(next.recordingFrames.some((frame) => frame.id === frameId), false);
-  assert.equal(frameId in next.components.find((component) => component.id === firstCanvas.id).canvas.frameThumbnails, false);
-  assert.equal(frameId in next.components.find((component) => component.id === secondCanvas.id).canvas.frameThumbnails, false);
+  assert.equal(next.frames.some((frame) => frame.id === frameId), false);
+  assert.equal(frameId in next.components.find((component) => component.id === firstCanvas.id).scene.frameThumbnails, false);
+  assert.equal(frameId in next.components.find((component) => component.id === secondCanvas.id).scene.frameThumbnails, false);
   assert.equal(next.surfaces[0].outputFrameId, "");
   assert.equal(next.surfaces[1].outputFrameId, "");
-  assert.equal(next.scenes[0].snapshot.surfaces[0].outputFrameId, "");
-  assert.equal(next.scenes[0].snapshot.surfaces[1].outputFrameId, "");
+  assert.equal(next.surfaces[0].frameSlotId, "");
+  assert.equal(next.surfaces[1].frameSlotId, "");
+  assert.equal(next.mappings[0].surfaces[0].outputFrameId, "");
+  assert.equal(next.mappings[0].surfaces[1].outputFrameId, "");
+  assert.equal(next.mappings[0].surfaces[0].frameSlotId, "");
+  assert.equal(next.mappings[0].surfaces[1].frameSlotId, "");
 });
 
 test("component chain preserves source elements and later effects", () => {
@@ -852,16 +763,16 @@ test("adding a generator inserts a visible chain element without replacing media
 test("new elements stay enabled until their Component graph is connected to a Live output", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
-  const canvas = createCanvasComponent(0);
+  const canvas = createSceneComponent(0);
   canvas.chain = [createComponentLayer(0, { type: "component", componentId: component.id })];
   state.components = [component, canvas];
   state.surfaces[0].enabled = true;
   state.surfaces[0].componentId = canvas.id;
   state.surfaces[0].sourceNodeId = sceneSourceNodeId(canvas.id);
-  const scene = createSceneFromState(state, "Program");
-  state.scenes = [scene];
+  const scene = createMappingFromState(state, "Program");
+  state.mappings = [scene];
   state.ui.live.selectedSceneId = scene.id;
-  state.ui.live.sceneSnapshot = structuredClone(scene.snapshot);
+  state.ui.live.surfaceRoutes = structuredClone(scene.snapshot);
   const store = createAppState(state);
 
   store.addChainEffect(component.id, "invert");
@@ -954,7 +865,7 @@ test("selected nested chain items can be removed through the shared store action
 
 test("the final element in an ordinary Component chain can be removed", () => {
   const state = createInitialState();
-  const component = state.components.find((item) => item.type !== "canvas");
+  const component = state.components.find((item) => item.type !== "scene");
   state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = component.chain[0].id;
   const store = createAppState(state);
@@ -1129,7 +1040,8 @@ test("mapping feedback updates only the mapping slice while retaining project hi
   store.updateMapping("local", mapping, "Mapping saved", "mapping-state");
   mapping.surfaces[0].corners[0].x = 999;
 
-  assert.equal(store.getState().mappings.local.surfaces[0].corners[0].x, 10);
+  assert.equal(store.getState().mappingCalibration.surfaces[0].corners[0].x, 10);
+  assert.equal(store.getState().mappings[0].calibration.surfaces[0].corners[0].x, 10);
   assert.equal(store.getState().ui.mappingStatus, "Mapping saved");
   assert.equal(events.at(-1).topic, "mapping-state");
   assert.equal(events.at(-1).history, "record");

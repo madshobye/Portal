@@ -334,8 +334,9 @@ test("projection mapping exposes cover contain and stretch without another rende
   assert.match(featherSource, /float cornerRadius = min\(0\.08, max\(0\.012, uFeather \* 0\.35\)\)/);
   assert.match(featherSource, /length\(max\(roundedDelta, 0\.0\)\)/);
   assert.match(featherSource, /return smoothstep\(0\.0, uFeather, -roundedDistance\)/);
-  assert.match(featherSource, /vec2 featherUv = uProjectionFit >= 1\.5 \? sampleUv : uv/);
-  assert.match(featherSource, /float featherAspect = uProjectionFit >= 1\.5 \? uSourceAspect : uTargetAspect/);
+  assert.match(featherSource, /vec2 featherUv = uUseFrameFit \? frameUv/);
+  assert.match(featherSource, /uniform float uFrameFit/);
+  assert.match(featherSource, /float featherAspect = uUseFrameFit \? uFrameAspect : \(uProjectionFit >= 1\.5 \? uSourceAspect : uTargetAspect\)/);
   assert.match(featherSource, /color \*= featherMask/);
   assert.match(fragmentSource, /uniform vec4 uSourceRect/);
   assert.match(fragmentSource, /textureUv = uSourceRect\.xy \+ clamp\(sampleUv/);

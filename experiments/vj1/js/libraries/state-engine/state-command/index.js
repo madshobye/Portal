@@ -5,7 +5,7 @@ const PROJECT_RESTORE_PREFIXES = Object.freeze([
 ]);
 
 const STRUCTURAL_CHANGE_PREFIXES = Object.freeze([
-  "add-component", "remove-component", "add-canvas-component", "convert-component-to-canvas",
+  "add-component", "remove-component", "add-scene", "convert-component-to-scene",
   "add-chain-", "remove-chain-", "reorder-chain", "paste", "cut", "select-",
 ]);
 

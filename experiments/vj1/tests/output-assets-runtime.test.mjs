@@ -5,12 +5,24 @@ import { readFileSync } from "node:fs";
 import { mediaFileFingerprint, OutputMediaRuntime } from "../js/output/output-media-runtime.js";
 import { syncVideoPlayback } from "../js/output/media-utils.js";
 import { OutputThumbnailRuntime } from "../js/output/output-thumbnail-runtime.js";
-import { OutputRenderer } from "../js/output/output-renderer.js";
+import { mediaSourceDemandWidth, OutputRenderer } from "../js/output/output-renderer.js";
 import { createControlBridge, createOutputBridge } from "../js/services/output-bridge-service.js";
 import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
+
+test("media detail demand follows the full logical boundary and content scale", () => {
+  const clippedBoundaryRequest = {
+    width: 1000,
+    height: 500,
+    logicalWidth: 4000,
+    logicalHeight: 2000,
+  };
+  assert.equal(mediaSourceDemandWidth(clippedBoundaryRequest), 4000);
+  assert.equal(mediaSourceDemandWidth(clippedBoundaryRequest, { contentTransform: { scale: 2 } }), 8000);
+  assert.equal(mediaSourceDemandWidth({ ...clippedBoundaryRequest, qualityScale: 0.5 }), 2000);
+});
 
 test("media runtime deduplicates and throttles missing-file requests", () => {
   const previousMillis = globalThis.millis;
@@ -247,6 +259,61 @@ test("raster demand escalation atomically replaces a smaller decoded variant", a
     else globalThis.createImageBitmap = previousCreateBitmap;
     if (previousCreateImage === undefined) delete globalThis.createImage;
     else globalThis.createImage = previousCreateImage;
+  }
+});
+
+test("SVG media rasterizes at active demand and content scale upgrades the retained variant", () => {
+  const PreviousImage = globalThis.Image;
+  const previousCreateImage = globalThis.createImage;
+  const previousCreateUrl = URL.createObjectURL;
+  const rasterized = [];
+  const removed = [];
+  globalThis.Image = class {
+    constructor() {
+      this.naturalWidth = 100;
+      this.naturalHeight = 50;
+      this.width = 100;
+      this.height = 50;
+    }
+    set src(value) {
+      this._src = value;
+      if (value) this.onload?.();
+    }
+    get src() { return this._src; }
+  };
+  globalThis.createImage = (width, height) => ({
+    width,
+    height,
+    canvas: { getContext: () => ({ drawImage(_source, _x, _y, rw, rh) { rasterized.push([rw, rh]); } }) },
+    setModified() {},
+    remove() { removed.push(width); },
+  });
+  URL.createObjectURL = () => "blob:vector";
+  try {
+    const runtime = new OutputMediaRuntime();
+    runtime.importFiles([{
+      id: "media/logo.svg",
+      file: { name: "logo.svg", size: 500, lastModified: 1, type: "image/svg+xml" },
+    }]);
+    const item = runtime.acquireMedia(runtime.media.get("media/logo.svg"), { width: 500 });
+    assert.deepEqual(rasterized, [[512, 256]]);
+    assert.equal(item.image.width, 512);
+    const initialRevision = item.revision;
+
+    runtime.acquireMedia(item, {
+      width: mediaSourceDemandWidth(1920, { contentTransform: { scale: 2 } }),
+    });
+    assert.deepEqual(rasterized, [[512, 256], [3840, 1920]]);
+    assert.equal(item.image.width, 3840);
+    assert.deepEqual(removed, [512]);
+    assert.ok(item.revision > initialRevision, "the higher-detail vector variant invalidates stable component output");
+    assert.strictEqual(runtime.getImageRendition(item, 640, 360), item.image, "SVG bypasses stale raster rendition caches");
+  } finally {
+    if (PreviousImage === undefined) delete globalThis.Image;
+    else globalThis.Image = PreviousImage;
+    if (previousCreateImage === undefined) delete globalThis.createImage;
+    else globalThis.createImage = previousCreateImage;
+    URL.createObjectURL = previousCreateUrl;
   }
 });
 
@@ -1216,7 +1283,7 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
   renderer.state = {
     components: [component],
     nodes: { groups: [persistedGroup] },
-    recordingFrames: [],
+    frames: [],
     surfaces: [],
     ui: { live: { paramFadeDuration: 0 } },
   };
@@ -1240,7 +1307,7 @@ test("Live numeric patches preserve target truth while the renderer interpolates
   const renderer = new OutputRenderer({ mode: "output" });
   renderer.state = {
     components: [{ id: "component-a", chain: [{ params: { amount: 0 } }] }],
-    recordingFrames: [],
+    frames: [],
     surfaces: [],
     ui: { live: { paramFadeDuration: 1 } },
   };
@@ -1271,7 +1338,7 @@ test("Structural resolution patches bypass param fading in both directions", () 
   const renderer = new OutputRenderer({ mode: "output" });
   renderer.state = {
     components: [{ id: "component-a", resolutionScale: 1, chain: [] }],
-    recordingFrames: [],
+    frames: [],
     surfaces: [],
     ui: { live: { paramFadeDuration: 2 } },
   };

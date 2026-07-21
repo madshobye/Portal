@@ -16,6 +16,7 @@ import {
   createRenderRequest,
   defaultProjectSurfaceMapping,
   instanceInvariantRenderRequest,
+  mappingWorldRender,
   outputFrameForId,
   outputFrames,
   outputSpanRect,
@@ -26,6 +27,23 @@ import {
   SURFACE_DEMAND_OVERSCAN,
   visibleMappedSurfaceSize,
 } from "../js/output/render-geometry.js";
+
+test("mapping geometry is independent from the current browser host proportions", () => {
+  const render = {
+    outputs: [{ id: "output-main", aspectRatio: 16 / 9 }],
+  };
+  const wideHost = mappingWorldRender({
+    ...render,
+    hostViewport: { width: 1445, height: 855 },
+  });
+  const shortHost = mappingWorldRender({
+    ...render,
+    hostViewport: { width: 1327, height: 204 },
+  });
+
+  assert.deepEqual(wideHost.hostViewport, shortHost.hostViewport);
+  assert.equal(wideHost.hostViewport.width / wideHost.hostViewport.height, 16 / 9);
+});
 
 test("adaptive sampling safety multipliers are named render-contract constants", () => {
   assert.equal(SURFACE_DEMAND_OVERSCAN, 1);

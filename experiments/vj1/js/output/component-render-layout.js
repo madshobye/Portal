@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { relativeRectToLogical } from "../libraries/render-engine/relative-geometry.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
+import { sceneFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { createRenderRequest, RECORDING_FRAME_DEMAND_SCALE } from "./render-geometry.js?v=adaptive-component-demand-29";
 
 export function directFitRects(sourceWidth, sourceHeight, target = {}, fit = "stretch") {
@@ -73,7 +73,7 @@ export function drawWebGLBuffer(pg, source, x, y, w, h) {
   pg.pop();
 }
 
-export function canvasRectCorners(rect = {}) {
+export function sceneFrameRectCorners(rect = {}) {
   return [
     { id: "nw", x: rect.x, y: rect.y },
     { id: "ne", x: rect.x + rect.width, y: rect.y },
@@ -88,7 +88,7 @@ export function distanceSquared(ax, ay, bx, by) {
   return dx * dx + dy * dy;
 }
 
-export function canvasFrameBorderHit(rect = {}, x = 0, y = 0, tolerance = 8) {
+export function sceneFrameBorderHit(rect = {}, x = 0, y = 0, tolerance = 8) {
   const inset = Math.max(0, Number(tolerance) || 0);
   const left = Number(rect.x) || 0;
   const top = Number(rect.y) || 0;
@@ -100,18 +100,18 @@ export function canvasFrameBorderHit(rect = {}, x = 0, y = 0, tolerance = 8) {
     || (withinX && (Math.abs(y - top) <= inset || Math.abs(y - bottom) <= inset));
 }
 
-export function moveCanvasFrameRect(rect, dx, dy, canvasWidth, canvasHeight) {
-  const relative = canvasWidth <= 1.000001 && canvasHeight <= 1.000001;
+export function moveSceneFrameRect(rect, dx, dy, sceneWidth, sceneHeight) {
+  const relative = sceneWidth <= 1.000001 && sceneHeight <= 1.000001;
   const round = relative ? (value) => value : Math.round;
   return {
     ...rect,
-    x: round(Math.max(0, Math.min(canvasWidth - rect.width, rect.x + dx))),
-    y: round(Math.max(0, Math.min(canvasHeight - rect.height, rect.y + dy))),
+    x: round(Math.max(0, Math.min(sceneWidth - rect.width, rect.x + dx))),
+    y: round(Math.max(0, Math.min(sceneHeight - rect.height, rect.y + dy))),
   };
 }
 
-export function resizeCanvasFrameRect(rect, corner, dx, dy, canvasWidth, canvasHeight) {
-  const relative = canvasWidth <= 1.000001 && canvasHeight <= 1.000001;
+export function resizeSceneFrameRect(rect, corner, dx, dy, sceneWidth, sceneHeight, { keepProportions = false } = {}) {
+  const relative = sceneWidth <= 1.000001 && sceneHeight <= 1.000001;
   const minSize = relative ? 0.005 : 16;
   const round = relative ? (value) => value : Math.round;
   const east = corner.includes("e");
@@ -120,11 +120,32 @@ export function resizeCanvasFrameRect(rect, corner, dx, dy, canvasWidth, canvasH
   const anchorY = south ? rect.y : rect.y + rect.height;
   const draggedX = (east ? rect.x + rect.width : rect.x) + dx;
   const draggedY = (south ? rect.y + rect.height : rect.y) + dy;
+  if (keepProportions) {
+    const rawWidth = Math.max(0, east ? draggedX - anchorX : anchorX - draggedX);
+    const rawHeight = Math.max(0, south ? draggedY - anchorY : anchorY - draggedY);
+    const sourceWidth = Math.max(minSize, Number(rect.width) || minSize);
+    const sourceHeight = Math.max(minSize, Number(rect.height) || minSize);
+    const projectedScale = (rawWidth * sourceWidth + rawHeight * sourceHeight)
+      / (sourceWidth * sourceWidth + sourceHeight * sourceHeight);
+    const maxWidth = east ? sceneWidth - anchorX : anchorX;
+    const maxHeight = south ? sceneHeight - anchorY : anchorY;
+    const minScale = Math.max(minSize / sourceWidth, minSize / sourceHeight);
+    const maxScale = Math.max(minScale, Math.min(maxWidth / sourceWidth, maxHeight / sourceHeight));
+    const scale = Math.max(minScale, Math.min(maxScale, projectedScale));
+    const frameWidth = sourceWidth * scale;
+    const frameHeight = sourceHeight * scale;
+    return {
+      x: round(east ? anchorX : anchorX - frameWidth),
+      y: round(south ? anchorY : anchorY - frameHeight),
+      width: round(frameWidth),
+      height: round(frameHeight),
+    };
+  }
   const cornerX = east
-    ? Math.max(anchorX + minSize, Math.min(canvasWidth, draggedX))
+    ? Math.max(anchorX + minSize, Math.min(sceneWidth, draggedX))
     : Math.max(0, Math.min(anchorX - minSize, draggedX));
   const cornerY = south
-    ? Math.max(anchorY + minSize, Math.min(canvasHeight, draggedY))
+    ? Math.max(anchorY + minSize, Math.min(sceneHeight, draggedY))
     : Math.max(0, Math.min(anchorY - minSize, draggedY));
   return {
     x: round(east ? anchorX : cornerX),
@@ -134,23 +155,24 @@ export function resizeCanvasFrameRect(rect, corner, dx, dy, canvasWidth, canvasH
   };
 }
 
-export function canvasComponentPlacementRect(canvasSize = {}, sourceMetrics = {}, target = {}, placement = null) {
-  const canvasWidth = Math.max(1, Number(canvasSize.width) || VJ1.canvasWidth);
-  const canvasHeight = Math.max(1, Number(canvasSize.height) || VJ1.canvasHeight);
-  const targetWidth = Math.max(1, Number(target.width) || canvasWidth);
-  const targetHeight = Math.max(1, Number(target.height) || canvasHeight);
+export function sceneComponentPlacementRect(sceneSize = {}, sourceMetrics = {}, target = {}, placement = null) {
+  const sceneWidth = Math.max(1, Number(sceneSize.width) || VJ1.sceneWidth);
+  const sceneHeight = Math.max(1, Number(sceneSize.height) || VJ1.sceneHeight);
+  const targetWidth = Math.max(1, Number(target.width) || sceneWidth);
+  const targetHeight = Math.max(1, Number(target.height) || sceneHeight);
   const placementScale = Number(placement?.scale);
   const hasRelativePlacement = Number.isFinite(placementScale) && placementScale > 0;
   const sourceWidth = Math.max(1, Number(sourceMetrics.baseWidth) || Number(sourceMetrics.width) || 1);
   const sourceHeight = Math.max(1, Number(sourceMetrics.baseHeight) || Number(sourceMetrics.height) || 1);
-  const logicalWidth = placementScale * canvasWidth;
-  const logicalHeight = logicalWidth * sourceHeight / sourceWidth;
+  const logicalWidth = placementScale * sceneWidth;
   const width = Math.max(1, hasRelativePlacement
-    ? logicalWidth * targetWidth / canvasWidth
-    : sourceWidth * targetWidth / canvasWidth);
-  const height = Math.max(1, hasRelativePlacement
-    ? logicalHeight * targetHeight / canvasHeight
-    : sourceHeight * targetHeight / canvasHeight);
+    ? logicalWidth * targetWidth / sceneWidth
+    : sourceWidth * targetWidth / sceneWidth);
+  // Placement scale is authored against the Scene width, but the embedded
+  // Component keeps its own landscape / portrait / square proportions. Do
+  // not convert the two axes independently: ROI and preview requests are not
+  // guaranteed to have the exact Scene aspect and would stretch the child.
+  const height = Math.max(1, width * sourceHeight / sourceWidth);
   return {
     x: Math.round((targetWidth - width) * 0.5),
     y: Math.round((targetHeight - height) * 0.5),
@@ -162,8 +184,8 @@ export function canvasComponentPlacementRect(canvasSize = {}, sourceMetrics = {}
 export function componentReferencePlacement(parent = {}, child = {}, render = {}, target = {}, placement = null) {
   const targetWidth = Math.max(1, Number(target.width) || 1);
   const targetHeight = Math.max(1, Number(target.height) || 1);
-  if (parent.type !== "canvas") return { x: 0, y: 0, width: targetWidth, height: targetHeight };
-  return canvasComponentPlacementRect(canvasFrameSize(render), componentFrameMetrics(render, child), target, placement);
+  if (parent.type !== "scene") return { x: 0, y: 0, width: targetWidth, height: targetHeight };
+  return sceneComponentPlacementRect(sceneFrameSize(render), componentFrameMetrics(render, child), target, placement);
 }
 
 export function fullTargetRect(target = {}) {
@@ -251,29 +273,40 @@ export function componentPreviewRenderRequest(render = {}, component = {}, viewp
 // Component geometry is expressed in project/logical pixels. Raster demand
 // (pixel density, preview quality, quantization, LOD) may change the backing
 // texture dimensions, but it must never resize the editing frame or handles.
-export function componentLogicalPreviewRect(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1) {
-  const logical = component?.type === "canvas"
-    ? canvasFrameSize(render)
+export function componentLogicalPreviewRect(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, options = {}) {
+  const logical = component?.type === "scene"
+    ? sceneFrameSize(render)
     : (() => {
         const metrics = componentFrameMetrics(render, component);
         return { width: metrics.baseWidth, height: metrics.baseHeight };
       })();
-  const fitted = containedRect(viewportWidth, viewportHeight, logical.width, logical.height);
+  const width = Math.max(1, Number(viewportWidth) || 1);
+  const height = Math.max(1, Number(viewportHeight) || 1);
+  // The Scene editor uses the same project-world margin as Mapping. The p5
+  // canvas still occupies the complete preview stage; only the authored Scene
+  // frame is inset. This leaves reachable space around edge-aligned Frames
+  // without changing Scene pixels, output proportions, or render demand.
+  const worldMargin = component?.type === "scene" && options.sceneEditorWorld === true
+    ? Math.max(0, Math.min(0.45, Number(VJ1.outputWorldMarginRatio) || 0))
+    : 0;
+  const availableWidth = Math.max(1, width * (1 - worldMargin * 2));
+  const availableHeight = Math.max(1, height * (1 - worldMargin * 2));
+  const fitted = containedRect(availableWidth, availableHeight, logical.width, logical.height);
   return {
-    x: (Math.max(1, Number(viewportWidth) || 1) - fitted.width) * 0.5,
-    y: (Math.max(1, Number(viewportHeight) || 1) - fitted.height) * 0.5,
+    x: (width - fitted.width) * 0.5,
+    y: (height - fitted.height) * 0.5,
     width: fitted.width,
     height: fitted.height,
   };
 }
 
-export function canvasPreviewRenderRequest(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
-  const { width, height } = canvasFrameSize(render);
+export function scenePreviewRenderRequest(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
+  const { width, height } = sceneFrameSize(render);
   const resolutionScale = Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1));
   const fitScale = Math.min(Math.max(1, Number(viewportWidth) || 1) / width, Math.max(1, Number(viewportHeight) || 1) / height, 1);
   // The embedded preview's effective density already encodes Auto/Good/Low.
   // Matching that backing density here avoids a sharp outer canvas magnifying
-  // an undersized Canvas texture on high-density displays.
+  // an undersized Scene texture on high-density displays.
   const pixelScale = Math.max(0.125, Math.min(4,
     (Number(render.pixelDensity) || 1) * (Number(render.previewRasterScale) || 1)
   ));
@@ -288,20 +321,20 @@ export function routeSourceLookupKey(componentId = "", outputFrameId = "") {
   return `${componentId}\u0000${outputFrameId || ""}`;
 }
 
-export function componentSourceView(render = {}, component = {}, surface = {}, recordingFrames = [], recordingFrameById = null) {
+export function componentSourceView(render = {}, component = {}, surface = {}, frames = [], recordingFrameById = null) {
   const placementScale = Math.max(0.0001, Number(component?.transform?.scale) || 1);
-  if (component.type === "canvas") {
-    const logicalSize = canvasFrameSize(render);
+  if (component.type === "scene") {
+    const logicalSize = sceneFrameSize(render);
     const recordingFrame = typeof recordingFrameById?.get === "function"
       ? recordingFrameById.get(surface.outputFrameId)
-      : recordingFrames.find((item) => item.id === surface.outputFrameId);
+      : frames.find((item) => item.id === surface.outputFrameId);
     const sampleRect = recordingFrame
       ? relativeRectToLogical(recordingFrame, logicalSize)
       : { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height };
     return {
       logicalSize,
       sampleRect,
-      maxRasterSize: canvasMaxRasterSize(render, logicalSize, component.resolutionScale),
+      maxRasterSize: sceneMaxRasterSize(render, logicalSize, component.resolutionScale),
       samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (recordingFrame
         ? Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE))
         : 1) * placementScale,
@@ -324,11 +357,11 @@ export function componentAdaptiveRasterLimit(logicalSize = {}) {
   return { width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale)) };
 }
 
-export function canvasMaxRasterSize(render = {}, logicalSize = {}, resolutionScale = 1) {
-  const width = Math.max(1, Number(logicalSize.width) || VJ1.canvasWidth);
-  const height = Math.max(1, Number(logicalSize.height) || VJ1.canvasHeight);
+export function sceneMaxRasterSize(render = {}, logicalSize = {}, resolutionScale = 1) {
+  const width = Math.max(1, Number(logicalSize.width) || VJ1.sceneWidth);
+  const height = Math.max(1, Number(logicalSize.height) || VJ1.sceneHeight);
   const componentScale = Math.max(0.5, Math.min(2, Number(resolutionScale) || 1));
-  const limitToLogicalSize = render.sampling?.limitCanvasToLogicalSize !== false;
+  const limitToLogicalSize = render.sampling?.limitSceneToLogicalSize !== false;
   const density = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
   const frameScale = Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE));
   const scale = (limitToLogicalSize ? 1 : Math.max(1, frameScale, density)) * componentScale;

@@ -18,15 +18,17 @@ export function shellTemplate() {
           </div>
           <div id="workspace-switch" class="workspace-switch workspace-view-switch" role="group" aria-label="Views">
             <button type="button" data-workspace="component" title="Components" aria-label="Components">${icon("account_tree")}</button>
-            <button type="button" data-workspace="canvas" title="Canvas" aria-label="Canvas">${icon("dashboard_customize")}</button>
-            <button type="button" data-workspace="scene" class="is-active" title="Scenes" aria-label="Scenes">${icon("auto_awesome")}</button>
-            <button type="button" data-workspace="nodes" title="Nodes" aria-label="Nodes">${icon("schema")}</button>
+            <button type="button" data-workspace="scene" title="Scenes" aria-label="Scenes">${icon("dashboard_customize")}</button>
             <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           </div>
           <button id="return-from-deep-edit" class="icon-buttonish deep-edit-return is-hidden" type="button" title="Return" aria-label="Return">${icon("arrow_back")}</button>
         </div>
         <div class="top-actions" data-scroll-region data-scroll-key="top-actions">
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
+          <div class="workspace-switch workspace-tool-switch" role="group" aria-label="Technical views">
+            <button type="button" data-workspace="mapping" class="is-active" title="Mapping" aria-label="Mapping">${icon("auto_awesome")}</button>
+            <button type="button" data-workspace="nodes" title="Nodes" aria-label="Nodes">${icon("schema")}</button>
+          </div>
           <button id="toggle-output-hud" class="icon-buttonish" type="button" title="Output FPS and resolution" aria-label="Toggle output FPS and resolution">${icon("bug_report")}</button>
           <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>
           <div class="diagnostics-menu">

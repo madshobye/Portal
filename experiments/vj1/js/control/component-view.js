@@ -10,22 +10,44 @@ import { deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButto
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 
-export function canvasInspectorTemplate(component, state) {
+export function sceneInspectorTemplate(component, state) {
   const base = pathForComponent(state, component);
   return `
     <article class="sculpt-card">
-      ${canvasResolutionControlsTemplate(component, base)}
+      ${sceneResolutionControlsTemplate(component, base)}
       ${componentUnifiedChainTemplate(component, state, base)}
     </article>
   `;
 }
 
-function canvasResolutionControlsTemplate(component, base) {
+export function sceneFrameInspectorTemplate(frame, component, state) {
+  if (!frame || !component) return "";
+  const componentBase = pathForComponent(state, component);
+  const configIndex = component.scene?.frames?.findIndex((entry) => entry.frameId === frame.id) ?? -1;
+  if (configIndex < 0) return "";
+  const config = component.scene.frames[configIndex];
+  const base = `${componentBase}.scene.frames.${configIndex}`;
+  const frameIndex = state.frames?.findIndex((entry) => entry.id === frame.id) ?? -1;
+  const sourceOptions = [
+    `<option value="" ${config.componentId ? "" : "selected"}>Full scene</option>`,
+    ...(state.components || []).filter((entry) => entry.type !== "scene" && !entry.systemRole).map((entry) =>
+      `<option value="${esc(entry.id)}" ${entry.id === config.componentId ? "selected" : ""}>${esc(entry.name)}</option>`
+    ),
+  ].join("");
+  return `<article class="sculpt-card scene-frame-inspector inspector-control-surface">
+    <div class="soft-note">${frame.kind === "output" ? "Output Frame · its default proportion follows the Output projection" : "Frame · its default proportion follows the assigned projection Surface"}. Move and scale it in the Scene preview.</div>
+    ${frameIndex >= 0 ? `<label class="field inline-param"><span>Keep proportions</span><input type="checkbox" data-update="frames.${frameIndex}.keepProportions" ${frame.keepProportions === false ? "" : "checked"} /></label>` : ""}
+    <label class="field">Content <select data-update="${base}.componentId">${sourceOptions}</select></label>
+    <label class="field">Fit ${selectValuesTemplate(`${base}.fit`, ["cover", "contain", "stretch"], config.fit || "cover")}</label>
+  </article>`;
+}
+
+function sceneResolutionControlsTemplate(component, base) {
   const scale = Number(component.resolutionScale) || 1;
   return `
-    <div class="section-toolbar component-quick-toolbar" role="group" aria-label="Canvas resolution scale">
+    <div class="section-toolbar component-quick-toolbar" role="group" aria-label="Scene resolution scale">
       <div class="section-toolbar-group component-quick-group component-resolution-buttons">
-        ${[0.5, 1, 2].map((value) => `<button type="button" class="${scale === value ? "is-selected" : ""}" data-set-path="${base}.resolutionScale" data-set-value="${value}" data-set-value-type="number" aria-pressed="${scale === value}" title="${value}× Canvas resolution">${value}×</button>`).join("")}
+        ${[0.5, 1, 2].map((value) => `<button type="button" class="${scale === value ? "is-selected" : ""}" data-set-path="${base}.resolutionScale" data-set-value="${value}" data-set-value-type="number" aria-pressed="${scale === value}" title="${value}× Scene resolution">${value}×</button>`).join("")}
       </div>
     </div>
   `;
@@ -33,11 +55,11 @@ function canvasResolutionControlsTemplate(component, base) {
 
 export function componentTemplate(component, state) {
   const base = pathForComponent(state, component);
-  if (component.type === "canvas") {
+  if (component.type === "scene") {
     return `
       <article class="sculpt-card">
         ${componentInstanceSyncTemplate(component, base)}
-        <div class="soft-note">This Canvas uses the shared component chain. Add components as sources with the plus button, organize them in Groups when needed, and define recording frames.</div>
+        <div class="soft-note">This Scene arranges reusable Components and exposes Frames to Mapping surfaces.</div>
       </article>
     `;
   }
@@ -98,7 +120,7 @@ export function roundTrimTime(value) {
 function componentInstanceSyncTemplate(component, base, compact = false) {
   const enabled = component.syncInstances !== false;
   const button = `
-    <button type="button" class="${enabled ? "is-selected" : ""}" data-toggle-path="${base}.syncInstances" data-toggle-value="${enabled ? "true" : "false"}" aria-pressed="${enabled}" title="On keeps this Component synchronized everywhere; off gives each Canvas placement and surface its own phase">
+    <button type="button" class="${enabled ? "is-selected" : ""}" data-toggle-path="${base}.syncInstances" data-toggle-value="${enabled ? "true" : "false"}" aria-pressed="${enabled}" title="On keeps this Component synchronized everywhere; off gives each Scene placement and Surface its own phase">
       ${compact ? `${icon("sync")}<span class="visually-hidden">Sync instances</span>` : "Sync instances"}
     </button>
   `;
@@ -232,7 +254,7 @@ function selectedChainItemTitleTemplate(item, component, state, base) {
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
   const displayName = sourceChainItemDisplayName(item, media, referencedComponent, state);
-  const staticTitle = component?.type === "canvas" && item.source?.type === "component";
+  const staticTitle = component?.type === "scene" && item.source?.type === "component";
   return staticTitle
     ? `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${sourceIcon(item.source)}</span><span>${esc(displayName)}</span>${deepEditButtonTemplate(referencedComponent?.id, { className: "header-edit-button", label: `Edit ${displayName}` })}</div>`
     : editableSectionTitleTemplate(sourceIcon(item.source), base + ".name", displayName);
@@ -272,7 +294,7 @@ function groupChainItemTemplate(item, component, state, base) {
 }
 
 function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = "primary") {
-  const isCanvasComponentPlacement = ownerComponent?.type === "canvas" && item.source?.type === "component";
+  const isSceneComponentPlacement = ownerComponent?.type === "scene" && item.source?.type === "component";
   const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
   if (paramView === "details") {
     if (item.source?.type === "generator") {
@@ -286,7 +308,7 @@ function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = 
   return `
     <section class="chain-item-editor">
       ${item.source?.type === "component"
-        ? (isCanvasComponentPlacement ? "" : `<label class="field">Component ${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
+        ? (isSceneComponentPlacement ? "" : `<label class="field">Component ${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
         : sourcePickerTemplate(item, state, base, paramView)}
     </section>
   `;
@@ -297,7 +319,7 @@ function effectDisplayParam(param) {
 }
 
 function componentSelectTemplate(path, state, value, excludeId = "") {
-  const options = state.components.filter((component) => component.id !== excludeId && component.type !== "canvas");
+  const options = state.components.filter((component) => component.id !== excludeId && component.type !== "scene");
   return `
     <select data-update="${esc(path)}">
       <option value="">None</option>

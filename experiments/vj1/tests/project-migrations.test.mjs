@@ -27,11 +27,13 @@ import {
   migrateProjectV23ToV24,
   migrateProjectV24ToV25,
   migrateProjectV25ToV26,
+  migrateProjectV26ToV27,
+  migrateProjectV27ToV28,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 26);
+  assert.equal(CURRENT_PROJECT_VERSION, 28);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -82,9 +84,9 @@ test("v7 to v8 migrates the Component workspace and remembered selections", () =
   });
   assert.equal(migrated.version, CURRENT_PROJECT_VERSION);
   assert.equal(migrated.ui.workspace, "component");
-  assert.deepEqual(migrated.ui.workspaceSelectionIds, { component: "comp-a", canvas: "canvas-a" });
+  assert.deepEqual(migrated.ui.workspaceSelectionIds, { component: "comp-a", scene: "canvas-a" });
   assert.equal(Object.hasOwn(migrated.ui, "workspaceCompositionIds"), false);
-  assert.deepEqual(migrated.ui.catalogSortModes, { component: "recent", canvas: "recent", scene: "recent", media: "recent", source: "recent" });
+  assert.deepEqual(migrated.ui.catalogSortModes, { component: "recent", scene: "recent", mapping: "recent", media: "recent", source: "recent" });
 });
 
 test("v8 to v9 persists independent normalized catalog sort modes", () => {
@@ -467,6 +469,62 @@ test("v25 to v26 moves handle-authored rotation onto the oriented boundary", () 
   assert.equal(migrated.nodes.groups[0].nodes[0].configuration.boundary.rotation, -0.3);
   assert.equal(migrated.nodes.groups[0].nodes[0].configuration.transform.rotation, 0);
   assert.equal(migrated.nodes.groups[0].nodes[0].configuration.source.generatorId, "plasma");
+});
+
+test("v26 to v27 canonically separates Scenes, Mappings, and surface calibration", () => {
+  const migrated = migrateProjectV26ToV27({
+    version: 26,
+    components: [{ id: "canvas-a", type: "canvas", canvas: { frames: [] } }],
+    recordingFrames: [{ id: "frame-a" }],
+    scenes: [{ id: "mapping-a", snapshot: { surfaces: [] } }],
+    mappings: { local: { surfaces: [] } },
+    render: { canvasAspectRatio: 16 / 9, sampling: { limitCanvasToLogicalSize: false } },
+    ui: {
+      workspace: "scene",
+      selectedSceneId: "mapping-a",
+      workspaceSelectionIds: { component: "component-a", canvas: "canvas-a" },
+      catalogSortModes: { component: "recent", canvas: "name", scene: "marker" },
+      live: { selectedSceneId: "canvas-a" },
+    },
+  });
+
+  assert.equal(migrated.components[0].type, "scene");
+  assert.deepEqual(migrated.components[0].scene, { frames: [] });
+  assert.equal(Object.hasOwn(migrated.components[0], "canvas"), false);
+  assert.deepEqual(migrated.frames, [{ id: "frame-a" }]);
+  assert.equal(migrated.mappings[0].id, "mapping-a");
+  assert.deepEqual(migrated.surfaceMappings, { local: { surfaces: [] } });
+  assert.equal(migrated.render.sceneAspectRatio, 16 / 9);
+  assert.equal(migrated.render.sampling.limitSceneToLogicalSize, false);
+  assert.equal(migrated.ui.workspace, "mapping");
+  assert.equal(migrated.ui.selectedMappingId, "mapping-a");
+  assert.deepEqual(migrated.ui.workspaceSelectionIds, { component: "component-a", scene: "canvas-a" });
+  assert.equal(migrated.ui.live.selectedSceneId, "canvas-a");
+});
+
+test("v27 to v28 gives each Mapping complete Surface and calibration ownership", () => {
+  const migrated = migrateProjectV27ToV28({
+    version: 27,
+    surfaces: [{ id: "surface-a", name: "Surface A", feather: 0.2, destination: { type: "mapped" } }],
+    mappings: [{
+      id: "mapping-a",
+      name: "Mapping A",
+      snapshot: { surfaces: [{ id: "surface-a", frameSlotId: "frame-a", opacity: 0.7 }] },
+    }],
+    surfaceMappings: { local: { coordinateSpace: "relative", surfaces: [{ id: "surface-a", corners: [] }] } },
+    ui: { live: { selectedSceneId: "scene-a", mappingSnapshot: { surfaces: [] } } },
+  });
+
+  assert.equal(Object.hasOwn(migrated, "surfaces"), false);
+  assert.equal(Object.hasOwn(migrated, "surfaceMappings"), false);
+  assert.equal(Object.hasOwn(migrated.mappings[0], "snapshot"), false);
+  assert.equal(migrated.mappings[0].surfaces[0].name, "Surface A");
+  assert.equal(migrated.mappings[0].surfaces[0].frameSlotId, "frame-a");
+  assert.deepEqual(migrated.mappings[0].calibration, {
+    coordinateSpace: "relative",
+    surfaces: [{ id: "surface-a", corners: [] }],
+  });
+  assert.equal(Object.hasOwn(migrated.ui.live, "mappingSnapshot"), false);
 });
 
 test("migration runner applies every adjacent step in order", () => {

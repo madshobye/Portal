@@ -13,7 +13,7 @@ export function analyzeVj1Project(input = {}, options = {}) {
   const activeSurfaces = (state.surfaces || []).filter((surface) => surface.enabled !== false);
   const surfaceUsage = componentSurfaceUsage(activeSurfaces);
   const mapping = mappingMetrics(state, render);
-  const components = (state.components || []).map((component) =>
+  const components = (state.components || []).filter((component) => !component.systemRole).map((component) =>
     componentMetrics(component, { state, render, mediaById, surfaceUsage })
   );
   const costliestChainItems = rankCostItems(components.flatMap((component) => component.costItems || [])).slice(0, 12);
@@ -32,7 +32,7 @@ export function analyzeVj1Project(input = {}, options = {}) {
     project: {
       name: state.project?.name || "Untitled VJ Set",
       version: state.version,
-      scenes: state.scenes?.length || 0,
+      mappings: state.mappings?.length || 0,
       media: state.media?.length || 0,
     },
     render,
@@ -555,12 +555,12 @@ function renderMetrics(state) {
 
 function mappingMetrics(state, render) {
   const activeSurfaceIds = new Set((state.surfaces || []).filter((surface) => surface.enabled !== false).map((surface) => surface.id));
-  const mapped = Array.isArray(state.mappings?.local?.surfaces) ? state.mappings.local.surfaces : [];
+  const mapped = Array.isArray(state.mappingCalibration?.surfaces) ? state.mappingCalibration.surfaces : [];
   const mappedActive = mapped.filter((surface) => activeSurfaceIds.has(surface.id || surface.name));
   let degenerateSurfaceCount = 0;
   let offWorldCornerCount = 0;
   const bottlenecks = [];
-  const relative = state.mappings?.local?.coordinateSpace === "relative";
+  const relative = state.mappingCalibration?.coordinateSpace === "relative";
   const world = worldSize(state.render || {});
 
   for (const surface of mappedActive) {
@@ -600,7 +600,7 @@ function mappingMetrics(state, render) {
 function aggregateMetrics({ state, render, components, activeSurfaces, mapping, costliestChainItems }) {
   return {
     componentCount: components.length,
-    sceneCount: state.scenes?.length || 0,
+    sceneCount: state.mappings?.length || 0,
     surfaceCount: state.surfaces?.length || 0,
     activeSurfaceCount: activeSurfaces.length,
     mediaCount: state.media?.length || 0,
@@ -617,7 +617,7 @@ function projectBottlenecks({ state, render, activeSurfaces, components }) {
   const items = [];
   const assignedComponentIds = new Set(activeSurfaces.map((surface) => surface.componentId).filter(Boolean));
   const missingAssignments = activeSurfaces.filter((surface) => !surface.componentId || !components.some((component) => component.id === surface.componentId));
-  if (!state.scenes?.length) items.push(bottleneck("info", "project", "No captured scenes; live workflow has nothing stable to select."));
+  if (!state.mappings?.length) items.push(bottleneck("info", "project", "No saved Mappings; output routing has no stable preset."));
   if (activeSurfaces.length >= 8) items.push(bottleneck("warn", "surfaces", `${activeSurfaces.length} active surfaces increase per-frame mapping work.`));
   if (missingAssignments.length) items.push(bottleneck("critical", "surfaces", `${missingAssignments.length} active surface(s) are missing a valid component assignment.`));
   if (render.worldPixels > 4000000) items.push(bottleneck("warn", "render", `Preview world is ${formatPixels(render.worldPixels)}; embedded preview may be expensive.`));

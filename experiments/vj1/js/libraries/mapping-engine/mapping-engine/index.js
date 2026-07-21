@@ -1,4 +1,5 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
+import { projectedQuadAspect } from "../../render-engine/relative-geometry.js?v=frame-projection-aspect-1";
 
 export class VjMapper {
   constructor({ onConfigChange } = {}) {
@@ -163,6 +164,10 @@ export class VjMapper {
         shaderProgram.setUniform("uSourceAspect", Math.max(0.0001, sourceWidth / Math.max(1, sourceHeight)));
         shaderProgram.setUniform("uTargetAspect", cache.targetAspect);
         shaderProgram.setUniform("uProjectionFit", projectionFitMode(item.projectionFit));
+        const frameFitActive = options.frameFitActive === true;
+        shaderProgram.setUniform("uUseFrameFit", frameFitActive);
+        shaderProgram.setUniform("uFrameAspect", Math.max(0.0001, Number(options.frameAspect) || sourceWidth / Math.max(1, sourceHeight)));
+        shaderProgram.setUniform("uFrameFit", projectionFitMode(options.frameFit || "cover"));
         const opacity = Number(options.opacity ?? 1);
         shaderProgram.setUniform("uOpacity", Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1);
         if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
@@ -203,9 +208,9 @@ export class VjMapper {
     resetShader();
   }
 
-  drawOverlays() {
+  drawOverlays(pointerX = mouseX, pointerY = mouseY) {
     if (!this.calibrate) return;
-    const pick = this._pickCorner(mouseX, mouseY);
+    const pick = this._pickCorner(pointerX, pointerY);
     this.surfaces.forEach((surface, index) => {
       surface.hoverIndex = pick && pick.si === index ? pick.ci : -1;
     });
@@ -439,13 +444,15 @@ export function mapperVertexShaderSource() {
       uniform vec2 uCanvasSize;
       varying vec3 vProjectiveUv;
       void main() {
-        vec4 clipPosition = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
-        vec2 ndc = clipPosition.xy / max(abs(clipPosition.w), 1e-6);
-        vec2 screen = vec2(
-          (ndc.x * 0.5 + 0.5) * uCanvasSize.x,
-          (0.5 - ndc.y * 0.5) * uCanvasSize.y
+        // Projective sampling belongs to authored canvas coordinates. The p5
+        // model matrix may contain an editor-only viewport zoom/pan, which
+        // must move the quad without changing which source pixel it samples.
+        vec2 authoredScreen = vec2(
+          aPosition.x + uCanvasSize.x * 0.5,
+          aPosition.y + uCanvasSize.y * 0.5
         );
-        vProjectiveUv = uHinv * vec3(screen, 1.0);
+        vProjectiveUv = uHinv * vec3(authoredScreen, 1.0);
+        vec4 clipPosition = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
         gl_Position = clipPosition;
       }
     `;
@@ -467,8 +474,8 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
         return smoothstep(0.0, uFeather, -roundedDistance);
       }` : "";
   const featherCode = feather ? `
-        vec2 featherUv = uProjectionFit >= 1.5 ? sampleUv : uv;
-        float featherAspect = uProjectionFit >= 1.5 ? uSourceAspect : uTargetAspect;
+        vec2 featherUv = uUseFrameFit ? frameUv : (uProjectionFit >= 1.5 ? sampleUv : uv);
+        float featherAspect = uUseFrameFit ? uFrameAspect : (uProjectionFit >= 1.5 ? uSourceAspect : uTargetAspect);
         float featherMask = roundedFeatherMask(featherUv, featherAspect);
         color *= featherMask;` : "";
   return `
@@ -478,6 +485,9 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
       uniform float uSourceAspect;
       uniform float uTargetAspect;
       uniform float uProjectionFit;
+      uniform bool uUseFrameFit;
+      uniform float uFrameAspect;
+      uniform float uFrameFit;
       uniform float uOpacity;
       ${featherUniform}
       varying vec3 vProjectiveUv;
@@ -485,22 +495,42 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
+        vec2 frameUv = uv;
         vec2 sampleUv = uv;
         float inside = 1.0;
+        float projectionSourceAspect = uUseFrameFit ? uFrameAspect : uSourceAspect;
         if (uProjectionFit > 0.5 && uProjectionFit < 1.5) {
-          if (uSourceAspect > uTargetAspect) {
-            sampleUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uSourceAspect);
+          if (projectionSourceAspect > uTargetAspect) {
+            frameUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / projectionSourceAspect);
           } else {
-            sampleUv.y = 0.5 + (uv.y - 0.5) * (uSourceAspect / uTargetAspect);
+            frameUv.y = 0.5 + (uv.y - 0.5) * (projectionSourceAspect / uTargetAspect);
           }
         } else if (uProjectionFit >= 1.5) {
-          if (uSourceAspect > uTargetAspect) {
-            sampleUv.y = 0.5 + (uv.y - 0.5) * (uSourceAspect / uTargetAspect);
+          if (projectionSourceAspect > uTargetAspect) {
+            frameUv.y = 0.5 + (uv.y - 0.5) * (projectionSourceAspect / uTargetAspect);
           } else {
-            sampleUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uSourceAspect);
+            frameUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / projectionSourceAspect);
           }
-          inside = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0) *
-            step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
+          inside = step(0.0, frameUv.x) * step(frameUv.x, 1.0) *
+            step(0.0, frameUv.y) * step(frameUv.y, 1.0);
+        }
+        sampleUv = frameUv;
+        if (uUseFrameFit) {
+          if (uFrameFit > 0.5 && uFrameFit < 1.5) {
+            if (uSourceAspect > uFrameAspect) {
+              sampleUv.x = 0.5 + (frameUv.x - 0.5) * (uFrameAspect / uSourceAspect);
+            } else {
+              sampleUv.y = 0.5 + (frameUv.y - 0.5) * (uSourceAspect / uFrameAspect);
+            }
+          } else if (uFrameFit >= 1.5) {
+            if (uSourceAspect > uFrameAspect) {
+              sampleUv.y = 0.5 + (frameUv.y - 0.5) * (uSourceAspect / uFrameAspect);
+            } else {
+              sampleUv.x = 0.5 + (frameUv.x - 0.5) * (uFrameAspect / uSourceAspect);
+            }
+            inside *= step(0.0, sampleUv.x) * step(sampleUv.x, 1.0) *
+              step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
+          }
         }
         vec2 textureUv = uSourceRect.xy + clamp(sampleUv, vec2(0.0), vec2(1.0)) * uSourceRect.zw;
         vec4 color = texture2D(tex, textureUv) * inside * uOpacity;
@@ -620,27 +650,7 @@ export function surfaceQuadVertices(corners, canvasWidth, canvasHeight) {
 }
 
 export function projectedSurfaceAspect(corners = [], fallback = 1) {
-  const safeFallback = Math.max(0.0001, Number(fallback) || 1);
-  if (!Array.isArray(corners) || corners.length !== 4) return safeFallback;
-  const [tl, tr, br, bl] = corners;
-  if (![tl, tr, br, bl].every(validPoint)) return safeFallback;
-  // Projection fit describes the visible mapped quadrilateral, not the
-  // surface's stored logical dimensions. Averaging opposing edges gives one
-  // stable aspect for trapezoids without letting the longest edge dominate.
-  const width = (pointDistance(tl, tr) + pointDistance(bl, br)) * 0.5;
-  const height = (pointDistance(tl, bl) + pointDistance(tr, br)) * 0.5;
-  if (!(width > 0) || !(height > 0)) return safeFallback;
-  return Math.max(0.0001, width / height);
-}
-
-function validPoint(point) {
-  return point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y));
-}
-
-function pointDistance(a, b) {
-  const dx = Number(a.x) - Number(b.x);
-  const dy = Number(a.y) - Number(b.y);
-  return Math.sqrt(dx * dx + dy * dy);
+  return projectedQuadAspect(corners, fallback);
 }
 
 function normalizeCorners(corners = []) {
@@ -806,7 +816,7 @@ export const MappingEngineNode = defineNode({
       editable: true,
       module: import.meta.url,
       export: "VjMapper",
-      source: [VjMapper, computeHomography, solve8, invert3x3, surfaceQuadVertices, projectedSurfaceAspect]
+      source: [VjMapper, computeHomography, solve8, invert3x3, surfaceQuadVertices, projectedQuadAspect, projectedSurfaceAspect]
         .map((value) => value.toString()).join("\n\n"),
     },
     {

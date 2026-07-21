@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=boundary-authority-1";
+import { sanitizeState } from "../domain/models.js?v=frame-projection-aspect-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=queued-recovery-1";
-import { OutputRenderer } from "./output-renderer.js?v=isf-runtime-4";
+import { OutputRenderer } from "./output-renderer.js?v=boundary-media-demand-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 
@@ -234,7 +234,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       if (command === "sync-mapping" && acceptedState) {
         const nextState = {
           ...acceptedState,
-          mappings: payload.mappings || acceptedState.mappings,
+          mappingCalibration: payload.mappingCalibration || acceptedState.mappingCalibration,
         };
         pendingState = nextState;
         acceptedState = nextState;
@@ -368,8 +368,8 @@ export function shouldHoldCurrentOutputState(nextState, currentState) {
 }
 
 export function outputSceneId(state) {
-  // Live is the only program-scene authority. ui.selectedSceneId belongs to
-  // the editor and must never become an output fallback during patch resync.
+  // Live is the only authored-Scene authority. ui.selectedMappingId belongs
+  // to Mapping editing and must never become an output Scene fallback.
   return String(state?.ui?.live?.selectedSceneId || "");
 }
 
@@ -432,15 +432,13 @@ export function queuedSceneTransitionState(state, fromState, startedAtMs = Date.
 export function hasLoadedProjectState(state) {
   if (!state || typeof state !== "object") return false;
   return !!state.project?.folderName ||
-    (Array.isArray(state.media) && state.media.length > 0) ||
-    (Array.isArray(state.scenes) && state.scenes.length > 0);
+    (Array.isArray(state.media) && state.media.length > 0);
 }
 
 export function isEmptyStartupState(state) {
   if (!state || typeof state !== "object") return false;
   return !state.project?.folderName &&
     (!Array.isArray(state.media) || state.media.length === 0) &&
-    (!Array.isArray(state.scenes) || state.scenes.length === 0) &&
     (state.project?.name === "Untitled VJ Set" || !state.project?.name);
 }
 
@@ -483,8 +481,15 @@ function resizeOutputIfNeeded(state, mode = "output", renderer = null) {
   if (width === size.width && height === size.height) return;
   resizeCanvas(size.width, size.height);
   fitOutputCanvas(size);
-  renderer?.resize?.();
-  if (renderer?.state) renderer.setState(outputSizedState(renderer.state, size, mode, renderer.outputId || ""), { normalized: true });
+  // setState owns buffer and Surface rebuilding when hostViewport changes.
+  // Calling resize() first rebuilt once against stale host state and again
+  // against the new state, causing a transient wrong projection and needless
+  // allocations during window dragging.
+  if (renderer?.state) {
+    renderer.setState(outputSizedState(renderer.state, size, mode, renderer.outputId || ""), { normalized: true });
+  } else {
+    renderer?.resize?.();
+  }
 }
 
 function fitOutputCanvas(size = outputSize()) {

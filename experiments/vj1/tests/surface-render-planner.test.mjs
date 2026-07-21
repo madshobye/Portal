@@ -47,7 +47,7 @@ test("surface planner resolves visible routes and their shared component demand"
 
 test("a region-safe recording frame renders at mapped demand instead of its share of a full Canvas", () => {
   const state = createInitialState();
-  const canvas = { ...state.components[0], id: "canvas-a", type: "canvas", chain: [], canvas: { frameThumbnails: {} } };
+  const canvas = { ...state.components[0], id: "canvas-a", type: "scene", chain: [], canvas: { frameThumbnails: {} } };
   const frame = { id: "frame-a", x: 0.45, y: 0.45, width: 0.1, height: 0.1 };
   const surface = {
     ...state.surfaces[0],
@@ -58,7 +58,7 @@ test("a region-safe recording frame renders at mapped demand instead of its shar
     sourceNodeId: `recording-frame:${canvas.id}:${frame.id}`,
   };
   state.components = [canvas];
-  state.recordingFrames = [frame];
+  state.frames = [frame];
   state.surfaces = [surface];
   const mapperSurface = {
     name: surface.id,
@@ -75,7 +75,7 @@ test("a region-safe recording frame renders at mapped demand instead of its shar
     isComponentRegionSafe: () => true,
   });
 
-  assert.equal(routes[0].componentRequest.role, "canvas-region");
+  assert.equal(routes[0].componentRequest.role, "scene-region");
   assert.equal(routes[0].componentRequest.regionView, true);
   assert.deepEqual(
     { width: routes[0].componentRequest.width, height: routes[0].componentRequest.height },
@@ -86,7 +86,7 @@ test("a region-safe recording frame renders at mapped demand instead of its shar
 
 test("independent Canvas children do not multiply across multiple recording-frame routes", () => {
   const state = createInitialState();
-  const canvas = { ...state.components[0], id: "canvas-a", type: "canvas", chain: [], canvas: { frameThumbnails: {} } };
+  const canvas = { ...state.components[0], id: "canvas-a", type: "scene", chain: [], canvas: { frameThumbnails: {} } };
   const frames = [
     { id: "frame-a", x: 0, y: 0, width: 0.5, height: 1 },
     { id: "frame-b", x: 0.5, y: 0, width: 0.5, height: 1 },
@@ -100,7 +100,7 @@ test("independent Canvas children do not multiply across multiple recording-fram
     sourceNodeId: `recording-frame:${canvas.id}:${frame.id}`,
   }));
   state.components = [canvas];
-  state.recordingFrames = frames;
+  state.frames = frames;
   state.surfaces = surfaces;
   const mapperSurfaces = new Map(surfaces.map((surface) => [surface.id, {
     direct: true,
@@ -123,7 +123,7 @@ test("independent Canvas children do not multiply across multiple recording-fram
   });
 
   assert.equal(routes.length, 2);
-  assert.notEqual(routes[0].componentRequest.role, "canvas-region");
+  assert.notEqual(routes[0].componentRequest.role, "scene-region");
   assert.strictEqual(routes[0].componentRequest, routes[1].componentRequest);
 });
 
@@ -150,10 +150,13 @@ test("output renderer delegates surface demand planning", () => {
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const mapperSource = readFileSync(new URL("../js/libraries/mapping-engine/mapping-engine/index.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./output-surface-runtime.js?v=runtime-diagnostics-1"'));
-  assert.ok(runtimeSource.includes('from "./surface-render-planner.js?v=async-frame-fanout-1"'));
+  assert.match(rendererSource, /from "\.\/output-surface-runtime\.js\?v=[^"]+"/);
+  assert.match(runtimeSource, /from "\.\/surface-render-planner\.js\?v=[^"]+"/);
   assert.ok(runtimeSource.includes("const { routes, metrics } = planSurfaceRoutes({"));
-  assert.ok(runtimeSource.includes("surfaceProgram: renderer.sceneProgramSurfaces(renderer.state)"));
+  assert.ok(runtimeSource.includes("surfaceProgram: surfaceProgram || renderer.mappingProgramSurfaces(renderer.state)"));
+  assert.ok(runtimeSource.includes("transformDemandCorners,"));
+  assert.ok(runtimeSource.includes('preserveDirectFootprint: renderer.mode === "output"'));
+  assert.doesNotMatch(runtimeSource, /outputSpanFitScale/);
   assert.doesNotMatch(rendererSource, /sourceRenderDemand\(\{/);
   assert.doesNotMatch(rendererSource, /manualSurfaceTextureLimit\(/);
   assert.ok(mapperSource.includes("shaderProgram !== activeShader || texture !== activeTexture"));

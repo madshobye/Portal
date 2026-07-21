@@ -28,13 +28,13 @@ import {
   reconcileComponentGroupTopology,
 } from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
 import {
-  SCENE_PROGRAM_GENERATOR,
+  MAPPING_PROGRAM_GENERATOR,
   OutputProgramNode,
-  SceneProgramNode,
+  MappingProgramNode,
   SurfaceRouteNode,
   compileOutputGroupTopology,
-  compileSceneGroupTopology,
-  sceneProgramInstances,
+  compileMappingGroupTopology,
+  mappingProgramInstances,
 } from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
 import {
   APPLICATION_PROGRAM_GENERATOR,
@@ -62,8 +62,8 @@ import {
 import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 const ProjectComponentNode = semanticProjectNode("vj1.project.component", "Component", "A task-oriented visual program composed from reusable nodes.", "texture");
-const ProjectCanvasNode = semanticProjectNode("vj1.project.canvas", "Canvas", "A spatial visual program containing reusable Components and elements.", "texture");
-const ProjectSceneNode = semanticProjectNode("vj1.project.scene", "Scene", "A routing and mapping program that assigns Components to output surfaces.", "texture");
+const ProjectSceneNode = semanticProjectNode("vj1.project.scene", "Scene", "A spatial visual program containing reusable Components and Frames.", "texture");
+const ProjectMappingNode = semanticProjectNode("vj1.project.mapping", "Mapping", "A routing program that assigns Scene Frames to physical surfaces.", "texture");
 const ProjectLiveNode = semanticProjectNode("vj1.project.live", "Live", "The active performance projection of a selected Scene.", "event");
 
 const CORE_NODE_DEFINITIONS = Object.freeze([
@@ -82,7 +82,7 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   LayerGroupNode,
   VisualSourceNode,
   SurfaceRouteNode,
-  SceneProgramNode,
+  MappingProgramNode,
   OutputProgramNode,
   ApplicationProgramNode,
   StateCommandNode,
@@ -99,8 +99,8 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   Prepare3dAssetGroup,
   Convert3dFileToImageGroup,
   ProjectComponentNode,
-  ProjectCanvasNode,
   ProjectSceneNode,
+  ProjectMappingNode,
   ProjectLiveNode,
 ]);
 
@@ -129,7 +129,7 @@ const ModelPreviewPipelineArtifact = defineNodeArtifact({
   presentation: {
     catalogs: ["node-graph"],
     placeableOn: ["node-graph"],
-    hiddenFrom: ["component-catalog", "canvas-catalog", "element-picker", "scene-catalog", "live"],
+    hiddenFrom: ["component-catalog", "scene-catalog", "element-picker", "mapping-catalog", "live"],
   },
 });
 
@@ -258,7 +258,7 @@ export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] 
     nodes: ensureVj1NodeProjectData(currentNodes, components, {
       visualDefinitions,
       projectVisualDefinitions,
-      scenes: state?.scenes,
+      mappings: state?.mappings,
       surfaces: state?.surfaces,
       componentGroups,
     }),
@@ -266,7 +266,7 @@ export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] 
 }
 
 export function ensureVj1NodeProjectData(value = {}, components = [], {
-  visualDefinitions = [], projectVisualDefinitions = [], scenes = [], surfaces = [], componentGroups: preparedComponentGroups = null,
+  visualDefinitions = [], projectVisualDefinitions = [], mappings = [], surfaces = [], componentGroups: preparedComponentGroups = null,
 } = {}) {
   const current = normalizeNodeProjectData(value);
   const topologyDefinitions = new Map([
@@ -284,9 +284,9 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
   const componentInstances = componentGroups.flatMap(componentProgramInstances);
   const requiredVisualNodeIds = new Set(componentInstances.map((instance) => instance.nodeId));
   const existingGroupsById = new Map(current.groups.map((group) => [group.id, group]));
-  const sceneGroups = [
-    compileSceneGroupTopology({ id: "", name: "Working Scene" }, surfaces),
-    ...(scenes || []).map((scene) => compileSceneGroupTopology(scene, surfaces)),
+  const mappingGroups = [
+    compileMappingGroupTopology({ id: "", name: "Working Mapping" }, surfaces),
+    ...(mappings || []).map((mapping) => compileMappingGroupTopology(mapping, surfaces)),
     compileOutputGroupTopology(),
   ].map((group) => generatedProgramPersistence(reconcileGeneratedProgramTopology(group, existingGroupsById.get(group.id))));
   const applicationGroup = generatedProgramPersistence(reconcileGeneratedProgramTopology(
@@ -294,8 +294,8 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
     existingGroupsById.get("vj1.application.program")
   ));
   const applicationInstances = applicationProgramInstances(applicationGroup);
-  const sceneInstances = sceneProgramInstances(sceneGroups);
-  const sceneDefinitions = [SurfaceRouteNode, SceneProgramNode, OutputProgramNode, SurfaceCompositionNode, MappingEngineNode];
+  const mappingInstances = mappingProgramInstances(mappingGroups);
+  const mappingDefinitions = [SurfaceRouteNode, MappingProgramNode, OutputProgramNode, SurfaceCompositionNode, MappingEngineNode];
   const componentDefinitions = [ComponentProgramNode, LayerGroupNode, VisualSourceNode, SliderNode, ValueControlNode];
   const applicationDefinitions = [
     ApplicationProgramNode,
@@ -312,7 +312,7 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
   const definitions = [
     ...MODEL_PREVIEW_NODE_DEFINITIONS,
     ...componentDefinitions,
-    ...sceneDefinitions,
+    ...mappingDefinitions,
     ...applicationDefinitions,
     ...visualDefinitions.filter((definition) => requiredVisualNodeIds.has(definition.id)),
   ].map((definition) => ({ ...serializeNodeDefinition(definition), persistence: "package" }));
@@ -324,21 +324,21 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
   const modelGroups = [Parse3dObjectGroup, Prepare3dAssetGroup, Convert3dFileToImageGroup].map(persistedGroupTopology);
   const modelGroupIds = new Set(modelGroups.map((group) => group.id));
   const groups = [
-    ...current.groups.filter((group) => group.generatedBy !== COMPONENT_PROGRAM_GENERATOR && group.generatedBy !== SCENE_PROGRAM_GENERATOR && group.generatedBy !== APPLICATION_PROGRAM_GENERATOR && !modelGroupIds.has(group.id)),
+    ...current.groups.filter((group) => group.generatedBy !== COMPONENT_PROGRAM_GENERATOR && group.generatedBy !== MAPPING_PROGRAM_GENERATOR && group.generatedBy !== APPLICATION_PROGRAM_GENERATOR && !modelGroupIds.has(group.id)),
     ...componentGroups,
-    ...sceneGroups,
+    ...mappingGroups,
     applicationGroup,
   ];
   const instances = [
-    ...current.instances.filter((instance) => instance.generatedBy !== COMPONENT_PROGRAM_GENERATOR && instance.generatedBy !== SCENE_PROGRAM_GENERATOR && instance.generatedBy !== APPLICATION_PROGRAM_GENERATOR),
+    ...current.instances.filter((instance) => instance.generatedBy !== COMPONENT_PROGRAM_GENERATOR && instance.generatedBy !== MAPPING_PROGRAM_GENERATOR && instance.generatedBy !== APPLICATION_PROGRAM_GENERATOR),
     ...componentInstances,
-    ...sceneInstances,
+    ...mappingInstances,
     ...applicationInstances,
   ];
   const componentArtifacts = (components || []).map((component) => ({
-    id: `vj1.project.${component.type === "canvas" ? "canvas" : "component"}.${component.id}`,
-    name: component.name || (component.type === "canvas" ? "Canvas" : "Component"),
-    artifactType: component.type === "canvas" ? "canvas" : "component",
+    id: `vj1.project.${component.type === "scene" ? "scene" : "component"}.${component.id}`,
+    name: component.name || (component.type === "scene" ? "Scene" : "Component"),
+    artifactType: component.type === "scene" ? "scene" : "component",
     implementation: { nodeType: ComponentProgramNode.id, nodeVersion: ComponentProgramNode.version },
     groupId: `vj1.component.${component.id}`,
     generatedBy: COMPONENT_PROGRAM_GENERATOR,
@@ -350,7 +350,7 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
       ...current.definitions.filter((item) => !packageDefinitionKeys.has(`${item.id}@${item.version}`)),
       ...definitions,
     ],
-    pins: mergeByKey(current.pins, [...MODEL_PREVIEW_NODE_DEFINITIONS, ...componentDefinitions, ...sceneDefinitions, ...applicationDefinitions, ...visualDefinitions.filter((definition) => requiredVisualNodeIds.has(definition.id))].map((definition) => ({
+    pins: mergeByKey(current.pins, [...MODEL_PREVIEW_NODE_DEFINITIONS, ...componentDefinitions, ...mappingDefinitions, ...applicationDefinitions, ...visualDefinitions.filter((definition) => requiredVisualNodeIds.has(definition.id))].map((definition) => ({
       nodeId: definition.id,
       version: definition.version,
     })), (item) => item.nodeId),
@@ -395,7 +395,7 @@ function generatedProgramPersistence(group) {
 function generatedInstance(instance) {
   return instance.id === "vj1.system.model-preview" || [
     COMPONENT_PROGRAM_GENERATOR,
-    SCENE_PROGRAM_GENERATOR,
+    MAPPING_PROGRAM_GENERATOR,
     APPLICATION_PROGRAM_GENERATOR,
   ].includes(instance.generatedBy);
 }
@@ -477,34 +477,34 @@ function mergeByKey(existing = [], required = [], keyOf) {
 export function createProjectArtifactCatalog(state = {}) {
   const artifacts = [];
   for (const component of state.components || []) {
-    const canvas = component.type === "canvas";
+    const scene = component.type === "scene";
     artifacts.push(defineNodeArtifact({
-      id: `vj1.project.${canvas ? "canvas" : "component"}.${component.id}`,
-      name: component.name || (canvas ? "Canvas" : "Component"),
-      description: canvas ? "Project Canvas" : "Project Component",
-      artifactType: canvas ? "canvas" : "component",
+      id: `vj1.project.${scene ? "scene" : "component"}.${component.id}`,
+      name: component.name || (scene ? "Scene" : "Component"),
+      description: scene ? "Project Scene" : "Project Component",
+      artifactType: scene ? "scene" : "component",
       implementation: {
-        nodeType: canvas ? ProjectCanvasNode.id : ProjectComponentNode.id,
-        nodeVersion: canvas ? ProjectCanvasNode.version : ProjectComponentNode.version,
+        nodeType: scene ? ProjectSceneNode.id : ProjectComponentNode.id,
+        nodeVersion: scene ? ProjectSceneNode.version : ProjectComponentNode.version,
       },
-      capabilities: canvas ? ["visual-program", "spatial-composition"] : ["visual-program"],
+      capabilities: scene ? ["visual-program", "spatial-composition"] : ["visual-program"],
       presentation: {
-        catalogs: [canvas ? "canvas" : "component"],
-        placeableOn: canvas ? ["scene-surface", "canvas-catalog"] : ["canvas", "scene-surface", "component-catalog"],
+        catalogs: [scene ? "scene" : "component"],
+        placeableOn: scene ? ["mapping-surface", "scene-catalog"] : ["scene", "mapping-surface", "component-catalog"],
       },
       metadata: { projectId: component.id, catalogMarker: component.catalogMarker || 0 },
     }));
   }
-  for (const scene of state.scenes || []) {
+  for (const mapping of state.mappings || []) {
     artifacts.push(defineNodeArtifact({
-      id: `vj1.project.scene.${scene.id}`,
-      name: scene.name || "Scene",
-      description: "Project Scene",
-      artifactType: "scene",
-      implementation: { nodeType: ProjectSceneNode.id, nodeVersion: ProjectSceneNode.version },
+      id: `vj1.project.mapping.${mapping.id}`,
+      name: mapping.name || "Mapping",
+      description: "Project Mapping",
+      artifactType: "mapping",
+      implementation: { nodeType: ProjectMappingNode.id, nodeVersion: ProjectMappingNode.version },
       capabilities: ["surface-routing", "mapping"],
-      presentation: { catalogs: ["scene", "live-scene"], placeableOn: ["scene-catalog", "live"] },
-      metadata: { projectId: scene.id, catalogMarker: scene.catalogMarker || 0 },
+      presentation: { catalogs: ["mapping"], placeableOn: ["mapping-catalog"] },
+      metadata: { projectId: mapping.id, catalogMarker: mapping.catalogMarker || 0 },
     }));
   }
   artifacts.push(defineNodeArtifact({
@@ -524,9 +524,9 @@ export function projectArtifactViews(state = {}) {
   const catalog = createProjectArtifactCatalog(state);
   return Object.freeze({
     component: Object.freeze(catalog.list({ catalog: "component" })),
-    canvas: Object.freeze(catalog.list({ catalog: "canvas" })),
     scene: Object.freeze(catalog.list({ catalog: "scene" })),
-    liveScene: Object.freeze(catalog.list({ catalog: "live-scene" })),
+    mapping: Object.freeze(catalog.list({ catalog: "mapping" })),
+    liveScene: Object.freeze(catalog.list({ catalog: "scene" })),
     live: Object.freeze(catalog.list({ catalog: "live" })),
   });
 }
@@ -542,8 +542,8 @@ function visualElementArtifact(component) {
     capabilities: component.nodeDefinition.capabilities,
     presentation: {
       catalogs: ["element-picker", component.kind, component.category],
-      placeableOn: ["component-chain", "canvas-chain", "node-graph"],
-      hiddenFrom: ["component-catalog", "canvas-catalog", "scene-catalog", "live"],
+      placeableOn: ["component-chain", "scene-chain", "node-graph"],
+      hiddenFrom: ["component-catalog", "scene-catalog", "mapping-catalog", "live"],
     },
     metadata: { visualId: component.id, family: component.family, category: component.category },
   });

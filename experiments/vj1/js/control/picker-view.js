@@ -172,8 +172,8 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
   const mediaItems = sortComponentCatalog(state.media || [], mediaSortMode);
   const owner = state.components.find((component) => component.id === picker.componentId);
   const componentItems = Array.isArray(componentCatalog.components) ? componentCatalog.components : state.components;
-  const components = owner?.type === "canvas"
-    ? componentItems.filter((component) => component.id !== picker.componentId && component.type !== "canvas")
+  const components = owner?.type === "scene"
+    ? componentItems.filter((component) => component.id !== picker.componentId && component.type !== "scene")
     : [];
   const projectIsf = listProjectIsfVisualComponents(state);
   const generators = [...listGeneratorComponents(), ...projectIsf.filter((component) => component.kind === "generator")]

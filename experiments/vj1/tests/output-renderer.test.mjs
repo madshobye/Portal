@@ -2,12 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, canvasComponentPlacementRect, canvasFrameBorderHit, canvasMaxRasterSize, canvasPreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveCanvasFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeCanvasFrameRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, sceneComponentPlacementRect, sceneFrameBorderHit, sceneMaxRasterSize, scenePreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveSceneFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeSceneFrameRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
-import { defaultProjectSurfaceMapping, outputFrames, renderRequestKey, worldSize } from "../js/output/render-geometry.js";
+import { defaultProjectSurfaceMapping, outputFrameForId, outputFrames, renderRequestKey, worldSize } from "../js/output/render-geometry.js";
 import { mapperFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
-import { ComponentPreviewInteraction, stateWithCanvasFrameRect, stateWithChainItemBoundary, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
-import { compileOutputGroupTopology, compileSceneGroupTopology } from "../js/libraries/composition-engine/index.js";
+import { ComponentPreviewInteraction, stateWithSceneFrameRect, stateWithChainItemBoundary, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
+import { compileOutputGroupTopology, compileMappingGroupTopology } from "../js/libraries/composition-engine/index.js";
 
 test("effect opacity and blend request a separate generic composite", () => {
   assert.equal(effectNeedsComposite({}), false);
@@ -55,18 +55,18 @@ test("local transform overlays path-copy store-owned component and frame state",
   const group = { id: "group", kind: "group", chain: [child] };
   const component = { id: "component", chain: [group] };
   const frame = { id: "frame", x: 0, y: 0, width: 100, height: 100 };
-  const state = { components: [component], recordingFrames: [frame] };
+  const state = { components: [component], frames: [frame] };
 
   const transformed = stateWithChainItemTransform(state, component.id, child.id, { x: 0.5 });
   const bounded = stateWithChainItemBoundary(transformed, component.id, child.id, { width: 0.5, height: 0.5, rotation: 0.3 });
-  const framed = stateWithCanvasFrameRect(bounded, frame.id, { y: 24 });
+  const framed = stateWithSceneFrameRect(bounded, frame.id, { y: 24 });
 
   assert.equal(child.transform.x, 0, "the store-owned nested item is not mutated");
   assert.equal(frame.y, 0, "the store-owned recording frame is not mutated");
   assert.equal(framed.components[0].chain[0].chain[0].transform.x, 0.5);
   assert.equal(framed.components[0].chain[0].chain[0].boundary.rotation, 0.3);
   assert.equal(framed.components[0].chain[0].chain[0].boundary.width, 0.5);
-  assert.equal(framed.recordingFrames[0].y, 24);
+  assert.equal(framed.frames[0].y, 24);
   assert.equal(framed.components[0].chain[0].id, group.id);
 });
 
@@ -74,7 +74,7 @@ test("local drag overlays refresh only the changed lookup entry", () => {
   const component = { id: "component", chain: [{ id: "item", kind: "source", transform: {} }] };
   const frame = { id: "frame", x: 0, y: 0, width: 100, height: 100 };
   const renderer = new OutputRenderer({ mode: "component" });
-  renderer.state = { components: [component], recordingFrames: [frame], surfaces: [], render: {}, ui: {} };
+  renderer.state = { components: [component], frames: [frame], surfaces: [], render: {}, ui: {} };
   renderer.rebuildRouteLookups();
   let patchedProgramItem = null;
   renderer.componentPrograms.set(component.id, {
@@ -89,7 +89,7 @@ test("local drag overlays refresh only the changed lookup entry", () => {
   const interaction = new ComponentPreviewInteraction(renderer);
 
   interaction.applyLocalChainTransform(component.id, "item", { x: 0.25 });
-  interaction.applyLocalCanvasFrame(frame.id, { y: 20 });
+  interaction.applyLocalSceneFrame(frame.id, { y: 20 });
 
   assert.equal(fullRebuilds, 0);
   assert.equal(renderer.componentById.get(component.id).chain[0].transform.x, 0.25);
@@ -97,27 +97,27 @@ test("local drag overlays refresh only the changed lookup entry", () => {
   assert.equal(renderer.recordingFrameById.get(frame.id).y, 20);
 });
 
-test("compiled Output topology gates the existing Scene route program", () => {
+test("compiled Output topology gates the existing Mapping route program", () => {
   const state = createInitialState();
   state.surfaces[0].enabled = true;
   state.surfaces[0].componentId = state.components[0].id;
-  const sceneGroup = compileSceneGroupTopology({ id: "", name: "Working Scene" }, state.surfaces);
+  const sceneGroup = compileMappingGroupTopology({ id: "", name: "Working Mapping" }, state.surfaces);
   const outputGroup = compileOutputGroupTopology();
   state.nodes = { groups: [sceneGroup, outputGroup] };
   const renderer = new OutputRenderer({ mode: "output" });
   renderer.state = state;
-  renderer.rebuildScenePrograms();
+  renderer.rebuildMappingPrograms();
 
   assert.equal(renderer.outputProgram.enabled, true);
   assert.deepEqual(
-    renderer.sceneProgramSurfaces().map((surface) => surface.id),
+    renderer.mappingProgramSurfaces().map((surface) => surface.id),
     state.surfaces.map((surface) => surface.id)
   );
 
   outputGroup.connections = outputGroup.connections.filter((edge) => edge.to !== "$out.output");
-  renderer.rebuildScenePrograms();
+  renderer.rebuildMappingPrograms();
   assert.equal(renderer.outputProgram.enabled, false);
-  assert.deepEqual(renderer.sceneProgramSurfaces(), []);
+  assert.deepEqual(renderer.mappingProgramSurfaces(), []);
 });
 
 test("preview transform ownership survives stale state until an exact acknowledgement", () => {
@@ -125,30 +125,30 @@ test("preview transform ownership survives stale state until an exact acknowledg
   const rect = { x: 30, y: 40, width: 120, height: 80 };
   const stale = {
     components: [{ id: "component", chain: [{ id: "item", kind: "source", transform: { x: 0, y: 0, scale: 1, rotation: 0 } }] }],
-    recordingFrames: [{ id: "frame", x: 0, y: 0, width: 100, height: 100 }],
+    frames: [{ id: "frame", x: 0, y: 0, width: 100, height: 100 }],
     ui: { selectedChainItemId: "" },
   };
   const interaction = new ComponentPreviewInteraction({});
   interaction.pendingChainTransform = { componentId: "component", itemId: "item", transform };
-  interaction.pendingCanvasFrame = { frameId: "frame", rect };
+  interaction.pendingSceneFrame = { frameId: "frame", rect };
 
   const reconciled = interaction.reconcileIncomingState(stale);
   assert.deepEqual(stale.components[0].chain[0].transform, { x: 0, y: 0, scale: 1, rotation: 0 });
-  assert.equal(stale.recordingFrames[0].x, 0);
+  assert.equal(stale.frames[0].x, 0);
   assert.deepEqual(reconciled.components[0].chain[0].transform, transform);
-  assert.deepEqual(reconciled.recordingFrames[0], { id: "frame", ...rect });
+  assert.deepEqual(reconciled.frames[0], { id: "frame", ...rect });
   assert.equal(reconciled.ui.selectedChainItemId, "item");
   assert.ok(interaction.pendingChainTransform);
-  assert.ok(interaction.pendingCanvasFrame);
+  assert.ok(interaction.pendingSceneFrame);
 
-  const acknowledged = stateWithCanvasFrameRect(
+  const acknowledged = stateWithSceneFrameRect(
     stateWithChainItemTransform(stale, "component", "item", transform),
     "frame",
     rect
   );
   assert.equal(interaction.reconcileIncomingState(acknowledged), acknowledged);
   assert.equal(interaction.pendingChainTransform, null);
-  assert.equal(interaction.pendingCanvasFrame, null);
+  assert.equal(interaction.pendingSceneFrame, null);
 });
 
 test("selected element handles take priority over overlapping Canvas recording frames", () => {
@@ -158,7 +158,7 @@ test("selected element handles take priority over overlapping Canvas recording f
     calls.push(["chain", options]);
     return true;
   };
-  interaction.startCanvasFrameDrag = () => {
+  interaction.startSceneFrameDrag = () => {
     calls.push(["frame"]);
     return true;
   };
@@ -175,7 +175,7 @@ test("Canvas recording frames receive the pointer when no selected handle is hit
     calls.push(["chain"]);
     return false;
   };
-  interaction.startCanvasFrameDrag = () => {
+  interaction.startSceneFrameDrag = () => {
     calls.push(["frame"]);
     return true;
   };
@@ -298,7 +298,7 @@ test("a selected Canvas Group cannot be picked outside the union of its placed c
     source: { type: "component", componentId: childComponent.id, placement: { scale: 0.25 } },
   };
   const group = { id: "group", kind: "group", enabled: true, opacity: 1, transform: {}, chain: [child] };
-  const canvas = { id: "canvas", type: "canvas", canvas: { width: 400, height: 400 }, chain: [group] };
+  const canvas = { id: "canvas", type: "scene", canvas: { width: 400, height: 400 }, chain: [group] };
   renderer.state = {
     components: [canvas, childComponent],
     render: { canvasSize: { width: 400, height: 400 } },
@@ -329,10 +329,10 @@ test("default Canvas Component references pick their placement instead of the wh
     transform: { x: 0.5, y: 0, scale: 1, rotation: 0 },
     source: { type: "component", componentId: childComponent.id, placement: { scale: 0.25 } },
   };
-  const canvas = { id: "canvas", type: "canvas", chain: [left, right] };
+  const canvas = { id: "canvas", type: "scene", chain: [left, right] };
   renderer.state = {
     components: [canvas, childComponent],
-    render: { canvasAspectRatio: 1, componentAspectRatio: 1 },
+    render: { sceneAspectRatio: 1, componentAspectRatio: 1 },
     ui: { selectedComponentId: canvas.id, selectedChainItemId: left.id },
   };
   renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 400, height: 400 });
@@ -493,7 +493,8 @@ test("an exact mapping echo acknowledges ownership while its drag is still activ
       corners: [{ x: 10, y: 10 }, { x: 110, y: 10 }, { x: 110, y: 110 }, { x: 10, y: 110 }],
     })),
   };
-  state.mappings.local = local;
+  state.mappingCalibration = local;
+  state.mappings[0].calibration = structuredClone(local);
   renderer.state = createInitialState();
   renderer.mapper = {
     isActive: () => true,
@@ -569,7 +570,7 @@ test("standalone outputs crop the shared mapping world to their configured viewp
 
   try {
     assert.deepEqual(renderer.outputFrameSize(), { width: 1280, height: 800 });
-    const frames = outputFrames(renderer.state.render);
+    const frames = outputFrames(renderer.mappingProjectRender());
     const selected = frames.find((frame) => frame.id === "right");
     assert.deepEqual(renderer.outputFrameOffset(), { x: selected.x, y: selected.y });
     const mapped = renderer.mappingForRenderMode({
@@ -624,7 +625,7 @@ test("output fallback surfaces derive from the same world mapping as preview", (
 
   try {
     renderer.rebuildSurfaces();
-    const worldCorners = defaultProjectSurfaceMapping(render, [surface])[0].corners;
+    const worldCorners = defaultProjectSurfaceMapping(renderer.mappingProjectRender(), [surface])[0].corners;
     assert.deepEqual(added.corners, worldCorners.map((corner) => renderer.worldPointToDisplay(corner)));
   } finally {
     if (previousWidth === undefined) delete globalThis.width;
@@ -810,7 +811,8 @@ test("Live Component transform is placed by its parent instead of cropped into i
   assert.ok(!source.includes("renderComponentRootTransform("));
   assert.ok(source.includes("transform: component.transform"));
   assert.ok(source.includes("combineContentTransforms(source.contentTransform, dependency.transform)"));
-  assert.ok(surfaceSource.includes("drawTransformedSampleRect(target, source, sampleRect, component?.transform)"));
+  assert.ok(surfaceSource.includes("drawTransformedSampleRect("));
+  assert.ok(surfaceSource.includes('surface.frameFitActive ? surface.frameFit : "stretch"'));
   assert.ok(surfaceSource.includes("isIdentityTransform(route.component?.transform)"));
 });
 
@@ -832,17 +834,99 @@ test("output resize derives its backing geometry from the current host viewport"
     assert.deepEqual(renderer.displayCanvasSize(render), { width: 1920, height: 1080 });
     assert.deepEqual(renderer.renderResolutionSize(render), { width: 1920, height: 1080, density: 1 });
     assert.equal(renderer.renderResolutionLabel(render), "1920x1080");
-    assert.deepEqual(renderer.outputFrameTransform(), {
-      scale: 2,
-      x: 0,
-      y: 0,
+    const projectFrame = outputFrameForId(renderer.mappingProjectRender(), "output-main");
+    const topLeft = renderer.worldPointToDisplay({ x: projectFrame.x, y: projectFrame.y });
+    const bottomRight = renderer.worldPointToDisplay({
+      x: projectFrame.x + projectFrame.width,
+      y: projectFrame.y + projectFrame.height,
     });
+    assertClose(topLeft.x, 0);
+    assertClose(topLeft.y, 0);
+    assertClose(bottomRight.x, 1920);
+    assertClose(bottomRight.y, 1080);
   } finally {
     if (previousWidth === undefined) delete globalThis.width;
     else globalThis.width = previousWidth;
     if (previousHeight === undefined) delete globalThis.height;
     else globalThis.height = previousHeight;
   }
+});
+
+test("standalone Output presentation covers a mismatched window without non-uniform surface scaling", () => {
+  const previousWidth = globalThis.width;
+  const previousHeight = globalThis.height;
+  const render = {
+    outputs: [{ id: "output-main", aspectRatio: 16 / 9 }],
+    hostViewport: { width: 1200, height: 900, mode: "output", outputId: "output-main" },
+  };
+  const renderer = new OutputRenderer({ mode: "output", outputId: "output-main" });
+
+  try {
+    globalThis.width = 1200;
+    globalThis.height = 900;
+    renderer.state = { render };
+    const transform = renderer.outputFrameTransform();
+    const frame = outputFrames(renderer.mappingProjectRender())[0];
+    assert.ok(Math.abs(transform.scale - (900 / frame.height)) < 1e-9);
+    assert.ok(transform.x < 0);
+    assert.ok(Math.abs(transform.y) < 1e-9);
+  } finally {
+    if (previousWidth === undefined) delete globalThis.width;
+    else globalThis.width = previousWidth;
+    if (previousHeight === undefined) delete globalThis.height;
+    else globalThis.height = previousHeight;
+  }
+});
+
+test("standalone Output keeps relative Surface proportions across popup aspect changes", () => {
+  const previousWidth = globalThis.width;
+  const previousHeight = globalThis.height;
+  const calibration = {
+    coordinateSpace: "relative",
+    surfaces: [{ id: "surface", corners: [
+      { x: 0.1, y: 0.2 },
+      { x: 0.6, y: 0.2 },
+      { x: 0.6, y: 0.7 },
+      { x: 0.1, y: 0.7 },
+    ] }],
+  };
+  const renderer = new OutputRenderer({ mode: "output", outputId: "output-main" });
+  const aspectAt = (width, height) => {
+    globalThis.width = width;
+    globalThis.height = height;
+    renderer.state = {
+      render: {
+        outputs: [{ id: "output-main", aspectRatio: 16 / 9 }],
+        hostViewport: { width, height, mode: "output", outputId: "output-main" },
+      },
+      mappingCalibration: calibration,
+    };
+    const corners = renderer.projectMappingSurfaceCorners("surface").map((point) => renderer.worldPointToDisplay(point));
+    return Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y)
+      / Math.hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y);
+  };
+
+  try {
+    assertClose(aspectAt(1445, 855), aspectAt(1327, 204));
+  } finally {
+    if (previousWidth === undefined) delete globalThis.width;
+    else globalThis.width = previousWidth;
+    if (previousHeight === undefined) delete globalThis.height;
+    else globalThis.height = previousHeight;
+  }
+});
+
+test("embedded Live retains Scene project-world geometry instead of covering its HTML host", () => {
+  const renderer = new OutputRenderer({ mode: "live" });
+  renderer.state = {
+    render: {
+      outputs: [{ id: "output-main", aspectRatio: 2 }],
+      hostViewport: { width: 1000, height: 1000, mode: "preview", outputId: "" },
+    },
+  };
+
+  assert.deepEqual(renderer.worldPointToDisplay({ x: 200, y: 300 }), { x: 200, y: 300 });
+  assert.deepEqual(renderer.displayPointToWorld({ x: 200, y: 300 }), { x: 200, y: 300 });
 });
 
 test("hud render resolution reports GPU render pixels, not window size", () => {
@@ -869,6 +953,31 @@ test("hud render resolution reports GPU render pixels, not window size", () => {
     if (previousHeight === undefined) delete globalThis.height;
     else globalThis.height = previousHeight;
   }
+});
+
+test("Good embedded preview reports its final render-chain request at 2x", () => {
+  const renderer = new OutputRenderer({ mode: "live" });
+  const render = {
+    outputs: [{ id: "output-main", aspectRatio: 16 / 9 }],
+    pixelDensity: 1,
+    previewRasterScale: 2,
+  };
+  renderer.state = { render };
+  renderer.recordPresentedRenderRequest({ width: 2000, height: 1000 });
+  assert.deepEqual(renderer.renderResolutionSize(render), { width: 2000, height: 1000, density: 2 });
+  assert.equal(renderer.renderResolutionLabel(render), "2000x1000 @2x");
+  assert.equal(renderer.previewViewportZoomLabel({ previewViewportZoom: 1.234 }), "1.23x view");
+  const diagnostic = renderer.previewDiagnosticHudMarkup(60, {
+    ...render,
+    previewViewportZoom: 1.25,
+    hostViewport: { width: 1000, height: 500 },
+  });
+  assert.match(diagnostic, /render 2000x1000 @2x/);
+  assert.match(diagnostic, /1\.25x view/);
+  assert.match(diagnostic, /p5 canvas/);
+  assert.match(diagnostic, /windowWidth/);
+  assert.match(diagnostic, /density param 1x/);
+  assert.match(diagnostic, /p5 2x/);
 });
 
 test("terrain and parsed STL stay in the shared WebGL context while imported p5 models reuse a scratch target", () => {
@@ -1005,8 +1114,8 @@ test("component thumbnails retain their aspect within the thumbnail bounds", () 
 
 test("Canvas recording-frame thumbnails crop the rendered Canvas by logical frame geometry", () => {
   const source = readFileSync(new URL("../js/output/output-thumbnail-runtime.js", import.meta.url), "utf8");
-  assert.ok(source.includes("component.canvas?.frameThumbnails?.[frame.id]"));
-  assert.ok(source.includes("canvasFrameCrop(output, state.render, state.recordingFrames, job.frameId)"));
+  assert.ok(source.includes("component.scene?.frameThumbnails?.[frame.id]"));
+  assert.ok(source.includes("sceneFrameCrop(output, state.render, state.frames, job.frameId)"));
   assert.ok(source.includes("job.frameId ? { frameId: job.frameId } : {}"));
   assert.ok(source.includes("const sample = boundedSampleRect(source, crop, sourceWidth, sourceHeight)"));
   assert.ok(source.includes("sample.x, sample.y, sample.width, sample.height"));
@@ -1043,8 +1152,9 @@ test("paused previews contain thumbnails and canvas surface routes preserve samp
   const surfaceSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const source = `${rendererSource}\n${surfaceSource}`;
   assert.ok(source.includes("const rect = this.componentPreviewRect(component);"));
-  assert.ok(source.includes("return componentLogicalPreviewRect(this.state?.render || {}, component || {}, width, height);"));
-  assert.ok(source.includes("drawTransformedSampleRect(target, thumbnail.img"));
+  assert.ok(source.includes('sceneEditorWorld: this.mode === "component" && this.state?.ui?.workspace === "scene"'));
+  assert.ok(source.includes("thumbnail.img,"));
+  assert.ok(source.includes('surface.frameFitActive ? surface.frameFit : "stretch"'));
   assert.ok(source.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {"));
   assert.ok(source.includes("opacity: surfaceRouteOpacity(route)"));
 });
@@ -1053,9 +1163,9 @@ test("thumbnail preview uses a Canvas snapshot before component reconstruction a
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("captureThumbnailEditTransformBaselines()"));
-  assert.ok(source.includes("renderCanvasThumbnailSnapshotPreview(component)"));
-  assert.ok(source.includes("renderCanvasThumbnailEditPreview(component)"));
-  assert.ok(source.indexOf("renderCanvasThumbnailSnapshotPreview(component)") < source.indexOf("renderCanvasThumbnailEditPreview(component)"));
+  assert.ok(source.includes("renderSceneThumbnailSnapshotPreview(component)"));
+  assert.ok(source.includes("renderSceneThumbnailEditPreview(component)"));
+  assert.ok(source.indexOf("renderSceneThumbnailSnapshotPreview(component)") < source.indexOf("renderSceneThumbnailEditPreview(component)"));
   assert.ok(source.includes("combineContentTransforms(parentTransform, item.transform)"));
   assert.ok(source.includes("this.renderSelectedChainTransformOverlay();"));
   assert.ok(source.includes("if (this.shouldUseThumbnailPreview()) this.renderThumbnailComponents();"));
@@ -1068,7 +1178,7 @@ test("canvas rendering evaluates ordinary sources, Groups, effects, and shared r
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const plannerSource = readFileSync(new URL("../js/libraries/composition-engine/surface-composition/index.js", import.meta.url), "utf8");
   const canvasRenderer = source.slice(
-    source.indexOf("  renderCanvasComponent("),
+    source.indexOf("  renderSceneComponent("),
     source.indexOf("  renderComponentPatch(")
   );
   assert.ok(source.includes("this.renderComponentChainState("));
@@ -1081,8 +1191,8 @@ test("canvas rendering evaluates ordinary sources, Groups, effects, and shared r
   assert.ok(source.includes("applyBlend(output, layer.blend)"));
   assert.ok(source.includes('source.type === "component"'));
   assert.ok(source.includes("this.recordingFrameById"));
-  assert.ok(source.includes("this.state?.recordingFrames || []"));
-  assert.ok(source.includes("renderCanvasRecordingFrames(component, source)"));
+  assert.ok(source.includes("this.state?.frames || []"));
+  assert.ok(source.includes("renderSceneFrames(component, source)"));
   assert.ok(source.includes("surface.outputFrameId"));
   assert.ok(plannerSource.includes("resolveRouteSourceNode(storedSurface)"));
   assert.ok(!source.includes('item.role === "canvas-layer"'));
@@ -1093,8 +1203,8 @@ test("canvas rendering evaluates ordinary sources, Groups, effects, and shared r
 });
 
 test("Canvas recording-frame routes declare extra sampling demand without changing whole-Canvas routes", () => {
-  const render = { canvasAspectRatio: 16 / 9 };
-  const canvas = { type: "canvas" };
+  const render = { sceneAspectRatio: 16 / 9 };
+  const canvas = { type: "scene" };
   const frames = [{ id: "frame-a", x: 0.1, y: 0.2, width: 0.25, height: 0.25 }];
   const frameView = componentSourceView(render, canvas, { outputFrameId: "frame-a" }, frames);
   const wholeView = componentSourceView(render, canvas, {
@@ -1119,7 +1229,7 @@ test("Canvas recording-frame routes declare extra sampling demand without changi
 });
 
 test("multiple recording frames share one parent Canvas texture request", () => {
-  const component = { id: "canvas-a", type: "canvas" };
+  const component = { id: "canvas-a", type: "scene" };
   const sourceView = {
     logicalSize: { width: 3840, height: 2160 },
     maxRasterSize: { width: 3840, height: 2160 },
@@ -1166,7 +1276,7 @@ test("Canvas frame fanout retains ROI only when nested component placements can 
   const synced = { id: "component-b", type: "chain", syncInstances: true, chain: [] };
   const canvas = {
     id: "canvas-a",
-    type: "canvas",
+    type: "scene",
     chain: [
       { id: "source-a", kind: "source", source: { type: "component", componentId: independent.id } },
     ],
@@ -1174,51 +1284,51 @@ test("Canvas frame fanout retains ROI only when nested component placements can 
   const renderer = new OutputRenderer({});
   renderer.state = { components: [canvas, independent, synced] };
 
-  assert.equal(renderer.canvasComponentFrameFanoutSafe(canvas), false);
+  assert.equal(renderer.sceneComponentFrameFanoutSafe(canvas), false);
   canvas.chain[0].source.componentId = synced.id;
-  assert.equal(renderer.canvasComponentFrameFanoutSafe(canvas), true);
+  assert.equal(renderer.sceneComponentFrameFanoutSafe(canvas), true);
 });
 
 test("surface route lookup indexes components, frames, and source nodes once per state", () => {
   const renderer = new OutputRenderer({});
   renderer.state = {
-    components: [{ id: "canvas-a", type: "canvas", name: "Canvas A", canvas: {} }],
-    recordingFrames: [{ id: "frame-a", name: "Frame A" }],
+    components: [{ id: "scene-a", type: "scene", name: "Scene A", scene: {} }],
+    frames: [{ id: "frame-a", name: "Frame A" }],
   };
   renderer.rebuildRouteLookups();
 
   const node = renderer.resolveRouteSourceNode({
-    sourceNodeId: "recording-frame:canvas-a:frame-a",
-    componentId: "canvas-a",
+    sourceNodeId: "recording-frame:scene-a:frame-a",
+    componentId: "scene-a",
     outputFrameId: "frame-a",
   });
-  assert.equal(renderer.componentById.get("canvas-a").type, "canvas");
+  assert.equal(renderer.componentById.get("scene-a").type, "scene");
   assert.equal(renderer.recordingFrameById.get("frame-a").name, "Frame A");
-  assert.equal(node.componentId, "canvas-a");
+  assert.equal(node.componentId, "scene-a");
   assert.equal(node.outputFrameId, "frame-a");
   assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "", componentId: "", outputFrameId: "" }), null);
   assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "missing", componentId: "", outputFrameId: "" }), null);
 });
 
 test("Canvas demand is capped to logical size by default and can opt into supersampling", () => {
-  assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 1 }, { width: 4000, height: 2000 }), {
+  assert.deepEqual(sceneMaxRasterSize({ pixelDensity: 1 }, { width: 4000, height: 2000 }), {
     width: 4000,
     height: 2000,
   });
-  assert.deepEqual(canvasMaxRasterSize({ pixelDensity: 2 }, { width: 4000, height: 2000 }), {
+  assert.deepEqual(sceneMaxRasterSize({ pixelDensity: 2 }, { width: 4000, height: 2000 }), {
     width: 4000,
     height: 2000,
   });
-  assert.deepEqual(canvasMaxRasterSize({
+  assert.deepEqual(sceneMaxRasterSize({
     pixelDensity: 2,
-    sampling: { limitCanvasToLogicalSize: false },
+    sampling: { limitSceneToLogicalSize: false },
   }, { width: 4000, height: 2000 }), {
     width: 8000,
     height: 4000,
   });
-  assert.deepEqual(canvasMaxRasterSize({
+  assert.deepEqual(sceneMaxRasterSize({
     pixelDensity: 2,
-    sampling: { limitCanvasToLogicalSize: false },
+    sampling: { limitSceneToLogicalSize: false },
   }, { width: 5000, height: 5000 }), {
     width: 8192,
     height: 8192,
@@ -1265,11 +1375,25 @@ test("Component preview geometry is independent from pixel density and raster di
   assert.deepEqual(highDensity, { x: 0, y: 50, width: 900, height: 600 });
 });
 
+test("Scene editor world leaves a stable margin around edge-aligned Frames", () => {
+  const render = { sceneAspectRatio: 16 / 9, pixelDensity: 2 };
+  const ordinary = componentLogicalPreviewRect(render, { type: "scene" }, 1000, 700);
+  const editor = componentLogicalPreviewRect(render, { type: "scene" }, 1000, 700, { sceneEditorWorld: true });
+  assert.ok(Math.abs(ordinary.x) < 1e-9);
+  assert.ok(Math.abs(ordinary.y - 68.75) < 1e-9);
+  assert.ok(Math.abs(ordinary.width - 1000) < 1e-9);
+  assert.ok(Math.abs(ordinary.height - 562.5) < 1e-9);
+  assert.ok(Math.abs(editor.x - 250) < 1e-9);
+  assert.ok(Math.abs(editor.y - 209.375) < 1e-9);
+  assert.ok(Math.abs(editor.width - 500) < 1e-9);
+  assert.ok(Math.abs(editor.height - 281.25) < 1e-9);
+});
+
 test("Canvas recording frames move within bounds and corner resize changes both dimensions independently", () => {
-  const moved = moveCanvasFrameRect({ x: 100, y: 100, width: 400, height: 200 }, 900, 900, 1200, 800);
+  const moved = moveSceneFrameRect({ x: 100, y: 100, width: 400, height: 200 }, 900, 900, 1200, 800);
   assert.deepEqual(moved, { x: 800, y: 600, width: 400, height: 200 });
 
-  const resized = resizeCanvasFrameRect(
+  const resized = resizeSceneFrameRect(
     { x: 100, y: 100, width: 400, height: 200 },
     "se",
     200,
@@ -1279,7 +1403,7 @@ test("Canvas recording frames move within bounds and corner resize changes both 
   );
   assert.deepEqual(resized, { x: 100, y: 100, width: 600, height: 220 });
 
-  const northwest = resizeCanvasFrameRect(
+  const northwest = resizeSceneFrameRect(
     { x: 100, y: 100, width: 400, height: 200 },
     "nw",
     -200,
@@ -1290,17 +1414,26 @@ test("Canvas recording frames move within bounds and corner resize changes both 
   assert.deepEqual(northwest, { x: 0, y: 0, width: 500, height: 300 });
 });
 
+test("proportion-locked Frames scale from corners without changing their aspect", () => {
+  const original = { x: 0.1, y: 0.2, width: 0.4, height: 0.2 };
+  const resized = resizeSceneFrameRect(original, "se", 0.2, 0.02, 1, 1, { keepProportions: true });
+  assert.equal(resized.x, original.x);
+  assert.equal(resized.y, original.y);
+  assert.ok(resized.width > original.width);
+  assert.ok(Math.abs(resized.width / resized.height - original.width / original.height) < 1e-9);
+});
+
 test("Canvas recording frames drag only from their border so the interior passes through", () => {
   const frame = { x: 100, y: 100, width: 400, height: 200 };
-  assert.equal(canvasFrameBorderHit(frame, 102, 180), true);
-  assert.equal(canvasFrameBorderHit(frame, 300, 296), true);
-  assert.equal(canvasFrameBorderHit(frame, 300, 200), false);
-  assert.equal(canvasFrameBorderHit(frame, 50, 200), false);
+  assert.equal(sceneFrameBorderHit(frame, 102, 180), true);
+  assert.equal(sceneFrameBorderHit(frame, 300, 296), true);
+  assert.equal(sceneFrameBorderHit(frame, 300, 200), false);
+  assert.equal(sceneFrameBorderHit(frame, 50, 200), false);
 });
 
 test("Canvas component placements use a stable normalized footprint", () => {
   assert.deepEqual(
-    canvasComponentPlacementRect(
+    sceneComponentPlacementRect(
       { width: 3840, height: 2160 },
       { baseWidth: 1080, baseHeight: 1920, width: 540, height: 960 },
       {},
@@ -1309,7 +1442,7 @@ test("Canvas component placements use a stable normalized footprint", () => {
     { x: 1380, y: 120, width: 1080, height: 1920 }
   );
   assert.deepEqual(
-    canvasComponentPlacementRect(
+    sceneComponentPlacementRect(
       { width: 3840, height: 2160 },
       { baseWidth: 1920, baseHeight: 1080 },
       { width: 960, height: 540 },
@@ -1320,21 +1453,21 @@ test("Canvas component placements use a stable normalized footprint", () => {
 });
 
 test("Canvas Component placement is independent from raster-density changes", () => {
-  const canvas = { type: "canvas" };
+  const canvas = { type: "scene" };
   const child = { type: "chain", frameShape: "landscape", resolutionScale: 1 };
   const placement = { scale: 0.325 };
   const target = { width: 1000, height: 500 };
   const low = componentReferencePlacement(
     canvas,
     child,
-    { canvasAspectRatio: 2, componentAspectRatio: 1.3, pixelDensity: 0.5 },
+    { sceneAspectRatio: 2, componentAspectRatio: 1.3, pixelDensity: 0.5 },
     target,
     placement
   );
   const high = componentReferencePlacement(
     canvas,
     child,
-    { canvasAspectRatio: 2, componentAspectRatio: 1.3, pixelDensity: 2 },
+    { sceneAspectRatio: 2, componentAspectRatio: 1.3, pixelDensity: 2 },
     target,
     placement
   );
@@ -1343,21 +1476,21 @@ test("Canvas Component placement is independent from raster-density changes", ()
 });
 
 test("Canvas placement follows changed Component aspect without stretching its old dimensions", () => {
-  const canvas = { type: "canvas" };
+  const canvas = { type: "scene" };
   const child = { type: "chain", frameShape: "landscape", resolutionScale: 1 };
   const target = { width: 1000, height: 500 };
   const placement = { scale: 0.325 };
   const original = componentReferencePlacement(
     canvas,
     child,
-    { canvasAspectRatio: 2, componentAspectRatio: 1.3, pixelDensity: 1 },
+    { sceneAspectRatio: 2, componentAspectRatio: 1.3, pixelDensity: 1 },
     target,
     placement
   );
   const wider = componentReferencePlacement(
     canvas,
     child,
-    { canvasAspectRatio: 2, componentAspectRatio: 2, pixelDensity: 1 },
+    { sceneAspectRatio: 2, componentAspectRatio: 2, pixelDensity: 1 },
     target,
     placement
   );
@@ -1366,10 +1499,40 @@ test("Canvas placement follows changed Component aspect without stretching its o
   assert.ok(wider.height < original.height);
 });
 
+test("Scene allocation aspect cannot override an embedded Component proportion", () => {
+  const scene = { type: "scene" };
+  const render = { sceneAspectRatio: 16 / 9, componentAspectRatio: 16 / 9, pixelDensity: 1 };
+  const landscape = componentReferencePlacement(
+    scene,
+    { type: "chain", frameShape: "landscape" },
+    render,
+    { width: 900, height: 900 },
+    { scale: 0.5 }
+  );
+  const portrait = componentReferencePlacement(
+    scene,
+    { type: "chain", frameShape: "portrait" },
+    render,
+    { width: 900, height: 900 },
+    { scale: 0.5 }
+  );
+  const square = componentReferencePlacement(
+    scene,
+    { type: "chain", frameShape: "square" },
+    render,
+    { width: 900, height: 900 },
+    { scale: 0.5 }
+  );
+
+  assertClose(landscape.width / landscape.height, 16 / 9, 0.01);
+  assertClose(portrait.height / portrait.width, 16 / 9, 0.01);
+  assert.equal(square.width, square.height);
+});
+
 test("nested components inherit physical demand from their placement for every parent type", () => {
-  const render = { canvasAspectRatio: 10 / 7, componentAspectRatio: 10 / 7, pixelDensity: 1 };
+  const render = { sceneAspectRatio: 10 / 7, componentAspectRatio: 10 / 7, pixelDensity: 1 };
   const child = { id: "child", type: "chain", frameShape: "landscape", resolutionScale: 2 };
-  const canvasParent = { type: "canvas" };
+  const canvasParent = { type: "scene" };
   const canvasPlacement = componentReferencePlacement(canvasParent, child, render, { width: 1000, height: 700 }, { scale: 0.25 });
   const regularPlacement = componentReferencePlacement({ type: "chain" }, child, render, { width: 640, height: 360 });
   const request = componentReferenceRenderRequest(render, child, canvasPlacement);
@@ -1472,8 +1635,8 @@ test("direct surfaces map normal compositing to BLEND rather than the deprecated
 test("output renderer imports the bounds helper used while rebuilding direct surfaces", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const layoutImport = source.slice(
-    source.indexOf("import {\n  canvasMaxRasterSize"),
-    source.indexOf("from \"./component-render-layout.js", source.indexOf("import {\n  canvasMaxRasterSize"))
+    source.indexOf("import {\n  sceneMaxRasterSize"),
+    source.indexOf("from \"./component-render-layout.js", source.indexOf("import {\n  sceneMaxRasterSize"))
   );
 
   assert.match(layoutImport, /\bcornersRect,/);
@@ -1481,17 +1644,17 @@ test("output renderer imports the bounds helper used while rebuilding direct sur
 });
 
 test("Canvas preview requests match the visible backing density", () => {
-  const fullSize = { canvasAspectRatio: 16 / 9, pixelDensity: 1, previewRasterScale: 1 };
+  const fullSize = { sceneAspectRatio: 16 / 9, pixelDensity: 1, previewRasterScale: 1 };
   assert.deepEqual(
-    pickRequestSize(canvasPreviewRenderRequest(fullSize, { resolutionScale: 1 }, 1200, 800)),
+    pickRequestSize(scenePreviewRenderRequest(fullSize, { resolutionScale: 1 }, 1200, 800)),
     { width: 1200, height: 675 }
   );
   assert.deepEqual(
-    pickRequestSize(canvasPreviewRenderRequest({ ...fullSize, previewRasterScale: 2 }, { resolutionScale: 1 }, 1200, 800)),
+    pickRequestSize(scenePreviewRenderRequest({ ...fullSize, previewRasterScale: 2 }, { resolutionScale: 1 }, 1200, 800)),
     { width: 2400, height: 1350 }
   );
   assert.deepEqual(
-    pickRequestSize(canvasPreviewRenderRequest({ ...fullSize, previewRasterScale: 2 }, { resolutionScale: 0.5 }, 1200, 800)),
+    pickRequestSize(scenePreviewRenderRequest({ ...fullSize, previewRasterScale: 2 }, { resolutionScale: 0.5 }, 1200, 800)),
     { width: 1200, height: 675 }
   );
 });
@@ -1743,7 +1906,7 @@ test("projection mapper uses actual texture size for surface sampling math", () 
 test("zero-duration Live output retains the original single-scene surface path", () => {
   const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   assert.ok(source.includes("if (transition) return this.renderTransitionSurfaces(transition);"));
-  assert.ok(source.includes("this.renderSingleSceneSurfaces();"));
+  assert.ok(source.includes("this.renderMappingSurfaces();"));
   assert.ok(source.includes("this.releaseTransitionSurfaceTextures();"));
   assert.ok(source.includes("renderer.mapper.drawTransitionTextures("));
 });

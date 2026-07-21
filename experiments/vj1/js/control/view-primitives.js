@@ -106,9 +106,9 @@ export function editableSectionTitleTemplate(iconName, path, value) {
   return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${iconName}</span>${titleInputTemplate(path, value)}</div>`;
 }
 
-export function panelTemplate(iconName, title, body, { titlePath = "", headerActionHtml = "" } = {}) {
+export function panelTemplate(iconName, title, body, { titlePath = "", headerActionHtml = "", className = "" } = {}) {
   return `
-    <section class="ui-section focus-panel">
+    <section class="ui-section focus-panel${className ? ` ${esc(className)}` : ""}">
       <header class="ui-section-header panel-title">
         <span class="material-symbols-rounded">${iconName}</span>
         ${titlePath ? titleInputTemplate(titlePath, title) : `<span>${esc(title)}</span>`}

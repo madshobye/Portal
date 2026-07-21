@@ -15,8 +15,7 @@ export function createInputController({
   bindCatalogSortControls,
   resetProjectMapping,
   currentWorkspace,
-  applySelectedSceneSnapshot,
-  syncSelectedSceneSnapshot,
+  refreshSelectedMappingProjection,
 }) {
   const paramContextScopes = new WeakSet();
 
@@ -31,7 +30,7 @@ export function createInputController({
     bindPathButtons(scope);
     bindLiveInputs(scope);
     bindSelectionAndSourceButtons(scope);
-    bindCanvasAndRouteButtons(scope);
+    bindSceneAndRouteButtons(scope);
     bindChainControls(scope);
     bindRemovalAndMappingButtons(scope);
     bindParamContextMenus(scope);
@@ -43,7 +42,7 @@ export function createInputController({
       button.addEventListener("contextmenu", (event) => {
         const componentId = button.dataset.selectComponent;
         const component = getState().components?.find((item) => item.id === componentId);
-        if (!component || component.type === "canvas") return;
+        if (!component || component.type === "scene") return;
         event.preventDefault();
         event.stopPropagation();
         openComponentContextMenu(component, event.clientX, event.clientY);
@@ -59,13 +58,13 @@ export function createInputController({
     menu.dataset.componentContextMenu = "true";
     menu.style.left = `${Math.max(8, x)}px`;
     menu.style.top = `${Math.max(8, y)}px`;
-    menu.innerHTML = `<button type="button" data-copy-component-as-canvas>Convert to Canvas</button>`;
+    menu.innerHTML = `<button type="button" data-copy-component-as-canvas>Convert to Scene</button>`;
     document.body.append(menu);
     const bounds = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
     menu.querySelector("[data-copy-component-as-canvas]")?.addEventListener("click", () => {
-      store.copyComponentToCanvas?.(component.id);
+      store.copyComponentToScene?.(component.id);
       menu.remove();
     });
     const dismiss = (event) => {
@@ -167,7 +166,7 @@ export function createInputController({
     scope.querySelectorAll("[data-set-component]").forEach((button) => {
       button.addEventListener("click", () => store.update((draft) => {
         setByPath(draft, button.dataset.componentPath, button.dataset.setComponent);
-        if (currentWorkspace(draft) === "scene" && button.dataset.componentPath?.startsWith("scenes.")) applySelectedSceneSnapshot(draft);
+        if (currentWorkspace(draft) === "mapping" && button.dataset.componentPath?.startsWith("mappings.")) refreshSelectedMappingProjection(draft);
       }, `update:${button.dataset.componentPath}`));
     });
     scope.querySelectorAll("[data-open-element-picker]").forEach((button) => {
@@ -178,15 +177,28 @@ export function createInputController({
     });
   }
 
-  function bindCanvasAndRouteButtons(scope) {
-    scope.querySelectorAll("[data-add-canvas-component]").forEach((button) => {
-      button.addEventListener("click", () => store.addCanvasComponent?.());
+  function bindSceneAndRouteButtons(scope) {
+    scope.querySelectorAll("[data-add-scene]").forEach((button) => {
+      button.addEventListener("click", () => store.addScene?.());
     });
-    scope.querySelectorAll("[data-add-canvas-frame]").forEach((button) => {
-      button.addEventListener("click", () => store.addCanvasFrame?.(button.dataset.canvasComponentId || getState().ui.selectedComponentId));
+    scope.querySelectorAll("[data-add-frame]").forEach((button) => {
+      button.addEventListener("click", () => store.addFrame?.(button.dataset.sceneId || getState().ui.selectedComponentId));
     });
-    scope.querySelectorAll("[data-remove-canvas-frame]").forEach((button) => {
-      button.addEventListener("click", () => store.removeCanvasFrame?.(button.dataset.canvasComponentId, button.dataset.removeCanvasFrame));
+    scope.querySelectorAll("[data-remove-frame]").forEach((button) => {
+      button.addEventListener("click", () => store.removeFrame?.(button.dataset.sceneId, button.dataset.removeFrame));
+    });
+    scope.querySelectorAll("[data-set-route-frame-id]").forEach((button) => {
+      button.addEventListener("click", () => store.update((draft) => {
+        const route = getByPath(draft, button.dataset.routeBase);
+        if (!route) return;
+        const frameId = String(button.dataset.setRouteFrameId || "");
+        route.frameSlotId = frameId;
+        route.outputFrameId = frameId;
+        route.sourceNodeId = "";
+        route.componentId = "";
+        if (frameId) touchRecordingFrameUsed(draft, frameId);
+        if (currentWorkspace(draft) === "mapping") refreshSelectedMappingProjection(draft);
+      }, "update:surface-frame-slot"));
     });
     scope.querySelectorAll("[data-set-route-source-node]").forEach((button) => {
       button.addEventListener("click", () => store.update((draft) => {
@@ -194,12 +206,13 @@ export function createInputController({
         const node = resolveSceneSourceNode(draft, button.dataset.setRouteSourceNode);
         if (route) {
           Object.assign(route, applySceneSourceNode(route, node));
+          route.frameSlotId = node?.frameId || node?.outputFrameId || "";
           if (node) {
             touchComponentUsed(draft, node.componentId);
             if (node.frameId) touchRecordingFrameUsed(draft, node.frameId);
           }
         }
-        if (currentWorkspace(draft) === "scene") applySelectedSceneSnapshot(draft);
+        if (currentWorkspace(draft) === "mapping") refreshSelectedMappingProjection(draft);
       }, "update:surface-source-node"));
     });
   }
@@ -288,7 +301,7 @@ export function createInputController({
       }
       store.update((draft) => {
         setByPathCreate(draft, path, value);
-        syncSceneEdits(draft, path);
+        syncMappingEdits(draft, path);
       }, `update:${path}`);
       menu.remove();
     });
@@ -350,12 +363,12 @@ export function createInputController({
         const boundary = boundaryFromScaleInput(input, readInputValue(input));
         setByPath(draft, path.replace(/\.scale$/, ".width"), boundary.width);
         setByPath(draft, path.replace(/\.scale$/, ".height"), boundary.height);
-        syncSceneEdits(draft, path.replace(/\.scale$/, ".width"));
+        syncMappingEdits(draft, path.replace(/\.scale$/, ".width"));
         return;
       }
       const setter = path.includes(".source.params.") ? setByPathCreate : setByPath;
       setter(draft, path, readInputValue(input));
-      syncSceneEdits(draft, path);
+      syncMappingEdits(draft, path);
     }, reason);
   }
 
@@ -381,7 +394,7 @@ export function createInputController({
       }
       const setter = path.includes(".source.params.") ? setByPathCreate : setByPath;
       setter(draft, path, value);
-      syncSceneEdits(draft, path);
+      syncMappingEdits(draft, path);
     }, reason, [createLiveRenderPatch(componentId, path, value)]);
   }
 
@@ -435,7 +448,7 @@ export function createInputController({
       }
       setByPathCreate(draft, minPath, minValue);
       setByPathCreate(draft, maxPath, maxValue);
-      syncSceneEdits(draft, minPath);
+      syncMappingEdits(draft, minPath);
     }, reason, [
       createLiveRenderPatch(componentId, minPath, minValue),
       createLiveRenderPatch(componentId, maxPath, maxValue),
@@ -448,7 +461,7 @@ export function createInputController({
     const nextValue = applyOptimisticToggleIntent(button);
     store.update((draft) => {
       setByPath(draft, path, nextValue);
-      syncSceneEdits(draft, path);
+      syncMappingEdits(draft, path);
     }, reason);
     selectToggleTarget(button);
   }
@@ -509,10 +522,9 @@ export function createInputController({
     store.update(recipe, reason);
   }
 
-  function syncSceneEdits(draft, path) {
-    if (currentWorkspace(draft) !== "scene") return;
-    if (path.startsWith("scenes.")) applySelectedSceneSnapshot(draft);
-    else if (path.startsWith("surfaces.")) syncSelectedSceneSnapshot(draft);
+  function syncMappingEdits(draft, path) {
+    if (currentWorkspace(draft) !== "mapping") return;
+    if (path.startsWith("mappings.")) refreshSelectedMappingProjection(draft);
   }
 
   return { bind };

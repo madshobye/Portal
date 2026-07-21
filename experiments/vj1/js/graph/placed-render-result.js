@@ -8,7 +8,7 @@ export function directPlacementKind({
 } = {}) {
   if (blend === "overlay") return "";
   if (source.type === "component") {
-    return dependency && dependency.type !== "canvas" ? "component-texture" : "";
+    return dependency && dependency.type !== "scene" ? "component-texture" : "";
   }
   if (source.type === "media") {
     return mediaDrawable && !mediaIsModel ? "media-texture" : "";

@@ -1,22 +1,22 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=live-patch-contract-1";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=frame-projection-aspect-1";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=isf-nodes-1";
-import { getLiveSelectedScene, getSceneSurfaceView, getSelectedScene, liveSceneComponents, liveSelectedSceneId, sceneFingerprintComponents } from "./control-selectors.js?v=control-selectors-extraction-1";
+import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js?v=live-source-target-1";
 import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=inspector-pending-node-1";
 import { mediaSourceParams } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { componentCardBarTemplate, deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, scrollRegionTemplate, selectablePillTemplate } from "./view-primitives.js?v=scroll-region-1";
+import { componentCardBarTemplate, deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, panelTemplate, scrollRegionTemplate, selectablePillTemplate, textListItemTemplate } from "./view-primitives.js?v=scroll-region-1";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
-export function sceneSurfacePillTemplate(surface, state) {
-  const sceneSurface = getSceneSurfaceView(surface, state);
-  const component = state.components.find((item) => item.id === sceneSurface.componentId);
+export function mappingSurfacePillTemplate(surface, state) {
+  const mappingSurface = getMappingSurfaceView(surface, state);
+  const frame = state.frames?.find((item) => item.id === (mappingSurface.frameSlotId || mappingSurface.outputFrameId));
   const enabled = surface.enabled !== false;
   const direct = surface.destination?.type === "direct";
   return selectablePillTemplate({
@@ -26,7 +26,7 @@ export function sceneSurfacePillTemplate(surface, state) {
     id: surface.id,
     iconName: enabled ? (direct ? "desktop_windows" : "crop_free") : "hide_source",
     label: surface.name,
-    meta: component?.name || "None",
+    meta: frame?.name || "None",
     togglePath: `${pathForSurface(state, surface)}.enabled`,
     toggleValue: enabled,
     removeAction: direct ? "" : "data-remove-surface",
@@ -35,14 +35,14 @@ export function sceneSurfacePillTemplate(surface, state) {
   });
 }
 
-export function sceneSurfaceTemplate(surface, state, catalog = {}) {
-  const scene = getSelectedScene(state);
+export function mappingSurfaceTemplate(surface, state, catalog = {}) {
+  const mapping = getSelectedMapping(state);
   const surfaceBase = pathForSurface(state, surface);
-  const sceneIndex = scene ? state.scenes.findIndex((item) => item.id === scene.id) : -1;
-  const surfaceIndex = scene?.snapshot?.surfaces?.findIndex((item) => item.id === surface.id) ?? -1;
-  const hasSceneSurface = sceneIndex >= 0 && surfaceIndex >= 0;
-  const sceneSurface = hasSceneSurface ? scene.snapshot.surfaces[surfaceIndex] : null;
-  const sceneBase = `scenes.${sceneIndex}.snapshot.surfaces.${surfaceIndex}`;
+  const mappingIndex = mapping ? state.mappings.findIndex((item) => item.id === mapping.id) : -1;
+  const surfaceIndex = mapping?.surfaces?.findIndex((item) => item.id === surface.id) ?? -1;
+  const hasMappingSurface = mappingIndex >= 0 && surfaceIndex >= 0;
+  const mappingSurface = hasMappingSurface ? mapping.surfaces[surfaceIndex] : null;
+  const mappingBase = `mappings.${mappingIndex}.surfaces.${surfaceIndex}`;
   const direct = surface.destination?.type === "direct";
   return `
     <article class="sculpt-card">
@@ -51,57 +51,63 @@ export function sceneSurfaceTemplate(surface, state, catalog = {}) {
         <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
       </div>`}
       ${rangeTemplate("Feather", `${surfaceBase}.feather`, surface.feather ?? 0, 0, 0.5, 0.005)}
-      ${hasSceneSurface ? `
-        ${rangeTemplate("Presence", `${sceneBase}.opacity`, sceneSurface.opacity)}
-        <label class="field">${direct ? "Fit" : "Projection fit"} ${selectValuesTemplate(`${sceneBase}.projectionFit`, PROJECTION_FIT_MODES, sceneSurface.projectionFit || (direct ? "contain" : "cover"))}</label>
-        ${componentAssignmentTemplate(sceneBase, state, sceneSurface, catalog)}
-      ` : `<div class="soft-note">Capture a scene to store component assignments for this surface.</div>`}
+      ${hasMappingSurface ? `
+        ${rangeTemplate("Presence", `${mappingBase}.opacity`, mappingSurface.opacity)}
+        <label class="field">${direct ? "Fit" : "Projection fit"} ${selectValuesTemplate(`${mappingBase}.projectionFit`, PROJECTION_FIT_MODES, mappingSurface.projectionFit || (direct ? "contain" : "cover"))}</label>
+        ${componentAssignmentTemplate(mappingBase, state, mappingSurface, catalog)}
+      ` : `<div class="soft-note">This surface is not part of the selected Mapping.</div>`}
     </article>
   `;
 }
 
-export function sceneRailConfigTemplate(state) {
-  const scene = getSelectedScene(state);
-  if (!scene) {
+export function mappingRailConfigTemplate(state) {
+  const mapping = getSelectedMapping(state);
+  if (!mapping) {
     return `
       <div class="ui-section rail-section">
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Scene</span></div>
-        ${emptyNote("Capture a scene to edit scene settings.")}
+        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Mapping</span></div>
+        ${emptyNote("Create a mapping to edit surface routing.")}
       </div>
     `;
   }
-  const base = pathForScene(state, scene);
+  const base = pathForMapping(state, mapping);
   return `
     <div class="ui-section rail-section">
-      ${editableSectionTitleTemplate("auto_awesome_motion", `${base}.name`, scene.name)}
+      ${editableSectionTitleTemplate("auto_awesome_motion", `${base}.name`, mapping.name)}
+      <label class="field inline-param mapping-test-pattern-toggle">
+        <span>Test pattern</span>
+        <input type="checkbox" data-update="ui.mappingTestPattern" ${state.ui?.mappingTestPattern === false ? "" : "checked"} />
+      </label>
     </div>
   `;
 }
 
-export function scenePillTemplate(scene, state) {
-  const selected = state.ui.selectedSceneId === scene.id;
-  const sources = sceneFingerprintSources(scene, state);
-  return `
-    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(scene.name.toLowerCase())}">
-      <button type="button" class="component-card scene-card ${selected ? "is-selected" : ""}" data-select-scene="${esc(scene.id)}">
-        ${sceneFingerprintTemplate(sources)}
-        ${componentCardBarTemplate(scene.name)}
-      </button>
-      ${catalogMarkerButtonTemplate(scene, "scene")}
-      <button type="button" class="component-card-remove" data-delete-scene="${esc(scene.id)}" title="Remove" aria-label="Remove ${esc(scene.name)}">${icon("close")}</button>
-    </div>
-  `;
+export function mappingPillTemplate(mapping, state) {
+  const selected = state.ui.selectedMappingId === mapping.id;
+  return `<div data-component-filter-card="${esc(mapping.name.toLowerCase())}">${textListItemTemplate({
+    rowClass: "mapping-text-row compact-list-row",
+    selected,
+    leadingHtml: `<span class="text-list-static-icon" aria-hidden="true">${icon("display_settings")}</span>`,
+    label: mapping.name,
+    mainClass: "list-select",
+    mainAction: "data-select-mapping",
+    mainActionId: mapping.id,
+    removeClass: "list-remove",
+    removeAction: "data-delete-mapping",
+    removeActionId: mapping.id,
+    removeTitle: "Remove mapping",
+  })}</div>`;
 }
 
 export function liveScenePillTemplate(scene, state) {
-  const selected = liveSelectedSceneId(state) === scene.id;
-  const sources = sceneFingerprintSources(scene, state);
+  const selectedTargetId = String(state.ui?.live?.selectedComponentId || liveSelectedSceneId(state));
+  const selected = selectedTargetId === String(scene.id);
   const sceneOverrides = state.ui?.live?.sceneOverrides?.[scene.id] || (selected ? state.ui?.live?.componentOverrides || {} : {});
   const hasOverrides = Object.keys(sceneOverrides).length > 0;
   return `
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(scene.name.toLowerCase())}">
       <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
-        ${sceneFingerprintTemplate(sources)}
+        ${thumbnailTemplate(scene.thumbnail, "dashboard_customize")}
         ${componentCardBarTemplate(scene.name)}
       </button>
       ${catalogMarkerButtonTemplate(scene, "scene")}
@@ -110,16 +116,27 @@ export function liveScenePillTemplate(scene, state) {
   `;
 }
 
+export function liveTargetComponentPillTemplate(component, state) {
+  const selected = String(state.ui?.live?.selectedComponentId || "") === String(component.id);
+  return `
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(component.name.toLowerCase())}">
+      <button type="button" class="component-card live-component-picker ${selected ? "is-selected" : ""}" data-live-target-component="${esc(component.id)}">
+        ${thumbnailTemplate(component.thumbnail, "account_tree")}
+        ${componentCardBarTemplate(component.name)}
+      </button>
+      ${catalogMarkerButtonTemplate(component, "component")}
+    </div>
+  `;
+}
+
 export function liveInspectorTemplate(state) {
-  const scene = getLiveSelectedScene(state);
-  if (!scene) return panelTemplate("tune", "Live", emptyNote("No scenes"));
-  const components = liveNavigableComponents(scene, state);
-  const selected = components.find((component) => component.id === state.ui?.live?.selectedComponentId) || components[0];
+  const selected = getLiveSelectedTarget(state);
+  if (!selected) return panelTemplate("tune", "Live", emptyNote("No Live sources"));
   const selectedView = selected ? createLiveComponentView(selected, state) : null;
   const selectedElement = selected ? selectedLiveChainItem(selectedView?.chain || [], selected.id, state) : null;
   const componentView = state.ui?.live?.componentView === "elements" ? "elements" : "controls";
   return `${selected ? liveComponentTemplate(selected, selectedView, selectedElement, state, componentView) : ""}${componentView === "elements" && selectedElement ? liveSelectedChainSettingsTemplate(selectedElement, selected.id, state) : ""}`
-    || panelTemplate("tune", scene.name, emptyNote("No components"));
+    || panelTemplate("tune", selected.name, emptyNote("No controls"));
 }
 
 export function liveComponentPillTemplate(component, state) {
@@ -276,7 +293,7 @@ function liveComponentControlsTemplate(component, view, state = {}) {
     media: state.media || [],
   }) : "";
   return `
-    <div class="live-component-controls" data-scroll-region data-scroll-key="live-controls:${esc(component.id)}">
+    <div class="live-component-controls inspector-control-surface" data-scroll-region data-scroll-key="live-controls:${esc(component.id)}">
       ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
       <div class="live-component-transform-controls">
         <span class="live-control-group-label">Component placement</span>
@@ -481,7 +498,7 @@ function sceneFingerprintSources(scene, state) {
   const byId = new Map(sources.map((source) => [source.id, source]));
   const selected = [];
   const seen = new Set();
-  for (const route of scene?.snapshot?.surfaces || []) {
+  for (const route of scene?.surfaces || []) {
     if (route.enabled === false) continue;
     const source = byId.get(route.sourceNodeId) || sources.find((candidate) =>
       candidate.componentId === route.componentId &&
@@ -495,30 +512,38 @@ function sceneFingerprintSources(scene, state) {
 }
 
 function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {}) {
+  const sceneId = state.ui?.live?.selectedSceneId || state.components.find((item) => item.type === "scene")?.id || "";
+  const scene = state.components.find((item) => item.type === "scene" && item.id === sceneId) || null;
+  const frameSources = (state.frames || []).map((frame) => ({
+    id: frame.id,
+    type: "recording-frame",
+    name: frame.name || "Frame",
+    thumbnail: scene?.scene?.frameThumbnails?.[frame.id] || scene?.thumbnail || "",
+    frameId: frame.id,
+  }));
   const options = [
-    { id: "", type: "empty", name: "Empty", thumbnail: "", componentId: "", outputFrameId: "" },
-    ...(catalog.sources || sceneSourceNodes(state)),
+    { id: "", type: "empty", name: "Empty", thumbnail: "", frameId: "" },
+    ...frameSources,
   ];
-  const selectedNode = options.find((node) => node.id === route.sourceNodeId) || options[0];
+  const selectedNode = options.find((node) => node.frameId === (route.frameSlotId || route.outputFrameId))
+    || options[0];
   return `
     <div class="field component-assignment-field" data-component-filter-scope>
-      <span>Component</span>
-      <div class="component-card assignment-selected-card is-selected" data-selected-route-source="${esc(selectedNode.id)}" aria-label="Selected component: ${esc(selectedNode.name)}">
+      <span>Frame</span>
+      <div class="component-card assignment-selected-card is-selected" data-selected-route-source="${esc(selectedNode.id)}" aria-label="Selected frame: ${esc(selectedNode.name)}">
         ${thumbnailTemplate(selectedNode.thumbnail, selectedNode.type === "empty" ? "hide_image" : selectedNode.type === "recording-frame" ? "select_all" : "account_tree")}
         ${componentCardBarTemplate(selectedNode.name)}
-        ${deepEditButtonTemplate(selectedNode.componentId, { className: "component-card-edit", label: `Edit ${selectedNode.name}` })}
       </div>
-      ${componentCatalogToolsTemplate("source", catalog.sortMode || "recent", "Filter sources")}
+      ${componentCatalogToolsTemplate("source", catalog.sortMode || "recent", "Filter frames")}
       <div class="component-card-list assignment-card-list" data-scroll-region data-scroll-key="surface-sources:${esc(routeBase)}">
         ${options.map((node) => {
-          const selected = node.id === route.sourceNodeId;
+          const selected = node.id === selectedNode.id;
           return `
-            <div class="component-card-row ${node.componentId ? "has-catalog-marker" : ""}" data-component-filter-card="${esc(node.name.toLowerCase())}">
-              <button type="button" class="component-card assignment-card ${selected ? "is-selected" : ""}" data-set-route-source-node="${esc(node.id)}" data-route-base="${esc(routeBase)}">
+            <div class="component-card-row" data-component-filter-card="${esc(node.name.toLowerCase())}">
+              <button type="button" class="component-card assignment-card ${selected ? "is-selected" : ""}" data-set-route-frame-id="${esc(node.frameId)}" data-route-base="${esc(routeBase)}">
                 ${thumbnailTemplate(node.thumbnail, node.type === "empty" ? "hide_image" : node.type === "recording-frame" ? "select_all" : "account_tree")}
                 ${componentCardBarTemplate(node.name)}
               </button>
-              ${node.componentId ? catalogMarkerButtonTemplate({ ...node, id: node.componentId }, "component") : ""}
             </div>
           `;
         }).join("")}
@@ -528,9 +553,11 @@ function componentAssignmentTemplate(routeBase, state, route = {}, catalog = {})
 }
 
 function pathForSurface(state, surface) {
-  return `surfaces.${state.surfaces.findIndex((item) => item.id === surface.id)}`;
+  const mappingIndex = state.mappings.findIndex((item) => item.id === state.ui.selectedMappingId);
+  const surfaceIndex = state.mappings[mappingIndex]?.surfaces?.findIndex((item) => item.id === surface.id) ?? -1;
+  return `mappings.${mappingIndex}.surfaces.${surfaceIndex}`;
 }
 
-function pathForScene(state, scene) {
-  return `scenes.${state.scenes.findIndex((item) => item.id === scene.id)}`;
+function pathForMapping(state, mapping) {
+  return `mappings.${state.mappings.findIndex((item) => item.id === mapping.id)}`;
 }

@@ -12,7 +12,7 @@ test("parameter views tolerate a file-backed node while its definition is pendin
 test("parameter view owns reusable inspector controls outside the controller", () => {
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const componentView = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const sceneLiveView = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const sceneLiveView = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   const range = paramControlTemplate({ id: "gain", label: "Gain", type: "number", min: 0, max: 2, step: 0.1 }, "params.gain", 1);
   const controls = paramControlsTemplate([
     { id: "seed", label: "Seed", type: "number", min: 0, max: 1, defaultValue: 0 },

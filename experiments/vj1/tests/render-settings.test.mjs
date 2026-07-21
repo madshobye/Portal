@@ -9,7 +9,7 @@ import {
   normalizeRenderSettings,
   normalizeScreenCaptureSettings,
   renderMaxFrameRate,
-  scaleRecordingFramesToCanvasSize,
+  scaleFramesToSceneSize,
 } from "../js/domain/render-settings.js";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../js/domain/render-phase-policy.js";
 
@@ -25,12 +25,12 @@ test("render settings normalize independently from the aggregate domain model", 
   assert.equal(Object.hasOwn(render, "worldWidth"), false);
   assert.equal(render.pixelDensity, 2);
   assert.equal(render.maxFrameRate, 120);
-  assert.equal(render.canvasAspectRatio, 16 / 9);
+  assert.equal(render.sceneAspectRatio, 16 / 9);
   assert.equal(render.componentAspectRatio, 4 / 3);
-  assert.equal(normalizeRenderSettings({ canvasAspectRatio: 2 }).canvasAspectRatio, 2);
+  assert.equal(normalizeRenderSettings({ sceneAspectRatio: 2 }).sceneAspectRatio, 2);
   assert.equal(renderMaxFrameRate({ maxFrameRate: 48 }), 48);
   assert.equal(renderMaxFrameRate({ maxFrameRate: 500 }), 120);
-  assert.deepEqual(normalizePreviewViewport({ fit: "invalid", zoom: 20 }), { fit: "frame", zoom: 6, x: 0, y: 0 });
+  assert.deepEqual(normalizePreviewViewport({ fit: "invalid", zoom: 20 }), { fit: "world", zoom: 6, x: 0, y: 0 });
 });
 
 test("screen capture settings preserve native dimensions and normalize browser hints", () => {
@@ -59,11 +59,15 @@ test("screen capture settings preserve native dimensions and normalize browser h
 });
 
 test("preview viewport normalization accepts only the canonical per-workspace map", () => {
-  const viewports = normalizePreviewViewports({ canvas: { fit: "manual", zoom: 2, x: 30, y: -10 } });
-  assert.deepEqual(viewports.canvas, { fit: "manual", zoom: 2, x: 30, y: -10 });
-  assert.deepEqual(viewports.component, { fit: "frame", zoom: 1, x: 0, y: 0 });
-  assert.deepEqual(viewports.scene, { fit: "frame", zoom: 1, x: 0, y: 0 });
-  assert.deepEqual(viewports.live, { fit: "frame", zoom: 1, x: 0, y: 0 });
+  const viewports = normalizePreviewViewports({
+    canvas: { fit: "manual", zoom: 3, x: 99, y: 99 },
+    mapping: { fit: "manual", zoom: 2, x: 30, y: -10 },
+  });
+  assert.equal(viewports.canvas, undefined);
+  assert.deepEqual(viewports.component, { fit: "world", zoom: 1, x: 0, y: 0 });
+  assert.deepEqual(viewports.scene, { fit: "world", zoom: 1, x: 0, y: 0 });
+  assert.deepEqual(viewports.mapping, { fit: "manual", zoom: 2, x: 30, y: -10 });
+  assert.deepEqual(viewports.live, { fit: "world", zoom: 1, x: 0, y: 0 });
 });
 
 test("the duplicate embedded preview can occupy the opposite output render phase", () => {
@@ -85,7 +89,7 @@ test("models remains a compatibility facade for render settings", () => {
 test("relative recording frames need no rewrite when the Canvas proportion changes", () => {
   const frames = [{ id: "frame", x: 0.1, y: 0.1, width: 0.4, height: 0.4 }];
   assert.deepEqual(
-    scaleRecordingFramesToCanvasSize(frames, { aspectRatio: 2 }, { aspectRatio: 1 }),
+    scaleFramesToSceneSize(frames, { aspectRatio: 2 }, { aspectRatio: 1 }),
     frames,
   );
 });

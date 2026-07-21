@@ -11,7 +11,7 @@ import {
   scaledComponentSampleRect,
 } from "./component-render-layout.js?v=canvas-global-resolution-1";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=async-frame-fanout-1";
+import { planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=preview-visible-demand-1";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
@@ -55,10 +55,10 @@ export class OutputSurfaceRuntime {
     const transition = this.currentLiveTransition();
     if (transition) return this.renderTransitionSurfaces(transition);
     this.releaseTransitionSurfaceTextures();
-    this.renderSingleSceneSurfaces();
+    this.renderMappingSurfaces();
   }
 
-  renderSingleSceneSurfaces() {
+  renderMappingSurfaces() {
     const renderer = this.renderer;
     const outputBlackout = renderer.isOutputBlackout();
     const routes = this.buildSurfaceRenderPlan();
@@ -140,7 +140,14 @@ export class OutputSurfaceRuntime {
     const componentsShared = transition.componentsShared === true;
     renderer.componentOutput.clear();
     const fromRoutes = this.withRenderState(transition.fromState, () =>
-      this.withSurfaceRenderIdentityPrefix(componentsShared ? "" : "transition-from:", () => this.buildSurfaceRenderPlan())
+      this.withSurfaceRenderIdentityPrefix(componentsShared ? "" : "transition-from:", () =>
+        // Mapping programs belong to the current render state. The temporary
+        // transition state has its own resolved Scene route; using the current
+        // compiled surfaces here made the from-side sample the target Scene.
+        // Passing its already-normalized surfaces avoids both that alias and
+        // recompiling the Mapping graph on every transition frame.
+        this.buildSurfaceRenderPlan(transition.fromState?.surfaces || [])
+      )
     );
     const toRoutes = this.withSurfaceRenderIdentityPrefix(
       componentsShared ? "" : "transition-to:",
@@ -272,25 +279,40 @@ export class OutputSurfaceRuntime {
     }
   }
 
-  buildSurfaceRenderPlan() {
+  buildSurfaceRenderPlan(surfaceProgram = null) {
     const renderer = this.renderer;
+    const render = renderer.state?.render || {};
+    const viewport = renderer.displayCanvasSize(render);
+    const previewTransform = renderer.previewViewportTransform(render);
+    const transformDemandCorners = (corners = []) => corners.map((corner) => ({
+      x: viewport.width * 0.5 + ((Number(corner?.x) || 0) - viewport.width * 0.5) * previewTransform.zoom + previewTransform.x,
+      y: viewport.height * 0.5 + ((Number(corner?.y) || 0) - viewport.height * 0.5) * previewTransform.zoom + previewTransform.y,
+    }));
     const { routes, metrics } = planSurfaceRoutes({
       state: renderer.state,
       mapperSurfaces: renderer.mapperSurfaces,
       componentById: renderer.componentById,
       recordingFrameById: renderer.recordingFrameById,
-      viewport: renderer.displayCanvasSize(renderer.state?.render || {}),
-      pixelScale: renderer.renderPixelDensity(renderer.state?.render || {}),
+      viewport,
+      pixelScale: renderer.renderPixelDensity(render),
+      transformDemandCorners,
+      // Standalone Output retains its established full projection request.
+      // Embedded previews can safely exclude the part clipped by their fixed
+      // p5 canvas after the final viewport transform.
+      preserveDirectFootprint: renderer.mode === "output",
       renderIdentityPrefix: this.renderIdentityPrefix,
-      surfaceProgram: renderer.sceneProgramSurfaces(renderer.state),
+      surfaceProgram: surfaceProgram || renderer.mappingProgramSurfaces(renderer.state),
       resolveRouteSourceNode: (surface) => renderer.resolveRouteSourceNode(surface),
-      isComponentRegionSafe: (component) => renderer.canvasComponentRegionSafe?.(component) === true,
-      isComponentFrameFanoutSafe: (component) => renderer.canvasComponentFrameFanoutSafe?.(component) !== false,
+      isComponentRegionSafe: (component) => renderer.sceneComponentRegionSafe?.(component) === true,
+      isComponentFrameFanoutSafe: (component) => renderer.sceneComponentFrameFanoutSafe?.(component) !== false,
     });
     renderer.frameProfile.surfaceRouteCandidates += metrics.candidates;
     renderer.frameProfile.surfaceRoutesCulled += metrics.culled;
     renderer.frameProfile.surfaceRoutesVisible += metrics.visible;
     renderer.frameProfile.componentRasterPixels += metrics.componentRasterPixels;
+    for (const route of routes) {
+      renderer.recordPresentedRenderRequest(route.componentRequest || route.surfaceRequest);
+    }
     return routes;
   }
 
@@ -356,7 +378,13 @@ export class OutputSurfaceRuntime {
     try {
       applyBlendGlobal(surfaceRouteBlend(route));
       if (mapped.direct && Number(surface.feather) <= 0) this.drawDirectSurfaceView(view, route, opacity);
-      else renderer.mapper.drawTexture(view.texture, mapped.mapperSurface, surface.projectionFit, surface.feather, { sourceRect: view.sourceRect, opacity });
+      else renderer.mapper.drawTexture(view.texture, mapped.mapperSurface, surface.projectionFit, surface.feather, {
+        sourceRect: view.sourceRect,
+        opacity,
+        frameFitActive: surface.frameFitActive,
+        frameFit: surface.frameFit,
+        frameAspect: surface.frameAspect,
+      });
     } finally {
       blendMode(BLEND);
       pop();
@@ -373,7 +401,13 @@ export class OutputSurfaceRuntime {
         surface: route.mapped.mapperSurface,
         projectionFit: route.surface.projectionFit,
         feather: route.surface.feather,
-        options: { sourceRect: view.sourceRect, opacity: surfaceRouteOpacity(route) },
+        options: {
+          sourceRect: view.sourceRect,
+          opacity: surfaceRouteOpacity(route),
+          frameFitActive: route.surface.frameFitActive,
+          frameFit: route.surface.frameFit,
+          frameAspect: route.surface.frameAspect,
+        },
       })));
     } finally {
       blendMode(BLEND);
@@ -398,7 +432,15 @@ export class OutputSurfaceRuntime {
       mapperSurface,
       route.surface?.projectionFit || "contain",
       0,
-      { sourceRect, opacity }
+      {
+        sourceRect,
+        opacity,
+        ...(route.surface?.frameFitActive ? {
+          frameFitActive: true,
+          frameFit: route.surface.frameFit,
+          frameAspect: route.surface.frameAspect,
+        } : {}),
+      }
     );
   }
 
@@ -418,7 +460,13 @@ export class OutputSurfaceRuntime {
     applyBlend(target, "normal");
     target.tint(255, 255 * clamp01(compositeOpacity));
     const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, source);
-    drawTransformedSampleRect(target, source, sampleRect, component?.transform);
+    drawTransformedSampleRect(
+      target,
+      source,
+      sampleRect,
+      component?.transform,
+      surface.frameFitActive ? surface.frameFit : "stretch"
+    );
     target.noTint();
     target.blendMode(BLEND);
     target.pop();
@@ -438,7 +486,13 @@ export class OutputSurfaceRuntime {
     target.tint(255, 255 * clamp01(compositeOpacity));
     if (thumbnail?.ready && thumbnail.img) {
       const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, thumbnail.img);
-      drawTransformedSampleRect(target, thumbnail.img, sampleRect, component?.transform);
+      drawTransformedSampleRect(
+        target,
+        thumbnail.img,
+        sampleRect,
+        component?.transform,
+        surface.frameFitActive ? surface.frameFit : "stretch"
+      );
     } else {
       const isLoading = !!component?.thumbnail;
       drawStandby(target, isLoading ? "loading thumbnail" : "no thumbnail", {
@@ -453,15 +507,44 @@ export class OutputSurfaceRuntime {
   }
 }
 
-function drawTransformedSampleRect(target, source, sampleRect, transform = {}) {
+function drawTransformedSampleRect(target, source, sampleRect, transform = {}, fit = "stretch") {
   const value = normalizedContentTransform(transform);
   const placement = contentTransformCanvasPlacement(value, target.width, target.height);
+  const fitted = fittedSampleRect(sampleRect, target.width, target.height, fit);
   target.push();
   target.translate(placement.centerX, placement.centerY);
   target.rotate(value.rotation);
   target.scale(value.scale);
-  drawSampleRect(target, source, sampleRect, -target.width * 0.5, -target.height * 0.5, target.width, target.height);
+  drawSampleRect(target, source, fitted.source,
+    fitted.x - target.width * 0.5,
+    fitted.y - target.height * 0.5,
+    fitted.width,
+    fitted.height);
   target.pop();
+}
+
+function fittedSampleRect(source = {}, targetWidth = 1, targetHeight = 1, fit = "stretch") {
+  const tw = Math.max(1, Number(targetWidth) || 1);
+  const th = Math.max(1, Number(targetHeight) || 1);
+  const sw = Math.max(1, Number(source.width) || 1);
+  const sh = Math.max(1, Number(source.height) || 1);
+  if (fit === "contain") {
+    const scale = Math.min(tw / sw, th / sh);
+    const width = sw * scale;
+    const height = sh * scale;
+    return { source, x: (tw - width) * 0.5, y: (th - height) * 0.5, width, height };
+  }
+  if (fit === "cover") {
+    const targetAspect = tw / th;
+    const sourceAspect = sw / sh;
+    if (sourceAspect > targetAspect) {
+      const width = sh * targetAspect;
+      return { source: { ...source, x: source.x + (sw - width) * 0.5, width }, x: 0, y: 0, width: tw, height: th };
+    }
+    const height = sw / targetAspect;
+    return { source: { ...source, y: source.y + (sh - height) * 0.5, height }, x: 0, y: 0, width: tw, height: th };
+  }
+  return { source, x: 0, y: 0, width: tw, height: th };
 }
 
 function disposeGraphicsMap(map) {

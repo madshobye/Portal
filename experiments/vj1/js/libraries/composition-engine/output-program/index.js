@@ -4,7 +4,7 @@ export const OutputProgramNode = defineNodeGroup({
   id: "core.composition.output-program",
   name: "Output Program",
   version: "0.1.0",
-  description: "Combines active Scene routes, projection mapping, and final output composition.",
+  description: "Combines active Mapping routes, projection geometry, and final output composition.",
   inlets: { scene: { type: "any", required: true } },
   outlets: { output: { type: "texture", optional: true } },
   execution: { trigger: "frame", domain: "main", stateful: true },

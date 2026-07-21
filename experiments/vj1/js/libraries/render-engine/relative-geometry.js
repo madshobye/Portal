@@ -11,6 +11,21 @@ export function normalizeAspectRatio(value, fallback = DEFAULT_ASPECT_RATIO) {
     : safeFallback;
 }
 
+// A projected quadrilateral has no single exact aspect once it becomes a
+// trapezoid. Averaging opposing edges gives Frames one stable, natural
+// proportion without letting the longest perspective edge dominate.
+export function projectedQuadAspect(corners = [], fallback = 1) {
+  const safeFallback = Math.max(0.0001, Number(fallback) || 1);
+  if (!Array.isArray(corners) || corners.length !== 4) return safeFallback;
+  const valid = (point) => point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y));
+  if (!corners.every(valid)) return safeFallback;
+  const distance = (a, b) => Math.hypot(Number(a.x) - Number(b.x), Number(a.y) - Number(b.y));
+  const [tl, tr, br, bl] = corners;
+  const width = (distance(tl, tr) + distance(bl, br)) * 0.5;
+  const height = (distance(tl, bl) + distance(tr, br)) * 0.5;
+  return width > 0 && height > 0 ? Math.max(0.0001, width / height) : safeFallback;
+}
+
 // Authored geometry is resolution-independent. This aspect-aware composition
 // space is only an internal mathematical basis: it is never a requested GPU
 // resolution and is never exposed as project width/height settings.

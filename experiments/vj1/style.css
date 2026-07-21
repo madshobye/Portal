@@ -431,6 +431,11 @@ small {
   gap: 8px;
 }
 
+.workspace-tool-switch {
+  flex: 0 0 auto;
+  margin: 0 8px 0 4px;
+}
+
 .output-menu {
   position: relative;
 }
@@ -986,14 +991,14 @@ small {
   overflow: auto;
 }
 
-.project-rail:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="scene"], [data-workspace="nodes"], [data-workspace="live"]) {
+.project-rail:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="mapping"], [data-workspace="nodes"], [data-workspace="live"]) {
   display: flex;
   flex-direction: column;
   align-content: initial;
   overflow: hidden;
 }
 
-.project-rail:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="scene"], [data-workspace="nodes"], [data-workspace="live"]) > .rail-list-section {
+.project-rail:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="mapping"], [data-workspace="nodes"], [data-workspace="live"]) > .rail-list-section {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
@@ -1003,11 +1008,11 @@ small {
   flex-grow: 0.6;
 }
 
-.project-rail[data-workspace="scene"] > .scene-surface-rail-section {
+.project-rail[data-workspace="mapping"] > .mapping-surface-rail-section {
   flex-grow: 0.6;
 }
 
-.project-rail[data-workspace="canvas"] > .canvas-frame-rail-section {
+.project-rail[data-workspace="scene"] > .scene-frame-rail-section {
   flex-grow: 0.6;
 }
 
@@ -1971,7 +1976,14 @@ button.text-list-main:hover {
 
 .embedded-preview-stage canvas {
   display: block;
+  border: 0;
   transform-origin: center center;
+}
+
+/* Dormant companion styling for drawPreviewGeometryDiagnostics(). */
+.embedded-preview-stage canvas.is-geometry-diagnostic {
+  box-sizing: border-box;
+  border: 2px solid #ff4fa3;
 }
 
 .preview-tools {
@@ -2041,6 +2053,28 @@ button.text-list-main:hover {
   white-space: nowrap;
   pointer-events: none;
   font-variant-numeric: tabular-nums;
+}
+
+.preview-fps.is-diagnostic {
+  position: absolute;
+  right: 0;
+  bottom: 38px;
+  display: grid;
+  width: max-content;
+  min-width: 390px;
+  max-width: min(620px, calc(100vw - 32px));
+  padding: 8px 10px;
+  justify-items: stretch;
+  gap: 4px;
+  line-height: 1.25;
+  text-align: left;
+  white-space: normal;
+}
+
+.preview-debug-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
 }
 
 .mapping-stage {
@@ -2306,40 +2340,60 @@ button.text-list-main:hover {
   scrollbar-width: thin;
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) {
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="live"]) {
   display: flex;
   flex-direction: column;
   align-content: initial;
   overflow: hidden;
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) > .focus-panel {
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="live"]) > .focus-panel {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"]) > .focus-panel:first-child {
+/* Frame routing is a compact property editor, not a second full-height chain
+   workspace. Keep its controls at their natural height so selecting a Frame
+   does not stretch the header and fields across half the inspector. */
+.studio-inspector[data-workspace="scene"] > .scene-frame-panel {
+  flex: 0 0 auto;
+  grid-template-rows: auto auto;
+  overflow: visible;
+}
+
+.studio-inspector[data-workspace="scene"] > .scene-frame-panel > .scene-frame-inspector {
+  gap: 9px;
+}
+
+.mapping-text-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 6px;
+}
+
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"]) > .focus-panel:first-child {
   grid-template-rows: auto minmax(0, 1fr);
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"]) > .focus-panel:first-child > .sculpt-card {
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"]) > .focus-panel:first-child > .sculpt-card {
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"]) .chain-column,
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"]) .chain-list-section {
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"]) .chain-column,
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"]) .chain-list-section {
   min-height: 0;
   overflow: hidden;
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"]) .chain-list-section {
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"]) .chain-list-section {
   grid-template-rows: minmax(0, 1fr) auto;
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"]) .component-chain-list,
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"]) .component-chain-list,
 .studio-inspector[data-workspace="live"] .live-component-controls,
 .studio-inspector[data-workspace="live"] .live-chain-outline {
   min-height: 0;
@@ -2352,7 +2406,7 @@ button.text-list-main:hover {
   scrollbar-width: thin;
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) > .chain-settings-panel {
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="live"]) > .chain-settings-panel {
   min-height: 0;
   overflow: hidden;
 }
@@ -2666,18 +2720,18 @@ button.text-list-main:hover {
 
 /* Paired range controls keep their specialized two-handle layout. Ordinary
    sliders use only the shared .range-field module above in every workspace. */
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) .param-range-pair {
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="live"]) .param-range-pair {
   grid-template-columns: minmax(0, 1fr);
   align-items: center;
   column-gap: 10px;
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) .param-range-labels {
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="live"]) .param-range-labels {
   min-width: 0;
   overflow: hidden;
 }
 
-.studio-inspector:is([data-workspace="component"], [data-workspace="canvas"], [data-workspace="live"]) .param-range-labels > span:first-child {
+.studio-inspector:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="live"]) .param-range-labels > span:first-child {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2998,7 +3052,8 @@ button.text-list-main:hover {
   gap: 9px;
 }
 
-.chain-list-section {
+.chain-list-section,
+.inspector-control-surface {
   display: grid;
   gap: 6px;
   padding: var(--section-inset);

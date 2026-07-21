@@ -6,7 +6,7 @@ import {
   createComponentLayer,
   createDefaultComponent,
   createInitialState,
-  createSceneFromState,
+  createMappingFromState,
   sceneSourceNodeId,
 } from "../js/domain/models.js?v=world-frame-27";
 
@@ -27,7 +27,7 @@ test("analyzes component graph shape and missing media", () => {
   state.surfaces[0].componentId = component.id;
   state.surfaces[0].sourceNodeId = sceneSourceNodeId(component.id);
   state.surfaces[1].enabled = false;
-  state.scenes = [createSceneFromState(state, "Scene 1")];
+  state.mappings = [createMappingFromState(state, "Scene 1")];
 
   const metrics = analyzeVj1Project(state);
   assert.equal(metrics.aggregate.componentCount, 1);
@@ -45,7 +45,7 @@ test("analyzes component graph shape and missing media", () => {
 test("flags mapping problems against active surfaces", () => {
   const state = createInitialState();
   state.surfaces[0].componentId = state.components[0].id;
-  state.mappings.local = {
+  state.mappingCalibration = {
     surfaces: [{
       id: state.surfaces[0].id,
       name: state.surfaces[0].id,
@@ -57,6 +57,7 @@ test("flags mapping problems against active surfaces", () => {
       ],
     }],
   };
+  state.mappings[0].calibration = structuredClone(state.mappingCalibration);
 
   const metrics = analyzeVj1Project(state);
   assert.equal(metrics.mapping.degenerateSurfaceCount, 1);

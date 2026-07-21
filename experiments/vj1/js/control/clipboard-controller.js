@@ -62,10 +62,10 @@ export function createClipboardController({ root, store, getState, getInspector,
     const componentButton = element.closest("[data-select-component]");
     if (componentButton) {
       const component = state.components.find((item) => item.id === componentButton.dataset.selectComponent);
-      return { kind: component?.type === "canvas" ? "canvas-list" : "component-list", itemId: component?.id || "" };
+      return { kind: component?.type === "scene" ? "scene-list" : "component-list", itemId: component?.id || "" };
     }
-    const sceneButton = element.closest("[data-select-scene]");
-    if (sceneButton) return { kind: "scene-list", itemId: sceneButton.dataset.selectScene };
+    const mappingButton = element.closest("[data-select-mapping]");
+    if (mappingButton) return { kind: "mapping-list", itemId: mappingButton.dataset.selectMapping };
     const surfaceButton = element.closest("[data-select-surface]");
     if (surfaceButton) return { kind: "surface-list", itemId: surfaceButton.dataset.selectSurface };
     const mediaButton = element.closest("[data-pick-source-media], [data-add-element-media]");
@@ -78,7 +78,7 @@ export function createClipboardController({ root, store, getState, getInspector,
     const chainList = element.closest("[data-chain-reorder-list]");
     if (chainList) return chainPasteTarget(state, chainList.dataset.componentId, state.ui.selectedChainItemId);
     if (element.closest(".studio-stage") || getInspector()?.contains?.(element)) {
-      if (state.ui.workspace === "component" || state.ui.workspace === "canvas") {
+      if (state.ui.workspace === "component" || state.ui.workspace === "scene") {
         return state.ui.selectedChainItemId
           ? { kind: "chain-item", componentId: state.ui.selectedComponentId, itemId: state.ui.selectedChainItemId }
           : chainPasteTarget(state, state.ui.selectedComponentId, "");
@@ -135,8 +135,8 @@ export function createClipboardController({ root, store, getState, getInspector,
     const before = clipboardPayloadForTarget(store.getState(), value);
     if (!before) return false;
     if (value.kind === "chain-item") store.removeChainItem?.(value.componentId, value.itemId);
-    else if (value.kind === "component-list" || value.kind === "canvas-list") store.removeComponent?.(value.itemId);
-    else if (value.kind === "scene-list") store.deleteScene?.(value.itemId);
+    else if (value.kind === "component-list" || value.kind === "scene-list") store.removeComponent?.(value.itemId);
+    else if (value.kind === "mapping-list") store.deleteMapping?.(value.itemId);
     else if (value.kind === "surface-list") store.removeSurface?.(value.itemId);
     else return false;
     const state = store.getState();
@@ -229,11 +229,11 @@ function targetAfterDelete(state, target) {
       ? { kind: "chain-item", componentId: target.componentId, itemId: state.ui.selectedChainItemId }
       : { kind: "chain", componentId: target.componentId, itemId: "" };
   }
-  if (target.kind === "component-list" || target.kind === "canvas-list") {
+  if (target.kind === "component-list" || target.kind === "scene-list") {
     const component = state.components.find((item) => item.id === state.ui.selectedComponentId);
-    return component ? { kind: component.type === "canvas" ? "canvas-list" : "component-list", itemId: component.id } : target;
+    return component ? { kind: component.type === "scene" ? "scene-list" : "component-list", itemId: component.id } : target;
   }
-  if (target.kind === "scene-list") return { kind: "scene-list", itemId: state.ui.selectedSceneId || "" };
+  if (target.kind === "mapping-list") return { kind: "mapping-list", itemId: state.ui.selectedMappingId || "" };
   if (target.kind === "surface-list") return { kind: "surface-list", itemId: state.ui.selectedSurfaceId || "" };
   return target;
 }
@@ -244,9 +244,9 @@ function targetAfterPaste(state, result, previous) {
     : { kind: "chain-item", componentId: previous.componentId || previous.itemId || "", itemId: result.id };
   if (result.kind === "component") {
     const component = state.components.find((item) => item.id === result.id);
-    return { kind: component?.type === "canvas" ? "canvas-list" : "component-list", itemId: result.id };
+    return { kind: component?.type === "scene" ? "scene-list" : "component-list", itemId: result.id };
   }
-  if (result.kind === "scene") return { kind: "scene-list", itemId: result.id };
+  if (result.kind === "mapping") return { kind: "mapping-list", itemId: result.id };
   if (result.kind === "surface") return { kind: "surface-list", itemId: result.id };
   return previous;
 }
@@ -279,8 +279,8 @@ function imageExtension(type = "") {
 }
 
 function pasteFailureMessage(reason = "") {
-  if (reason === "components-only-in-canvas") return "Component references can only be pasted into a Canvas";
-  if (reason === "wrong-list") return "Paste into the matching Component or Canvas list";
-  if (reason === "library-only") return "Media kept in the library; click a Component or Canvas preview to add it";
+  if (reason === "components-only-in-canvas") return "Component references can only be pasted into a Scene";
+  if (reason === "wrong-list") return "Paste into the matching Component or Scene list";
+  if (reason === "library-only") return "Media kept in the library; click a Component or Scene preview to add it";
   return "This item cannot be pasted at the current target";
 }

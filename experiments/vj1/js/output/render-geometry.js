@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameSize } from "../domain/render-settings.js";
-import { normalizeAspectRatio } from "../libraries/render-engine/relative-geometry.js";
+import { compositionLogicalSize, normalizeAspectRatio } from "../libraries/render-engine/relative-geometry.js";
 
 export const SURFACE_DEMAND_OVERSCAN = 1;
 export const RECORDING_FRAME_DEMAND_SCALE = 1;
@@ -28,6 +28,28 @@ export function frameSize(render = {}, outputId = "") {
 
 export function worldSize(render = {}) {
   return hostViewportSize(render);
+}
+
+// Projection corners need one aspect-stable mathematical world. The browser
+// host remains the raster authority, but it must never become the geometry
+// authority: changing a popup from tall to wide may crop this world, not
+// stretch its X and Y axes independently.
+export function mappingWorldAspectRatio(render = {}) {
+  const outputs = outputDefinitions(render);
+  return normalizeAspectRatio(outputs.reduce((sum, output) => sum + output.aspectRatio, 0));
+}
+
+export function mappingWorldRender(render = {}) {
+  const size = compositionLogicalSize(mappingWorldAspectRatio(render));
+  return {
+    ...render,
+    hostViewport: {
+      width: size.width,
+      height: size.height,
+      mode: "preview",
+      outputId: "",
+    },
+  };
 }
 
 export function frameRenderRequest(render = {}, meta = {}) {
@@ -167,7 +189,7 @@ export function sourceRenderDemand({
   const maxSurfaceWidth = Math.max(1, Number(maxSurfaceSize.width) || rect.width);
   const maxSurfaceHeight = Math.max(1, Number(maxSurfaceSize.height) || rect.height);
   // A recording-frame region can render directly at its mapped footprint.
-  // Do not derive that target from the shared full-Canvas request: a small
+  // Do not derive that target from the shared full-Scene request: a small
   // frame would otherwise retain only its tiny share of those pixels and be
   // enlarged into a visibly soft full-screen surface.
   const regionalScale = Math.max(
@@ -230,6 +252,20 @@ export function outputSpanRect(render = {}, outputIds = []) {
   const right = Math.max(...frames.map((frame) => frame.x + frame.width));
   const bottom = Math.max(...frames.map((frame) => frame.y + frame.height));
   return { x: left, y: top, width: Math.max(1, right - left), height: Math.max(1, bottom - top) };
+}
+
+export function outputSpanFitScale(render = {}) {
+  const frames = outputFrames(render);
+  if (!frames.length) return 1;
+  const left = Math.min(...frames.map((frame) => frame.x));
+  const top = Math.min(...frames.map((frame) => frame.y));
+  const right = Math.max(...frames.map((frame) => frame.x + frame.width));
+  const bottom = Math.max(...frames.map((frame) => frame.y + frame.height));
+  const world = worldSize(render);
+  return Math.max(0.1, Math.min(8,
+    world.width / Math.max(1, right - left),
+    world.height / Math.max(1, bottom - top)
+  ));
 }
 
 export function defaultProjectSurfaceMapping(render = {}, surfaces = []) {

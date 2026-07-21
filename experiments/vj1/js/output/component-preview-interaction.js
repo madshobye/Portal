@@ -1,14 +1,14 @@
-import { canvasFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
+import { sceneFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
-  canvasFrameBorderHit,
-  canvasRectCorners,
+  sceneFrameBorderHit,
+  sceneFrameRectCorners,
   componentReferencePlacement,
   distanceSquared,
-  moveCanvasFrameRect,
-  resizeCanvasFrameRect,
-} from "./component-render-layout.js?v=canvas-global-resolution-1";
+  moveSceneFrameRect,
+  resizeSceneFrameRect,
+} from "./component-render-layout.js?v=frame-projection-aspect-1";
 import {
   combineContentTransforms,
   findChainItemById,
@@ -31,18 +31,18 @@ export class ComponentPreviewInteraction {
   constructor(renderer) {
     this.renderer = renderer;
     this.chainTransformDrag = null;
-    this.canvasFrameDrag = null;
+    this.sceneFrameDrag = null;
     this.pendingChainTransform = null;
     this.pendingChainBoundary = null;
-    this.pendingCanvasFrame = null;
+    this.pendingSceneFrame = null;
   }
 
   dispose() {
     this.chainTransformDrag = null;
-    this.canvasFrameDrag = null;
+    this.sceneFrameDrag = null;
     this.pendingChainTransform = null;
     this.pendingChainBoundary = null;
-    this.pendingCanvasFrame = null;
+    this.pendingSceneFrame = null;
   }
 
   renderComponentFrameOverlay(component, source = null) {
@@ -65,33 +65,36 @@ export class ComponentPreviewInteraction {
     pop();
   }
 
-  renderCanvasRecordingFrames(component, source = null) {
-    if (this.renderer.mode !== "component" || component?.type !== "canvas") return;
+  renderSceneFrames(component, source = null) {
+    if (this.renderer.mode !== "component" || component?.type !== "scene") return;
     resetShader();
     push();
     noFill();
-    stroke(255, 228, 94, 235);
     const uiScale = this.uiPixelScale();
-    strokeWeight(2 * uiScale);
     rectMode(CORNER);
-    for (const item of this.canvasRecordingFrameRects(component, source)) {
+    for (const item of this.sceneFrameRects(component, source)) {
+      noFill();
+      const selected = String(item.frame.id || "") === String(this.renderer.state?.ui?.selectedFrameId || "")
+        || String(item.frame.id || "") === String(this.sceneFrameDrag?.frameId || "");
+      stroke(255, 228, 94, selected ? 235 : 72);
+      strokeWeight((selected ? 2 : 1) * uiScale);
       rect(item.x - width * 0.5, item.y - height * 0.5, item.width, item.height);
+      if (!selected || item.frame.locked) continue;
       noStroke();
       fill(255, 228, 94, 245);
-      for (const corner of canvasRectCorners(item)) {
-        rect(corner.x - width * 0.5 - 5 * uiScale, corner.y - height * 0.5 - 5 * uiScale, 10 * uiScale, 10 * uiScale);
+      for (const corner of sceneFrameRectCorners(item)) {
+        rect(corner.x - width * 0.5 - 6 * uiScale, corner.y - height * 0.5 - 6 * uiScale, 12 * uiScale, 12 * uiScale);
       }
       noFill();
-      stroke(255, 228, 94, 235);
     }
     pop();
   }
 
-  canvasRecordingFrameRects(component, source = null) {
-    if (component?.type !== "canvas") return [];
+  sceneFrameRects(component, source = null) {
+    if (component?.type !== "scene") return [];
     const renderer = this.renderer;
     const preview = renderer.componentPreviewRect(component, source);
-    return (renderer.state?.recordingFrames || []).map((frame) => ({
+    return (renderer.state?.frames || []).map((frame) => ({
       frame,
       x: preview.x + Math.max(0, Number(frame.x) || 0) * preview.width,
       y: preview.y + Math.max(0, Number(frame.y) || 0) * preview.height,
@@ -202,7 +205,7 @@ export class ComponentPreviewInteraction {
     // The explicitly selected object's controls own their pointer area. A
     // recording-frame border may overlap them, but must not steal the gesture.
     if (renderer.mode === "component" && this.startChainTransformDrag(x, y, { handlesOnly: true })) return;
-    if (renderer.mode === "component" && this.startCanvasFrameDrag(x, y)) return;
+    if (renderer.mode === "component" && this.startSceneFrameDrag(x, y)) return;
     if (renderer.mode === "component") {
       const hit = this.chainItemAtPoint(x, y);
       if (hit && this.selectedChildOwnsGroupDrag(hit, x, y) && this.startChainTransformDrag(x, y, { moveOnly: true })) return;
@@ -219,19 +222,19 @@ export class ComponentPreviewInteraction {
   }
 
   mouseDragged(x, y) {
-    if (this.canvasFrameDrag) return this.updateCanvasFrameDrag(x, y);
+    if (this.sceneFrameDrag) return this.updateSceneFrameDrag(x, y);
     if (this.chainTransformDrag) return this.updateChainTransformDrag(x, y);
     this.renderer.mapper?.mouseDragged?.(x, y);
   }
 
   mouseReleased() {
     const renderer = this.renderer;
-    if (this.canvasFrameDrag) {
-      const drag = this.canvasFrameDrag;
-      this.canvasFrameDrag = null;
+    if (this.sceneFrameDrag) {
+      const drag = this.sceneFrameDrag;
+      this.sceneFrameDrag = null;
       if (drag.lastRect) {
-        this.pendingCanvasFrame = { frameId: drag.frameId, rect: drag.lastRect };
-        renderer.sendCanvasFrame?.(drag.componentId, drag.frameId, drag.lastRect, { commit: true });
+        this.pendingSceneFrame = { frameId: drag.frameId, rect: drag.lastRect };
+        renderer.sendSceneFrame?.(drag.componentId, drag.frameId, drag.lastRect, { commit: true });
       }
       return;
     }
@@ -260,21 +263,23 @@ export class ComponentPreviewInteraction {
     renderer.mapper?.mouseReleased?.();
   }
 
-  startCanvasFrameDrag(x, y) {
+  startSceneFrameDrag(x, y) {
     const renderer = this.renderer;
     const component = renderer.state?.components?.find((item) => item.id === renderer.state?.ui?.selectedComponentId);
-    if (component?.type !== "canvas") return false;
+    if (component?.type !== "scene") return false;
     const source = renderer.componentOutput.get(component.id);
-    const rects = this.canvasRecordingFrameRects(component, source);
+    const rects = this.sceneFrameRects(component, source);
     for (let index = rects.length - 1; index >= 0; index--) {
       const item = rects[index];
-      const corners = canvasRectCorners(item);
+      const corners = sceneFrameRectCorners(item);
       const hitRadius = 15 * this.uiPixelScale();
       const corner = corners.find((entry) => distanceSquared(x, y, entry.x, entry.y) <= hitRadius * hitRadius);
-      const border = canvasFrameBorderHit(item, x, y);
+      const border = sceneFrameBorderHit(item, x, y, 12 * this.uiPixelScale());
       if (!corner && !border) continue;
       const frame = item.frame;
-      this.canvasFrameDrag = {
+      renderer.onSceneFrameSelect?.(frame.id);
+      if (frame.locked) return true;
+      this.sceneFrameDrag = {
         componentId: component.id,
         frameId: frame.id,
         mode: corner?.id || "move",
@@ -282,38 +287,41 @@ export class ComponentPreviewInteraction {
         startY: y,
         previewWidth: Math.max(1, renderer.componentPreviewRect(component, source).width),
         previewHeight: Math.max(1, renderer.componentPreviewRect(component, source).height),
-        canvasWidth: 1,
-        canvasHeight: 1,
+        sceneWidth: 1,
+        sceneHeight: 1,
         rect: {
           x: Math.max(0, Number(frame.x) || 0),
           y: Math.max(0, Number(frame.y) || 0),
           width: Math.max(0.005, Number(frame.width) || 0.005),
           height: Math.max(0.005, Number(frame.height) || 0.005),
         },
+        keepProportions: frame.keepProportions !== false,
         lastRect: null,
       };
-      this.pendingCanvasFrame = null;
+      this.pendingSceneFrame = null;
       return true;
     }
     return false;
   }
 
-  updateCanvasFrameDrag(x, y) {
-    const drag = this.canvasFrameDrag;
+  updateSceneFrameDrag(x, y) {
+    const drag = this.sceneFrameDrag;
     if (!drag) return;
-    const dx = (x - drag.startX) * drag.canvasWidth / drag.previewWidth;
-    const dy = (y - drag.startY) * drag.canvasHeight / drag.previewHeight;
+    const dx = (x - drag.startX) * drag.sceneWidth / drag.previewWidth;
+    const dy = (y - drag.startY) * drag.sceneHeight / drag.previewHeight;
     const next = drag.mode === "move"
-      ? moveCanvasFrameRect(drag.rect, dx, dy, drag.canvasWidth, drag.canvasHeight)
-      : resizeCanvasFrameRect(drag.rect, drag.mode, dx, dy, drag.canvasWidth, drag.canvasHeight);
+      ? moveSceneFrameRect(drag.rect, dx, dy, drag.sceneWidth, drag.sceneHeight)
+      : resizeSceneFrameRect(drag.rect, drag.mode, dx, dy, drag.sceneWidth, drag.sceneHeight, {
+        keepProportions: drag.keepProportions,
+      });
     drag.lastRect = next;
-    this.applyLocalCanvasFrame(drag.frameId, next);
-    this.renderer.sendCanvasFrame?.(drag.componentId, drag.frameId, next, { commit: false });
+    this.applyLocalSceneFrame(drag.frameId, next);
+    this.renderer.sendSceneFrame?.(drag.componentId, drag.frameId, next, { commit: false });
   }
 
-  applyLocalCanvasFrame(frameId, rect) {
+  applyLocalSceneFrame(frameId, rect) {
     const renderer = this.renderer;
-    renderer.state = stateWithCanvasFrameRect(renderer.state, frameId, rect);
+    renderer.state = stateWithSceneFrameRect(renderer.state, frameId, rect);
     renderer.refreshRecordingFrameLookup?.(frameId);
   }
 
@@ -349,13 +357,13 @@ export class ComponentPreviewInteraction {
   }
 
   pointInChainItemHitArea(component, item, frame, x, y) {
-    // Canvas Component references predate node boundaries and retain a small,
+    // Scene Component references predate node boundaries and retain a small,
     // normalized placement footprint. A default/full boundary must not turn
     // that visible object into a Composition-wide invisible pointer catcher.
     // Once a real boundary is authored, the boundary is the interaction and
     // render contract like every other physical node.
     if (
-      component?.type === "canvas" &&
+      component?.type === "scene" &&
       item?.kind === "source" &&
       item.source?.type === "component" &&
       isFullNodeBoundary(item.boundary)
@@ -413,9 +421,9 @@ export class ComponentPreviewInteraction {
 
   chainItemLeafBaseRect(component, item, frame) {
     const renderer = this.renderer;
-    if (item?.kind === "source" && item.source?.type === "component" && component?.type === "canvas") {
+    if (item?.kind === "source" && item.source?.type === "component" && component?.type === "scene") {
       const dependency = renderer.state?.components?.find((candidate) => candidate.id === item.source.componentId);
-      if (dependency && dependency.type !== "canvas") {
+      if (dependency && dependency.type !== "scene") {
         return componentReferencePlacement(
           component,
           dependency,
@@ -431,12 +439,16 @@ export class ComponentPreviewInteraction {
   uiPixelScale() {
     const canvas = globalThis.drawingContext?.canvas;
     const rect = canvas?.getBoundingClientRect?.();
-    return logicalPixelsPerCssPixel(
+    const canvasScale = logicalPixelsPerCssPixel(
       Number(globalThis.width) || Number(canvas?.width) || 1,
       Number(globalThis.height) || Number(canvas?.height) || 1,
       Number(rect?.width) || Number(canvas?.width) || 1,
       Number(rect?.height) || Number(canvas?.height) || 1
     );
+    // Handles live inside the final p5 viewport transform. Counter-scale their
+    // geometry and hit radius so zoom changes the artwork, not the controls.
+    const viewportZoom = Math.max(0.1, Number(this.renderer.previewViewportTransform?.().zoom) || 1);
+    return canvasScale / viewportZoom;
   }
 
   chainItemPreviewGeometry(component, item) {
@@ -615,16 +627,16 @@ export class ComponentPreviewInteraction {
       }
     }
 
-    const frameOwner = this.canvasFrameDrag?.lastRect
-      ? { frameId: this.canvasFrameDrag.frameId, rect: this.canvasFrameDrag.lastRect }
-      : this.pendingCanvasFrame;
+    const frameOwner = this.sceneFrameDrag?.lastRect
+      ? { frameId: this.sceneFrameDrag.frameId, rect: this.sceneFrameDrag.lastRect }
+      : this.pendingSceneFrame;
     if (frameOwner) {
-      const frame = nextState.recordingFrames?.find((item) => item.id === frameOwner.frameId);
-      if (!frame) this.pendingCanvasFrame = null;
-      else if (!this.canvasFrameDrag && recordIncludes(frame, frameOwner.rect)) {
-        this.pendingCanvasFrame = null;
+      const frame = nextState.frames?.find((item) => item.id === frameOwner.frameId);
+      if (!frame) this.pendingSceneFrame = null;
+      else if (!this.sceneFrameDrag && recordIncludes(frame, frameOwner.rect)) {
+        this.pendingSceneFrame = null;
       } else {
-        reconciled = stateWithCanvasFrameRect(reconciled, frameOwner.frameId, frameOwner.rect);
+        reconciled = stateWithSceneFrameRect(reconciled, frameOwner.frameId, frameOwner.rect);
       }
     }
     return reconciled;
@@ -657,15 +669,15 @@ export function stateWithChainItemBoundary(state, componentId, itemId, boundary)
   return componentChanged ? { ...state, components } : state;
 }
 
-export function stateWithCanvasFrameRect(state, frameId, rect) {
-  if (!state || !Array.isArray(state.recordingFrames)) return state;
+export function stateWithSceneFrameRect(state, frameId, rect) {
+  if (!state || !Array.isArray(state.frames)) return state;
   let changed = false;
-  const recordingFrames = state.recordingFrames.map((frame) => {
+  const frames = state.frames.map((frame) => {
     if (frame.id !== frameId) return frame;
     changed = true;
     return { ...frame, ...rect };
   });
-  return changed ? { ...state, recordingFrames } : state;
+  return changed ? { ...state, frames } : state;
 }
 
 function chainWithItemTransform(chain, itemId, transform) {

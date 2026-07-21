@@ -1,11 +1,10 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=isf-runtime-4";
+import { OutputRenderer } from "./output-renderer.js?v=boundary-media-demand-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
-import { createPreviewViewportController, fitPreviewCanvasElement, previewViewportForUi } from "./preview-viewport.js?v=render-coordinate-scope-3";
+import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js?v=preview-visible-demand-1";
 import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-4";
-import { canvasSizeForMode } from "./render-geometry.js?v=adaptive-component-demand-29";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
   let host = null;
@@ -46,8 +45,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let pendingTransformCommit = null;
   let boundaryCommitFrame = 0;
   let pendingBoundaryCommit = null;
-  let canvasCommitFrame = 0;
-  let pendingCanvasCommit = null;
+  let sceneFrameCommitRequest = 0;
+  let pendingSceneFrameCommit = null;
   let canvasFitSignature = "";
   const thumbnailObjectUrls = new Map();
 
@@ -122,13 +121,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   function cleanup() {
     if (transformCommitFrame) cancelAnimationFrame(transformCommitFrame);
     if (boundaryCommitFrame) cancelAnimationFrame(boundaryCommitFrame);
-    if (canvasCommitFrame) cancelAnimationFrame(canvasCommitFrame);
+    if (sceneFrameCommitRequest) cancelAnimationFrame(sceneFrameCommitRequest);
     transformCommitFrame = 0;
     boundaryCommitFrame = 0;
-    canvasCommitFrame = 0;
+    sceneFrameCommitRequest = 0;
     pendingTransformCommit = null;
     pendingBoundaryCommit = null;
-    pendingCanvasCommit = null;
+    pendingSceneFrameCommit = null;
     cancelPreviewPhaseShift();
     unbindCanvasPointerEvents?.();
     unbindCanvasPointerEvents = null;
@@ -192,7 +191,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       sendChainTransform: updateChainTransform,
       sendChainBoundary: updateChainBoundary,
       onChainItemSelect: selectChainItem,
-      sendCanvasFrame: updateCanvasFrame,
+      onSceneFrameSelect: (frameId) => store.selectFrame?.(frameId),
+      sendSceneFrame: updateSceneFrame,
       sendMediaRendition: (mediaId, width, height, blob, sourceRevision) => projectService?.writeMediaRendition?.(mediaId, width, height, blob, sourceRevision),
       requestMediaFiles: () => importMediaFilesIfChanged(true),
       onSurfaceSelect: selectSurface,
@@ -221,6 +221,25 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       const element = canvas?.elt || canvas;
       if (element?.style) element.style.visibility = "visible";
     }
+  }
+
+  // Dormant geometry probe for future preview-layout investigations. Calling
+  // this once per draw restores the CSS p5 boundary, internal framebuffer
+  // boundary, and diagonal without changing the normal preview path.
+  function drawPreviewGeometryDiagnostics() {
+    if (!renderer || pendingMode === "output" || typeof push !== "function") return;
+    const element = canvas?.elt || canvas;
+    element?.classList?.add("is-geometry-diagnostic");
+    push();
+    resetMatrix();
+    noFill();
+    stroke("#54e4d4");
+    strokeWeight(2);
+    rectMode(CORNER);
+    rect((-width / 2) + 1, (-height / 2) + 1, Math.max(0, width - 2), Math.max(0, height - 2));
+    stroke("#35e65c");
+    line((-width / 2) + 1, (-height / 2) + 1, (width / 2) - 1, (height / 2) - 1);
+    pop();
   }
 
   function bindCanvasPointerEvents() {
@@ -381,20 +400,24 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   function stageSize() {
     const rect = stage?.getBoundingClientRect?.();
     return {
-      width: Math.max(320, Math.floor(rect?.width || window.innerWidth || 960)),
-      height: Math.max(180, Math.floor(rect?.height || window.innerHeight || 540)),
+      width: Math.max(1, Math.floor(rect?.width || window.innerWidth || 960)),
+      height: Math.max(1, Math.floor(rect?.height || window.innerHeight || 540)),
     };
   }
 
   function canvasLogicalSize() {
     const host = stageSize();
-    const size = canvasSizeForMode(pendingMode, {
-      ...(pendingState?.render || {}),
-      hostViewport: { ...host, mode: "preview", outputId: "" },
+    const size = previewCanvasLogicalSize({
+      mode: pendingMode,
+      workspace: pendingState?.ui?.workspace,
+      render: {
+        ...(pendingState?.render || {}),
+        hostViewport: { ...host, mode: "preview", outputId: "" },
+      },
     });
     return {
-      width: Math.max(320, Math.floor(size.width || VJ1.renderWidth)),
-      height: Math.max(180, Math.floor(size.height || VJ1.renderHeight)),
+      width: Math.max(1, Math.floor(size.width || VJ1.renderWidth)),
+      height: Math.max(1, Math.floor(size.height || VJ1.renderHeight)),
     };
   }
 
@@ -402,6 +425,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     fitPreviewCanvasElement({
       canvas,
       mode: pendingMode,
+      workspace: pendingState?.ui?.workspace,
       stageSize: size,
       logicalSize: logical,
       viewport: previewViewportForUi(pendingState?.ui),
@@ -412,6 +436,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   function previewSizedState(size = stageSize()) {
     const state = pendingState || {};
     const logical = canvasLogicalSize();
+    const resolvedViewport = resolveViewportForFit({
+      mode: pendingMode,
+      workspace: state.ui?.workspace,
+      stageSize: size,
+      viewport: previewViewportForUi(state.ui),
+      render: state.render || {},
+    });
     const deviceScale = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
     const displayScale = Math.min(size.width / logical.width, size.height / logical.height, 1);
     const configuredDensity = Math.max(0.5, Math.min(2, Number(state.render?.pixelDensity) || 1));
@@ -432,6 +463,12 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
         // physical buffers follow the pixels the embedded preview can display.
         previewQuality,
         previewRasterScale: previewDensity / configuredDensity,
+        // Transient presentation diagnostic. It is deliberately separate
+        // from render demand: view zoom moves the preview canvas but does not
+        // silently change the authored frame's Good-quality request.
+        previewViewportZoom: Math.max(0.1, Math.min(6, Number(resolvedViewport?.zoom) || 1)),
+        previewViewportX: Number(resolvedViewport?.x) || 0,
+        previewViewportY: Number(resolvedViewport?.y) || 0,
         hostViewport: {
           width: Math.max(1, Math.floor(Number(size.width) || VJ1.renderWidth)),
           height: Math.max(1, Math.floor(Number(size.height) || VJ1.renderHeight)),
@@ -586,7 +623,9 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       return;
     }
     store.update((draft) => {
-      draft.mappings[mappingId || "local"] = mapping;
+      draft.mappingCalibration = mapping;
+      const selected = draft.mappings?.find((entry) => entry.id === draft.ui?.selectedMappingId);
+      if (selected) selected.calibration = mapping;
       draft.ui.mappingStatus = status || "Mapping updated";
     }, reason);
   }
@@ -630,11 +669,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     store.updateDerived((draft) => {
       const component = draft.components.find((item) => item.id === componentId);
       if (!component) return;
-      if (frameId && component.type === "canvas") {
-        component.canvas ||= {};
-        component.canvas.frameThumbnails ||= {};
-        if (component.canvas.frameThumbnails[frameId] !== thumbnail) {
-          component.canvas.frameThumbnails[frameId] = thumbnail;
+      if (frameId && component.type === "scene") {
+        component.scene ||= {};
+        component.scene.frameThumbnails ||= {};
+        if (component.scene.frameThumbnails[frameId] !== thumbnail) {
+          component.scene.frameThumbnails[frameId] = thumbnail;
           updated = true;
         }
       } else if (component.thumbnail !== thumbnail) {
@@ -721,30 +760,30 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     });
   }
 
-  function updateCanvasFrame(componentId, frameId, rect, meta = {}) {
+  function updateSceneFrame(componentId, frameId, rect, meta = {}) {
     if (!meta.commit) {
-      pendingCanvasCommit = { componentId, frameId, rect };
-      if (!canvasCommitFrame) canvasCommitFrame = requestAnimationFrame(flushPendingCanvasCommit);
+      pendingSceneFrameCommit = { componentId, frameId, rect };
+      if (!sceneFrameCommitRequest) sceneFrameCommitRequest = requestAnimationFrame(flushPendingSceneFrameCommit);
       return;
     }
-    if (canvasCommitFrame) cancelAnimationFrame(canvasCommitFrame);
-    canvasCommitFrame = 0;
-    pendingCanvasCommit = null;
-    commitCanvasFrame(componentId, frameId, rect, true);
+    if (sceneFrameCommitRequest) cancelAnimationFrame(sceneFrameCommitRequest);
+    sceneFrameCommitRequest = 0;
+    pendingSceneFrameCommit = null;
+    commitSceneFrame(componentId, frameId, rect, true);
   }
 
-  function flushPendingCanvasCommit() {
-    canvasCommitFrame = 0;
-    const pending = pendingCanvasCommit;
-    pendingCanvasCommit = null;
-    if (pending) commitCanvasFrame(pending.componentId, pending.frameId, pending.rect, false);
+  function flushPendingSceneFrameCommit() {
+    sceneFrameCommitRequest = 0;
+    const pending = pendingSceneFrameCommit;
+    pendingSceneFrameCommit = null;
+    if (pending) commitSceneFrame(pending.componentId, pending.frameId, pending.rect, false);
   }
 
-  function commitCanvasFrame(componentId, frameId, rect, commit) {
+  function commitSceneFrame(componentId, frameId, rect, commit) {
     store.update((draft) => {
-      const frame = draft.recordingFrames?.find((item) => item.id === frameId);
+      const frame = draft.frames?.find((item) => item.id === frameId);
       if (frame) Object.assign(frame, rect);
-    }, commit ? "update:canvas-frame" : "scrub:canvas-frame");
+    }, commit ? "update:scene-frame" : "scrub:scene-frame");
   }
 
   function selectSurface(surfaceId) {
@@ -769,10 +808,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
 }
 
 export function shouldPrepareEmbeddedLiveState(nextState, currentState) {
-  if (nextState?.ui?.workspace !== "live" || !currentState) return false;
-  const nextSceneId = previewSceneId(nextState);
-  const currentSceneId = previewSceneId(currentState);
-  return !!nextSceneId && !!currentSceneId && nextSceneId !== currentSceneId;
+  // The editor monitor must follow the pressed Scene immediately. Standalone
+  // outputs retain their media-preparation queue, but holding the embedded
+  // preview behind readiness made a click flash and then appear to do nothing
+  // whenever one optional asset was pending.
+  return false;
 }
 
 export function retimeEmbeddedLiveTransition(state, startedAtMs = Date.now() + 50) {
@@ -799,7 +839,7 @@ function previewSceneId(state) {
   // another editor workspace. Non-Live callers use the editor Scene.
   return String(state?.ui?.workspace === "live"
     ? state?.ui?.live?.selectedSceneId || ""
-    : state?.ui?.selectedSceneId || "");
+    : state?.ui?.selectedMappingId || "");
 }
 
 export function mediaFilesSignatureFor(entries = []) {

@@ -18,6 +18,8 @@ export function createSurfaceCompositionEngine({
     recordingFrameById = new Map(),
     viewport = {},
     pixelScale = 1,
+    transformDemandCorners = (corners) => corners,
+    preserveDirectFootprint = true,
     renderIdentityPrefix = "",
     surfaceProgram = null,
     resolveRouteSourceNode = () => null,
@@ -46,18 +48,19 @@ export function createSurfaceCompositionEngine({
         state.render,
         component,
         surface,
-        state.recordingFrames,
+        state.frames,
         recordingFrameById
       );
       const maxSurfaceSize = textureCeiling || { width: 8192, height: 8192 };
+      const demandCorners = transformDemandCorners(mapped.mapperSurface.corners, mapped, surface);
       const demand = sourceRenderDemand({
         ...sourceView,
         maxSurfaceSize,
-        corners: mapped.mapperSurface.corners,
+        corners: demandCorners,
         viewport,
         pixelScale,
         overscan: Number(state.render?.sampling?.surfaceOverscan) || surfaceDemandOverscan,
-        preserveFullFootprint: mapped.direct,
+        preserveFullFootprint: mapped.direct && preserveDirectFootprint,
       });
       if (!demand) {
         metrics.culled++;
@@ -70,7 +73,7 @@ export function createSurfaceCompositionEngine({
     const regionalRouteIds = new Set();
     const candidatesByComponent = new Map();
     for (const route of routes) {
-      if (route.component?.type !== "canvas" || !route.surface?.outputFrameId || !isComponentRegionSafe(route.component)) continue;
+      if (route.component?.type !== "scene" || !route.surface?.outputFrameId || !isComponentRegionSafe(route.component)) continue;
       const key = componentRenderInstanceKey(route.component, route.surface.id);
       const list = candidatesByComponent.get(key) || [];
       list.push(route);
@@ -78,10 +81,10 @@ export function createSurfaceCompositionEngine({
     }
     for (const [key, candidates] of candidatesByComponent) {
       if (routes.some((route) => componentRenderInstanceKey(route.component, route.surface.id) === key && !route.surface?.outputFrameId)) continue;
-      // A regional request executes the Canvas graph once for every consuming
+      // A regional request executes the Scene graph once for every consuming
       // frame. That is cheap for synchronized graph branches, but it multiplies
       // independent component instances: the same placement would be rendered
-      // again for each frame route. Keep the existing single Canvas raster in
+      // again for each frame route. Keep the existing single Scene raster in
       // that case. This preserves independent placement timing without adding
       // another texture or turning "async" into consumer-specific execution.
       if (candidates.length > 1 && !isComponentFrameFanoutSafe(candidates[0].component)) continue;
@@ -97,9 +100,9 @@ export function createSurfaceCompositionEngine({
           route.demand.surfaceSize.height > sampledHeight * 1.05;
       });
       // Regional rendering is also a quality path. A small frame mapped over
-      // a large surface may require more pixels than the ordinary full Canvas
+      // a large surface may require more pixels than the ordinary full Scene
       // request, while still being dramatically cheaper than enlarging the
-      // complete Canvas enough to give that crop equivalent detail.
+      // complete Scene enough to give that crop equivalent detail.
       if (!needsRegionalDetail && regionalPixels * 1.15 >= full.width * full.height) continue;
       for (const route of candidates) regionalRouteIds.add(route.surface.id);
     }
@@ -114,7 +117,7 @@ export function createSurfaceCompositionEngine({
         const logical = route.sourceView.logicalSize;
         const rect = route.demand.sampleRect;
         const uvRect = [rect.x / logical.width, rect.y / logical.height, rect.width / logical.width, rect.height / logical.height];
-        route.componentRequest = createRenderRequest("canvas-region", route.demand.surfaceSize, {
+        route.componentRequest = createRenderRequest("scene-region", route.demand.surfaceSize, {
           timingId: renderInstanceKey,
           renderIdentity: `${renderIdentityPrefix}${renderInstanceKey}:frame:${route.surface.outputFrameId}`,
           logicalWidth: route.demand.surfaceSize.width / Math.max(0.000001, uvRect[2]),

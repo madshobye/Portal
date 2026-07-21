@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=boundary-authority-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=inspector-pending-node-1";
-import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=live-scene-preference-1";
+import { createAppState } from "./app-state.js?v=frame-projection-aspect-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=boundary-media-demand-1";
+import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=scene-mapping-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=isf-nodes-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=preview-debug-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=queued-recovery-1";
-import { installOutputApp } from "./output/output-app.js?v=isf-coordinates-1";
+import { installOutputApp } from "./output/output-app.js?v=boundary-media-demand-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
 import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js?v=runtime-diagnostics-1";
@@ -136,11 +136,11 @@ async function installControlApp() {
       return;
     }
     if (["runtime", "derived", "ui"].includes(change.scope)) return;
-    if (state.ui.workspace === "scene" && change.topic === "mapping-state") {
-      bridge.command("sync-mapping", { mappings: state.mappings });
+    if (state.ui.workspace === "mapping" && change.topic === "mapping-state") {
+      bridge.command("sync-mapping", { mappingCalibration: state.mappingCalibration });
       return;
     }
-    if (state.ui.workspace === "scene" && ["blackout", "toggle-output-playback", "toggle-output-hud"].includes(reason)) {
+    if (state.ui.workspace === "mapping" && ["blackout", "toggle-output-playback", "toggle-output-hud"].includes(reason)) {
       bridge.command("sync-global", { global: state.global });
       return;
     }

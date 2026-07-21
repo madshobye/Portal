@@ -11,18 +11,18 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { applySceneSnapshotToState, createInitialState } from "../domain/models.js?v=boundary-authority-1";
+import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=boundary-authority-1";
 import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=boundary-authority-1";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-import { buildProjectPayload } from "./project-serializer.js?v=compact-project-nodes-1";
+import { buildProjectPayload } from "./project-serializer.js?v=preview-debug-1";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
 import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
 import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
 import { mergeProjectIsfDefinitions } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=compact-project-nodes-1";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=preview-debug-1";
 export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js?v=project-history-store-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge, classifyChange = createChangeEvent }) {
@@ -294,9 +294,9 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     const loadHandle = dirHandle;
     const loadGeneration = projectGeneration;
     const sameProject = loadedProjectHandle === loadHandle;
-    const recordingFrames = Array.isArray(projectData.recordingFrames)
-      ? projectData.recordingFrames
-      : currentState.recordingFrames;
+    const frames = Array.isArray(projectData.frames)
+      ? projectData.frames
+      : currentState.frames;
     const components = clearThumbnailUrls(Array.isArray(projectData.components) ? projectData.components : currentState.components);
     const thumbnailEntries = new Map();
     if (sameProject) {
@@ -309,16 +309,19 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       ...currentState,
       ...projectData,
       components,
-      recordingFrames,
+      frames,
       ui: {
         ...currentUi,
-        selectedSceneId: projectUi?.selectedSceneId || currentUi.selectedSceneId,
+        selectedMappingId: projectUi?.selectedMappingId || currentUi.selectedMappingId,
         selectedSurfaceId: projectUi?.selectedSurfaceId || currentUi.selectedSurfaceId,
+        selectedFrameId: projectUi?.selectedFrameId || currentUi.selectedFrameId,
         selectedComponentId: projectUi?.selectedComponentId || currentUi.selectedComponentId,
         selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId,
         workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds,
         catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes,
         previewQuality: projectUi?.previewQuality || currentUi.previewQuality,
+        previewViewports: projectUi?.previewViewports || currentUi.previewViewports,
+        mappingTestPattern: projectUi?.mappingTestPattern ?? currentUi.mappingTestPattern,
         live: {
           ...currentUi.live,
           ...(projectUi?.live || {}),
@@ -344,8 +347,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
           }
         : (projectData.shaders || currentState.shaders),
     };
-    const selectedScene = nextState.scenes?.find((scene) => scene.id === nextState.ui.selectedSceneId) || nextState.scenes?.[0];
-    if (selectedScene) applySceneSnapshotToState(nextState, selectedScene);
+    const selectedScene = nextState.mappings?.find((scene) => scene.id === nextState.ui.selectedMappingId) || nextState.mappings?.[0];
+    if (selectedScene) projectSelectedMapping(nextState, selectedScene);
     store.replace(nextState, reason);
     loadedProjectHandle = loadHandle;
     if (!sameProject) thumbnailUrlLease.activate([]);
@@ -415,7 +418,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     // Selection and other editor-only state must not serialize the complete
     // project after every click. It remains in the current state and is folded
     // into the next authored save or the browser lifecycle checkpoint.
-    if (event.scope === "ui" && !immediate) return;
+    const previewViewportCheckpoint = event.scope === "ui" && reason.startsWith("preview-");
+    if (event.scope === "ui" && !immediate && !previewViewportCheckpoint) return;
     if (autosaveTimer) clearTimeout(autosaveTimer);
     const delay = immediate || reason === "live:scene" || event.history === "record" ? 0 : autosaveDelayMs;
     autosaveTimer = setTimeout(() => {
@@ -758,8 +762,8 @@ function componentThumbnailEntries(components = []) {
   const entries = [];
   for (const component of components || []) {
     if (component?.thumbnail) entries.push({ componentId: component.id, frameId: "", url: component.thumbnail });
-    if (component?.type !== "canvas") continue;
-    for (const [frameId, url] of Object.entries(component.canvas?.frameThumbnails || {})) {
+    if (component?.type !== "scene") continue;
+    for (const [frameId, url] of Object.entries(component.scene?.frameThumbnails || {})) {
       if (url) entries.push({ componentId: component.id, frameId, url });
     }
   }
@@ -925,7 +929,7 @@ function embeddedThumbnailEntries(components = []) {
     if (typeof component?.thumbnail === "string" && component.thumbnail.startsWith("data:image/")) {
       entries.push({ componentId: component.id, frameId: "", url: component.thumbnail });
     }
-    for (const [frameId, url] of Object.entries(component?.canvas?.frameThumbnails || {})) {
+    for (const [frameId, url] of Object.entries(component?.scene?.frameThumbnails || {})) {
       if (typeof url === "string" && url.startsWith("data:image/")) entries.push({ componentId: component.id, frameId, url });
     }
   }

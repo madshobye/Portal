@@ -26,7 +26,7 @@ export function persistWorkspace(workspace) {
 export function persistLiveScenePreference(state, storage = globalThis.localStorage) {
   const projectKey = liveSceneProjectKey(state);
   const sceneId = String(state?.ui?.live?.selectedSceneId || "");
-  if (!projectKey || !sceneId || !state?.scenes?.some((scene) => String(scene.id) === sceneId)) return false;
+  if (!projectKey || !sceneId || !state?.components?.some((scene) => scene.type === "scene" && String(scene.id) === sceneId)) return false;
   try {
     const preferences = parseLiveScenePreferences(storage?.getItem?.(VJ1.localLiveSceneKey));
     preferences[projectKey] = sceneId;
@@ -42,7 +42,7 @@ export function preferredLiveSceneId(state, storage = globalThis.localStorage) {
   if (!projectKey) return "";
   try {
     const sceneId = String(parseLiveScenePreferences(storage?.getItem?.(VJ1.localLiveSceneKey))[projectKey] || "");
-    return state?.scenes?.some((scene) => String(scene.id) === sceneId) ? sceneId : "";
+    return state?.components?.some((scene) => scene.type === "scene" && String(scene.id) === sceneId) ? sceneId : "";
   } catch {
     return "";
   }

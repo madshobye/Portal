@@ -63,16 +63,16 @@ test("thumbnail cache names round-trip ids and cache URLs apply to components", 
     frameId: "frame:1",
     extension: "png",
   });
-  const components = [{ id: "component / a", type: "canvas", canvas: {} }];
+  const components = [{ id: "component / a", type: "scene", canvas: {} }];
   applyThumbnailUrls(components, [
     { componentId: "component / a", url: "blob:component", frameId: "" },
     { componentId: "component / a", url: "blob:frame", frameId: "frame:1" },
   ]);
   assert.equal(components[0].thumbnail, "blob:component");
-  assert.equal(components[0].canvas.frameThumbnails["frame:1"], "blob:frame");
+  assert.equal(components[0].scene.frameThumbnails["frame:1"], "blob:frame");
   clearThumbnailUrls(components);
   assert.equal(components[0].thumbnail, "");
-  assert.deepEqual(components[0].canvas.frameThumbnails, {});
+  assert.deepEqual(components[0].scene.frameThumbnails, {});
 });
 
 test("thumbnail data URLs become typed cache blobs", () => {
@@ -103,13 +103,13 @@ test("render transport strips local thumbnail URLs without mutating editor state
   const state = {
     components: [
       { id: "component-a", type: "chain", thumbnail: "blob:component" },
-      { id: "canvas-a", type: "canvas", thumbnail: "blob:canvas", canvas: { width: 800, frameThumbnails: { frame: "blob:frame" } } },
+      { id: "scene-a", type: "scene", thumbnail: "blob:scene", scene: { frameThumbnails: { frame: "blob:frame" } } },
     ],
   };
   const transport = stateWithoutThumbnailUrls(state);
   assert.equal(transport.components[0].thumbnail, "");
   assert.equal(transport.components[1].thumbnail, "");
-  assert.deepEqual(transport.components[1].canvas.frameThumbnails, {});
+  assert.deepEqual(transport.components[1].scene.frameThumbnails, {});
   assert.equal(state.components[0].thumbnail, "blob:component");
-  assert.equal(state.components[1].canvas.frameThumbnails.frame, "blob:frame");
+  assert.equal(state.components[1].scene.frameThumbnails.frame, "blob:frame");
 });

@@ -5,15 +5,15 @@ export const VJ1 = Object.freeze({
   localPreviewKey: "vj1-preview-live",
   renderWidth: 960,
   renderHeight: 540,
-  canvasWidth: 3840,
-  canvasHeight: 2160,
+  sceneWidth: 3840,
+  sceneHeight: 2160,
   outputWorldMarginRatio: 0.25,
   p5Script: "https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js",
   portalScript: "../../P1/portal/portal.js?v=adaptive-component-demand-29",
   renderFont: "assets/RobotoMono-Regular.ttf",
 });
 
-export const WORKSPACES = Object.freeze(["component", "canvas", "scene", "nodes", "mapping", "live"]);
+export const WORKSPACES = Object.freeze(["component", "scene", "mapping", "nodes", "live"]);
 
 export const BLEND_MODES = Object.freeze([
   "normal",

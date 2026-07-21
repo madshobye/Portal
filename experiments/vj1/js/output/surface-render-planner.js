@@ -10,7 +10,7 @@ import {
   sourceRenderDemand,
   SURFACE_DEMAND_OVERSCAN,
 } from "./render-geometry.js?v=adaptive-component-demand-29";
-import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js";
+import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=preview-visible-demand-1";
 
 // Direct render-host bridge: the node owns the route algorithm while the
 // renderer supplies its established geometry policies directly. This closure

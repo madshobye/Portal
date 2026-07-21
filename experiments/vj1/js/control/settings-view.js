@@ -36,7 +36,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
             ${configuredOutputsTemplate(render)}
           </div>
           <button type="button" class="chain-add-button" data-add-output>${icon("add")} Add output</button>
-          <div class="soft-note">The active output window supplies the pixels. Outputs keep only their proportions and are arranged side by side in Scene mapping.</div>
+          <div class="soft-note">The active output window supplies the pixels. Outputs keep only their proportions and are arranged side by side in Mapping.</div>
         </section>
         <section class="ui-section element-section" data-settings-panel="camera" ${visiblePanel("camera", activeTab)}>
           <label class="field">Camera direction
@@ -76,9 +76,9 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
         </section>
         <section class="ui-section element-section settings-rendering-panel" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
           <div class="settings-group">
-          <div class="settings-group-title"><span class="material-symbols-rounded">grid_4x4</span><span>Canvas proportion</span></div>
-          ${aspectRatioField("Canvas aspect ratio", "render.canvasAspectRatio", render.canvasAspectRatio)}
-          <div class="soft-note">One relative coordinate space shared by every Canvas and recording frame.</div>
+          <div class="settings-group-title"><span class="material-symbols-rounded">grid_4x4</span><span>Scene proportion</span></div>
+          ${aspectRatioField("Scene aspect ratio", "render.sceneAspectRatio", render.sceneAspectRatio)}
+          <div class="soft-note">One relative coordinate space shared by every Scene and Frame.</div>
           </div>
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component proportion</span></div>
@@ -109,8 +109,8 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
             <label class="field">Surface overscan <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.surfaceOverscan" value="${render.sampling.surfaceOverscan}" /></label>
             <label class="field">Recording frame <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.recordingFrameScale" value="${render.sampling.recordingFrameScale}" /></label>
           </div>
-          ${settingsToggle("Limit Canvas raster to logical size", "render.sampling.limitCanvasToLogicalSize", render.sampling.limitCanvasToLogicalSize)}
-          <div class="soft-note">Independent raster-demand multipliers. Both default to 1×; recording frames can be lowered to 0.5× for lower Canvas cost.</div>
+          ${settingsToggle("Limit Scene raster to logical size", "render.sampling.limitSceneToLogicalSize", render.sampling.limitSceneToLogicalSize)}
+          <div class="soft-note">Independent raster-demand multipliers. Both default to 1×; Frames can be lowered to 0.5× for lower Scene cost.</div>
           </div>
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">high_quality</span><span>Component upscaling</span></div>

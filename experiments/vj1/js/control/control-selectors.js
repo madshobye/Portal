@@ -1,19 +1,25 @@
-export function getSelectedScene(state) {
-  return state.scenes.find((scene) => scene.id === state.ui.selectedSceneId) || null;
+export function getSelectedMapping(state) {
+  return state.mappings.find((mapping) => mapping.id === state.ui.selectedMappingId) || null;
 }
 
 export function getLiveSelectedScene(state) {
   const id = liveSelectedSceneId(state);
-  return state.scenes.find((scene) => scene.id === id) || null;
+  return sceneComponents(state).find((scene) => scene.id === id) || null;
+}
+
+export function getLiveSelectedTarget(state) {
+  const id = String(state.ui?.live?.selectedComponentId || "");
+  return (state.components || []).find((component) => !component.systemRole && String(component.id) === id)
+    || getLiveSelectedScene(state);
 }
 
 export function liveSelectedSceneId(state) {
-  return state.ui?.live?.selectedSceneId || state.scenes[0]?.id || "";
+  return state.ui?.live?.selectedSceneId || sceneComponents(state)[0]?.id || "";
 }
 
-export function sceneFingerprintComponents(scene, state) {
+export function mappingFingerprintComponents(mapping, state) {
   const ids = [];
-  for (const surface of scene?.snapshot?.surfaces || []) {
+  for (const surface of mapping?.surfaces || []) {
     if (surface.enabled === false) continue;
     if (surface.componentId && !ids.includes(surface.componentId)) ids.push(surface.componentId);
   }
@@ -23,28 +29,27 @@ export function sceneFingerprintComponents(scene, state) {
 }
 
 export function liveSceneComponents(scene, state) {
-  return sceneFingerprintComponents(scene, state);
+  return scene ? [scene] : [];
 }
 
-export function canvasComponents(state) {
-  return (state.components || []).filter((component) => component.type === "canvas");
+export function sceneComponents(state) {
+  return (state.components || []).filter((component) => component.type === "scene");
 }
 
 export function ordinaryComponents(state) {
-  return (state.components || []).filter((component) => component.type !== "canvas");
+  return (state.components || []).filter((component) => component.type !== "scene" && !component.systemRole);
 }
 
-export function selectedCanvasComponent(state) {
-  return canvasComponents(state).find((component) => component.id === state.ui.selectedComponentId)
-    || canvasComponents(state)[0]
+export function selectedSceneComponent(state) {
+  return sceneComponents(state).find((component) => component.id === state.ui.selectedComponentId)
+    || sceneComponents(state)[0]
     || null;
 }
 
-export function sceneSurfaceSnapshot(scene, surfaceId) {
-  return scene?.snapshot?.surfaces?.find((surface) => surface.id === surfaceId) || null;
+export function mappingSurface(mapping, surfaceId) {
+  return mapping?.surfaces?.find((surface) => surface.id === surfaceId) || null;
 }
 
-export function getSceneSurfaceView(surface, state) {
-  const snapshot = sceneSurfaceSnapshot(getSelectedScene(state), surface.id);
-  return snapshot ? { ...surface, ...snapshot } : surface;
+export function getMappingSurfaceView(surface, state) {
+  return mappingSurface(getSelectedMapping(state), surface.id) || surface;
 }

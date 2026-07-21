@@ -1,19 +1,25 @@
-import { fittedCssRect, frameSize, outputFrames, worldSize } from "./render-geometry.js?v=adaptive-component-demand-29";
+import { outputSpanFitScale, worldSize } from "./render-geometry.js?v=shared-preview-viewport-1";
 
-export function fitPreviewCanvasElement({ canvas, mode, stageSize, logicalSize, viewport, render }) {
+export function previewCanvasLogicalSize({ mode = "preview", workspace = "component", render = {} } = {}) {
+  // Every embedded workspace owns the same full-stage canvas. Component,
+  // Scene, Mapping, and Live differ only in what the renderer presents inside
+  // that world; they must not select different host-canvas sizing rules.
+  // Output windows remain a separate presentation host and never call this.
+  return worldSize(render);
+}
+
+export function fitPreviewCanvasElement({ canvas, mode, workspace, stageSize, logicalSize, viewport, render }) {
   const elt = canvas?.elt || canvas;
   if (!elt) return;
-  const canNavigate = isNavigablePreviewMode(mode);
-  const resolvedViewport = resolveViewportForFit({ mode, stageSize, viewport, render });
-  const zoom = canNavigate ? clampNumber(resolvedViewport?.zoom, 0.1, 6, 1) : 1;
-  const pan = canNavigate ? resolvedViewport : {};
-  const rect = fittedCssRect(stageSize, logicalSize, zoom, pan);
+  // The HTML/p5 canvas is the invariant preview viewport. Navigation belongs
+  // to the final p5 presentation transform, never to CSS sizing; otherwise
+  // the reported canvas geometry and visible viewport become different things.
   elt.style.position = "absolute";
-  elt.style.left = "50%";
-  elt.style.top = "50%";
-  elt.style.width = `${rect.width}px`;
-  elt.style.height = `${rect.height}px`;
-  elt.style.transform = `translate(${Number(pan?.x) || 0}px, ${Number(pan?.y) || 0}px) translate(-50%, -50%)`;
+  elt.style.left = "0";
+  elt.style.top = "0";
+  elt.style.width = "100%";
+  elt.style.height = "100%";
+  elt.style.transform = "none";
 }
 
 export function createPreviewViewportController({ stage, store, getMode, getViewport, onPanStart }) {
@@ -30,9 +36,9 @@ export function createPreviewViewportController({ stage, store, getMode, getView
     if (!isNavigablePreviewMode(getMode?.())) return;
     event.preventDefault();
     const factor = Math.pow(1.0025, -event.deltaY);
-    store.update((draft) => {
-      updatePreviewViewportForUi(draft.ui, (viewport) => zoomViewport(viewport, factor));
-    }, "scrub:preview-zoom");
+    updateStoredUi(store, (ui) => {
+      updatePreviewViewportForUi(ui, (viewport) => zoomViewport(viewport, factor));
+    }, "preview-zoom");
   }, { passive: false });
 
   add("pointerdown", (event) => {
@@ -53,14 +59,14 @@ export function createPreviewViewportController({ stage, store, getMode, getView
   add("pointermove", (event) => {
     if (!panDrag || panDrag.pointerId !== event.pointerId) return;
     event.preventDefault();
-    store.update((draft) => {
-      updatePreviewViewportForUi(draft.ui, (viewport) => ({
+    updateStoredUi(store, (ui) => {
+      updatePreviewViewportForUi(ui, (viewport) => ({
         ...viewport,
         fit: "manual",
         x: panDrag.x + event.clientX - panDrag.startX,
         y: panDrag.y + event.clientY - panDrag.startY,
       }));
-    }, "scrub:preview-pan");
+    }, "preview-pan");
   }, true);
 
   const endPan = (event) => {
@@ -79,8 +85,16 @@ export function createPreviewViewportController({ stage, store, getMode, getView
   };
 }
 
+function updateStoredUi(store, recipe, reason) {
+  if (typeof store?.updateUi === "function") {
+    store.updateUi(recipe, reason);
+    return;
+  }
+  store?.update?.((draft) => recipe(draft.ui), reason);
+}
+
 export function previewViewportKey(workspace = "component") {
-  return ["component", "canvas", "scene", "live"].includes(workspace) ? workspace : "component";
+  return ["component", "scene", "mapping", "live"].includes(workspace) ? workspace : "component";
 }
 
 export function previewViewportForUi(ui = {}) {
@@ -98,7 +112,7 @@ export function updatePreviewViewportForUi(ui = {}, update) {
 }
 
 function isNavigablePreviewMode(mode) {
-  return mode === "preview" || mode === "component";
+  return mode !== "output";
 }
 
 export function zoomViewport(viewport = {}, multiplier = 1) {
@@ -114,35 +128,32 @@ export function resetViewport() {
   return { zoom: 1, x: 0, y: 0, fit: "world" };
 }
 
-export function frameFitViewport({ stageSize, render }) {
-  const frames = outputFrames(render);
-  const frame = frames.length ? {
-    width: Math.max(...frames.map((item) => item.x + item.width)) - Math.min(...frames.map((item) => item.x)),
-    height: Math.max(...frames.map((item) => item.y + item.height)) - Math.min(...frames.map((item) => item.y)),
-  } : frameSize(render);
-  const world = worldSize(render);
-  const stage = {
-    width: Math.max(1, Number(stageSize?.width) || frame.width),
-    height: Math.max(1, Number(stageSize?.height) || frame.height),
-  };
-  const worldFit = fittedCssRect(stage, world, 1);
-  const frameFit = fittedCssRect(stage, frame, 1);
+export function frameFitViewport({ workspace = "component", stageSize, render }) {
+  // An ordinary Component is already contained directly in the full-stage
+  // canvas, so its natural frame fit is 1:1. Scene, Mapping, and Live fit the
+  // inset authored Output span within that same project world.
+  if (workspace === "component") return { zoom: 1, x: 0, y: 0, fit: "frame" };
   return {
-    zoom: clampNumber(frameFit.scale / Math.max(0.0001, worldFit.scale), 0.1, 6, 1),
+    zoom: clampNumber(outputSpanFitScale({
+      ...(render || {}),
+      hostViewport: {
+        width: Math.max(1, Number(stageSize?.width) || worldSize(render).width),
+        height: Math.max(1, Number(stageSize?.height) || worldSize(render).height),
+        mode: "preview",
+        outputId: "",
+      },
+    }), 0.1, 6, 1),
     x: 0,
     y: 0,
     fit: "frame",
   };
 }
 
-export function resolveViewportForFit({ mode, stageSize, viewport = {}, render = {} }) {
-  if (viewport.fit !== "manual" && mode === "component") {
-    return { ...viewport, zoom: 1, x: 0, y: 0 };
+export function resolveViewportForFit({ mode, workspace = "component", stageSize, viewport = {}, render = {} }) {
+  if (mode !== "output" && viewport.fit === "frame") {
+    return frameFitViewport({ workspace, stageSize, render });
   }
-  if (mode === "preview" && viewport.fit === "frame") {
-    return frameFitViewport({ stageSize, render });
-  }
-  if (mode === "preview" && viewport.fit === "world") {
+  if (mode !== "output" && viewport.fit === "world") {
     return { ...viewport, zoom: 1, x: 0, y: 0 };
   }
   return viewport;

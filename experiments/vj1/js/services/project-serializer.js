@@ -6,8 +6,9 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
     version: CURRENT_PROJECT_VERSION,
     project: { ...state.project, warnings: [], savedAt },
     ui: {
-      selectedSceneId: state.ui.selectedSceneId,
+      selectedMappingId: state.ui.selectedMappingId,
       selectedSurfaceId: state.ui.selectedSurfaceId,
+      selectedFrameId: state.ui.selectedFrameId || "",
       selectedComponentId: state.ui.selectedComponentId,
       selectedChainItemId: state.ui.selectedChainItemId,
       selectedNodeDefinitionId: state.ui.selectedNodeDefinitionId || "",
@@ -15,9 +16,10 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       workspaceSelectionIds: state.ui.workspaceSelectionIds,
       catalogSortModes: state.ui.catalogSortModes,
       previewQuality: state.ui.previewQuality,
+      previewViewports: state.ui.previewViewports,
+      mappingTestPattern: state.ui.mappingTestPattern !== false,
       live: {
         selectedSceneId: state.ui.live?.selectedSceneId || "",
-        sceneSnapshot: state.ui.live?.sceneSnapshot || null,
         transitionDuration: Math.max(0, Number(state.ui.live?.transitionDuration) || 0),
         paramFadeDuration: Math.max(0, Number(state.ui.live?.paramFadeDuration) || 0),
       },
@@ -28,9 +30,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
     nodes: serializeNodeProjectData(state.nodes),
     media: state.media,
     components: persistedComponents(state.components, state.nodes),
-    recordingFrames: state.recordingFrames,
-    surfaces: state.surfaces,
-    scenes: state.scenes,
+    frames: (state.frames || []).filter((frame) => frame.kind !== "output"),
     mappings: state.mappings,
     shaders: state.shaders,
   };
@@ -40,26 +40,26 @@ export function persistedComponents(components = [], nodes = {}) {
   const graphComponents = new Set((nodes?.groups || [])
     .filter((group) => group.generatedBy === "vj1-component-compiler" && group.projectionSignature)
     .map((group) => String(group.componentId || "")));
-  return (components || []).map((component) => {
+  return (components || []).filter((component) => !component.systemRole).map((component) => {
     const {
       thumbnail: _derivedThumbnail,
       nodeProjectionSignature: _runtimeProjectionSignature,
       ...componentData
     } = component || {};
     // Version 24 persists the node group as visual authority. `chain` remains
-    // an in-memory projection for the established Component/Canvas UI and is
+    // an in-memory projection for the established Component/Scene UI and is
     // retained only when importing a not-yet-compiled legacy component.
     const persisted = nodes?.authority === "node-graph" && graphComponents.has(String(component?.id || ""))
       ? Object.fromEntries(Object.entries(componentData).filter(([key]) => key !== "chain"))
       : componentData;
-    if (persisted.type !== "canvas" || !persisted.canvas) return persisted;
+    if (persisted.type !== "scene" || !persisted.scene) return persisted;
     const {
       frameThumbnails: _derivedFrameThumbnails,
       width: _legacyWidth,
       height: _legacyHeight,
-      ...canvas
-    } = persisted.canvas;
-    return { ...persisted, canvas };
+      ...scene
+    } = persisted.scene;
+    return { ...persisted, scene };
   });
 }
 
@@ -81,6 +81,9 @@ export function persistedRenderSettings(render = {}) {
     edgeSoftness: _removedEdgeSoftness,
     hostViewport: _runtimeHostViewport,
     previewRasterScale: _runtimePreviewRasterScale,
+    previewViewportZoom: _runtimePreviewViewportZoom,
+    previewViewportX: _runtimePreviewViewportX,
+    previewViewportY: _runtimePreviewViewportY,
     canvasSize: _legacyCanvasSize,
     componentTexture: _legacyComponentTexture,
     surfaceTexture: _legacySurfaceTexture,

@@ -56,7 +56,7 @@ test("the last Live Scene preference is durable and project-scoped", () => {
   };
   const state = {
     project: { folderName: "show-a", name: "Show A" },
-    scenes: [{ id: "scene-a" }, { id: "scene-b" }],
+    components: [{ id: "scene-a", type: "scene" }, { id: "scene-b", type: "scene" }],
     ui: { live: { selectedSceneId: "scene-b" } },
   };
 
@@ -69,7 +69,7 @@ test("the last Live Scene preference is durable and project-scoped", () => {
 test("a removed Live Scene or malformed preference safely falls back to project state", () => {
   const state = {
     project: { folderName: "show-a" },
-    scenes: [{ id: "scene-a" }],
+    components: [{ id: "scene-a", type: "scene" }],
     ui: { live: { selectedSceneId: "scene-a" } },
   };
   const staleStorage = {

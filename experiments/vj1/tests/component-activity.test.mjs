@@ -19,17 +19,17 @@ test("direct component and frame edits update only their own activity", () => {
   const previous = {
     components: [
       { id: "comp", name: "Comp", chain: [{ id: "source", params: { amount: 0 } }], activity: activity() },
-      { id: "canvas", type: "canvas", name: "Canvas", chain: [{ source: { type: "component", componentId: "comp" } }], canvas: { width: 100, height: 100, frameThumbnails: {} }, activity: activity() },
+      { id: "canvas", type: "scene", name: "Canvas", chain: [{ source: { type: "component", componentId: "comp" } }], canvas: { width: 100, height: 100, frameThumbnails: {} }, activity: activity() },
     ],
-    recordingFrames: [{ id: "frame", x: 0, y: 0, width: 10, height: 10, activity: activity() }],
+    frames: [{ id: "frame", x: 0, y: 0, width: 10, height: 10, activity: activity() }],
   };
   const next = structuredClone(previous);
   next.components[0].chain[0].params.amount = 1;
-  next.recordingFrames[0].x = 5;
+  next.frames[0].x = 5;
   stampChangedProjectItems(previous, next, later);
 
   assert.equal(next.components[0].activity.updatedAt, later);
-  assert.equal(next.recordingFrames[0].activity.updatedAt, later);
+  assert.equal(next.frames[0].activity.updatedAt, later);
   assert.equal(next.components[1].activity.updatedAt, earlier, "referenced component edits do not propagate to Canvas activity");
 });
 
@@ -37,9 +37,9 @@ test("direct Canvas edits update the Canvas marker without touching its componen
   const previous = {
     components: [
       { id: "comp", name: "Comp", activity: activity() },
-      { id: "canvas", type: "canvas", canvas: { previewQuality: "auto", frameThumbnails: {} }, activity: activity() },
+      { id: "canvas", type: "scene", canvas: { previewQuality: "auto", frameThumbnails: {} }, activity: activity() },
     ],
-    recordingFrames: [],
+    frames: [],
   };
   const next = structuredClone(previous);
   next.components[1].canvas.previewQuality = "low";
@@ -52,10 +52,10 @@ test("direct Canvas edits update the Canvas marker without touching its componen
 test("using a Scene source updates component and frame use markers", () => {
   const state = {
     components: [{ id: "canvas", activity: activity() }],
-    recordingFrames: [{ id: "frame", activity: activity() }],
+    frames: [{ id: "frame", activity: activity() }],
   };
   assert.equal(touchComponentUsed(state, "canvas", later), true);
   assert.equal(touchRecordingFrameUsed(state, "frame", later), true);
   assert.equal(latestProjectActivity(state.components[0].activity), new Date(later).getTime());
-  assert.equal(state.recordingFrames[0].activity.lastUsedAt, later);
+  assert.equal(state.frames[0].activity.lastUsedAt, later);
 });

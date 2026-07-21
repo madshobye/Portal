@@ -30,8 +30,8 @@ export function compileComponentGroupTopology(component = {}, { definitions = ne
     nodeId: ComponentProgramNode.id,
     nodeVersion: ComponentProgramNode.version,
     componentId: String(component.id || ""),
-    artifactType: component.type === "canvas" ? "canvas" : "component",
-    name: component.name || (component.type === "canvas" ? "Canvas" : "Component"),
+    artifactType: component.type === "scene" ? "scene" : "component",
+    name: component.name || (component.type === "scene" ? "Scene" : "Component"),
     nodes,
     connections: linearConnections(nodes, definitions),
     publicInlets: {},
@@ -92,8 +92,8 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
   const group = {
     ...existingGroup,
     componentId: String(component.id || ""),
-    artifactType: component.type === "canvas" ? "canvas" : "component",
-    name: component.name || (component.type === "canvas" ? "Canvas" : "Component"),
+    artifactType: component.type === "scene" ? "scene" : "component",
+    name: component.name || (component.type === "scene" ? "Scene" : "Component"),
     nodes: refreshVisualCompilerHooks(existingGroup.nodes || [], options.definitions || new Map()),
     projectionSignature: graphSignature,
   };

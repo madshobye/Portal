@@ -9,7 +9,7 @@ import {
   compileApplicationServicePlan,
   compileComponentRenderPrograms,
   compileOutputRenderProgram,
-  compileSceneRenderPrograms,
+  compileMappingRenderPrograms,
 } from "../js/libraries/composition-engine/index.js";
 import { buildProjectPayload } from "../js/services/project-serializer.js";
 import { applicationProgramFromProjectData, loadStoredApplicationProgram } from "../js/services/application-program-loader.js";
@@ -73,24 +73,24 @@ test("compiler adapters expose their code as explicitly locked native boundaries
   }
 });
 
-test("project artifact views preserve Component Canvas Scene and Live placement order", () => {
+test("project artifact views preserve Component Scene Mapping and Live placement order", () => {
   const state = {
     components: [
       { id: "component-a", name: "A", type: "component", catalogMarker: 2 },
-      { id: "canvas-a", name: "Canvas A", type: "canvas" },
+      { id: "scene-visual-a", name: "Scene A", type: "scene" },
       { id: "component-b", name: "B", type: "component" },
     ],
-    scenes: [{ id: "scene-a", name: "Scene A" }, { id: "scene-b", name: "Scene B" }],
-    ui: { live: { selectedSceneId: "scene-b" } },
+    mappings: [{ id: "mapping-a", name: "Mapping A" }, { id: "mapping-b", name: "Mapping B" }],
+    ui: { live: { selectedSceneId: "scene-visual-a" } },
   };
   const views = projectArtifactViews(state);
   const ids = (items) => items.map((item) => item.metadata.projectId);
 
   assert.deepEqual(ids(views.component), ["component-a", "component-b"]);
-  assert.deepEqual(ids(views.canvas), ["canvas-a"]);
-  assert.deepEqual(ids(views.scene), ["scene-a", "scene-b"]);
-  assert.deepEqual(ids(views.liveScene), ["scene-a", "scene-b"]);
-  assert.equal(views.live[0].metadata.selectedSceneId, "scene-b");
+  assert.deepEqual(ids(views.scene), ["scene-visual-a"]);
+  assert.deepEqual(ids(views.mapping), ["mapping-a", "mapping-b"]);
+  assert.deepEqual(ids(views.liveScene), ["scene-visual-a"]);
+  assert.equal(views.live[0].metadata.selectedSceneId, "scene-visual-a");
 });
 
 test("the application persists the executable model-preview group topology", () => {
@@ -124,7 +124,7 @@ test("Components and Canvases persist and compile their executable node topology
     {
       id: "canvas-a",
       name: "Canvas A",
-      type: "canvas",
+      type: "scene",
       chain: [{
         id: "group-a",
         kind: "group",
@@ -150,7 +150,7 @@ test("Components and Canvases persist and compile their executable node topology
     ["effect-a.texture", "$out.texture"],
   ]);
   assert.equal(componentGroup.connections.some((edge) => edge.to === "effect-a.$parameter.amount" && edge.sourceRange[1] === 1), true);
-  assert.equal(canvasGroup.artifactType, "canvas");
+  assert.equal(canvasGroup.artifactType, "scene");
   const canvasLayerGroup = canvasGroup.nodes.find((node) => node.role === "group");
   assert.equal(canvasLayerGroup.nodeId, "core.composition.layer-group");
   assert.equal(canvasLayerGroup.nodes.find((node) => node.role !== "control").nodeId, "core.visual.source");
@@ -415,22 +415,22 @@ test("Scenes and main output persist route composition and mapping groups", () =
   const state = packageRoot.prepareProjectState({
     components: [{ id: "component-a", type: "component", name: "A", chain: [] }],
     surfaces: [surface],
-    scenes: [{ id: "scene-a", name: "Scene A", snapshot: { surfaces: [surface] } }],
+    mappings: [{ id: "scene-a", name: "Scene A", snapshot: { surfaces: [surface] } }],
     nodes: {},
   });
-  const scene = state.nodes.groups.find((group) => group.id === "vj1.scene.scene-a");
+  const scene = state.nodes.groups.find((group) => group.id === "vj1.mapping.scene-a");
   const output = state.nodes.groups.find((group) => group.id === "vj1.output.main");
 
   assert.deepEqual(scene.nodes.map((node) => node.role), [
     "component-source", "surface-route", "composition", "mapping",
   ]);
   assert.equal(scene.nodes.find((node) => node.role === "surface-route").parameters.feather, 0.05);
-  assert.deepEqual(output.nodes.map((node) => node.role), ["scene", "composition", "mapping"]);
-  assert.equal(state.nodes.definitions.some((definition) => definition.id === "core.composition.scene-program"), true);
+  assert.deepEqual(output.nodes.map((node) => node.role), ["mapping-program", "composition", "mapping"]);
+  assert.equal(state.nodes.definitions.some((definition) => definition.id === "core.composition.mapping-program"), true);
   assert.equal(state.nodes.definitions.some((definition) => definition.id === "core.mapping.projection-engine"), true);
 });
 
-test("compiled Scene routes use live snapshot and physical-surface values instead of stale generated parameters", () => {
+test("compiled Mapping routes use Mapping-owned surface values instead of stale generated parameters", () => {
   const packageRoot = createVj1NodePackage();
   const surface = {
     id: "surface-a",
@@ -443,21 +443,20 @@ test("compiled Scene routes use live snapshot and physical-surface values instea
   };
   const state = packageRoot.prepareProjectState({
     components: [{ id: "component-a", type: "component", name: "A", chain: [] }],
-    surfaces: [surface],
-    scenes: [{ id: "scene-a", name: "Scene A", snapshot: { surfaces: [surface] } }],
+    mappings: [{ id: "scene-a", name: "Mapping A", surfaces: [surface], calibration: {} }],
     nodes: {},
-    ui: { selectedSceneId: "scene-a" },
+    ui: { selectedMappingId: "scene-a" },
   });
   const generatedRoute = state.nodes.groups
-    .find((group) => group.id === "vj1.scene.scene-a")
+    .find((group) => group.id === "vj1.mapping.scene-a")
     .nodes.find((node) => node.role === "surface-route");
   assert.equal(generatedRoute.parameters.opacity, 1);
   assert.equal(generatedRoute.parameters.feather, 0.05);
 
-  state.scenes[0].snapshot.surfaces[0].opacity = 0.25;
-  state.scenes[0].snapshot.surfaces[0].projectionFit = "contain";
-  state.surfaces[0].feather = 0.2;
-  const routes = compileSceneRenderPrograms(state, state.nodes.groups).get("scene-a").surfaces;
+  state.mappings[0].surfaces[0].opacity = 0.25;
+  state.mappings[0].surfaces[0].projectionFit = "contain";
+  state.mappings[0].surfaces[0].feather = 0.2;
+  const routes = compileMappingRenderPrograms(state, state.nodes.groups).get("scene-a").surfaces;
 
   assert.equal(routes[0].opacity, 0.25);
   assert.equal(routes[0].projectionFit, "contain");
@@ -466,7 +465,7 @@ test("compiled Scene routes use live snapshot and physical-surface values instea
 
 test("the persisted application program connects controls Live services and output infrastructure", () => {
   const packageRoot = createVj1NodePackage();
-  const state = packageRoot.prepareProjectState({ components: [], scenes: [], surfaces: [], nodes: {} });
+  const state = packageRoot.prepareProjectState({ components: [], mappings: [], surfaces: [], nodes: {} });
   const program = state.nodes.groups.find((group) => group.id === "vj1.application.program");
 
   assert.deepEqual(program.nodes.map((node) => node.role), [
@@ -696,7 +695,7 @@ test("the Nodes workspace selects persisted project programs and preserves their
   let state = packageRoot.prepareProjectState(createInitialState());
   const groupIds = [
     `vj1.component.${state.components[0].id}`,
-    "vj1.scene.working",
+    "vj1.mapping.working",
     "vj1.output.main",
     "vj1.application.program",
   ];
@@ -730,7 +729,7 @@ test("the Nodes workspace selects persisted project programs and preserves their
   assert.match(nodeLibraryStudioTemplate(state, packageRoot), /data-topology-editable="true"/);
   assert.match(nodeLibraryInspectorTemplate(state, packageRoot), /Visual compiler · editable/);
 
-  const sceneState = { ...state, ui: { ...state.ui, selectedNodeGroupId: "vj1.scene.working" } };
+  const sceneState = { ...state, ui: { ...state.ui, selectedNodeGroupId: "vj1.mapping.working" } };
   assert.match(nodeLibraryStudioTemplate(sceneState, packageRoot), /data-connections-editable="true"/);
   assert.match(nodeLibraryStudioTemplate(sceneState, packageRoot), /data-nodes-editable="false"/);
   assert.match(nodeLibraryInspectorTemplate(sceneState, packageRoot), /Compiler nodes · connections editable/);
@@ -753,7 +752,7 @@ test("the Nodes workspace selects persisted project programs and preserves their
 test("authored Scene routes survive topology refresh and control the compiled render program", () => {
   const packageRoot = createVj1NodePackage();
   let state = packageRoot.prepareProjectState(createInitialState());
-  const groupId = "vj1.scene.working";
+  const groupId = "vj1.mapping.working";
   const group = state.nodes.groups.find((item) => item.id === groupId);
   const removedSurfaceId = state.surfaces[0].id;
   const removedRouteOutput = `route:${removedSurfaceId}.route`;
@@ -765,7 +764,7 @@ test("authored Scene routes survive topology refresh and control the compiled re
   });
 
   const refreshed = state.nodes.groups.find((item) => item.id === groupId);
-  const program = compileSceneRenderPrograms(state, state.nodes.groups).get("");
+  const program = compileMappingRenderPrograms(state, state.nodes.groups).get("");
   assert.equal(refreshed.authoredConnections, true);
   assert.equal(refreshed.connections.some((edge) => edge.from === removedRouteOutput), false);
   assert.equal(program.surfaces.some((surface) => surface.id === removedSurfaceId), false);
@@ -775,7 +774,7 @@ test("authored Scene routes survive topology refresh and control the compiled re
 test("a new Surface receives default Scene wiring without restoring an authored disconnection", () => {
   const packageRoot = createVj1NodePackage();
   let state = packageRoot.prepareProjectState(createInitialState());
-  const groupId = "vj1.scene.working";
+  const groupId = "vj1.mapping.working";
   const group = state.nodes.groups.find((item) => item.id === groupId);
   const removedSurfaceId = state.surfaces[0].id;
   const removedRouteOutput = `route:${removedSurfaceId}.route`;
@@ -793,7 +792,7 @@ test("a new Surface receives default Scene wiring without restoring an authored 
 
   const refreshed = state.nodes.groups.find((item) => item.id === groupId);
   const addedRouteId = `route:${addedSurface.id}`;
-  const program = compileSceneRenderPrograms(state, state.nodes.groups).get("");
+  const program = compileMappingRenderPrograms(state, state.nodes.groups).get("");
   assert.equal(refreshed.connections.some((edge) => edge.from === removedRouteOutput), false);
   assert.equal(refreshed.connections.some((edge) => edge.from === `${addedRouteId}.route` && edge.to === "surface-composition.state"), true);
   assert.equal(program.surfaces.some((surface) => surface.id === removedSurfaceId), false);
@@ -867,7 +866,7 @@ test("the selected task editor exposes node parts and saves a live project shade
   };
   let state = packageRoot.prepareProjectState({
     components: [component],
-    scenes: [],
+    mappings: [],
     surfaces: [],
     ui: { selectedChainItemId: "gradient-a" },
     nodes: {},

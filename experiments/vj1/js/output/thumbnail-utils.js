@@ -24,8 +24,8 @@ export function componentThumbnailSignature(component = {}, render = {}) {
       speed: component.speed,
       frameShape: component.frameShape,
       resolutionScale: component.resolutionScale,
-      canvasAspectRatio: component.type === "canvas" ? render.canvasAspectRatio : null,
-      componentAspectRatio: component.type === "canvas" ? null : render.componentAspectRatio,
+      sceneAspectRatio: component.type === "scene" ? render.sceneAspectRatio : null,
+      componentAspectRatio: component.type === "scene" ? null : render.componentAspectRatio,
       chain: component.chain,
     });
   } catch {

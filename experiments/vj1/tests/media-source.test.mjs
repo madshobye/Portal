@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { generatorIcon } from "../js/control/picker-view.js";
 
-import { createCanvasComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState, sceneSourceNodeId } from "../js/domain/models.js?v=world-frame-27";
+import { createSceneComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState, sceneSourceNodeId } from "../js/domain/models.js?v=world-frame-27";
 import { normalizeParamValue, renderQualityScale } from "../js/libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, listGeneratorNodeComponents as listGeneratorComponents } from "../js/libraries/visual-nodes/index.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/libraries/render-engine/render-node-contract.js";
@@ -991,7 +991,7 @@ test("renderer source extraction merges source node params", () => {
 });
 
 test("live source controls use dynamic param metadata", () => {
-  const source = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path, viewParams)"));
@@ -1026,7 +1026,7 @@ test("output renderer blackouts while active media sources are missing or loadin
       createComponentLayer(0, { type: "media", mediaId: "clips/loop.mov" }),
     ];
     state.components = [component];
-    state.surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) }];
+    state.mappings[0].surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) }];
     const requested = [];
     const renderer = new OutputRenderer({
       mode: "output",
@@ -1118,7 +1118,7 @@ test("retained video components renew playback ownership without rerendering", (
     end: 4,
     speed: 2,
   })];
-  const parent = createCanvasComponent(0, child.id);
+  const parent = createSceneComponent(0, child.id);
   state.components = [child, parent];
   state.media = [{ id: "clips/loop.mov", path: "clips/loop.mov", type: "video", size: 42 }];
   renderer.state = state;
@@ -1145,7 +1145,7 @@ test("output readiness includes images referenced by media-backed generators", (
       createComponentLayer(2, { type: "generator", generatorId: "featureMorphV2", params: { imageAId: "c.png", imageBId: "d.png" } }),
     ];
     state.components = [component];
-    state.surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) }];
+    state.mappings[0].surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) }];
     const requested = [];
     const renderer = new OutputRenderer({ mode: "output", requestMediaFiles: (ids) => requested.push(ids) });
     renderer.state = sanitizeState(state);
@@ -1179,10 +1179,10 @@ test("output client holds current project state during control window refresh bo
 
 test("output defers a requested Live Scene and starts its transition at activation time", () => {
   const current = createInitialState();
-  current.ui.selectedSceneId = "scene-a";
+  current.ui.selectedMappingId = "scene-a";
   current.ui.live.selectedSceneId = "scene-a";
   const requested = structuredClone(current);
-  requested.ui.selectedSceneId = "scene-b";
+  requested.ui.selectedMappingId = "scene-b";
   requested.ui.live.selectedSceneId = "scene-b";
   requested.liveTransition = { id: "transition", startedAtMs: 10, durationMs: 1000 };
 
@@ -1197,10 +1197,10 @@ test("output defers a requested Live Scene and starts its transition at activati
 
 test("output accepts an immediate Live Scene cut without waiting behind media preparation", () => {
   const current = createInitialState();
-  current.ui.selectedSceneId = "scene-a";
+  current.ui.selectedMappingId = "scene-a";
   current.ui.live.selectedSceneId = "scene-a";
   const requested = structuredClone(current);
-  requested.ui.selectedSceneId = "scene-b";
+  requested.ui.selectedMappingId = "scene-b";
   requested.ui.live.selectedSceneId = "scene-b";
   requested.liveTransition = undefined;
 
@@ -1209,7 +1209,7 @@ test("output accepts an immediate Live Scene cut without waiting behind media pr
 
 test("output Scene identity follows Live rather than editor selection", () => {
   const state = createInitialState();
-  state.ui.selectedSceneId = "scene-being-edited";
+  state.ui.selectedMappingId = "scene-being-edited";
   state.ui.live.selectedSceneId = "scene-on-air";
 
   assert.equal(outputSceneId(state), "scene-on-air");
@@ -1217,7 +1217,7 @@ test("output Scene identity follows Live rather than editor selection", () => {
 
 test("output Scene identity has no editor fallback during recovery", () => {
   const state = createInitialState();
-  state.ui.selectedSceneId = "scene-being-edited";
+  state.ui.selectedMappingId = "scene-being-edited";
   state.ui.live.selectedSceneId = "";
 
   assert.equal(outputSceneId(state), "");
@@ -1225,10 +1225,10 @@ test("output Scene identity has no editor fallback during recovery", () => {
 
 test("a one-slot Scene queue transitions from the completed program target", () => {
   const sceneA = createInitialState();
-  sceneA.ui.selectedSceneId = "scene-a";
+  sceneA.ui.selectedMappingId = "scene-a";
   sceneA.ui.live.selectedSceneId = "scene-a";
   const sceneB = structuredClone(sceneA);
-  sceneB.ui.selectedSceneId = "scene-b";
+  sceneB.ui.selectedMappingId = "scene-b";
   sceneB.ui.live.selectedSceneId = "scene-b";
   sceneB.liveTransition = {
     id: "a-to-b",
@@ -1237,7 +1237,7 @@ test("a one-slot Scene queue transitions from the completed program target", () 
     fromState: sceneA,
   };
   const latestRequested = structuredClone(sceneB);
-  latestRequested.ui.selectedSceneId = "scene-d";
+  latestRequested.ui.selectedMappingId = "scene-d";
   latestRequested.ui.live.selectedSceneId = "scene-d";
   latestRequested.ui.live.transitionDuration = 2;
   latestRequested.liveTransition = {
@@ -1280,8 +1280,8 @@ test("component preview follows the shared preview toggle", () => {
   assert.ok(rendererSource.includes("this.thumbnailRuntime.invalidateSelectedComponent()"));
   assert.ok(thumbnailSource.includes("if (!this.sendThumbnail || !this.canCapture() || this.shouldUseThumbnailPreview())"));
   assert.ok(rendererSource.includes("this.renderSelectedChainTransformOverlay()"));
-  assert.ok(rendererSource.includes("renderCanvasThumbnailSnapshotPreview(component)"));
-  assert.ok(rendererSource.includes("renderCanvasThumbnailEditPreview(component)"));
+  assert.ok(rendererSource.includes("renderSceneThumbnailSnapshotPreview(component)"));
+  assert.ok(rendererSource.includes("renderSceneThumbnailEditPreview(component)"));
   assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(component)"));
 });
 
@@ -1369,7 +1369,7 @@ test("Canvas and ordinary components share dependency-aware static caching", () 
   const state = createInitialState();
   const child = createDefaultComponent(1);
   child.chain = [createComponentLayer(0, { type: "generator", generatorId: "gradient", params: {} })];
-  const canvas = createCanvasComponent(0, child.id);
+  const canvas = createSceneComponent(0, child.id);
   state.components = [child, canvas];
   renderer.state = state;
   const request = { role: "component", width: 640, height: 360 };

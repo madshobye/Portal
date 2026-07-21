@@ -2,21 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { canvasInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "../js/control/component-view.js";
+import { sceneInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "../js/control/component-view.js";
 import { createComponentEffect, createInitialState } from "../js/domain/models.js?v=render-coordinate-scope-3";
 
 test("Component and Canvas chain presentation lives outside the control orchestrator", () => {
   const state = createInitialState();
-  const component = state.components.find((item) => item.type !== "canvas");
-  const canvas = state.components.find((item) => item.type === "canvas") || {
+  const component = state.components.find((item) => item.type !== "scene");
+  const canvas = state.components.find((item) => item.type === "scene") || {
     ...component,
     id: "canvas-test",
-    type: "canvas",
+    type: "scene",
     canvas: { width: 1920, height: 1080 },
   };
   const componentHtml = componentTemplate(component, state);
   const settingsHtml = componentSelectedChainSettingsTemplate(component, state);
-  const canvasHtml = canvasInspectorTemplate(canvas, { ...state, components: [...state.components, canvas] });
+  const canvasHtml = sceneInspectorTemplate(canvas, { ...state, components: [...state.components, canvas] });
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.match(componentHtml, /class="component-frame-controls"/);
@@ -41,7 +41,7 @@ test("Component and Canvas chain presentation lives outside the control orchestr
 
 test("Canvas component placements render selected settings without a redundant source selector", () => {
   const state = createInitialState();
-  const referenced = state.components.find((item) => item.type !== "canvas");
+  const referenced = state.components.find((item) => item.type !== "scene");
   const placement = {
     id: "canvas-placement",
     kind: "source",
@@ -55,7 +55,7 @@ test("Canvas component placements render selected settings without a redundant s
   const canvas = {
     id: "canvas-settings-test",
     name: "Canvas settings test",
-    type: "canvas",
+    type: "scene",
     canvas: { width: 1920, height: 1080 },
     chain: [placement],
   };
@@ -74,7 +74,7 @@ test("Canvas component placements render selected settings without a redundant s
 
 test("effects separate shader strength from generic compositing controls", () => {
   const state = createInitialState();
-  const component = state.components.find((item) => item.type !== "canvas");
+  const component = state.components.find((item) => item.type !== "scene");
   const effect = createComponentEffect("invert", { amount: 0.4 });
   component.chain.push(effect);
   state.ui.selectedChainItemId = effect.id;
@@ -91,7 +91,7 @@ test("effects separate shader strength from generic compositing controls", () =>
 
 test("persistent and Live source editors share one media-model control schema", () => {
   const componentView = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const sceneLiveView = readFileSync(new URL("../js/control/scene-live-view.js", import.meta.url), "utf8");
+  const sceneLiveView = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   const schema = readFileSync(new URL("../js/control/source-control-schema.js", import.meta.url), "utf8");
 
   assert.match(componentView, /from "\.\/source-control-schema\.js\?v=[^"]+"/);
@@ -104,7 +104,7 @@ test("persistent and Live source editors share one media-model control schema", 
 
 test("STL sources expose the same Primary Details and General views in Component editing", () => {
   const state = createInitialState();
-  const component = state.components.find((item) => item.type !== "canvas");
+  const component = state.components.find((item) => item.type !== "scene");
   const source = component.chain[0];
   source.source = {
     type: "media",

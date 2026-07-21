@@ -10,9 +10,9 @@ export function sceneSourceNodeId(componentId = "", frameId = "") {
     : `component:${encodeURIComponent(componentId)}`;
 }
 
-export function sceneSourceNodes(state = {}) {
-  const frames = Array.isArray(state.recordingFrames) ? state.recordingFrames : [];
-  return (state.components || []).flatMap((component) => {
+export function sceneSourceNodes(state = {}, { includeSystem = false } = {}) {
+  const frames = Array.isArray(state.frames) ? state.frames : [];
+  return (state.components || []).filter((component) => includeSystem || !component.systemRole).flatMap((component) => {
     const componentNode = {
       id: sceneSourceNodeId(component.id),
       type: "component",
@@ -25,14 +25,14 @@ export function sceneSourceNodes(state = {}) {
       updatedAt: component.activity?.updatedAt || component.activity?.createdAt || "",
       recentAt: latestProjectActivity(component.activity),
     };
-    if (component.type !== "canvas") return [componentNode];
+    if (component.type !== "scene") return [componentNode];
     return [
       componentNode,
       ...frames.map((frame) => ({
         id: sceneSourceNodeId(component.id, frame.id),
         type: "recording-frame",
         name: `${component.name} · ${frame.name}`,
-        thumbnail: component.canvas?.frameThumbnails?.[frame.id] || component.thumbnail || "",
+        thumbnail: component.scene?.frameThumbnails?.[frame.id] || component.thumbnail || "",
         componentId: component.id,
         outputFrameId: frame.id,
         catalogMarker: component.catalogMarker || 0,
@@ -46,7 +46,9 @@ export function sceneSourceNodes(state = {}) {
 }
 
 export function resolveSceneSourceNode(state = {}, sourceNodeId = "") {
-  const nodes = sceneSourceNodes(state);
+  // System sources (currently the Mapping test pattern) are runtime nodes but
+  // stay out of every user-facing source catalog.
+  const nodes = sceneSourceNodes(state, { includeSystem: true });
   if (!sourceNodeId) return null;
   // An unresolved route is empty. Never substitute an unrelated first
   // component: that makes stale/blank assignments sample whichever texture
@@ -63,24 +65,91 @@ export function applySceneSourceNode(route = {}, node = null) {
   };
 }
 
+// A Mapping stores a frame slot, not a concrete Scene component. Resolving the
+// slot at the Live boundary lets one Mapping drive any Scene without mutating
+// the Mapping or recompiling its physical projection geometry.
+export function resolveSceneFrameRoute(state = {}, sceneComponent = null, route = {}) {
+  if (!sceneComponent || sceneComponent.type !== "scene") return applySceneSourceNode(route, null);
+  const frameId = String(route.frameSlotId || route.outputFrameId || state.frames?.[0]?.id || "");
+  const frame = state.frames?.find((candidate) => String(candidate.id) === frameId);
+  if (!frameId || !frame) {
+    return applySceneSourceNode(route, null);
+  }
+  const frameConfig = sceneComponent.scene?.frames?.find((candidate) => String(candidate.frameId) === frameId) || {};
+  const componentId = state.components?.some((component) => String(component.id) === String(frameConfig.componentId || ""))
+    ? String(frameConfig.componentId)
+    : sceneComponent.id;
+  return {
+    ...applySceneSourceNode(route, {
+    id: sceneSourceNodeId(componentId, componentId === sceneComponent.id ? frameId : ""),
+    componentId,
+    outputFrameId: componentId === sceneComponent.id ? frameId : "",
+    }),
+    frameSlotId: frameId,
+    frameFit: frameConfig.fit || frame.fit || "cover",
+    frameFitActive: componentId !== sceneComponent.id,
+    frameAspect: Math.max(0.0001,
+      (Number(state.render?.sceneAspectRatio) || 16 / 9) *
+      (Math.max(0.0001, Number(frame.width) || 1) / Math.max(0.0001, Number(frame.height) || 1))
+    ),
+  };
+}
+
+export function materializeSceneSurfaceRoutes(state = {}, sceneComponent = null, mapping = null) {
+  return {
+    surfaces: (mapping?.surfaces || state.surfaces || []).map((surface) =>
+      resolveSceneFrameRoute(state, sceneComponent, surface)
+    ),
+  };
+}
+
+// Live can put either a Scene or an ordinary Component on air. Scenes retain
+// their authored per-Frame routing. A standalone Component is sampled through
+// each Mapping Frame with one explicit cover crop; the physical Surface fit
+// remains a later, independent projection stage.
+export function materializeLiveTargetSurfaceRoutes(state = {}, target = null, mapping = null) {
+  if (!target) return { surfaces: [] };
+  if (target.type === "scene") return materializeSceneSurfaceRoutes(state, target, mapping);
+  const surfaces = mapping?.surfaces || state.surfaces || [];
+  return {
+    surfaces: surfaces.map((surface) => {
+      const frameId = String(surface.frameSlotId || surface.outputFrameId || state.frames?.[0]?.id || "");
+      const frame = state.frames?.find((candidate) => String(candidate.id) === frameId);
+      if (!frame) return applySceneSourceNode(surface, null);
+      return {
+        ...applySceneSourceNode(surface, {
+          id: sceneSourceNodeId(target.id),
+          componentId: target.id,
+          outputFrameId: "",
+        }),
+        frameSlotId: frameId,
+        frameFit: "cover",
+        frameFitActive: true,
+        frameAspect: Math.max(0.0001,
+          (Number(state.render?.sceneAspectRatio) || 16 / 9) *
+          (Math.max(0.0001, Number(frame.width) || 1) / Math.max(0.0001, Number(frame.height) || 1))
+        ),
+      };
+    }),
+  };
+}
+
 export function liveProgramComponentIds(state = {}, nowMs = Date.now()) {
   const ids = new Set();
   const live = state.ui?.live || {};
-  const sceneId = String(live.selectedSceneId || state.scenes?.[0]?.id || "");
-  const selectedScene = state.scenes?.find((scene) => String(scene.id) === sceneId);
-  const snapshots = [live.sceneSnapshot || selectedScene?.snapshot].filter(Boolean);
+  const routeStates = [live.surfaceRoutes].filter(Boolean);
   const transition = live.transition;
   const transitionStartedAt = Number(transition?.startedAtMs) || 0;
   const transitionDuration = Math.max(0, Number(transition?.durationMs) || 0);
   if (
-    transition?.fromSnapshot &&
+    transition?.fromSurfaceRoutes &&
     transitionStartedAt > 0 &&
     Number(nowMs) < transitionStartedAt + transitionDuration
   ) {
-    snapshots.push(transition.fromSnapshot);
+    routeStates.push(transition.fromSurfaceRoutes);
   }
-  for (const snapshot of snapshots) {
-    for (const surface of snapshot?.surfaces || []) {
+  for (const routeState of routeStates) {
+    for (const surface of routeState?.surfaces || []) {
       if (surface.enabled === false || !surface.componentId) continue;
       collectLiveComponentGraph(state, surface.componentId, ids);
     }

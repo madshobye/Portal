@@ -109,7 +109,9 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
           store.updateMapping(msg.mappingId || "default", msg.mapping, msg.status, reason);
         } else {
           store.update((draft) => {
-            draft.mappings[msg.mappingId || "default"] = msg.mapping;
+            draft.mappingCalibration = msg.mapping;
+            const selected = draft.mappings?.find((mapping) => mapping.id === draft.ui?.selectedMappingId);
+            if (selected) selected.calibration = msg.mapping;
             draft.ui.mappingStatus = msg.status || "Mapping updated";
           }, reason);
         }

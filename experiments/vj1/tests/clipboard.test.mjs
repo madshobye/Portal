@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { chainPasteTarget, clipboardPayloadForTarget, copyComponentAsCanvas, pasteClipboardPayload } from "../js/domain/clipboard.js";
-import { createCanvasComponent, createComponentGroup, createComponentLayer, createDefaultComponent, createDefaultSurface, createInitialState, createSceneFromState } from "../js/domain/models.js";
+import { chainPasteTarget, clipboardPayloadForTarget, copyComponentAsScene, pasteClipboardPayload } from "../js/domain/clipboard.js";
+import { createSceneComponent, createComponentGroup, createComponentLayer, createDefaultComponent, createDefaultSurface, createInitialState, createMappingFromState } from "../js/domain/models.js";
 
 test("Component list paste creates an independent copy with fresh nested ids", () => {
   const state = createInitialState();
@@ -23,7 +23,7 @@ test("Component list paste creates an independent copy with fresh nested ids", (
   assert.notEqual(copy.chain[0].chain[0].id, component.chain[0].chain[0].id);
 });
 
-test("a Component converts to an independent Canvas copy in the shared Canvas coordinate space", () => {
+test("a Component converts to an independent Scene copy in the shared Scene coordinate space", () => {
   const state = createInitialState();
   state.render.width = 1200;
   state.render.height = 800;
@@ -36,28 +36,28 @@ test("a Component converts to an independent Canvas copy in the shared Canvas co
   component.chain = [group];
   state.components = [component];
 
-  const result = copyComponentAsCanvas(state, component.id);
-  const canvas = state.components.find((item) => item.id === result.id);
+  const result = copyComponentAsScene(state, component.id);
+  const scene = state.components.find((item) => item.id === result.id);
 
   assert.equal(result.converted, true);
   assert.equal(state.components[0], component);
-  assert.equal(canvas.type, "canvas");
-  assert.equal(canvas.name, "Portrait Canvas");
-  assert.equal(Object.hasOwn(canvas.canvas, "width"), false);
-  assert.equal(Object.hasOwn(canvas.canvas, "height"), false);
-  assert.equal(state.render.canvasAspectRatio, 16 / 9);
+  assert.equal(scene.type, "scene");
+  assert.equal(scene.name, "Portrait Scene");
+  assert.equal(Object.hasOwn(scene.scene, "width"), false);
+  assert.equal(Object.hasOwn(scene.scene, "height"), false);
+  assert.equal(state.render.sceneAspectRatio, 16 / 9);
   assert.equal(Object.hasOwn(state.render, "canvasSize"), false);
-  assert.equal(canvas.thumbnail, "");
-  assert.notEqual(canvas.id, component.id);
-  assert.notEqual(canvas.chain[0].id, component.chain[0].id);
-  assert.notEqual(canvas.chain[0].chain[0].id, component.chain[0].chain[0].id);
-  assert.equal(state.ui.workspaceSelectionIds.canvas, canvas.id);
+  assert.equal(scene.thumbnail, "");
+  assert.notEqual(scene.id, component.id);
+  assert.notEqual(scene.chain[0].id, component.chain[0].id);
+  assert.notEqual(scene.chain[0].chain[0].id, component.chain[0].chain[0].id);
+  assert.equal(state.ui.workspaceSelectionIds.scene, scene.id);
 });
 
 test("copied Components become references when pasted into a Canvas", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
-  const canvas = createCanvasComponent(0);
+  const canvas = createSceneComponent(0);
   state.components = [component, canvas];
 
   const result = pasteClipboardPayload(
@@ -75,14 +75,15 @@ test("copied Components become references when pasted into a Canvas", () => {
 test("pasted elements also start disabled when their Canvas has a connected Live output", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
-  const canvas = createCanvasComponent(0);
+  const canvas = createSceneComponent(0);
   state.components = [component, canvas];
   state.surfaces[0].enabled = true;
   state.surfaces[0].componentId = canvas.id;
-  const scene = createSceneFromState(state, "Program");
-  state.scenes = [scene];
-  state.ui.live.selectedSceneId = scene.id;
-  state.ui.live.sceneSnapshot = structuredClone(scene.snapshot);
+  const scene = createMappingFromState(state, "Program");
+  state.mappings = [scene];
+  state.ui.selectedMappingId = scene.id;
+  state.ui.live.selectedSceneId = canvas.id;
+  state.ui.live.surfaceRoutes = { surfaces: structuredClone(scene.surfaces) };
   state.metrics.clients = 1;
   state.metrics.outputs = { "output-main": 1 };
 
@@ -97,16 +98,16 @@ test("pasted elements also start disabled when their Canvas has a connected Live
   assert.equal(canvas.chain[0].enabled, false);
 });
 
-test("pasting a Component onto a Canvas list row targets that Canvas chain", () => {
+test("pasting a Component onto a Scene list row targets that Scene chain", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
-  const canvas = createCanvasComponent(0);
+  const canvas = createSceneComponent(0);
   state.components = [component, canvas];
 
   const result = pasteClipboardPayload(
     state,
     { kind: "component", value: component },
-    { kind: "canvas-list", itemId: canvas.id }
+    { kind: "scene-list", itemId: canvas.id }
   );
 
   assert.equal(result.pasted, true);
@@ -136,7 +137,7 @@ test("chain paste inserts after an element or inside the selected Group", () => 
 test("a Canvas element copied into a Component remains a chain element", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
-  const canvas = createCanvasComponent(0);
+  const canvas = createSceneComponent(0);
   const canvasElement = createComponentLayer(1, { type: "generator", generatorId: "gradient" });
   canvas.chain = [canvasElement];
   state.components = [component, canvas];
@@ -159,25 +160,27 @@ test("a Canvas element copied into a Component remains a chain element", () => {
   assert.notEqual(component.chain.at(-1).id, canvasElement.id);
 });
 
-test("Scenes and mapped surfaces duplicate only into their matching lists", () => {
+test("Mappings and mapped surfaces duplicate only into their matching lists", () => {
   const state = createInitialState();
-  const scene = createSceneFromState(state, "Scene A");
+  const mapping = createMappingFromState(state, "Mapping A");
   const surface = { ...createDefaultSurface(2), id: "surface-a", mappingId: "surface-a", name: "Surface A" };
-  state.scenes = [scene];
-  state.surfaces = [surface];
-  state.mappings = { local: { surfaces: [{ name: surface.id, corners: [{ x: 1, y: 2 }] }] } };
+  mapping.surfaces = [surface];
+  mapping.calibration = { surfaces: [{ id: surface.id, name: surface.id, corners: [{ x: 1, y: 2 }] }] };
+  state.mappings = [mapping];
+  state.ui.selectedMappingId = mapping.id;
 
-  const sceneResult = pasteClipboardPayload(state, { kind: "scene", value: scene }, { kind: "scene-list" });
+  const mappingResult = pasteClipboardPayload(state, { kind: "mapping", value: mapping }, { kind: "mapping-list" });
   const surfaceResult = pasteClipboardPayload(state, { kind: "surface", value: surface }, { kind: "surface-list" });
 
-  assert.equal(sceneResult.pasted, true);
-  assert.equal(state.scenes[1].name, "Scene A Copy");
-  assert.notEqual(state.scenes[1].id, scene.id);
+  assert.equal(mappingResult.pasted, true);
+  assert.equal(state.mappings[1].name, "Mapping A Copy");
+  assert.notEqual(state.mappings[1].id, mapping.id);
   assert.equal(surfaceResult.pasted, true);
-  assert.equal(state.surfaces[1].name, "Surface A Copy");
-  assert.notEqual(state.surfaces[1].id, surface.id);
-  assert.equal(state.scenes[0].snapshot.surfaces.some((item) => item.id === state.surfaces[1].id), true);
-  assert.deepEqual(state.mappings.local.surfaces[1], { name: state.surfaces[1].id, corners: [{ x: 1, y: 2 }] });
+  const copiedMapping = state.mappings[1];
+  const copiedSurface = copiedMapping.surfaces[1];
+  assert.equal(copiedSurface.name, "Surface A Copy");
+  assert.notEqual(copiedSurface.id, surface.id);
+  assert.deepEqual(copiedMapping.calibration.surfaces[1], { id: copiedSurface.id, name: copiedSurface.id, corners: [{ x: 1, y: 2 }] });
 });
 
 test("pasted media becomes a source only for chain destinations", () => {

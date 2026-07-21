@@ -32,7 +32,7 @@ test("thumbnail runtime delegates image conversion to thumbnail utilities", () =
 
 test("thumbnail invalidation is latest-wins and retains the published image while dirty", () => {
   const component = { id: "component-a", thumbnail: "blob:previous", chain: [{ id: "source", value: 1 }] };
-  const state = { components: [component], recordingFrames: [], render: {}, ui: { selectedComponentId: component.id } };
+  const state = { components: [component], frames: [], render: {}, ui: { selectedComponentId: component.id } };
   const runtime = new OutputThumbnailRuntime({
     getState: () => state,
     sendThumbnail: () => true,
