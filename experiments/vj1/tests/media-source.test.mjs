@@ -652,6 +652,17 @@ test("terrain camera space is independent from generic chain transforms", () => 
   assert.match(drawTerrainSource, /presentGeneratedTarget\(pg, target\)/);
 });
 
+test("parsed mesh rendering stays in a shared depth framebuffer", () => {
+  const runtimeSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const drawModelSource = runtimeSource.slice(runtimeSource.indexOf("  drawModel("), runtimeSource.indexOf("  presentGeneratedTarget("));
+  const rawTargetSource = runtimeSource.slice(runtimeSource.indexOf("  getRawModelTarget("), runtimeSource.indexOf("  getTerrainTarget("));
+
+  assert.match(drawModelSource, /item\.modelData\s*\? this\.getRawModelTarget/);
+  assert.match(drawModelSource, /\[VJ1_MODEL_SHARED_RENDER_FAILED\]/);
+  assert.match(rawTargetSource, /preferSharedFramebuffer: true/);
+  assert.match(rawTargetSource, /depth: true/);
+});
+
 test("random generator speed controls use phase-continuous clocks", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");

@@ -489,7 +489,13 @@ export class SpecializedSourceRuntime {
 
   drawModel(pg, item, source = {}, componentTime = 0, renderRequest = {}) {
     const params = source.params || {};
-    const target = this.getModelTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
+    // Parsed STL/OBJ meshes already use the raw WebGL renderer. Keep that
+    // renderer in the compositor's shared context so presenting the result is
+    // a texture bind rather than a per-frame cross-context canvas upload.
+    // Imported p5.Geometry assets retain the established p5.Graphics target.
+    const target = item.modelData
+      ? this.getRawModelTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity)
+      : this.getModelTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
     const viewport = modelViewportMetrics(target, renderRequest);
     const renderMode = params.renderMode || "surface";
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
@@ -520,7 +526,15 @@ export class SpecializedSourceRuntime {
       // allocation overhead while keeping the exact established p5/WebGL UX.
       const rawParsedDrawn = item.modelData &&
         drawRawParsedModelMode(target, item, { ...params, __importBasis: importBasis }, componentTime, renderMode, surfaceColor, wireColor, pointBudget, viewport, source.contentTransform, modelMesh);
-      if (!rawParsedDrawn) {
+      if (!rawParsedDrawn && isSharedFramebufferTarget(target)) {
+        if (!item.modelSharedRenderFailureLogged) {
+          item.modelSharedRenderFailureLogged = true;
+          console.error("[VJ1_MODEL_SHARED_RENDER_FAILED]", {
+            mediaId: item.id,
+            message: "parsed mesh could not render in the shared GPU context",
+          });
+        }
+      } else if (!rawParsedDrawn) {
         const fallbackRenderMode = renderMode === "outline"
           ? "wireframe"
           : renderMode === "surfaceOutline" ? "surfaceWire"
@@ -635,6 +649,14 @@ export class SpecializedSourceRuntime {
   getModelTarget(width, height, density = 1) {
     return this.getTarget("model", width, height, density, {
       onContextDiscard: (gl) => this.resetModelResources(gl),
+    });
+  }
+
+  getRawModelTarget(width, height, density = 1) {
+    return this.getTarget("modelRaw", width, height, density, {
+      onContextDiscard: (gl) => this.resetModelResources(gl),
+      preferSharedFramebuffer: true,
+      depth: true,
     });
   }
 

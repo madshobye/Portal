@@ -10,7 +10,7 @@ import {
   directFitRects,
   scaledComponentSampleRect,
 } from "./component-render-layout.js?v=canvas-global-resolution-1";
-import { boundedSampleRect, drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
+import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import { planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=async-frame-fanout-1";
 import {
   createSharedFramebufferTarget,
@@ -382,11 +382,10 @@ export class OutputSurfaceRuntime {
   }
 
   drawDirectSurfaceView(view, route = {}, opacity = 1) {
-    const requestedSourceRect = view?.sourceRect;
+    const sourceRect = view?.sourceRect;
     const texture = view?.texture;
     const mapperSurface = route.mapped?.mapperSurface;
-    if (!texture || !requestedSourceRect || !mapperSurface || opacity <= 0) return;
-    const sourceRect = boundedSampleRect(texture, requestedSourceRect, texture.width, texture.height);
+    if (!texture || !sourceRect || !mapperSurface || opacity <= 0) return;
     // A recording frame is a texture view, not a new raster. Sample it with
     // the same mapping shader used by projected surfaces so shared
     // framebuffers stay in the main GL context. p5.image's source-rectangle

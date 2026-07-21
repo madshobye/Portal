@@ -58,7 +58,7 @@ import {
 } from "./render-geometry.js?v=instance-invariant-prefix-1";
 import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=source-roi-view-3";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=shared-raw-model-1";
 import {
   canvasMaxRasterSize,
   canvasPreviewRenderRequest,

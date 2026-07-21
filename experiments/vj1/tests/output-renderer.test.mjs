@@ -871,7 +871,7 @@ test("hud render resolution reports GPU render pixels, not window size", () => {
   }
 });
 
-test("terrain stays in the shared WebGL context while STL reuses its p5 scratch target", () => {
+test("terrain and parsed STL stay in the shared WebGL context while imported p5 models reuse a scratch target", () => {
   const previousCreateGraphics = globalThis.createGraphics;
   const previousCreateFramebuffer = globalThis.createFramebuffer;
   const previousNoStroke = globalThis.noStroke;
@@ -923,31 +923,42 @@ test("terrain stays in the shared WebGL context while STL reuses its p5 scratch 
 
   try {
     const terrainLow = renderer.getTerrainTarget(1000, 563);
+    const parsedModelLow = renderer.specializedSources.getRawModelTarget(1000, 563, 0.5);
     const modelLow = renderer.getModelTarget(1000, 563);
     assert.equal(terrainLow.__vj1SharedFramebuffer, true);
+    assert.equal(parsedModelLow.__vj1SharedFramebuffer, true);
     assert.equal(terrainLow.pixelDensity(), 1);
+    assert.equal(parsedModelLow.pixelDensity(), 1);
     assert.equal(terrainLow.framebuffer.depth, true);
+    assert.equal(parsedModelLow.framebuffer.depth, true);
     assert.equal(modelLow.appliedDensity, 0.5);
     assert.equal(modelLow.mode, "webgl");
 
     renderer.state.render.pixelDensity = 1.5;
     const terrainHigh = renderer.getTerrainTarget(1000, 563);
+    const parsedModelHigh = renderer.specializedSources.getRawModelTarget(1000, 563, 1.5);
     const modelHigh = renderer.getModelTarget(1000, 563);
     assert.equal(terrainHigh.__vj1PixelDensity, 1.5);
+    assert.equal(parsedModelHigh.__vj1PixelDensity, 1.5);
     assert.equal(modelHigh.appliedDensity, 1.5);
     assert.strictEqual(terrainHigh, terrainLow);
+    assert.strictEqual(parsedModelHigh, parsedModelLow);
     assert.strictEqual(modelHigh, modelLow);
 
     const terrainResolved = renderer.getTerrainTarget(500, 282, 1);
+    const parsedModelResolved = renderer.specializedSources.getRawModelTarget(500, 282, 1);
     const modelResolved = renderer.getModelTarget(500, 282, 1);
     assert.equal(terrainResolved.__vj1PixelDensity, 1);
+    assert.equal(parsedModelResolved.__vj1PixelDensity, 1);
     assert.equal(modelResolved.appliedDensity, 1);
     assert.strictEqual(terrainResolved, terrainLow);
+    assert.strictEqual(parsedModelResolved, parsedModelLow);
     assert.strictEqual(modelResolved, modelLow);
     assert.equal(terrainResolved.framebuffer.resizeCount, 1);
+    assert.equal(parsedModelResolved.framebuffer.resizeCount, 1);
     assert.equal(modelResolved.resizeCount, 1);
-    assert.equal(renderer.specializedWebglTargets.size, 2);
-    assert.equal(framebuffers.length, 1);
+    assert.equal(renderer.specializedWebglTargets.size, 3);
+    assert.equal(framebuffers.length, 2);
     assert.equal(created.length, 1);
   } finally {
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
