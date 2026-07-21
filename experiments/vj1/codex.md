@@ -1,129 +1,131 @@
-# VJ1 Handover
+# VJ1 Handover Brief
 
-Updated: 2026-07-20
+Updated: 2026-07-21
 
-VJ1 is a build-free browser VJ and projection-mapping app in `experiments/vj1`. It uses p5 as the host/media compatibility layer and raw WebGL for the render pipeline. The user-selected project folder is authoritative.
+VJ1 is a build-free browser VJ and projection-mapping application in `experiments/vj1`. It targets current Chrome with a capable GPU. p5 remains the browser/media host, while frame-critical rendering increasingly uses raw WebGL and shared p5 framebuffers. The user-selected project folder and its `project.json` are authoritative.
 
-## Product and Data Model
+## Product Model
 
-- **Components** are reusable sequential visual chains.
-- **Canvas** uses the same chain model and may place Components in a larger logical frame.
-- **Scenes** route Components, Canvases, or Canvas recording frames to surfaces.
-- **Live** selects the program Scene and applies temporary performance overrides.
+- **Component**: reusable ordered chain of sources, effects, and isolated Groups.
+- **Canvas**: a Component using the same chain model, with relative placement of other Components and shared recording-frame crops.
+- **Scene**: routes Components, whole Canvases, or Canvas recording frames to direct or mapped surfaces.
+- **Live**: selects the on-air Scene and applies temporary overrides without changing authored state.
+- **Output**: renders the Live Scene in an embedded preview or standalone output window from the same canonical render state.
 
-Persisted Component/Canvas groups in `state.nodes` are the visual graph authority. `component.chain` is the materialized in-memory UI projection and compatibility shape; new saves do not persist it when a compiled group exists. Items remain sources, effects, or isolated Groups. Do not restore `component.source`, `component.shaderChain`, chain-level source params, or silent Test Pattern/black fallbacks. Current project schema is version **26**; format changes require one adjacent migration and focused tests.
+Project schema is version **26**. Persisted format changes require one adjacent migration in `domain/project-migrations.js` plus focused tests. Do not restore obsolete parallel authorities such as `component.source`, `component.shaderChain`, Canvas `layers`, per-surface pixel crops, or chain-level source params.
 
-Visual node graphs compile through the custom Component visual compiler into the existing allocation-stable direct renderer. Do not replace this with generic per-frame packet traversal. Preserve shader fusion, shared framebuffer targets, retained caches, specialized STL/model/terrain paths, and current resource reuse. If a visual relationship requires specialization, keep it behind a compiler/custom node boundary rather than introducing avoidable ping-pong buffers. Call-driven graph execution is for control, data, and utility groups. The generic Visual Source node owns source-family dispatch (`component`, `media`, `camera`, `black`, or `generator`) as compiled renderer metadata; the output host supplies the existing resource-specific methods. Direct placement and media/model cache decisions remain on their established optimized paths.
+## Architecture and Library Boundaries
 
-Scene and Output groups compile authored connections into setup-time reachability; their generated nodes stay synchronized with project structure. Native generators compile a node-owned renderer ID into the visual render plan, and the output host resolves that ID through one specialized renderer registry rather than branching on generator names. Test Pattern, Checker, and Black go further: their editable multi-part JavaScript algorithms live in their node modules, compile to a direct node process, and draw into the existing source target. Project-local JavaScript forks replace that compiled process without adding a scheduler, graph traversal, or intermediate buffer.
+The application root (`app.js`, state, controllers, output hosts, services) configures focused libraries under `js/libraries`:
 
-Text now owns its editable layout/mask JavaScript and vertex/fragment shader parts in its node folder. The compiled node module supplies those algorithms to the existing specialized host, which retains only browser/GPU resource duties: the bounded mask cache, p5 image conversion, shader object, and existing render target. Helper or shader forks change the module revision, invalidate the relevant retained cache, and reuse the same single shader pass; no extra target, traversal, or per-frame node packet was introduced. Runtime-only module exports are deliberately excluded from serialized packages and are reconstructed from the package's editable JavaScript parts during installation.
+- `node-engine`: typed/versioned node definitions, ports, groups, packages, forks, and editable parts.
+- `composition-engine`: compiled Component, Canvas, Scene, surface-route, and application programs.
+- `render-engine`: relative geometry, render views, and ROI contracts.
+- `mapping-engine`: surface homography, source fit, feathering, and projection sampling.
+- `cache-engine`: retained render-target and signature caches.
+- `media-engine`: media/input lifecycle contracts.
+- `mesh-engine`: STL/OBJ parsers, format detection, mesh preparation/resolution, mesh rendering, and file-to-image groups.
+- `image-engine`: reusable image operations such as resize.
+- `control-engine`, `data-store`, `state-engine`, `storage-engine`, `synchronization-engine`, `timing-engine`, and `diagnostics-engine`: non-render infrastructure.
+- `visual-nodes`: one folder per generator/effect with metadata, editable JavaScript, shaders, and runtime parts where applicable.
 
-Terrain now owns its editable CPU mesh/topology module and all four surface/wire GLSL parts in the Terrain Flyover node folder. The specialized WebGL host consumes the compiler-supplied helpers and shaders while retaining the existing shared framebuffer, two programs, and GPU buffers. JavaScript and shader revisions are tracked separately: topology edits invalidate the existing mesh buffer keys, while shader edits recreate only the corresponding retained programs. Neither path adds a render pass, target, graph traversal, or frame-local packet. `output/specialized/terrain-mesh.js` is compatibility re-export only.
+Nodes are real implementations, not decorative wrappers. Code, shader, parser, and group nodes own their editable algorithms. Optimized hosts may call the same exported implementation directly without allocating a generic NodeInstance or traversing packets each frame. Do not replace the current allocation-stable renderer with generic per-frame graph traversal. Compiler/custom-node boundaries are preferred when a relationship needs specialization.
 
-Tile Texture owns its editable repeat-axis JavaScript helper and vertex/fragment GLSL in its node folder. The specialized host still owns the selected-image media lease, existing shared target, and one retained p5 shader object. Project forks supply the compiled helper and shader parts; only a changed Tile Texture program revision recreates the retained shader. `output/specialized/tile-texture-shader.js` is compatibility re-export only.
-
-2D Mesh Patterns owns its complete deterministic topology engine, palette algorithm, and four raw-GLSL stages in its node folder. All ten geometry families, signatures, seeded construction, Voronoi, marching squares, flow integration, and truss solving compile as one editable JavaScript module; palette and fill/wire programs are independently editable parts. `output/specialized/mesh-pattern-algorithms.js` is compatibility re-export only. The raw-WebGL host invokes compiler-supplied modules while retaining the existing bounded CPU topology cache, GPU buffers, linked programs, and draw passes. Node-code revision is part of topology cache identity. Shader edits replace the two small programs while explicitly preserving retained topology buffers; no traversal or render buffers were added.
-
-Low Poly Anatomy owns its complete procedural geometry implementation as one editable JavaScript module: face, body, hand, arm, leg, heart, tapered/path/profile volumes, ring caching, mesh emission, materials, and part fit. `output/specialized/anatomy-renderer.js` is compatibility re-export only. The specialized host invokes the compiled node functions directly while retaining camera, transform, quality scaling, lighting, target reuse, GPU timing, and presentation. Project forks therefore change actual procedural construction rather than wrapping a hidden host algorithm.
-
-Screen Share is a direct compiled node process. It owns input selection behavior, availability decisions, fit policy, mirroring, and sampling calls. The output host injects stable capture/media capabilities once per compiled operation and retains the user-authorized sharing session, source registry, diagnostics presentation, and media bridge. This keeps security/session state out of the node while making the visible generator behavior editable; no frame-local capability wrappers are allocated.
-
-Every catalog generator routed through a native renderer now has editable executable JavaScript in its node definition. An architecture contract enumerates native generators and rejects future host-only entries. Native rendering still means a compiler-selected optimized host capability, not a generic per-frame node scheduler.
-
-STL and OBJ parsing are owned by their respective editable parser nodes, including both full-fidelity and bounded-preview algorithms. `Parse 3D Object` routes format detection into those nodes; `Prepare 3D Asset` adds the mesh-resolution node; `Convert 3D File to Image` composes preparation, the shared mesh-render node, and optional bounded image resize. Thumbnail mode selects the parser nodes' bounded reservoir/sampling policy before mesh allocation and skips QEM/LOD generation, while live imports retain full parsing and cached meshoptimizer processing. `mesh-preview-renderer.js` contains only SVG projection plus compatibility re-exports—there is no second hidden parser. These utility groups execute only when called and do not participate in per-frame graph traversal or add render targets.
-
-Cache, media-input lifecycle, diagnostics, state-command, serialized-storage, live-patch synchronization, format detection, mesh resolution, and timing nodes now expose linked multi-part JavaScript process entries. They can own state when run as ordinary nodes, while optimized hosts directly reuse the exact same exported classes/functions without NodeInstance allocation in frame-critical paths. An application-catalog contract compiles every editable `code` node and rejects displayed JavaScript that is not linked to execution. Surface Composition and Visual Node Definition are the deliberate exceptions: they are explicitly native, read-only compiler adapters because their execution depends on retained host/compiler capabilities rather than portable node code.
-
-Feature Morph and Feature Morph V2 each own their editable image-fit helper, analysis module, and vertex/fragment program in separate node folders. Feature Morph owns SuperPoint descriptor matching, triangulation, and displacement-field construction; `output/specialized/feature-morph-field.js` is compatibility re-export only. Feature Morph V2 owns MobileNet semantic matching, coherent flow-grid construction, and rigid/elastic MLS field generation. The service hosts keep model/CDN loading, serialized inference, slider debounce, async progress, image-feature reuse, and bounded persistent caching, but invoke compiler-supplied node algorithms. Node JavaScript revisions participate in analysis-cache identity, so an algorithm fork produces one new asynchronous field without affecting render traversal. The specialized render host retains the existing flow-field images, media leases, separate shared targets, and one shader object per variant. A changed shader-program revision recreates only that variant's retained shader. `output/specialized/feature-morph-shader.js` is compatibility re-export only.
-
-Application service dependencies are separate `service` wires with `phase: "setup"`; `ApplicationProgramRuntime` compiles those wires before constructing services. The authored `state.snapshot → live.state` and `state.snapshot → storage.value` routes are also executable and editable. They dispatch through a bootstrap-time route index only when the store changes; the Application-created bridge deliberately has no hidden parallel store subscription. Service and state changes activate on reload through a preflight read of the stored project. Invalid graphs enter an explicit recoverable built-in safe mode. Remaining cross-process/media/cache/output runtime routes are visible but compiler-locked until their host contracts are mature.
-
-Node packages use format version 2 and can carry definitions, artifacts, reusable persisted group topology, project-local forks, and executable node-migration source. Group and fork references to nodes outside the package become explicit version requirements. Runtime and project installation preflight requirements and collisions before mutation; identical installs are idempotent. Project installation can explicitly rebase existing forks onto newer packaged definitions through compatibility checks and migrations; it never upgrades forks silently. Format-1 definition/artifact packages import through the additive format migration. The VJ1 composition root exposes project package creation, export, and installation without putting package work in the render path.
-
-Every chain item shares one General contract: `opacity`, `blend`, and `transform`. An authored `params.amount` is algorithm-specific strength, never a second compositing-opacity authority.
-
-Media-source parameters have one type-aware schema shared by Component, Canvas, Live, and significant controls. Do not hand-author parallel inspector control lists.
-
-Scene routes use `surface.sourceNodeId`. An empty route is intentionally empty. `recordingFrames` is a shared project registry and frames remain Canvas-logical crops.
-
-Catalog markers are shared authored metadata (`none → star → heart → pin`). Only pins stay first under every ordering; Scene ordering and surface-source ordering have separate UI sort preferences.
-
-## Critical Invariants
-
-- `ui.live.selectedSceneId` is the only program/output Scene authority.
-- `ui.selectedSceneId` is editor selection and must never become an output, recovery, transition, or Live-preview fallback.
-- Persistent edits may update Components used by Live but may not change the Live Scene.
-- A Component renders an intrinsic full-frame texture. Its root transform is parent-owned placement on Canvas, Scene surfaces, and Live—not baked into that texture.
-- Chain transforms use screen coordinates: positive X right, positive Y down, positive rotation clockwise.
-- Groups precompose their transform into descendants and isolate blend/opacity.
-- Logical frame, physical raster demand, preview zoom, and projection geometry are separate concerns.
-- Premultiplied alpha is the render contract.
-- Output and embedded preview must consume the same canonical render state.
-- No silent render/media fallbacks: emit structured `VJ1_*` diagnostics when a path fails.
-
-## Render Architecture
+## Render Pipeline
 
 ```text
-state -> visible route demand -> Component/Canvas textures
-      -> optional materialization for effects/groups/transitions
-      -> surface fit + mapping + feather -> output
+canonical state
+  -> compiled visible Scene routes
+  -> shared Component/Canvas demand
+  -> retained source/effect textures
+  -> optional group/effect/transition materialization
+  -> frame crop + fit + mapping + feather
+  -> embedded or standalone output
 ```
 
-Only visible dependencies render. Static nodes are signature-cached; dynamic nodes invalidate as needed. Recording frames are views into one parent Canvas texture. Raw WebGL stages consume explicit logical/physical target metadata from `render-target-contract.js`; coordinate conversion belongs in `content-coordinate-space.js`.
+Only visible dependencies render. Static nodes are signature-cached; dynamic nodes invalidate on their real time/media revision. Synchronized instances reuse eligible Component results. Recording frames are texture views into one parent Canvas, not separate full-Canvas renders.
 
-Every bounded visual node has two separate concepts: its relative boundary in the parent and its content transform inside that boundary. Scaling or rotating the boundary changes clipping/placement; content translation, scale, and rotation change the image or procedural coordinate field inside it. `render-engine/roi` allocates only the visible boundary pixels, while `render-engine/render-view` reconstructs the complete boundary domain and ROI UV window. Media fit, native and Shadertoy generators, effects, nested Components, models, anatomy, terrain, mesh patterns, feature morph, Tile Texture, Test Pattern, and Text consume this same contract. A partly off-screen source therefore keeps its center, aspect, fit, procedural frequency, and projection rather than treating the visible crop as a new full frame.
+Important invariants:
 
-Text is the deliberate CPU-mask special case. Its node-owned layout uses a stable full-boundary mask domain so moving an ROI does not rebuild or squeeze text; the retained mask raster is capped to 4096 pixels on its longest edge before the GPU samples only the visible ROI. Standalone WebGL targets explicitly release discarded contexts, while ordinary output resizing preserves and resizes the retained model context instead of repeatedly creating contexts.
+- `ui.live.selectedSceneId` is the only on-air Scene authority. Editor selection must never become an output fallback.
+- Components render intrinsic textures. Parent transforms place them on Canvas, surfaces, and Live.
+- Boundaries and content transforms are separate: the boundary owns placement, rotation, and clipping; content transform moves/scales the image or procedural domain inside it.
+- Geometry is relative and resolution-independent. Pixel dimensions are derived from host viewport, output proportions, quality, density, and visible demand.
+- ROI changes allocation/sampling only; it must not recenter, squeeze, or change generator/effect math.
+- Chain coordinates are screen-like: positive X right, positive Y down, positive rotation clockwise.
+- Premultiplied alpha is the render contract.
+- `cover`, `contain`, and `stretch` are explicit route choices and must retain their normal meanings.
+- Avoid extra WebGL contexts, pixel readbacks, resizable cross-context canvas uploads, and unnecessary ping-pong buffers.
+- No silent media/render fallback. Emit structured `VJ1_*` diagnostics.
 
-p5 should not own coordinate, orientation, sizing, placement, or cache policy. Avoid extra WebGL contexts, per-frame buffers, pixel readbacks, and cross-context resizable canvas uploads.
+Effects remain sequential. Shader fusion, direct placement, retained framebuffers, specialized model/terrain paths, and cache reuse must survive node-system work. Do not force optimized paths into a pure generic traversal when a compiled direct node or custom renderer is healthier.
 
-Component and Canvas thumbnails use a derived-asset, stale-while-revalidate pipeline. State changes invalidate the selected item and a latest-wins coordinator waits for the gesture/quiet boundary; the last successful thumbnail remains published throughout dirty, retry, readback, and encoding states. Capture is disabled during direct preview pointer gestures and is never run by standalone output renderers. One retained thumbnail-sized framebuffer downsamples the current component texture in the existing WebGL context before the only GPU readback, so a 4K source no longer causes a full-resolution CPU transfer. Jobs are serialized and idle-scheduled, WebP/PNG encoding uses asynchronous `toBlob`, persistence accepts the Blob directly, and the UI publishes a short object URL through a targeted Component-state update. Obsolete jobs cannot replace newer state, Canvas frame crops use the same coordinator, and failed/not-ready captures retain the prior image and retry without leaving the catalog item blank. Cache-bust tag: `thumbnail-pipeline-1`.
+## Current Render and Performance State
 
-STL/OBJ processing runs off-thread through meshoptimizer QEM and writes versioned artifacts to `vj1-cache/models`. Parsed and GPU resources are leased and evicted by the media runtime. Model thumbnails use a bounded lightweight sample and must not trigger full LOD generation.
+The latest committed baseline is `b3de46e2`. It contains the recent browser/video/cache/diagnostic work and the direct recording-frame correction.
 
-## Live and Output Transport
+### Direct recording-frame presentation
 
-Control and outputs use `BroadcastChannel("vj1-output-bridge")`. Full Live state comes from `store.getLiveRenderState()`. Parameter gestures use stable-ID revisioned patches; a patch or resync must preserve the explicit Live Scene identity.
+p5's source-rectangle `image()` path could trigger:
 
-The latest fix removed editor-Scene fallbacks from popup output, embedded Live preview, and Live render-state construction. Regression tests cover editing a Component while another Scene is on air. Cache-bust tag: `live-scene-authority-1`.
+`GL_INVALID_VALUE: glCopySubTextureCHROMIUM: Negative offset`
 
-Scene transition duration and parameter fade are independent. Numeric Live values update user truth immediately; interpolation is renderer-local. Media preparation may delay a timed transition, but must not substitute a different Scene.
+Direct recording-frame routes now sample the parent Canvas through the existing mapping shader. This preserves fit semantics and remains one GPU draw. It adds no surface buffer, readback, or ping-pong pass. Crop bounds are normalized once by the mapper; a redundant outer clamp was removed after audit.
+
+### Parsed STL/OBJ presentation
+
+The same Chromium error was later confirmed in Canvas view when a cached STL became ready. The cache was not corrupt: readiness merely activated a per-frame upload from a separate p5 WebGL canvas.
+
+The current worktree routes parsed STL/OBJ raw rendering into one retained shared-context depth framebuffer (`modelRaw`). The existing mesh renderer, transforms, LOD selection, QEM cache, and final presentation draw are unchanged. The cross-context texture upload is removed; no new pass or ping-pong pair is introduced.
+
+For STL/OBJ-only use, target count remains one. If parsed meshes and procedural/imported p5 models are both used, `modelRaw` and the legacy p5 `model` scratch target can coexist. This is the only possible memory increase and is deliberate: sharing the incompatible target recreated the GPU fault. Both targets are retained, resized, reused, and disposed by `SpecializedSourceRuntime`. A failure emits `VJ1_MODEL_SHARED_RENDER_FAILED` once.
+
+### Video and retained caching
+
+Modern video elements use decoded-frame callbacks to advance a revision; cached Components invalidate only for presented frames rather than every renderer tick. A cached video Component renews its media lease so playback does not pause after its first retained frame. This is separate from the STL fix and is intended to reduce duplicate work.
+
+### Thumbnails
+
+Component, Canvas, recording-frame, and Scene thumbnails use stale-while-revalidate behavior. The last valid thumbnail stays visible until a replacement succeeds. Capture is serialized, idle/gesture-aware, GPU-downsampled before its small readback, and disabled in standalone outputs. Do not clear thumbnails on a dirty flag.
+
+## Scene, Live, and Output Semantics
+
+Scene routes use stable `sourceNodeId` values. A whole Canvas and `Canvas · Frame N` are distinct source nodes. The recent apparent Live scaling fault was a valid narrow recording frame using `cover`, not a Canvas scale regression. No automatic `cover` to `contain` migration was added.
+
+Control and outputs communicate through `BroadcastChannel("vj1-output-bridge")`. Full state comes from `store.getLiveRenderState()`. Gestures use stable-ID revisioned patches; resync must preserve Live Scene identity. Preview and standalone output remain separate renderer clients and may intentionally run different Components unless instances are synchronized.
+
+Transitions may prepare media before activation. Missing required media blacks out explicitly rather than flashing partial output. Numeric Live parameter truth updates immediately; interpolation stays renderer-local.
 
 ## Persistence and Media
 
-- `project.json` stores canonical authored state; thumbnails and derived assets do not belong in it.
-- Undo records completed user transactions, not UI selection, metrics, thumbnails, or scrub samples.
+- `project.json` stores canonical authored state, not generated thumbnails or cache artifacts.
+- Derived assets live outside canonical state; model artifacts use versioned entries under `vj1-cache/models`.
+- Undo records completed user transactions, not selection, metrics, thumbnails, or scrub samples.
 - Never scan `revisions` or `vj1-cache` during media discovery.
-- Images, video, camera, STL, OBJ, renditions, and GPU resources are acquired only by active render leases and disposed through the shared bounded runtime.
-- Screen sharing is the explicit exception: Settings owns one user-started session capture until Stop/page exit; `Screen Share` generators only sample its live native-size frame, including from same-origin output windows.
-- Large images decode toward render demand. Import/catalog presence must not decode full media.
-- Media snapshots sent to outputs are authoritative, including an empty list.
-- Missing required media blacks out output and reports loading/failure explicitly.
+- Media, decoded images, video, capture streams, parsed meshes, and GPU resources are acquired by active leases and disposed through bounded runtimes.
+- Screen sharing is explicitly user-started and session-owned; generators sample the registered stream.
+- Browser capability and internal fallback paths should produce mini-console diagnostics. Current Chrome is the supported target.
 
-## Main Files
+## Important Files
 
-- `js/app.js`, `js/app-state.js`, `js/domain/models.js`: startup, state, normalization, Live render state.
-- `js/domain/project-migrations.js`, `scene-routing.js`, `change-event.js`: schema, routing, transaction classification.
-- `js/control/*`, `style.css`: workspaces, inspectors, gestures, modals, shared UI; the shell delegates project-rail presentation, diagnostics, and profiling session ownership to focused controllers.
-- `js/graph/*`: chain compilation and scheduling.
-- `js/output/output-renderer.js`: render orchestration.
-- `js/output/component-render-*`, `surface-render-planner.js`, `output-surface-runtime.js`: intrinsic Component rendering and parent placement.
-- `js/output/output-render-cache.js`, `output-render-profile.js`, `shader-target-runtime.js`: bounded render-target caching, sampled CPU attribution, and low-level shader-target operations.
-- `js/output/embedded-preview-app.js`, `output-app.js`: preview/output lifecycle and Scene transitions.
-- `js/output/output-media-*`, `specialized/*`: media leases, readiness, models, terrain, morph, and specialized generators.
-- `js/services/project-folder-service.js`, `project-history-store.js`, `project-derived-asset-store.js`, `project-serializer.js`, `media-library-service.js`, `output-bridge-service.js`: folder lifecycle, bounded history, derived rendition/thumbnail storage, serialization, and transport.
-- `tests/*.test.mjs`: contract and regression tests.
+- `js/domain/models.js`, `project-migrations.js`, `scene-routing.js`: canonical schema and routing.
+- `js/control/*`, `style.css`: workspaces, inspectors, gestures, Live UI, diagnostics.
+- `js/libraries/node-engine`, `composition-engine`, `visual-nodes`: node definitions and compiled programs.
+- `js/output/output-renderer.js`: render orchestration and Component caching.
+- `js/output/component-render-*`, `surface-render-planner.js`, `output-surface-runtime.js`: demand, intrinsic rendering, placement, and surface presentation.
+- `js/output/render-draw-utils.js`, `shared-framebuffer-target.js`, `render-target-contract.js`: low-level target and orientation contracts.
+- `js/output/specialized/specialized-source-runtime.js`: retained model/terrain/morph/specialized targets.
+- `js/output/output-media-*`, `output-thumbnail-runtime.js`: media lifecycle and derived thumbnails.
+- `js/services/project-folder-service.js`, `project-serializer.js`, `media-library-service.js`, `output-bridge-service.js`: storage and transport.
+- `tests/*.test.mjs`: architecture and regression contracts.
 
-## Current State and Next Checks
+## Handover Status
 
-- Full Node suite: **778 passing** on 2026-07-20. Metrics (**10**) and render-geometry (**20**) suites also pass.
-- Latest changes were not browser-tested, by request.
-- Live parameters, bounded media/generator movement, model and Eyeball rotation, output scaling, and the ROI behavior of the reported generators were manually confirmed by the user.
-- Current browser cache-bust tag for the ROI/control/output path is `source-roi-view-3`; thumbnail capture remains `thumbnail-pipeline-1`; render/compiler-specialized path is `node-program-hooks-15`; visual catalog path is `node-catalog-14`.
-- Preview body picking follows the same oriented node boundary hierarchy as rendering and resolves overlaps by visual stacking order. Selected handles alone receive priority. Legacy Canvas Component references with an untouched full boundary retain their normalized placement as the physical hit footprint, avoiding an invisible Canvas-wide grab area.
-- If a future Scene-identity regression appears, keep Scene A live while editing a Component associated with Scene B and inspect `VJ1_LIVE_PATCH_RESYNC`, transport revision/session metadata, and the explicit `ui.live.selectedSceneId`; do not add another fallback.
-- The worktree contains substantial ongoing user work. Preserve unrelated edits and avoid broad reversions.
+- Current uncommitted implementation changes are limited to the parsed STL/OBJ shared target, its cache-bust import, the redundant direct-frame clamp removal, and focused tests.
+- Targeted render/model/surface suites pass: **167/167** after the latest cleanup.
+- Latest changes were not browser-tested, following the user's request. The user should reload and verify that the skull appears normally without repeated `glCopySubTextureCHROMIUM` errors. If `VJ1_MODEL_SHARED_RENDER_FAILED` appears, inspect the raw mesh renderer against `SharedFramebufferTarget` rather than restoring a cross-context canvas upload.
+- Repeated `VJ1_MODEL_CACHE_HIT`/`VJ1_MODEL_LOD_READY` entries may reflect separate preview/output renderer clients; they do not by themselves indicate mesh recomputation.
+- Preserve unrelated user work and avoid broad reversions.
 
 ## Verification
 
@@ -136,4 +138,4 @@ npm run test:render
 git diff --check
 ```
 
-Update browser module query strings whenever a changed module would otherwise retain an old cached URL.
+Update browser module query strings when changing cached modules. Keep performance verification focused on draw count, retained-target count, decoded-frame invalidation, cross-context uploads, and full-resolution readbacks.
