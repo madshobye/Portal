@@ -30,7 +30,14 @@ export function normalizeNodeProjectData(value = {}) {
 }
 
 export function serializeNodeProjectData(value = {}) {
-  return normalizeNodeProjectData(value);
+  const normalized = normalizeNodeProjectData(value);
+  return {
+    ...normalized,
+    definitions: persistableCollection(normalized.definitions),
+    instances: persistableCollection(normalized.instances),
+    groups: persistableCollection(normalized.groups),
+    artifacts: persistableCollection(normalized.artifacts),
+  };
 }
 
 export function serializeNodeDefinition(definition = {}) {
@@ -77,6 +84,38 @@ function normalizeCollection(value) {
     .filter(isRecord)
     .map((item) => jsonData(item))
     .filter(isRecord);
+}
+
+function persistableCollection(value) {
+  return normalizeCollection(value)
+    .filter((item) => item.persistence !== "package" && item.persistence !== "derived")
+    .map((item) => item.persistence === "compact" ? compactGeneratedGroup(item) : item)
+    .map(({ persistence: _runtimePersistence, ...item }) => item);
+}
+
+function compactGeneratedGroup(group) {
+  return {
+    ...group,
+    compactTopology: true,
+    nodes: compactGeneratedNodes(group.nodes || []),
+    connections: [],
+  };
+}
+
+function compactGeneratedNodes(nodes) {
+  return (nodes || [])
+    .filter((node) => node.role !== "control")
+    .map((node) => {
+      const {
+        compilerHook: _derivedCompilerHook,
+        connections: _derivedConnections,
+        nodes: nestedNodes,
+        ...canonical
+      } = node;
+      return nestedNodes
+        ? { ...canonical, nodes: compactGeneratedNodes(nestedNodes), connections: [] }
+        : canonical;
+    });
 }
 
 // Project node data crosses the JSON storage boundary. Runtime callbacks and

@@ -695,7 +695,7 @@ test("local UI controls use the UI-only state path", () => {
   assert.match(app, /application\.bindInput\("live-synchronization", "state", \(\{ state, reason, change \}\) => \{[\s\S]*?\["runtime", "derived", "ui"\]\.includes\(change\.scope\)/);
   assert.match(app, /application\.emit\("data-store", "snapshot", \{ state, reason, change \}\)/);
   assert.match(projectService, /if \(event\.phase === "edit" \|\| event\.phase === "scrub"\) return;/);
-  assert.ok(!projectService.includes('event.scope === "ui"'));
+  assert.match(projectService, /if \(event\.scope === "ui" && !immediate\) return;/);
 });
 
 test("output metrics use a targeted runtime state path", () => {

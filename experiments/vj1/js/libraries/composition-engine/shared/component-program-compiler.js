@@ -47,6 +47,9 @@ export function compileComponentGroupTopology(component = {}, { definitions = ne
 }
 
 export function reconcileComponentGroupTopology(component = {}, existingGroup = null, options = {}) {
+  if (existingGroup?.compactTopology === true) {
+    existingGroup = hydrateCompactComponentGroup(existingGroup, options.definitions || new Map());
+  }
   if (!existingGroup || existingGroup.generatedBy !== COMPONENT_PROGRAM_GENERATOR) {
     const group = compileComponentGroupTopology(component, options);
     return {
@@ -98,6 +101,31 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
     component: withProjectedChain(component, graphChain, graphSignature),
     group,
     source: graphSignature === storedSignature ? "node-graph" : "node-graph-edit",
+  };
+}
+
+function hydrateCompactComponentGroup(group, definitions) {
+  const hydrateNodes = (nodes) => (nodes || []).flatMap((node) => {
+    const hydrated = node.nodes
+      ? {
+        ...node,
+        nodes: hydrateNodes(node.nodes),
+      }
+      : { ...node };
+    if (hydrated.nodes) hydrated.connections = linearConnections(hydrated.nodes, definitions);
+    hydrated.compilerHook = visualCompilerHookFor(hydrated.configuration || { kind: hydrated.role }, definitions.get(hydrated.nodeId));
+    return [...parameterControlNodes(hydrated, definitions.get(hydrated.nodeId)), hydrated];
+  });
+  const nodes = hydrateNodes(group.nodes || []);
+  const {
+    compactTopology: _compactTopology,
+    persistence: _persistence,
+    ...canonical
+  } = group;
+  return {
+    ...canonical,
+    nodes,
+    connections: linearConnections(nodes, definitions),
   };
 }
 
@@ -340,7 +368,16 @@ function withProjectedChain(component, chain, signature) {
 }
 
 function componentChainSignature(chain) {
-  return JSON.stringify(chain || []);
+  const source = JSON.stringify(chain || []);
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < source.length; index++) {
+    const code = source.charCodeAt(index);
+    first = Math.imul(first ^ code, 0x01000193);
+    second = Math.imul(second ^ code, 0x85ebca6b);
+    second ^= second >>> 13;
+  }
+  return `chain-v1:${source.length}:${(first >>> 0).toString(36)}:${(second >>> 0).toString(36)}`;
 }
 
 function cloneChainItem(item, { includeChildren = true } = {}) {

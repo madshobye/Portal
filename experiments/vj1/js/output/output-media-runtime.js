@@ -796,22 +796,9 @@ function typedArrayBytes(value, seen = new Set()) {
 
 function reportModelLods(item, mesh) {
   const sourceTriangles = Math.max(0, Number(mesh?.sourceTriangleCount) || Number(mesh?.triangleCount) || 0);
-  const levels = Array.from(mesh?.lods || [mesh]).map((lod) => Math.max(0, Number(lod?.triangleCount) || 0));
-  const errors = Array.from(mesh?.lods || [mesh]).map((lod) => Math.max(0, Number(lod?.simplificationError) || 0));
-  if (!sourceTriangles || levels.length <= 1) return;
-  const sourceBoundaryEdges = Math.max(0, Number(mesh?.sourceBoundaryEdges) || 0);
+  const lods = Array.from(mesh?.lods || [mesh]);
+  if (!sourceTriangles || lods.length <= 1) return;
   const sourceNonManifoldEdges = Math.max(0, Number(mesh?.sourceNonManifoldEdges) || 0);
-  console.info("[VJ1_MODEL_LOD_READY]", {
-    id: item?.id || "",
-    source: mesh?.derivedCache ? "cache" : "generated",
-    algorithm: mesh?.simplification || "unknown",
-    sourceTriangles,
-    levels,
-    errors,
-    sourceBoundaryEdges,
-    sourceNonManifoldEdges,
-    runtimeBytes: typedArrayBytes(mesh),
-  });
   if (sourceNonManifoldEdges) {
     console.warn("[VJ1_MODEL_TOPOLOGY_WARNING]", {
       id: item?.id || "",
@@ -819,7 +806,7 @@ function reportModelLods(item, mesh) {
       message: "The source model contains non-manifold edges; they were preserved and may limit automatic simplification.",
     });
   }
-  const limitedLevels = Array.from(mesh?.lods || [mesh])
+  const limitedLevels = lods
     .filter((lod) => lod?.topologyLimited)
     .map((lod) => ({ requested: lod.requestedTriangleCount, actual: lod.triangleCount }));
   if (limitedLevels.length) {

@@ -21,6 +21,19 @@ import { parseStlMesh } from "../js/libraries/mesh-engine/stl-parser/index.js";
 import { parseObjPreviewMesh } from "../js/libraries/mesh-engine/obj-parser/index.js";
 import { parseStlPreviewMesh } from "../js/libraries/mesh-engine/stl-parser/index.js";
 
+test("routine model cache and LOD success paths stay quiet", () => {
+  const source = [
+    readFileSync(new URL("../js/output/specialized/model-derived-cache.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8"),
+  ].join("\n");
+
+  assert.doesNotMatch(source, /VJ1_MODEL_CACHE_HIT|VJ1_MODEL_CACHE_WRITTEN|VJ1_MODEL_LOD_READY/);
+  assert.match(source, /VJ1_MODEL_CACHE_READ_FAILED/);
+  assert.match(source, /VJ1_MODEL_CACHE_WRITE_FAILED/);
+  assert.match(source, /VJ1_MODEL_TOPOLOGY_WARNING/);
+  assert.match(source, /VJ1_MODEL_SIMPLIFICATION_LIMITED/);
+});
+
 test("slow model processing warns without cancelling the requested import", () => {
   const source = readFileSync(new URL("../js/output/specialized/model-processing-client.js", import.meta.url), "utf8");
   const slowHandler = source.slice(

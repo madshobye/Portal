@@ -99,6 +99,9 @@ Transitions may prepare media before activation. Missing required media blacks o
 ## Persistence and Media
 
 - `project.json` stores canonical authored state, not generated thumbnails or cache artifacts.
+- Node persistence is a compact project diff, not a snapshot of the installed node system. Built-in definitions, package helper groups, generated flat instances, compiler hooks, control nodes, default wiring, and catalog artifacts are reconstructed from the installed libraries on load. Persist only version pins, project-local forks/special definitions, Component content topology, and explicitly authored graph edits. Untouched Scene/Application programs are derived and omitted.
+- The current `mappertest` fixture compacts from 3.13 MB of JSON (5.0 MB formatted on disk) to 489 KB compact / 902 KB formatted. Save-load-save is byte-stable and preserves all 94 Component chains, 15 Scenes, and Surface state. Its legacy embedded package definitions compact to zero; genuine project forks remain separately persisted.
+- UI-only selection and recent-use changes remain pending instead of serializing the full project after every click. They join the next authored save or flush when Chrome hides, refreshes, closes, or the project is explicitly closed. Non-transactional checkpoints use a five-second quiet period; committed edits retain transaction/undo semantics.
 - Derived assets live outside canonical state; model artifacts use versioned entries under `vj1-cache/models`.
 - Undo records completed user transactions, not selection, metrics, thumbnails, or scrub samples.
 - Never scan `revisions` or `vj1-cache` during media discovery.
@@ -121,10 +124,11 @@ Transitions may prepare media before activation. Missing required media blacks o
 
 ## Handover Status
 
-- Current uncommitted implementation changes are limited to the parsed STL/OBJ shared target, its cache-bust import, the redundant direct-frame clamp removal, and focused tests.
-- Targeted render/model/surface suites pass: **167/167** after the latest cleanup.
+- Current uncommitted work includes the parsed STL/OBJ shared target, direct-frame cleanup, quiet routine model-cache diagnostics, lower-frequency/lifecycle-aware autosave, and compact node-project persistence.
+- Full automated suite passes: **814/814**. The real `mappertest` project also passes an in-memory compact save/load/save equivalence check.
 - Latest changes were not browser-tested, following the user's request. The user should reload and verify that the skull appears normally without repeated `glCopySubTextureCHROMIUM` errors. If `VJ1_MODEL_SHARED_RENDER_FAILED` appears, inspect the raw mesh renderer against `SharedFramebufferTarget` rather than restoring a cross-context canvas upload.
-- Repeated `VJ1_MODEL_CACHE_HIT`/`VJ1_MODEL_LOD_READY` entries may reflect separate preview/output renderer clients; they do not by themselves indicate mesh recomputation.
+- Routine model cache-hit/write and LOD-ready success events are intentionally silent; cache failures, non-manifold topology, and simplification limits remain diagnostic warnings.
+- `VJ1_AUTOSAVE_PREPARE_SLOW` should no longer follow ordinary Component selection. Lifecycle writes are best-effort because Chrome cannot guarantee completion of asynchronous folder writes after shutdown begins; normal committed autosaves remain the crash-safety boundary.
 - Preserve unrelated user work and avoid broad reversions.
 
 ## Verification

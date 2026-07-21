@@ -15,13 +15,13 @@ import { applySceneSnapshotToState, createInitialState } from "../domain/models.
 import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=boundary-authority-1";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-import { buildProjectPayload } from "./project-serializer.js?v=catalog-marker-four-state-1";
+import { buildProjectPayload } from "./project-serializer.js?v=compact-project-nodes-1";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
 import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
 import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=catalog-marker-four-state-1";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=compact-project-nodes-1";
 export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js?v=project-history-store-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge, classifyChange = createChangeEvent }) {
@@ -42,7 +42,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   let projectGeneration = 0;
   let loadedProjectHandle = null;
   let thumbnailLoadRevision = 0;
-  const autosaveDelayMs = 700;
+  // Non-transactional state is a checkpoint, not a render-loop concern. Give
+  // repeated UI/background changes a long quiet period and force the pending
+  // checkpoint when Chrome begins hiding or leaving the page.
+  const autosaveDelayMs = 5000;
   const skipAutosaveReasons = new Set([
     "init",
     "view",
@@ -78,6 +81,13 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       return false;
     },
   });
+  const lifecycleDocument = globalThis.document;
+  const lifecycleTarget = globalThis.window || globalThis;
+  lifecycleDocument?.addEventListener?.("visibilitychange", () => {
+    if (lifecycleDocument.visibilityState === "hidden") flushPendingAutoSave("browser-hidden");
+  });
+  lifecycleTarget?.addEventListener?.("pagehide", () => flushPendingAutoSave("browser-pagehide"));
+  lifecycleTarget?.addEventListener?.("beforeunload", () => flushPendingAutoSave("browser-beforeunload"));
   const derivedAssets = new ProjectDerivedAssetStore({
     getProjectDirectory: () => dirHandle,
     isCurrentProject: (handle) => handle === dirHandle,
@@ -188,9 +198,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   }
 
   async function closeProject() {
-    if (autosaveTimer) {
-      clearTimeout(autosaveTimer);
-      autosaveTimer = null;
+    if (hasPendingAutoSave()) {
       await flushAutoSave("project-close-checkpoint");
     }
     await saveQueue.wait();
@@ -401,6 +409,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     } else if (!pendingSaveReason) {
       pendingSaveReason = reason;
     }
+    // Selection and other editor-only state must not serialize the complete
+    // project after every click. It remains in the current state and is folded
+    // into the next authored save or the browser lifecycle checkpoint.
+    if (event.scope === "ui" && !immediate) return;
     if (autosaveTimer) clearTimeout(autosaveTimer);
     const delay = immediate || reason === "live:scene" || event.history === "record" ? 0 : autosaveDelayMs;
     autosaveTimer = setTimeout(() => {
@@ -421,6 +433,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
 
   async function flushAutoSave(reason = "") {
     if (!dirHandle) return false;
+    if (autosaveTimer) {
+      clearTimeout(autosaveTimer);
+      autosaveTimer = null;
+    }
     const saveReason = reason || pendingSaveReason || "change";
     const recordHistory = pendingHistory || classifyChange(saveReason).history === "record";
     pendingHistory = false;
@@ -431,6 +447,19 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     // Re-parsing the just-created JSON doubled the synchronous autosave cost
     // for effect-heavy projects and is unnecessary for queue ownership.
     return saveQueue.enqueue({ reason: saveReason, recordHistory, payload, json });
+  }
+
+  function hasPendingAutoSave() {
+    return Boolean(autosaveTimer || pendingHistory || pendingSaveReason);
+  }
+
+  function flushPendingAutoSave(reason) {
+    if (!hasPendingAutoSave() || !dirHandle || isOpening || projectLoadBlocked) return false;
+    // flushAutoSave performs project snapshot creation synchronously before it
+    // returns its write promise. Starting at visibility loss gives the native
+    // file write more time than relying on beforeunload alone.
+    void flushAutoSave(reason);
+    return true;
   }
 
   async function saveProject({ reason = "manual", recordHistory = true, payload: suppliedPayload = null, json: suppliedJson = "" } = {}) {

@@ -27,7 +27,6 @@ export async function readDerivedModelCache(cacheKey) {
     const handle = await directory.getFileHandle(modelCacheFilename(cacheKey));
     const file = await handle.getFile();
     const mesh = deserializeDerivedModel(await file.arrayBuffer(), cacheKey);
-    console.info("[VJ1_MODEL_CACHE_HIT]", { cacheKey, bytes: file.size });
     return mesh;
   } catch (error) {
     if (isNotFoundError(error)) return null;
@@ -50,7 +49,6 @@ export async function writeDerivedModelCache(cacheKey, mesh) {
     const writable = await handle.createWritable();
     await writable.write(payload);
     await writable.close();
-    console.info("[VJ1_MODEL_CACHE_WRITTEN]", { cacheKey, bytes: payload.byteLength });
     return true;
   } catch (error) {
     console.warn("[VJ1_MODEL_CACHE_WRITE_FAILED]", {

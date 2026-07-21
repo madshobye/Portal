@@ -343,6 +343,10 @@ test("application state keeps persisted Component groups synchronized after stru
 test("persisted Component groups own configuration while chain remains an in-memory UI projection", () => {
   const packageRoot = createVj1NodePackage();
   const initial = createInitialState();
+  initial.nodes = {
+    ...(initial.nodes || {}),
+    definitions: [packageRoot.registry.get("vj1.visual.effect.dilate")],
+  };
   initial.components[0].chain = [{
     id: "source-a",
     kind: "source",
@@ -357,10 +361,21 @@ test("persisted Component groups own configuration while chain remains an in-mem
   assert.equal(prepared.nodes.authority, "node-graph");
   assert.equal(source.configuration.source.generatorId, "waves");
   assert.equal(Object.hasOwn(payload.components[0], "chain"), false);
+  assert.equal(payload.nodes.definitions.length, 0, "installed library definitions stay in code");
+  assert.equal(payload.nodes.instances.length, 0, "generated flat instances are rebuilt from groups");
+  assert.equal(payload.nodes.artifacts.length, 0, "generated catalog artifacts stay in the runtime package");
+  assert.match(group.projectionSignature, /^chain-v1:\d+:[a-z0-9]+:[a-z0-9]+$/);
+  const persistedGroup = payload.nodes.groups.find((item) => item.id === group.id);
+  assert.equal(persistedGroup.compactTopology, true);
+  assert.equal(persistedGroup.connections.length, 0);
+  assert.equal(persistedGroup.nodes.some((item) => item.role === "control"), false);
 
   const reloaded = packageRoot.prepareProjectState(payload);
   assert.equal(reloaded.components[0].chain[0].source.generatorId, "waves");
   assert.equal(reloaded.components[0].nodeProjectionSignature, group.projectionSignature);
+  const reloadedGroup = reloaded.nodes.groups.find((item) => item.id === group.id);
+  assert.equal(reloadedGroup.nodes.some((item) => item.role === "control"), true);
+  assert.equal(reloadedGroup.connections.some((edge) => edge.type === "texture"), true);
 });
 
 test("v26 migration preserves graph-authoritative Component elements when the persisted chain is omitted", () => {
@@ -645,11 +660,17 @@ test("stored project Application wiring is preflighted before service constructi
 
 test("invalid stored Application wiring enters explicit recoverable safe mode", async () => {
   const packageRoot = createVj1NodePackage();
-  const state = packageRoot.prepareProjectState(createInitialState());
+  let state = packageRoot.prepareProjectState(createInitialState());
+  const group = state.nodes.groups.find((item) => item.id === "vj1.application.program");
+  state = packageRoot.prepareProjectState({
+    ...state,
+    nodes: withProjectGroupGraph(state.nodes, group.id, {
+      ...group,
+      connections: group.connections.filter((edge) => edge.to !== "live.$dependency.data-store"),
+    }),
+  });
   const payload = buildProjectPayload(state, "2026-07-20T00:00:00.000Z");
-  const group = payload.nodes.groups.find((item) => item.id === "vj1.application.program");
-  group.authoredConnections = true;
-  group.connections = group.connections.filter((edge) => edge.to !== "live.$dependency.data-store");
+  assert.equal(payload.nodes.groups.some((item) => item.id === group.id && item.authoredConnections === true), true);
   const previousError = console.error;
   console.error = () => {};
   try {

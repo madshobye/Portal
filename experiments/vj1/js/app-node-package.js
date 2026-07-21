@@ -17,7 +17,7 @@ import { DiagnosticsEngineNode } from "./libraries/diagnostics-engine/index.js";
 import { ImageResizeNode } from "./libraries/image-engine/index.js";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./libraries/timing-engine/index.js";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
-import { SurfaceCompositionNode } from "./libraries/composition-engine/index.js";
+import { SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
 import {
   COMPONENT_PROGRAM_GENERATOR,
   ComponentProgramNode,
@@ -26,7 +26,7 @@ import {
   compileComponentGroupTopology,
   componentProgramInstances,
   reconcileComponentGroupTopology,
-} from "./libraries/composition-engine/index.js";
+} from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
 import {
   SCENE_PROGRAM_GENERATOR,
   OutputProgramNode,
@@ -35,7 +35,7 @@ import {
   compileOutputGroupTopology,
   compileSceneGroupTopology,
   sceneProgramInstances,
-} from "./libraries/composition-engine/index.js";
+} from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
 import {
   APPLICATION_PROGRAM_GENERATOR,
   ApplicationProgramRuntime,
@@ -43,7 +43,7 @@ import {
   applicationProgramInstances,
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
-} from "./libraries/composition-engine/index.js";
+} from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
@@ -269,8 +269,11 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
     LayerGroupNode,
     VisualSourceNode,
   ].map((definition) => [definition.id, definition]));
-  const componentGroups = preparedComponentGroups || (components || []).map((component) => compileComponentGroupTopology(component, {
+  const componentGroups = (preparedComponentGroups || (components || []).map((component) => compileComponentGroupTopology(component, {
     definitions: topologyDefinitions,
+  }))).map((group) => ({
+    ...group,
+    persistence: group.authoredConnections === true ? "project-diff" : "compact",
   }));
   const componentInstances = componentGroups.flatMap(componentProgramInstances);
   const requiredVisualNodeIds = new Set(componentInstances.map((instance) => instance.nodeId));
@@ -279,11 +282,11 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
     compileSceneGroupTopology({ id: "", name: "Working Scene" }, surfaces),
     ...(scenes || []).map((scene) => compileSceneGroupTopology(scene, surfaces)),
     compileOutputGroupTopology(),
-  ].map((group) => reconcileGeneratedProgramTopology(group, existingGroupsById.get(group.id)));
-  const applicationGroup = reconcileGeneratedProgramTopology(
+  ].map((group) => generatedProgramPersistence(reconcileGeneratedProgramTopology(group, existingGroupsById.get(group.id))));
+  const applicationGroup = generatedProgramPersistence(reconcileGeneratedProgramTopology(
     compileApplicationProgramTopology(),
     existingGroupsById.get("vj1.application.program")
-  );
+  ));
   const applicationInstances = applicationProgramInstances(applicationGroup);
   const sceneInstances = sceneProgramInstances(sceneGroups);
   const sceneDefinitions = [SurfaceRouteNode, SceneProgramNode, OutputProgramNode, SurfaceCompositionNode, MappingEngineNode];
@@ -306,10 +309,16 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
     ...sceneDefinitions,
     ...applicationDefinitions,
     ...visualDefinitions.filter((definition) => requiredVisualNodeIds.has(definition.id)),
-  ].map(serializeNodeDefinition);
+  ].map((definition) => ({ ...serializeNodeDefinition(definition), persistence: "package" }));
+  // Purge every installed library definition from legacy project snapshots,
+  // including currently unused visual nodes. A real project edit is stored as
+  // a fork; an exact package id/version is never project-owned data.
+  const packageDefinitionKeys = new Set([...CORE_NODE_DEFINITIONS, ...visualDefinitions]
+    .map((item) => `${item.id}@${item.version}`));
   const modelGroups = [Parse3dObjectGroup, Prepare3dAssetGroup, Convert3dFileToImageGroup].map(persistedGroupTopology);
+  const modelGroupIds = new Set(modelGroups.map((group) => group.id));
   const groups = [
-    ...current.groups.filter((group) => group.generatedBy !== COMPONENT_PROGRAM_GENERATOR && group.generatedBy !== SCENE_PROGRAM_GENERATOR && group.generatedBy !== APPLICATION_PROGRAM_GENERATOR),
+    ...current.groups.filter((group) => group.generatedBy !== COMPONENT_PROGRAM_GENERATOR && group.generatedBy !== SCENE_PROGRAM_GENERATOR && group.generatedBy !== APPLICATION_PROGRAM_GENERATOR && !modelGroupIds.has(group.id)),
     ...componentGroups,
     ...sceneGroups,
     applicationGroup,
@@ -331,7 +340,10 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
   return {
     ...current,
     authority: "node-graph",
-    definitions: mergeByKey(current.definitions, definitions, (item) => `${item.id}@${item.version}`),
+    definitions: [
+      ...current.definitions.filter((item) => !packageDefinitionKeys.has(`${item.id}@${item.version}`)),
+      ...definitions,
+    ],
     pins: mergeByKey(current.pins, [...MODEL_PREVIEW_NODE_DEFINITIONS, ...componentDefinitions, ...sceneDefinitions, ...applicationDefinitions, ...visualDefinitions.filter((definition) => requiredVisualNodeIds.has(definition.id))].map((definition) => ({
       nodeId: definition.id,
       version: definition.version,
@@ -342,12 +354,14 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
       nodeVersion: Convert3dFileToImageGroup.version,
       parameters: { profile: "thumbnail", resolution: "source", width: 100, height: 100, fit: "contain" },
       role: "system-model-preview",
-    }], (item) => item.id),
+    }], (item) => item.id).map((instance) => generatedInstance(instance)
+      ? { ...instance, persistence: "derived" }
+      : instance),
     groups: mergeByKey(groups, modelGroups, (item) => item.id),
     artifacts: mergeByKey([
-      ...current.artifacts.filter((artifact) => artifact.generatedBy !== COMPONENT_PROGRAM_GENERATOR),
-      ...componentArtifacts,
-    ], [serializeNodeArtifact(ModelPreviewPipelineArtifact)], (item) => item.id),
+      ...current.artifacts.filter((artifact) => artifact.generatedBy !== COMPONENT_PROGRAM_GENERATOR && artifact.id !== ModelPreviewPipelineArtifact.id),
+      ...componentArtifacts.map((artifact) => ({ ...artifact, persistence: "derived" })),
+    ], [{ ...serializeNodeArtifact(ModelPreviewPipelineArtifact), persistence: "package" }], (item) => item.id),
   };
 }
 
@@ -361,7 +375,23 @@ function persistedGroupTopology(definition) {
     connections: graph?.connections || [],
     publicInlets: graph?.publicInlets || {},
     publicOutlets: graph?.publicOutlets || {},
+    persistence: "package",
   };
+}
+
+function generatedProgramPersistence(group) {
+  return {
+    ...group,
+    persistence: group.authoredConnections === true ? "project-diff" : "derived",
+  };
+}
+
+function generatedInstance(instance) {
+  return instance.id === "vj1.system.model-preview" || [
+    COMPONENT_PROGRAM_GENERATOR,
+    SCENE_PROGRAM_GENERATOR,
+    APPLICATION_PROGRAM_GENERATOR,
+  ].includes(instance.generatedBy);
 }
 
 function inheritGroupNodeLayout(group, existingGroup) {

@@ -4,7 +4,7 @@ import {
   modelDerivedCacheKey,
   readDerivedModelCache,
   writeDerivedModelCache,
-} from "./model-derived-cache.js?v=model-wire-detail-2";
+} from "./model-derived-cache.js?v=quiet-model-cache-1";
 
 let worker = null;
 let requestSerial = 0;

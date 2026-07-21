@@ -101,6 +101,34 @@ test("project node data persists editable definitions, pins, instances, groups, 
   assert.equal(project.migrations[0].to, "1.2.3");
 });
 
+test("project node data omits package records and reconstructible runtime projections", () => {
+  const project = serializeNodeProjectData({
+    definitions: [
+      { id: "core.library", version: "1.0.0", persistence: "package", parts: [{ source: "large library code" }] },
+      { id: "project.custom", version: "1.0.0", parts: [{ source: "project code" }] },
+    ],
+    instances: [
+      { id: "derived", persistence: "derived" },
+      { id: "authored" },
+    ],
+    groups: [
+      { id: "helper", persistence: "package" },
+      { id: "default-program", persistence: "derived" },
+      { id: "edited-program", persistence: "project-diff", authoredConnections: true },
+    ],
+    artifacts: [
+      { id: "generated-artifact", persistence: "derived" },
+      { id: "project-artifact" },
+    ],
+  });
+
+  assert.deepEqual(project.definitions.map((item) => item.id), ["project.custom"]);
+  assert.deepEqual(project.instances.map((item) => item.id), ["authored"]);
+  assert.deepEqual(project.groups.map((item) => item.id), ["edited-program"]);
+  assert.equal(Object.hasOwn(project.groups[0], "persistence"), false);
+  assert.deepEqual(project.artifacts.map((item) => item.id), ["project-artifact"]);
+});
+
 test("nodes execute directly as ordinary program components", async () => {
   const node = defineNode({
     id: "test.weighted-sum",

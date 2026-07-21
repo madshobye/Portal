@@ -82,6 +82,18 @@ test("Live scene selection is autosaved so reload restores user truth", () => {
   assert.match(source, /const delay = immediate \|\| reason === "live:scene" \|\| event\.history === "record" \? 0 : autosaveDelayMs;/);
 });
 
+test("UI-only selection waits for an authored save or browser lifecycle checkpoint", () => {
+  const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
+
+  assert.match(source, /const autosaveDelayMs = 5000;/);
+  assert.match(source, /if \(event\.scope === "ui" && !immediate\) return;/);
+  assert.match(source, /addEventListener\?\.\("visibilitychange"/);
+  assert.match(source, /visibilityState === "hidden"/);
+  assert.match(source, /addEventListener\?\.\("pagehide"/);
+  assert.match(source, /addEventListener\?\.\("beforeunload"/);
+  assert.match(source, /if \(hasPendingAutoSave\(\)\) \{[\s\S]*?flushAutoSave\("project-close-checkpoint"\)/);
+});
+
 test("project payload persists canonical render settings without derived geometry aliases", () => {
   const render = {
     outputs: [{ id: "main", width: 1920, height: 1080 }],
