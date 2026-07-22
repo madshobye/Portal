@@ -37,7 +37,7 @@ test("inspector parameter views survive template replacement", () => {
 test("keyed list scroll survives template replacement without entering project state", () => {
   const positions = new Map();
   const componentList = { dataset: { scrollRegion: "", scrollKey: "component-catalog" }, scrollTop: 184, scrollLeft: 3 };
-  const frameList = { dataset: { scrollRegion: "", scrollKey: "recording-frames" }, scrollTop: 72, scrollLeft: 0 };
+  const frameList = { dataset: { scrollRegion: "", scrollKey: "scene-frames" }, scrollTop: 72, scrollLeft: 0 };
   const scope = {
     matches: () => false,
     querySelectorAll: () => [componentList, frameList],
@@ -226,6 +226,11 @@ test("media refresh is explicit and never polls during rendering", () => {
   assert.ok(!appSource.includes('addEventListener("visibilitychange"'));
 });
 
+test("browser workspace remains authoritative after project restoration", () => {
+  const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  assert.match(appSource, /restored = await projectService\.restoreStoredFolder\(\);[\s\S]*?if \(restored && store\.getState\(\)\.ui\.workspace !== initialWorkspace\) \{[\s\S]*?store\.setWorkspace\(initialWorkspace\);/);
+});
+
 test("element picker releases editor focus before committing a chain insertion", () => {
   const modalSource = readFileSync(new URL("../js/control/modal-controller.js", import.meta.url), "utf8");
   const addElement = modalSource.slice(
@@ -404,7 +409,7 @@ test("collection workspaces keep controls fixed and scroll only their list bodie
   assert.ok(controllerSource.includes("refs.projectRail.dataset.workspace = workspace"));
   assert.match(styleSource, /\.project-rail:is\(\[data-workspace="component"\][\s\S]*?overflow: hidden;/);
   assert.match(styleSource, /> \.rail-list-section \{[\s\S]*?flex: 1 1 0;[\s\S]*?min-height: 0;/);
-  assert.match(controllerSource, /<span>Live sources<\/span>[\s\S]*?data-live-source-kind="scene"[\s\S]*?data-live-source-kind="component"/);
+  assert.match(controllerSource, /<span>Live sources<\/span>[\s\S]*?data-live-source-filter="scenes"[\s\S]*?data-live-source-filter="components"/);
   assert.match(styleSource, /\.project-rail\[data-workspace="mapping"\] > \.mapping-surface-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
   assert.match(controllerSource, /class="ui-section rail-section rail-list-section mapping-surface-rail-section"[\s\S]*?"Surfaces"/);
   assert.match(styleSource, /\.project-rail\[data-workspace="scene"\] > \.scene-frame-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
@@ -426,10 +431,10 @@ test("selection rerenders preserve every keyed catalog and chain viewport", () =
   const pickerSource = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
   const domSource = readFileSync(new URL("../js/control/dom-utils.js", import.meta.url), "utf8");
 
-  for (const key of ["component-catalog", "scene-catalog", "recording-frames", "mapping-catalog", "mapping-surfaces"]) {
+  for (const key of ["component-catalog", "scene-catalog", "scene-frames", "mapping-catalog", "mapping-surfaces"]) {
     assert.ok(controllerSource.includes(`data-scroll-region data-scroll-key="${key}"`), `missing scroll region: ${key}`);
   }
-  assert.ok(controllerSource.includes('data-scroll-key="live-sources:${sourceKind}"'));
+  assert.ok(controllerSource.includes('data-scroll-key="live-sources:${showScenes ? "s" : ""}${showComponents ? "c" : ""}"'));
   assert.ok(componentSource.includes("scrollRegionTemplate(`component-chain:${component.id}`"));
   assert.ok(componentSource.includes("scrollRegionTemplate(`chain-params:${component.id}:${item.id}:${view.id}`"));
   assert.ok(sceneSource.includes('data-scroll-region data-scroll-key="live-controls:${esc(component.id)}"'));
@@ -587,7 +592,7 @@ test("component catalogs expose stable per-view sorting modes", () => {
   const catalogSource = readFileSync(new URL("../js/control/catalog-view.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.ok(source.includes("state.ui?.catalogSortModes?.[scope]"));
-  assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", scene: "recent", mapping: "recent", source: "recent", media: "recent" }'));
+  assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", scene: "recent", mapping: "recent", live: "recent", source: "recent", media: "recent" }'));
   assert.ok(source.includes("ui.catalogSortModes[catalog] = mode"));
   assert.match(source, /if \(change\.projectRestore\) \{[\s\S]*?invalidateCatalogOrder\(\)/);
   assert.ok(source.includes('catalogSortMode("component")'));
@@ -635,7 +640,7 @@ test("Live scenes expose separate scene-transition and parameter-fade durations"
 test("Live exposes a phase-continuous global visual time stretch", () => {
   const source = readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
 
-  assert.match(source, /function liveToolsTemplate[\s\S]*?Live sources[\s\S]*?data-live-source-kind="scene"[\s\S]*?data-live-source-kind="component"[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
+  assert.match(source, /function liveToolsTemplate[\s\S]*?Live sources[\s\S]*?data-live-source-filter="scenes"[\s\S]*?data-live-source-filter="components"[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-timing-params[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
   assert.ok(source.includes("Time stretch"));
   assert.ok(source.includes('data-update="global.timeStretch"'));
   assert.ok(source.includes('min="-4" max="4" step="0.01"'));
@@ -736,7 +741,7 @@ test("Scene uses the shared chain and exposes Frames as Mapping routes", () => {
   assert.ok(!source.includes("Build a larger visual with the same sources"));
   assert.ok(!source.includes("<span>Sampling</span>"));
   assert.match(source, /function sceneToolsTemplate[\s\S]*?Scenes[\s\S]*?addableRailTitleTemplate\("select_all", "Frames"/);
-  assert.ok(source.includes('class="recording-frame-pills rail-scroll-list"'));
+  assert.ok(source.includes('class="scene-frame-pills rail-scroll-list"'));
   assert.ok(!source.includes('class="canvas-inspector-section"'));
   assert.ok(componentSource.includes("componentUnifiedChainTemplate(component, state, base)"));
   assert.match(componentSource, /function componentUnifiedChainTemplate[\s\S]*?<section class="chain-list-section" aria-label="Elements">/);

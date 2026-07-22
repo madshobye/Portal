@@ -279,7 +279,7 @@ function imageExtension(type = "") {
 }
 
 function pasteFailureMessage(reason = "") {
-  if (reason === "components-only-in-canvas") return "Component references can only be pasted into a Scene";
+  if (reason === "components-only-in-scene") return "Component references can only be pasted into a Scene";
   if (reason === "wrong-list") return "Paste into the matching Component or Scene list";
   if (reason === "library-only") return "Media kept in the library; click a Component or Scene preview to add it";
   return "This item cannot be pasted at the current target";

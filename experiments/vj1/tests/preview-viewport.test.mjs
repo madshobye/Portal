@@ -4,10 +4,18 @@ import assert from "node:assert/strict";
 import {
   previewCanvasLogicalSize,
   previewViewportForUi,
+  isPreviewPanGesture,
   resolveViewportForFit,
   updatePreviewViewportForUi,
   zoomViewport,
 } from "../js/output/preview-viewport.js";
+
+test("preview panning accepts Shift-drag without removing existing navigation gestures", () => {
+  assert.equal(isPreviewPanGesture({ button: 0, shiftKey: true }), true);
+  assert.equal(isPreviewPanGesture({ button: 0, altKey: true }), true);
+  assert.equal(isPreviewPanGesture({ button: 1 }), true);
+  assert.equal(isPreviewPanGesture({ button: 0 }), false);
+});
 
 test("every embedded workspace uses one full-stage preview canvas contract", () => {
   const render = {

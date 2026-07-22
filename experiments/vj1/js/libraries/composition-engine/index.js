@@ -1,4 +1,4 @@
-export * from "./surface-composition/index.js";
+export * from "./surface-composition/index.js?v=scene-live-audit-1";
 export * from "./application-program/index.js";
 export * from "./visual-source/index.js";
 export * from "./layer-group/index.js";

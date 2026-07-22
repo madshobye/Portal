@@ -250,7 +250,7 @@ export class OutputSurfaceRuntime {
     const previous = {
       state: renderer.state,
       componentById: renderer.componentById,
-      recordingFrameById: renderer.recordingFrameById,
+      frameById: renderer.frameById,
       routeSourceNodeById: renderer.routeSourceNodeById,
       routeSourceNodeByLegacyKey: renderer.routeSourceNodeByLegacyKey,
     };
@@ -263,7 +263,7 @@ export class OutputSurfaceRuntime {
       // exact previous maps so temporary transition scopes cannot leak routes.
       renderer.state = previous.state;
       renderer.componentById = previous.componentById;
-      renderer.recordingFrameById = previous.recordingFrameById;
+      renderer.frameById = previous.frameById;
       renderer.routeSourceNodeById = previous.routeSourceNodeById;
       renderer.routeSourceNodeByLegacyKey = previous.routeSourceNodeByLegacyKey;
     }
@@ -292,7 +292,7 @@ export class OutputSurfaceRuntime {
       state: renderer.state,
       mapperSurfaces: renderer.mapperSurfaces,
       componentById: renderer.componentById,
-      recordingFrameById: renderer.recordingFrameById,
+      frameById: renderer.frameById,
       viewport,
       pixelScale: renderer.renderPixelDensity(render),
       transformDemandCorners,

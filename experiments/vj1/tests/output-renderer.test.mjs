@@ -70,6 +70,26 @@ test("local transform overlays path-copy store-owned component and frame state",
   assert.equal(framed.components[0].chain[0].id, group.id);
 });
 
+test("a hidden selected element cannot expose transform handles or begin a drag", () => {
+  const hidden = {
+    id: "hidden-item",
+    kind: "source",
+    enabled: false,
+    opacity: 1,
+    source: { type: "media", mediaId: "image" },
+    transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+  };
+  const renderer = {
+    state: {
+      components: [{ id: "component", chain: [hidden] }],
+      ui: { selectedComponentId: "component", selectedChainItemId: hidden.id },
+    },
+  };
+  const interaction = new ComponentPreviewInteraction(renderer);
+  assert.equal(interaction.selectedTransformableChainItem(), null);
+  assert.equal(interaction.startChainTransformDrag(50, 50), false);
+});
+
 test("local drag overlays refresh only the changed lookup entry", () => {
   const component = { id: "component", chain: [{ id: "item", kind: "source", transform: {} }] };
   const frame = { id: "frame", x: 0, y: 0, width: 100, height: 100 };
@@ -94,7 +114,7 @@ test("local drag overlays refresh only the changed lookup entry", () => {
   assert.equal(fullRebuilds, 0);
   assert.equal(renderer.componentById.get(component.id).chain[0].transform.x, 0.25);
   assert.equal(patchedProgramItem.transform.x, 0.25, "the rendered program follows the local preview overlay immediately");
-  assert.equal(renderer.recordingFrameById.get(frame.id).y, 20);
+  assert.equal(renderer.frameById.get(frame.id).y, 20);
 });
 
 test("compiled Output topology gates the existing Mapping route program", () => {
@@ -1190,7 +1210,7 @@ test("canvas rendering evaluates ordinary sources, Groups, effects, and shared r
   assert.ok(source.includes("output.tint(255, 255 * clamp01(layer.opacity ?? 1))"));
   assert.ok(source.includes("applyBlend(output, layer.blend)"));
   assert.ok(source.includes('source.type === "component"'));
-  assert.ok(source.includes("this.recordingFrameById"));
+  assert.ok(source.includes("this.frameById"));
   assert.ok(source.includes("this.state?.frames || []"));
   assert.ok(source.includes("renderSceneFrames(component, source)"));
   assert.ok(source.includes("surface.outputFrameId"));
@@ -1292,7 +1312,10 @@ test("Canvas frame fanout retains ROI only when nested component placements can 
 test("surface route lookup indexes components, frames, and source nodes once per state", () => {
   const renderer = new OutputRenderer({});
   renderer.state = {
-    components: [{ id: "scene-a", type: "scene", name: "Scene A", scene: {} }],
+    components: [
+      { id: "scene-a", type: "scene", name: "Scene A", scene: {} },
+      { id: "system-pattern", type: "chain", name: "Mapping test pattern", systemRole: "mapping-test-pattern" },
+    ],
     frames: [{ id: "frame-a", name: "Frame A" }],
   };
   renderer.rebuildRouteLookups();
@@ -1303,9 +1326,14 @@ test("surface route lookup indexes components, frames, and source nodes once per
     outputFrameId: "frame-a",
   });
   assert.equal(renderer.componentById.get("scene-a").type, "scene");
-  assert.equal(renderer.recordingFrameById.get("frame-a").name, "Frame A");
+  assert.equal(renderer.frameById.get("frame-a").name, "Frame A");
   assert.equal(node.componentId, "scene-a");
   assert.equal(node.outputFrameId, "frame-a");
+  assert.equal(renderer.resolveRouteSourceNode({
+    sourceNodeId: "component:system-pattern",
+    componentId: "system-pattern",
+    outputFrameId: "",
+  })?.componentId, "system-pattern");
   assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "", componentId: "", outputFrameId: "" }), null);
   assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "missing", componentId: "", outputFrameId: "" }), null);
 });

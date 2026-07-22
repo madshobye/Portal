@@ -348,6 +348,7 @@ export function createInitialState() {
         component: "recent",
         scene: "recent",
         mapping: "recent",
+        live: "recent",
         source: "recent",
         media: "recent",
       },
@@ -361,7 +362,8 @@ export function createInitialState() {
       live: {
         selectedSceneId: "",
         selectedComponentId: "",
-        sourceKind: "scene",
+        showScenes: true,
+        showComponents: false,
         componentView: "controls",
         surfaceRoutes: null,
         componentOverrides: {},
@@ -520,6 +522,7 @@ export function sanitizeState(input = {}) {
     : [createDefaultSurface(0), createDefaultSurface(1)];
   next.ui.previewViewports = normalizePreviewViewports(input.ui?.previewViewports);
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
+  next.ui.workspace = WORKSPACES.includes(next.ui.workspace) ? next.ui.workspace : "mapping";
   next.ui.selectedComponentId = next.components.some((component) => component.id === next.ui.selectedComponentId)
     ? next.ui.selectedComponentId
     : next.components[0]?.id || "";
@@ -528,6 +531,16 @@ export function sanitizeState(input = {}) {
     next.components,
     next.ui.selectedComponentId
   );
+  // Component and Scene editors have independent selections. Restore the
+  // selection for the URL-selected workspace during project normalization,
+  // before the preview receives the restored state. Previously setWorkspace()
+  // ran only against the temporary boot state, so a saved Component selection
+  // could leak into a freshly restored Scene workspace until the user switched
+  // workspaces manually.
+  if (next.ui.workspace === "component" || next.ui.workspace === "scene") {
+    next.ui.selectedComponentId = next.ui.workspaceSelectionIds[next.ui.workspace]
+      || next.ui.selectedComponentId;
+  }
   next.ui.catalogSortModes = normalizeCatalogSortModes(next.ui.catalogSortModes);
   next.ui.previewQuality = normalizePreviewQuality(
     next.ui.previewQuality
@@ -556,7 +569,6 @@ export function sanitizeState(input = {}) {
     : "";
   next.ui.mappingTestPattern = next.ui.mappingTestPattern !== false;
   next.ui.live = normalizeLiveUi(next.ui.live, next);
-  next.ui.workspace = WORKSPACES.includes(next.ui.workspace) ? next.ui.workspace : "mapping";
   next.global.calibrating = next.ui.workspace === "mapping";
   next.scheduler.mode = next.scheduler.mode || "hardconfigured";
   next.scheduler.manualLane = next.scheduler.manualLane !== false;
@@ -588,6 +600,7 @@ function normalizeCatalogSortModes(value = {}) {
     component: normalize(value?.component),
     scene: normalize(value?.scene),
     mapping: normalize(value?.mapping),
+    live: normalize(value?.live),
     source: normalize(value?.source),
     media: normalize(value?.media),
   };
@@ -842,7 +855,7 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   return {
     selectedSceneId,
     selectedComponentId: explicitTargetId,
-    sourceKind: live.sourceKind === "component" ? "component" : "scene",
+    ...normalizeLiveSourceFilters(live),
     componentView: live.componentView === "elements" ? "elements" : "controls",
     surfaceRoutes: live.surfaceRoutes
       ? normalizeSurfaceRoutes(live.surfaceRoutes, state)
@@ -853,6 +866,16 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     paramFadeDuration,
     transition,
   };
+}
+
+function normalizeLiveSourceFilters(live = {}) {
+  // sourceKind was the mutually exclusive v28 control. Read it only as a
+  // migration input; current state represents two combinable filters.
+  const hasExplicitFilters = typeof live.showScenes === "boolean" || typeof live.showComponents === "boolean";
+  let showScenes = hasExplicitFilters ? live.showScenes !== false : live.sourceKind !== "component";
+  let showComponents = hasExplicitFilters ? live.showComponents === true : live.sourceKind === "component";
+  if (!showScenes && !showComponents) showScenes = true;
+  return { showScenes, showComponents };
 }
 
 function normalizeSurfaceRoutes(routeState = {}, state = {}) {

@@ -45,6 +45,25 @@ test("mapping geometry is independent from the current browser host proportions"
   assert.equal(wideHost.hostViewport.width / wideHost.hostViewport.height, 16 / 9);
 });
 
+test("adding Outputs arranges more frames without changing the Mapping world", () => {
+  const single = mappingWorldRender({
+    sceneAspectRatio: 16 / 9,
+    outputs: [{ id: "main", aspectRatio: 16 / 9 }],
+  });
+  const multiple = mappingWorldRender({
+    sceneAspectRatio: 16 / 9,
+    outputs: [
+      { id: "main", aspectRatio: 16 / 9 },
+      { id: "second", aspectRatio: 4 / 3 },
+    ],
+  });
+
+  assert.deepEqual(multiple.hostViewport, single.hostViewport);
+  const frames = outputFrames(multiple);
+  assert.equal(frames.length, 2);
+  assert.equal(frames[1].x, frames[0].x + frames[0].width);
+});
+
 test("adaptive sampling safety multipliers are named render-contract constants", () => {
   assert.equal(SURFACE_DEMAND_OVERSCAN, 1);
   assert.equal(RECORDING_FRAME_DEMAND_SCALE, 1);

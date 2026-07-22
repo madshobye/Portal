@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=boundary-media-demand-1";
+import { OutputRenderer } from "./output-renderer.js?v=multi-output-preview-world-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
-import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js?v=preview-visible-demand-1";
+import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js?v=scene-live-audit-1";
 import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-4";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
@@ -257,7 +257,9 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       });
     };
     const onPointerDown = (event) => {
-      if (event.button !== 0 || event.altKey) return;
+      // Shift/Alt drag belongs to the shared viewport navigation controller,
+      // not to Scene frames, Components, or mapping handles.
+      if (event.button !== 0 || event.shiftKey || event.altKey) return;
       event.preventDefault();
       pointerActive = true;
       activePointerId = event.pointerId;

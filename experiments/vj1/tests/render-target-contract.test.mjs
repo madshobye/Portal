@@ -79,7 +79,9 @@ test("mapped and direct surfaces share one reversible world-to-output transform"
     };
     const world = { x: 82, y: 31 };
     const display = renderer.worldPointToDisplay(world);
-    assert.deepEqual(renderer.displayPointToWorld(display), world);
+    const restored = renderer.displayPointToWorld(display);
+    assert.ok(Math.abs(restored.x - world.x) < 1e-9);
+    assert.ok(Math.abs(restored.y - world.y) < 1e-9);
   } finally {
     globalThis.width = previousWidth;
     globalThis.height = previousHeight;

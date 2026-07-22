@@ -13,6 +13,8 @@ import { compileIsfFragmentSource } from "./isf-compiler.js?v=isf-coordinates-1"
 import { parseIsfDocument, sourceHash } from "./isf-document.js?v=isf-coordinates-1";
 
 const projectComponentCache = new WeakMap();
+const projectDefinitionCache = new Map();
+const PROJECT_DEFINITION_CACHE_LIMIT = 128;
 
 export function createIsfVisualComponent({ path = "", source = "" } = {}) {
   return materializeIsfNodeDefinition(createIsfNodeDefinition({ path, source }));
@@ -138,19 +140,50 @@ export function listProjectIsfVisualComponents(state = {}) {
   const result = [];
   for (const definition of definitions || []) {
     if (!isIsfNodeDefinition(definition)) continue;
-    try {
-      result.push(materializeIsfNodeDefinition(definition));
-    } catch (error) {
+    const cached = cachedProjectIsfComponent(definition);
+    if (cached.component) {
+      result.push(cached.component);
+    } else if (cached.shouldWarn) {
       console.warn("[VJ1_ISF_DEFINITION_INVALID]", {
         nodeId: definition.id || "",
         path: definition.metadata?.projectAssetPath || "",
         fallback: "retain the definition but omit it from the active visual catalog",
-        message: error?.message || String(error),
+        message: cached.message,
       });
     }
   }
   if (Array.isArray(definitions)) projectComponentCache.set(definitions, Object.freeze(result));
   return [...result];
+}
+
+function cachedProjectIsfComponent(definition = {}) {
+  const key = projectIsfDefinitionKey(definition);
+  const previous = projectDefinitionCache.get(key);
+  if (previous) return { ...previous, shouldWarn: false };
+  let entry;
+  try {
+    entry = Object.freeze({ component: materializeIsfNodeDefinition(definition), message: "" });
+  } catch (error) {
+    entry = Object.freeze({ component: null, message: error?.message || String(error) });
+  }
+  projectDefinitionCache.set(key, entry);
+  while (projectDefinitionCache.size > PROJECT_DEFINITION_CACHE_LIMIT) {
+    projectDefinitionCache.delete(projectDefinitionCache.keys().next().value);
+  }
+  return { ...entry, shouldWarn: !entry.component };
+}
+
+function projectIsfDefinitionKey(definition = {}) {
+  const sourcePart = (definition.parts || []).find((part) => part.language === "isf" || part.id === "isf-source");
+  const source = String(sourcePart?.source || "");
+  return [
+    String(definition.id || ""),
+    String(definition.version || ""),
+    String(definition.name || ""),
+    String(definition.metadata?.visualId || ""),
+    String(definition.metadata?.projectAssetPath || ""),
+    sourceHash(source),
+  ].join("\u0000");
 }
 
 export function mergeProjectIsfDefinitions(nodes = {}, shaders = [], { authoritative = false } = {}) {

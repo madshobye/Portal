@@ -285,6 +285,33 @@ test("mapper applies homography per vertex and draws centered projective quads",
   ]);
 });
 
+test("mapper retains authored quads outside the raw host for preview model transforms", () => {
+  const previousWidth = globalThis.width;
+  const previousHeight = globalThis.height;
+  globalThis.width = 640;
+  globalThis.height = 360;
+  try {
+    const mapper = new VjMapper();
+    const surface = mapper.addSurface({
+      id: "second-output",
+      width: 320,
+      height: 180,
+      corners: [
+        { x: 900, y: 100 },
+        { x: 1220, y: 100 },
+        { x: 1220, y: 280 },
+        { x: 900, y: 280 },
+      ],
+    });
+    assert.equal(mapper._getRenderCache(surface, 1)?.valid, true);
+  } finally {
+    if (previousWidth === undefined) delete globalThis.width;
+    else globalThis.width = previousWidth;
+    if (previousHeight === undefined) delete globalThis.height;
+    else globalThis.height = previousHeight;
+  }
+});
+
 test("mapped shader quads suppress inherited strokes including the strip diagonal", () => {
   const names = ["push", "pop", "noStroke", "beginShape", "vertex", "endShape", "TRIANGLE_STRIP"];
   const previous = Object.fromEntries(names.map((name) => [name, globalThis[name]]));

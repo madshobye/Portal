@@ -15,7 +15,7 @@ export function createSurfaceCompositionEngine({
     state = {},
     mapperSurfaces = new Map(),
     componentById = new Map(),
-    recordingFrameById = new Map(),
+    frameById = new Map(),
     viewport = {},
     pixelScale = 1,
     transformDemandCorners = (corners) => corners,
@@ -49,7 +49,7 @@ export function createSurfaceCompositionEngine({
         component,
         surface,
         state.frames,
-        recordingFrameById
+        frameById
       );
       const maxSurfaceSize = textureCeiling || { width: 8192, height: 8192 };
       const demandCorners = transformDemandCorners(mapped.mapperSurface.corners, mapped, surface);

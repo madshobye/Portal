@@ -1,5 +1,5 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=frame-projection-aspect-1";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=scene-live-audit-1";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";

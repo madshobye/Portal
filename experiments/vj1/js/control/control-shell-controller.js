@@ -1,8 +1,8 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes, syncLiveRoutesFromMapping } from "../domain/models.js?v=frame-projection-aspect-1";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes, syncLiveRoutesFromMapping } from "../domain/models.js?v=scene-live-audit-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=boundary-media-demand-1";
-import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=preview-visible-demand-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=multi-output-preview-world-1";
+import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=scene-live-audit-1";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=scroll-region-1";
@@ -11,15 +11,15 @@ import { collectRefs, shellTemplate } from "./shell-view.js?v=topbar-technical-v
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { sceneFrameInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=frame-projection-aspect-1";
 import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=live-source-target-1";
-import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=live-source-target-1";
+import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=scene-live-audit-1";
 import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=scroll-region-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
-import { createClipboardController } from "./clipboard-controller.js?v=clipboard-chain-target-1";
-import { createModalController } from "./modal-controller.js?v=scene-mapping-1";
-import { createInputController } from "./input-controller.js?v=scene-mapping-1";
+import { createClipboardController } from "./clipboard-controller.js?v=scene-live-audit-1";
+import { createModalController } from "./modal-controller.js?v=scene-live-audit-1";
+import { createInputController } from "./input-controller.js?v=scene-live-audit-1";
 import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-controller-1";
-import { projectRailTemplate } from "./project-rail-view.js?v=live-source-target-1";
+import { projectRailTemplate } from "./project-rail-view.js?v=scene-live-audit-1";
 import { selectedNodeEditorTemplate, withProjectGroupGraph, withProjectNodeFork, withProjectNodeGraph, withoutProjectNodeFork } from "./node-editor-view.js";
 import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=application-bootstrap-10";
 import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=application-bootstrap-10";
@@ -59,7 +59,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   const previewLayoutQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
     ? window.matchMedia("(max-width: 1100px)")
     : null;
-  const catalogOrderSnapshots = { component: [], scene: [], mapping: [], source: [] };
+  const catalogOrderSnapshots = { component: [], scene: [], mapping: [], live: [], source: [] };
   const activeParamViews = new Map();
   const replaceHtmlIfChanged = createHtmlCache();
   const diagnosticsController = createControlDiagnosticsController({
@@ -757,7 +757,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     activeCatalogViewKey = viewKey;
     if (["component", "scene", "mapping"].includes(workspace)) captureCatalogOrder(workspace, state);
     if (workspace === "mapping") captureCatalogOrder("source", state);
-    if (workspace === "live") captureCatalogOrder("scene", state);
+    if (workspace === "live") captureCatalogOrder("live", state);
   }
 
   function invalidateCatalogOrder() {
@@ -765,17 +765,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     catalogOrderSnapshots.component = [];
     catalogOrderSnapshots.scene = [];
     catalogOrderSnapshots.mapping = [];
+    catalogOrderSnapshots.live = [];
     catalogOrderSnapshots.source = [];
   }
 
   function captureCatalogOrder(scope, state) {
     const items = scope === "mapping"
       ? state.mappings || []
-      : scope === "source"
-        ? sceneSourceNodes(state)
-        : scope === "scene"
-          ? sceneComponents(state)
-          : ordinaryComponents(state);
+      : scope === "live"
+        ? [...sceneComponents(state), ...ordinaryComponents(state)]
+        : scope === "source"
+          ? sceneSourceNodes(state)
+          : scope === "scene"
+            ? sceneComponents(state)
+            : ordinaryComponents(state);
     catalogOrderSnapshots[scope] = sortComponentCatalog(items, catalogSortMode(state, scope)).map((item) => item.id);
   }
 
@@ -798,9 +801,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       button.addEventListener("click", () => {
         const catalog = button.dataset.catalogSortScope;
         const mode = button.dataset.catalogSort;
-        if (!["component", "scene", "mapping", "source", "media"].includes(catalog) || !["recent", "marker", "name", "created"].includes(mode)) return;
+        if (!["component", "scene", "mapping", "live", "source", "media"].includes(catalog) || !["recent", "marker", "name", "created"].includes(mode)) return;
         updateUi((ui) => {
-          ui.catalogSortModes ||= { component: "recent", scene: "recent", mapping: "recent", source: "recent", media: "recent" };
+          ui.catalogSortModes ||= { component: "recent", scene: "recent", mapping: "recent", live: "recent", source: "recent", media: "recent" };
           ui.catalogSortModes[catalog] = mode;
         }, `catalog-sort:${catalog}`);
         if (catalog !== "media") captureCatalogOrder(catalog, latestState);
@@ -1068,11 +1071,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.querySelectorAll("[data-live-target-component]").forEach((button) => {
       button.addEventListener("click", () => store.selectLiveComponent?.(button.dataset.liveTargetComponent));
     });
-    refs.projectRail.querySelectorAll("[data-live-source-kind]").forEach((button) => {
+    refs.projectRail.querySelectorAll("[data-live-source-filter]").forEach((button) => {
       button.addEventListener("click", () => updateUi((ui) => {
         ui.live ||= {};
-        ui.live.sourceKind = button.dataset.liveSourceKind === "component" ? "component" : "scene";
-      }, "live-source-kind"));
+        const key = button.dataset.liveSourceFilter === "components" ? "showComponents" : "showScenes";
+        const otherKey = key === "showScenes" ? "showComponents" : "showScenes";
+        const next = !ui.live[key];
+        // Keep at least one catalog visible; both may be enabled.
+        if (!next && !ui.live[otherKey]) return;
+        ui.live[key] = next;
+      }, "live-source-filter"));
     });
     refs.projectRail.querySelectorAll("[data-select-frame]").forEach((button) => {
       button.addEventListener("click", () => store.selectFrame?.(button.dataset.selectFrame));

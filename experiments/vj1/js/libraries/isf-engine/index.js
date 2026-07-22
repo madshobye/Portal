@@ -8,4 +8,4 @@ export {
   looksLikeIsfSource,
   materializeIsfNodeDefinition,
   mergeProjectIsfDefinitions,
-} from "./isf-node.js?v=isf-coordinates-1";
+} from "./isf-node.js?v=isf-definition-cache-1";

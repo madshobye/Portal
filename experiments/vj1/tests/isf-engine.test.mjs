@@ -6,6 +6,7 @@ import {
   createIsfNodeDefinition,
   createIsfVisualComponent,
   evaluateIsfDimension,
+  listProjectIsfVisualComponents,
   parseIsfDocument,
 } from "../js/libraries/isf-engine/index.js";
 import { serializeNodeProjectData } from "../js/libraries/node-engine/node-project.js";
@@ -34,6 +35,31 @@ test("ISF parser validates metadata and identifies filters", () => {
   assert.equal(document.inputs.length, 3);
   assert.equal(document.passes.length, 1);
   assert.equal(document.roiSafe, true);
+});
+
+test("invalid project ISF definitions warn once across cloned output states", () => {
+  const unsupported = createIsfNodeDefinition({
+    path: "shaders/two-inputs.fs",
+    source: `/*{
+      "ISFVSN": "2.0",
+      "INPUTS": [
+        { "NAME": "startImage", "TYPE": "image" },
+        { "NAME": "endImage", "TYPE": "image" }
+      ]
+    }*/
+    void main() { gl_FragColor = IMG_THIS_PIXEL(startImage); }`,
+  });
+  const warnings = [];
+  const originalWarn = console.warn;
+  console.warn = (...args) => warnings.push(args);
+  try {
+    assert.deepEqual(listProjectIsfVisualComponents({ nodes: { definitions: [{ ...unsupported }] } }), []);
+    assert.deepEqual(listProjectIsfVisualComponents({ nodes: { definitions: [{ ...unsupported }] } }), []);
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0][0], "[VJ1_ISF_DEFINITION_INVALID]");
 });
 
 test("ISF compiler owns standard declarations without redeclaring shader uniforms", () => {

@@ -646,6 +646,22 @@ test("Component and Canvas workspaces remember their own selected component", ()
   });
 });
 
+test("project restore selects the remembered Scene before the first Scene preview", () => {
+  const component = createDefaultComponent(0);
+  component.id = "restored-component";
+  const scene = createSceneComponent(0);
+  scene.id = "restored-scene";
+  const state = createInitialState();
+  state.components = [component, scene];
+  state.ui.workspace = "scene";
+  state.ui.selectedComponentId = component.id;
+  state.ui.workspaceSelectionIds = { component: component.id, scene: scene.id };
+
+  const store = createAppState(state);
+  assert.equal(store.getState().ui.workspace, "scene");
+  assert.equal(store.getState().ui.selectedComponentId, scene.id);
+});
+
 test("entering Scene view preserves a surface source across catalog reorder", () => {
   const state = createInitialState();
   const first = createDefaultComponent(0);

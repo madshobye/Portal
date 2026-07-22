@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=frame-projection-aspect-1";
+import { sanitizeState } from "../domain/models.js?v=scene-live-audit-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=queued-recovery-1";
-import { OutputRenderer } from "./output-renderer.js?v=boundary-media-demand-1";
+import { OutputRenderer } from "./output-renderer.js?v=multi-output-preview-world-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
 

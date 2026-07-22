@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=frame-projection-aspect-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=boundary-media-demand-1";
+import { createAppState } from "./app-state.js?v=scene-live-audit-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=multi-output-preview-world-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=scene-mapping-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=preview-debug-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=queued-recovery-1";
-import { installOutputApp } from "./output/output-app.js?v=boundary-media-demand-1";
+import { installOutputApp } from "./output/output-app.js?v=multi-output-preview-world-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
 import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js?v=runtime-diagnostics-1";
@@ -195,6 +195,13 @@ async function installControlApp() {
       restored = await projectService.restoreStoredFolder();
     } finally {
       bridge.finishProjectRestore(restored);
+    }
+    // The URL is the navigation authority. A restored project may contain the
+    // workspace that was active when it was saved, but it must not replace the
+    // view explicitly requested by this browser tab (for example Scene on a
+    // direct refresh).
+    if (restored && store.getState().ui.workspace !== initialWorkspace) {
+      store.setWorkspace(initialWorkspace);
     }
   }
 }

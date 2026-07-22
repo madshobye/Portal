@@ -30,7 +30,7 @@ test("surface planner resolves visible routes and their shared component demand"
     state,
     mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
     componentById: new Map([[component.id, component]]),
-    recordingFrameById: new Map(),
+    frameById: new Map(),
     viewport: { width: 960, height: 540 },
     pixelScale: 1,
     resolveRouteSourceNode: () => ({ id: `component:${component.id}`, componentId: component.id, outputFrameId: "" }),
@@ -68,7 +68,7 @@ test("a region-safe recording frame renders at mapped demand instead of its shar
     state,
     mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
     componentById: new Map([[canvas.id, canvas]]),
-    recordingFrameById: new Map([[frame.id, frame]]),
+    frameById: new Map([[frame.id, frame]]),
     viewport: { width: 1270, height: 855 },
     pixelScale: 1,
     resolveRouteSourceNode: () => ({ id: surface.sourceNodeId, componentId: canvas.id, outputFrameId: frame.id }),
@@ -114,7 +114,7 @@ test("independent Canvas children do not multiply across multiple recording-fram
     state,
     mapperSurfaces,
     componentById: new Map([[canvas.id, canvas]]),
-    recordingFrameById: new Map(frames.map((frame) => [frame.id, frame])),
+    frameById: new Map(frames.map((frame) => [frame.id, frame])),
     viewport: { width: 960, height: 540 },
     pixelScale: 1,
     resolveRouteSourceNode: (surface) => ({ id: surface.sourceNodeId, componentId: canvas.id, outputFrameId: surface.outputFrameId }),
@@ -137,7 +137,7 @@ test("surface planner consumes the compiled Scene surface program as routing aut
     surfaceProgram: [],
     mapperSurfaces: new Map(),
     componentById: new Map(),
-    recordingFrameById: new Map(),
+    frameById: new Map(),
   });
 
   assert.equal(state.surfaces.length > 0, true);
@@ -228,7 +228,7 @@ test("surface runtime restores temporary render state and identity scopes", () =
   const originalState = { id: "current" };
   const originalLookups = {
     componentById: new Map([["current-component", {}]]),
-    recordingFrameById: new Map([["current-frame", {}]]),
+    frameById: new Map([["current-frame", {}]]),
     routeSourceNodeById: new Map([["current-node", {}]]),
     routeSourceNodeByLegacyKey: new Map([["current-legacy", {}]]),
   };
@@ -238,7 +238,7 @@ test("surface runtime restores temporary render state and identity scopes", () =
     rebuildRouteLookups() {
       const id = this.state.id;
       this.componentById = new Map([[`${id}-component`, {}]]);
-      this.recordingFrameById = new Map([[`${id}-frame`, {}]]);
+      this.frameById = new Map([[`${id}-frame`, {}]]);
       this.routeSourceNodeById = new Map([[`${id}-node`, {}]]);
       this.routeSourceNodeByLegacyKey = new Map([[`${id}-legacy`, {}]]);
     },
@@ -247,14 +247,14 @@ test("surface runtime restores temporary render state and identity scopes", () =
 
   assert.equal(runtime.withRenderState({ id: "temporary" }, () => {
     assert.equal(renderer.componentById.has("temporary-component"), true);
-    assert.equal(renderer.recordingFrameById.has("temporary-frame"), true);
+    assert.equal(renderer.frameById.has("temporary-frame"), true);
     assert.equal(renderer.routeSourceNodeById.has("temporary-node"), true);
     assert.equal(renderer.routeSourceNodeByLegacyKey.has("temporary-legacy"), true);
     return renderer.state.id;
   }), "temporary");
   assert.equal(renderer.state, originalState);
   assert.equal(renderer.componentById, originalLookups.componentById);
-  assert.equal(renderer.recordingFrameById, originalLookups.recordingFrameById);
+  assert.equal(renderer.frameById, originalLookups.frameById);
   assert.equal(renderer.routeSourceNodeById, originalLookups.routeSourceNodeById);
   assert.equal(renderer.routeSourceNodeByLegacyKey, originalLookups.routeSourceNodeByLegacyKey);
   assert.equal(runtime.withSurfaceRenderIdentityPrefix("from:", () => runtime.renderIdentityPrefix), "from:");

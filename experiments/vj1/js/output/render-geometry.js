@@ -35,8 +35,15 @@ export function worldSize(render = {}) {
 // authority: changing a popup from tall to wide may crop this world, not
 // stretch its X and Y axes independently.
 export function mappingWorldAspectRatio(render = {}) {
-  const outputs = outputDefinitions(render);
-  return normalizeAspectRatio(outputs.reduce((sum, output) => sum + output.aspectRatio, 0));
+  // Mapping is the stable physical projection space. Adding or removing an
+  // Output changes the Output frames arranged inside that space; it must not
+  // resize the space itself and reinterpret every persisted relative Surface
+  // coordinate. Scene already owns the project-wide relative proportion, so
+  // use that as the single Mapping-world authority as well.
+  return normalizeAspectRatio(
+    render.sceneAspectRatio,
+    outputDefinitions(render)[0]?.aspectRatio || VJ1.renderWidth / VJ1.renderHeight
+  );
 }
 
 export function mappingWorldRender(render = {}) {
@@ -188,7 +195,7 @@ export function sourceRenderDemand({
   const effectiveScale = Math.min(rasterSize.width / logicalWidth, rasterSize.height / logicalHeight);
   const maxSurfaceWidth = Math.max(1, Number(maxSurfaceSize.width) || rect.width);
   const maxSurfaceHeight = Math.max(1, Number(maxSurfaceSize.height) || rect.height);
-  // A recording-frame region can render directly at its mapped footprint.
+  // A Scene Frame region can render directly at its mapped footprint.
   // Do not derive that target from the shared full-Scene request: a small
   // frame would otherwise retain only its tiny share of those pixels and be
   // enlarged into a visibly soft full-screen surface.

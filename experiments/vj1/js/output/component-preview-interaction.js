@@ -203,7 +203,7 @@ export class ComponentPreviewInteraction {
   mousePressed(x, y) {
     const renderer = this.renderer;
     // The explicitly selected object's controls own their pointer area. A
-    // recording-frame border may overlap them, but must not steal the gesture.
+    // Scene Frame border may overlap them, but must not steal the gesture.
     if (renderer.mode === "component" && this.startChainTransformDrag(x, y, { handlesOnly: true })) return;
     if (renderer.mode === "component" && this.startSceneFrameDrag(x, y)) return;
     if (renderer.mode === "component") {
@@ -322,7 +322,7 @@ export class ComponentPreviewInteraction {
   applyLocalSceneFrame(frameId, rect) {
     const renderer = this.renderer;
     renderer.state = stateWithSceneFrameRect(renderer.state, frameId, rect);
-    renderer.refreshRecordingFrameLookup?.(frameId);
+    renderer.refreshFrameLookup?.(frameId);
   }
 
   selectedTransformableChainItem() {
@@ -331,6 +331,7 @@ export class ComponentPreviewInteraction {
     if (!component?.chain?.length) return null;
     const selected = findChainItemById(component.chain, renderer.state.ui.selectedChainItemId)
       || (component.chain.length === 1 ? component.chain[0] : null);
+    if (!selected || selected.enabled === false || Number(selected.opacity ?? 1) <= 0.001) return null;
     if (selected?.kind === "source" || selected?.kind === "group") return selected;
     const effectComponent = selected?.kind === "effect" ? getShaderComponent(selected.componentId) : null;
     return effectComponent?.spatial ? selected : null;

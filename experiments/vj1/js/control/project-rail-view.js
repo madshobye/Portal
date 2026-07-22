@@ -1,6 +1,6 @@
 import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { sceneComponents, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=scene-mapping-1";
-import { liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingRailConfigTemplate, mappingSurfacePillTemplate } from "./mapping-live-view.js?v=live-source-target-1";
+import { liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingRailConfigTemplate, mappingSurfacePillTemplate } from "./mapping-live-view.js?v=scene-live-audit-1";
 import { componentCardBarTemplate, textListItemTemplate } from "./view-primitives.js?v=scroll-region-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 
@@ -45,7 +45,7 @@ function sceneToolsTemplate(state, catalogItems, catalogSortMode) {
     </div>
     <div class="ui-section rail-section rail-list-section scene-frame-rail-section">
       ${addableRailTitleTemplate("select_all", "Frames", `data-add-frame data-scene-id="${esc(selectedScene?.id || "")}" ${selectedScene ? "" : "disabled"}`, "Add frame")}
-      <div class="recording-frame-pills rail-scroll-list" data-scroll-region data-scroll-key="recording-frames">
+      <div class="scene-frame-pills rail-scroll-list" data-scroll-region data-scroll-key="scene-frames">
         ${(state.frames || []).map((frame, index) => framePillTemplate(frame, index, selectedScene, state)).join("") || emptyNote("Add a frame")}
       </div>
     </div>`;
@@ -76,27 +76,31 @@ function liveToolsTemplate(state, catalogItems, catalogSortMode) {
   const timeStretch = Math.max(-4, Math.min(4, Number(state.global?.timeStretch) || 0));
   const timeScale = timeStretch <= -4 ? 0 : 2 ** timeStretch;
   const performanceScenes = sceneComponents(state);
-  const sourceKind = state.ui?.live?.sourceKind === "component" ? "component" : "scene";
-  const sources = sourceKind === "scene"
-    ? catalogItems("scene", performanceScenes)
-    : catalogItems("component", ordinaryComponents(state));
-  const cards = sourceKind === "scene"
-    ? sources.map((scene) => liveScenePillTemplate(scene, state)).join("")
-    : sources.map((component) => liveTargetComponentPillTemplate(component, state)).join("");
+  const showScenes = state.ui?.live?.showScenes !== false;
+  const showComponents = state.ui?.live?.showComponents === true;
+  const sources = catalogItems("live", [
+    ...(showScenes ? performanceScenes : []),
+    ...(showComponents ? ordinaryComponents(state) : []),
+  ]);
+  const cards = sources.map((source) => source.type === "scene"
+    ? liveScenePillTemplate(source, state)
+    : liveTargetComponentPillTemplate(source, state)
+  ).join("");
   return `
     <div class="ui-section rail-section rail-list-section" data-component-filter-scope>
       <div class="ui-section-header rail-title"><span class="material-symbols-rounded">play_circle</span><span>Live sources</span></div>
       <div class="live-component-view-tabs live-source-kind-tabs" role="group" aria-label="Live source type">
-        <button type="button" class="live-component-view-tab ${sourceKind === "scene" ? "is-selected" : ""}" data-live-source-kind="scene" aria-pressed="${sourceKind === "scene"}">${icon("dashboard_customize")} Scenes</button>
-        <button type="button" class="live-component-view-tab ${sourceKind === "component" ? "is-selected" : ""}" data-live-source-kind="component" aria-pressed="${sourceKind === "component"}">${icon("account_tree")} Components</button>
+        <button type="button" class="live-component-view-tab ${showScenes ? "is-selected" : ""}" data-live-source-filter="scenes" aria-pressed="${showScenes}">${icon("dashboard_customize")} Scenes</button>
+        <button type="button" class="live-component-view-tab ${showComponents ? "is-selected" : ""}" data-live-source-filter="components" aria-pressed="${showComponents}">${icon("account_tree")} Parts</button>
       </div>
-      ${componentCatalogToolsTemplate(sourceKind, catalogSortMode(sourceKind), `Filter ${sourceKind}s`)}
-      <div class="scene-card-list live-scene-list rail-scroll-list" data-scroll-region data-scroll-key="live-sources:${sourceKind}">
-        ${cards || emptyNote(sourceKind === "scene" ? "Create scenes first" : "Create components first")}
+      ${componentCatalogToolsTemplate("live", catalogSortMode("live"), "Filter live sources")}
+      <div class="scene-card-list live-scene-list rail-scroll-list" data-scroll-region data-scroll-key="live-sources:${showScenes ? "s" : ""}${showComponents ? "c" : ""}">
+        ${cards || emptyNote("Create a Scene or Part first")}
       </div>
     </div>
     <div class="ui-section rail-section">
       <div class="ui-section-header rail-title"><span class="material-symbols-rounded">tune</span><span>Timing</span></div>
+      <div class="sculpt-card live-timing-params">
       <label class="field range-field live-time-scale">
         <span>Time stretch</span>
         <output class="range-value" data-range-value>${timeStretch.toFixed(2)} · ${timeScale < 0.1 ? timeScale.toFixed(3) : timeScale.toFixed(2)}×</output>
@@ -112,6 +116,7 @@ function liveToolsTemplate(state, catalogItems, catalogSortMode) {
         <output class="range-value" data-range-value>${paramFadeDuration.toFixed(2)} s</output>
         <input type="range" min="0" max="10" step="0.05" data-range-suffix=" s" data-update="ui.live.paramFadeDuration" value="${paramFadeDuration}" />
       </label>
+      </div>
     </div>`;
 }
 
@@ -140,7 +145,7 @@ function framePillTemplate(frame, index, component, state) {
     leadingHtml: `<span class="text-list-static-icon" aria-hidden="true">${icon("select_all")}</span>`,
     label,
     meta: frame.kind === "output" ? "Output" : "User",
-    mainClass: "list-select recording-frame-label",
+    mainClass: "list-select scene-frame-label",
     mainAction: "data-select-frame",
     mainActionId: frame.id,
     removeClass: frame.kind === "output" ? "" : "list-remove",

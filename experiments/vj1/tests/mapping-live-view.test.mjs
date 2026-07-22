@@ -43,21 +43,26 @@ test("Mapping and Live Scene presentation lives outside the control orchestrator
   assert.doesNotMatch(controller, /sceneSignificantComponentTemplate/);
 });
 
-test("Live uses one source catalog with Scenes selected by default and a Component filter", () => {
+test("Live combines independently enabled Scene and Part filters while keeping one on", () => {
   const { state, liveScene } = stateWithScene();
   const component = state.components.find((candidate) => candidate.type !== "scene" && !candidate.systemRole);
   const scenesHtml = projectRailTemplate(state, { workspace: "live" });
-  assert.match(scenesHtml, /data-live-source-kind="scene" aria-pressed="true"/);
-  assert.match(scenesHtml, /data-live-source-kind="component" aria-pressed="false"/);
+  assert.match(scenesHtml, /data-live-source-filter="scenes" aria-pressed="true"/);
+  assert.match(scenesHtml, /data-live-source-filter="components" aria-pressed="false"/);
   assert.match(scenesHtml, new RegExp(`data-live-scene="${liveScene.id}"`));
   assert.doesNotMatch(scenesHtml, /data-live-target-component=/);
 
-  state.ui.live.sourceKind = "component";
+  state.ui.live.showComponents = true;
   const componentsHtml = projectRailTemplate(state, { workspace: "live" });
-  assert.match(componentsHtml, /data-live-source-kind="scene" aria-pressed="false"/);
-  assert.match(componentsHtml, /data-live-source-kind="component" aria-pressed="true"/);
+  assert.match(componentsHtml, /data-live-source-filter="scenes" aria-pressed="true"/);
+  assert.match(componentsHtml, /data-live-source-filter="components" aria-pressed="true"/);
   assert.match(componentsHtml, new RegExp(`data-live-target-component="${component.id}"`));
-  assert.doesNotMatch(componentsHtml, /data-live-scene=/);
+  assert.match(componentsHtml, /data-live-scene=/);
+
+  const legacy = sanitizeState({ ...state, ui: { ...state.ui, live: { sourceKind: "component" } } });
+  assert.equal(legacy.ui.live.showScenes, false);
+  assert.equal(legacy.ui.live.showComponents, true);
+  assert.equal("sourceKind" in legacy.ui.live, false);
 });
 
 test("Mapping cards intentionally avoid render thumbnails", () => {

@@ -42,7 +42,7 @@ export function createPreviewViewportController({ stage, store, getMode, getView
   }, { passive: false });
 
   add("pointerdown", (event) => {
-    if (!isNavigablePreviewMode(getMode?.()) || (!event.altKey && event.button !== 1)) return;
+    if (!isNavigablePreviewMode(getMode?.()) || !isPreviewPanGesture(event)) return;
     event.preventDefault();
     onPanStart?.();
     const viewport = getViewport?.() || {};
@@ -83,6 +83,10 @@ export function createPreviewViewportController({ stage, store, getMode, getView
       panDrag = null;
     },
   };
+}
+
+export function isPreviewPanGesture(event = {}) {
+  return event.shiftKey === true || event.altKey === true || Number(event.button) === 1;
 }
 
 function updateStoredUi(store, recipe, reason) {

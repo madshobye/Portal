@@ -118,7 +118,7 @@ test("runtime cache policy has one owner outside the output orchestrator", () =>
   });
   assert.equal(componentRuntimeTimeKey({ runtime }, {}, { frame: 8, time: 2.75 }), 2);
   assert.equal(componentRuntimeTimeKey({ runtime: { cacheable: false } }, {}, { frame: 8, time: 2.75 }), 8);
-  assert.match(renderer, /from "\.\/component-render-state\.js\?v=runtime-diagnostics-1"/);
+  assert.match(renderer, /from "\.\/component-render-state\.js\?v=scene-live-audit-1"/);
   assert.doesNotMatch(renderer, /function staticComponentGraphState\(/);
   assert.doesNotMatch(renderer, /function collectMediaIdsFromSource\(/);
 });

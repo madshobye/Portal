@@ -3,15 +3,15 @@ import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
 import { sceneFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=frame-projection-aspect-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-live-audit-1";
 import { normalizeParamValue, normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/render-node-contract.js";
-import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, VISUAL_SOURCE_RENDERERS, visualSourceRenderer } from "../libraries/composition-engine/index.js?v=scene-mapping-1";
+import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, VISUAL_SOURCE_RENDERERS, visualSourceRenderer } from "../libraries/composition-engine/index.js?v=scene-live-audit-1";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=pending-project-node-1";
-import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js?v=pending-project-node-1";
-import { evaluateIsfDimension } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
+import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js?v=isf-definition-cache-1";
+import { evaluateIsfDimension } from "../libraries/isf-engine/index.js?v=isf-definition-cache-1";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=isf-runtime-1";
 import { applyBlend } from "./blend-utils.js";
 import {
@@ -23,17 +23,17 @@ import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptiv
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
 import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=runtime-diagnostics-1";
-import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=runtime-diagnostics-1";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=scene-live-audit-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runtime-diagnostics-1";
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=boundary-media-demand-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=preview-visible-demand-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=scene-live-audit-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=preview-visible-demand-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform, transformedRectBounds, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
-import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=viewport-handle-scale-1";
+import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=scene-live-audit-1";
 import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=output-profile-runtime-1";
 import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
@@ -57,8 +57,8 @@ import {
   RECORDING_FRAME_DEMAND_SCALE,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=boundary-media-demand-1";
-import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=preview-visible-demand-1";
+} from "./render-geometry.js?v=multi-output-preview-world-1";
+import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=multi-output-preview-world-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
 import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=shared-raw-model-1";
 import {
@@ -80,7 +80,7 @@ import {
   resolutionScaledStrokeWidth,
   routeSourceLookupKey,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=frame-projection-aspect-1";
+} from "./component-render-layout.js?v=scene-live-audit-1";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
 export { parseObjMesh } from "../libraries/mesh-engine/obj-parser/index.js";
@@ -121,7 +121,7 @@ export {
   resizeSceneFrameRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=frame-projection-aspect-1";
+} from "./component-render-layout.js?v=scene-live-audit-1";
 
 export function visualOperationRenderItem(operation = {}, item = {}, inheritedTransform = {}, effectComponent = null) {
   const opcode = operation?.opcode || item?.kind;
@@ -223,7 +223,7 @@ export class OutputRenderer {
     this.outputProgram = null;
     this.mappingProgramCache = new WeakMap();
     this.componentById = new Map();
-    this.recordingFrameById = new Map();
+    this.frameById = new Map();
     this.routeSourceNodeById = new Map();
     this.routeSourceNodeByLegacyKey = new Map();
     this.liveParamFades = new Map();
@@ -824,9 +824,12 @@ export class OutputRenderer {
   rebuildRouteLookups() {
     const components = this.state?.components || [];
     const frames = this.state?.frames || [];
-    const sourceNodes = sceneSourceNodes(this.state || {});
+    // System Components are intentionally absent from user-facing catalogs,
+    // but their routes are still executable. Mapping's test-pattern preview
+    // is one such route, so the renderer index must include it.
+    const sourceNodes = sceneSourceNodes(this.state || {}, { includeSystem: true });
     this.componentById = new Map(components.map((component) => [component.id, component]));
-    this.recordingFrameById = new Map(frames.map((frame) => [frame.id, frame]));
+    this.frameById = new Map(frames.map((frame) => [frame.id, frame]));
     this.routeSourceNodeById = new Map(sourceNodes.map((node) => [node.id, node]));
     this.routeSourceNodeByLegacyKey = new Map(sourceNodes.map((node) => [
       routeSourceLookupKey(node.componentId, node.outputFrameId),
@@ -840,10 +843,10 @@ export class OutputRenderer {
     else this.componentById.delete(componentId);
   }
 
-  refreshRecordingFrameLookup(frameId) {
+  refreshFrameLookup(frameId) {
     const frame = this.state?.frames?.find((item) => item.id === frameId);
-    if (frame) this.recordingFrameById.set(frameId, frame);
-    else this.recordingFrameById.delete(frameId);
+    if (frame) this.frameById.set(frameId, frame);
+    else this.frameById.delete(frameId);
   }
 
   resolveRouteSourceNode(surface = {}) {
@@ -1635,7 +1638,7 @@ export class OutputRenderer {
     const renderRequest = this.normalizeRenderRequest(request, "component");
     const program = this.componentPrograms.get(component.id);
     if (!program) throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id || "unknown"}`);
-    const state = program.execute(this, component, componentTime, renderRequest, renderBufferKey(component.id, "canvas"));
+    const state = program.execute(this, component, componentTime, renderRequest, renderBufferKey(component.id, "component-output"));
     return state.buffer;
   }
 

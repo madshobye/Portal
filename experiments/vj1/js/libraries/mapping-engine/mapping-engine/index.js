@@ -674,10 +674,18 @@ function currentPixelDensity() {
 
 function surfaceBounds(tl, tr, br, bl) {
   const pad = 1;
-  const minX = Math.max(0, Math.floor(Math.min(tl.x, tr.x, br.x, bl.x) - pad));
-  const minY = Math.max(0, Math.floor(Math.min(tl.y, tr.y, br.y, bl.y) - pad));
-  const maxX = Math.min(width, Math.ceil(Math.max(tl.x, tr.x, br.x, bl.x) + pad));
-  const maxY = Math.min(height, Math.ceil(Math.max(tl.y, tr.y, br.y, bl.y) + pad));
+  const values = [tl.x, tl.y, tr.x, tr.y, br.x, br.y, bl.x, bl.y].map(Number);
+  if (!values.every(Number.isFinite)) return null;
+  const minX = Math.floor(Math.min(tl.x, tr.x, br.x, bl.x) - pad);
+  const minY = Math.floor(Math.min(tl.y, tr.y, br.y, bl.y) - pad);
+  const maxX = Math.ceil(Math.max(tl.x, tr.x, br.x, bl.x) + pad);
+  const maxY = Math.ceil(Math.max(tl.y, tr.y, br.y, bl.y) + pad);
+  // Authored Mapping coordinates are allowed outside the raw p5 host. The
+  // shared preview model transform can bring them onscreen (notably when a
+  // multi-Output world is contained in a narrower preview). Clipping here
+  // rejected the shader cache before that transform, producing visible
+  // overlays with blank textures. GL clipping and the render-demand planner
+  // already handle genuinely invisible geometry.
   if (maxX <= minX || maxY <= minY) return null;
   return { x0: minX, y0: minY, x1: maxX, y1: maxY };
 }

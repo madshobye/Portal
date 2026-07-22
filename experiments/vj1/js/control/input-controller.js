@@ -1,4 +1,4 @@
-import { applySceneSourceNode, resolveSceneSourceNode } from "../domain/models.js?v=chain-only-authority-1";
+import { applySceneSourceNode, resolveSceneSourceNode } from "../domain/models.js?v=scene-live-audit-1";
 import { touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-29";
 import { bindReorderList } from "./reorder-list.js";
 import { formatTrimTime, roundTrimTime } from "./component-view.js?v=isf-nodes-1";
@@ -58,12 +58,12 @@ export function createInputController({
     menu.dataset.componentContextMenu = "true";
     menu.style.left = `${Math.max(8, x)}px`;
     menu.style.top = `${Math.max(8, y)}px`;
-    menu.innerHTML = `<button type="button" data-copy-component-as-canvas>Convert to Scene</button>`;
+    menu.innerHTML = `<button type="button" data-copy-component-as-scene>Convert to Scene</button>`;
     document.body.append(menu);
     const bounds = menu.getBoundingClientRect();
     menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - bounds.width - 8))}px`;
     menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - bounds.height - 8))}px`;
-    menu.querySelector("[data-copy-component-as-canvas]")?.addEventListener("click", () => {
+    menu.querySelector("[data-copy-component-as-scene]")?.addEventListener("click", () => {
       store.copyComponentToScene?.(component.id);
       menu.remove();
     });

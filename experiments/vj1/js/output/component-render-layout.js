@@ -321,21 +321,21 @@ export function routeSourceLookupKey(componentId = "", outputFrameId = "") {
   return `${componentId}\u0000${outputFrameId || ""}`;
 }
 
-export function componentSourceView(render = {}, component = {}, surface = {}, frames = [], recordingFrameById = null) {
+export function componentSourceView(render = {}, component = {}, surface = {}, frames = [], frameById = null) {
   const placementScale = Math.max(0.0001, Number(component?.transform?.scale) || 1);
   if (component.type === "scene") {
     const logicalSize = sceneFrameSize(render);
-    const recordingFrame = typeof recordingFrameById?.get === "function"
-      ? recordingFrameById.get(surface.outputFrameId)
+    const frame = typeof frameById?.get === "function"
+      ? frameById.get(surface.outputFrameId)
       : frames.find((item) => item.id === surface.outputFrameId);
-    const sampleRect = recordingFrame
-      ? relativeRectToLogical(recordingFrame, logicalSize)
+    const sampleRect = frame
+      ? relativeRectToLogical(frame, logicalSize)
       : { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height };
     return {
       logicalSize,
       sampleRect,
       maxRasterSize: sceneMaxRasterSize(render, logicalSize, component.resolutionScale),
-      samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (recordingFrame
+      samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (frame
         ? Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE))
         : 1) * placementScale,
     };
