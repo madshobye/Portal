@@ -1,4 +1,5 @@
 import { createProjectNodeFork, materializeProjectNodeFork, validateProjectNodeFork } from "../libraries/node-engine/node-editor.js";
+import { compileSdf2dSketchSource } from "../libraries/procedural-2d/compiler.js?v=procedural-2d-3";
 import { esc, icon } from "./template-utils.js";
 
 export function selectedNodeEditorTemplate(component, state, nodePackage) {
@@ -104,8 +105,9 @@ export function withProjectNodeFork(nodes, baseDefinition, partSources = {}) {
   const current = nodes && typeof nodes === "object" ? nodes : {};
   const existing = activeForkFor(current, baseDefinition);
   const sourceParts = existing?.definition?.parts || baseDefinition.parts || [];
-  const parts = sourceParts.map((part) => Object.prototype.hasOwnProperty.call(partSources, part.id)
-    ? editedPart(part, partSources[part.id])
+  const compiledSources = generatedPartSources(baseDefinition, sourceParts, partSources);
+  const parts = sourceParts.map((part) => Object.prototype.hasOwnProperty.call(compiledSources, part.id)
+    ? editedPart(part, compiledSources[part.id])
     : part);
   const fork = createProjectNodeFork(baseDefinition, {
     forkId: existing?.id?.split("/fork/").at(-1) || "project",
@@ -124,6 +126,21 @@ export function withProjectNodeFork(nodes, baseDefinition, partSources = {}) {
       { ...fork, active: true, updatedAt: new Date().toISOString() },
     ],
   };
+}
+
+function generatedPartSources(baseDefinition, sourceParts, partSources) {
+  const sources = { ...partSources };
+  const compiler = baseDefinition?.metadata?.sourceCompiler;
+  if (compiler?.kind !== "sdf2d" || !Object.prototype.hasOwnProperty.call(sources, compiler.programPartId)) return sources;
+  const programPart = sourceParts.find((part) => part.id === compiler.programPartId);
+  const shaderPart = sourceParts.find((part) => part.id === compiler.shaderPartId);
+  if (!programPart || !shaderPart) throw new Error(`SDF2D_NODE_PARTS_MISSING:${baseDefinition.id}`);
+  sources[compiler.shaderPartId] = compileSdf2dSketchSource(sources[compiler.programPartId], {
+    exportName: compiler.exportName,
+    id: compiler.programId || baseDefinition.id,
+    name: compiler.programName || baseDefinition.name,
+  });
+  return sources;
 }
 
 function editedPart(part, source) {

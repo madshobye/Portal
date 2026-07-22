@@ -26,6 +26,35 @@ export function renderView(target = {}, request = {}) {
   };
 }
 
+// Source detail and framebuffer allocation are deliberately different
+// contracts. `target` is only the visible ROI allocation; dividing by the ROI
+// extent recovers the physical backing size of the complete node boundary.
+// Content scale adjusts the detail requested from a source, but never the
+// allocation owned by the node. Consumers such as SVG rasterization may apply
+// their own global safety cap after this value is calculated.
+export function renderSourceDetail(target = {}, request = {}, {
+  contentScale = 1,
+} = {}) {
+  const scale = Math.max(0.01, Math.abs(Number(contentScale) || 1));
+  if (request?.empty === true) {
+    return {
+      width: 0,
+      height: 0,
+      physicalWidth: 0,
+      physicalHeight: 0,
+      contentScale: scale,
+    };
+  }
+  const view = renderView(target, request);
+  return {
+    width: view.width * scale,
+    height: view.height * scale,
+    physicalWidth: view.width,
+    physicalHeight: view.height,
+    contentScale: scale,
+  };
+}
+
 export function withRenderView(target, request, draw) {
   if (typeof draw !== "function") return undefined;
   const view = renderView(target, request);

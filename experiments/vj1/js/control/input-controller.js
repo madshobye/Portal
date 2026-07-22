@@ -1,5 +1,3 @@
-import { applySceneSourceNode, resolveSceneSourceNode } from "../domain/models.js?v=scene-live-audit-1";
-import { touchComponentUsed, touchRecordingFrameUsed } from "../domain/component-activity.js?v=adaptive-component-demand-29";
 import { bindReorderList } from "./reorder-list.js";
 import { formatTrimTime, roundTrimTime } from "./component-view.js?v=isf-nodes-1";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
@@ -181,47 +179,17 @@ export function createInputController({
     scope.querySelectorAll("[data-add-scene]").forEach((button) => {
       button.addEventListener("click", () => store.addScene?.());
     });
-    scope.querySelectorAll("[data-add-frame]").forEach((button) => {
-      button.addEventListener("click", () => store.addFrame?.(button.dataset.sceneId || getState().ui.selectedComponentId));
-    });
-    scope.querySelectorAll("[data-remove-frame]").forEach((button) => {
-      button.addEventListener("click", () => store.removeFrame?.(button.dataset.sceneId, button.dataset.removeFrame));
-    });
-    scope.querySelectorAll("[data-set-route-frame-id]").forEach((button) => {
-      button.addEventListener("click", () => store.update((draft) => {
-        const route = getByPath(draft, button.dataset.routeBase);
-        if (!route) return;
-        const frameId = String(button.dataset.setRouteFrameId || "");
-        route.frameSlotId = frameId;
-        route.outputFrameId = frameId;
-        route.sourceNodeId = "";
-        route.componentId = "";
-        if (frameId) touchRecordingFrameUsed(draft, frameId);
-        if (currentWorkspace(draft) === "mapping") refreshSelectedMappingProjection(draft);
-      }, "update:surface-frame-slot"));
-    });
-    scope.querySelectorAll("[data-set-route-source-node]").forEach((button) => {
-      button.addEventListener("click", () => store.update((draft) => {
-        const route = getByPath(draft, button.dataset.routeBase);
-        const node = resolveSceneSourceNode(draft, button.dataset.setRouteSourceNode);
-        if (route) {
-          Object.assign(route, applySceneSourceNode(route, node));
-          route.frameSlotId = node?.frameId || node?.outputFrameId || "";
-          if (node) {
-            touchComponentUsed(draft, node.componentId);
-            if (node.frameId) touchRecordingFrameUsed(draft, node.frameId);
-          }
-        }
-        if (currentWorkspace(draft) === "mapping") refreshSelectedMappingProjection(draft);
-      }, "update:surface-source-node"));
-    });
   }
 
   function bindChainControls(scope) {
     scope.querySelectorAll("[data-select-chain-item]").forEach((button) => {
       const select = () => {
         const itemId = button.dataset.selectChainItem;
-        if (getState().ui.selectedChainItemId !== itemId) store.selectChainItem(itemId);
+        const state = getState();
+        if (state.ui.selectedChainItemId !== itemId
+          || (state.ui.workspace === "scene" && state.ui.sceneInspectorTarget !== "element")) {
+          store.selectChainItem(itemId);
+        }
       };
       button.addEventListener("pointerdown", (event) => {
         if (event.button !== 0) return;

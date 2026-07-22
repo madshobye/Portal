@@ -26,6 +26,18 @@ export function projectedQuadAspect(corners = [], fallback = 1) {
   return width > 0 && height > 0 ? Math.max(0.0001, width / height) : safeFallback;
 }
 
+// Relative X and Y coordinates only share a unit on a square parent. Convert
+// them into an aspect-correct space before measuring edge lengths so a Surface
+// keeps the same physical proportion in Mapping and Scene views.
+export function projectedRelativeQuadAspect(corners = [], parentAspect = 1, fallback = 1) {
+  const aspect = normalizeAspectRatio(parentAspect, 1);
+  if (!Array.isArray(corners)) return Math.max(0.0001, Number(fallback) || 1);
+  return projectedQuadAspect(corners.map((point) => ({
+    x: Number(point?.x) * aspect,
+    y: Number(point?.y),
+  })), fallback);
+}
+
 // Authored geometry is resolution-independent. This aspect-aware composition
 // space is only an internal mathematical basis: it is never a requested GPU
 // resolution and is never exposed as project width/height settings.

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { componentTextureSize } from "../js/domain/render-resolution.js";
+import { createInitialState, syncSurfaceProportionsFromMapping } from "../js/domain/models.js";
 import {
   disposeRenderTarget,
   nodeBoundaryPixelRect,
@@ -9,7 +10,11 @@ import {
   nodeRoiRequest,
   renderView,
 } from "../js/libraries/render-engine/index.js";
-import { testPatternRenderView } from "../js/libraries/visual-nodes/generators/test-pattern/index.js";
+import {
+  circleClippedBarSlices,
+  testPatternLayout,
+  testPatternRenderView,
+} from "../js/libraries/visual-nodes/generators/test-pattern/index.js";
 
 import {
   canvasSizeForMode,
@@ -27,6 +32,42 @@ import {
   SURFACE_DEMAND_OVERSCAN,
   visibleMappedSurfaceSize,
 } from "../js/output/render-geometry.js";
+import { projectedRelativeQuadAspect } from "../js/libraries/render-engine/relative-geometry.js";
+
+test("relative Surface aspect is measured in its non-square Mapping world", () => {
+  const corners = [
+    { x: 0.1, y: 0.2 },
+    { x: 0.6, y: 0.2 },
+    { x: 0.6, y: 0.6 },
+    { x: 0.1, y: 0.6 },
+  ];
+
+  assert.ok(Math.abs(projectedRelativeQuadAspect(corners, 16 / 9) - (0.5 * 16 / 9) / 0.4) < 1e-12);
+  assert.ok(Math.abs(projectedRelativeQuadAspect(corners, 9 / 16) - (0.5 * 9 / 16) / 0.4) < 1e-12);
+});
+
+test("Scene Surface rectangle preserves the physical aspect of its Mapping quad", () => {
+  const state = createInitialState();
+  state.render.sceneAspectRatio = 16 / 9;
+  const mapping = state.mappings[0];
+  const surface = mapping.surfaces.find((item) => item.destination?.type !== "direct");
+  const corners = [
+    { x: 0.1, y: 0.2 },
+    { x: 0.6, y: 0.2 },
+    { x: 0.6, y: 0.6 },
+    { x: 0.1, y: 0.6 },
+  ];
+  mapping.calibration = {
+    coordinateSpace: "relative",
+    surfaces: [{ id: surface.id, corners }],
+  };
+
+  syncSurfaceProportionsFromMapping(state, mapping);
+
+  const rectanglePhysicalAspect = surface.width * state.render.sceneAspectRatio / surface.height;
+  const projectedPhysicalAspect = projectedRelativeQuadAspect(corners, state.render.sceneAspectRatio);
+  assert.ok(Math.abs(rectanglePhysicalAspect - projectedPhysicalAspect) < 1e-12);
+});
 
 test("mapping geometry is independent from the current browser host proportions", () => {
   const render = {
@@ -77,6 +118,38 @@ test("boundary scale preserves the authored ROI proportion", () => {
   assert.equal(scaled.width / scaled.height, 2);
   assert.equal(scaled.width, 1.6);
   assert.equal(scaled.height, 0.8);
+});
+
+test("Test Pattern geometry remains proportional across raster resolutions", () => {
+  const low = testPatternLayout({ width: 640, height: 360 });
+  const high = testPatternLayout({ width: 1920, height: 1080 });
+
+  assert.ok(Math.abs(high.centerX / low.centerX - 3) < 1e-12);
+  assert.ok(Math.abs(high.centerY / low.centerY - 3) < 1e-12);
+  assert.ok(Math.abs(high.circleRadius / low.circleRadius - 3) < 1e-12);
+  assert.ok(Math.abs(low.circleRadius / low.unit - high.circleRadius / high.unit) < 1e-12);
+});
+
+test("Test Pattern color-bar clipping stays inside its proportional circle", () => {
+  const rect = {
+    x: 0,
+    y: 25,
+    width: 100,
+    height: 50,
+    centerX: 50,
+    centerY: 50,
+    radius: 40,
+  };
+  const slices = circleClippedBarSlices(rect, 32);
+
+  assert.ok(slices.length > 0);
+  for (const slice of slices) {
+    const sampleX = slice.x + slice.width * 0.5;
+    const topDistance = Math.hypot(sampleX - rect.centerX, slice.y - rect.centerY);
+    const bottomDistance = Math.hypot(sampleX - rect.centerX, slice.y + slice.height - rect.centerY);
+    assert.ok(topDistance <= rect.radius + 1e-8 || slice.y === rect.y);
+    assert.ok(bottomDistance <= rect.radius + 1e-8 || slice.y + slice.height === rect.y + rect.height);
+  }
 });
 
 test("an off-screen boundary keeps its full logical domain while allocating only visible pixels", () => {
@@ -241,7 +314,7 @@ test("direct output spans use the union of their configured output frames", () =
   });
 });
 
-test("direct spans retain full-source demand when only one output slice is visible", () => {
+test("direct cover spans retain crop detail when only one output slice is visible", () => {
   const options = {
     logicalSize: { width: 2000, height: 1000 },
     sampleRect: { x: 0, y: 0, width: 2000, height: 1000 },
@@ -255,7 +328,8 @@ test("direct spans retain full-source demand when only one output slice is visib
     pixelScale: 1,
     overscan: 1,
   };
-  assert.ok(Math.abs(sourceRenderDemand(options).rasterScale - 0.5) < 0.01);
+  assert.ok(Math.abs(sourceRenderDemand(options).rasterScale - 1) < 0.01);
+  assert.ok(Math.abs(sourceRenderDemand({ ...options, projectionFit: "contain" }).rasterScale - 0.5) < 0.01);
   assert.equal(sourceRenderDemand({ ...options, preserveFullFootprint: true }).rasterScale, 1);
 });
 
@@ -399,5 +473,52 @@ test("projective demand follows the longest edge instead of undersampling trapez
     overscan: 1,
   });
   assert.equal(demand.footprint.width, 800);
-  assert.deepEqual(demand.surfaceSize, { width: 800, height: 400 });
+  assert.deepEqual(demand.surfaceSize, { width: 960, height: 480 });
+  assert.ok(demand.surfaceSize.width >= demand.footprint.width);
+});
+
+test("surface demand retains both cover crops in a two-stage live component route", () => {
+  const common = {
+    logicalSize: { width: 1600, height: 900 },
+    sampleRect: { x: 0, y: 0, width: 1600, height: 900 },
+    maxRasterSize: { width: 8192, height: 8192 },
+    maxSurfaceSize: { width: 8192, height: 8192 },
+    corners: [{ x: 0, y: 0 }, { x: 1200, y: 0 }, { x: 1200, y: 300 }, { x: 0, y: 300 }],
+    viewport: { width: 1200, height: 300 },
+    overscan: 1,
+    projectionFit: "cover",
+  };
+  const oneStage = sourceRenderDemand(common);
+  const twoStage = sourceRenderDemand({
+    ...common,
+    sourceFitActive: true,
+    sourceFit: "cover",
+    sourceAspect: 1,
+  });
+
+  assert.deepEqual(oneStage.sampledFractions, { x: 1, y: (1600 / 900) / 4 });
+  assert.ok(Math.abs(twoStage.sampledFractions.x - 1 / (1600 / 900)) < 1e-9);
+  assert.equal(twoStage.sampledFractions.y, 0.25);
+  assert.ok(twoStage.rasterScale > oneStage.rasterScale);
+  assert.ok(twoStage.rasterSize.width > oneStage.rasterSize.width);
+  assert.ok(Math.abs(twoStage.surfaceSize.width / twoStage.surfaceSize.height - 1) < 0.02);
+});
+
+test("surface transition targets use the first fit stage presentation aspect", () => {
+  const common = {
+    logicalSize: { width: 1600, height: 900 },
+    sampleRect: { x: 0, y: 0, width: 1600, height: 900 },
+    maxRasterSize: { width: 8192, height: 8192 },
+    maxSurfaceSize: { width: 8192, height: 8192 },
+    corners: [{ x: 0, y: 0 }, { x: 800, y: 0 }, { x: 800, y: 800 }, { x: 0, y: 800 }],
+    viewport: { width: 800, height: 800 },
+    overscan: 1,
+    sourceFitActive: true,
+    sourceAspect: 1,
+  };
+  const covered = sourceRenderDemand({ ...common, sourceFit: "cover" });
+  const contained = sourceRenderDemand({ ...common, sourceFit: "contain" });
+
+  assert.ok(Math.abs(covered.surfaceSize.width / covered.surfaceSize.height - 1) < 0.02);
+  assert.ok(Math.abs(contained.surfaceSize.width / contained.surfaceSize.height - 1) < 0.02);
 });

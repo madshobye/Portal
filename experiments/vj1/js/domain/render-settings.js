@@ -11,15 +11,34 @@ export function renderMaxFrameRate(render = {}) {
   return positiveInt(render?.maxFrameRate, DEFAULT_MAX_FRAME_RATE, 1, 120);
 }
 
+export function renderPresentationFrameRate(render = {}, {
+  mode = "output",
+  thumbnailPreview = false,
+  outputWindowOpen = false,
+} = {}) {
+  const ceiling = renderMaxFrameRate(render);
+  if (mode === "output") return ceiling;
+  const previewTarget = thumbnailPreview ? 60 : outputWindowOpen ? 30 : 60;
+  return Math.min(previewTarget, ceiling);
+}
+
 export function createOutputDefinition(index = 0, aspectRatio = VJ1.renderWidth / VJ1.renderHeight) {
   // Accept the old (index, width, height) call during the v24->v25 transition.
   const legacyHeight = arguments.length > 2 ? Number(arguments[2]) : 0;
   const ratio = legacyHeight > 0 ? Number(aspectRatio) / legacyHeight : aspectRatio;
   return {
     id: index === 0 ? "output-main" : `output-${index + 1}`,
-    name: index === 0 ? "Main output" : `Output ${index + 1}`,
+    name: `Output ${index + 1}`,
     aspectRatio: normalizeAspectRatio(ratio),
   };
+}
+
+export function normalizeOutputName(name, index = 0) {
+  const value = String(name || "").trim();
+  // output-main remains a stable technical id for existing routes and URLs;
+  // it no longer has a special user-facing identity.
+  if (index === 0 && /^(main|main output)$/i.test(value)) return "Output 1";
+  return value || `Output ${index + 1}`;
 }
 
 export function normalizeRenderSettings(render = {}) {
@@ -150,7 +169,7 @@ function normalizeOutputDefinition(output = {}, index = 0, fallbackAspect = VJ1.
   const fallback = createOutputDefinition(index, fallbackAspect);
   return {
     id: String(output.id || fallback.id),
-    name: output.name || fallback.name,
+    name: normalizeOutputName(output.name, index),
     aspectRatio: normalizeAspectRatio(
       output.aspectRatio,
       fallback.aspectRatio

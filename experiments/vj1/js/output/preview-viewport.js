@@ -36,8 +36,20 @@ export function createPreviewViewportController({ stage, store, getMode, getView
     if (!isNavigablePreviewMode(getMode?.())) return;
     event.preventDefault();
     const factor = Math.pow(1.0025, -event.deltaY);
+    const rect = stage.getBoundingClientRect?.() || {};
+    const anchor = {
+      x: event.clientX - (Number(rect.left) || 0),
+      y: event.clientY - (Number(rect.top) || 0),
+      centerX: (Number(rect.width) || stage.clientWidth || 1) * 0.5,
+      centerY: (Number(rect.height) || stage.clientHeight || 1) * 0.5,
+    };
+    const displayedViewport = getViewport?.() || {};
     updateStoredUi(store, (ui) => {
-      updatePreviewViewportForUi(ui, (viewport) => zoomViewport(viewport, factor));
+      updatePreviewViewportForUi(ui, (viewport) => zoomViewport(
+        viewport.fit === "manual" ? viewport : displayedViewport,
+        factor,
+        anchor
+      ));
     }, "preview-zoom");
   }, { passive: false });
 
@@ -119,12 +131,23 @@ function isNavigablePreviewMode(mode) {
   return mode !== "output";
 }
 
-export function zoomViewport(viewport = {}, multiplier = 1) {
+export function zoomViewport(viewport = {}, multiplier = 1, anchor = null) {
   const current = clampNumber(viewport.zoom, 0.1, 6, 1);
+  const zoom = clampNumber(current * multiplier, 0.1, 6, 1);
+  const ratio = zoom / current;
+  const currentX = Number(viewport.x) || 0;
+  const currentY = Number(viewport.y) || 0;
+  const anchorX = Number(anchor?.x);
+  const anchorY = Number(anchor?.y);
+  const centerX = Number(anchor?.centerX);
+  const centerY = Number(anchor?.centerY);
+  const anchored = [anchorX, anchorY, centerX, centerY].every(Number.isFinite);
   return {
     ...viewport,
     fit: "manual",
-    zoom: clampNumber(current * multiplier, 0.1, 6, 1),
+    zoom,
+    x: anchored ? currentX + (anchorX - centerX - currentX) * (1 - ratio) : currentX,
+    y: anchored ? currentY + (anchorY - centerY - currentY) * (1 - ratio) : currentY,
   };
 }
 
@@ -132,7 +155,7 @@ export function resetViewport() {
   return { zoom: 1, x: 0, y: 0, fit: "world" };
 }
 
-export function frameFitViewport({ workspace = "component", stageSize, render }) {
+export function fitPreviewViewport({ workspace = "component", stageSize, render }) {
   // An ordinary Component is already contained directly in the full-stage
   // canvas, so its natural frame fit is 1:1. Scene, Mapping, and Live fit the
   // inset authored Output span within that same project world.
@@ -155,7 +178,7 @@ export function frameFitViewport({ workspace = "component", stageSize, render })
 
 export function resolveViewportForFit({ mode, workspace = "component", stageSize, viewport = {}, render = {} }) {
   if (mode !== "output" && viewport.fit === "frame") {
-    return frameFitViewport({ workspace, stageSize, render });
+    return fitPreviewViewport({ workspace, stageSize, render });
   }
   if (mode !== "output" && viewport.fit === "world") {
     return { ...viewport, zoom: 1, x: 0, y: 0 };

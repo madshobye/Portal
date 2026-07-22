@@ -1,9 +1,10 @@
 import { VJ1 } from "../constants.js";
-import { OutputRenderer } from "./output-renderer.js?v=multi-output-preview-world-1";
-import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
+import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
+import { OutputRenderer } from "./output-renderer.js?v=full-model-depth-2";
+import { renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
-import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js?v=scene-live-audit-1";
+import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js?v=cursor-anchored-zoom-1";
 import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-4";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
@@ -102,6 +103,10 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     return renderer?.applyLivePatches(patches);
   }
 
+  function applyRenderPatches(patches = []) {
+    return renderer?.applyRenderPatches(patches);
+  }
+
   function command(name, payload = {}) {
     if (name === "set-calibrate") renderer?.setCalibrate(!!payload.calibrating);
     if (name === "reset-mapping") renderer?.resetMapping(payload.surfaceId);
@@ -191,7 +196,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       sendChainTransform: updateChainTransform,
       sendChainBoundary: updateChainBoundary,
       onChainItemSelect: selectChainItem,
-      onSceneFrameSelect: (frameId) => store.selectFrame?.(frameId),
+      onSceneFrameSelect: (surfaceId) => store.selectSurface?.(surfaceId),
       sendSceneFrame: updateSceneFrame,
       sendMediaRendition: (mediaId, width, height, blob, sourceRevision) => projectService?.writeMediaRendition?.(mediaId, width, height, blob, sourceRevision),
       requestMediaFiles: () => importMediaFilesIfChanged(true),
@@ -215,6 +220,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     if (paused) return;
     applyPreviewFrameRate();
     renderer?.draw();
+    syncPreviewGeometryDiagnostics();
     activatePreparedLiveStateIfReady();
     if (revealCanvasAfterDraw) {
       revealCanvasAfterDraw = false;
@@ -228,8 +234,6 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   // boundary, and diagonal without changing the normal preview path.
   function drawPreviewGeometryDiagnostics() {
     if (!renderer || pendingMode === "output" || typeof push !== "function") return;
-    const element = canvas?.elt || canvas;
-    element?.classList?.add("is-geometry-diagnostic");
     push();
     resetMatrix();
     noFill();
@@ -240,6 +244,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     stroke("#35e65c");
     line((-width / 2) + 1, (-height / 2) + 1, (width / 2) - 1, (height / 2) - 1);
     pop();
+  }
+
+  function syncPreviewGeometryDiagnostics() {
+    const enabled = pendingMode !== "output" && pendingState?.ui?.previewDiagnostics === true;
+    const element = canvas?.elt || canvas;
+    element?.classList?.toggle("is-geometry-diagnostic", enabled);
+    if (enabled) drawPreviewGeometryDiagnostics();
   }
 
   function bindCanvasPointerEvents() {
@@ -457,7 +468,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       deviceScale,
       quality: previewQuality,
     });
-    return {
+    return alignLiveTransitionRenderContext({
       ...state,
       render: {
         ...state.render,
@@ -478,19 +489,20 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
           outputId: "",
         },
       },
-    };
+    });
   }
 
   function applyPreviewFrameRate() {
     if (typeof frameRate !== "function") return;
     // A standalone output is presentation truth. Keep its frame budget stable
     // by throttling the duplicate embedded render regardless of workspace.
-    const previewTarget = pendingState?.ui?.debugPreview === false
-      ? 60
-      : pendingState?.ui?.outputWindowOpen
-        ? 30
-        : 60;
-    const target = Math.min(previewTarget, renderMaxFrameRate(pendingState?.render));
+    const target = renderPresentationFrameRate(pendingState?.render, {
+      mode: "preview",
+      // Thumbnail/live rendering is a display strategy, not a clock mode.
+      // Toggling it must not alter the speed of time-driven generators.
+      thumbnailPreview: false,
+      outputWindowOpen: pendingState?.ui?.outputWindowOpen === true,
+    });
     if (appliedFrameRate !== target) {
       frameRate(target);
       appliedFrameRate = target;
@@ -594,7 +606,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       stage,
       store,
       getMode: () => pendingMode,
-      getViewport: () => previewViewportForUi(pendingState?.ui),
+      getViewport: () => resolveViewportForFit({
+        mode: pendingMode,
+        workspace: pendingState?.ui?.workspace,
+        stageSize: stageSize(),
+        viewport: previewViewportForUi(pendingState?.ui),
+        render: pendingState?.render || {},
+      }),
       onPanStart: () => {
         pointerActive = false;
         activePointerId = null;
@@ -640,12 +658,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       ? store.isDebugPreviewEnabled()
       : store.getState()?.ui?.debugPreview !== false;
     if (!debugPreviewEnabled) return false;
-    const key = `${componentId}:${meta.frameId || ""}`;
+    const surfaceId = meta.surfaceId || "";
+    const key = `${componentId}:${surfaceId}`;
     const isBlob = typeof Blob === "function" && thumbnail instanceof Blob;
     const publishedThumbnail = isBlob ? URL.createObjectURL(thumbnail) : thumbnail;
     const result = typeof store.setComponentThumbnail === "function"
-      ? store.setComponentThumbnail(componentId, meta.frameId || "", publishedThumbnail)
-      : publishThumbnailThroughDerivedState(componentId, meta.frameId || "", publishedThumbnail);
+      ? store.setComponentThumbnail(componentId, surfaceId, publishedThumbnail)
+      : publishThumbnailThroughDerivedState(componentId, surfaceId, publishedThumbnail);
     if (result?.updated === false) {
       if (isBlob) URL.revokeObjectURL(publishedThumbnail);
       return false;
@@ -655,10 +674,10 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       thumbnailObjectUrls.set(key, publishedThumbnail);
       if (previousObjectUrl && previousObjectUrl !== publishedThumbnail) deferThumbnailUrlRevoke(previousObjectUrl);
     }
-    projectService.writeComponentThumbnail(componentId, meta.frameId || "", thumbnail).catch((error) => {
+    projectService.writeComponentThumbnail(componentId, surfaceId, thumbnail).catch((error) => {
       console.warn("[VJ1_THUMBNAIL_WRITE_FAILED]", {
         componentId,
-        frameId: meta.frameId || "",
+        surfaceId,
         fallback: "retain the in-memory thumbnail until it can be regenerated",
         message: error?.message || String(error),
       });
@@ -666,16 +685,16 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     return true;
   }
 
-  function publishThumbnailThroughDerivedState(componentId, frameId, thumbnail) {
+  function publishThumbnailThroughDerivedState(componentId, surfaceId, thumbnail) {
     let updated = false;
     store.updateDerived((draft) => {
       const component = draft.components.find((item) => item.id === componentId);
       if (!component) return;
-      if (frameId && component.type === "scene") {
+      if (surfaceId && component.type === "scene") {
         component.scene ||= {};
-        component.scene.frameThumbnails ||= {};
-        if (component.scene.frameThumbnails[frameId] !== thumbnail) {
-          component.scene.frameThumbnails[frameId] = thumbnail;
+        component.scene.surfaceThumbnails ||= {};
+        if (component.scene.surfaceThumbnails[surfaceId] !== thumbnail) {
+          component.scene.surfaceThumbnails[surfaceId] = thumbnail;
           updated = true;
         }
       } else if (component.thumbnail !== thumbnail) {
@@ -783,30 +802,30 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
 
   function commitSceneFrame(componentId, frameId, rect, commit) {
     store.update((draft) => {
-      const frame = draft.frames?.find((item) => item.id === frameId);
-      if (frame) Object.assign(frame, rect);
+      const mapping = draft.mappings?.find((item) => item.id === draft.ui?.selectedMappingId) || draft.mappings?.[0];
+      const surface = mapping?.surfaces?.find((item) => item.id === frameId);
+      if (surface) Object.assign(surface, rect);
     }, commit ? "update:scene-frame" : "scrub:scene-frame");
   }
 
   function selectSurface(surfaceId) {
     if (!surfaceId) return;
-    if (store.getState().ui.selectedSurfaceId === surfaceId) return;
-    store.update((draft) => {
-      if (draft.surfaces.some((surface) => surface.id === surfaceId)) {
-        draft.ui.selectedSurfaceId = surfaceId;
-      }
-    }, "select-surface-from-preview");
+    const state = store.getState();
+    if (state.ui.selectedSurfaceId === surfaceId
+      && (state.ui.workspace !== "scene" || state.ui.sceneInspectorTarget === "surface")) return;
+    store.selectSurface(surfaceId);
   }
 
   function selectChainItem(itemId) {
     if (!itemId) return;
     const state = store.getState();
     onChainItemTarget?.(state.ui.selectedComponentId, itemId);
-    if (state.ui.selectedChainItemId === itemId) return;
+    if (state.ui.selectedChainItemId === itemId
+      && (state.ui.workspace !== "scene" || state.ui.sceneInspectorTarget === "element")) return;
     store.selectChainItem(itemId);
   }
 
-  return { mount, setState, applyLivePatches, command, pause };
+  return { mount, setState, applyLivePatches, applyRenderPatches, command, pause };
 }
 
 export function shouldPrepareEmbeddedLiveState(nextState, currentState) {

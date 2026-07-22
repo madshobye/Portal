@@ -1,16 +1,17 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
-import { sceneFrameSize, renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
+import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
+import { sceneFrameSize, renderMaxFrameRate, renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-live-audit-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-output-visibility-1";
 import { normalizeParamValue, normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
+import { advancePresentationClock, createPresentationClock } from "../libraries/timing-engine/presentation-clock/index.js?v=presentation-clock-1";
 import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/render-node-contract.js";
-import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, VISUAL_SOURCE_RENDERERS, visualSourceRenderer } from "../libraries/composition-engine/index.js?v=scene-live-audit-1";
+import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, VISUAL_SOURCE_RENDERERS, visualSourceRenderer } from "../libraries/composition-engine/index.js?v=mapping-order-authority-1";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
 import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=pending-project-node-1";
-import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js?v=isf-definition-cache-1";
+import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js?v=procedural-2d-1";
 import { evaluateIsfDimension } from "../libraries/isf-engine/index.js?v=isf-definition-cache-1";
 import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=isf-runtime-1";
 import { applyBlend } from "./blend-utils.js";
@@ -21,7 +22,7 @@ import {
 } from "./shared-framebuffer-target.js?v=isf-runtime-1";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
-import { drawGenerator, drawStandby } from "./generators.js?v=standby-grace-1";
+import { drawGenerator, drawStandby } from "./generators.js?v=procedural-2d-1";
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=runtime-diagnostics-1";
 import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=scene-live-audit-1";
 import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
@@ -29,16 +30,16 @@ import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runti
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=boundary-media-demand-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=scene-live-audit-1";
-import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=preview-visible-demand-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=transition-surface-fit-1";
+import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=transition-demand-stability-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform, transformedRectBounds, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
-import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=scene-live-audit-1";
+import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=direct-scene-surface-edit-1";
 import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=output-profile-runtime-1";
 import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
 import { FULL_NODE_BOUNDARY, isFullNodeBoundary, nodeBoundaryPixelRect, nodeRoiRequest, sameNodeBoundary } from "../libraries/render-engine/roi/index.js";
-import { renderView, withRenderView } from "../libraries/render-engine/render-view/index.js";
+import { renderSourceDetail, renderView, withRenderView } from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
 import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, drawWithContentTransform, effectNeedsComposite, effectParamNumber, enumUniform, nextFxTargetSlot, resetShaderTarget, setDynamicShaderUniformIfPresent, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=source-roi-view-3";
 import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
 import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=volumetric-clouds-1";
@@ -57,10 +58,10 @@ import {
   RECORDING_FRAME_DEMAND_SCALE,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=multi-output-preview-world-1";
-import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=multi-output-preview-world-1";
+} from "./render-geometry.js?v=output-one-1";
+import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=scene-frame-guide-node-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=shared-raw-model-1";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=full-model-depth-2";
 import {
   sceneMaxRasterSize,
   scenePreviewRenderRequest,
@@ -78,9 +79,8 @@ import {
   fullTargetRect,
   rectToCorners,
   resolutionScaledStrokeWidth,
-  routeSourceLookupKey,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=scene-live-audit-1";
+} from "./component-render-layout.js?v=transition-demand-stability-1";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
 export { parseObjMesh } from "../libraries/mesh-engine/obj-parser/index.js";
@@ -121,7 +121,7 @@ export {
   resizeSceneFrameRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=scene-live-audit-1";
+} from "./component-render-layout.js?v=transition-demand-stability-1";
 
 export function visualOperationRenderItem(operation = {}, item = {}, inheritedTransform = {}, effectComponent = null) {
   const opcode = operation?.opcode || item?.kind;
@@ -150,7 +150,6 @@ const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
 const BASIC_NATIVE_SOURCE_RENDERERS = new Set([
   "output/specialized:black",
   "output/specialized:checker",
-  "output/specialized:testPattern",
 ]);
 const SOURCE_HOST_METHODS = Object.freeze({
   [VISUAL_SOURCE_RENDERERS.COMPONENT]: "drawComponentReferenceSource",
@@ -223,9 +222,7 @@ export class OutputRenderer {
     this.outputProgram = null;
     this.mappingProgramCache = new WeakMap();
     this.componentById = new Map();
-    this.frameById = new Map();
     this.routeSourceNodeById = new Map();
-    this.routeSourceNodeByLegacyKey = new Map();
     this.liveParamFades = new Map();
     this.liveParamFadeRestores = [];
     this.mediaRuntime = new OutputMediaRuntime({
@@ -289,6 +286,8 @@ export class OutputRenderer {
     this.frameDeltaSeconds = 0;
     this.visualDeltaSeconds = 0;
     this.visualTime = 0;
+    this.rawElapsedTime = 0;
+    this.presentationClock = createPresentationClock();
     this.frameIndex = 0;
     this.isfDateUniform = [0, 0, 0, 0];
     this.outputMediaStatus = createMediaReadinessStatus();
@@ -674,9 +673,33 @@ export class OutputRenderer {
   }
 
   applyLivePatches(patches = [], nowMs = performance.now()) {
+    const durationMs = Math.max(0, Number(this.state?.ui?.live?.paramFadeDuration) || 0) * 1000;
+    return this.applyRenderPatches(patches, nowMs, durationMs);
+  }
+
+  applyRenderPatches(patches = [], nowMs = performance.now(), durationMs = 0) {
     const resolution = resolveLiveRenderPatches(this.state, patches);
     if (!resolution.applied) return resolution;
-    const durationMs = Math.max(0, Number(this.state?.ui?.live?.paramFadeDuration) || 0) * 1000;
+    if (resolution.statePaths.length) {
+      // State-root patches update their narrowly owned renderer subsystem.
+      // Rebuilding Component programs, media presence, caches, and route
+      // lookups for every Mapping corner sample caused the output queue that
+      // this patch protocol exists to avoid.
+      const nextState = { ...this.state };
+      const result = applyLiveRenderPatches(nextState, patches);
+      if (!result.applied) return result;
+      this.state = nextState;
+      if (result.statePaths.includes("mappingCalibration")) {
+        const signature = this.currentMappingSignature();
+        const mappingInteractionActive = !!this.mapper?.isActive?.();
+        const ignoreIncomingMapping = !mappingInteractionActive && this.pendingMappingSignature
+          ? this.shouldIgnoreIncomingMapping(signature)
+          : false;
+        if (!mappingInteractionActive && !ignoreIncomingMapping) this.applyProjectMapping(signature);
+      }
+      return result;
+    }
+    durationMs = Math.max(0, Number(durationMs) || 0);
     const candidates = resolution.destinations.map((destination) => {
       const key = `${destination.componentId}:${destination.path}`;
       const active = this.liveParamFades.get(key);
@@ -695,7 +718,7 @@ export class OutputRenderer {
         Number.isFinite(from) &&
         Number.isFinite(to);
       if (!canFade || Object.is(from, to)) {
-        if (!active || !Object.is(active.to, to)) this.liveParamFades.delete(key);
+        if (durationMs <= 0 || !active || !Object.is(active.to, to)) this.liveParamFades.delete(key);
         continue;
       }
       // The final change event repeats the last scrub target. Preserve the
@@ -823,18 +846,12 @@ export class OutputRenderer {
 
   rebuildRouteLookups() {
     const components = this.state?.components || [];
-    const frames = this.state?.frames || [];
     // System Components are intentionally absent from user-facing catalogs,
     // but their routes are still executable. Mapping's test-pattern preview
     // is one such route, so the renderer index must include it.
     const sourceNodes = sceneSourceNodes(this.state || {}, { includeSystem: true });
     this.componentById = new Map(components.map((component) => [component.id, component]));
-    this.frameById = new Map(frames.map((frame) => [frame.id, frame]));
     this.routeSourceNodeById = new Map(sourceNodes.map((node) => [node.id, node]));
-    this.routeSourceNodeByLegacyKey = new Map(sourceNodes.map((node) => [
-      routeSourceLookupKey(node.componentId, node.outputFrameId),
-      node,
-    ]));
   }
 
   refreshComponentLookup(componentId) {
@@ -843,16 +860,8 @@ export class OutputRenderer {
     else this.componentById.delete(componentId);
   }
 
-  refreshFrameLookup(frameId) {
-    const frame = this.state?.frames?.find((item) => item.id === frameId);
-    if (frame) this.frameById.set(frameId, frame);
-    else this.frameById.delete(frameId);
-  }
-
   resolveRouteSourceNode(surface = {}) {
-    return this.routeSourceNodeById.get(surface.sourceNodeId) ||
-      this.routeSourceNodeByLegacyKey.get(routeSourceLookupKey(surface.componentId, surface.outputFrameId)) ||
-      null;
+    return this.routeSourceNodeById.get(surface.sourceNodeId) || null;
   }
 
   renderSizeSignature(render = {}) {
@@ -1270,8 +1279,19 @@ export class OutputRenderer {
     this.frameDeltaSeconds = dt;
     this.lastTickMs = nowMs;
     const playing = this.isPlaybackActive();
+    this.presentationClock = advancePresentationClock(
+      this.presentationClock,
+      dt,
+      renderPresentationFrameRate(this.state?.render, {
+        mode: this.mode,
+        thumbnailPreview: this.shouldUseThumbnailPreview(),
+        outputWindowOpen: this.state?.ui?.outputWindowOpen === true,
+      }),
+      playing
+    );
+    this.rawElapsedTime = this.presentationClock.rawElapsedSeconds;
     const timeScale = globalVisualTimeScale(this.state?.global);
-    this.visualDeltaSeconds = playing ? dt * timeScale : 0;
+    this.visualDeltaSeconds = this.presentationClock.presentationDeltaSeconds * timeScale;
     if (!playing) return;
     this.visualTime += this.visualDeltaSeconds;
     for (const component of this.state.components || []) {
@@ -1296,15 +1316,21 @@ export class OutputRenderer {
 
   renderSelectedSurfaceOverlay() {
     if (this.mode === "output") return;
-    if (this.state?.ui?.workspace !== "mapping") return;
+    const workspace = this.state?.ui?.workspace;
+    const mappingSelection = workspace === "mapping";
+    const liveSelection = workspace === "live";
+    if (!mappingSelection && !liveSelection) return;
     const surfaceId = this.state?.ui?.selectedSurfaceId;
     if (!surfaceId) return;
     const calibrating = !!this.mapper?.isCalibrating?.();
-    const revealHandles = calibrating && (
+    const revealHandles = mappingSelection && calibrating && (
       this.state?.global?.mappingHandleMode !== "near" || this.shouldRevealSurfaceOverlay(surfaceId)
     );
     const mapped = this.mapperSurfaces.get(surfaceId);
-    if (mapped?.direct) return;
+    // Direct routes are not editable Mapping geometry, but in Live they are
+    // still selectable projection destinations and need the same navigation
+    // outline as authored Surfaces. Never expose calibration handles there.
+    if (mapped?.direct && !liveSelection) return;
     const corners = mapped?.mapperSurface?.corners;
     if (!Array.isArray(corners) || corners.length !== 4) return;
 
@@ -1888,8 +1914,9 @@ export class OutputRenderer {
     const dependency = source.type === "component"
       ? this.state?.components?.find((component) => component.id === source.componentId)
       : null;
+    const mediaDemandRequest = qualityScaledRenderRequest(renderRequest, source.params || {});
     const media = source.type === "media"
-      ? this.acquireMedia(source.mediaId, { width: mediaSourceDemandWidth(renderRequest, source) })
+      ? this.acquireMedia(source.mediaId, { width: mediaSourceDemandWidth(mediaDemandRequest, source) })
       : null;
     const camera = source.type === "camera" ? this.acquireCameraInput() : null;
     return !!directPlacementKind({
@@ -2102,9 +2129,10 @@ export class OutputRenderer {
     }
     if (source.type === "media") {
       const playback = this.videoPlaybackOptions(source, component);
+      const qualityRequest = qualityScaledRenderRequest(renderRequest, source.params || {});
       const media = this.acquireMedia(source.mediaId, {
         playback,
-        width: mediaSourceDemandWidth(renderRequest, source),
+        width: mediaSourceDemandWidth(qualityRequest, source),
       });
       if (media?.video && isDrawableMedia(media.video)) {
         return createPlacedRenderResult(media.video, {
@@ -2115,7 +2143,6 @@ export class OutputRenderer {
       }
       if (media?.image && isDrawableMedia(media.image)) {
         const fit = mediaSourceFit(source);
-        const qualityRequest = qualityScaledRenderRequest(renderRequest, source.params || {});
         const renditionDemand = mediaSourceDemandSize(qualityRequest, source);
         const texture = fit === "cover"
           ? this.getImageRendition(media, renditionDemand.width, renditionDemand.height) || media.image
@@ -2949,9 +2976,17 @@ export class OutputRenderer {
 
   drawMediaSource(pg, source, component, componentTime, renderRequest) {
     const playback = this.videoPlaybackOptions(source, component);
+    const view = renderView(pg, renderRequest);
+    // `renderView` has already expanded a clipped ROI back to the full physical
+    // boundary. Do not carry the ROI UV rectangle into this second contract or
+    // it would expand the demand twice.
+    const qualityRequest = qualityScaledRenderRequest({
+      width: view.width,
+      height: view.height,
+    }, source.params || {});
     const item = this.acquireMedia(source.mediaId, {
       playback,
-      width: mediaSourceDemandWidth(renderRequest, source),
+      width: mediaSourceDemandWidth(qualityRequest, source),
     });
     if (item?.video && isDrawableMedia(item.video)) {
       drawWithContentTransform(pg, source.contentTransform, (view) => {
@@ -2960,13 +2995,7 @@ export class OutputRenderer {
     }
     else if (item?.image && isDrawableMedia(item.image)) {
       const fit = mediaSourceFit(source);
-      const view = renderView(pg, renderRequest);
-      const qualityRequest = qualityScaledRenderRequest({ width: view.width, height: view.height }, source.params || {});
-      const renditionDemand = mediaSourceDemandSize({
-        ...qualityRequest,
-        logicalWidth: renderRequest.logicalWidth,
-        logicalHeight: renderRequest.logicalHeight,
-      }, source);
+      const renditionDemand = mediaSourceDemandSize(qualityRequest, source);
       const image = fit === "cover"
         ? this.getImageRendition(item, renditionDemand.width, renditionDemand.height) || item.image
         : item.image;
@@ -3286,6 +3315,10 @@ export class OutputRenderer {
     generatorUniformState.iDate ||= [0, 0, 0, 0];
     this.generatorUniformStates.set(generatorUniformKey, generatorUniformState);
     this.generatorUniformStateUse.set(generatorUniformKey, this.frameIndex);
+    const drawingSize = shaderDrawingBufferSize(target, renderRequest.width, renderRequest.height);
+    const sourceDetail = renderSourceDetail(drawingSize, renderRequest, {
+      contentScale: contentTransform?.scale,
+    });
     if (this.isfNeedsPassRuntime(component)) {
       return this.renderIsfProgram({
         component,
@@ -3297,6 +3330,7 @@ export class OutputRenderer {
         instanceId: instanceId || generatorId,
         contentMatrix: generatorUniformState.sampling,
         useContentTransform: !isIdentityTransform(contentTransform),
+        sourceDetail,
       });
     }
     const started = this.collectDetailedProfile ? performance.now() : 0;
@@ -3322,9 +3356,8 @@ export class OutputRenderer {
       const isfInterface = component.type === "isf";
       if (shadertoyInterface) {
         const now = new Date();
-        const drawingSize = shaderDrawingBufferSize(target, renderRequest.width, renderRequest.height);
-        generatorUniformState.iResolution[0] = Math.max(1, Number(renderRequest.logicalWidth) || drawingSize.width);
-        generatorUniformState.iResolution[1] = Math.max(1, Number(renderRequest.logicalHeight) || drawingSize.height);
+        generatorUniformState.iResolution[0] = Math.max(1, sourceDetail.width);
+        generatorUniformState.iResolution[1] = Math.max(1, sourceDetail.height);
         generatorUniformState.iResolution[2] = 1;
         setShaderUniformIfPresent(shader, "iResolution", generatorUniformState.iResolution);
         setShaderUniformIfPresent(shader, "iTime", shaderTime);
@@ -3343,10 +3376,11 @@ export class OutputRenderer {
           timeSeconds: shaderTime,
           params: shaderParams,
           generatorUniformState,
+          sourceDetail,
         });
       } else {
-        generatorUniformState.resolution[0] = Math.max(1, Number(renderRequest.logicalWidth) || renderRequest.width);
-        generatorUniformState.resolution[1] = Math.max(1, Number(renderRequest.logicalHeight) || renderRequest.height);
+        generatorUniformState.resolution[0] = Math.max(1, sourceDetail.width);
+        generatorUniformState.resolution[1] = Math.max(1, sourceDetail.height);
         shader.setUniform("resolution", generatorUniformState.resolution);
         setShaderUniformIfPresent(shader, "time", shaderTime);
       }
@@ -3596,6 +3630,7 @@ export class OutputRenderer {
     contentMatrix = null,
     useContentTransform = false,
     effectTransform = null,
+    sourceDetail = null,
   }) {
     const passes = component?.isf?.passes || [];
     if (!passes.length || !shader || !finalTarget) return null;
@@ -3663,6 +3698,7 @@ export class OutputRenderer {
           params,
           passIndex: index,
           targetTextures,
+          sourceDetail: finalPass ? sourceDetail : null,
         });
         setShaderUniformIfPresent(shader, "vj1IsfFinalPass", finalPass);
         this.setShaderParamUniforms(shader, component, params, { onlyPresent: true });
@@ -3948,9 +3984,10 @@ export class OutputRenderer {
     passIndex = 0,
     generatorUniformState = null,
     targetTextures = null,
+    sourceDetail = null,
   } = {}) {
-    const logicalWidth = Math.max(1, Number(renderRequest.logicalWidth) || Number(renderRequest.width) || 1);
-    const logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || Number(renderRequest.height) || 1);
+    const logicalWidth = Math.max(1, Number(sourceDetail?.width) || Number(renderRequest.logicalWidth) || Number(renderRequest.width) || 1);
+    const logicalHeight = Math.max(1, Number(sourceDetail?.height) || Number(renderRequest.logicalHeight) || Number(renderRequest.height) || 1);
     const now = new Date();
     const date = generatorUniformState?.iDate || this.isfDateUniform;
     date[0] = now.getFullYear();
@@ -4361,7 +4398,8 @@ export class OutputRenderer {
   }
 
   shouldUseThumbnailPreview() {
-    return (this.mode === "preview" || this.mode === "component") && this.state?.ui?.debugPreview === false;
+    return (this.mode === "preview" || this.mode === "component" || this.mode === "live") &&
+      this.state?.ui?.debugPreview === false;
   }
 
   updateHudAndMetrics() {
@@ -4374,10 +4412,13 @@ export class OutputRenderer {
     if (this.hud) {
       const mediaLoading = this.mode === "output" && !!this.outputMediaStatus?.blocked;
       const resolution = `<span class="output-resolution">${this.renderResolutionLabel()}</span>`;
+      const diagnostic = this.mode !== "output" && this.state?.ui?.previewDiagnostics === true;
       this.hud.classList.toggle("is-hidden", !this.state.global.showHud);
       this.hud.classList.toggle("is-loading", mediaLoading);
-      this.hud.classList.remove("is-diagnostic");
-      const markup = `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>${resolution}`;
+      this.hud.classList.toggle("is-diagnostic", diagnostic);
+      const markup = diagnostic
+        ? this.previewDiagnosticHudMarkup(fps)
+        : `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>${resolution}`;
       if (this.hud.innerHTML !== markup) this.hud.innerHTML = markup;
     }
     if (millis() - this.lastMetricsAt > 500) {
@@ -4509,16 +4550,9 @@ export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
 
 export function mediaSourceDemandSize(request = {}, source = {}) {
   const descriptor = request && typeof request === "object" ? request : { width: request };
-  const baseWidth = Math.max(1, Number(descriptor.logicalWidth) || Number(descriptor.width) || 1);
-  const baseHeight = Math.max(1, Number(descriptor.logicalHeight) || Number(descriptor.height) || 1);
-  const contentScale = Math.max(1, Math.abs(Number(source?.contentTransform?.scale) || 1));
-  // Physical/logical divergence normally means ROI clipping, not reduced
-  // quality. Only an explicit qualityScale may lower source detail.
-  const qualityScale = Math.max(0.01, Math.min(1, Number(descriptor.qualityScale) || 1));
-  return {
-    width: baseWidth * contentScale * qualityScale,
-    height: baseHeight * contentScale * qualityScale,
-  };
+  return renderSourceDetail(descriptor, descriptor, {
+    contentScale: source?.contentTransform?.scale,
+  });
 }
 
 export function mediaSourceDemandWidth(request = {}, source = {}) {

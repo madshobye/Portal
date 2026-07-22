@@ -880,7 +880,7 @@ test("3d model visible depth follows transformed normalized model bounds", () =>
   ]);
 
   assert.deepEqual(transformedModelDepthRange(bounds, modelMatrix), { min: -3, max: 37 });
-  assert.equal(modelDepthCutoff({ visibleDepth: 1 }, bounds, modelMatrix), -3);
+  assert.ok(modelDepthCutoff({ visibleDepth: 1 }, bounds, modelMatrix) < -3);
   assert.equal(modelDepthCutoff({ visibleDepth: 0.5 }, bounds, modelMatrix), 17);
   assert.equal(modelDepthCutoff({ visibleDepth: 0.25 }, bounds, modelMatrix), 27);
 });
@@ -969,7 +969,8 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
   assert.ok(!source.includes("modelRawRenderers ||= new WeakMap()"));
   assert.ok(source.includes("return processObjModelBuffer(buffer, { cacheKey: `${item.id}:${item.sourceRevision}` });"));
   assert.ok(source.includes("item.modelData = mesh;"));
-  assert.ok(source.includes("if (vModelDepth < uDepthCutoff) discard;"));
+  assert.ok(source.includes("if (uDepthSliceEnabled > 0.5 && vModelDepth < uDepthCutoff) discard;"));
+  assert.ok(source.includes("gl.uniform1f(resources.depthSliceEnabled, modelDepthSliceEnabled(params) ? 1 : 0);"));
   assert.ok(source.includes("modelDepthCutoff(params, mesh.bounds, matrices.model)"));
   assert.ok(source.includes('if (drewSurface && renderMode === "surfaceWire")'));
   assert.ok(source.includes('renderMode === "outline" || renderMode === "surfaceOutline"'));
@@ -1272,11 +1273,12 @@ test("active output can return project state and files to a refreshed control wi
   assert.ok(outputSource.includes('sessionId !== receivedSessionId'));
 });
 
-test("component preview follows the shared preview toggle", () => {
+test("Component Scene and Live previews follow the shared thumbnail toggle", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const thumbnailSource = readFileSync(new URL("../js/output/output-thumbnail-runtime.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('(this.mode === "preview" || this.mode === "component") && this.state?.ui?.debugPreview === false'));
+  assert.ok(rendererSource.includes('this.mode === "preview" || this.mode === "component" || this.mode === "live"'));
+  assert.ok(rendererSource.includes('this.state?.ui?.debugPreview === false'));
   assert.ok(rendererSource.includes("this.thumbnailRuntime.invalidateSelectedComponent()"));
   assert.ok(thumbnailSource.includes("if (!this.sendThumbnail || !this.canCapture() || this.shouldUseThumbnailPreview())"));
   assert.ok(rendererSource.includes("this.renderSelectedChainTransformOverlay()"));

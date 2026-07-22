@@ -1,4 +1,5 @@
 export * from "./surface-composition/index.js?v=scene-live-audit-1";
+export * from "./scene-frame-guides/index.js";
 export * from "./application-program/index.js";
 export * from "./visual-source/index.js";
 export * from "./layer-group/index.js";
@@ -7,6 +8,6 @@ export * from "./surface-route/index.js";
 export * from "./mapping-program/index.js";
 export * from "./output-program/index.js";
 export * from "./shared/component-program-compiler.js?v=compact-project-nodes-1";
-export * from "./shared/mapping-program-compiler.js?v=scene-mapping-1";
+export * from "./shared/mapping-program-compiler.js?v=mapping-order-authority-1";
 export * from "./shared/visual-render-plan.js?v=node-program-hooks-15";
 export * from "./shared/program-graph-compiler.js";

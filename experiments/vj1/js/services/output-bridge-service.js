@@ -310,9 +310,13 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
   const transportProfiler = createOutputTransportProfiler();
   const recoveryTimers = new Set();
   let controlSessionId = "";
+  let pendingLivePatch = null;
+  let livePatchScheduled = false;
+  let livePatchScheduleToken = 0;
   channel.onmessage = (event) => {
     const msg = event.data || {};
     if (msg.type === "control-hello") {
+      cancelPendingLivePatch();
       const nextSessionId = String(msg.sessionId || "");
       const changed = !!nextSessionId && nextSessionId !== controlSessionId;
       if (nextSessionId) controlSessionId = nextSessionId;
@@ -324,6 +328,7 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
     }
     if (msg.sessionId && controlSessionId && msg.sessionId !== controlSessionId) return;
     if (msg.type === "state" && (!msg.targetClientId || msg.targetClientId === clientId)) {
+      flushPendingLivePatch();
       const transport = transportProfiler.receive({
         kind: "state",
         revision: msg.revision,
@@ -338,7 +343,7 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
         patchCount: msg.patches?.length,
         sentAtMs: msg.transport?.sentAtMs,
       });
-      onLivePatch?.(msg.patches || [], {
+      queueIncomingLivePatch(msg.patches || [], {
         baseRevision: Number(msg.baseRevision) || 0,
         revision: Number(msg.revision) || 0,
         sessionId: String(msg.sessionId || controlSessionId),
@@ -346,8 +351,75 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
       });
     }
     if (msg.type === "media-files") onMediaFiles?.(msg.files || []);
-    if (msg.type === "command") onCommand?.(msg.command, msg.payload || {});
+    if (msg.type === "command") {
+      flushPendingLivePatch();
+      onCommand?.(msg.command, msg.payload || {});
+    }
   };
+
+  function queueIncomingLivePatch(patches, meta) {
+    // BroadcastChannel preserves order, but applying each message in its event
+    // handler makes a slow renderer accumulate visible historical movement.
+    // Consume transport messages cheaply and present only the newest value for
+    // each target path on the next output frame.
+    if (pendingLivePatch && meta.baseRevision !== pendingLivePatch.revision) flushPendingLivePatch();
+    if (!pendingLivePatch) {
+      pendingLivePatch = {
+        baseRevision: meta.baseRevision,
+        revision: meta.revision,
+        sessionId: meta.sessionId,
+        transport: meta.transport,
+        patches: new Map(),
+      };
+    }
+    pendingLivePatch.revision = meta.revision;
+    pendingLivePatch.transport = meta.transport;
+    for (const patch of patches) {
+      const targetKey = patch?.target === "state"
+        ? "state"
+        : patch?.componentId
+          ? `component:${patch.componentId}`
+          : "";
+      if (targetKey && patch?.path) pendingLivePatch.patches.set(`${targetKey}:${patch.path}`, patch);
+    }
+    scheduleIncomingLivePatch();
+  }
+
+  function scheduleIncomingLivePatch() {
+    if (livePatchScheduled) return;
+    livePatchScheduled = true;
+    const token = ++livePatchScheduleToken;
+    const schedule = typeof requestAnimationFrame === "function"
+      ? requestAnimationFrame
+      : typeof queueMicrotask === "function"
+        ? queueMicrotask
+        : (callback) => Promise.resolve().then(callback);
+    schedule(() => {
+      if (!livePatchScheduled || token !== livePatchScheduleToken) return;
+      livePatchScheduled = false;
+      flushPendingLivePatch();
+    });
+  }
+
+  function flushPendingLivePatch() {
+    if (livePatchScheduled) livePatchScheduleToken++;
+    livePatchScheduled = false;
+    const pending = pendingLivePatch;
+    pendingLivePatch = null;
+    if (!pending?.patches.size) return;
+    onLivePatch?.([...pending.patches.values()], {
+      baseRevision: pending.baseRevision,
+      revision: pending.revision,
+      sessionId: pending.sessionId,
+      transport: pending.transport,
+    });
+  }
+
+  function cancelPendingLivePatch() {
+    if (livePatchScheduled) livePatchScheduleToken++;
+    livePatchScheduled = false;
+    pendingLivePatch = null;
+  }
 
   function hello() {
     channel.postMessage({ type: "hello", clientId, mode, outputId });
@@ -421,6 +493,7 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
     markTransportRendered: transportProfiler.rendered,
     recordTransportResync: transportProfiler.resync,
     close: () => {
+      cancelPendingLivePatch();
       clearInterval(helloInterval);
       for (const timer of recoveryTimers) clearTimeout(timer);
       recoveryTimers.clear();

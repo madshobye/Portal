@@ -8,6 +8,7 @@ import {
   compileApplicationDataflowPlan,
   compileApplicationServicePlan,
   compileComponentRenderPrograms,
+  compileMappingGroupTopology,
   compileOutputRenderProgram,
   compileMappingRenderPrograms,
 } from "../js/libraries/composition-engine/index.js";
@@ -234,7 +235,7 @@ test("Terrain shader forks compile by part id without invalidating its CPU topol
   assert.strictEqual(forkOperation.nodeModule.terrainSurfaceGridVertices, baseOperation.nodeModule.terrainSurfaceGridVertices);
 });
 
-test("node-owned native JavaScript compiles into the direct render plan", () => {
+test("procedural calibration JavaScript compiles once into the shader render plan", () => {
   const packageRoot = createVj1NodePackage();
   const component = {
     id: "calibration-component",
@@ -252,10 +253,24 @@ test("node-owned native JavaScript compiles into the direct render plan", () => 
   }).get(component.id);
   const operation = program.plan.operations[0];
 
-  assert.equal(operation.backend, "native-specialized");
-  assert.equal(operation.renderer, "output/specialized:testPattern");
-  assert.equal(typeof operation.nodeProcess, "function");
-  assert.equal(operation.nodeProcessId, "vj1.visual.generator.testPattern@0.1.0");
+  assert.equal(operation.backend, "shader-generator");
+  assert.equal(operation.compilerHook.id, "vj1.visual.shader-generator");
+  assert.equal(operation.nodeProcess, undefined);
+  assert.equal(operation.renderer, undefined);
+});
+
+test("SDF Sketch Content edits regenerate the project-local shader", () => {
+  const component = listGeneratorComponents().find((entry) => entry.id === "sdfSketch");
+  const baseDefinition = component.nodeDefinition;
+  const programPart = baseDefinition.parts.find((part) => part.id === "sdf2d-program");
+  const editedSource = programPart.source.replace("#ff4f92cc", "#00ff00ff");
+  const nodes = withProjectNodeFork({}, baseDefinition, { [programPart.id]: editedSource });
+  const fork = nodes.forks[0];
+  const shaderPart = fork.definition.parts.find((part) => part.id === "fragment-shader");
+
+  assert.equal(fork.definition.parts.find((part) => part.id === programPart.id).source, editedSource);
+  assert.match(shaderPart.source, /vec4\(0\.000000,1\.000000,0\.000000,1\.000000\)/);
+  assert.equal(shaderPart.source.includes("#ff4f92cc"), false);
 });
 
 test("specialized Text compiles node-owned helpers and shaders while retaining the host cache", () => {
@@ -461,6 +476,22 @@ test("compiled Mapping routes use Mapping-owned surface values instead of stale 
   assert.equal(routes[0].opacity, 0.25);
   assert.equal(routes[0].projectionFit, "contain");
   assert.equal(routes[0].feather, 0.2);
+});
+
+test("compiled Mapping reachability preserves Mapping-owned Surface order", () => {
+  const surfaces = [
+    { id: "surface-a", enabled: true, componentId: "component-a", sourceNodeId: "component:component-a" },
+    { id: "surface-b", enabled: true, componentId: "component-b", sourceNodeId: "component:component-b" },
+  ];
+  const generated = compileMappingGroupTopology({ id: "", name: "Working Mapping", surfaces });
+  const routeConnections = generated.connections.filter((edge) => String(edge.from).startsWith("route:"));
+  const otherConnections = generated.connections.filter((edge) => !String(edge.from).startsWith("route:"));
+  const graphWithReverseTraversal = { ...generated, connections: [...routeConnections.reverse(), ...otherConnections] };
+  const state = { surfaces, mappings: [], ui: { selectedMappingId: "" } };
+
+  const program = compileMappingRenderPrograms(state, [graphWithReverseTraversal]).get("");
+
+  assert.deepEqual(program.surfaces.map((surface) => surface.id), ["surface-a", "surface-b"]);
 });
 
 test("the persisted application program connects controls Live services and output infrastructure", () => {

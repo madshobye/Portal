@@ -317,36 +317,56 @@ export function scenePreviewRenderRequest(render = {}, component = {}, viewportW
   }, meta);
 }
 
-export function routeSourceLookupKey(componentId = "", outputFrameId = "") {
-  return `${componentId}\u0000${outputFrameId || ""}`;
-}
-
-export function componentSourceView(render = {}, component = {}, surface = {}, frames = [], frameById = null) {
+export function componentSourceView(render = {}, component = {}, surface = {}) {
   const placementScale = Math.max(0.0001, Number(component?.transform?.scale) || 1);
   if (component.type === "scene") {
     const logicalSize = sceneFrameSize(render);
-    const frame = typeof frameById?.get === "function"
-      ? frameById.get(surface.outputFrameId)
-      : frames.find((item) => item.id === surface.outputFrameId);
-    const sampleRect = frame
-      ? relativeRectToLogical(frame, logicalSize)
+    // A materialized Scene route marks its owning Surface as the crop source.
+    // The Surface's relative rectangle is the sole 2D authority; there is no
+    // separate Frame lookup or per-Scene routing table.
+    const cropsScene = surface.sceneCrop === true;
+    const sampleRect = cropsScene
+      ? relativeRectToLogical(surface, logicalSize)
       : { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height };
     return {
       logicalSize,
       sampleRect,
       maxRasterSize: sceneMaxRasterSize(render, logicalSize, component.resolutionScale),
-      samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (frame
+      samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (cropsScene
         ? Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE))
         : 1) * placementScale,
     };
   }
   const metrics = componentFrameMetrics(render, component);
   const logicalSize = { width: metrics.baseWidth, height: metrics.baseHeight };
+  const cropsVirtualScene = surface.sceneCrop === true;
   return {
     logicalSize,
-    sampleRect: { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height },
+    sampleRect: cropsVirtualScene
+      ? componentCoverSceneSampleRect(render, logicalSize, surface)
+      : { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height },
     maxRasterSize: componentAdaptiveRasterLimit(logicalSize),
     samplingScale: Math.max(0.05, Number(metrics.resolutionScale) || 1) * placementScale,
+  };
+}
+
+// Map a Surface rectangle from Scene coordinates back into an ordinary
+// Component after that Component has covered the complete Scene. This is the
+// virtual-Scene equivalent of the Scene component branch above and keeps one
+// crop authority without creating an intermediate raster or wrapper node.
+export function componentCoverSceneSampleRect(render = {}, componentSize = {}, surface = {}) {
+  const sceneSize = sceneFrameSize(render);
+  const sceneRect = relativeRectToLogical(surface, sceneSize);
+  const componentWidth = Math.max(1, Number(componentSize.width) || 1);
+  const componentHeight = Math.max(1, Number(componentSize.height) || 1);
+  const coverScale = Math.max(sceneSize.width / componentWidth, sceneSize.height / componentHeight);
+  const offsetX = (sceneSize.width - componentWidth * coverScale) * 0.5;
+  const offsetY = (sceneSize.height - componentHeight * coverScale) * 0.5;
+  return {
+    x: Math.max(0, (sceneRect.x - offsetX) / coverScale),
+    y: Math.max(0, (sceneRect.y - offsetY) / coverScale),
+    width: Math.min(componentWidth, sceneRect.width / coverScale),
+    height: Math.min(componentHeight, sceneRect.height / coverScale),
   };
 }
 
@@ -405,6 +425,34 @@ export function sharedComponentRenderRequests(routes = [], renderIdentityPrefix 
   }));
 }
 
+// A Live transition is one render program with two source endpoints. When a
+// Surface is patched away from Overall, planning the endpoints independently
+// can lower the Overall component request on the target side. Resolution-aware
+// generators then visibly jump even on otherwise unchanged Surfaces. Reuse the
+// larger already-required request across both endpoint plans. This does not add
+// a render target or pass; it makes the existing component render share one
+// stable demand for the duration of the transition.
+export function unifyTransitionComponentRenderRequests(fromRoutes = [], toRoutes = []) {
+  const routes = [...fromRoutes, ...toRoutes];
+  const shared = new Map();
+  for (const route of routes) {
+    const request = route?.componentRequest;
+    if (!request || request.regionView === true) continue;
+    const key = String(request.timingId || request.renderIdentity || "");
+    if (!key) continue;
+    const previous = shared.get(key);
+    if (!previous || renderRequestDemand(request) > renderRequestDemand(previous)) shared.set(key, request);
+  }
+  for (const route of routes) {
+    const request = route?.componentRequest;
+    if (!request || request.regionView === true) continue;
+    const key = String(request.timingId || request.renderIdentity || "");
+    const unified = shared.get(key);
+    if (unified) route.componentRequest = unified;
+  }
+  return { fromRoutes, toRoutes };
+}
+
 export function componentRenderInstanceKey(component = {}, instanceId = "") {
   const componentId = String(component?.id || "");
   if (!componentId || component?.syncInstances !== false) return componentId;
@@ -426,6 +474,12 @@ function quantizedRenderDimension(value, maximum) {
   const next = Math.min(upper, Math.max(1, Math.round(Number(value) || 1)));
   if (next < 16) return next;
   return Math.min(upper, Math.max(16, Math.round(next / 16) * 16));
+}
+
+function renderRequestDemand(request = {}) {
+  const demandScale = Math.max(0, Number(request.demandScale) || 0);
+  const pixels = Math.max(1, Number(request.width) || 1) * Math.max(1, Number(request.height) || 1);
+  return demandScale * 1e12 + pixels;
 }
 
 export function resolutionScaledStrokeWidth(strokeWidth, request = {}, backingSize = null) {

@@ -17,8 +17,8 @@ export function shellTemplate() {
             <button id="close-project" class="icon-buttonish close-project-button is-hidden" type="button" title="Close project" aria-label="Close project">${icon("close")}</button>
           </div>
           <div id="workspace-switch" class="workspace-switch workspace-view-switch" role="group" aria-label="Views">
-            <button type="button" data-workspace="component" title="Components" aria-label="Components">${icon("account_tree")}</button>
-            <button type="button" data-workspace="scene" title="Scenes" aria-label="Scenes">${icon("dashboard_customize")}</button>
+            <button type="button" data-workspace="component" title="Components" aria-label="Components">${icon("extension")}</button>
+            <button type="button" data-workspace="scene" title="Scenes" aria-label="Scenes">${icon("landscape")}</button>
             <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
           </div>
           <button id="return-from-deep-edit" class="icon-buttonish deep-edit-return is-hidden" type="button" title="Return" aria-label="Return">${icon("arrow_back")}</button>
@@ -26,7 +26,7 @@ export function shellTemplate() {
         <div class="top-actions" data-scroll-region data-scroll-key="top-actions">
           <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <div class="workspace-switch workspace-tool-switch" role="group" aria-label="Technical views">
-            <button type="button" data-workspace="mapping" class="is-active" title="Mapping" aria-label="Mapping">${icon("auto_awesome")}</button>
+            <button type="button" data-workspace="mapping" class="is-active" title="Mapping" aria-label="Mapping">${icon("map")}</button>
             <button type="button" data-workspace="nodes" title="Nodes" aria-label="Nodes">${icon("schema")}</button>
           </div>
           <button id="toggle-output-hud" class="icon-buttonish" type="button" title="Output FPS and resolution" aria-label="Toggle output FPS and resolution">${icon("bug_report")}</button>
@@ -64,6 +64,7 @@ export function shellTemplate() {
       </header>
       <div class="studio-layout" data-scroll-region data-scroll-key="studio-layout">
         <aside id="project-rail" class="project-rail" data-scroll-region data-scroll-key="project-rail:scene"></aside>
+        <aside id="live-projection-rail" class="live-projection-rail" data-scroll-region data-scroll-key="live-projection-rail"></aside>
         <aside id="inspector" class="studio-inspector" data-scroll-region data-scroll-key="inspector:scene"></aside>
         <main id="studio" class="studio-main"></main>
       </div>
@@ -105,6 +106,8 @@ export function collectRefs(root) {
     closeProject: root.querySelector("#close-project"),
     importFiles: root.querySelector("#import-files-main"),
     projectRail: root.querySelector("#project-rail"),
+    liveProjectionRail: root.querySelector("#live-projection-rail"),
+    studioLayout: root.querySelector(".studio-layout"),
     studio: root.querySelector("#studio"),
     inspector: root.querySelector("#inspector"),
     modalHost: root.querySelector("#modal-host"),

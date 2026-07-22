@@ -21,7 +21,7 @@ export function projectHistorySignature(payload = {}) {
 function stripDerivedHistoryState(value, key = "") {
   if (Array.isArray(value)) return value.map((item) => stripDerivedHistoryState(item));
   if (!value || typeof value !== "object") return value;
-  const ignored = new Set(["thumbnail", "frameThumbnails", "activity"]);
+  const ignored = new Set(["thumbnail", "surfaceThumbnails", "frameThumbnails", "activity"]);
   return Object.fromEntries(Object.entries(value)
     .filter(([childKey]) => !ignored.has(childKey) && !(key === "global" && childKey === "calibrating"))
     .map(([childKey, child]) => [childKey, stripDerivedHistoryState(child, childKey)]));

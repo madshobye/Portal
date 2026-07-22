@@ -1,7 +1,6 @@
-import { getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
+import { getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js?v=procedural-2d-1";
 import { drawBlackNode } from "../libraries/visual-nodes/generators/black/index.js";
 import { drawCheckerNode } from "../libraries/visual-nodes/generators/checker/index.js";
-import { drawTestPatternNode } from "../libraries/visual-nodes/generators/test-pattern/index.js";
 
 const standbyStateByTarget = new WeakMap();
 
@@ -40,11 +39,10 @@ export function drawStandby(pg, label, { visible = true, frame = null, graceMs =
   pg.text(label, pg.width / 2, pg.height / 2);
 }
 
-export function drawGenerator(pg, id, _time, _params, renderRequest = {}, view = null) {
+export function drawGenerator(pg, id, time, _params, renderRequest = {}, view = null) {
   const generatorId = getGeneratorComponent(id).id;
   // Compatibility entry for legacy plans. Current plans compile these exact
   // node-owned functions and call them directly from the node process.
-  if (generatorId === "testPattern") return drawTestPatternNode(pg, renderRequest, view);
   if (generatorId === "checker") return drawCheckerNode(pg, view);
   if (generatorId === "black") return drawBlackNode(pg);
   console.error("[VJ1_GENERATOR_RUNTIME_MISSING]", {

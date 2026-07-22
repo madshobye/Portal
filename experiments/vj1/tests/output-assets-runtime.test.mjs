@@ -5,23 +5,34 @@ import { readFileSync } from "node:fs";
 import { mediaFileFingerprint, OutputMediaRuntime } from "../js/output/output-media-runtime.js";
 import { syncVideoPlayback } from "../js/output/media-utils.js";
 import { OutputThumbnailRuntime } from "../js/output/output-thumbnail-runtime.js";
-import { mediaSourceDemandWidth, OutputRenderer } from "../js/output/output-renderer.js";
+import { mediaSourceDemandSize, mediaSourceDemandWidth, OutputRenderer } from "../js/output/output-renderer.js";
 import { createControlBridge, createOutputBridge } from "../js/services/output-bridge-service.js";
-import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
+import { applyLiveRenderPatches, createLiveRenderPatch, createRenderStatePatch } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
 
-test("media detail demand follows the full logical boundary and content scale", () => {
+test("media detail demand follows physical ROI backing and content scale", () => {
   const clippedBoundaryRequest = {
     width: 1000,
     height: 500,
-    logicalWidth: 4000,
-    logicalHeight: 2000,
+    logicalWidth: 500,
+    logicalHeight: 250,
+    uvRect: [0.5, 0, 0.25, 1],
   };
   assert.equal(mediaSourceDemandWidth(clippedBoundaryRequest), 4000);
   assert.equal(mediaSourceDemandWidth(clippedBoundaryRequest, { contentTransform: { scale: 2 } }), 8000);
-  assert.equal(mediaSourceDemandWidth({ ...clippedBoundaryRequest, qualityScale: 0.5 }), 2000);
+  assert.deepEqual(mediaSourceDemandSize(clippedBoundaryRequest), {
+    width: 4000,
+    height: 500,
+    physicalWidth: 4000,
+    physicalHeight: 500,
+    contentScale: 1,
+  });
+  // Quality affects the physical backing request before detail is resolved;
+  // it is not multiplied a second time from a metadata flag.
+  assert.equal(mediaSourceDemandWidth({ ...clippedBoundaryRequest, width: 500, qualityScale: 0.5 }), 2000);
+  assert.equal(mediaSourceDemandWidth({ ...clippedBoundaryRequest, empty: true }), 0);
 });
 
 test("media runtime deduplicates and throttles missing-file requests", () => {
@@ -308,6 +319,9 @@ test("SVG media rasterizes at active demand and content scale upgrades the retai
     assert.deepEqual(removed, [512]);
     assert.ok(item.revision > initialRevision, "the higher-detail vector variant invalidates stable component output");
     assert.strictEqual(runtime.getImageRendition(item, 640, 360), item.image, "SVG bypasses stale raster rendition caches");
+
+    runtime.acquireMedia(item, { width: 50_000 });
+    assert.deepEqual(rasterized.at(-1), [8192, 4096], "extreme source detail remains bounded by the global SVG cap");
   } finally {
     if (PreviousImage === undefined) delete globalThis.Image;
     else globalThis.Image = PreviousImage;
@@ -1183,6 +1197,44 @@ test("persistent Component scrubs use the same small revisioned patch transport"
   }
 });
 
+test("mapping scrubs share the patch transport and retain only the latest calibration", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  globalThis.BroadcastChannel = class {
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    const state = { metrics: { clients: 0, outputs: {} } };
+    const bridge = createControlBridge({
+      store: {
+        subscribe() { return () => {}; },
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+    bridge.sendRenderPatches([
+      createRenderStatePatch("mappingCalibration", { surfaces: [{ id: "surface-a", x: 0.1 }] }),
+    ], { coalesce: true });
+    bridge.sendRenderPatches([
+      createRenderStatePatch("mappingCalibration", { surfaces: [{ id: "surface-a", x: 0.9 }] }),
+    ], { coalesce: true });
+    await Promise.resolve();
+    const packets = messages.filter((message) => message.type === "live-patch");
+    assert.equal(packets.length, 1);
+    assert.equal(packets[0].patches.length, 1);
+    assert.equal(packets[0].patches[0].target, "state");
+    assert.equal(packets[0].patches[0].value.surfaces[0].x, 0.9);
+    assert.equal(messages.some((message) => message.command === "sync-mapping"), false);
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
 test("output bridge switches controller sessions and ignores stale controller traffic", () => {
   const previousBroadcastChannel = globalThis.BroadcastChannel;
   const messages = [];
@@ -1216,6 +1268,57 @@ test("output bridge switches controller sessions and ignores stale controller tr
   }
 });
 
+test("output receiver drops superseded pointer samples before renderer application", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
+  let channel = null;
+  let scheduledFrame = null;
+  const received = [];
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage() {}
+    close() {}
+  };
+  globalThis.requestAnimationFrame = (callback) => {
+    scheduledFrame = callback;
+    return 1;
+  };
+  try {
+    const bridge = createOutputBridge({
+      mode: "output",
+      onLivePatch: (patches, meta) => received.push({ patches, meta }),
+    });
+    channel.onmessage({ data: { type: "control-hello", sessionId: "control-a" } });
+    channel.onmessage({ data: {
+      type: "live-patch",
+      sessionId: "control-a",
+      baseRevision: 0,
+      revision: 1,
+      patches: [createRenderStatePatch("mappingCalibration", { x: 0.1 })],
+    } });
+    channel.onmessage({ data: {
+      type: "live-patch",
+      sessionId: "control-a",
+      baseRevision: 1,
+      revision: 2,
+      patches: [createRenderStatePatch("mappingCalibration", { x: 0.9 })],
+    } });
+    assert.equal(received.length, 0);
+    scheduledFrame();
+    assert.equal(received.length, 1);
+    assert.equal(received[0].meta.baseRevision, 0);
+    assert.equal(received[0].meta.revision, 2);
+    assert.equal(received[0].patches.length, 1);
+    assert.equal(received[0].patches[0].value.x, 0.9);
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+    if (previousRequestAnimationFrame === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = previousRequestAnimationFrame;
+  }
+});
+
 test("Live render patches mutate only the addressed Component path", () => {
   const state = {
     components: [
@@ -1239,6 +1342,32 @@ test("Live render patches mutate only the addressed Component path", () => {
   ]);
   assert.equal(failed.applied, false);
   assert.equal(state.components[0].chain[0].params.amount, beforeAtomicFailure);
+});
+
+test("render-state patches update only allow-listed continuous renderer roots", () => {
+  const originalCalibration = { coordinateSpace: "relative", surfaces: [] };
+  const state = {
+    components: [],
+    mappingCalibration: originalCalibration,
+    global: { blackout: false },
+  };
+  const nextCalibration = {
+    coordinateSpace: "relative",
+    surfaces: [{ id: "surface-a", corners: [{ x: 0.2, y: 0.1 }] }],
+  };
+  const applied = applyLiveRenderPatches(state, [
+    createRenderStatePatch("mappingCalibration", nextCalibration),
+  ]);
+  assert.equal(applied.applied, true);
+  assert.deepEqual(applied.statePaths, ["mappingCalibration"]);
+  assert.equal(state.mappingCalibration, nextCalibration);
+  assert.deepEqual(state.global, { blackout: false });
+
+  const rejected = applyLiveRenderPatches(state, [
+    createRenderStatePatch("global", { blackout: true }),
+  ]);
+  assert.equal(rejected.applied, false);
+  assert.deepEqual(state.global, { blackout: false });
 });
 
 test("Live render patches may author omitted parameter defaults but not structure", () => {

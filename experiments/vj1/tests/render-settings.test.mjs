@@ -20,6 +20,8 @@ test("render settings normalize independently from the aggregate domain model", 
   });
 
   assert.deepEqual(createOutputDefinition(1, 320, 240), { id: "output-2", name: "Output 2", aspectRatio: 4 / 3 });
+  assert.deepEqual(createOutputDefinition(0), { id: "output-main", name: "Output 1", aspectRatio: 16 / 9 });
+  assert.equal(normalizeRenderSettings({ outputs: [{ id: "output-main", name: "Main output" }] }).outputs[0].name, "Output 1");
   assert.equal(render.outputs[0].aspectRatio, 4 / 3);
   assert.equal(Object.hasOwn(render, "width"), false);
   assert.equal(Object.hasOwn(render, "worldWidth"), false);
@@ -81,7 +83,7 @@ test("the duplicate embedded preview can occupy the opposite output render phase
 
 test("models remains a compatibility facade for render settings", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
-  assert.ok(source.includes('from "./render-settings.js?v=screen-input-registry-1"'));
+  assert.ok(source.includes('from "./render-settings.js?v=output-one-1"'));
   assert.doesNotMatch(source, /export function normalizeRenderSettings\(/);
   assert.doesNotMatch(source, /export function normalizeCameraSettings\(/);
 });

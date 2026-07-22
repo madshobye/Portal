@@ -104,16 +104,16 @@ export class OutputThumbnailRuntime {
       changed = this.enqueue({ key: component.id, componentId: component.id, frameId: "", signature }) || changed;
     }
     if (component.type === "scene") {
-      for (const frame of state.frames || []) {
-        const frameKey = `${component.id}:${frame.id}`;
-        const frameSignature = `${signature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
-        if (component.scene?.frameThumbnails?.[frame.id] && this.signatures.get(frameKey) === frameSignature) continue;
-        liveKeys.add(frameKey);
+      for (const surface of state.surfaces || []) {
+        const surfaceKey = `${component.id}:${surface.id}`;
+        const surfaceSignature = surfaceThumbnailSignature(signature, surface);
+        if (component.scene?.surfaceThumbnails?.[surface.id] && this.signatures.get(surfaceKey) === surfaceSignature) continue;
+        liveKeys.add(surfaceKey);
         changed = this.enqueue({
-          key: frameKey,
+          key: surfaceKey,
           componentId: component.id,
-          frameId: frame.id,
-          signature: frameSignature,
+          surfaceId: surface.id,
+          signature: surfaceSignature,
         }) || changed;
       }
     }
@@ -180,7 +180,7 @@ export class OutputThumbnailRuntime {
     } catch (error) {
       console.warn("[VJ1_THUMBNAIL_CAPTURE_FAILED]", {
         componentId: job.componentId,
-        frameId: job.frameId,
+        surfaceId: job.surfaceId,
         fallback: "retain the previous thumbnail and retry after the renderer settles",
         message: error?.message || String(error),
       });
@@ -199,8 +199,8 @@ export class OutputThumbnailRuntime {
     const component = selectedComponent(state);
     if (!component || component.id !== job.componentId) return true;
     const componentSignature = componentThumbnailSignature(component, state.render);
-    const currentSignature = job.frameId
-      ? frameThumbnailSignature(componentSignature, state.frames?.find((frame) => frame.id === job.frameId))
+    const currentSignature = job.surfaceId
+      ? surfaceThumbnailSignature(componentSignature, state.surfaces?.find((surface) => surface.id === job.surfaceId))
       : componentSignature;
     if (currentSignature !== job.signature) {
       this.invalidateSelectedComponent();
@@ -212,8 +212,8 @@ export class OutputThumbnailRuntime {
     if (!this.isComponentReady(component)) return false;
     const output = this.getComponentOutput(component.id);
     if (!output) return false;
-    const crop = job.frameId ? sceneFrameCrop(output, state.render, state.frames, job.frameId) : null;
-    if (job.frameId && !crop) return true;
+    const crop = job.surfaceId ? sceneSurfaceCrop(output, state.surfaces, job.surfaceId) : null;
+    if (job.surfaceId && !crop) return true;
     const readback = this.readSmallThumbnail(output, crop);
     if (!readback) return false;
     let blob = null;
@@ -229,15 +229,15 @@ export class OutputThumbnailRuntime {
     const latestState = this.getState();
     const latestComponent = latestState?.components?.find((item) => item.id === job.componentId);
     const latestComponentSignature = latestComponent && componentThumbnailSignature(latestComponent, latestState.render);
-    const latestSignature = job.frameId
-      ? frameThumbnailSignature(latestComponentSignature, latestState.frames?.find((frame) => frame.id === job.frameId))
+    const latestSignature = job.surfaceId
+      ? surfaceThumbnailSignature(latestComponentSignature, latestState.surfaces?.find((surface) => surface.id === job.surfaceId))
       : latestComponentSignature;
     if (latestSignature !== job.signature) {
       this.invalidateSelectedComponent();
       return true;
     }
     this.signatures.set(job.key, job.signature);
-    const published = await this.sendThumbnail(job.componentId, blob, job.frameId ? { frameId: job.frameId } : {});
+    const published = await this.sendThumbnail(job.componentId, blob, job.surfaceId ? { surfaceId: job.surfaceId } : {});
     if (published === false) this.signatures.delete(job.key);
     return true;
   }
@@ -294,24 +294,24 @@ function* nestedChainItems(chain = []) {
   }
 }
 
-function frameThumbnailSignature(componentSignature, frame) {
-  if (!componentSignature || !frame) return "";
-  return `${componentSignature}:${frame.x},${frame.y},${frame.width},${frame.height}`;
+function surfaceThumbnailSignature(componentSignature, surface) {
+  if (!componentSignature || !surface) return "";
+  return `${componentSignature}:${surface.x},${surface.y},${surface.width},${surface.height}`;
 }
 
 function selectedComponent(state) {
   return state?.components?.find((item) => item.id === state.ui?.selectedComponentId) || state?.components?.[0] || null;
 }
 
-function sceneFrameCrop(output, render, frames, frameId) {
-  const frame = (frames || []).find((item) => item.id === frameId);
-  if (!frame) return null;
+function sceneSurfaceCrop(output, surfaces, surfaceId) {
+  const surface = (surfaces || []).find((item) => item.id === surfaceId);
+  if (!surface) return null;
   const sourceWidth = Math.max(1, Number(output?.width || output?.canvas?.width) || 1);
   const sourceHeight = Math.max(1, Number(output?.height || output?.canvas?.height) || 1);
   return {
-    x: Number(frame.x) * sourceWidth,
-    y: Number(frame.y) * sourceHeight,
-    width: Math.max(1, Number(frame.width) * sourceWidth),
-    height: Math.max(1, Number(frame.height) * sourceHeight),
+    x: Number(surface.x) * sourceWidth,
+    y: Number(surface.y) * sourceHeight,
+    width: Math.max(1, Number(surface.width) * sourceWidth),
+    height: Math.max(1, Number(surface.height) * sourceHeight),
   };
 }

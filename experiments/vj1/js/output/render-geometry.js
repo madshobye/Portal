@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
-import { componentFrameSize } from "../domain/render-settings.js";
-import { compositionLogicalSize, normalizeAspectRatio } from "../libraries/render-engine/relative-geometry.js";
+import { componentFrameSize, normalizeOutputName } from "../domain/render-settings.js";
+import { compositionLogicalSize, normalizeAspectRatio, projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js";
 
 export const SURFACE_DEMAND_OVERSCAN = 1;
 export const RECORDING_FRAME_DEMAND_SCALE = 1;
@@ -9,13 +9,13 @@ export function outputDefinitions(render = {}) {
   if (Array.isArray(render.outputs) && render.outputs.length) {
     return render.outputs.map((output, index) => ({
       id: String(output.id || (index === 0 ? "output-main" : `output-${index + 1}`)),
-      name: output.name || (index === 0 ? "Main output" : `Output ${index + 1}`),
+      name: normalizeOutputName(output.name, index),
       aspectRatio: normalizeAspectRatio(output.aspectRatio, VJ1.renderWidth / VJ1.renderHeight),
     }));
   }
   return [{
     id: "output-main",
-    name: "Main output",
+    name: "Output 1",
     aspectRatio: VJ1.renderWidth / VJ1.renderHeight,
   }];
 }
@@ -169,6 +169,10 @@ export function sourceRenderDemand({
   overscan = SURFACE_DEMAND_OVERSCAN,
   samplingScale = 1,
   preserveFullFootprint = false,
+  projectionFit = "cover",
+  sourceFitActive = false,
+  sourceFit = "cover",
+  sourceAspect = 1,
 } = {}) {
   const footprint = visibleMappedSurfaceSize(corners, viewport);
   if (!footprint) return null;
@@ -176,12 +180,25 @@ export function sourceRenderDemand({
   const logicalWidth = Math.max(1, Number(logicalSize.width) || 1);
   const logicalHeight = Math.max(1, Number(logicalSize.height) || 1);
   const rect = clampLogicalRect(sampleRect, logicalWidth, logicalHeight);
+  const sampledAspect = Math.max(0.0001, rect.width / rect.height);
+  const intermediateAspect = sourceFitActive
+    ? Math.max(0.0001, Number(sourceAspect) || sampledAspect)
+    : sampledAspect;
+  const projectedAspect = projectedQuadAspect(corners, demandFootprint.width / demandFootprint.height);
+  const sourceFitFractions = sourceFitActive
+    ? coverSampleFractions(sampledAspect, intermediateAspect, sourceFit)
+    : { x: 1, y: 1 };
+  const projectionFitFractions = coverSampleFractions(intermediateAspect, projectedAspect, projectionFit);
+  const sampledFractions = {
+    x: sourceFitFractions.x * projectionFitFractions.x,
+    y: sourceFitFractions.y * projectionFitFractions.y,
+  };
   const scaleToPixels = Math.max(0.05, Number(pixelScale) || 1) *
     Math.max(0.5, Number(overscan) || 1) *
     Math.max(0.05, Number(samplingScale) || 1);
   const desiredScale = Math.max(
-    demandFootprint.width * scaleToPixels / rect.width,
-    demandFootprint.height * scaleToPixels / rect.height
+    demandFootprint.width * scaleToPixels / (rect.width * sampledFractions.x),
+    demandFootprint.height * scaleToPixels / (rect.height * sampledFractions.y)
   );
   const rasterLimit = Math.min(
     Math.max(1, Number(maxRasterSize.width) || logicalWidth) / logicalWidth,
@@ -195,19 +212,78 @@ export function sourceRenderDemand({
   const effectiveScale = Math.min(rasterSize.width / logicalWidth, rasterSize.height / logicalHeight);
   const maxSurfaceWidth = Math.max(1, Number(maxSurfaceSize.width) || rect.width);
   const maxSurfaceHeight = Math.max(1, Number(maxSurfaceSize.height) || rect.height);
+  const intermediateSize = intermediateFitLogicalSize(
+    rect,
+    intermediateAspect,
+    sourceFit,
+    sourceFitActive
+  );
   // A Scene Frame region can render directly at its mapped footprint.
   // Do not derive that target from the shared full-Scene request: a small
   // frame would otherwise retain only its tiny share of those pixels and be
   // enlarged into a visibly soft full-screen surface.
   const regionalScale = Math.max(
-    1 / Math.max(rect.width, rect.height),
-    Math.min(desiredScale, maxSurfaceWidth / rect.width, maxSurfaceHeight / rect.height)
+    1 / Math.max(intermediateSize.width, intermediateSize.height),
+    Math.min(
+      desiredScale,
+      maxSurfaceWidth / intermediateSize.width,
+      maxSurfaceHeight / intermediateSize.height
+    )
   );
   const surfaceSize = {
-    width: quantizedDemandInt(rect.width * regionalScale, maxSurfaceWidth),
-    height: quantizedDemandInt(rect.height * regionalScale, maxSurfaceHeight),
+    width: quantizedDemandInt(intermediateSize.width * regionalScale, maxSurfaceWidth),
+    height: quantizedDemandInt(intermediateSize.height * regionalScale, maxSurfaceHeight),
   };
-  return { footprint, demandFootprint, logicalSize: { width: logicalWidth, height: logicalHeight }, sampleRect: rect, rasterScale: effectiveScale, rasterSize, surfaceSize };
+  return {
+    footprint,
+    demandFootprint,
+    logicalSize: { width: logicalWidth, height: logicalHeight },
+    sampleRect: rect,
+    sampledFractions,
+    rasterScale: effectiveScale,
+    rasterSize,
+    surfaceSize,
+  };
+}
+
+// Cover samples only a fraction of one source axis. A single cover stage is
+// naturally represented by max(widthScale, heightScale), but Live component
+// routes can cover into a Scene-space Surface and then cover that result into
+// the physical projection. Those crops may affect different axes, so demand
+// must retain both fractions through the complete sampling chain.
+function coverSampleFractions(sourceAspect = 1, targetAspect = 1, fit = "cover") {
+  if (fit !== "cover") return { x: 1, y: 1 };
+  const source = Math.max(0.0001, Number(sourceAspect) || 1);
+  const target = Math.max(0.0001, Number(targetAspect) || 1);
+  if (source > target) return { x: target / source, y: 1 };
+  if (source < target) return { x: 1, y: source / target };
+  return { x: 1, y: 1 };
+}
+
+// A routed Component is first fitted into Scene/Surface presentation space,
+// then that intermediate texture is projected. Its render target must have
+// the first stage's aspect. Retaining the original source aspect made the
+// first cover operation a no-op in cached/transition paths even though the
+// stable direct path applied it, producing a visible width jump at both ends
+// of a transition.
+function intermediateFitLogicalSize(rect, targetAspect, fit = "cover", active = false) {
+  if (!active) return { width: rect.width, height: rect.height };
+  const sourceAspect = Math.max(0.0001, rect.width / rect.height);
+  const target = Math.max(0.0001, Number(targetAspect) || sourceAspect);
+  if (fit === "cover") {
+    const fractions = coverSampleFractions(sourceAspect, target, fit);
+    return {
+      width: rect.width * fractions.x,
+      height: rect.height * fractions.y,
+    };
+  }
+  // Contain/stretch preserve all source pixels but still produce a target
+  // with the requested presentation aspect. The extra axis represents
+  // letterbox space for contain and destination space for stretch.
+  if (sourceAspect > target) {
+    return { width: rect.width, height: rect.width / target };
+  }
+  return { width: rect.height * target, height: rect.height };
 }
 
 export function canvasSizeForMode(mode, render = {}) {

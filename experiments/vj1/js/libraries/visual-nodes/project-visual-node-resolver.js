@@ -5,7 +5,7 @@ import {
   getGeneratorNodeComponent,
   listEffectNodeComponents,
   listGeneratorNodeComponents,
-} from "./catalog.js";
+} from "./catalog.js?v=procedural-2d-1";
 import { isIsfNodeDefinition, listProjectIsfVisualComponents, materializeIsfNodeDefinition } from "../isf-engine/index.js?v=isf-definition-cache-1";
 
 export function createProjectVisualNodeResolver(state = {}) {

@@ -8,15 +8,19 @@ export function materializeVisualNodeDefinition(component = {}, { shader = null,
       ...base,
       implementation: { kind: NODE_IMPLEMENTATION_KINDS.SHADER, language: "glsl" },
       process: executeVisualNode,
-      parts: [{
-        id: "fragment-shader",
-        name: shader.name || base.name || "Fragment shader",
-        kind: NODE_PART_KINDS.SHADER,
-        language: "glsl",
-        stage: "fragment",
-        editable: true,
-        source: shaderSource,
-      }],
+      parts: [
+        ...(Array.isArray(shader.parts) ? shader.parts : []),
+        {
+          id: "fragment-shader",
+          name: shader.name || base.name || "Fragment shader",
+          kind: NODE_PART_KINDS.SHADER,
+          language: "glsl",
+          stage: "fragment",
+          editable: true,
+          generatedFrom: shader.generatedFrom || "",
+          source: shaderSource,
+        },
+      ],
       metadata: {
         ...base.metadata,
         ...visualExecutionMetadata(component),
@@ -24,6 +28,7 @@ export function materializeVisualNodeDefinition(component = {}, { shader = null,
         // A complete fragment program must not be wrapped as an effect; doing
         // so would redeclare its uniforms and varying inputs.
         shaderInterface: String(shader?.type || component.shaderInterface || component.type || "effect"),
+        ...(shader?.compiler ? { sourceCompiler: Object.freeze({ ...shader.compiler }) } : {}),
       },
     });
   }

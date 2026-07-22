@@ -10,9 +10,9 @@ import { advanceSpatialScale, qualityComputeMultiplier } from "../render-runtime
 import { advanceRateClock } from "../../libraries/timing-engine/index.js";
 import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.js?v=node-program-hooks-15";
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
-import { applyModelViewportProjection, modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js?v=source-roi-view-3";
+import { applyModelViewportProjection, modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js?v=full-model-depth-2";
 import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "../../libraries/mesh-engine/mesh-render-cache.js";
-import { disposeRawModelItemResources, drawRawParsedModelMode } from "../../libraries/mesh-engine/mesh-render/index.js?v=source-roi-view-3";
+import { disposeRawModelItemResources, drawRawParsedModelMode } from "../../libraries/mesh-engine/mesh-render/index.js?v=full-model-depth-2";
 import { modelLodTargetTriangles, selectModelLod } from "../../libraries/mesh-engine/mesh-resolution/index.js";
 import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=source-roi-view-3";
 import { TerrainNodeModuleExports as FALLBACK_TERRAIN_NODE_MODULE } from "./terrain-mesh.js?v=node-program-hooks-15";

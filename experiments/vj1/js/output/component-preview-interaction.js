@@ -1,4 +1,5 @@
 import { sceneFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
+import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=surface-identity-1";
 import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
@@ -74,12 +75,14 @@ export class ComponentPreviewInteraction {
     rectMode(CORNER);
     for (const item of this.sceneFrameRects(component, source)) {
       noFill();
-      const selected = String(item.frame.id || "") === String(this.renderer.state?.ui?.selectedFrameId || "")
+      const selected = String(item.frame.id || "") === String(this.renderer.state?.ui?.selectedSurfaceId || "")
         || String(item.frame.id || "") === String(this.sceneFrameDrag?.frameId || "");
       stroke(255, 228, 94, selected ? 235 : 72);
       strokeWeight((selected ? 2 : 1) * uiScale);
       rect(item.x - width * 0.5, item.y - height * 0.5, item.width, item.height);
-      if (!selected || item.frame.locked) continue;
+      // calibrationLocked protects the physical quad in Mapping. It does not
+      // lock the Surface's independent 2D rectangle in the Scene workspace.
+      if (!selected) continue;
       noStroke();
       fill(255, 228, 94, 245);
       for (const corner of sceneFrameRectCorners(item)) {
@@ -94,7 +97,13 @@ export class ComponentPreviewInteraction {
     if (component?.type !== "scene") return [];
     const renderer = this.renderer;
     const preview = renderer.componentPreviewRect(component, source);
-    return (renderer.state?.frames || []).map((frame) => ({
+    const mapping = renderer.state?.mappings?.find((item) =>
+      String(item.id) === String(renderer.state?.ui?.selectedMappingId || "")
+    ) || renderer.state?.mappings?.[0] || null;
+    const visibleFrameIds = visibleSceneSurfaceIds(mapping?.surfaces || []);
+    return (mapping?.surfaces || []).filter((frame) =>
+      visibleFrameIds.has(String(frame.id || ""))
+    ).map((frame) => ({
       frame,
       x: preview.x + Math.max(0, Number(frame.x) || 0) * preview.width,
       y: preview.y + Math.max(0, Number(frame.y) || 0) * preview.height,
@@ -278,7 +287,6 @@ export class ComponentPreviewInteraction {
       if (!corner && !border) continue;
       const frame = item.frame;
       renderer.onSceneFrameSelect?.(frame.id);
-      if (frame.locked) return true;
       this.sceneFrameDrag = {
         componentId: component.id,
         frameId: frame.id,
@@ -322,7 +330,6 @@ export class ComponentPreviewInteraction {
   applyLocalSceneFrame(frameId, rect) {
     const renderer = this.renderer;
     renderer.state = stateWithSceneFrameRect(renderer.state, frameId, rect);
-    renderer.refreshFrameLookup?.(frameId);
   }
 
   selectedTransformableChainItem() {
@@ -389,7 +396,11 @@ export class ComponentPreviewInteraction {
     if (renderer.state?.ui) {
       renderer.state = {
         ...renderer.state,
-        ui: { ...renderer.state.ui, selectedChainItemId: hit.id },
+        ui: {
+          ...renderer.state.ui,
+          selectedChainItemId: hit.id,
+          ...(renderer.state.ui.workspace === "scene" ? { sceneInspectorTarget: "element" } : {}),
+        },
       };
     }
     renderer.onChainItemSelect?.(hit.id);
@@ -632,7 +643,8 @@ export class ComponentPreviewInteraction {
       ? { frameId: this.sceneFrameDrag.frameId, rect: this.sceneFrameDrag.lastRect }
       : this.pendingSceneFrame;
     if (frameOwner) {
-      const frame = nextState.frames?.find((item) => item.id === frameOwner.frameId);
+      const mapping = nextState.mappings?.find((item) => item.id === nextState.ui?.selectedMappingId) || nextState.mappings?.[0];
+      const frame = mapping?.surfaces?.find((item) => item.id === frameOwner.frameId);
       if (!frame) this.pendingSceneFrame = null;
       else if (!this.sceneFrameDrag && recordIncludes(frame, frameOwner.rect)) {
         this.pendingSceneFrame = null;
@@ -671,14 +683,19 @@ export function stateWithChainItemBoundary(state, componentId, itemId, boundary)
 }
 
 export function stateWithSceneFrameRect(state, frameId, rect) {
-  if (!state || !Array.isArray(state.frames)) return state;
+  if (!state || !Array.isArray(state.mappings)) return state;
+  const mappingIndex = state.mappings.findIndex((mapping) => String(mapping.id) === String(state.ui?.selectedMappingId || ""));
+  if (mappingIndex < 0) return state;
   let changed = false;
-  const frames = state.frames.map((frame) => {
+  const surfaces = state.mappings[mappingIndex].surfaces.map((frame) => {
     if (frame.id !== frameId) return frame;
     changed = true;
     return { ...frame, ...rect };
   });
-  return changed ? { ...state, frames } : state;
+  if (!changed) return state;
+  const mappings = state.mappings.slice();
+  mappings[mappingIndex] = { ...mappings[mappingIndex], surfaces };
+  return { ...state, mappings, surfaces };
 }
 
 function chainWithItemTransform(chain, itemId, transform) {

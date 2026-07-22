@@ -9,6 +9,41 @@ export function scrollRegionTemplate(key, content, { className = "", attributes 
   return `<${safeTag} class="${esc(className)}" data-scroll-region data-scroll-key="${esc(key)}" ${attributes}>${content}</${safeTag}>`;
 }
 
+export function emptyStateTemplate(text) {
+  return `<div class="soft-note ui-empty-state ui-list-empty">${esc(text)}</div>`;
+}
+
+// Shared shell for every scrollable catalog/list in the project rail. Keeping
+// the header, optional tools, empty state, and scroll region in one primitive
+// prevents workspace-specific empty-list markup from changing the flex/grid
+// behavior of the surrounding layout.
+export function railListSectionTemplate({
+  iconName = "",
+  title = "",
+  headerHtml = "",
+  beforeListHtml = "",
+  content = "",
+  emptyText = "",
+  className = "",
+  listClassName = "",
+  scrollKey = "",
+  sectionAttributes = "",
+  listAttributes = "",
+} = {}) {
+  const empty = !content;
+  const header = headerHtml || `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${esc(iconName)}</span><span>${esc(title)}</span></div>`;
+  const listContent = content || emptyStateTemplate(emptyText);
+  return `
+    <div class="ui-section rail-section rail-list-section ui-list-section${empty ? " is-empty" : ""}${className ? ` ${esc(className)}` : ""}" ${sectionAttributes}>
+      ${header}
+      ${beforeListHtml}
+      ${scrollRegionTemplate(scrollKey, listContent, {
+        className: `ui-list-content rail-scroll-list${listClassName ? ` ${listClassName}` : ""}`,
+        attributes: listAttributes,
+      })}
+    </div>`;
+}
+
 export function deepEditButtonTemplate(componentId, { chainItemId = "", className = "", label = "Edit component" } = {}) {
   if (!componentId) return "";
   const chainTarget = chainItemId ? ` data-edit-chain-item="${esc(chainItemId)}"` : "";
@@ -106,9 +141,9 @@ export function editableSectionTitleTemplate(iconName, path, value) {
   return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${iconName}</span>${titleInputTemplate(path, value)}</div>`;
 }
 
-export function panelTemplate(iconName, title, body, { titlePath = "", headerActionHtml = "", className = "" } = {}) {
+export function panelTemplate(iconName, title, body, { titlePath = "", headerActionHtml = "", className = "", empty = false } = {}) {
   return `
-    <section class="ui-section focus-panel${className ? ` ${esc(className)}` : ""}">
+    <section class="ui-section focus-panel${empty ? " is-empty" : ""}${className ? ` ${esc(className)}` : ""}">
       <header class="ui-section-header panel-title">
         <span class="material-symbols-rounded">${iconName}</span>
         ${titlePath ? titleInputTemplate(titlePath, title) : `<span>${esc(title)}</span>`}

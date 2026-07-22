@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
 
-export const CURRENT_PROJECT_VERSION = 28;
+export const CURRENT_PROJECT_VERSION = 30;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -53,6 +53,8 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   25: migrateProjectV25ToV26,
   26: migrateProjectV26ToV27,
   27: migrateProjectV27ToV28,
+  28: migrateProjectV28ToV29,
+  29: migrateProjectV29ToV30,
 });
 
 export function migrateProjectData(project = {}) {
@@ -843,6 +845,123 @@ export function migrateProjectV27ToV28(project) {
       ? { ...project.ui, live: liveData }
       : project.ui,
   };
+}
+
+// v29 makes a Mapping Surface the single identity for both Scene-space
+// placement and physical projection. The former global Frame collection is
+// folded into each Surface. Scenes remain visual compositions without a
+// second routing table; only derived thumbnails are keyed by Surface id.
+// Rendering may still call a cropped
+// Scene texture a recording frame internally, but no persisted Frame model
+// remains after this migration.
+export function migrateProjectV28ToV29(project) {
+  const framesById = new Map((Array.isArray(project.frames) ? project.frames : [])
+    .filter((frame) => frame?.id)
+    .map((frame) => [String(frame.id), frame]));
+  const surfaceLegacyFrame = new Map();
+  const mappings = (Array.isArray(project.mappings) ? project.mappings : []).map((mapping) => ({
+    ...mapping,
+    surfaces: (Array.isArray(mapping?.surfaces) ? mapping.surfaces : []).map((surface) => {
+      const frameId = String(surface?.frameSlotId || surface?.outputFrameId || "");
+      const frame = framesById.get(frameId) || {};
+      const surfaceId = String(surface?.id || "");
+      if (surfaceId) surfaceLegacyFrame.set(surfaceId, frameId);
+      const {
+        frameSlotId: _frameSlotId,
+        outputFrameId: _outputFrameId,
+        sourceNodeId: _sourceNodeId,
+        componentId: _componentId,
+        ...surfaceData
+      } = surface || {};
+      return {
+        ...surfaceData,
+        x: finiteMigrationNumber(surface?.x, frame.x, 0.375),
+        y: finiteMigrationNumber(surface?.y, frame.y, 0.375),
+        width: positiveMigrationNumber(surface?.width, frame.width, 0.25),
+        height: positiveMigrationNumber(surface?.height, frame.height, 0.25),
+        keepProportions: surface?.keepProportions ?? frame.keepProportions ?? true,
+      };
+    }),
+  }));
+  const surfaceIds = [...new Set(mappings.flatMap((mapping) =>
+    (mapping.surfaces || []).map((surface) => String(surface?.id || "")).filter(Boolean)
+  ))];
+  const components = (Array.isArray(project.components) ? project.components : []).map((component) => {
+    if (component?.type !== "scene") return component;
+    const scene = component.scene && typeof component.scene === "object" ? component.scene : {};
+    const oldThumbnails = scene.frameThumbnails && typeof scene.frameThumbnails === "object"
+      ? scene.frameThumbnails
+      : {};
+    const surfaceThumbnails = Object.fromEntries(surfaceIds.flatMap((surfaceId) => {
+      const thumbnail = oldThumbnails[surfaceLegacyFrame.get(surfaceId) || ""];
+      return typeof thumbnail === "string" && thumbnail ? [[surfaceId, thumbnail]] : [];
+    }));
+    const { frames: _frames, frameThumbnails: _frameThumbnails, ...sceneData } = scene;
+    return { ...component, scene: { ...sceneData, surfaceThumbnails } };
+  });
+  const { frames: _frames, ...projectData } = project;
+  return { ...projectData, components, mappings };
+}
+
+// v30 seals the Surface-only contract after the Frame-to-Surface migration.
+// All compatibility interpretation ends here: normalized runtime code never
+// reads Frame fields or persisted render-route materializations.
+export function migrateProjectV29ToV30(project) {
+  const mappings = (Array.isArray(project.mappings) ? project.mappings : []).map((mapping) => ({
+    ...mapping,
+    surfaces: (Array.isArray(mapping?.surfaces) ? mapping.surfaces : []).map(stripMigratedSurfaceRoute),
+  }));
+  const components = (Array.isArray(project.components) ? project.components : []).map((component) => {
+    if (component?.type !== "scene") return component;
+    const scene = component.scene && typeof component.scene === "object" ? component.scene : {};
+    const { frames: _frames, frameThumbnails: _frameThumbnails, ...sceneData } = scene;
+    return { ...component, scene: { ...sceneData, surfaceThumbnails: sceneData.surfaceThumbnails || {} } };
+  });
+  const ui = project.ui && typeof project.ui === "object" ? { ...project.ui } : project.ui;
+  if (ui && typeof ui === "object") {
+    delete ui.selectedFrameId;
+    const live = ui.live && typeof ui.live === "object" ? { ...ui.live } : {};
+    if (typeof live.showScenes !== "boolean" && typeof live.showComponents !== "boolean") {
+      live.showScenes = live.sourceKind !== "component";
+      live.showComponents = live.sourceKind !== "scene";
+    }
+    delete live.sourceKind;
+    delete live.surfaceRoutes;
+    delete live.transition;
+    ui.live = live;
+  }
+  const { frames: _frames, surfaces: _runtimeSurfaces, ...projectData } = project;
+  return { ...projectData, components, mappings, ui };
+}
+
+function stripMigratedSurfaceRoute(surface = {}) {
+  const {
+    sourceNodeId: _sourceNodeId,
+    componentId: _componentId,
+    outputFrameId: _outputFrameId,
+    frameSlotId: _frameSlotId,
+    frameFit: _frameFit,
+    frameFitActive: _frameFitActive,
+    frameAspect: _frameAspect,
+    sceneCrop: _sceneCrop,
+    sourceFit: _sourceFit,
+    sourceFitActive: _sourceFitActive,
+    sourceAspect: _sourceAspect,
+    ...authored
+  } = surface || {};
+  return authored;
+}
+
+function finiteMigrationNumber(primary, secondary, fallback) {
+  const value = Number.isFinite(Number(primary)) ? Number(primary)
+    : Number.isFinite(Number(secondary)) ? Number(secondary)
+      : fallback;
+  return value;
+}
+
+function positiveMigrationNumber(primary, secondary, fallback) {
+  const value = finiteMigrationNumber(primary, secondary, fallback);
+  return value > 0 ? value : fallback;
 }
 
 function migrateComponentBoundaries(component = {}) {

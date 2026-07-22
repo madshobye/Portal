@@ -1,27 +1,28 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes, syncLiveRoutesFromMapping } from "../domain/models.js?v=scene-live-audit-1";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes, syncLiveRoutesFromMapping } from "../domain/models.js?v=scene-mapping-output-visibility-1";
+import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js?v=component-transport-patch-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=multi-output-preview-world-1";
-import { frameFitViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=scene-live-audit-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=live-thumbnail-toggle-1";
+import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=cursor-anchored-zoom-1";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=topbar-technical-views-1";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=workspace-icons-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sceneFrameInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=frame-projection-aspect-1";
-import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=live-source-target-1";
-import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=scene-live-audit-1";
-import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=scroll-region-1";
+import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=sdf-content-editor-1";
+import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=surface-relative-aspect-1";
+import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=mapping-surface-section-1";
+import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
 import { createClipboardController } from "./clipboard-controller.js?v=scene-live-audit-1";
-import { createModalController } from "./modal-controller.js?v=scene-live-audit-1";
-import { createInputController } from "./input-controller.js?v=scene-live-audit-1";
+import { createModalController } from "./modal-controller.js?v=output-one-1";
+import { createInputController } from "./input-controller.js?v=scene-inspector-authority-1";
 import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-controller-1";
-import { projectRailTemplate } from "./project-rail-view.js?v=scene-live-audit-1";
+import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js?v=scene-mapping-visibility-1";
 import { selectedNodeEditorTemplate, withProjectGroupGraph, withProjectNodeFork, withProjectNodeGraph, withoutProjectNodeFork } from "./node-editor-view.js";
-import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=application-bootstrap-10";
+import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=shared-list-section-1";
 import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=application-bootstrap-10";
 
 const performanceHealthClasses = Object.freeze([
@@ -51,6 +52,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let renderPending = false;
   let deferredRenderState = null;
   let deferredRenderTimer = 0;
+  let liveTransitionRefreshTimer = 0;
   let activePointerCount = 0;
   let activeCatalogViewKey = "";
   let deepEditReturnContext = null;
@@ -125,17 +127,22 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     diagnosticsController.mount();
     previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState));
     restorePreviewPreference();
+    scheduleLiveTransitionRefresh(latestState);
     store.subscribe((state, reason, change) => {
       latestState = state;
+      scheduleLiveTransitionRefresh(state);
       performanceSession.recordStateEvent(reason);
       if (change.projectRestore) {
         invalidateCatalogOrder();
         deepEditReturnContext = null;
       }
       if (reason === "output-metrics" || reason === "preview-metrics") performanceSession.captureSample(state, reason);
-      if (reason === "mapping-state") {
+      if (change.topic === "mapping-state") {
         renderTopbar(state);
-        renderPreview(state);
+        // Mapping drags originate in the embedded mapper, so its scrub echo
+        // must not be fed back as a complete preview state on every pointer
+        // sample. The final commit still reconciles programmatic/reset edits.
+        if (change.phase !== "scrub") renderPreview(state);
         return;
       }
       if (reason === "output-metrics" || reason === "preview-metrics" || reason === "project-history" || reason === "project-autosave" || reason === "project-autosave-error") {
@@ -147,6 +154,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         Array.isArray(change.livePatches) &&
         change.livePatches.length > 0 &&
         embeddedPreview.applyLivePatches(change.livePatches)?.applied;
+      const renderPatches = Array.isArray(change.renderPatches) && change.renderPatches.length
+        ? change.renderPatches
+        : componentRenderPatchesForChange(state, change);
+      // Component and Scene controls use the same compact renderer patch
+      // contract as the Output bridge. Applying it in place avoids replacing
+      // and normalizing the complete preview state for every slider sample.
+      const patchedStudioPreview = currentWorkspace(state) !== "live" &&
+        renderPatches.length > 0 &&
+        embeddedPreview.applyRenderPatches(renderPatches)?.applied;
       if (reason === "live:update") {
         // Native controls already display the commanded value. Rebuilding the
         // complete Live inspector here destroys its scroll/tab/element DOM
@@ -156,18 +172,18 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }
       if (change.phase === "edit") {
         renderTopbar(state);
-        updatePreviewState(state);
+        if (!patchedStudioPreview) updatePreviewState(state);
         return;
       }
       if (change.phase === "scrub") {
         // Component preview gestures own an immediate local state overlay.
         // Feeding their store echo straight back into the same renderer makes
         // it rebuild lookup state twice per pointer frame.
-        if (!patchedLivePreview && reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:scene-frame") updatePreviewState(state);
+        if (!patchedLivePreview && !patchedStudioPreview && reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:scene-frame") updatePreviewState(state);
         return;
       }
       if (change.phase === "color") {
-        if (!patchedLivePreview) updatePreviewState(state);
+        if (!patchedLivePreview && !patchedStudioPreview) updatePreviewState(state);
         return;
       }
       if (reason === "workspace") {
@@ -185,6 +201,21 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }
       scheduleRender(state);
     });
+  }
+
+  function scheduleLiveTransitionRefresh(state) {
+    if (liveTransitionRefreshTimer) clearTimeout(liveTransitionRefreshTimer);
+    liveTransitionRefreshTimer = 0;
+    const transition = state.ui?.live?.transition;
+    const expiresAt = (Number(transition?.startedAtMs) || 0) + Math.max(0, Number(transition?.durationMs) || 0);
+    if (!transition?.fromSurfaceRoutes || expiresAt <= Date.now()) return;
+    // Transition progress is renderer-owned and intentionally does not write
+    // the project store every frame. Refresh the structural Live panels once
+    // at expiry so their route-derived catalogs discard the previous program.
+    liveTransitionRefreshTimer = setTimeout(() => {
+      liveTransitionRefreshTimer = 0;
+      if (currentWorkspace(latestState) === "live") scheduleRenderNow(latestState, { force: true });
+    }, Math.max(0, expiresAt - Date.now()) + 20);
   }
 
   function scheduleRender(state) {
@@ -250,6 +281,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setClass(root, "no-project-open", !hasOpenProject(state));
     renderTopbar(state);
     renderProjectRail(state);
+    renderLiveProjectionRail(state);
     renderStudio(state);
     renderInspector(state);
     renderPreview(state);
@@ -829,6 +861,35 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     if (replaceHtmlIfChanged(refs.projectRail, html, { scrollKey: `project-rail:${workspace}` })) bindRailEvents();
   }
 
+  function renderLiveProjectionRail(state) {
+    const workspace = currentWorkspace(state);
+    refs.studioLayout.dataset.workspace = workspace;
+    refs.liveProjectionRail.dataset.workspace = workspace;
+    const html = hasOpenProject(state) && workspace === "live"
+      ? liveProjectionRailTemplate(state)
+      : "";
+    if (replaceHtmlIfChanged(refs.liveProjectionRail, html, { scrollKey: "live-projection-rail" })) {
+      refs.liveProjectionRail.querySelectorAll("[data-live-preview-surface]").forEach((button) => {
+        button.addEventListener("click", () => store.selectLivePreviewSurface?.(button.dataset.livePreviewSurface));
+      });
+      refs.liveProjectionRail.querySelectorAll("[data-live-surface-visibility]").forEach((button) => {
+        button.addEventListener("click", () => store.toggleLiveSurfaceVisibility?.(button.dataset.liveSurfaceVisibility));
+      });
+      refs.liveProjectionRail.querySelectorAll("[data-clear-live-surface-patch]").forEach((button) => {
+        button.addEventListener("click", () => store.clearLiveSurfacePatch?.(button.dataset.clearLiveSurfacePatch));
+      });
+      refs.liveProjectionRail.querySelectorAll("[data-clear-live-overall-component]").forEach((button) => {
+        button.addEventListener("click", () => store.clearLiveOverallComponent?.());
+      });
+      refs.liveProjectionRail.querySelectorAll("[data-live-component]").forEach((button) => {
+        button.addEventListener("click", () => updateUi((ui) => {
+          ui.live ||= {};
+          ui.live.inspectedComponentId = button.dataset.liveComponent;
+        }, "select-live-inspected-component"));
+      });
+    }
+  }
+
   function renderStudio(state) {
     const hasProject = hasOpenProject(state);
     if (!hasProject) {
@@ -891,6 +952,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           <button type="button" class="preview-tool" data-preview-fit-world title="Fit world" aria-label="Fit world">${icon("public")}</button>
           <button type="button" class="preview-tool" data-preview-fit-frame title="Fit outputs" aria-label="Fit outputs">${icon("fit_screen")}</button>
           <button type="button" class="preview-tool" data-preview-zoom-in title="Zoom in" aria-label="Zoom in">${icon("add")}</button>
+          <button type="button" class="preview-tool" data-preview-diagnostics title="Preview scaling diagnostics" aria-label="Preview scaling diagnostics">${icon("developer_mode")}</button>
           <button type="button" class="preview-tool preview-quality-tool is-hidden" data-preview-quality title="Preview resolution" aria-label="Preview resolution"><span data-preview-quality-label>Auto</span></button>
           <button type="button" class="preview-tool" data-toggle-mapping-handles title="Toggle mapping handles" aria-label="Toggle mapping handles">${icon("control_point_duplicate")}</button>
           <div class="preview-fps" data-preview-fps>0 fps</div>
@@ -898,6 +960,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       `);
     }
     bindPreviewViewportTools(previewHost);
+    setClass(previewHost.querySelector("[data-preview-diagnostics]"), "is-active", state.ui?.previewDiagnostics === true);
     const handleButton = previewHost.querySelector("[data-toggle-mapping-handles]");
     setClass(handleButton, "is-active", state.global.mappingHandleMode !== "near");
     setClass(handleButton, "is-hidden", kind !== "preview");
@@ -992,7 +1055,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }
     if (currentWorkspace(state) === "scene") {
       const selectedScene = selectedSceneComponent(state);
-      const selectedFrame = state.frames?.find((frame) => frame.id === state.ui.selectedFrameId) || null;
+      const selectedSceneSurface = state.ui.sceneInspectorTarget === "surface"
+        ? state.surfaces?.find((surface) => surface.id === state.ui.selectedSurfaceId) || null
+        : null;
       html = `${panelTemplate(
         "dashboard_customize",
         selectedScene?.name || "Scene",
@@ -1001,11 +1066,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           titlePath: `${pathForComponent(state, selectedScene)}.name`,
           headerActionHtml: componentHeaderAddButtonTemplate(selectedScene),
         } : {}
-      )}${selectedScene && selectedFrame
-        ? panelTemplate("select_all", selectedFrame.name || "Frame", sceneFrameInspectorTemplate(selectedFrame, selectedScene, state), selectedFrame.kind === "user" ? {
-          titlePath: `frames.${state.frames.findIndex((frame) => frame.id === selectedFrame.id)}.name`,
-          className: "scene-frame-panel",
-        } : { className: "scene-frame-panel" })
+      )}${selectedScene && selectedSceneSurface
+        ? panelTemplate("select_all", selectedSceneSurface.name || "Surface", sceneSurfaceInspectorTemplate(selectedSceneSurface, state), selectedSceneSurface.destination?.type !== "direct" ? {
+          titlePath: `${pathForSurface(state, selectedSceneSurface)}.name`,
+          className: "scene-surface-panel",
+        } : { className: "scene-surface-panel" })
         : selectedScene ? componentSelectedChainSettingsTemplate(selectedScene, state, {
           nodeEditorHtml: selectedNodeEditorTemplate(selectedScene, state, nodePackage),
         }) : ""}`;
@@ -1082,14 +1147,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         ui.live[key] = next;
       }, "live-source-filter"));
     });
-    refs.projectRail.querySelectorAll("[data-select-frame]").forEach((button) => {
-      button.addEventListener("click", () => store.selectFrame?.(button.dataset.selectFrame));
-    });
     refs.projectRail.querySelectorAll("[data-live-component]").forEach((button) => {
       button.addEventListener("click", () => updateUi((ui) => {
         ui.live ||= {};
-        ui.live.selectedComponentId = button.dataset.liveComponent;
-      }, "select-live-component"));
+        ui.live.inspectedComponentId = button.dataset.liveComponent;
+      }, "select-live-inspected-component"));
     });
     refs.projectRail.querySelectorAll("[data-reset-live-scene]").forEach((button) => {
       button.addEventListener("click", (event) => {
@@ -1135,6 +1197,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     };
     bindButton("[data-preview-zoom-out]", () => nudgePreviewZoom(1 / 1.2));
     bindButton("[data-preview-zoom-in]", () => nudgePreviewZoom(1.2));
+    bindButton("[data-preview-diagnostics]", () => {
+      updateUi((ui) => {
+        ui.previewDiagnostics = ui.previewDiagnostics !== true;
+      }, "preview-diagnostics");
+    });
     bindButton("[data-preview-quality]", () => {
       store.update((draft) => {
         if (!["component", "scene", "mapping", "live"].includes(currentWorkspace(draft))) return;
@@ -1150,7 +1217,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       const stage = previewHost.querySelector("[data-embedded-preview-stage]");
       const rect = stage?.getBoundingClientRect?.();
       updateUi((ui) => {
-        updatePreviewViewportForUi(ui, frameFitViewport({
+        updatePreviewViewportForUi(ui, fitPreviewViewport({
           workspace: currentWorkspace(latestState),
           stageSize: {
             width: Math.max(1, Math.floor(rect?.width || previewHost.clientWidth || 960)),

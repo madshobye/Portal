@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { applySceneSourceNode, materializeLiveTargetSurfaceRoutes, resolveSceneSourceNode, sceneSourceNodes } from "../js/domain/scene-routing.js";
+import { applySceneSourceNode, materializeLiveSurfacePatchRoute, materializeLiveTargetSurfaceRoutes, resolveSceneSourceNode, sceneSourceNodeId, sceneSourceNodes, visibleSceneFrameIds } from "../js/domain/scene-routing.js";
 
 test("scene routing exposes Components and Scene Frames without normalization state", () => {
   const state = {
@@ -56,4 +56,66 @@ test("a standalone Live Component covers each Mapping Frame without changing pro
   assert.equal(routes.surfaces[0].projectionFit, "contain");
   assert.equal(routes.surfaces[0].destination.type, "surface");
   assert.deepEqual(state.surfaces, [surface]);
+});
+
+test("an individual Live Scene patch assigns the complete Scene instead of its routed Frame", () => {
+  const surface = {
+    id: "surface-a",
+    frameSlotId: "frame-a",
+    projectionFit: "cover",
+  };
+  const scene = {
+    id: "scene-a",
+    type: "scene",
+    scene: { frames: [{ frameId: "frame-a", componentId: "component-a", fit: "contain" }] },
+  };
+  const state = {
+    render: { sceneAspectRatio: 16 / 9 },
+    frames: [{ id: "frame-a", width: 0.5, height: 1 }],
+    components: [scene, { id: "component-a", type: "chain" }],
+    surfaces: [surface],
+  };
+
+  const route = materializeLiveSurfacePatchRoute(state, scene, null, surface.id);
+
+  assert.equal(route.sourceNodeId, sceneSourceNodeId(scene.id));
+  assert.equal(route.componentId, scene.id);
+  assert.equal(route.outputFrameId, "");
+  assert.equal(route.frameFitActive, false);
+  assert.equal(route.frameSlotId, surface.frameSlotId);
+  assert.equal(route.projectionFit, surface.projectionFit);
+});
+
+test("an individual Live Component patch bypasses the Scene Frame crop", () => {
+  const surface = {
+    id: "surface-a",
+    frameSlotId: "frame-a",
+    projectionFit: "contain",
+  };
+  const component = { id: "component-a", type: "chain" };
+  const state = {
+    frames: [{ id: "frame-a", width: 0.5, height: 1 }],
+    components: [component],
+    surfaces: [surface],
+  };
+
+  const route = materializeLiveSurfacePatchRoute(state, component, null, surface.id);
+
+  assert.equal(route.sourceNodeId, sceneSourceNodeId(component.id));
+  assert.equal(route.componentId, component.id);
+  assert.equal(route.outputFrameId, "");
+  assert.equal(route.frameFitActive, false);
+  assert.equal(route.frameSlotId, surface.frameSlotId);
+  assert.equal(route.projectionFit, surface.projectionFit);
+});
+
+test("visible Scene Frames are derived only from enabled Surface routes", () => {
+  const ids = visibleSceneFrameIds([
+    { enabled: true, frameSlotId: "frame-a" },
+    { enabled: false, frameSlotId: "frame-b" },
+    { outputFrameId: "frame-c" },
+    { enabled: true, frameSlotId: "" },
+  ]);
+
+  assert.deepEqual([...ids], ["frame-a", "frame-c"]);
 });

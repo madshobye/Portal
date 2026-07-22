@@ -1,11 +1,12 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=scene-live-audit-1";
-import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=live-patch-contract-1";
+import { sanitizeState } from "../domain/models.js?v=scene-mapping-output-visibility-1";
+import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=queued-recovery-1";
-import { OutputRenderer } from "./output-renderer.js?v=multi-output-preview-world-1";
+import { OutputRenderer } from "./output-renderer.js?v=full-model-depth-2";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
-import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
+import { frameSize } from "./render-geometry.js?v=output-one-1";
+import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
 
 let outputFitSignature = "";
 
@@ -105,6 +106,11 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       pendingState = renderer.state;
     }
     renderer.importFiles(acceptedFiles);
+    // The bridge starts before p5 so it can buffer state and media while the
+    // display initializes. Finish setup with one authoritative pull: opening
+    // an output must not depend on a later Scene change to become current.
+    bridge?.requestState();
+    bridge?.requestMediaFiles();
   };
 
   window.draw = function draw() {
@@ -190,7 +196,10 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       }
       const baseRevision = Math.max(0, Number(meta.baseRevision) || 0);
       const revision = Math.max(0, Number(meta.revision) || 0);
-      if (!acceptedState || baseRevision !== receivedRevision || revision !== baseRevision + 1) {
+      // A packet may span several consecutive transport revisions after the
+      // receiver coalesces redundant pointer samples. Its base must still be
+      // exactly the accepted revision and its terminal revision must advance.
+      if (!acceptedState || baseRevision !== receivedRevision || revision <= baseRevision) {
         requestLivePatchResync("revision", { baseRevision, revision, acceptedRevision, receivedRevision });
         return;
       }
@@ -231,15 +240,6 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       if (meta.changed) diagnosticForwarder?.resend?.();
     },
     onCommand(command, payload) {
-      if (command === "sync-mapping" && acceptedState) {
-        const nextState = {
-          ...acceptedState,
-          mappingCalibration: payload.mappingCalibration || acceptedState.mappingCalibration,
-        };
-        pendingState = nextState;
-        acceptedState = nextState;
-        renderer?.setState(outputSizedState(nextState, outputSize(nextState, mode), mode, outputId), { normalized: true });
-      }
       if (command === "sync-global" && acceptedState) {
         const nextState = {
           ...acceptedState,
@@ -462,7 +462,7 @@ function outputSize(state = null, mode = "output") {
 
 function outputSizedState(state, size, mode, outputId = "") {
   if (!state) return state;
-  return {
+  return alignLiveTransitionRenderContext({
     ...state,
     render: {
       ...state.render,
@@ -473,7 +473,7 @@ function outputSizedState(state, size, mode, outputId = "") {
         outputId,
       },
     },
-  };
+  });
 }
 
 function resizeOutputIfNeeded(state, mode = "output", renderer = null) {

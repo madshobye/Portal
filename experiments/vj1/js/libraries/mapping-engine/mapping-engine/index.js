@@ -164,10 +164,10 @@ export class VjMapper {
         shaderProgram.setUniform("uSourceAspect", Math.max(0.0001, sourceWidth / Math.max(1, sourceHeight)));
         shaderProgram.setUniform("uTargetAspect", cache.targetAspect);
         shaderProgram.setUniform("uProjectionFit", projectionFitMode(item.projectionFit));
-        const frameFitActive = options.frameFitActive === true;
-        shaderProgram.setUniform("uUseFrameFit", frameFitActive);
-        shaderProgram.setUniform("uFrameAspect", Math.max(0.0001, Number(options.frameAspect) || sourceWidth / Math.max(1, sourceHeight)));
-        shaderProgram.setUniform("uFrameFit", projectionFitMode(options.frameFit || "cover"));
+        const sourceFitActive = options.sourceFitActive === true;
+        shaderProgram.setUniform("uUseSourceFit", sourceFitActive);
+        shaderProgram.setUniform("uSourceTargetAspect", Math.max(0.0001, Number(options.sourceAspect) || sourceWidth / Math.max(1, sourceHeight)));
+        shaderProgram.setUniform("uSourceFit", projectionFitMode(options.sourceFit || "cover"));
         const opacity = Number(options.opacity ?? 1);
         shaderProgram.setUniform("uOpacity", Number.isFinite(opacity) ? Math.max(0, Math.min(1, opacity)) : 1);
         if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
@@ -247,6 +247,36 @@ export class VjMapper {
     pop();
     if (depthWasEnabled) gl.enable?.(gl.DEPTH_TEST);
     else gl?.disable?.(gl.DEPTH_TEST);
+  }
+
+  drawGuidePaths(paths = [], surface = null, { color = [255, 228, 94, 190], weight = 2 } = {}) {
+    if (!surface || !Array.isArray(paths) || !paths.length) return;
+    const projectedPaths = paths.map((path) => (path || [])
+      .map((point) => projectSurfaceUv(surface.corners, point))
+      .filter(Boolean))
+      .filter((path) => path.length >= 3);
+    if (!projectedPaths.length) return;
+    const gl = drawingContext;
+    const depthWasEnabled = typeof gl?.isEnabled === "function" && gl.isEnabled(gl.DEPTH_TEST);
+    gl?.disable?.(gl.DEPTH_TEST);
+    resetShader();
+    push();
+    try {
+      noFill();
+      stroke(...color);
+      strokeWeight(Math.max(1, Number(weight) || 1));
+      const halfWidth = width * 0.5;
+      const halfHeight = height * 0.5;
+      for (const path of projectedPaths) {
+        beginShape();
+        for (const point of path) vertex(point.x - halfWidth, point.y - halfHeight, 1);
+        endShape(CLOSE);
+      }
+    } finally {
+      pop();
+      if (depthWasEnabled) gl?.enable?.(gl.DEPTH_TEST);
+      else gl?.disable?.(gl.DEPTH_TEST);
+    }
   }
 
   mousePressed(mx = mouseX, my = mouseY) {
@@ -474,8 +504,8 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
         return smoothstep(0.0, uFeather, -roundedDistance);
       }` : "";
   const featherCode = feather ? `
-        vec2 featherUv = uUseFrameFit ? frameUv : (uProjectionFit >= 1.5 ? sampleUv : uv);
-        float featherAspect = uUseFrameFit ? uFrameAspect : (uProjectionFit >= 1.5 ? uSourceAspect : uTargetAspect);
+        vec2 featherUv = uUseSourceFit ? sourceTargetUv : (uProjectionFit >= 1.5 ? sampleUv : uv);
+        float featherAspect = uUseSourceFit ? uSourceTargetAspect : (uProjectionFit >= 1.5 ? uSourceAspect : uTargetAspect);
         float featherMask = roundedFeatherMask(featherUv, featherAspect);
         color *= featherMask;` : "";
   return `
@@ -485,9 +515,9 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
       uniform float uSourceAspect;
       uniform float uTargetAspect;
       uniform float uProjectionFit;
-      uniform bool uUseFrameFit;
-      uniform float uFrameAspect;
-      uniform float uFrameFit;
+      uniform bool uUseSourceFit;
+      uniform float uSourceTargetAspect;
+      uniform float uSourceFit;
       uniform float uOpacity;
       ${featherUniform}
       varying vec3 vProjectiveUv;
@@ -495,38 +525,38 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
-        vec2 frameUv = uv;
+        vec2 sourceTargetUv = uv;
         vec2 sampleUv = uv;
         float inside = 1.0;
-        float projectionSourceAspect = uUseFrameFit ? uFrameAspect : uSourceAspect;
+        float projectionSourceAspect = uUseSourceFit ? uSourceTargetAspect : uSourceAspect;
         if (uProjectionFit > 0.5 && uProjectionFit < 1.5) {
           if (projectionSourceAspect > uTargetAspect) {
-            frameUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / projectionSourceAspect);
+            sourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / projectionSourceAspect);
           } else {
-            frameUv.y = 0.5 + (uv.y - 0.5) * (projectionSourceAspect / uTargetAspect);
+            sourceTargetUv.y = 0.5 + (uv.y - 0.5) * (projectionSourceAspect / uTargetAspect);
           }
         } else if (uProjectionFit >= 1.5) {
           if (projectionSourceAspect > uTargetAspect) {
-            frameUv.y = 0.5 + (uv.y - 0.5) * (projectionSourceAspect / uTargetAspect);
+            sourceTargetUv.y = 0.5 + (uv.y - 0.5) * (projectionSourceAspect / uTargetAspect);
           } else {
-            frameUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / projectionSourceAspect);
+            sourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / projectionSourceAspect);
           }
-          inside = step(0.0, frameUv.x) * step(frameUv.x, 1.0) *
-            step(0.0, frameUv.y) * step(frameUv.y, 1.0);
+          inside = step(0.0, sourceTargetUv.x) * step(sourceTargetUv.x, 1.0) *
+            step(0.0, sourceTargetUv.y) * step(sourceTargetUv.y, 1.0);
         }
-        sampleUv = frameUv;
-        if (uUseFrameFit) {
-          if (uFrameFit > 0.5 && uFrameFit < 1.5) {
-            if (uSourceAspect > uFrameAspect) {
-              sampleUv.x = 0.5 + (frameUv.x - 0.5) * (uFrameAspect / uSourceAspect);
+        sampleUv = sourceTargetUv;
+        if (uUseSourceFit) {
+          if (uSourceFit > 0.5 && uSourceFit < 1.5) {
+            if (uSourceAspect > uSourceTargetAspect) {
+              sampleUv.x = 0.5 + (sourceTargetUv.x - 0.5) * (uSourceTargetAspect / uSourceAspect);
             } else {
-              sampleUv.y = 0.5 + (frameUv.y - 0.5) * (uSourceAspect / uFrameAspect);
+              sampleUv.y = 0.5 + (sourceTargetUv.y - 0.5) * (uSourceAspect / uSourceTargetAspect);
             }
-          } else if (uFrameFit >= 1.5) {
-            if (uSourceAspect > uFrameAspect) {
-              sampleUv.y = 0.5 + (frameUv.y - 0.5) * (uSourceAspect / uFrameAspect);
+          } else if (uSourceFit >= 1.5) {
+            if (uSourceAspect > uSourceTargetAspect) {
+              sampleUv.y = 0.5 + (sourceTargetUv.y - 0.5) * (uSourceAspect / uSourceTargetAspect);
             } else {
-              sampleUv.x = 0.5 + (frameUv.x - 0.5) * (uFrameAspect / uSourceAspect);
+              sampleUv.x = 0.5 + (sourceTargetUv.x - 0.5) * (uSourceTargetAspect / uSourceAspect);
             }
             inside *= step(0.0, sampleUv.x) * step(sampleUv.x, 1.0) *
               step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
@@ -735,6 +765,19 @@ function computeHomography(tl, tr, br, bl) {
   return h ? [h[0], h[1], h[2], h[3], h[4], h[5], h[6], h[7], 1] : [1, 0, 0, 0, 1, 0, 0, 0, 1];
 }
 
+export function projectSurfaceUv(corners = [], point = {}) {
+  if (!Array.isArray(corners) || corners.length !== 4) return null;
+  const matrix = computeHomography(...corners);
+  const u = Number(point.x);
+  const v = Number(point.y);
+  if (!Number.isFinite(u) || !Number.isFinite(v)) return null;
+  const qx = matrix[0] * u + matrix[1] * v + matrix[2];
+  const qy = matrix[3] * u + matrix[4] * v + matrix[5];
+  const qz = matrix[6] * u + matrix[7] * v + matrix[8];
+  if (!Number.isFinite(qz) || Math.abs(qz) < 1e-9) return null;
+  return { x: qx / qz, y: qy / qz };
+}
+
 function solve8(matrix, values) {
   const work = matrix.map((row) => row.slice());
   const y = values.slice();
@@ -824,7 +867,7 @@ export const MappingEngineNode = defineNode({
       editable: true,
       module: import.meta.url,
       export: "VjMapper",
-      source: [VjMapper, computeHomography, solve8, invert3x3, surfaceQuadVertices, projectedQuadAspect, projectedSurfaceAspect]
+      source: [VjMapper, computeHomography, projectSurfaceUv, solve8, invert3x3, surfaceQuadVertices, projectedQuadAspect, projectedSurfaceAspect]
         .map((value) => value.toString()).join("\n\n"),
     },
     {

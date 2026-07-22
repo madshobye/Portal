@@ -24,12 +24,15 @@ test("project payload preserves the selected component chain item", () => {
       workspaceSelectionIds: { component: "component-a", scene: "scene-b" },
       catalogSortModes: { component: "name", scene: "created", mapping: "recent" },
       previewQuality: "good",
+      previewDiagnostics: true,
       previewViewports: {
         component: { fit: "manual", zoom: 1.5, x: 20, y: -10 },
         live: { fit: "world", zoom: 1, x: 0, y: 0 },
       },
       live: {
         selectedSceneId: "scene-live",
+        showScenes: false,
+        showComponents: true,
         surfaceRoutes: { surfaces: [{ id: "surface-a", componentId: "component-a" }] },
         componentOverrides: { "component-a": { opacity: 0.5 } },
         transitionDuration: 2.5,
@@ -56,8 +59,11 @@ test("project payload preserves the selected component chain item", () => {
   assert.deepEqual(payload.ui.workspaceSelectionIds, state.ui.workspaceSelectionIds);
   assert.deepEqual(payload.ui.catalogSortModes, state.ui.catalogSortModes);
   assert.equal(payload.ui.previewQuality, state.ui.previewQuality);
+  assert.equal(payload.ui.previewDiagnostics, true);
   assert.deepEqual(payload.ui.previewViewports, state.ui.previewViewports);
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
+  assert.equal(payload.ui.live.showScenes, false);
+  assert.equal(payload.ui.live.showComponents, true);
   assert.equal(payload.ui.live.surfaceRoutes, undefined);
   assert.equal(payload.ui.live.transitionDuration, 2.5);
   assert.equal(payload.ui.live.paramFadeDuration, 0.75);
@@ -75,6 +81,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes("draft.media = mergeMediaCatalogMarkers(imported.media, draft.media)"));
   assert.ok(source.includes("previewQuality: projectUi?.previewQuality || currentUi.previewQuality"));
   assert.ok(source.includes("previewViewports: projectUi?.previewViewports || currentUi.previewViewports"));
+  assert.ok(source.includes("previewDiagnostics: projectUi?.previewDiagnostics ?? currentUi.previewDiagnostics"));
   assert.ok(!source.includes("legacyRecordingFrames"));
   assert.ok(source.includes("data = migrateProjectData(data)"));
   assert.ok(source.includes("projectLoadBlocked = true"));

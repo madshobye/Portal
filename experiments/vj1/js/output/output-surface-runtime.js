@@ -1,5 +1,8 @@
 import { clamp01 } from "../domain/models.js?v=chain-only-authority-1";
+import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=surface-identity-1";
 import { BoundedRenderTargetPool } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
+import { SceneFrameGuideNode } from "../libraries/composition-engine/index.js?v=scene-frame-guide-node-1";
+import { projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=frame-projection-aspect-1";
 import { componentInstanceTime } from "../libraries/timing-engine/index.js";
 import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { applyBlend } from "./blend-utils.js";
@@ -9,9 +12,10 @@ import {
   cornersRect,
   directFitRects,
   scaledComponentSampleRect,
-} from "./component-render-layout.js?v=canvas-global-resolution-1";
+  unifyTransitionComponentRenderRequests,
+} from "./component-render-layout.js?v=transition-demand-stability-1";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=preview-visible-demand-1";
+import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=live-overall-routing-1";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
@@ -81,7 +85,10 @@ export class OutputSurfaceRuntime {
         renderer.frameProfile.avoidedSurfaceRasterPixels += request.width * request.height;
         if (mapped.direct && Number(surface.feather) <= 0) {
           flushMapperBatch();
-          renderer.measureGpu(drawingContext, () => this.drawSurfaceRouteView(view, route));
+          renderer.measureGpu(drawingContext, () => {
+            this.drawSurfaceRouteView(view, route);
+            this.drawLiveMonitorGuideNodes(route);
+          });
           continue;
         }
         const blend = surfaceRouteBlend(route);
@@ -111,6 +118,7 @@ export class OutputSurfaceRuntime {
           else renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {
             opacity: surfaceRouteOpacity(route),
           });
+          this.drawLiveMonitorGuideNodes(route);
         } finally {
           blendMode(BLEND);
           pop();
@@ -153,18 +161,58 @@ export class OutputSurfaceRuntime {
       componentsShared ? "" : "transition-to:",
       () => this.buildSurfaceRenderPlan()
     );
-    const fromTextures = this.renderTransitionRouteTextures(fromRoutes, transition.fromState, "from");
-    const toTextures = this.renderTransitionRouteTextures(toRoutes, targetState, "to");
+    if (componentsShared) unifyTransitionComponentRenderRequests(fromRoutes, toRoutes);
     const fromBySurface = new Map(fromRoutes.map((route) => [route.surface.id, route]));
     const toBySurface = new Map(toRoutes.map((route) => [route.surface.id, route]));
-    const surfaceIds = [];
-    for (const surface of targetState.surfaces || []) {
-      if ((fromBySurface.has(surface.id) || toBySurface.has(surface.id)) && !surfaceIds.includes(surface.id)) surfaceIds.push(surface.id);
+    const changedSurfaceIds = new Set();
+    for (const surfaceId of new Set([...fromBySurface.keys(), ...toBySurface.keys()])) {
+      const fromRoute = fromBySurface.get(surfaceId);
+      const toRoute = toBySurface.get(surfaceId);
+      // Component override sharing controls cache identity, not route geometry.
+      // Only a source-program difference sends a Surface through transition
+      // textures. Otherwise an unrelated Surface patch makes every stable
+      // Overall route take the double-sampled transition path and visibly
+      // changes its scale for the duration of the blend.
+      if (!fromRoute || !toRoute || transitionRouteSourceKey(fromRoute) !== transitionRouteSourceKey(toRoute)) {
+        changedSurfaceIds.add(surfaceId);
+      }
     }
-    for (const route of fromRoutes) if (!surfaceIds.includes(route.surface.id)) surfaceIds.push(route.surface.id);
+    const fromTextures = this.renderTransitionRouteTextures(
+      fromRoutes.filter((route) => changedSurfaceIds.has(route.surface.id)),
+      transition.fromState,
+      "from"
+    );
+    const toTextures = this.renderTransitionRouteTextures(
+      toRoutes.filter((route) => changedSurfaceIds.has(route.surface.id)),
+      targetState,
+      "to"
+    );
+    // Transition compositing must use the same backplane order as the normal
+    // render path. Building this list from raw state.surfaces put derived
+    // direct-output routes (especially "Full surface") after authored mapped
+    // Surfaces, so they covered the projection for the duration of a Live
+    // transition. This only orders the existing draws; it adds no pass or
+    // render target.
+    const transitionSurfaces = [];
+    const transitionSurfaceIds = new Set();
+    for (const route of [...toRoutes, ...fromRoutes]) {
+      const surfaceId = String(route?.surface?.id || "");
+      if (!surfaceId || transitionSurfaceIds.has(surfaceId)) continue;
+      transitionSurfaceIds.add(surfaceId);
+      transitionSurfaces.push(route.surface);
+    }
+    const surfaceIds = orderedSurfaceProgram(transitionSurfaces).map((surface) => surface.id);
     for (const surfaceId of surfaceIds) {
       const fromRoute = fromBySurface.get(surfaceId);
       const toRoute = toBySurface.get(surfaceId);
+      // A route outside the source-program diff must remain on the exact same
+      // direct/stable path it uses before and after the transition. Sending it
+      // through two transition textures needlessly changes its sampling and
+      // made one Surface patch resize unrelated Surfaces during the blend.
+      if (!changedSurfaceIds.has(surfaceId) && toRoute) {
+        this.renderStableSurfaceRoute(toRoute);
+        continue;
+      }
       const route = toRoute || fromRoute;
       const mapped = route?.mapped;
       if (!mapped?.mapperSurface) continue;
@@ -177,17 +225,62 @@ export class OutputSurfaceRuntime {
         try {
           applyBlendGlobal(surfaceRouteBlend(route));
           renderer.mapper.drawTransitionTextures(fromTexture, toTexture, mapped.mapperSurface, {
-            fromProjectionFit: fromRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
-            toProjectionFit: toRoute?.surface?.projectionFit || (mapped.direct ? "contain" : "cover"),
+            // Both endpoint textures have already been sampled with their own
+            // route demand and fit into this Surface's final raster footprint.
+            // Applying cover/contain again here interprets that ready-to-map
+            // raster as source content a second time, so entering a transition
+            // changes scale and leaving it snaps back. The compositor owns only
+            // the blend and mapping of these prepared Surface textures.
+            fromProjectionFit: "stretch",
+            toProjectionFit: "stretch",
             feather,
             progress: transition.progress,
           });
+          this.drawLiveMonitorGuideNodes(route);
         } finally {
           blendMode(BLEND);
           pop();
         }
       });
     }
+  }
+
+  renderStableSurfaceRoute(route, outputBlackout = false) {
+    const renderer = this.renderer;
+    const { surface, mapped, surfaceRequest: request } = route;
+    if (this.canDirectProjectSurfaceRoute(route, outputBlackout)) {
+      const view = this.renderSurfaceRouteView(route);
+      if (!view) return;
+      renderer.frameProfile.directSurfaceSamples++;
+      renderer.frameProfile.avoidedSurfaceRasterPixels += request.width * request.height;
+      renderer.measureGpu(drawingContext, () => {
+        this.drawSurfaceRouteView(view, route);
+        this.drawLiveMonitorGuideNodes(route);
+      });
+      return;
+    }
+    renderer.frameProfile.surfaceRasterPixels += request.width * request.height;
+    const target = this.getSurfaceTexture(request);
+    if (!target) return;
+    target.push();
+    target.clear();
+    if (!outputBlackout) this.drawSurfaceRoute(target, route);
+    else target.background(0);
+    target.pop();
+    renderer.measureGpu(drawingContext, () => {
+      push();
+      try {
+        applyBlendGlobal(surfaceRouteBlend(route));
+        if (mapped.direct && Number(surface.feather) <= 0) this.drawDirectSurfaceTexture(target, route);
+        else renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {
+          opacity: surfaceRouteOpacity(route),
+        });
+        this.drawLiveMonitorGuideNodes(route);
+      } finally {
+        blendMode(BLEND);
+        pop();
+      }
+    });
   }
 
   renderTransitionRouteTextures(routes, renderState, side) {
@@ -250,9 +343,7 @@ export class OutputSurfaceRuntime {
     const previous = {
       state: renderer.state,
       componentById: renderer.componentById,
-      frameById: renderer.frameById,
       routeSourceNodeById: renderer.routeSourceNodeById,
-      routeSourceNodeByLegacyKey: renderer.routeSourceNodeByLegacyKey,
     };
     renderer.state = renderState;
     renderer.rebuildRouteLookups();
@@ -263,9 +354,7 @@ export class OutputSurfaceRuntime {
       // exact previous maps so temporary transition scopes cannot leak routes.
       renderer.state = previous.state;
       renderer.componentById = previous.componentById;
-      renderer.frameById = previous.frameById;
       renderer.routeSourceNodeById = previous.routeSourceNodeById;
-      renderer.routeSourceNodeByLegacyKey = previous.routeSourceNodeByLegacyKey;
     }
   }
 
@@ -292,7 +381,6 @@ export class OutputSurfaceRuntime {
       state: renderer.state,
       mapperSurfaces: renderer.mapperSurfaces,
       componentById: renderer.componentById,
-      frameById: renderer.frameById,
       viewport,
       pixelScale: renderer.renderPixelDensity(render),
       transformDemandCorners,
@@ -301,7 +389,7 @@ export class OutputSurfaceRuntime {
       // p5 canvas after the final viewport transform.
       preserveDirectFootprint: renderer.mode === "output",
       renderIdentityPrefix: this.renderIdentityPrefix,
-      surfaceProgram: surfaceProgram || renderer.mappingProgramSurfaces(renderer.state),
+      surfaceProgram: orderedSurfaceProgram(surfaceProgram || renderer.mappingProgramSurfaces(renderer.state)),
       resolveRouteSourceNode: (surface) => renderer.resolveRouteSourceNode(surface),
       isComponentRegionSafe: (component) => renderer.sceneComponentRegionSafe?.(component) === true,
       isComponentFrameFanoutSafe: (component) => renderer.sceneComponentFrameFanoutSafe?.(component) !== false,
@@ -381,14 +469,72 @@ export class OutputSurfaceRuntime {
       else renderer.mapper.drawTexture(view.texture, mapped.mapperSurface, surface.projectionFit, surface.feather, {
         sourceRect: view.sourceRect,
         opacity,
-        frameFitActive: surface.frameFitActive,
-        frameFit: surface.frameFit,
-        frameAspect: surface.frameAspect,
+        sourceFitActive: surface.sourceFitActive,
+        sourceFit: surface.sourceFit,
+        sourceAspect: surface.sourceAspect,
       });
     } finally {
       blendMode(BLEND);
       pop();
     }
+  }
+
+  drawLiveMonitorGuideNodes(route = {}) {
+    const renderer = this.renderer;
+    if (renderer.mode !== "live" || renderer.state?.ui?.workspace !== "live") return;
+    if (String(renderer.state?.ui?.live?.previewSurfaceId || "__mapping__") !== "__mapping__") return;
+    if (route.mapped?.direct !== true) return;
+    // This is the actual routed render boundary. A CSS outline can only mark
+    // the full p5 host canvas and is therefore wrong whenever the monitor is
+    // letterboxed inside it.
+    renderer.mapper.drawGuidePaths([[
+      { x: 0, y: 0 },
+      { x: 1, y: 0 },
+      { x: 1, y: 1 },
+      { x: 0, y: 1 },
+    ]], route.mapped.mapperSurface, { color: [84, 228, 212, 184], weight: 1 });
+    this.drawSceneFrameGuideNode(route);
+  }
+
+  drawSceneFrameGuideNode(route = {}) {
+    const renderer = this.renderer;
+    // The guide belongs to the Scene Mapping monitor, not to its current source.
+    // Overall can transition between Scenes and standalone Components; tying the
+    // guide to component.type made it disappear for the Component endpoint.
+    const corners = route.mapped?.mapperSurface?.corners;
+    if (!Array.isArray(corners) || corners.length !== 4) return;
+    const logicalSize = route.demand?.logicalSize || { width: 1, height: 1 };
+    const sampleRect = route.demand?.sampleRect || {
+      x: 0,
+      y: 0,
+      width: Math.max(1, Number(logicalSize.width) || 1),
+      height: Math.max(1, Number(logicalSize.height) || 1),
+    };
+    const sourceAspect = Math.max(0.0001,
+      (Number(sampleRect.width) || 1) / Math.max(1, Number(sampleRect.height) || 1));
+    const targetAspect = projectedQuadAspect(corners, sourceAspect);
+    const selectedMapping = renderer.state?.mappings?.find((mapping) =>
+      String(mapping.id) === String(renderer.state?.ui?.selectedMappingId || "")
+    ) || renderer.state?.mappings?.[0] || null;
+    const guideSurfaces = renderer.state?.ui?.live?.surfaceRoutes?.surfaces
+      || selectedMapping?.surfaces
+      || [];
+    const visibleFrameIds = visibleSceneSurfaceIds(guideSurfaces);
+    const { paths } = SceneFrameGuideNode.process({
+      // Live's materialized route program is the authority here. It includes
+      // output-backed Surfaces as well as authored projection Surfaces; the
+      // Mapping model alone can omit those derived output routes and previously
+      // left Overall preview showing only the Full surface rectangle.
+      frames: guideSurfaces.filter((frame) =>
+        visibleFrameIds.has(String(frame.id || ""))
+      ),
+      logicalSize,
+      sampleRect,
+      sourceAspect,
+      targetAspect,
+      projectionFit: route.surface?.projectionFit || "cover",
+    });
+    renderer.mapper.drawGuidePaths(paths, route.mapped.mapperSurface);
   }
 
   drawSurfaceRouteViewBatch(items = [], blend = "normal") {
@@ -404,9 +550,9 @@ export class OutputSurfaceRuntime {
         options: {
           sourceRect: view.sourceRect,
           opacity: surfaceRouteOpacity(route),
-          frameFitActive: route.surface.frameFitActive,
-          frameFit: route.surface.frameFit,
-          frameAspect: route.surface.frameAspect,
+          sourceFitActive: route.surface.sourceFitActive,
+          sourceFit: route.surface.sourceFit,
+          sourceAspect: route.surface.sourceAspect,
         },
       })));
     } finally {
@@ -435,10 +581,10 @@ export class OutputSurfaceRuntime {
       {
         sourceRect,
         opacity,
-        ...(route.surface?.frameFitActive ? {
-          frameFitActive: true,
-          frameFit: route.surface.frameFit,
-          frameAspect: route.surface.frameAspect,
+        ...(route.surface?.sourceFitActive ? {
+          sourceFitActive: true,
+          sourceFit: route.surface.sourceFit,
+          sourceAspect: route.surface.sourceAspect,
         } : {}),
       }
     );
@@ -465,7 +611,7 @@ export class OutputSurfaceRuntime {
       source,
       sampleRect,
       component?.transform,
-      surface.frameFitActive ? surface.frameFit : "stretch"
+      surface.sourceFitActive ? surface.sourceFit : "stretch"
     );
     target.noTint();
     target.blendMode(BLEND);
@@ -491,7 +637,7 @@ export class OutputSurfaceRuntime {
         thumbnail.img,
         sampleRect,
         component?.transform,
-        surface.frameFitActive ? surface.frameFit : "stretch"
+        surface.sourceFitActive ? surface.sourceFit : "stretch"
       );
     } else {
       const isLoading = !!component?.thumbnail;
@@ -505,6 +651,18 @@ export class OutputSurfaceRuntime {
     target.blendMode(BLEND);
     target.pop();
   }
+}
+
+export function transitionRouteSourceKey(route = {}) {
+  const surface = route.surface || {};
+  return JSON.stringify([
+    surface.sourceNodeId || "",
+    surface.componentId || "",
+    surface.sceneCrop === true,
+    surface.sourceFit || "cover",
+    surface.sourceFitActive === true,
+    Math.round((Number(surface.sourceAspect) || 1) * 1e6) / 1e6,
+  ]);
 }
 
 function drawTransformedSampleRect(target, source, sampleRect, transform = {}, fit = "stretch") {

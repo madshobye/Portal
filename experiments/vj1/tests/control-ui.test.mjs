@@ -8,7 +8,7 @@ import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState } from "../js/domain/models.js";
 import { previewFitSignature, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
 import { isPointerInteractionNode, rememberScrollPositions, restoreScrollPositions } from "../js/control/dom-utils.js";
-import { scrollRegionTemplate } from "../js/control/view-primitives.js";
+import { panelTemplate, railListSectionTemplate, scrollRegionTemplate } from "../js/control/view-primitives.js";
 import { applyOptimisticToggleIntent, boundaryFromScaleInput, isBoundaryScaleInput } from "../js/control/input-controller.js";
 import { activeRenderCost, activeWorkMetric, performanceHealthStep, rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
 import { mediaSourceParams } from "../js/control/source-control-schema.js";
@@ -409,18 +409,17 @@ test("collection workspaces keep controls fixed and scroll only their list bodie
   assert.ok(controllerSource.includes("refs.projectRail.dataset.workspace = workspace"));
   assert.match(styleSource, /\.project-rail:is\(\[data-workspace="component"\][\s\S]*?overflow: hidden;/);
   assert.match(styleSource, /> \.rail-list-section \{[\s\S]*?flex: 1 1 0;[\s\S]*?min-height: 0;/);
-  assert.match(controllerSource, /<span>Live sources<\/span>[\s\S]*?data-live-source-filter="scenes"[\s\S]*?data-live-source-filter="components"/);
+  assert.match(controllerSource, /title: "Sources"[\s\S]*?data-live-source-filter="scenes"[\s\S]*?data-live-source-filter="components"/);
   assert.match(styleSource, /\.project-rail\[data-workspace="mapping"\] > \.mapping-surface-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
-  assert.match(controllerSource, /class="ui-section rail-section rail-list-section mapping-surface-rail-section"[\s\S]*?"Surfaces"/);
-  assert.match(styleSource, /\.project-rail\[data-workspace="scene"\] > \.scene-frame-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
-  assert.match(controllerSource, /class="ui-section rail-section rail-list-section scene-frame-rail-section"[\s\S]*?"Frames"/);
+  assert.match(controllerSource, /railListSectionTemplate\(\{[\s\S]*?"Surfaces"[\s\S]*?className: "mapping-surface-rail-section"/);
+  assert.match(styleSource, /\.project-rail\[data-workspace="scene"\] > \.mapping-surface-rail-section \{[\s\S]*?flex-grow: 0\.6;/);
   assert.match(styleSource, /\.rail-list-section > \.rail-scroll-list \{[\s\S]*?overflow-y: auto;[\s\S]*?scrollbar-gutter: stable;/);
   assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\][\s\S]*?overflow: hidden;/);
-  assert.match(styleSource, /\.studio-inspector\[data-workspace="scene"\] > \.scene-frame-panel \{[\s\S]*?flex: 0 0 auto;[\s\S]*?grid-template-rows: auto auto;/);
+  assert.match(styleSource, /\.studio-inspector\[data-workspace="scene"\] > \.scene-surface-panel,[\s\S]*?flex: 0 0 auto;[\s\S]*?grid-template-rows: auto auto;/);
   assert.match(styleSource, /\.component-chain-list,[\s\S]*?align-content: start;[\s\S]*?overflow-y: auto;/);
-  assert.match(controllerSource, /class="component-card-list rail-scroll-list"/);
-  assert.match(controllerSource, /class="scene-card-list live-scene-list rail-scroll-list"/);
-  assert.match(controllerSource, /class="mapping-text-list rail-scroll-list"/);
+  assert.match(controllerSource, /listClassName: "component-card-list"/);
+  assert.match(controllerSource, /listClassName: "scene-card-list live-scene-list"/);
+  assert.match(controllerSource, /listClassName: "mapping-text-list"/);
 });
 
 test("selection rerenders preserve every keyed catalog and chain viewport", () => {
@@ -431,10 +430,10 @@ test("selection rerenders preserve every keyed catalog and chain viewport", () =
   const pickerSource = readFileSync(new URL("../js/control/picker-view.js", import.meta.url), "utf8");
   const domSource = readFileSync(new URL("../js/control/dom-utils.js", import.meta.url), "utf8");
 
-  for (const key of ["component-catalog", "scene-catalog", "scene-frames", "mapping-catalog", "mapping-surfaces"]) {
-    assert.ok(controllerSource.includes(`data-scroll-region data-scroll-key="${key}"`), `missing scroll region: ${key}`);
+  for (const key of ["component-catalog", "scene-catalog", "scene-surfaces", "mapping-catalog", "mapping-surfaces"]) {
+    assert.ok(controllerSource.includes(`scrollKey: "${key}"`), `missing scroll region: ${key}`);
   }
-  assert.ok(controllerSource.includes('data-scroll-key="live-sources:${showScenes ? "s" : ""}${showComponents ? "c" : ""}"'));
+  assert.ok(controllerSource.includes('scrollKey: `live-sources:${showScenes ? "s" : ""}${showComponents ? "c" : ""}`'));
   assert.ok(componentSource.includes("scrollRegionTemplate(`component-chain:${component.id}`"));
   assert.ok(componentSource.includes("scrollRegionTemplate(`chain-params:${component.id}:${item.id}:${view.id}`"));
   assert.ok(sceneSource.includes('data-scroll-region data-scroll-key="live-controls:${esc(component.id)}"'));
@@ -452,6 +451,30 @@ test("scroll region primitive gives every rerendered viewport a stable identity"
   assert.ok(html.includes("<span>content</span>"));
 });
 
+test("rail lists share one structural primitive for populated and empty states", () => {
+  const empty = railListSectionTemplate({ iconName: "list", title: "Items", emptyText: "No items", scrollKey: "items" });
+  const populated = railListSectionTemplate({ iconName: "list", title: "Items", content: "<button>One</button>", scrollKey: "items" });
+
+  for (const html of [empty, populated]) {
+    assert.match(html, /ui-list-section/);
+    assert.match(html, /ui-list-content rail-scroll-list/);
+    assert.match(html, /data-scroll-key="items"/);
+  }
+  assert.match(empty, /ui-list-empty/);
+  assert.match(empty, /ui-empty-state/);
+  assert.match(empty, /is-empty/);
+  assert.doesNotMatch(populated, /ui-list-empty/);
+  assert.doesNotMatch(populated, /is-empty/);
+});
+
+test("empty panels expose the same intrinsic-size state as empty lists", () => {
+  const empty = panelTemplate("tune", "Inspector", "<div>No selection</div>", { empty: true });
+  const populated = panelTemplate("tune", "Inspector", "<div>Controls</div>");
+
+  assert.match(empty, /focus-panel is-empty/);
+  assert.doesNotMatch(populated, /is-empty/);
+});
+
 test("every workspace rail uses the same constrained first-column module", () => {
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8")
@@ -462,7 +485,6 @@ test("every workspace rail uses the same constrained first-column module", () =>
   assert.match(controllerSource, /addableRailTitleTemplate\("account_tree", "Components", "data-add-component"/);
   assert.match(controllerSource, /addableRailTitleTemplate\("dashboard_customize", "Scenes", "data-add-scene"/);
   assert.match(controllerSource, /addableRailTitleTemplate\("auto_awesome_motion", "Mappings", "data-add-mapping"/);
-  assert.match(controllerSource, /addableRailTitleTemplate\("select_all", "Frames", `data-add-frame/);
   assert.match(controllerSource, /addableRailTitleTemplate\("select_all", "Surfaces", "data-add-surface"/);
   assert.match(styleSource, /\.rail-title-add \{[\s\S]*?width: 22px;[\s\S]*?margin-left: auto;/);
   assert.doesNotMatch(styleSource, /\.capture-row/);
@@ -640,7 +662,7 @@ test("Live scenes expose separate scene-transition and parameter-fade durations"
 test("Live exposes a phase-continuous global visual time stretch", () => {
   const source = readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
 
-  assert.match(source, /function liveToolsTemplate[\s\S]*?Live sources[\s\S]*?data-live-source-filter="scenes"[\s\S]*?data-live-source-filter="components"[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-timing-params[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
+  assert.match(source, /function liveToolsTemplate[\s\S]*?<span>Sources<\/span>[\s\S]*?data-live-source-filter="scenes"[\s\S]*?data-live-source-filter="components"[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-timing-params[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
   assert.ok(source.includes("Time stretch"));
   assert.ok(source.includes('data-update="global.timeStretch"'));
   assert.ok(source.includes('min="-4" max="4" step="0.01"'));
@@ -662,6 +684,13 @@ test("embedded preview retargets resize observation after workspace DOM replacem
   assert.ok(source.includes("if (revealCanvasAfterDraw)"));
   assert.ok(controllerSource.includes('if (reason === "workspace")'));
   assert.ok(controllerSource.includes("render(state);"));
+});
+
+test("thumbnail preview keeps the shared renderer cadence independent from its display mode", () => {
+  const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+
+  assert.match(previewSource, /function applyPreviewFrameRate\(\)[\s\S]*?thumbnailPreview: false/);
+  assert.doesNotMatch(previewSource, /thumbnailPreview: pendingState\?\.ui\?\.debugPreview === false/);
 });
 
 test("ordinary UI interactions do not wait through a fixed post-click quiet period", () => {
@@ -721,6 +750,25 @@ test("Mapping preview draws an editor-only output frame without another render t
   assert.doesNotMatch(renderer, /renderMappingFrameOverlay[\s\S]{0,900}createGraphics\(/);
 });
 
+test("Live Overall Frame guides are a route-patched zero-buffer node", () => {
+  const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const surfaceRuntime = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
+  const guideNode = readFileSync(new URL("../js/libraries/composition-engine/scene-frame-guides/index.js", import.meta.url), "utf8");
+  assert.doesNotMatch(renderer, /renderLiveOverallFrameOverlay/);
+  assert.match(surfaceRuntime, /drawSurfaceRouteView\(view, route\);[\s\S]*?drawLiveMonitorGuideNodes\(route\)/);
+  assert.match(surfaceRuntime, /drawGuidePaths\(\[\[[\s\S]*?color: \[84, 228, 212, 184\]/);
+  assert.match(surfaceRuntime, /SceneFrameGuideNode\.process/);
+  assert.match(surfaceRuntime, /renderer\.mapper\.drawGuidePaths\(paths, route\.mapped\.mapperSurface\)/);
+  assert.doesNotMatch(surfaceRuntime, /route\.component\?\.type !== "scene"/);
+  assert.match(guideNode, /Output Frames are useful authored guides/);
+  assert.match(guideNode, /"zero-buffer"/);
+  const guideRuntime = surfaceRuntime.slice(
+    surfaceRuntime.indexOf("drawSceneFrameGuideNode(route = {})"),
+    surfaceRuntime.indexOf("drawSurfaceRouteViewBatch")
+  );
+  assert.doesNotMatch(guideNode + guideRuntime, /createGraphics\(/);
+});
+
 test("output metrics use a targeted runtime state path", () => {
   const bridge = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
 
@@ -768,6 +816,8 @@ test("Scene uses the shared chain and exposes Frames as Mapping routes", () => {
   assert.ok(componentSource.includes('if (item.source?.type === "component") return sourceTitle'));
   assert.ok(source.includes("data-preview-quality"));
   assert.ok(source.includes("data-preview-quality-label"));
+  assert.ok(source.includes("data-preview-diagnostics"));
+  assert.ok(source.includes("ui.previewDiagnostics = ui.previewDiagnostics !== true"));
   assert.ok(source.includes('quality === "auto" ? "good" : quality === "good" ? "low" : "auto"'));
   assert.ok(source.includes("matches the display's native density"));
   assert.ok(source.includes('["component", "scene", "mapping", "live"].includes(workspace)'));
@@ -801,6 +851,19 @@ test("preview resolution controls reserve invariant space while labels and metri
 
   assert.match(style, /\.preview-quality-tool \{[\s\S]*?flex: 0 0 48px;[\s\S]*?min-width: 48px;[\s\S]*?max-width: 48px;/);
   assert.match(style, /\.preview-fps \{[\s\S]*?flex: 0 0 174px;[\s\S]*?min-width: 174px;[\s\S]*?max-width: 174px;/);
+});
+
+test("preview scaling diagnostics reuse the dormant geometry and detailed HUD probes", () => {
+  const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const embedded = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(controller, /data-preview-diagnostics/);
+  assert.match(embedded, /pendingState\?\.ui\?\.previewDiagnostics === true/);
+  assert.match(embedded, /classList\?\.toggle\("is-geometry-diagnostic", enabled\)/);
+  assert.match(renderer, /this\.previewDiagnosticHudMarkup\(fps\)/);
+  assert.match(style, /\.output-stage canvas \{[\s\S]*?outline: 1px solid rgba\(84, 228, 212, 0\.72\);/);
 });
 
 test("compact text lists share one full-width item generator", () => {
@@ -884,15 +947,14 @@ test("embedded Live preview switches Scenes immediately without media-preparatio
   assert.equal(incoming.liveTransition.startedAtMs, 100, "preparation must not mutate commanded state");
 });
 
-test("narrow layouts retain both control columns and disable the preview first", () => {
+test("narrow layouts retain every workspace control column and disable the preview first", () => {
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   assert.match(styleSource, /\.studio-layout \{[\s\S]*?--project-rail-width: 220px;[\s\S]*?--inspector-width: 330px;[\s\S]*?grid-template-columns: var\(--project-rail-width\) var\(--inspector-width\) minmax\(0, 1fr\);[\s\S]*?overflow-x: auto;/);
   assert.match(styleSource, /@media \(max-width: 1100px\)[\s\S]*?\.studio-layout \{[\s\S]*?grid-template-columns: var\(--project-rail-width\) var\(--inspector-width\);[\s\S]*?\.studio-main \{[\s\S]*?display: none;/);
-  assert.match(styleSource, /@media \(max-width: 760px\)[\s\S]*?\.project-rail,[\s\S]*?\.studio-inspector \{[\s\S]*?display: grid;/);
+  assert.match(styleSource, /@media \(max-width: 760px\)[\s\S]*?\.project-rail,\s*\.studio-inspector,\s*\.live-projection-rail\[data-workspace="live"\] \{[\s\S]*?display: grid;/);
   assert.ok(controller.includes('window.matchMedia("(max-width: 1100px)")'));
   assert.ok(controller.includes("previewLayoutQuery?.matches"));
-  assert.match(styleSource, /@media \(max-width: 760px\)[\s\S]*?\.studio-inspector \{[\s\S]*?display: grid;/);
 });
 
 test("the application shell cannot become a vertically scrolled document", () => {
@@ -1016,7 +1078,7 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(bridgeSource.includes('if (change.scope !== "live") return;'));
   assert.ok(bridgeSource.includes("scheduleLivePatches();"));
   assert.ok(bridgeSource.includes("flushLivePatches();"));
-  assert.ok(synchronizationSource.includes('typeof queueMicrotask === "function"'));
+  assert.ok(synchronizationSource.includes('typeof requestAnimationFrame === "function"'));
   assert.ok(bridgeSource.includes('type: "live-patch"'));
   assert.ok(!appSource.includes("setTimeout(() => bridge.sendState(), 90)"));
   assert.ok(stateSource.includes("function updateLive(recipe"));
@@ -1054,12 +1116,23 @@ test("opening an output never changes the Live Scene", () => {
   assert.ok(!bridgeSource.includes("initialSceneAccepted"));
   assert.ok(!bridgeSource.includes("initialSceneId"));
   assert.ok(appSource.includes('state.ui.workspace === "mapping"'));
-  assert.ok(appSource.includes('bridge.command("sync-mapping"'));
+  assert.ok(appSource.includes('createRenderStatePatch("mappingCalibration"'));
+  assert.ok(!appSource.includes('bridge.command("sync-mapping"'));
   assert.ok(appSource.includes("bridge.sendState();"));
   assert.ok(!appSource.includes("isSceneSurfaceOutputChange(reason)"));
   assert.ok(!appSource.includes("bridge.sendState(store.getRenderState())"));
   assert.ok(!appSource.includes('if (state.ui.workspace === "mapping") return;'));
   assert.ok(!controllerSource.includes("setTimeout(() => bridge.sendState(), 350)"));
+});
+
+test("studio scrubs patch previews without replacing their complete state", () => {
+  const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+
+  assert.ok(controllerSource.includes("componentRenderPatchesForChange(state, change)"));
+  assert.ok(controllerSource.includes("embeddedPreview.applyRenderPatches(renderPatches)?.applied"));
+  assert.ok(controllerSource.includes("if (!patchedLivePreview && !patchedStudioPreview"));
+  assert.ok(controllerSource.includes('if (change.topic === "mapping-state")'));
+  assert.ok(controllerSource.includes('if (change.phase !== "scrub") renderPreview(state)'));
 });
 
 test("multiple configured outputs have individual popup actions", () => {

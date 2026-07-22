@@ -1,11 +1,12 @@
-import { createAppState } from "./app-state.js?v=scene-live-audit-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=multi-output-preview-world-1";
+import { createAppState } from "./app-state.js?v=scene-mapping-output-visibility-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=live-thumbnail-toggle-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=scene-mapping-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=preview-debug-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=scene-mapping-output-visibility-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=queued-recovery-1";
-import { installOutputApp } from "./output/output-app.js?v=multi-output-preview-world-1";
+import { installOutputApp } from "./output/output-app.js?v=source-detail-contract-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
+import { createRenderStatePatch } from "./domain/live-render-patch.js?v=render-state-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
 import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js?v=runtime-diagnostics-1";
 
@@ -24,7 +25,7 @@ if (mode === "output" || mode === "preview" || mode === "component") {
 async function installControlApp() {
   // Control-only composition keeps node catalog/editor metadata completely out
   // of output and preview render processes; no live-frame work is introduced.
-  const { createVj1NodePackage } = await import("./app-node-package.js?v=isf-nodes-1");
+  const { createVj1NodePackage } = await import("./app-node-package.js?v=sdf-content-editor-1");
   const { applicationProgramFromProjectData, loadStoredApplicationProgram } = await import("./services/application-program-loader.js?v=application-bootstrap-10");
   const nodePackage = createVj1NodePackage();
   const fixtureUrl = fixtureStateUrl();
@@ -137,7 +138,9 @@ async function installControlApp() {
     }
     if (["runtime", "derived", "ui"].includes(change.scope)) return;
     if (state.ui.workspace === "mapping" && change.topic === "mapping-state") {
-      bridge.command("sync-mapping", { mappingCalibration: state.mappingCalibration });
+      bridge.sendRenderPatches([
+        createRenderStatePatch("mappingCalibration", state.mappingCalibration),
+      ], { coalesce: change.phase === "scrub" });
       return;
     }
     if (state.ui.workspace === "mapping" && ["blackout", "toggle-output-playback", "toggle-output-hud"].includes(reason)) {

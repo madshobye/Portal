@@ -29,11 +29,13 @@ import {
   migrateProjectV25ToV26,
   migrateProjectV26ToV27,
   migrateProjectV27ToV28,
+  migrateProjectV28ToV29,
+  migrateProjectV29ToV30,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 28);
+  assert.equal(CURRENT_PROJECT_VERSION, 30);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -525,6 +527,56 @@ test("v27 to v28 gives each Mapping complete Surface and calibration ownership",
     surfaces: [{ id: "surface-a", corners: [] }],
   });
   assert.equal(Object.hasOwn(migrated.ui.live, "mappingSnapshot"), false);
+});
+
+test("v28 to v29 folds Frame placement into Mapping Surfaces", () => {
+  const migrated = migrateProjectV28ToV29({
+    version: 28,
+    frames: [{ id: "frame-a", x: 0.1, y: 0.2, width: 0.3, height: 0.4, keepProportions: false }],
+    mappings: [{ id: "mapping-a", surfaces: [{ id: "surface-a", frameSlotId: "frame-a" }] }],
+    components: [{ id: "scene-a", type: "scene", scene: {
+      frames: [{ frameId: "frame-a", componentId: "component-a" }],
+      frameThumbnails: { "frame-a": "thumb-a" },
+    } }],
+  });
+  const surface = migrated.mappings[0].surfaces[0];
+  assert.deepEqual(
+    { x: surface.x, y: surface.y, width: surface.width, height: surface.height, keepProportions: surface.keepProportions },
+    { x: 0.1, y: 0.2, width: 0.3, height: 0.4, keepProportions: false }
+  );
+  assert.equal(Object.hasOwn(migrated, "frames"), false);
+  assert.equal(Object.hasOwn(surface, "frameSlotId"), false);
+  assert.deepEqual(migrated.components[0].scene, { surfaceThumbnails: { "surface-a": "thumb-a" } });
+});
+
+test("v29 to v30 seals authored Surfaces and discards intermediate runtime routes", () => {
+  const migrated = migrateProjectV29ToV30({
+    version: 29,
+    frames: [{ id: "stale-frame" }],
+    surfaces: [{ id: "stale-runtime-surface" }],
+    mappings: [{ id: "mapping-a", surfaces: [{
+      id: "surface-a", x: 0.2, y: 0.3, width: 0.4, height: 0.5,
+      sourceNodeId: "component:scene-a", componentId: "scene-a",
+      outputFrameId: "stale-frame", frameSlotId: "stale-frame",
+      sceneCrop: true, sourceFit: "cover", sourceFitActive: true, sourceAspect: 2,
+    }] }],
+    components: [{ id: "scene-a", type: "scene", scene: { frames: [], surfaceThumbnails: {} } }],
+    ui: { selectedFrameId: "stale-frame", live: {
+      sourceKind: "scene", surfaceRoutes: { surfaces: [] }, transition: { progress: 0.5 },
+    } },
+  });
+  const surface = migrated.mappings[0].surfaces[0];
+  assert.deepEqual(
+    { id: surface.id, x: surface.x, y: surface.y, width: surface.width, height: surface.height },
+    { id: "surface-a", x: 0.2, y: 0.3, width: 0.4, height: 0.5 }
+  );
+  for (const key of ["sourceNodeId", "componentId", "outputFrameId", "frameSlotId", "sceneCrop", "sourceFitActive"]) {
+    assert.equal(Object.hasOwn(surface, key), false, `${key} must not persist`);
+  }
+  assert.equal(Object.hasOwn(migrated, "frames"), false);
+  assert.equal(Object.hasOwn(migrated, "surfaces"), false);
+  assert.equal(Object.hasOwn(migrated.ui, "selectedFrameId"), false);
+  assert.deepEqual(migrated.ui.live, { showScenes: true, showComponents: false });
 });
 
 test("migration runner applies every adjacent step in order", () => {

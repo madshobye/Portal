@@ -8,7 +8,7 @@ import {
   importNodePackage,
   installNodePackageIntoProject,
 } from "./libraries/node-engine/index.js";
-import { listEffectNodeComponents, listGeneratorNodeComponents } from "./libraries/visual-nodes/index.js?v=node-catalog-14";
+import { listEffectNodeComponents, listGeneratorNodeComponents } from "./libraries/visual-nodes/index.js?v=sdf-content-editor-1";
 import { SliderArtifact, SliderNode } from "./libraries/control-engine/index.js";
 import { ValueControlNode } from "./libraries/control-engine/index.js";
 import { CacheEngineNode } from "./libraries/cache-engine/index.js";
@@ -17,7 +17,7 @@ import { DiagnosticsEngineNode } from "./libraries/diagnostics-engine/index.js";
 import { ImageResizeNode } from "./libraries/image-engine/index.js";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./libraries/timing-engine/index.js";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
-import { SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
+import { SceneFrameGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=scene-frame-guide-node-1";
 import {
   COMPONENT_PROGRAM_GENERATOR,
   ComponentProgramNode,
@@ -26,7 +26,7 @@ import {
   compileComponentGroupTopology,
   componentProgramInstances,
   reconcileComponentGroupTopology,
-} from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
+} from "./libraries/composition-engine/index.js?v=mapping-order-authority-1";
 import {
   MAPPING_PROGRAM_GENERATOR,
   OutputProgramNode,
@@ -35,7 +35,7 @@ import {
   compileOutputGroupTopology,
   compileMappingGroupTopology,
   mappingProgramInstances,
-} from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
+} from "./libraries/composition-engine/index.js?v=mapping-order-authority-1";
 import {
   APPLICATION_PROGRAM_GENERATOR,
   ApplicationProgramRuntime,
@@ -43,12 +43,12 @@ import {
   applicationProgramInstances,
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
-} from "./libraries/composition-engine/index.js?v=compact-project-nodes-1";
+} from "./libraries/composition-engine/index.js?v=mapping-order-authority-1";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
-import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=node-catalog-14";
+import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=sdf-content-editor-1";
 import {
   Convert3dFileToImageGroup,
   Detect3dFormatNode,
@@ -78,6 +78,7 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   InstanceTimeNode,
   MappingEngineNode,
   SurfaceCompositionNode,
+  SceneFrameGuideNode,
   ComponentProgramNode,
   LayerGroupNode,
   VisualSourceNode,

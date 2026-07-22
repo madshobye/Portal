@@ -75,6 +75,34 @@ test("manual viewport navigation is retained independently per workspace", () =>
   assert.equal(ui.previewViewports.component.zoom, 4.5);
 });
 
+test("wheel zoom keeps the world point beneath the cursor stationary", () => {
+  const viewport = { fit: "manual", zoom: 2, x: 30, y: -20 };
+  const anchor = { x: 700, y: 180, centerX: 500, centerY: 300 };
+  const before = {
+    x: (anchor.x - anchor.centerX - viewport.x) / viewport.zoom,
+    y: (anchor.y - anchor.centerY - viewport.y) / viewport.zoom,
+  };
+  const zoomed = zoomViewport(viewport, 1.5, anchor);
+  const after = {
+    x: (anchor.x - anchor.centerX - zoomed.x) / zoomed.zoom,
+    y: (anchor.y - anchor.centerY - zoomed.y) / zoomed.zoom,
+  };
+
+  assert.deepEqual(after, before);
+  assert.deepEqual(zoomed, { fit: "manual", zoom: 3, x: -55, y: 30 });
+});
+
+test("cursor anchored zoom uses the clamped zoom ratio", () => {
+  const zoomed = zoomViewport(
+    { fit: "manual", zoom: 5, x: 0, y: 0 },
+    2,
+    { x: 750, y: 500, centerX: 500, centerY: 500 }
+  );
+  assert.equal(zoomed.zoom, 6);
+  assert.ok(Math.abs(zoomed.x + 50) < 1e-9);
+  assert.equal(zoomed.y, 0);
+});
+
 test("Mapping viewport survives render-state normalization", async () => {
   const { normalizePreviewViewports } = await import("../js/domain/render-settings.js");
   const normalized = normalizePreviewViewports({

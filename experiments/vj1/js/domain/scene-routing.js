@@ -4,45 +4,22 @@ export function normalizeProjectionFit(value) {
   return value === "contain" || value === "stretch" ? value : "cover";
 }
 
-export function sceneSourceNodeId(componentId = "", frameId = "") {
-  return frameId
-    ? `recording-frame:${encodeURIComponent(componentId)}:${encodeURIComponent(frameId)}`
-    : `component:${encodeURIComponent(componentId)}`;
+export function sceneSourceNodeId(componentId = "") {
+  return `component:${encodeURIComponent(componentId)}`;
 }
 
 export function sceneSourceNodes(state = {}, { includeSystem = false } = {}) {
-  const frames = Array.isArray(state.frames) ? state.frames : [];
-  return (state.components || []).filter((component) => includeSystem || !component.systemRole).flatMap((component) => {
-    const componentNode = {
+  return (state.components || []).filter((component) => includeSystem || !component.systemRole).map((component) => ({
       id: sceneSourceNodeId(component.id),
       type: "component",
       name: component.name,
       thumbnail: component.thumbnail || "",
       componentId: component.id,
-      outputFrameId: "",
       catalogMarker: component.catalogMarker || 0,
       createdAt: component.activity?.createdAt || "",
       updatedAt: component.activity?.updatedAt || component.activity?.createdAt || "",
       recentAt: latestProjectActivity(component.activity),
-    };
-    if (component.type !== "scene") return [componentNode];
-    return [
-      componentNode,
-      ...frames.map((frame) => ({
-        id: sceneSourceNodeId(component.id, frame.id),
-        type: "recording-frame",
-        name: `${component.name} · ${frame.name}`,
-        thumbnail: component.scene?.frameThumbnails?.[frame.id] || component.thumbnail || "",
-        componentId: component.id,
-        outputFrameId: frame.id,
-        catalogMarker: component.catalogMarker || 0,
-        frameId: frame.id,
-        createdAt: latestTimestamp(component.activity?.createdAt, frame.activity?.createdAt),
-        updatedAt: latestTimestamp(component.activity?.updatedAt, frame.activity?.updatedAt),
-        recentAt: Math.max(latestProjectActivity(component.activity), latestProjectActivity(frame.activity)),
-      })),
-    ];
-  });
+    }));
 }
 
 export function resolveSceneSourceNode(state = {}, sourceNodeId = "") {
@@ -61,36 +38,37 @@ export function applySceneSourceNode(route = {}, node = null) {
     ...route,
     sourceNodeId: node?.id || "",
     componentId: node?.componentId || "",
-    outputFrameId: node?.outputFrameId || "",
+    sceneCrop: false,
   };
 }
 
-// A Mapping stores a frame slot, not a concrete Scene component. Resolving the
-// slot at the Live boundary lets one Mapping drive any Scene without mutating
-// the Mapping or recompiling its physical projection geometry.
-export function resolveSceneFrameRoute(state = {}, sceneComponent = null, route = {}) {
+// Surface visibility is owned by the routes which actually consume a Surface.
+export function visibleSceneSurfaceIds(surfaces = []) {
+  return new Set((surfaces || []).flatMap((surface) => {
+    if (surface?.enabled === false) return [];
+    const surfaceId = String(surface?.id || "");
+    return surfaceId ? [surfaceId] : [];
+  }));
+}
+
+// A Surface is both the Scene-space crop and the physical projection route.
+// Materialization adds only the current Scene source; it never looks through a
+// second Frame inventory or per-Scene routing table.
+export function resolveSceneSurfaceRoute(state = {}, sceneComponent = null, route = {}) {
   if (!sceneComponent || sceneComponent.type !== "scene") return applySceneSourceNode(route, null);
-  const frameId = String(route.frameSlotId || route.outputFrameId || state.frames?.[0]?.id || "");
-  const frame = state.frames?.find((candidate) => String(candidate.id) === frameId);
-  if (!frameId || !frame) {
-    return applySceneSourceNode(route, null);
-  }
-  const frameConfig = sceneComponent.scene?.frames?.find((candidate) => String(candidate.frameId) === frameId) || {};
-  const componentId = state.components?.some((component) => String(component.id) === String(frameConfig.componentId || ""))
-    ? String(frameConfig.componentId)
-    : sceneComponent.id;
+  const surfaceId = String(route.id || "");
+  if (!surfaceId) return applySceneSourceNode(route, null);
   return {
     ...applySceneSourceNode(route, {
-    id: sceneSourceNodeId(componentId, componentId === sceneComponent.id ? frameId : ""),
-    componentId,
-    outputFrameId: componentId === sceneComponent.id ? frameId : "",
+      id: sceneSourceNodeId(sceneComponent.id),
+      componentId: sceneComponent.id,
     }),
-    frameSlotId: frameId,
-    frameFit: frameConfig.fit || frame.fit || "cover",
-    frameFitActive: componentId !== sceneComponent.id,
-    frameAspect: Math.max(0.0001,
+    sceneCrop: true,
+    sourceFit: route.projectionFit || "cover",
+    sourceFitActive: false,
+    sourceAspect: Math.max(0.0001,
       (Number(state.render?.sceneAspectRatio) || 16 / 9) *
-      (Math.max(0.0001, Number(frame.width) || 1) / Math.max(0.0001, Number(frame.height) || 1))
+      (Math.max(0.0001, Number(route.width) || 1) / Math.max(0.0001, Number(route.height) || 1))
     ),
   };
 }
@@ -98,46 +76,148 @@ export function resolveSceneFrameRoute(state = {}, sceneComponent = null, route 
 export function materializeSceneSurfaceRoutes(state = {}, sceneComponent = null, mapping = null) {
   return {
     surfaces: (mapping?.surfaces || state.surfaces || []).map((surface) =>
-      resolveSceneFrameRoute(state, sceneComponent, surface)
+      resolveSceneSurfaceRoute(state, sceneComponent, surface)
     ),
   };
 }
 
-// Live can put either a Scene or an ordinary Component on air. Scenes retain
-// their authored per-Frame routing. A standalone Component is sampled through
-// each Mapping Frame with one explicit cover crop; the physical Surface fit
-// remains a later, independent projection stage.
+// Live can put either a Scene or an ordinary Component on air. An ordinary
+// Component selected at Overall is treated as one virtual Scene: it covers the
+// Scene coordinate space once, then every Surface samples its own rectangle
+// from that shared space. It must not be independently fitted into every
+// Surface, because that repeats the whole Component instead of preserving the
+// authored Surface/Frame relationship.
 export function materializeLiveTargetSurfaceRoutes(state = {}, target = null, mapping = null) {
   if (!target) return { surfaces: [] };
   if (target.type === "scene") return materializeSceneSurfaceRoutes(state, target, mapping);
   const surfaces = mapping?.surfaces || state.surfaces || [];
   return {
-    surfaces: surfaces.map((surface) => {
-      const frameId = String(surface.frameSlotId || surface.outputFrameId || state.frames?.[0]?.id || "");
-      const frame = state.frames?.find((candidate) => String(candidate.id) === frameId);
-      if (!frame) return applySceneSourceNode(surface, null);
-      return {
+    surfaces: surfaces.map((surface) => ({
         ...applySceneSourceNode(surface, {
           id: sceneSourceNodeId(target.id),
           componentId: target.id,
-          outputFrameId: "",
         }),
-        frameSlotId: frameId,
-        frameFit: "cover",
-        frameFitActive: true,
-        frameAspect: Math.max(0.0001,
+        sceneCrop: true,
+        sourceFit: "cover",
+        sourceFitActive: false,
+        sourceAspect: Math.max(0.0001,
           (Number(state.render?.sceneAspectRatio) || 16 / 9) *
-          (Math.max(0.0001, Number(frame.width) || 1) / Math.max(0.0001, Number(frame.height) || 1))
+          (Math.max(0.0001, Number(surface.width) || 1) / Math.max(0.0001, Number(surface.height) || 1))
         ),
-      };
-    }),
+      })),
   };
+}
+
+// An individual Live Surface patch is an explicit source assignment. A Scene
+// selected here means the complete Scene component, not the Scene Frame that
+// happens to share this Surface's frame slot. Overall Live selection continues
+// to use materializeLiveTargetSurfaceRoutes() and therefore retains the Scene's
+// authored per-Frame routing.
+export function materializeLiveSurfacePatchRoute(state = {}, target = null, mapping = null, surfaceId = "") {
+  if (!target || !surfaceId) return null;
+  const surface = (mapping?.surfaces || state.surfaces || [])
+    .find((candidate) => String(candidate.id) === String(surfaceId));
+  if (!surface) return null;
+  // A matrix-cell patch replaces the source at this Surface. It is not an
+  // Overall Scene substitution, so it must never inherit the Scene Frame crop
+  // represented by the Surface rectangle. The Surface's projectionFit remains the
+  // single cover/contain/stretch stage for this direct Component or Scene.
+  return {
+    ...applySceneSourceNode(surface, {
+      id: sceneSourceNodeId(target.id),
+      componentId: target.id,
+    }),
+    sceneCrop: false,
+    sourceFit: "cover",
+    // A cell patch feeds the complete source directly to this projection.
+    // projectionFit is the sole fit stage; enabling sourceFit here derived a
+    // second crop from the Surface rectangle and disagreed with the settled
+    // route after a transition.
+    sourceFitActive: false,
+    sourceAspect: 1,
+    // A matrix patch replaces the complete destination rather than adopting
+    // the authored fit of the previous Overall route. Keep exactly one fit
+    // stage and make that physical projection stage cover the destination.
+    projectionFit: "cover",
+  };
+}
+
+// Build the complete Live projection program from authored authorities. The
+// Mapping owns Surface geometry, Overall owns the base source, and the Live
+// matrix owns only explicit per-Surface patches and visibility. Keeping this
+// derivation here prevents a Mapping/output reconciliation from replacing the
+// routed program with bare Surfaces that have no source assignment.
+export function materializeLiveProgramSurfaceRoutes(state = {}, target = null, mapping = null) {
+  if (!mapping) return { surfaces: [] };
+  const routeState = target
+    ? materializeLiveTargetSurfaceRoutes(state, target, mapping)
+    : materializeSceneSurfaceRoutes(state, null, mapping);
+  const live = state.ui?.live || {};
+  const patchedSurfaceIds = new Set();
+  for (const [surfaceId, targetId] of Object.entries(live.surfacePatches || {})) {
+    const patchTarget = state.components?.find((component) =>
+      !component.systemRole && String(component.id) === String(targetId)
+    );
+    if (!patchTarget) continue;
+    const patchRoute = materializeLiveSurfacePatchRoute(state, patchTarget, mapping, surfaceId);
+    if (!patchRoute) continue;
+    const index = routeState.surfaces.findIndex((surface) => String(surface.id) === String(surfaceId));
+    if (index >= 0) {
+      routeState.surfaces[index] = { ...patchRoute, enabled: true };
+      patchedSurfaceIds.add(String(surfaceId));
+    }
+  }
+  for (const [surfaceId, visible] of Object.entries(live.surfaceVisibility || {})) {
+    const index = routeState.surfaces.findIndex((surface) => String(surface.id) === String(surfaceId));
+    if (index >= 0) routeState.surfaces[index] = { ...routeState.surfaces[index], enabled: visible !== false };
+  }
+  // Scene Mapping is the Overall source lane, not a master switch for the
+  // complete projection matrix. Hiding it removes only routes inherited from
+  // Overall; explicitly patched Surface cells remain independently routable.
+  // This route-level rule is shared by the embedded monitor and Output windows.
+  if (live.sceneMappingVisible === false) {
+    routeState.surfaces = routeState.surfaces.map((surface) => patchedSurfaceIds.has(String(surface.id || ""))
+      ? surface
+      : { ...surface, enabled: false });
+  }
+  applyDirectOutputPatchPrecedence(routeState.surfaces, live.surfacePatches || {});
+  return routeState;
+}
+
+// Direct-output Surfaces are a hierarchy: the spanning "Full surface" route
+// is the group destination and each single-output route is a more specific
+// override. When the group has an explicit Live patch, unpatched children
+// must become transparent or their automatically materialized Overall source
+// would cover the group after the transition texture is released. A child
+// with its own explicit patch remains enabled and wins only on that output.
+function applyDirectOutputPatchPrecedence(surfaces = [], patches = {}) {
+  const direct = (surfaces || []).filter((surface) => surface?.destination?.type === "direct");
+  const group = direct.find((surface) => (surface.destination?.outputIds?.length || 0) > 1);
+  if (!group || !patches[String(group.id || "")]) return;
+  for (const surface of direct) {
+    if (surface === group || (surface.destination?.outputIds?.length || 0) !== 1) continue;
+    if (patches[String(surface.id || "")]) continue;
+    surface.enabled = false;
+  }
 }
 
 export function liveProgramComponentIds(state = {}, nowMs = Date.now()) {
   const ids = new Set();
   const live = state.ui?.live || {};
-  const routeStates = [live.surfaceRoutes].filter(Boolean);
+  const mapping = state.mappings?.find((item) => String(item.id) === String(state.ui?.selectedMappingId || ""))
+    || state.mappings?.[0]
+    || null;
+  const targetId = String(live.selectedComponentId || live.selectedSceneId || "");
+  const target = state.components?.find((component) =>
+    !component.systemRole && String(component.id) === targetId
+  );
+  // This is the same route authority used by createLiveRenderState: an
+  // explicitly mixed Live program wins; otherwise materialize the current
+  // Overall source through the selected Mapping.
+  const currentRoutes = mapping
+    ? materializeLiveProgramSurfaceRoutes(state, target || null, mapping)
+    : null;
+  const routeStates = [currentRoutes].filter(Boolean);
   const transition = live.transition;
   const transitionStartedAt = Number(transition?.startedAtMs) || 0;
   const transitionDuration = Math.max(0, Number(transition?.durationMs) || 0);
@@ -186,8 +266,4 @@ function collectLiveComponentSource(state, source, ids) {
   if (source?.type === "component" && source.componentId) {
     collectLiveComponentGraph(state, source.componentId, ids);
   }
-}
-
-function latestTimestamp(...values) {
-  return values.filter(Boolean).sort().at(-1) || "";
 }

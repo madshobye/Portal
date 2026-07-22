@@ -1,9 +1,24 @@
 const FORBIDDEN_PATH_PARTS = new Set(["__proto__", "prototype", "constructor"]);
 const STRUCTURAL_LIVE_RENDER_ROOTS = new Set(["resolutionScale", "frameShape", "syncInstances"]);
+const RENDER_STATE_ROOTS = new Set(["mappingCalibration"]);
 
 export function createLiveRenderPatch(componentId, path, value) {
   return {
+    target: "component",
     componentId: String(componentId || ""),
+    path: String(path || ""),
+    value,
+  };
+}
+
+// The patch transport is shared by every high-frequency render edit. State
+// roots are deliberately allow-listed and root-level: project structure still
+// travels as an ordered full-state snapshot, while continuous renderer-owned
+// values such as mapping calibration can use the same latest-wins protocol as
+// Component parameters.
+export function createRenderStatePatch(path, value) {
+  return {
+    target: "state",
     path: String(path || ""),
     value,
   };
@@ -13,28 +28,51 @@ export function applyLiveRenderPatches(state, patches = []) {
   const resolution = resolveLiveRenderPatches(state, patches);
   if (!resolution.applied) return resolution;
   for (const patch of resolution.destinations) patch.target[patch.leaf] = patch.value;
-  return { applied: true, componentIds: resolution.componentIds, failedPatch: null };
+  return {
+    applied: true,
+    componentIds: resolution.componentIds,
+    statePaths: resolution.statePaths,
+    failedPatch: null,
+  };
 }
 
 export function resolveLiveRenderPatches(state, patches = []) {
   if (!state || !Array.isArray(state.components) || !Array.isArray(patches)) {
-    return { applied: false, componentIds: [], destinations: [], failedPatch: null };
+    return { applied: false, componentIds: [], statePaths: [], destinations: [], failedPatch: null };
   }
   const components = new Map(state.components.map((component) => [String(component.id || ""), component]));
   const componentIds = new Set();
+  const statePaths = new Set();
   const resolved = [];
   for (const patch of patches) {
+    const parts = livePatchPathParts(patch?.path);
+    if (patch?.target === "state") {
+      const path = String(patch?.path || "");
+      const validRoot = parts.length === 1 && RENDER_STATE_ROOTS.has(String(parts[0]));
+      const destination = validRoot ? resolvePatchPath(state, parts) : null;
+      if (!destination) {
+        return { applied: false, componentIds: [...componentIds], statePaths: [...statePaths], destinations: [], failedPatch: patch || null };
+      }
+      resolved.push({ ...destination, targetType: "state", componentId: "", path, value: patch.value });
+      statePaths.add(path);
+      continue;
+    }
     const componentId = String(patch?.componentId || "");
     const component = components.get(componentId);
-    const parts = livePatchPathParts(patch?.path);
     const destination = component && parts.length ? resolvePatchPath(component, parts) : null;
     if (!destination) {
-      return { applied: false, componentIds: [...componentIds], destinations: [], failedPatch: patch || null };
+      return { applied: false, componentIds: [...componentIds], statePaths: [...statePaths], destinations: [], failedPatch: patch || null };
     }
-    resolved.push({ ...destination, componentId, path: String(patch.path || ""), value: patch.value });
+    resolved.push({ ...destination, targetType: "component", componentId, path: String(patch.path || ""), value: patch.value });
     componentIds.add(componentId);
   }
-  return { applied: true, componentIds: [...componentIds], destinations: resolved, failedPatch: null };
+  return {
+    applied: true,
+    componentIds: [...componentIds],
+    statePaths: [...statePaths],
+    destinations: resolved,
+    failedPatch: null,
+  };
 }
 
 export function interpolatedLiveRenderValue(from, to, startedAtMs, durationMs, nowMs) {

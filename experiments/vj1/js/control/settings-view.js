@@ -1,4 +1,4 @@
-import { normalizeRenderSettings } from "../domain/render-settings.js?v=screen-input-registry-1";
+import { normalizeRenderSettings } from "../domain/render-settings.js?v=output-one-1";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
 import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
 

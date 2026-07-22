@@ -114,13 +114,17 @@ export function compileMappingRenderPrograms(state = {}, groups = []) {
     const activeGroup = runtimeMapping ? compileMappingGroupTopology(runtimeMapping) : group;
     const plan = compileReachableProgramGraph(activeGroup, { outputs: ["$out.routes"] });
     const sourceSurfaces = mappingSurfaces(state, group.mappingId);
-    const surfacesById = new Map(sourceSurfaces.map((surface) => [String(surface.id || ""), surface]));
     const routeNodes = plan.nodes.filter((node) => node.role === "surface-route");
+    const reachableSurfaceIds = new Set(routeNodes.map((node) => String(node.surfaceId || "")));
     programs.set(group.mappingId || "", Object.freeze({
       id: group.id,
       mappingId: group.mappingId || "",
-      surfaces: Object.freeze(routeNodes.map((node) => {
-        const surface = surfacesById.get(String(node.surfaceId || ""));
+      // Graph reachability decides which routes execute. The Mapping array is
+      // the presentation/order authority shared by embedded preview and
+      // standalone Output; graph traversal order must never become z-order.
+      surfaces: Object.freeze(sourceSurfaces.filter((surface) =>
+        reachableSurfaceIds.has(String(surface.id || ""))
+      ).map((surface) => {
         // Generated route-node parameters describe the compiled topology, but
         // the current Scene snapshot is the live parameter authority. During a
         // slider gesture the project model is patched in place without
@@ -128,8 +132,8 @@ export function compileMappingRenderPrograms(state = {}, groups = []) {
         // made Presence/Fit update only after pointer release. Keeping the
         // route identity in the graph and values in the Scene also avoids a
         // second mutable source of truth.
-        return surface ? { ...surface } : null;
-      }).filter(Boolean)),
+        return { ...surface };
+      })),
       plan,
       generatedBy: MAPPING_PROGRAM_GENERATOR,
     }));
@@ -174,11 +178,10 @@ function mappingSourceSignature(mapping, surfaces) {
       feather: surface.feather,
       opacity: surface.opacity,
       blend: surface.blend,
-      outputFrameId: surface.outputFrameId,
-      frameSlotId: surface.frameSlotId,
-      frameFit: surface.frameFit,
-      frameFitActive: surface.frameFitActive,
-      frameAspect: surface.frameAspect,
+      sceneCrop: surface.sceneCrop,
+      sourceFit: surface.sourceFit,
+      sourceFitActive: surface.sourceFitActive,
+      sourceAspect: surface.sourceAspect,
     })),
   });
 }
@@ -211,10 +214,9 @@ function routeParameters(surface = {}) {
     feather: Math.max(0, Number(surface.feather) || 0),
     opacity: surface.opacity ?? 1,
     blend: surface.blend || "normal",
-    outputFrameId: surface.outputFrameId || "",
-    frameSlotId: surface.frameSlotId || surface.outputFrameId || "",
-    frameFit: surface.frameFit || "cover",
-    frameFitActive: surface.frameFitActive === true,
-    frameAspect: Math.max(0.0001, Number(surface.frameAspect) || 1),
+    sceneCrop: surface.sceneCrop === true,
+    sourceFit: surface.sourceFit || "cover",
+    sourceFitActive: surface.sourceFitActive === true,
+    sourceAspect: Math.max(0.0001, Number(surface.sourceAspect) || 1),
   };
 }

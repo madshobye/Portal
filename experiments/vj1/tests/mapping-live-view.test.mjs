@@ -4,8 +4,8 @@ import { readFileSync } from "node:fs";
 
 import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
 import { sceneComponents, ordinaryComponents } from "../js/control/control-selectors.js";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveScenePillTemplate, mappingPillTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate } from "../js/control/mapping-live-view.js";
-import { projectRailTemplate } from "../js/control/project-rail-view.js";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate } from "../js/control/mapping-live-view.js";
+import { liveProjectionRailTemplate, projectRailTemplate } from "../js/control/project-rail-view.js";
 import { createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js?v=render-coordinate-scope-3";
 
 function stateWithScene() {
@@ -34,7 +34,7 @@ test("Mapping and Live Scene presentation lives outside the control orchestrator
   assert.match(liveScenePillTemplate(liveScene, state), /data-cycle-catalog-marker="scene"/);
   assert.match(liveInspectorTemplate(state), /live-component-card|No components/);
   const surfaceTemplate = mappingSurfaceTemplate(surface, state);
-  assert.match(surfaceTemplate, /class="sculpt-card"/);
+  assert.match(surfaceTemplate, /class="sculpt-card inspector-control-surface"/);
   assert.match(surfaceTemplate, /data-set-route-frame-id=""/);
   assert.match(surfaceTemplate, />Empty</);
   assert.match(controller, /from "\.\/mapping-live-view\.js\?v=[^"]+"/);
@@ -43,14 +43,21 @@ test("Mapping and Live Scene presentation lives outside the control orchestrator
   assert.doesNotMatch(controller, /sceneSignificantComponentTemplate/);
 });
 
+test("Mapping Surface parameters use the shared inset control section", () => {
+  const { state } = stateWithScene();
+  const surface = state.surfaces[0];
+
+  assert.match(mappingSurfaceTemplate(surface, state), /class="sculpt-card inspector-control-surface"/);
+});
+
 test("Live combines independently enabled Scene and Part filters while keeping one on", () => {
   const { state, liveScene } = stateWithScene();
   const component = state.components.find((candidate) => candidate.type !== "scene" && !candidate.systemRole);
   const scenesHtml = projectRailTemplate(state, { workspace: "live" });
   assert.match(scenesHtml, /data-live-source-filter="scenes" aria-pressed="true"/);
-  assert.match(scenesHtml, /data-live-source-filter="components" aria-pressed="false"/);
+  assert.match(scenesHtml, /data-live-source-filter="components" aria-pressed="true"/);
   assert.match(scenesHtml, new RegExp(`data-live-scene="${liveScene.id}"`));
-  assert.doesNotMatch(scenesHtml, /data-live-target-component=/);
+  assert.match(scenesHtml, /data-live-target-component=/);
 
   state.ui.live.showComponents = true;
   const componentsHtml = projectRailTemplate(state, { workspace: "live" });
@@ -63,6 +70,150 @@ test("Live combines independently enabled Scene and Part filters while keeping o
   assert.equal(legacy.ui.live.showScenes, false);
   assert.equal(legacy.ui.live.showComponents, true);
   assert.equal("sourceKind" in legacy.ui.live, false);
+
+  const defaults = sanitizeState({ ...state, ui: { ...state.ui, live: {} } });
+  assert.equal(defaults.ui.live.showScenes, true);
+  assert.equal(defaults.ui.live.showComponents, true);
+});
+
+test("Live source cards distinguish Overall selection from a deliberate Surface patch", () => {
+  const { state, liveScene } = stateWithScene();
+  const component = state.components.find((candidate) => candidate.type !== "scene" && !candidate.systemRole);
+  const surface = state.mappings[0].surfaces[0];
+  state.ui.live.selectedSceneId = liveScene.id;
+  state.ui.live.selectedComponentId = liveScene.id;
+  state.ui.live.previewSurfaceId = surface.id;
+  state.ui.live.patchSourceId = "";
+
+  assert.doesNotMatch(liveScenePillTemplate(liveScene, state), /is-selected/);
+  assert.doesNotMatch(liveTargetComponentPillTemplate(component, state), /is-selected/);
+
+  state.ui.live.patchSourceId = component.id;
+  assert.match(liveTargetComponentPillTemplate(component, state), /is-selected/);
+  assert.doesNotMatch(liveScenePillTemplate(liveScene, state), /is-selected/);
+
+  state.ui.live.previewSurfaceId = "__mapping__";
+  state.ui.live.patchSourceId = "";
+  assert.match(liveScenePillTemplate(liveScene, state), /is-selected/);
+});
+
+test("Live projection column exposes the overall Mapping and every Surface", () => {
+  const { state, mapping, liveScene } = stateWithScene();
+  state.ui.live.previewSurfaceId = "__mapping__";
+  state.ui.live.selectedComponentId = liveScene.id;
+  const html = liveProjectionRailTemplate(state);
+
+  assert.match(html, /data-live-preview-surface="__mapping__"/);
+  assert.match(html, /data-live-surface-visibility="__mapping__"/);
+  assert.match(html, />Scene Mapping</);
+  assert.match(html, />Output</);
+  for (const surface of mapping.surfaces) {
+    assert.match(html, new RegExp(`data-live-preview-surface="${surface.id}"`));
+    assert.match(html, new RegExp(`data-live-surface-visibility="${surface.id}"`));
+    assert.match(html, new RegExp(surface.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  }
+  const nestedComponent = state.components.find((component) => component.type !== "scene" && !component.systemRole);
+  assert.match(html, />Components</);
+  assert.match(html, new RegExp(`data-live-component="${nestedComponent.id}"`));
+  assert.doesNotMatch(html, /data-clear-live-surface-patch=/);
+  assert.match(html, /data-clear-live-overall-component="__mapping__"/);
+  assert.doesNotMatch(html, /<small>/, "projection rows do not reserve space for secondary Frame metadata");
+
+  state.ui.live.surfacePatches = { [mapping.surfaces[0].id]: nestedComponent.id };
+  const patchedHtml = liveProjectionRailTemplate(state);
+  assert.match(patchedHtml, new RegExp(`data-clear-live-surface-patch="${mapping.surfaces[0].id}"`));
+
+  state.ui.live.selectedComponentId = nestedComponent.id;
+  const overallPatchedHtml = liveProjectionRailTemplate(state);
+  assert.match(overallPatchedHtml, /data-clear-live-overall-component="__mapping__"/);
+});
+
+test("Live internal Component focus is separate from the on-air source", () => {
+  const { state, liveScene } = stateWithScene();
+  const nestedComponent = state.components.find((component) => component.type !== "scene" && !component.systemRole);
+  state.ui.live.selectedComponentId = liveScene.id;
+  state.ui.live.inspectedComponentId = nestedComponent.id;
+
+  assert.match(liveComponentPillTemplate(nestedComponent, state), /is-selected/);
+  assert.match(liveInspectorTemplate(state), new RegExp(nestedComponent.name));
+  assert.equal(state.ui.live.selectedComponentId, liveScene.id);
+});
+
+test("Live Component navigation includes roots and sources across all Surface routes", () => {
+  const { state, liveScene, mapping } = stateWithScene();
+  const overallComponent = state.components.find((component) => component.type !== "scene" && !component.systemRole);
+  const patchedComponent = {
+    ...structuredClone(overallComponent),
+    id: "component-surface-patch",
+    name: "Surface Patch",
+    chain: [],
+  };
+  state.components.push(patchedComponent);
+  state.ui.live.selectedComponentId = liveScene.id;
+  state.ui.live.surfaceRoutes = {
+    surfaces: mapping.surfaces.map((surface, index) => ({
+      ...surface,
+      componentId: index === 0 ? patchedComponent.id : overallComponent.id,
+    })),
+  };
+  state.ui.live.surfacePatches = { [mapping.surfaces[0].id]: patchedComponent.id };
+
+  const components = liveProgramNavigableComponents(state);
+  assert.deepEqual(new Set(components.map((component) => component.id)), new Set([
+    overallComponent.id,
+    patchedComponent.id,
+  ]));
+
+  const html = liveProjectionRailTemplate(state);
+  assert.match(html, new RegExp(`data-live-component="${overallComponent.id}"`));
+  assert.match(html, new RegExp(`data-live-component="${patchedComponent.id}"`));
+});
+
+test("Live inspector resolves an indirect Overall route when a Surface has no explicit patch", () => {
+  const { state, liveScene, mapping } = stateWithScene();
+  const nestedComponent = state.components.find((component) => component.type !== "scene" && !component.systemRole);
+  const surface = mapping.surfaces[0];
+  state.ui.live.selectedComponentId = liveScene.id;
+  state.ui.live.previewSurfaceId = surface.id;
+  state.ui.live.patchSourceId = "";
+  state.ui.live.surfaceRoutes = {
+    surfaces: mapping.surfaces.map((candidate) => ({
+      ...candidate,
+      componentId: candidate.id === surface.id ? nestedComponent.id : liveScene.id,
+    })),
+  };
+
+  assert.match(liveInspectorTemplate(state), new RegExp(nestedComponent.name));
+  assert.doesNotMatch(liveInspectorTemplate(state), /No sources/);
+});
+
+test("Live Component navigation is the enabled final render graph including its root Scene", () => {
+  const { state, liveScene, mapping } = stateWithScene();
+  const nested = state.components.find((component) => component.type !== "scene" && !component.systemRole);
+  state.ui.live.selectedComponentId = liveScene.id;
+  state.ui.live.surfaceRoutes = {
+    surfaces: mapping.surfaces.map((surface) => ({ ...surface, componentId: liveScene.id })),
+  };
+
+  assert.deepEqual(liveProgramNavigableComponents(state).map((component) => component.id), [
+    liveScene.id,
+    nested.id,
+  ]);
+
+  liveScene.chain[0].enabled = false;
+  assert.deepEqual(liveProgramNavigableComponents(state).map((component) => component.id), [liveScene.id]);
+});
+
+test("Live projection visibility reflects the routed program rather than changing Mapping state", () => {
+  const { state, mapping } = stateWithScene();
+  const surface = mapping.surfaces[0];
+  state.ui.live.surfaceRoutes = { surfaces: mapping.surfaces.map((candidate) => ({ ...candidate })) };
+  state.ui.live.surfaceRoutes.surfaces[0].enabled = false;
+
+  const html = liveProjectionRailTemplate(state);
+  assert.match(html, new RegExp(`data-live-surface-visibility="${surface.id}"`));
+  assert.match(html, new RegExp(`data-live-surface-visibility="${surface.id}"[^>]*title="Show`));
+  assert.notEqual(surface.enabled, false);
 });
 
 test("Mapping cards intentionally avoid render thumbnails", () => {

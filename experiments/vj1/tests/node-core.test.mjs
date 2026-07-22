@@ -239,8 +239,8 @@ test("materialized shader nodes execute from their node-owned shader and paramet
   assert.equal(component.renderAuthority, "node-definition");
 });
 
-test("calibration generators own executable editable JavaScript render modules", () => {
-  for (const id of ["black", "checker", "testPattern"]) {
+test("native calibration generators own executable editable JavaScript render modules", () => {
+  for (const id of ["black", "checker"]) {
     const definition = getGeneratorComponent(id).nodeDefinition;
     assert.equal(definition.metadata.nodeOwnedNativeProcess, true);
     assert.equal(definition.implementation.kind, "code");
@@ -254,6 +254,17 @@ test("calibration generators own executable editable JavaScript render modules",
   const target = { background: (value) => calls.push(value) };
   assert.strictEqual(compiled.process({}, { target }), target);
   assert.deepEqual(calls, [0]);
+});
+
+test("procedural 2D generators expose editable JS programs compiled to node-owned shaders", () => {
+  for (const id of ["sdfSketch", "testPattern"]) {
+    const definition = getGeneratorComponent(id).nodeDefinition;
+    assert.equal(definition.implementation.kind, "shader");
+    assert.equal(definition.metadata.nodeOwnedShader, true);
+    assert.ok(definition.parts.some((part) => part.kind === NODE_PART_KINDS.JAVASCRIPT && part.editable));
+    assert.ok(definition.parts.some((part) => part.kind === NODE_PART_KINDS.SHADER));
+    assert.equal(definition.metadata.nativeRenderer, undefined);
+  }
 });
 
 test("project-local shader forks become the visual resolver authority", () => {

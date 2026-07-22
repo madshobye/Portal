@@ -15,7 +15,6 @@ export function createSurfaceCompositionEngine({
     state = {},
     mapperSurfaces = new Map(),
     componentById = new Map(),
-    frameById = new Map(),
     viewport = {},
     pixelScale = 1,
     transformDemandCorners = (corners) => corners,
@@ -39,18 +38,11 @@ export function createSurfaceCompositionEngine({
         ...storedSurface,
         sourceNodeId: sourceNode.id,
         componentId: sourceNode.componentId,
-        outputFrameId: sourceNode.outputFrameId,
       };
       const mapped = mapperSurfaces.get(surface.id);
       const component = componentById.get(surface.componentId);
       if (!mapped?.mapperSurface || !component) continue;
-      const sourceView = componentSourceView(
-        state.render,
-        component,
-        surface,
-        state.frames,
-        frameById
-      );
+      const sourceView = componentSourceView(state.render, component, surface);
       const maxSurfaceSize = textureCeiling || { width: 8192, height: 8192 };
       const demandCorners = transformDemandCorners(mapped.mapperSurface.corners, mapped, surface);
       const demand = sourceRenderDemand({
@@ -61,6 +53,10 @@ export function createSurfaceCompositionEngine({
         pixelScale,
         overscan: Number(state.render?.sampling?.surfaceOverscan) || surfaceDemandOverscan,
         preserveFullFootprint: mapped.direct && preserveDirectFootprint,
+        projectionFit: surface.projectionFit,
+        sourceFitActive: surface.sourceFitActive,
+        sourceFit: surface.sourceFit,
+        sourceAspect: surface.sourceAspect,
       });
       if (!demand) {
         metrics.culled++;
@@ -73,14 +69,14 @@ export function createSurfaceCompositionEngine({
     const regionalRouteIds = new Set();
     const candidatesByComponent = new Map();
     for (const route of routes) {
-      if (route.component?.type !== "scene" || !route.surface?.outputFrameId || !isComponentRegionSafe(route.component)) continue;
+      if (route.component?.type !== "scene" || route.surface?.sceneCrop !== true || !isComponentRegionSafe(route.component)) continue;
       const key = componentRenderInstanceKey(route.component, route.surface.id);
       const list = candidatesByComponent.get(key) || [];
       list.push(route);
       candidatesByComponent.set(key, list);
     }
     for (const [key, candidates] of candidatesByComponent) {
-      if (routes.some((route) => componentRenderInstanceKey(route.component, route.surface.id) === key && !route.surface?.outputFrameId)) continue;
+      if (routes.some((route) => componentRenderInstanceKey(route.component, route.surface.id) === key && route.surface?.sceneCrop !== true)) continue;
       // A regional request executes the Scene graph once for every consuming
       // frame. That is cheap for synchronized graph branches, but it multiplies
       // independent component instances: the same placement would be rendered
@@ -119,7 +115,7 @@ export function createSurfaceCompositionEngine({
         const uvRect = [rect.x / logical.width, rect.y / logical.height, rect.width / logical.width, rect.height / logical.height];
         route.componentRequest = createRenderRequest("scene-region", route.demand.surfaceSize, {
           timingId: renderInstanceKey,
-          renderIdentity: `${renderIdentityPrefix}${renderInstanceKey}:frame:${route.surface.outputFrameId}`,
+          renderIdentity: `${renderIdentityPrefix}${renderInstanceKey}:surface:${route.surface.id}`,
           logicalWidth: route.demand.surfaceSize.width / Math.max(0.000001, uvRect[2]),
           logicalHeight: route.demand.surfaceSize.height / Math.max(0.000001, uvRect[3]),
           demandScale: route.demand.rasterScale,

@@ -51,8 +51,8 @@ export function applyThumbnailUrls(components = [], entries = []) {
     if (!component || !entry.url) continue;
     if (entry.frameId && component.type === "scene") {
       component.scene ||= {};
-      component.scene.frameThumbnails ||= {};
-      component.scene.frameThumbnails[entry.frameId] = entry.url;
+      component.scene.surfaceThumbnails ||= {};
+      component.scene.surfaceThumbnails[entry.frameId] = entry.url;
     } else if (!entry.frameId) {
       component.thumbnail = entry.url;
     }
@@ -63,7 +63,7 @@ export function applyThumbnailUrls(components = [], entries = []) {
 export function clearThumbnailUrls(components = []) {
   for (const component of components || []) {
     component.thumbnail = "";
-    if (component.type === "scene" && component.scene) component.scene.frameThumbnails = {};
+    if (component.type === "scene" && component.scene) component.scene.surfaceThumbnails = {};
   }
   return components;
 }
@@ -76,7 +76,7 @@ export function stateWithoutThumbnailUrls(state = {}) {
         ...component,
         thumbnail: "",
         ...(component.type === "scene" && component.scene
-          ? { scene: { ...component.scene, frameThumbnails: {} } }
+          ? { scene: { ...component.scene, surfaceThumbnails: {} } }
           : {}),
       })),
     } : {}),

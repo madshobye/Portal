@@ -5,7 +5,7 @@ import {
   textureOutlet,
 } from "./component-schema.js";
 import { ALWAYS_TIME_RUNTIME } from "./shader-component-common.js";
-import { materializeVisualNodeDefinition } from "./visual-node-materializer.js";
+import { materializeVisualNodeDefinition } from "./visual-node-materializer.js?v=sdf-content-editor-1";
 
 const generatorInlets = Object.freeze([textureInlet("image", "Image")]);
 const generatorOutlets = Object.freeze([textureOutlet("texture", "Texture")]);

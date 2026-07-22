@@ -25,12 +25,13 @@ test("project rail renders each workspace through one view boundary", () => {
   const mapping = projectRailTemplate(state, { ...options, workspace: "mapping" });
 
   assert.match(component, /data-add-component/);
+  assert.match(component, /ui-list-section/);
   assert.match(component, /data-scroll-key="component-catalog"/);
   assert.match(scene, /data-add-scene/);
-  assert.match(scene, /data-scroll-key="scene-frames"/);
-  assert.match(live, /data-scroll-key="live-sources:s"/);
+  assert.match(scene, /data-scroll-key="scene-surfaces"/);
+  assert.match(live, /data-scroll-key="live-sources:sc"/);
   assert.match(live, /data-live-source-filter="scenes" aria-pressed="true"/);
-  assert.match(live, /data-live-source-filter="components" aria-pressed="false"/);
+  assert.match(live, /data-live-source-filter="components" aria-pressed="true"/);
   assert.match(live, /class="sculpt-card live-timing-params"/);
   assert.match(live, /data-update="global\.timeStretch"/);
   assert.match(mapping, /data-scroll-key="mapping-catalog"/);

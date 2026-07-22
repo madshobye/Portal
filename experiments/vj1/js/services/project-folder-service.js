@@ -11,18 +11,18 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=boundary-authority-1";
-import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=boundary-authority-1";
+import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=scene-mapping-output-visibility-1";
+import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=surface-identity-2";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-import { buildProjectPayload } from "./project-serializer.js?v=preview-debug-1";
+import { buildProjectPayload } from "./project-serializer.js?v=output-one-1";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
 import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
 import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
 import { mergeProjectIsfDefinitions } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=preview-debug-1";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=output-one-1";
 export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js?v=project-history-store-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge, classifyChange = createChangeEvent }) {
@@ -294,9 +294,6 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     const loadHandle = dirHandle;
     const loadGeneration = projectGeneration;
     const sameProject = loadedProjectHandle === loadHandle;
-    const frames = Array.isArray(projectData.frames)
-      ? projectData.frames
-      : currentState.frames;
     const components = clearThumbnailUrls(Array.isArray(projectData.components) ? projectData.components : currentState.components);
     const thumbnailEntries = new Map();
     if (sameProject) {
@@ -309,18 +306,17 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       ...currentState,
       ...projectData,
       components,
-      frames,
       ui: {
         ...currentUi,
         selectedMappingId: projectUi?.selectedMappingId || currentUi.selectedMappingId,
         selectedSurfaceId: projectUi?.selectedSurfaceId || currentUi.selectedSurfaceId,
-        selectedFrameId: projectUi?.selectedFrameId || currentUi.selectedFrameId,
         selectedComponentId: projectUi?.selectedComponentId || currentUi.selectedComponentId,
         selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId,
         workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds,
         catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes,
         previewQuality: projectUi?.previewQuality || currentUi.previewQuality,
         previewViewports: projectUi?.previewViewports || currentUi.previewViewports,
+        previewDiagnostics: projectUi?.previewDiagnostics ?? currentUi.previewDiagnostics,
         mappingTestPattern: projectUi?.mappingTestPattern ?? currentUi.mappingTestPattern,
         live: {
           ...currentUi.live,
@@ -763,8 +759,8 @@ function componentThumbnailEntries(components = []) {
   for (const component of components || []) {
     if (component?.thumbnail) entries.push({ componentId: component.id, frameId: "", url: component.thumbnail });
     if (component?.type !== "scene") continue;
-    for (const [frameId, url] of Object.entries(component.scene?.frameThumbnails || {})) {
-      if (url) entries.push({ componentId: component.id, frameId, url });
+    for (const [surfaceId, url] of Object.entries(component.scene?.surfaceThumbnails || {})) {
+      if (url) entries.push({ componentId: component.id, frameId: surfaceId, url });
     }
   }
   return entries;
@@ -929,8 +925,8 @@ function embeddedThumbnailEntries(components = []) {
     if (typeof component?.thumbnail === "string" && component.thumbnail.startsWith("data:image/")) {
       entries.push({ componentId: component.id, frameId: "", url: component.thumbnail });
     }
-    for (const [frameId, url] of Object.entries(component?.scene?.frameThumbnails || {})) {
-      if (typeof url === "string" && url.startsWith("data:image/")) entries.push({ componentId: component.id, frameId, url });
+    for (const [surfaceId, url] of Object.entries(component?.scene?.surfaceThumbnails || {})) {
+      if (typeof url === "string" && url.startsWith("data:image/")) entries.push({ componentId: component.id, frameId: surfaceId, url });
     }
   }
   return entries;

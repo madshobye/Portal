@@ -949,6 +949,7 @@ small {
 
 .studio-layout {
   --project-rail-width: 220px;
+  --live-projection-rail-width: 190px;
   --inspector-width: 330px;
   display: grid;
   min-height: 0;
@@ -961,16 +962,22 @@ small {
   overscroll-behavior: contain;
 }
 
+.studio-layout[data-workspace="live"] {
+  grid-template-columns: var(--project-rail-width) var(--live-projection-rail-width) var(--inspector-width) minmax(0, 1fr);
+}
+
 .no-project-open .studio-layout {
   grid-template-columns: minmax(0, 1fr);
 }
 
 .no-project-open .project-rail,
+.no-project-open .live-projection-rail,
 .no-project-open .studio-inspector {
   display: none;
 }
 
 .project-rail,
+.live-projection-rail,
 .studio-inspector,
 .studio-main {
   min-height: 0;
@@ -983,12 +990,29 @@ small {
 }
 
 .project-rail,
+.live-projection-rail,
 .studio-inspector {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 12px;
   overflow: auto;
+}
+
+.live-projection-rail {
+  display: none;
+}
+
+.live-projection-rail[data-workspace="live"] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.live-projection-list {
+  display: grid;
+  align-content: start;
+  gap: 6px;
 }
 
 .project-rail:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="mapping"], [data-workspace="nodes"], [data-workspace="live"]) {
@@ -998,26 +1022,40 @@ small {
   overflow: hidden;
 }
 
-.project-rail:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="mapping"], [data-workspace="nodes"], [data-workspace="live"]) > .rail-list-section {
+.project-rail > .rail-list-section,
+.live-projection-rail > .rail-list-section {
   flex: 1 1 0;
   min-height: 0;
   overflow: hidden;
 }
 
-.project-rail[data-workspace="live"] > .live-component-rail-section {
-  flex-grow: 0.6;
-}
-
-.project-rail[data-workspace="mapping"] > .mapping-surface-rail-section {
-  flex-grow: 0.6;
-}
-
-.project-rail[data-workspace="scene"] > .scene-frame-rail-section {
-  flex-grow: 0.6;
-}
-
 .rail-list-section {
   grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.ui-list-tools {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ui-list-empty {
+  align-self: start;
+  min-height: 0;
+}
+
+/* Empty collections always collapse to their header and one shared empty-state
+   row. Workspace rails must not assign unused fractional height to them. */
+.rail-list-section.is-empty {
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+.ui-empty-state {
+  align-self: start;
+  min-width: 0;
+  min-height: 0;
+  padding: 3px 2px;
 }
 
 .rail-list-section > .rail-scroll-list {
@@ -1067,6 +1105,7 @@ small {
 
 .ui-section {
   display: grid;
+  align-content: start;
   gap: 7px;
   padding: var(--section-inset);
   border: 0;
@@ -2358,16 +2397,17 @@ button.text-list-main:hover {
   overflow: hidden;
 }
 
-/* Frame routing is a compact property editor, not a second full-height chain
-   workspace. Keep its controls at their natural height so selecting a Frame
+/* Surface routing is a compact property editor, not a second full-height chain
+   workspace. Keep its controls at their natural height so selecting a Surface
    does not stretch the header and fields across half the inspector. */
-.studio-inspector[data-workspace="scene"] > .scene-frame-panel {
+.studio-inspector[data-workspace="scene"] > .scene-surface-panel,
+.studio-inspector > .focus-panel.is-empty {
   flex: 0 0 auto;
   grid-template-rows: auto auto;
   overflow: visible;
 }
 
-.studio-inspector[data-workspace="scene"] > .scene-frame-panel > .scene-frame-inspector {
+.studio-inspector[data-workspace="scene"] > .scene-surface-panel > .scene-surface-inspector {
   gap: 9px;
 }
 
@@ -3326,6 +3366,26 @@ button.text-list-main:hover {
 .node-editor-actions button {
   flex: 1 1 0;
   min-height: 28px;
+}
+
+.sdf-sketch-content-editor {
+  gap: 7px;
+  margin-top: 4px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+
+.sdf-sketch-content-editor .node-editor-source textarea {
+  min-height: 260px;
+  margin-top: 6px;
+}
+
+.sdf-sketch-api-help code {
+  display: block;
+  padding: 0 8px 8px;
+  color: var(--muted);
+  font: 9px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
 }
 
 .node-library-search {
@@ -4606,6 +4666,10 @@ button.text-list-main:hover {
     grid-template-columns: var(--project-rail-width) var(--inspector-width);
   }
 
+  .studio-layout[data-workspace="live"] {
+    grid-template-columns: var(--project-rail-width) var(--live-projection-rail-width) var(--inspector-width);
+  }
+
   .studio-main {
     display: none;
   }
@@ -4630,7 +4694,8 @@ button.text-list-main:hover {
   }
 
   .project-rail,
-  .studio-inspector {
+  .studio-inspector,
+  .live-projection-rail[data-workspace="live"] {
     display: grid;
   }
 }

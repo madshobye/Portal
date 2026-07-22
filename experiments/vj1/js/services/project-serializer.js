@@ -1,4 +1,5 @@
-import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=boundary-authority-1";
+import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=surface-identity-2";
+import { normalizeOutputName } from "../domain/render-settings.js?v=output-one-1";
 import { serializeNodeProjectData } from "../libraries/node-engine/node-project.js";
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
@@ -8,7 +9,6 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
     ui: {
       selectedMappingId: state.ui.selectedMappingId,
       selectedSurfaceId: state.ui.selectedSurfaceId,
-      selectedFrameId: state.ui.selectedFrameId || "",
       selectedComponentId: state.ui.selectedComponentId,
       selectedChainItemId: state.ui.selectedChainItemId,
       selectedNodeDefinitionId: state.ui.selectedNodeDefinitionId || "",
@@ -17,9 +17,12 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       catalogSortModes: state.ui.catalogSortModes,
       previewQuality: state.ui.previewQuality,
       previewViewports: state.ui.previewViewports,
+      previewDiagnostics: state.ui.previewDiagnostics === true,
       mappingTestPattern: state.ui.mappingTestPattern !== false,
       live: {
         selectedSceneId: state.ui.live?.selectedSceneId || "",
+        showScenes: state.ui.live?.showScenes !== false,
+        showComponents: state.ui.live?.showComponents !== false,
         transitionDuration: Math.max(0, Number(state.ui.live?.transitionDuration) || 0),
         paramFadeDuration: Math.max(0, Number(state.ui.live?.paramFadeDuration) || 0),
       },
@@ -30,10 +33,27 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
     nodes: serializeNodeProjectData(state.nodes),
     media: state.media,
     components: persistedComponents(state.components, state.nodes),
-    frames: (state.frames || []).filter((frame) => frame.kind !== "output"),
-    mappings: state.mappings,
+    mappings: persistedMappings(state.mappings),
     shaders: state.shaders,
   };
+}
+
+export function persistedMappings(mappings = []) {
+  return (mappings || []).map((mapping) => ({
+    ...mapping,
+    surfaces: (mapping.surfaces || []).map((surface) => {
+      const {
+        sourceNodeId: _sourceNodeId,
+        componentId: _componentId,
+        sceneCrop: _sceneCrop,
+        sourceFit: _sourceFit,
+        sourceFitActive: _sourceFitActive,
+        sourceAspect: _sourceAspect,
+        ...authored
+      } = surface || {};
+      return authored;
+    }),
+  }));
 }
 
 export function persistedComponents(components = [], nodes = {}) {
@@ -54,7 +74,7 @@ export function persistedComponents(components = [], nodes = {}) {
       : componentData;
     if (persisted.type !== "scene" || !persisted.scene) return persisted;
     const {
-      frameThumbnails: _derivedFrameThumbnails,
+      surfaceThumbnails: _derivedSurfaceThumbnails,
       width: _legacyWidth,
       height: _legacyHeight,
       ...scene
@@ -93,7 +113,7 @@ export function persistedRenderSettings(render = {}) {
     ...canonical,
     outputs: (canonical.outputs || []).map((output, index) => ({
       id: String(output?.id || (index === 0 ? "output-main" : `output-${index + 1}`)),
-      name: output?.name || (index === 0 ? "Main output" : `Output ${index + 1}`),
+      name: normalizeOutputName(output?.name, index),
       aspectRatio: Number(output?.aspectRatio) || 16 / 9,
     })),
   };

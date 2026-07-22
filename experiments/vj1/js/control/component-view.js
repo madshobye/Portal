@@ -1,12 +1,13 @@
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
+import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=sdf-content-editor-1";
+import { materializeProjectNodeDefinition } from "./node-editor-view.js?v=sdf-content-editor-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
 import { generatorIcon } from "./picker-view.js?v=isf-nodes-1";
 import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=inspector-pending-node-1";
 import { isModelMediaSource, isVideoMediaSource, mediaSourceParams, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-param-schema-1";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=power-flicker-1";
-import { deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js?v=scroll-region-1";
+import { deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 
@@ -20,25 +21,18 @@ export function sceneInspectorTemplate(component, state) {
   `;
 }
 
-export function sceneFrameInspectorTemplate(frame, component, state) {
-  if (!frame || !component) return "";
-  const componentBase = pathForComponent(state, component);
-  const configIndex = component.scene?.frames?.findIndex((entry) => entry.frameId === frame.id) ?? -1;
-  if (configIndex < 0) return "";
-  const config = component.scene.frames[configIndex];
-  const base = `${componentBase}.scene.frames.${configIndex}`;
-  const frameIndex = state.frames?.findIndex((entry) => entry.id === frame.id) ?? -1;
-  const sourceOptions = [
-    `<option value="" ${config.componentId ? "" : "selected"}>Full scene</option>`,
-    ...(state.components || []).filter((entry) => entry.type !== "scene" && !entry.systemRole).map((entry) =>
-      `<option value="${esc(entry.id)}" ${entry.id === config.componentId ? "selected" : ""}>${esc(entry.name)}</option>`
-    ),
-  ].join("");
-  return `<article class="sculpt-card scene-frame-inspector inspector-control-surface">
-    <div class="soft-note">${frame.kind === "output" ? "Output Frame · its default proportion follows the Output projection" : "Frame · its default proportion follows the assigned projection Surface"}. Move and scale it in the Scene preview.</div>
-    ${frameIndex >= 0 ? `<label class="field inline-param"><span>Keep proportions</span><input type="checkbox" data-update="frames.${frameIndex}.keepProportions" ${frame.keepProportions === false ? "" : "checked"} /></label>` : ""}
-    <label class="field">Content <select data-update="${base}.componentId">${sourceOptions}</select></label>
-    <label class="field">Fit ${selectValuesTemplate(`${base}.fit`, ["cover", "contain", "stretch"], config.fit || "cover")}</label>
+export function sceneSurfaceInspectorTemplate(surface, state) {
+  if (!surface) return "";
+  const mappingIndex = state.mappings?.findIndex((mapping) => String(mapping.id) === String(state.ui?.selectedMappingId || "")) ?? -1;
+  const surfaceIndex = mappingIndex >= 0
+    ? state.mappings[mappingIndex].surfaces?.findIndex((entry) => String(entry.id) === String(surface.id)) ?? -1
+    : -1;
+  if (surfaceIndex < 0) return "";
+  const base = `mappings.${mappingIndex}.surfaces.${surfaceIndex}`;
+  return `<article class="sculpt-card scene-surface-inspector inspector-control-surface">
+    <div class="soft-note">Surface · move and scale its 2D rectangle in the Scene preview; calibrate its projection in Mapping.</div>
+    <label class="field inline-param"><span>Keep proportions</span><input type="checkbox" data-update="${base}.keepProportions" ${surface.keepProportions === false ? "" : "checked"} /></label>
+    <label class="field">Fit ${selectValuesTemplate(`${base}.projectionFit`, ["cover", "contain", "stretch"], surface.projectionFit || "cover")}</label>
   </article>`;
 }
 
@@ -59,7 +53,7 @@ export function componentTemplate(component, state) {
     return `
       <article class="sculpt-card">
         ${componentInstanceSyncTemplate(component, base)}
-        <div class="soft-note">This Scene arranges reusable Components and exposes Frames to Mapping surfaces.</div>
+        <div class="soft-note">This Scene arranges reusable Components. Mapping Surfaces define its 2D crop and physical projection.</div>
       </article>
     `;
   }
@@ -310,8 +304,38 @@ function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = 
       ${item.source?.type === "component"
         ? (isSceneComponentPlacement ? "" : `<label class="field">Component ${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
         : sourcePickerTemplate(item, state, base, paramView)}
+      ${item.source?.type === "generator" && item.source.generatorId === "sdfSketch"
+        ? sdfSketchContentEditorTemplate(state)
+        : ""}
     </section>
   `;
+}
+
+function sdfSketchContentEditorTemplate(state) {
+  const component = visualGeneratorComponent(state, "sdfSketch");
+  const baseDefinition = component?.nodeDefinition;
+  if (!baseDefinition) return "";
+  const definition = materializeProjectNodeDefinition(baseDefinition, state);
+  const compiler = baseDefinition.metadata?.sourceCompiler;
+  const programPart = definition.parts?.find((part) => part.id === compiler?.programPartId);
+  if (!programPart) return "";
+  const hasFork = definition.id !== baseDefinition.id;
+  return `
+    <div class="node-editor-projection sdf-sketch-content-editor" data-node-editor data-node-base-id="${esc(baseDefinition.id)}" data-node-base-version="${esc(baseDefinition.version)}">
+      <div class="ui-subsection-header"><span>${icon("code")}</span><span>SDF sketch</span></div>
+      <p class="soft-note">Relative coordinates are 0–1. Save compiles this program into one GPU shader; it does not run JavaScript per frame.</p>
+      <div class="node-editor-section node-editor-source is-open">
+        <textarea aria-label="SDF sketch source" spellcheck="false" data-node-part-source="${esc(programPart.id)}">${esc(programPart.source || "")}</textarea>
+      </div>
+      <details class="node-editor-section sdf-sketch-api-help">
+        <summary>Drawing API</summary>
+        <code>background · rect · circle · ring · line · grid · edgeChecks · stripes · colorBars · grayScale · sdfExpr</code>
+      </details>
+      <div class="node-editor-actions">
+        <button type="button" data-save-node-fork>${hasFork ? "Save sketch" : "Create project sketch"}</button>
+        ${hasFork ? `<button type="button" class="secondary" data-reset-node-fork>Use built-in sketch</button>` : ""}
+      </div>
+    </div>`;
 }
 
 function effectDisplayParam(param) {

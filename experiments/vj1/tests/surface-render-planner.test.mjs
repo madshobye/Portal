@@ -3,12 +3,26 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { createInitialState } from "../js/domain/models.js";
-import { planSurfaceRoutes } from "../js/output/surface-render-planner.js";
+import { orderedSurfaceProgram, planSurfaceRoutes } from "../js/output/surface-render-planner.js";
+import { unifyTransitionComponentRenderRequests } from "../js/output/component-render-layout.js";
 import {
   OutputSurfaceRuntime,
   surfaceRouteBlend,
   surfaceRouteOpacity,
+  transitionRouteSourceKey,
 } from "../js/output/output-surface-runtime.js";
+
+test("transition endpoints share the larger component demand", () => {
+  const fromRequest = { timingId: "overall", width: 1920, height: 1080, demandScale: 1 };
+  const toRequest = { timingId: "overall", width: 960, height: 540, demandScale: 0.5 };
+  const fromRoutes = [{ componentRequest: fromRequest }];
+  const toRoutes = [{ componentRequest: toRequest }, { componentRequest: null }];
+
+  unifyTransitionComponentRenderRequests(fromRoutes, toRoutes);
+
+  assert.strictEqual(fromRoutes[0].componentRequest, fromRequest);
+  assert.strictEqual(toRoutes[0].componentRequest, fromRequest);
+});
 
 test("surface planner resolves visible routes and their shared component demand", () => {
   const state = createInitialState();
@@ -145,6 +159,31 @@ test("surface planner consumes the compiled Scene surface program as routing aut
   assert.deepEqual(result.routes, []);
 });
 
+test("direct output backplanes composite below mapped Surfaces", () => {
+  const mappedA = { id: "mapped-a", destination: { type: "mapped" } };
+  const directMain = { id: "direct-main", destination: { type: "direct", outputIds: ["main"] } };
+  const mappedB = { id: "mapped-b", destination: { type: "mapped" } };
+  const directAll = { id: "direct-all", destination: { type: "direct", outputIds: ["main", "second"] } };
+
+  assert.deepEqual(
+    orderedSurfaceProgram([mappedA, directMain, mappedB, directAll]).map((surface) => surface.id),
+    ["direct-all", "direct-main", "mapped-a", "mapped-b"]
+  );
+});
+
+test("transition compositor uses the same direct-backplane ordering", () => {
+  const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
+  assert.ok(runtimeSource.includes("for (const route of [...toRoutes, ...fromRoutes])"));
+  assert.ok(runtimeSource.includes("orderedSurfaceProgram(transitionSurfaces).map((surface) => surface.id)"));
+});
+
+test("embedded Live outlines the selected projection without exposing Mapping handles", () => {
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.ok(rendererSource.includes('const liveSelection = workspace === "live"'));
+  assert.ok(rendererSource.includes("const revealHandles = mappingSelection && calibrating"));
+  assert.ok(rendererSource.includes("if (mapped?.direct && !liveSelection) return"));
+});
+
 test("output renderer delegates surface demand planning", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
@@ -153,7 +192,7 @@ test("output renderer delegates surface demand planning", () => {
   assert.match(rendererSource, /from "\.\/output-surface-runtime\.js\?v=[^"]+"/);
   assert.match(runtimeSource, /from "\.\/surface-render-planner\.js\?v=[^"]+"/);
   assert.ok(runtimeSource.includes("const { routes, metrics } = planSurfaceRoutes({"));
-  assert.ok(runtimeSource.includes("surfaceProgram: surfaceProgram || renderer.mappingProgramSurfaces(renderer.state)"));
+  assert.ok(runtimeSource.includes("surfaceProgram: orderedSurfaceProgram(surfaceProgram || renderer.mappingProgramSurfaces(renderer.state))"));
   assert.ok(runtimeSource.includes("transformDemandCorners,"));
   assert.ok(runtimeSource.includes('preserveDirectFootprint: renderer.mode === "output"'));
   assert.doesNotMatch(runtimeSource, /outputSpanFitScale/);
@@ -176,6 +215,26 @@ test("surface routes compose component placement opacity and blend at the parent
     surface: { ...route.surface, finalBlend: "multiply" },
   }), "multiply");
   assert.equal(surfaceRouteOpacity({ component: {}, surface: {} }), 1);
+});
+
+test("transition route identity ignores Surface geometry but detects source changes", () => {
+  const route = {
+    surface: {
+      id: "surface-1",
+      x: 0.1,
+      width: 0.4,
+      componentId: "component-a",
+      sourceNodeId: "source:component-a",
+      sourceFit: "cover",
+      sourceFitActive: true,
+      sourceAspect: 16 / 9,
+    },
+  };
+  const moved = { surface: { ...route.surface, x: 0.5, width: 0.2 } };
+  const replaced = { surface: { ...route.surface, componentId: "component-b", sourceNodeId: "source:component-b" } };
+
+  assert.equal(transitionRouteSourceKey(route), transitionRouteSourceKey(moved));
+  assert.notEqual(transitionRouteSourceKey(route), transitionRouteSourceKey(replaced));
 });
 
 test("direct recording-frame views stay in the mapper shader instead of p5 sub-texture copies", () => {

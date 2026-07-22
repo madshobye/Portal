@@ -97,7 +97,7 @@ function pasteComponent(draft, source, target) {
   copy.thumbnail = "";
   delete copy.activity;
   copy.chain = (copy.chain || []).map(regenerateChainItemIds);
-  if (copy.scene) copy.scene.frameThumbnails = {};
+  if (copy.scene) copy.scene.surfaceThumbnails = {};
   draft.components ||= [];
   draft.components.push(copy);
   draft.ui.selectedComponentId = copy.id;

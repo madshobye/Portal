@@ -3,14 +3,14 @@ import {
   componentRenderInstanceKey,
   componentSourceView,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=canvas-global-resolution-1";
+} from "./component-render-layout.js?v=transition-demand-stability-1";
 import {
   createRenderRequest,
   frameSize,
   sourceRenderDemand,
   SURFACE_DEMAND_OVERSCAN,
-} from "./render-geometry.js?v=adaptive-component-demand-29";
-import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=preview-visible-demand-1";
+} from "./render-geometry.js?v=live-transition-geometry-1";
+import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=surface-fit-demand-1";
 
 // Direct render-host bridge: the node owns the route algorithm while the
 // renderer supplies its established geometry policies directly. This closure
@@ -26,6 +26,24 @@ export const planSurfaceRoutes = createSurfaceCompositionEngine({
   componentRegionSafe: (component) => component?.regionSafe === true,
   componentFrameFanoutSafe: (component) => component?.frameFanoutSafe !== false,
 });
+
+// Direct output routes are backplanes, not projection overlays. Draw a route
+// spanning several outputs first, then output-specific direct routes, and
+// finally authored mapped Surfaces. The stable source index preserves user
+// ordering within each layer and requires no extra render target or pass.
+export function orderedSurfaceProgram(surfaces = []) {
+  return (surfaces || []).map((surface, index) => ({ surface, index })).sort((a, b) => {
+    const aDirect = a.surface?.destination?.type === "direct";
+    const bDirect = b.surface?.destination?.type === "direct";
+    if (aDirect !== bDirect) return aDirect ? -1 : 1;
+    if (aDirect) {
+      const spanDifference = (b.surface.destination?.outputIds?.length || 0)
+        - (a.surface.destination?.outputIds?.length || 0);
+      if (spanDifference) return spanDifference;
+    }
+    return a.index - b.index;
+  }).map(({ surface }) => surface);
+}
 
 export function stableSurfaceRenderRequest(render = {}, meta = {}) {
   const frame = frameSize(render);

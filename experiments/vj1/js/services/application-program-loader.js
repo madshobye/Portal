@@ -1,4 +1,4 @@
-import { migrateProjectData } from "../domain/project-migrations.js?v=boundary-authority-1";
+import { migrateProjectData } from "../domain/project-migrations.js?v=surface-identity-2";
 import {
   canPersistDirectoryHandles,
   loadProjectDirectoryHandle,

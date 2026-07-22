@@ -6,6 +6,7 @@ import {
   applyModelViewportProjection,
   modelCameraFov,
   modelDepthCutoff,
+  modelDepthSliceEnabled,
   modelImportBasis,
   modelNormalMatrix,
   modelOutlineThickness,
@@ -40,6 +41,9 @@ test("specialized model math owns viewport rotation depth and matrix calculation
   assert.equal(matrices.mvp.length, 16);
   assert.deepEqual(transformedModelDepthRange(bounds), { min: -3, max: 7 });
   assert.equal(modelDepthCutoff({ visibleDepth: 0.5 }, bounds), 2);
+  assert.ok(modelDepthCutoff({ visibleDepth: 1 }, bounds) < -3);
+  assert.equal(modelDepthSliceEnabled({ visibleDepth: 1 }), false);
+  assert.equal(modelDepthSliceEnabled({ visibleDepth: 0.999 }), true);
   assert.equal(modelWireThickness({ wireThickness: 99 }), 12);
   assert.equal(modelOutlineThickness({ wireThickness: 2 }), 2.7);
   assert.ok(Math.abs(modelCameraFov({}) - Math.PI / 3) < 0.000001);

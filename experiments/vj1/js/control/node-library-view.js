@@ -1,6 +1,7 @@
 import { materializeProjectNodeDefinition, nodeDefinitionEditorTemplate } from "./node-editor-view.js";
 import { nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=application-bootstrap-10";
 import { emptyNote, esc, icon } from "./template-utils.js";
+import { railListSectionTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
 
 export function selectedLibraryNode(state, nodePackage) {
   const definitions = nodeDefinitions(nodePackage);
@@ -20,20 +21,23 @@ export function nodeLibraryRailTemplate(state, nodePackage) {
   const definitions = nodeDefinitions(nodePackage);
   const selected = selectedLibraryNode(state, nodePackage);
   const sections = groupByLibraryRole(definitions);
-  return `
-    <div class="ui-section rail-section rail-list-section node-library-rail">
-      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">schema</span><span>Node library</span></div>
-      <label class="node-library-search"><span class="material-symbols-rounded">search</span><input type="search" placeholder="Filter nodes" data-node-library-filter /></label>
-      <div class="node-library-list rail-scroll-list" data-scroll-region data-scroll-key="node-library">
-        ${projectProgramSection(state)}
+  const content = `${projectProgramSection(state)}
         ${sections.map(({ label, items }) => `
           <section class="node-library-section">
             <h3>${esc(label)} <small>${items.length}</small></h3>
             ${items.map((definition) => nodeListItem(definition, definition.id === selected?.id)).join("")}
           </section>
-        `).join("") || emptyNote("No registered nodes")}
-      </div>
-    </div>`;
+        `).join("")}`;
+  return railListSectionTemplate({
+    iconName: "schema",
+    title: "Node library",
+    beforeListHtml: `<label class="node-library-search"><span class="material-symbols-rounded">search</span><input type="search" placeholder="Filter nodes" data-node-library-filter /></label>`,
+    content,
+    emptyText: "No registered nodes",
+    className: "node-library-rail",
+    listClassName: "node-library-list",
+    scrollKey: "node-library",
+  });
 }
 
 export function nodeLibraryStudioTemplate(state, nodePackage) {

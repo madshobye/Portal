@@ -7,13 +7,28 @@ export function getLiveSelectedScene(state) {
   return sceneComponents(state).find((scene) => scene.id === id) || null;
 }
 
-export function getLiveSelectedTarget(state) {
-  const id = String(state.ui?.live?.selectedComponentId || "");
+export function getLiveSourceTarget(state) {
+  const live = state.ui?.live || {};
+  const previewSurfaceId = String(live.previewSurfaceId || "__mapping__");
+  const resolvedRouteId = previewSurfaceId !== "__mapping__"
+    ? live.surfaceRoutes?.surfaces?.find((surface) => String(surface.id) === previewSurfaceId)?.componentId || ""
+    : "";
+  const id = String(previewSurfaceId !== "__mapping__"
+    ? live.patchSourceId || resolvedRouteId
+    : live.selectedComponentId || "");
+  if (!id && (previewSurfaceId !== "__mapping__" || live.overallSourceCleared === true)) return null;
   return (state.components || []).find((component) => !component.systemRole && String(component.id) === id)
     || getLiveSelectedScene(state);
 }
 
+export function getLiveSelectedTarget(state) {
+  const inspectedId = String(state.ui?.live?.inspectedComponentId || "");
+  return (state.components || []).find((component) => !component.systemRole && String(component.id) === inspectedId)
+    || getLiveSourceTarget(state);
+}
+
 export function liveSelectedSceneId(state) {
+  if (state.ui?.live?.overallSourceCleared === true) return "";
   return state.ui?.live?.selectedSceneId || sceneComponents(state)[0]?.id || "";
 }
 

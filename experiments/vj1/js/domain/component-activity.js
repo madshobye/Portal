@@ -25,7 +25,10 @@ export function latestProjectActivity(activity = EMPTY_ACTIVITY) {
 export function stampChangedProjectItems(previous = {}, next = {}, now = new Date().toISOString()) {
   const timestamp = normalizeTimestamp(now) || new Date().toISOString();
   stampCollection(previous.components, next.components, timestamp, componentActivitySignature);
-  stampCollection(previous.frames, next.frames, timestamp, frameActivitySignature);
+  for (const mapping of next.mappings || []) {
+    const previousMapping = (previous.mappings || []).find((item) => item.id === mapping.id);
+    stampCollection(previousMapping?.surfaces, mapping.surfaces, timestamp, surfaceActivitySignature);
+  }
   return next;
 }
 
@@ -37,11 +40,12 @@ export function touchComponentUsed(state, componentId, now = new Date().toISOStr
   return true;
 }
 
-export function touchRecordingFrameUsed(state, frameId, now = new Date().toISOString()) {
-  const frame = state?.frames?.find((item) => item.id === frameId);
-  if (!frame) return false;
-  frame.activity = normalizeProjectActivity(frame.activity, now);
-  frame.activity.lastUsedAt = normalizeTimestamp(now);
+export function touchRecordingFrameUsed(state, surfaceId, now = new Date().toISOString()) {
+  const surface = (state?.mappings || []).flatMap((mapping) => mapping.surfaces || [])
+    .find((item) => item.id === surfaceId);
+  if (!surface) return false;
+  surface.activity = normalizeProjectActivity(surface.activity, now);
+  surface.activity.lastUsedAt = normalizeTimestamp(now);
   return true;
 }
 
@@ -57,12 +61,12 @@ function stampCollection(previousItems = [], nextItems = [], timestamp, signatur
 function componentActivitySignature(component = {}) {
   const { activity: _activity, thumbnail: _thumbnail, scene, ...ownData } = component;
   if (!scene || typeof scene !== "object") return stableStringify(ownData);
-  const { frameThumbnails: _frameThumbnails, ...sceneData } = scene;
+  const { surfaceThumbnails: _surfaceThumbnails, ...sceneData } = scene;
   return stableStringify({ ...ownData, scene: sceneData });
 }
 
-function frameActivitySignature(frame = {}) {
-  const { activity: _activity, ...ownData } = frame;
+function surfaceActivitySignature(surface = {}) {
+  const { activity: _activity, ...ownData } = surface;
   return stableStringify(ownData);
 }
 

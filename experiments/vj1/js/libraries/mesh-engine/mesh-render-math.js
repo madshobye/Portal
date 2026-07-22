@@ -38,7 +38,20 @@ export function modelDepthCutoff(params = {}, bounds = null, modelMatrix = null)
   const requestedDepth = Number(params.visibleDepth);
   const visibleDepth = Math.max(0.02, Math.min(1, Number.isFinite(requestedDepth) ? requestedDepth : 1));
   const range = transformedModelDepthRange(bounds, modelMatrix);
+  if (visibleDepth >= 1) {
+    // Full depth is a true no-slice state. Using the exact minimum as the
+    // fragment threshold made the deepest faces depend on interpolator
+    // precision, so STL/OBJ meshes could lose their backmost layer at 100%.
+    const span = Math.max(1, range.max - range.min);
+    return range.min - span * 0.0001;
+  }
   return range.max - visibleDepth * (range.max - range.min);
+}
+
+export function modelDepthSliceEnabled(params = {}) {
+  const requestedDepth = Number(params.visibleDepth);
+  const visibleDepth = Math.max(0.02, Math.min(1, Number.isFinite(requestedDepth) ? requestedDepth : 1));
+  return visibleDepth < 1;
 }
 
 export function transformedModelDepthRange(bounds = null, modelMatrix = null) {

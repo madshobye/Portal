@@ -205,6 +205,38 @@ test("Canvas recording frames receive the pointer when no selected handle is hit
   assert.deepEqual(calls, [["chain"], ["frame"]]);
 });
 
+test("direct output Surfaces remain editable as 2D Scene rectangles", () => {
+  const surface = {
+    id: "direct-output-main",
+    enabled: true,
+    calibrationLocked: true,
+    keepProportions: true,
+    destination: { type: "direct", outputIds: ["output-main"] },
+    x: 0.1,
+    y: 0.1,
+    width: 0.4,
+    height: 0.3,
+  };
+  const scene = { id: "scene", type: "scene", chain: [] };
+  const selected = [];
+  const renderer = {
+    state: {
+      components: [scene],
+      mappings: [{ id: "mapping", surfaces: [surface] }],
+      ui: { selectedComponentId: scene.id, selectedMappingId: "mapping" },
+    },
+    componentOutput: new Map(),
+    componentPreviewRect: () => ({ x: 0, y: 0, width: 100, height: 100 }),
+    onSceneFrameSelect: (id) => selected.push(id),
+  };
+  const interaction = new ComponentPreviewInteraction(renderer);
+
+  assert.equal(interaction.startSceneFrameDrag(20, 10), true);
+  assert.deepEqual(selected, [surface.id]);
+  assert.equal(interaction.sceneFrameDrag?.frameId, surface.id);
+  assert.equal(interaction.sceneFrameDrag?.keepProportions, true);
+});
+
 test("element scale dragging uses a softened bounded response", () => {
   assert.equal(chainTransformDragScale(1, 40, 160), 2);
   assert.equal(chainTransformDragScale(1, 40, 10), 0.5);
@@ -557,6 +589,17 @@ test("output diagnostics remain DOM-only and never add text to the GL surface pa
   assert.equal(rendererSource.includes("showLabels"), false);
   assert.ok(rendererSource.includes("this.renderResolutionLabel()"));
   assert.ok(appSource.includes('class="output-fps"'));
+});
+
+test("standalone output requests authoritative state and media after renderer setup", () => {
+  const appSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
+  const importedFiles = appSource.indexOf("renderer.importFiles(acceptedFiles);");
+  const requestedState = appSource.indexOf("bridge?.requestState();", importedFiles);
+  const requestedMedia = appSource.indexOf("bridge?.requestMediaFiles();", requestedState);
+
+  assert.ok(importedFiles >= 0);
+  assert.ok(requestedState > importedFiles);
+  assert.ok(requestedMedia > requestedState);
 });
 
 test("surface calibration keeps direct projection without materialized labels", () => {
@@ -1937,6 +1980,19 @@ test("zero-duration Live output retains the original single-scene surface path",
   assert.ok(source.includes("this.renderMappingSurfaces();"));
   assert.ok(source.includes("this.releaseTransitionSurfaceTextures();"));
   assert.ok(source.includes("renderer.mapper.drawTransitionTextures("));
+});
+
+test("Live transition composites prepared surface rasters without applying fit twice", () => {
+  const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
+  const transitionCall = source.slice(
+    source.indexOf("renderer.mapper.drawTransitionTextures("),
+    source.indexOf("renderer.mapper.drawTransitionTextures(") + 700
+  );
+
+  assert.ok(transitionCall.includes('fromProjectionFit: "stretch"'));
+  assert.ok(transitionCall.includes('toProjectionFit: "stretch"'));
+  assert.ok(!transitionCall.includes("fromRoute?.surface?.projectionFit"));
+  assert.ok(!transitionCall.includes("toRoute?.surface?.projectionFit"));
 });
 
 test("media renditions are saved without lossy jpeg compression", () => {

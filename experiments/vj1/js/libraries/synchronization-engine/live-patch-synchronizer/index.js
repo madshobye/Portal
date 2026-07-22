@@ -20,8 +20,14 @@ export class LivePatchSynchronizer {
 
   queue(patches = []) {
     for (const patch of patches) {
-      if (!patch?.componentId || !patch?.path) continue;
-      this.pending.set(`${patch.componentId}:${patch.path}`, patch);
+      if (!patch?.path) continue;
+      const targetKey = patch.target === "state"
+        ? "state"
+        : patch.componentId
+          ? `component:${patch.componentId}`
+          : "";
+      if (!targetKey) continue;
+      this.pending.set(`${targetKey}:${patch.path}`, patch);
     }
     return this.pending.size;
   }
@@ -120,6 +126,11 @@ export function livePatchSynchronizerNodeProcess({ patches = [], coalesce = true
 }
 
 function defaultSchedule(callback) {
-  if (typeof queueMicrotask === "function") queueMicrotask(callback);
+  // Pointer events arrive as separate tasks, so microtask scheduling can emit
+  // every intermediate sample and build a transport/render queue. A render
+  // patch is presentation state: one latest value per browser frame is the
+  // useful contract. Non-browser tests retain deterministic microtask timing.
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(callback);
+  else if (typeof queueMicrotask === "function") queueMicrotask(callback);
   else Promise.resolve().then(callback);
 }
