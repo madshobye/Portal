@@ -34,6 +34,19 @@ export function modelCameraFov(params = {}) {
   return 2 * Math.atan(12 / focalLength);
 }
 
+// Model coordinates, camera distance, and model scale all use the render
+// height as their physical unit. Keep the clip volume in that same unit so a
+// quality/resolution change cannot remove the back of an otherwise identical
+// model. The ratios preserve the original 0.1..5000 volume at 200 px while
+// keeping the same depth precision at every resolution.
+export function modelCameraClipPlanes(height = 1) {
+  const verticalUnit = Math.max(1, Number(height) || 1);
+  return {
+    near: verticalUnit * 0.0005,
+    far: verticalUnit * 25,
+  };
+}
+
 export function modelDepthCutoff(params = {}, bounds = null, modelMatrix = null) {
   const requestedDepth = Number(params.visibleDepth);
   const visibleDepth = Math.max(0.02, Math.min(1, Number.isFinite(requestedDepth) ? requestedDepth : 1));
@@ -95,7 +108,8 @@ export function modelViewportMetrics(target, request = {}) {
 }
 
 export function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0], contentTransform = {}, cameraFov = Math.PI / 3, uvRect = FULL_RENDER_UV_RECT) {
-  const projection = mat4Perspective(cameraFov, width / Math.max(1, height), 0.1, 5000);
+  const clip = modelCameraClipPlanes(height);
+  const projection = mat4Perspective(cameraFov, width / Math.max(1, height), clip.near, clip.far);
   const cameraZ = Math.max(1, height) * 0.92;
   const view = mat4LookAt([0, 0, cameraZ], [0, 0, 0], [0, 1, 0]);
   let model = mat4Identity();
@@ -122,12 +136,11 @@ export function applyModelViewportProjection(target, cameraFov = Math.PI / 3, vi
   const width = Math.max(1, Number(viewport.width) || Number(target?.width) || 1);
   const height = Math.max(1, Number(viewport.height) || Number(target?.height) || 1);
   const uv = normalizeRenderUvRect(viewport.uvRect);
+  const { near, far } = modelCameraClipPlanes(height);
   if (isFullUvRect(uv) || typeof target?.frustum !== "function") {
-    target?.perspective?.(cameraFov, width / height, 0.1, 5000);
+    target?.perspective?.(cameraFov, width / height, near, far);
     return;
   }
-  const near = 0.1;
-  const far = 5000;
   const top = near * Math.tan(cameraFov * 0.5);
   const bottom = -top;
   const right = top * width / height;

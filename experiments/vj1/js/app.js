@@ -1,10 +1,10 @@
 import { createAppState } from "./app-state.js?v=transition-start-fit-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=transition-start-fit-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=resolution-relative-model-clip-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=scene-mapping-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=transition-start-fit-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=render-patch-coalescing-1";
-import { installOutputApp } from "./output/output-app.js?v=transition-start-fit-1";
+import { installOutputApp } from "./output/output-app.js?v=resolution-relative-model-clip-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createRenderStatePatch } from "./domain/live-render-patch.js?v=render-state-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import {
   applyModelViewportProjection,
+  modelCameraClipPlanes,
   modelCameraFov,
   modelDepthCutoff,
   modelDepthSliceEnabled,
@@ -85,6 +86,42 @@ test("model ROI keeps the full boundary camera and uses an off-axis projection",
   const matrices = rawModelMatrices(400, 100, 1, 1, [0, 0, 0], {}, Math.PI / 3, [0.5, 0, 0.5, 1]);
   assert.ok(Math.abs(matrices.mvp[12] / matrices.mvp[15] + 1) < 1e-6, "full-boundary center maps to the ROI's left edge");
 });
+
+test("model camera clipping stays proportional to render resolution", () => {
+  assert.deepEqual(modelCameraClipPlanes(200), { near: 0.1, far: 5000 });
+  assert.deepEqual(modelCameraClipPlanes(800), { near: 0.4, far: 20000 });
+
+  let lowPerspective = null;
+  let highPerspective = null;
+  applyModelViewportProjection({
+    perspective: (...args) => { lowPerspective = args; },
+  }, Math.PI / 3, { width: 320, height: 200 });
+  applyModelViewportProjection({
+    perspective: (...args) => { highPerspective = args; },
+  }, Math.PI / 3, { width: 1280, height: 800 });
+
+  assert.deepEqual(lowPerspective.slice(2), [0.1, 5000]);
+  assert.deepEqual(highPerspective.slice(2), [0.4, 20000]);
+
+  const low = rawModelMatrices(320, 200, 1.3, 1.5);
+  const high = rawModelMatrices(1280, 800, 5.2, 1.5);
+  const lowProjected = projectNdc(low.mvp, [10, 20, 30]);
+  const highProjected = projectNdc(high.mvp, [10, 20, 30]);
+  for (let index = 0; index < lowProjected.length; index++) {
+    assert.ok(Math.abs(lowProjected[index] - highProjected[index]) < 0.000001, `projected coordinate ${index} remains resolution invariant`);
+  }
+});
+
+function projectNdc(matrix, point) {
+  const clip = [0, 0, 0, 0];
+  for (let row = 0; row < 4; row++) {
+    clip[row] = matrix[row] * point[0]
+      + matrix[4 + row] * point[1]
+      + matrix[8 + row] * point[2]
+      + matrix[12 + row];
+  }
+  return clip.slice(0, 3).map((value) => value / clip[3]);
+}
 
 test("specialized model mesh cache owns bounded point and wire extraction", () => {
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");

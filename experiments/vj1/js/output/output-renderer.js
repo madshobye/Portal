@@ -61,7 +61,7 @@ import {
 } from "./render-geometry.js?v=output-one-1";
 import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=transition-view-contract-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=full-model-depth-2";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=resolution-relative-model-clip-1";
 import {
   sceneMaxRasterSize,
   scenePreviewRenderRequest,
