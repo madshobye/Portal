@@ -162,6 +162,8 @@ test("Live Surface patch assignment and removal use the configured transition", 
   const scene = createSceneComponent(0, state.components[0].id);
   const patchComponent = createDefaultComponent(2);
   state.components.push(scene, patchComponent);
+  const authoredSurface = state.mappings[0].surfaces.find((item) => item.destination?.type !== "direct");
+  authoredSurface.projectionFit = "contain";
   state.ui.live.selectedSceneId = "";
   state.ui.live.selectedComponentId = "";
   state.ui.live.transitionDuration = 1.25;
@@ -177,9 +179,22 @@ test("Live Surface patch assignment and removal use the configured transition", 
   let currentRoute = after.ui.live.surfaceRoutes.surfaces.find((item) => item.id === surface.id);
   assert.equal(after.ui.live.transition.durationMs, 1250);
   assert.equal(previousRoute.componentId, scene.id);
+  assert.equal(previousRoute.projectionFit, "contain");
   assert.equal(currentRoute.componentId, patchComponent.id);
+  assert.equal(currentRoute.projectionFit, "cover");
   assert.equal(currentRoute.sceneCrop, false);
   assert.equal(currentRoute.sourceFitActive, false);
+  const transitionRenderState = createLiveRenderState(after);
+  assert.equal(
+    transitionRenderState.liveTransition.fromState.surfaces.find((item) => item.id === surface.id).projectionFit,
+    "contain",
+    "progress zero retains the fit visible immediately before the patch"
+  );
+  assert.equal(
+    transitionRenderState.surfaces.find((item) => item.id === surface.id).projectionFit,
+    "cover",
+    "the incoming patch keeps its target fit"
+  );
 
   store.selectLivePreviewSurface("__mapping__");
   assert.equal(store.clearLiveSurfacePatch(surface.id), true);

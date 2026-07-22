@@ -1,8 +1,8 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes, syncLiveRoutesFromMapping } from "../domain/models.js?v=scene-mapping-output-visibility-1";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes, syncLiveRoutesFromMapping } from "../domain/models.js?v=transition-start-fit-1";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js?v=component-transport-patch-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=live-thumbnail-toggle-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=transition-start-fit-1";
 import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=cursor-anchored-zoom-1";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
@@ -179,7 +179,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         // Component preview gestures own an immediate local state overlay.
         // Feeding their store echo straight back into the same renderer makes
         // it rebuild lookup state twice per pointer frame.
-        if (!patchedLivePreview && !patchedStudioPreview && reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:scene-frame") updatePreviewState(state);
+        if (!patchedLivePreview && !patchedStudioPreview && reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:scene-surface") updatePreviewState(state);
         return;
       }
       if (change.phase === "color") {

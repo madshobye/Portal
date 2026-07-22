@@ -1283,7 +1283,7 @@ test("Component Scene and Live previews follow the shared thumbnail toggle", () 
   assert.ok(thumbnailSource.includes("if (!this.sendThumbnail || !this.canCapture() || this.shouldUseThumbnailPreview())"));
   assert.ok(rendererSource.includes("this.renderSelectedChainTransformOverlay()"));
   assert.ok(rendererSource.includes("renderSceneThumbnailSnapshotPreview(component)"));
-  assert.ok(rendererSource.includes("renderSceneThumbnailEditPreview(component)"));
+  assert.doesNotMatch(rendererSource, /renderSceneThumbnailEditPreview\(/);
   assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(component)"));
 });
 

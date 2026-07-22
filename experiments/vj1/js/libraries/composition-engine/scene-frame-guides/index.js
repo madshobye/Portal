@@ -1,7 +1,7 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
 
-// Frame guides are route geometry, not a canvas overlay. The node converts
-// authored Scene-relative Frames into the exact UV space sampled by a Surface;
+// Surface guides are route geometry, not a canvas overlay. The node converts
+// authored Scene-relative Surface rectangles into the exact UV space sampled by a Surface;
 // the Mapping engine then projects those paths through the Surface homography.
 // This keeps the guide attached to the same fit/crop path as the image without
 // allocating a texture or adding a render pass.
@@ -22,9 +22,9 @@ export function sceneFrameGuideNodeProcess({
     height: Math.max(1, Number(sampleRect?.height) || logicalHeight),
   };
   const paths = (frames || [])
-    // Output Frames are useful authored guides here, but they never define
+    // Output Surfaces are useful authored guides here, but they never define
     // this monitor's world or resolution. They are converted from the same
-    // relative Scene space as user Frames and projected only as geometry.
+    // relative Scene space as user Surfaces and projected only as geometry.
     .map((frame) => {
       const x0 = ((Number(frame.x) || 0) * logicalWidth - sample.x) / sample.width;
       const y0 = ((Number(frame.y) || 0) * logicalHeight - sample.y) / sample.height;
@@ -59,9 +59,9 @@ export function sourceUvToSurfaceUv(point = {}, sourceAspect = 1, targetAspect =
 
 export const SceneFrameGuideNode = defineNode({
   id: "core.composition.scene-frame-guides",
-  name: "Scene Frame Guides",
+  name: "Scene Surface Guides",
   version: "0.1.0",
-  description: "Projects authored Scene Frame geometry through the same crop, fit, and Surface route as its source image.",
+  description: "Projects authored Scene Surface geometry through the same crop, fit, and route as its source image.",
   implementation: NODE_IMPLEMENTATION_KINDS.NATIVE,
   inlets: {
     frames: { type: "any", required: true },
@@ -78,7 +78,7 @@ export const SceneFrameGuideNode = defineNode({
   parts: [{
     id: "scene-frame-guide-projection",
     kind: NODE_PART_KINDS.JAVASCRIPT,
-    name: "Scene Frame guide projection",
+    name: "Scene Surface guide projection",
     editable: true,
     module: import.meta.url,
     export: "sceneFrameGuideNodeProcess",

@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
-import { OutputRenderer } from "./output-renderer.js?v=full-model-depth-2";
+import { OutputRenderer } from "./output-renderer.js?v=transition-start-fit-1";
 import { renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
@@ -805,7 +805,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       const mapping = draft.mappings?.find((item) => item.id === draft.ui?.selectedMappingId) || draft.mappings?.[0];
       const surface = mapping?.surfaces?.find((item) => item.id === frameId);
       if (surface) Object.assign(surface, rect);
-    }, commit ? "update:scene-frame" : "scrub:scene-frame");
+    }, commit ? "update:scene-surface" : "scrub:scene-surface");
   }
 
   function selectSurface(surfaceId) {

@@ -181,6 +181,16 @@ export class VjMapper {
   drawTransitionTextures(fromTexture, toTexture, surface, {
     fromProjectionFit = "cover",
     toProjectionFit = "cover",
+    fromSourceRect = null,
+    toSourceRect = null,
+    fromSourceFitActive = false,
+    toSourceFitActive = false,
+    fromSourceFit = "cover",
+    toSourceFit = "cover",
+    fromSourceAspect = 1,
+    toSourceAspect = 1,
+    fromOpacity = 1,
+    toOpacity = 1,
     feather = 0,
     progress = 0,
   } = {}) {
@@ -197,8 +207,24 @@ export class VjMapper {
     shaderProgram.setUniform("toTex", toTexture?.framebuffer || toTexture);
     shaderProgram.setUniform("uCanvasSize", [width, height]);
     shaderProgram.setUniform("uHinv", cache.Hc);
-    shaderProgram.setUniform("uFromSourceAspect", Math.max(0.0001, Number(fromTexture.width) || 1) / Math.max(1, Number(fromTexture.height) || 1));
-    shaderProgram.setUniform("uToSourceAspect", Math.max(0.0001, Number(toTexture.width) || 1) / Math.max(1, Number(toTexture.height) || 1));
+    const normalizedFromRect = normalizedSourceRect(fromTexture, fromSourceRect);
+    const normalizedToRect = normalizedSourceRect(toTexture, toSourceRect);
+    const fromWidth = normalizedFromRect[2] * Math.max(1, Number(fromTexture.width) || 1);
+    const fromHeight = normalizedFromRect[3] * Math.max(1, Number(fromTexture.height) || 1);
+    const toWidth = normalizedToRect[2] * Math.max(1, Number(toTexture.width) || 1);
+    const toHeight = normalizedToRect[3] * Math.max(1, Number(toTexture.height) || 1);
+    shaderProgram.setUniform("uFromSourceRect", normalizedFromRect);
+    shaderProgram.setUniform("uToSourceRect", normalizedToRect);
+    shaderProgram.setUniform("uFromSourceAspect", Math.max(0.0001, fromWidth / Math.max(1, fromHeight)));
+    shaderProgram.setUniform("uToSourceAspect", Math.max(0.0001, toWidth / Math.max(1, toHeight)));
+    shaderProgram.setUniform("uFromUseSourceFit", fromSourceFitActive === true);
+    shaderProgram.setUniform("uToUseSourceFit", toSourceFitActive === true);
+    shaderProgram.setUniform("uFromSourceTargetAspect", Math.max(0.0001, Number(fromSourceAspect) || fromWidth / Math.max(1, fromHeight)));
+    shaderProgram.setUniform("uToSourceTargetAspect", Math.max(0.0001, Number(toSourceAspect) || toWidth / Math.max(1, toHeight)));
+    shaderProgram.setUniform("uFromSourceFit", projectionFitMode(fromSourceFit));
+    shaderProgram.setUniform("uToSourceFit", projectionFitMode(toSourceFit));
+    shaderProgram.setUniform("uFromOpacity", Math.max(0, Math.min(1, Number(fromOpacity) || 0)));
+    shaderProgram.setUniform("uToOpacity", Math.max(0, Math.min(1, Number(toOpacity) || 0)));
     shaderProgram.setUniform("uTargetAspect", cache.targetAspect);
     shaderProgram.setUniform("uFromProjectionFit", projectionFitMode(fromProjectionFit));
     shaderProgram.setUniform("uToProjectionFit", projectionFitMode(toProjectionFit));
@@ -586,18 +612,28 @@ export function mapperTransitionFragmentShaderSource({ feather = false } = {}) {
         return smoothstep(0.0, uFeather, -roundedDistance);
       }` : "";
   const featherCode = feather ? `
-        vec2 fromFeatherUv = uFromProjectionFit >= 1.5 ? fromUv : uv;
-        float fromFeatherAspect = uFromProjectionFit >= 1.5 ? uFromSourceAspect : uTargetAspect;
+        vec2 fromFeatherUv = uFromUseSourceFit ? fromSourceTargetUv : (uFromProjectionFit >= 1.5 ? fromUv : uv);
+        float fromFeatherAspect = uFromUseSourceFit ? uFromSourceTargetAspect : (uFromProjectionFit >= 1.5 ? uFromSourceAspect : uTargetAspect);
         fromColor *= roundedFeatherMask(fromFeatherUv, fromFeatherAspect);
-        vec2 toFeatherUv = uToProjectionFit >= 1.5 ? toUv : uv;
-        float toFeatherAspect = uToProjectionFit >= 1.5 ? uToSourceAspect : uTargetAspect;
+        vec2 toFeatherUv = uToUseSourceFit ? toSourceTargetUv : (uToProjectionFit >= 1.5 ? toUv : uv);
+        float toFeatherAspect = uToUseSourceFit ? uToSourceTargetAspect : (uToProjectionFit >= 1.5 ? uToSourceAspect : uTargetAspect);
         toColor *= roundedFeatherMask(toFeatherUv, toFeatherAspect);` : "";
   return `
       precision highp float;
       uniform sampler2D fromTex;
       uniform sampler2D toTex;
+      uniform vec4 uFromSourceRect;
+      uniform vec4 uToSourceRect;
       uniform float uFromSourceAspect;
       uniform float uToSourceAspect;
+      uniform bool uFromUseSourceFit;
+      uniform bool uToUseSourceFit;
+      uniform float uFromSourceTargetAspect;
+      uniform float uToSourceTargetAspect;
+      uniform float uFromSourceFit;
+      uniform float uToSourceFit;
+      uniform float uFromOpacity;
+      uniform float uToOpacity;
       uniform float uTargetAspect;
       uniform float uFromProjectionFit;
       uniform float uToProjectionFit;
@@ -608,44 +644,86 @@ export function mapperTransitionFragmentShaderSource({ feather = false } = {}) {
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
+        float fromProjectionSourceAspect = uFromUseSourceFit ? uFromSourceTargetAspect : uFromSourceAspect;
+        vec2 fromSourceTargetUv = uv;
         vec2 fromUv = uv;
         float fromInside = 1.0;
         if (uFromProjectionFit > 0.5 && uFromProjectionFit < 1.5) {
-          if (uFromSourceAspect > uTargetAspect) {
-            fromUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uFromSourceAspect);
+          if (fromProjectionSourceAspect > uTargetAspect) {
+            fromSourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / fromProjectionSourceAspect);
           } else {
-            fromUv.y = 0.5 + (uv.y - 0.5) * (uFromSourceAspect / uTargetAspect);
+            fromSourceTargetUv.y = 0.5 + (uv.y - 0.5) * (fromProjectionSourceAspect / uTargetAspect);
           }
         } else if (uFromProjectionFit >= 1.5) {
-          if (uFromSourceAspect > uTargetAspect) {
-            fromUv.y = 0.5 + (uv.y - 0.5) * (uFromSourceAspect / uTargetAspect);
+          if (fromProjectionSourceAspect > uTargetAspect) {
+            fromSourceTargetUv.y = 0.5 + (uv.y - 0.5) * (fromProjectionSourceAspect / uTargetAspect);
           } else {
-            fromUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uFromSourceAspect);
+            fromSourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / fromProjectionSourceAspect);
           }
-          fromInside = step(0.0, fromUv.x) * step(fromUv.x, 1.0) *
-            step(0.0, fromUv.y) * step(fromUv.y, 1.0);
+          fromInside = step(0.0, fromSourceTargetUv.x) * step(fromSourceTargetUv.x, 1.0) *
+            step(0.0, fromSourceTargetUv.y) * step(fromSourceTargetUv.y, 1.0);
+        }
+        fromUv = fromSourceTargetUv;
+        if (uFromUseSourceFit) {
+          if (uFromSourceFit > 0.5 && uFromSourceFit < 1.5) {
+            if (uFromSourceAspect > uFromSourceTargetAspect) {
+              fromUv.x = 0.5 + (fromSourceTargetUv.x - 0.5) * (uFromSourceTargetAspect / uFromSourceAspect);
+            } else {
+              fromUv.y = 0.5 + (fromSourceTargetUv.y - 0.5) * (uFromSourceAspect / uFromSourceTargetAspect);
+            }
+          } else if (uFromSourceFit >= 1.5) {
+            if (uFromSourceAspect > uFromSourceTargetAspect) {
+              fromUv.y = 0.5 + (fromSourceTargetUv.y - 0.5) * (uFromSourceAspect / uFromSourceTargetAspect);
+            } else {
+              fromUv.x = 0.5 + (fromSourceTargetUv.x - 0.5) * (uFromSourceTargetAspect / uFromSourceAspect);
+            }
+            fromInside *= step(0.0, fromUv.x) * step(fromUv.x, 1.0) *
+              step(0.0, fromUv.y) * step(fromUv.y, 1.0);
+          }
         }
 
+        float toProjectionSourceAspect = uToUseSourceFit ? uToSourceTargetAspect : uToSourceAspect;
+        vec2 toSourceTargetUv = uv;
         vec2 toUv = uv;
         float toInside = 1.0;
         if (uToProjectionFit > 0.5 && uToProjectionFit < 1.5) {
-          if (uToSourceAspect > uTargetAspect) {
-            toUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uToSourceAspect);
+          if (toProjectionSourceAspect > uTargetAspect) {
+            toSourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / toProjectionSourceAspect);
           } else {
-            toUv.y = 0.5 + (uv.y - 0.5) * (uToSourceAspect / uTargetAspect);
+            toSourceTargetUv.y = 0.5 + (uv.y - 0.5) * (toProjectionSourceAspect / uTargetAspect);
           }
         } else if (uToProjectionFit >= 1.5) {
-          if (uToSourceAspect > uTargetAspect) {
-            toUv.y = 0.5 + (uv.y - 0.5) * (uToSourceAspect / uTargetAspect);
+          if (toProjectionSourceAspect > uTargetAspect) {
+            toSourceTargetUv.y = 0.5 + (uv.y - 0.5) * (toProjectionSourceAspect / uTargetAspect);
           } else {
-            toUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / uToSourceAspect);
+            toSourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / toProjectionSourceAspect);
           }
-          toInside = step(0.0, toUv.x) * step(toUv.x, 1.0) *
-            step(0.0, toUv.y) * step(toUv.y, 1.0);
+          toInside = step(0.0, toSourceTargetUv.x) * step(toSourceTargetUv.x, 1.0) *
+            step(0.0, toSourceTargetUv.y) * step(toSourceTargetUv.y, 1.0);
+        }
+        toUv = toSourceTargetUv;
+        if (uToUseSourceFit) {
+          if (uToSourceFit > 0.5 && uToSourceFit < 1.5) {
+            if (uToSourceAspect > uToSourceTargetAspect) {
+              toUv.x = 0.5 + (toSourceTargetUv.x - 0.5) * (uToSourceTargetAspect / uToSourceAspect);
+            } else {
+              toUv.y = 0.5 + (toSourceTargetUv.y - 0.5) * (uToSourceAspect / uToSourceTargetAspect);
+            }
+          } else if (uToSourceFit >= 1.5) {
+            if (uToSourceAspect > uToSourceTargetAspect) {
+              toUv.y = 0.5 + (toSourceTargetUv.y - 0.5) * (uToSourceAspect / uToSourceTargetAspect);
+            } else {
+              toUv.x = 0.5 + (toSourceTargetUv.x - 0.5) * (uToSourceTargetAspect / uToSourceAspect);
+            }
+            toInside *= step(0.0, toUv.x) * step(toUv.x, 1.0) *
+              step(0.0, toUv.y) * step(toUv.y, 1.0);
+          }
         }
 
-        vec4 fromColor = texture2D(fromTex, clamp(fromUv, vec2(0.0), vec2(1.0))) * fromInside;
-        vec4 toColor = texture2D(toTex, clamp(toUv, vec2(0.0), vec2(1.0))) * toInside;
+        vec2 fromTextureUv = uFromSourceRect.xy + clamp(fromUv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw;
+        vec2 toTextureUv = uToSourceRect.xy + clamp(toUv, vec2(0.0), vec2(1.0)) * uToSourceRect.zw;
+        vec4 fromColor = texture2D(fromTex, fromTextureUv) * fromInside * uFromOpacity;
+        vec4 toColor = texture2D(toTex, toTextureUv) * toInside * uToOpacity;
         ${featherCode}
         vec4 color = mix(fromColor, toColor, clamp(uTransition, 0.0, 1.0));
         gl_FragColor = color;

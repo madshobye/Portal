@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=scene-mapping-output-visibility-1";
+import { sanitizeState } from "../domain/models.js?v=transition-start-fit-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=queued-recovery-1";
-import { OutputRenderer } from "./output-renderer.js?v=full-model-depth-2";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=render-patch-coalescing-1";
+import { OutputRenderer } from "./output-renderer.js?v=transition-start-fit-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=output-one-1";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";

@@ -3,7 +3,7 @@ import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
 import { sceneFrameSize, renderMaxFrameRate, renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-output-visibility-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=transition-start-fit-1";
 import { normalizeParamValue, normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { advancePresentationClock, createPresentationClock } from "../libraries/timing-engine/presentation-clock/index.js?v=presentation-clock-1";
@@ -30,7 +30,7 @@ import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runti
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=boundary-media-demand-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=transition-surface-fit-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=transition-view-contract-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=transition-demand-stability-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform, transformedRectBounds, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
@@ -59,7 +59,7 @@ import {
   outputSpanRect,
   worldSize,
 } from "./render-geometry.js?v=output-one-1";
-import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=scene-frame-guide-node-1";
+import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=transition-view-contract-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
 import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=full-model-depth-2";
 import {
@@ -384,7 +384,7 @@ export class OutputRenderer {
     this.surfaceRuntime.dispose();
     this.disposeFxTargetGroups();
     this.disposeIsfPassTargets();
-    // Frame-local aliases; componentGpuBuffer owns these targets.
+    // Render-cycle aliases; componentGpuBuffer owns these targets.
     this.componentOutput.clear();
     this.renderCache.dispose();
     this.stableComponentSignatures?.clear?.();
@@ -1942,7 +1942,7 @@ export class OutputRenderer {
       if (item?.kind === "group") return visit(item.chain);
       if (item?.kind === "effect") {
         const effect = this.effectNodeComponent(item.componentId);
-        // Frame ROI must be pixel-equivalent to a full Scene crop.
+        // Surface ROI must be pixel-equivalent to a full Scene crop.
         // Effects that sample neighboring/arbitrary source coordinates need
         // a halo/global adapter and therefore retain the established full-
         // Scene path for now. Local filters remain region-safe.
@@ -4100,14 +4100,12 @@ export class OutputRenderer {
     push();
     imageMode(CORNER);
     if (this.shouldUseThumbnailPreview()) {
-      // A Scene thumbnail is the flattened composition authority. Rebuilding
-      // a paused Scene from referenced Component thumbnails omits media and
-      // effects and can therefore show an entirely different image. Keep that
-      // reconstruction only as a last-resort fallback for old Scenes that
-      // have never published their own thumbnail.
+      // A Scene thumbnail is the flattened composition authority. Never
+      // synthesize one from child thumbnails: that omits media, effects, and
+      // route context. The thumbnail runtime keeps the last valid snapshot
+      // published until its replacement succeeds.
       const drewSceneSnapshot = component?.type === "scene" && this.renderSceneThumbnailSnapshotPreview(component);
-      const drewSceneFallback = component?.type === "scene" && !drewSceneSnapshot && this.renderSceneThumbnailEditPreview(component);
-      if (!drewSceneSnapshot && !drewSceneFallback) this.renderFlattenedThumbnailEditPreview(component);
+      if (!drewSceneSnapshot && component?.type !== "scene") this.renderFlattenedThumbnailEditPreview(component);
     } else if (source) {
       const rect = this.componentPreviewRect(component, source);
       image(unwrapRenderTarget(source), rect.x - width / 2, rect.y - height / 2, rect.width, rect.height);
@@ -4163,49 +4161,6 @@ export class OutputRenderer {
       );
     }, this.previewViewportTransform());
     return true;
-  }
-
-  renderSceneThumbnailEditPreview(component) {
-    const rect = this.componentPreviewRect(component);
-    let drawn = 0;
-    const drawChain = (chain, parentTransform = normalizedContentTransform(), parentOpacity = 1) => {
-      for (const item of chain || []) {
-        if (item?.enabled === false) continue;
-        if (item.kind === "group") {
-          drawChain(
-            item.chain || [],
-            combineContentTransforms(parentTransform, item.transform),
-            parentOpacity * clamp01(item.opacity ?? 1)
-          );
-          continue;
-        }
-        if (item.kind !== "source" || item.source?.type !== "component") continue;
-        const dependency = this.state.components.find((candidate) => candidate.id === item.source.componentId);
-        if (!dependency || dependency.type === "scene") continue;
-        const thumbnail = this.getThumbnailImage(dependency);
-        if (!thumbnail?.ready || !thumbnail.img) continue;
-        const placement = componentReferencePlacement(component, dependency, this.state.render, rect, item.source?.placement);
-        const transform = combineContentTransforms(parentTransform, item.transform);
-        const transformPlacement = contentTransformCanvasPlacement(transform, rect.width, rect.height);
-        push();
-        translate(rect.x - width * 0.5 + transformPlacement.centerX, rect.y - height * 0.5 + transformPlacement.centerY);
-        rotate(transform.rotation);
-        scale(transform.scale);
-        tint(255, 255 * parentOpacity * clamp01(item.opacity ?? 1));
-        drawImageCoverCrop(
-          thumbnail.img,
-          placement.x - rect.width * 0.5,
-          placement.y - rect.height * 0.5,
-          placement.width,
-          placement.height
-        );
-        noTint();
-        pop();
-        drawn++;
-      }
-    };
-    withScreenScissor(rect, () => drawChain(component.chain || []), this.previewViewportTransform());
-    return drawn > 0;
   }
 
   componentPreviewRect(component, source = null) {

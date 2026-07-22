@@ -323,7 +323,7 @@ export function componentSourceView(render = {}, component = {}, surface = {}) {
     const logicalSize = sceneFrameSize(render);
     // A materialized Scene route marks its owning Surface as the crop source.
     // The Surface's relative rectangle is the sole 2D authority; there is no
-    // separate Frame lookup or per-Scene routing table.
+    // separate crop lookup or per-Scene routing table.
     const cropsScene = surface.sceneCrop === true;
     const sampleRect = cropsScene
       ? relativeRectToLogical(surface, logicalSize)

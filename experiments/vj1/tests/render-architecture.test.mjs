@@ -397,6 +397,10 @@ test("scene dissolve mixes premultiplied surface routes inside one projection sh
   assert.match(source, /vec4 color = mix\(fromColor, toColor/);
   assert.match(source, /fromColor \*= roundedFeatherMask\(fromFeatherUv, fromFeatherAspect\)/);
   assert.match(source, /toColor \*= roundedFeatherMask\(toFeatherUv, toFeatherAspect\)/);
+  assert.match(source, /uniform vec4 uFromSourceRect/);
+  assert.match(source, /uniform vec4 uToSourceRect/);
+  assert.match(source, /vec2 fromTextureUv = uFromSourceRect\.xy/);
+  assert.match(source, /vec2 toTextureUv = uToSourceRect\.xy/);
   assert.ok(source.indexOf("fromColor *= roundedFeatherMask") < source.indexOf("vec4 color = mix"));
 });
 

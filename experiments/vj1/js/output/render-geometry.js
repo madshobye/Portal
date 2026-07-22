@@ -218,7 +218,7 @@ export function sourceRenderDemand({
     sourceFit,
     sourceFitActive
   );
-  // A Scene Frame region can render directly at its mapped footprint.
+  // A Scene Surface region can render directly at its mapped footprint.
   // Do not derive that target from the shared full-Scene request: a small
   // frame would otherwise retain only its tiny share of those pixels and be
   // enlarged into a visibly soft full-screen surface.

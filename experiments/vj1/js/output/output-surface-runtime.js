@@ -177,13 +177,39 @@ export class OutputSurfaceRuntime {
         changedSurfaceIds.add(surfaceId);
       }
     }
+    // Ordinary Surface routes transition between the same texture views used
+    // by the stable renderer. This keeps crop, source fit and projection fit
+    // as presentation metadata in one mapper pass. The previous path first
+    // baked source fit into a Surface-sized raster and then applied cover
+    // again; depending on route demand/cache state that visibly zoomed the
+    // transition. Shader/effect routes still use the buffered fallback below.
+    const directTransitionViews = new Map();
+    for (const surfaceId of changedSurfaceIds) {
+      const fromRoute = fromBySurface.get(surfaceId);
+      const toRoute = toBySurface.get(surfaceId);
+      if (!fromRoute || !toRoute) continue;
+      const fromView = this.withRenderState(transition.fromState, () =>
+        this.canDirectProjectSurfaceRoute(fromRoute, false)
+          ? this.renderSurfaceRouteView(fromRoute)
+          : null
+      );
+      const toView = this.withRenderState(targetState, () =>
+        this.canDirectProjectSurfaceRoute(toRoute, false)
+          ? this.renderSurfaceRouteView(toRoute)
+          : null
+      );
+      if (fromView && toView) directTransitionViews.set(surfaceId, { fromView, toView });
+    }
+    const bufferedTransitionSurfaceIds = new Set(
+      [...changedSurfaceIds].filter((surfaceId) => !directTransitionViews.has(surfaceId))
+    );
     const fromTextures = this.renderTransitionRouteTextures(
-      fromRoutes.filter((route) => changedSurfaceIds.has(route.surface.id)),
+      fromRoutes.filter((route) => bufferedTransitionSurfaceIds.has(route.surface.id)),
       transition.fromState,
       "from"
     );
     const toTextures = this.renderTransitionRouteTextures(
-      toRoutes.filter((route) => changedSurfaceIds.has(route.surface.id)),
+      toRoutes.filter((route) => bufferedTransitionSurfaceIds.has(route.surface.id)),
       targetState,
       "to"
     );
@@ -216,8 +242,13 @@ export class OutputSurfaceRuntime {
       const route = toRoute || fromRoute;
       const mapped = route?.mapped;
       if (!mapped?.mapperSurface) continue;
-      const fromTexture = fromTextures.get(surfaceId) || this.getTransparentTransitionTexture("from", surfaceId, toRoute?.surfaceRequest);
-      const toTexture = toTextures.get(surfaceId) || this.getTransparentTransitionTexture("to", surfaceId, fromRoute?.surfaceRequest);
+      const directViews = directTransitionViews.get(surfaceId);
+      const fromTexture = directViews?.fromView?.texture
+        || fromTextures.get(surfaceId)
+        || this.getTransparentTransitionTexture("from", surfaceId, toRoute?.surfaceRequest);
+      const toTexture = directViews?.toView?.texture
+        || toTextures.get(surfaceId)
+        || this.getTransparentTransitionTexture("to", surfaceId, fromRoute?.surfaceRequest);
       if (!fromTexture || !toTexture) continue;
       const feather = toRoute?.surface?.feather ?? fromRoute?.surface?.feather ?? 0;
       renderer.measureGpu(drawingContext, () => {
@@ -225,14 +256,30 @@ export class OutputSurfaceRuntime {
         try {
           applyBlendGlobal(surfaceRouteBlend(route));
           renderer.mapper.drawTransitionTextures(fromTexture, toTexture, mapped.mapperSurface, {
-            // Both endpoint textures have already been sampled with their own
-            // route demand and fit into this Surface's final raster footprint.
-            // Applying cover/contain again here interprets that ready-to-map
-            // raster as source content a second time, so entering a transition
-            // changes scale and leaving it snaps back. The compositor owns only
-            // the blend and mapping of these prepared Surface textures.
-            fromProjectionFit: "stretch",
-            toProjectionFit: "stretch",
+            // Projection fit belongs to the mapper for both route forms. A
+            // direct view also supplies its source-fit metadata below; a
+            // buffered route has only flattened that earlier source-fit stage,
+            // not the Surface projection fit. Stretching the buffered route
+            // therefore dropped `contain` during the blend and snapped back to
+            // it on the first stable frame.
+            fromProjectionFit: fromRoute?.surface?.projectionFit
+              || toRoute?.surface?.projectionFit
+              || "cover",
+            toProjectionFit: toRoute?.surface?.projectionFit
+              || fromRoute?.surface?.projectionFit
+              || "cover",
+            ...(directViews ? {
+              fromSourceRect: directViews.fromView.sourceRect,
+              toSourceRect: directViews.toView.sourceRect,
+              fromSourceFitActive: fromRoute?.surface?.sourceFitActive === true,
+              toSourceFitActive: toRoute?.surface?.sourceFitActive === true,
+              fromSourceFit: fromRoute?.surface?.sourceFit || "cover",
+              toSourceFit: toRoute?.surface?.sourceFit || "cover",
+              fromSourceAspect: fromRoute?.surface?.sourceAspect || 1,
+              toSourceAspect: toRoute?.surface?.sourceAspect || 1,
+              fromOpacity: surfaceRouteOpacity(fromRoute),
+              toOpacity: surfaceRouteOpacity(toRoute),
+            } : {}),
             feather,
             progress: transition.progress,
           });

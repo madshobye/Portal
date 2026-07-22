@@ -18,15 +18,17 @@ import {
 } from "./render-settings.js?v=output-one-1";
 import {
   applySceneSourceNode,
+  authoredSurfaceFields,
   materializeLiveProgramSurfaceRoutes,
   materializeLiveSurfacePatchRoute,
   materializeLiveTargetSurfaceRoutes,
   materializeSceneSurfaceRoutes,
   normalizeProjectionFit,
+  rebaseSurfaceRouteProgram,
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=scene-mapping-output-visibility-1";
+} from "./scene-routing.js?v=transition-start-fit-1";
 
 export {
   createOutputDefinition,
@@ -40,15 +42,17 @@ export {
 } from "./render-settings.js?v=output-one-1";
 export {
   applySceneSourceNode,
+  authoredSurfaceFields,
   materializeLiveProgramSurfaceRoutes,
   materializeLiveSurfacePatchRoute,
   materializeLiveTargetSurfaceRoutes,
   materializeSceneSurfaceRoutes,
   normalizeProjectionFit,
+  rebaseSurfaceRouteProgram,
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=scene-mapping-output-visibility-1";
+} from "./scene-routing.js?v=transition-start-fit-1";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -230,7 +234,7 @@ export function reconcileDirectOutputSurfaces(surfaces = [], render = {}) {
     const rect = keepProportions
       ? relativeRectWithAspect(authoredRect, definition.width / definition.height)
       : authoredRect;
-    normalized.push(normalizeSurface({
+    normalized.push(normalizeMappingSurface({
       ...createDefaultSurface(0),
       ...(existing || {}),
       id: definition.id,
@@ -445,7 +449,7 @@ export function sanitizeState(input = {}) {
   next.render = normalizeRenderSettings(input.render || {});
   next.components = normalizeComponents(input, base);
   const importedSurfaces = Array.isArray(input.surfaces) && input.surfaces.length
-    ? input.surfaces.map((surface) => normalizeSurface(surface))
+    ? input.surfaces.map((surface) => normalizeSurfaceRoute(surface))
     : [createDefaultSurface(0), createDefaultSurface(1)];
   next.ui.previewViewports = normalizePreviewViewports(input.ui?.previewViewports);
   next.ui.previewDiagnostics = input.ui?.previewDiagnostics === true;
@@ -558,8 +562,6 @@ export function createLiveRenderState(state = createInitialState()) {
     // must not bypass newer visibility or patch state in an Output window.
     const routeState = materializeLiveProgramSurfaceRoutes(next, target, mapping);
     next.surfaces = clone(routeState.surfaces);
-    const selectedMapping = next.mappings?.find((item) => item.id === mapping.id);
-    if (selectedMapping) selectedMapping.surfaces = clone(routeState.surfaces);
     next.mappingCalibration = clone(mapping.calibration || {});
   }
   next.ui.selectedMappingId = mapping?.id || "";
@@ -572,12 +574,10 @@ export function createLiveRenderState(state = createInitialState()) {
   const startedAtMs = Number(transition?.startedAtMs) || 0;
   if (durationMs > 0 && startedAtMs + durationMs > Date.now() && transition?.fromSurfaceRoutes) {
     const fromState = clone(state);
-    fromState.surfaces = transitionRoutesInCurrentGeometry(
+    fromState.surfaces = rebaseSurfaceRouteProgram(
       transition.fromSurfaceRoutes.surfaces,
       next.surfaces
     );
-    const fromMapping = fromState.mappings?.find((item) => item.id === mapping?.id);
-    if (fromMapping) fromMapping.surfaces = clone(fromState.surfaces);
     fromState.mappingCalibration = clone(mapping?.calibration || {});
     fromState.ui.selectedMappingId = mapping?.id || fromState.ui.selectedMappingId || "";
     fromState.global.calibrating = false;
@@ -680,7 +680,7 @@ function applyLivePreviewProjection(
   }
   const routes = routeState?.surfaces
     ? rebaseGeometry
-      ? transitionRoutesInCurrentGeometry(routeState.surfaces, mapping.surfaces)
+      ? rebaseSurfaceRouteProgram(routeState.surfaces, mapping.surfaces)
       : clone(routeState.surfaces)
     : materializeLiveTargetSurfaceRoutes(state, target, mapping).surfaces;
   if (!routes.some((surface) => String(surface.id) === requestedId)) {
@@ -688,8 +688,6 @@ function applyLivePreviewProjection(
     return;
   }
   state.surfaces = clone(routes);
-  const selectedMapping = state.mappings?.find((item) => item.id === mapping.id);
-  if (selectedMapping) selectedMapping.surfaces = clone(state.surfaces);
   state.mappingCalibration = clone(mapping.calibration || {});
   state.ui.selectedMappingId = mapping.id;
   state.ui.selectedSurfaceId = requestedId;
@@ -713,7 +711,7 @@ function applyLiveMonitorTarget(state, target) {
   // render state to one ordinary direct output so state normalization cannot
   // expand it back into the project's configured multi-screen arrangement.
   state.render = { ...(state.render || {}), outputs: [output] };
-  const surface = normalizeSurface({
+  const surface = normalizeSurfaceRoute({
     ...createDefaultSurface(0),
     id: directOutputSurfaceId(output.id),
     name: "Live target monitor",
@@ -732,38 +730,9 @@ function applyLiveMonitorTarget(state, target) {
     destination: { type: "direct", outputIds: [String(output.id || "output-main")] },
   });
   state.surfaces = [surface];
-  const mapping = state.mappings?.find((item) => item.id === state.ui?.selectedMappingId) || state.mappings?.[0];
-  if (mapping) mapping.surfaces = [clone(surface)];
   state.mappingCalibration = {};
   state.ui.selectedSurfaceId = "";
   state.global.calibrating = false;
-}
-
-const LIVE_ROUTE_SOURCE_KEYS = Object.freeze([
-  "enabled",
-  "sourceNodeId",
-  "componentId",
-  "sceneCrop",
-  "sourceFit",
-  "sourceFitActive",
-  "sourceAspect",
-]);
-
-// A transition snapshot owns the previous source program, never the physical
-// Mapping. Rebase those source fields onto the current authoritative Surface
-// geometry so both blend endpoints use identical placement and proportions.
-function transitionRoutesInCurrentGeometry(previousRoutes = [], currentRoutes = []) {
-  const previousById = new Map((previousRoutes || []).map((surface) => [String(surface?.id || ""), surface]));
-  return (currentRoutes || []).map((current) => {
-    const previous = previousById.get(String(current?.id || ""));
-    if (!previous) return clone(current);
-    const route = clone(current);
-    for (const key of LIVE_ROUTE_SOURCE_KEYS) {
-      if (Object.prototype.hasOwnProperty.call(previous, key)) route[key] = clone(previous[key]);
-      else delete route[key];
-    }
-    return route;
-  });
 }
 
 function liveComponentMonitorAspect(render = {}, component = {}) {
@@ -950,7 +919,7 @@ function normalizeSurfaceRoutes(routeState = {}, state = {}) {
     // Live routes are runtime materializations and intentionally retain their
     // source fields. Persisted Mapping Surfaces use normalizeMappingSurface,
     // which strips those fields so the Surface remains the authored authority.
-    surfaces: (routeState?.surfaces || []).map((surface) => normalizeSurface(surface, state)),
+    surfaces: (routeState?.surfaces || []).map((surface) => normalizeSurfaceRoute(surface, state)),
   };
 }
 
@@ -1136,7 +1105,7 @@ export function normalizeComponentChainItem(item = {}) {
   };
 }
 
-export function normalizeSurface(surface = {}) {
+export function normalizeSurfaceRoute(surface = {}) {
   const fallback = createDefaultSurface(0);
   const rect = normalizeRelativeRect(surface, fallback);
   return {
@@ -1419,17 +1388,7 @@ export function createMappingSurface(surface = {}) {
 }
 
 export function normalizeMappingSurface(surface = {}, state = {}) {
-  const normalized = normalizeSurface(surface);
-  const {
-    sourceNodeId: _sourceNodeId,
-    componentId: _componentId,
-    sceneCrop: _sceneCrop,
-    sourceFit: _sourceFit,
-    sourceFitActive: _sourceFitActive,
-    sourceAspect: _sourceAspect,
-    ...authored
-  } = normalized;
-  return authored;
+  return authoredSurfaceFields(normalizeSurfaceRoute(surface));
 }
 
 export function createMappingFromState(state, name) {
@@ -1494,20 +1453,18 @@ export function applyMappingForEditing(state, mapping) {
   if (!selectedMapping) return next;
   if (next.ui?.mappingTestPattern !== false) {
     const component = next.components.find((item) => item.systemRole === "mapping-test-pattern");
-    selectedMapping.surfaces = selectedMapping.surfaces.map((surface) => ({
+    next.surfaces = selectedMapping.surfaces.map((surface) => ({
       ...surface,
       sourceNodeId: component ? sceneSourceNodeId(component.id) : "",
       componentId: component?.id || "",
       sceneCrop: false,
       sourceFitActive: false,
     }));
-    next.surfaces = clone(selectedMapping.surfaces);
     return next;
   }
   const scene = mappingPreviewScene(next);
   if (scene) {
-    selectedMapping.surfaces = materializeSceneSurfaceRoutes(next, scene, selectedMapping).surfaces;
-    next.surfaces = clone(selectedMapping.surfaces);
+    next.surfaces = materializeSceneSurfaceRoutes(next, scene, selectedMapping).surfaces;
   }
   next.ui.selectedMappingId = mapping.id;
   return next;

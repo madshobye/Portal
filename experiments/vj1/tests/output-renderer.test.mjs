@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, sceneComponentPlacementRect, sceneFrameBorderHit, sceneMaxRasterSize, scenePreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveSceneFrameRect, OutputRenderer, pointInTransformedRect, qualityScaledRenderRequest, resizeSceneFrameRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { defaultProjectSurfaceMapping, outputFrameForId, outputFrames, renderRequestKey, worldSize } from "../js/output/render-geometry.js";
-import { mapperFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
+import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 import { ComponentPreviewInteraction, stateWithSceneFrameRect, stateWithChainItemBoundary, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
 import { compileOutputGroupTopology, compileMappingGroupTopology } from "../js/libraries/composition-engine/index.js";
 
@@ -1222,14 +1222,13 @@ test("paused previews contain thumbnails and canvas surface routes preserve samp
   assert.ok(source.includes("opacity: surfaceRouteOpacity(route)"));
 });
 
-test("thumbnail preview uses a Canvas snapshot before component reconstruction and retains transform handles", () => {
+test("thumbnail preview uses the authoritative Scene snapshot without component reconstruction", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("captureThumbnailEditTransformBaselines()"));
   assert.ok(source.includes("renderSceneThumbnailSnapshotPreview(component)"));
-  assert.ok(source.includes("renderSceneThumbnailEditPreview(component)"));
-  assert.ok(source.indexOf("renderSceneThumbnailSnapshotPreview(component)") < source.indexOf("renderSceneThumbnailEditPreview(component)"));
-  assert.ok(source.includes("combineContentTransforms(parentTransform, item.transform)"));
+  assert.doesNotMatch(source, /renderSceneThumbnailEditPreview\(/);
+  assert.ok(source.includes("component?.type !== \"scene\""));
   assert.ok(source.includes("this.renderSelectedChainTransformOverlay();"));
   assert.ok(source.includes("if (this.shouldUseThumbnailPreview()) this.renderThumbnailComponents();"));
   assert.ok(source.includes("const rect = this.componentPreviewRect(component);"));
@@ -1982,17 +1981,38 @@ test("zero-duration Live output retains the original single-scene surface path",
   assert.ok(source.includes("renderer.mapper.drawTransitionTextures("));
 });
 
-test("Live transition composites prepared surface rasters without applying fit twice", () => {
+test("Live transition shares stable route views and preserves endpoint projection fit", () => {
   const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const transitionCall = source.slice(
     source.indexOf("renderer.mapper.drawTransitionTextures("),
-    source.indexOf("renderer.mapper.drawTransitionTextures(") + 700
+    source.indexOf("renderer.mapper.drawTransitionTextures(") + 1800
   );
 
-  assert.ok(transitionCall.includes('fromProjectionFit: "stretch"'));
-  assert.ok(transitionCall.includes('toProjectionFit: "stretch"'));
-  assert.ok(!transitionCall.includes("fromRoute?.surface?.projectionFit"));
-  assert.ok(!transitionCall.includes("toRoute?.surface?.projectionFit"));
+  assert.ok(source.includes("const directTransitionViews = new Map()"));
+  assert.ok(source.includes("this.renderSurfaceRouteView(fromRoute)"));
+  assert.ok(source.includes("this.renderSurfaceRouteView(toRoute)"));
+  assert.ok(transitionCall.includes("fromProjectionFit: fromRoute?.surface?.projectionFit"));
+  assert.ok(transitionCall.includes("toProjectionFit: toRoute?.surface?.projectionFit"));
+  assert.ok(!transitionCall.includes('fromProjectionFit: "stretch"'));
+  assert.ok(!transitionCall.includes('toProjectionFit: "stretch"'));
+  assert.ok(transitionCall.includes("fromSourceRect: directViews.fromView.sourceRect"));
+  assert.ok(transitionCall.includes("toSourceRect: directViews.toView.sourceRect"));
+  assert.ok(transitionCall.includes("fromSourceFitActive:"));
+  assert.ok(transitionCall.includes("toSourceFitActive:"));
+});
+
+test("Live transition mapper applies the stable source-view contract per endpoint", () => {
+  const source = mapperTransitionFragmentShaderSource({ feather: true });
+  assert.match(source, /uniform vec4 uFromSourceRect/);
+  assert.match(source, /uniform vec4 uToSourceRect/);
+  assert.match(source, /uniform bool uFromUseSourceFit/);
+  assert.match(source, /uniform bool uToUseSourceFit/);
+  assert.match(source, /float fromProjectionSourceAspect = uFromUseSourceFit \? uFromSourceTargetAspect : uFromSourceAspect/);
+  assert.match(source, /float toProjectionSourceAspect = uToUseSourceFit \? uToSourceTargetAspect : uToSourceAspect/);
+  assert.match(source, /vec2 fromTextureUv = uFromSourceRect\.xy/);
+  assert.match(source, /vec2 toTextureUv = uToSourceRect\.xy/);
+  assert.match(source, /fromInside \* uFromOpacity/);
+  assert.match(source, /toInside \* uToOpacity/);
 });
 
 test("media renditions are saved without lossy jpeg compression", () => {

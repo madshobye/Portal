@@ -212,7 +212,7 @@ export class ComponentPreviewInteraction {
   mousePressed(x, y) {
     const renderer = this.renderer;
     // The explicitly selected object's controls own their pointer area. A
-    // Scene Frame border may overlap them, but must not steal the gesture.
+    // Scene Surface border may overlap them, but must not steal the gesture.
     if (renderer.mode === "component" && this.startChainTransformDrag(x, y, { handlesOnly: true })) return;
     if (renderer.mode === "component" && this.startSceneFrameDrag(x, y)) return;
     if (renderer.mode === "component") {

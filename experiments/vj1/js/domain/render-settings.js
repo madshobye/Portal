@@ -23,13 +23,10 @@ export function renderPresentationFrameRate(render = {}, {
 }
 
 export function createOutputDefinition(index = 0, aspectRatio = VJ1.renderWidth / VJ1.renderHeight) {
-  // Accept the old (index, width, height) call during the v24->v25 transition.
-  const legacyHeight = arguments.length > 2 ? Number(arguments[2]) : 0;
-  const ratio = legacyHeight > 0 ? Number(aspectRatio) / legacyHeight : aspectRatio;
   return {
     id: index === 0 ? "output-main" : `output-${index + 1}`,
     name: `Output ${index + 1}`,
-    aspectRatio: normalizeAspectRatio(ratio),
+    aspectRatio: normalizeAspectRatio(aspectRatio),
   };
 }
 
@@ -76,11 +73,6 @@ export function sceneFrameSize(render = {}) {
 
 export function componentFrameSize(render = {}) {
   return compositionLogicalSize(render.componentAspectRatio ?? (VJ1.renderWidth / VJ1.renderHeight));
-}
-
-// Frames are relative and therefore never scale when a host resizes.
-export function scaleFramesToSceneSize(frames = []) {
-  return frames;
 }
 
 export function normalizeResolutionCeiling(value) {

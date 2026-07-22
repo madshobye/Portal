@@ -9,7 +9,6 @@ import {
   normalizeRenderSettings,
   normalizeScreenCaptureSettings,
   renderMaxFrameRate,
-  scaleFramesToSceneSize,
 } from "../js/domain/render-settings.js";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../js/domain/render-phase-policy.js";
 
@@ -19,7 +18,7 @@ test("render settings normalize independently from the aggregate domain model", 
     pixelDensity: 4,
   });
 
-  assert.deepEqual(createOutputDefinition(1, 320, 240), { id: "output-2", name: "Output 2", aspectRatio: 4 / 3 });
+  assert.deepEqual(createOutputDefinition(1, 4 / 3), { id: "output-2", name: "Output 2", aspectRatio: 4 / 3 });
   assert.deepEqual(createOutputDefinition(0), { id: "output-main", name: "Output 1", aspectRatio: 16 / 9 });
   assert.equal(normalizeRenderSettings({ outputs: [{ id: "output-main", name: "Main output" }] }).outputs[0].name, "Output 1");
   assert.equal(render.outputs[0].aspectRatio, 4 / 3);
@@ -86,12 +85,4 @@ test("models remains a compatibility facade for render settings", () => {
   assert.ok(source.includes('from "./render-settings.js?v=output-one-1"'));
   assert.doesNotMatch(source, /export function normalizeRenderSettings\(/);
   assert.doesNotMatch(source, /export function normalizeCameraSettings\(/);
-});
-
-test("relative recording frames need no rewrite when the Canvas proportion changes", () => {
-  const frames = [{ id: "frame", x: 0.1, y: 0.1, width: 0.4, height: 0.4 }];
-  assert.deepEqual(
-    scaleFramesToSceneSize(frames, { aspectRatio: 2 }, { aspectRatio: 1 }),
-    frames,
-  );
 });

@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { createOutputTransportProfiler, transportTimestampMs } from "./output-transport-profiler.js?v=output-transport-profile-1";
 import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=transport-derived-assets-1";
-import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js";
+import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js?v=render-patch-coalescing-1";
 
 export function createControlBridge({ store, mediaLibrary, diagnostics = null, subscribeStore = true, deferAnnouncement = false }) {
   const channel = new BroadcastChannel(VJ1.channelName);

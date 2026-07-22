@@ -20,7 +20,7 @@ import {
   syncSurfaceProportionsFromMapping,
   syncLiveRoutesFromMapping,
   uid,
-} from "./domain/models.js?v=scene-mapping-output-visibility-1";
+} from "./domain/models.js?v=transition-start-fit-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";

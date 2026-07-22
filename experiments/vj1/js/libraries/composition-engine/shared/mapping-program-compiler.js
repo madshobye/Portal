@@ -106,14 +106,17 @@ export function compileMappingRenderPrograms(state = {}, groups = []) {
   const programs = new Map();
   for (const group of groups || []) {
     if (group.generatedBy !== MAPPING_PROGRAM_GENERATOR || group.nodeId !== MappingProgramNode.id) continue;
-    // Mapping groups are generated topology. Scene selection materializes Frame
-    // slots only when a render state is prepared, so compile that current
-    // topology here instead of retaining source edges from the authored slot
-    // definition. This happens on setState(), never during frame traversal.
-    const runtimeMapping = state.mappings?.find((mapping) => String(mapping.id || "") === String(group.mappingId || ""));
-    const activeGroup = runtimeMapping ? compileMappingGroupTopology(runtimeMapping) : group;
-    const plan = compileReachableProgramGraph(activeGroup, { outputs: ["$out.routes"] });
+    // Mapping groups are generated topology. Source selection materializes a
+    // renderer-facing Surface route projection when a render state is
+    // prepared, so compile current topology here instead of putting runtime
+    // source fields into the authored Mapping. This happens on setState(),
+    // never during frame traversal.
     const sourceSurfaces = mappingSurfaces(state, group.mappingId);
+    const runtimeMapping = state.mappings?.find((mapping) => String(mapping.id || "") === String(group.mappingId || ""));
+    const activeGroup = runtimeMapping
+      ? bindRuntimeSourcesToMappingGroup(group, runtimeMapping, sourceSurfaces)
+      : group;
+    const plan = compileReachableProgramGraph(activeGroup, { outputs: ["$out.routes"] });
     const routeNodes = plan.nodes.filter((node) => node.role === "surface-route");
     const reachableSurfaceIds = new Set(routeNodes.map((node) => String(node.surfaceId || "")));
     programs.set(group.mappingId || "", Object.freeze({
@@ -141,6 +144,40 @@ export function compileMappingRenderPrograms(state = {}, groups = []) {
   return programs;
 }
 
+// Mapping topology is editable and authored; current source bindings are not.
+// Add the compiled source nodes/edges to the authored graph without replacing
+// its route reachability edits. This is the boundary that previously forced
+// preview code to write derived component ids back into Mapping Surfaces.
+function bindRuntimeSourcesToMappingGroup(group, mapping, surfaces) {
+  const runtime = compileMappingGroupTopology({ ...mapping, surfaces });
+  const runtimeSources = runtime.nodes.filter((node) => node.role === "component-source");
+  const runtimeRoutes = new Map(runtime.nodes
+    .filter((node) => node.role === "surface-route")
+    .map((node) => [String(node.surfaceId || ""), node]));
+  const sourceNodeIds = new Set([
+    ...(group.nodes || []).filter((node) => node.role === "component-source").map((node) => node.id),
+    ...runtimeSources.map((node) => node.id),
+  ]);
+  const structuralNodes = (group.nodes || []).filter((node) => node.role !== "component-source").map((node) => {
+    if (node.role !== "surface-route") return node;
+    const runtimeRoute = runtimeRoutes.get(String(node.surfaceId || ""));
+    return runtimeRoute ? { ...node, ...runtimeRoute, id: node.id } : node;
+  });
+  const authoredConnections = (group.connections || []).filter((edge) => {
+    const sourceId = String(edge.from || "").split(".")[0];
+    return !sourceNodeIds.has(sourceId);
+  });
+  const runtimeSourceConnections = runtime.connections.filter((edge) => {
+    const sourceId = String(edge.from || "").split(".")[0];
+    return runtimeSources.some((node) => node.id === sourceId);
+  });
+  return {
+    ...group,
+    nodes: [...runtimeSources, ...structuralNodes],
+    connections: [...runtimeSourceConnections, ...authoredConnections],
+  };
+}
+
 export function compileOutputRenderProgram(groups = []) {
   const group = (groups || []).find((item) => item.id === "vj1.output.main");
   if (!group) return Object.freeze({ id: "vj1.output.main", enabled: true, legacy: true, plan: null });
@@ -160,6 +197,14 @@ export function activeMappingProgramSurfaces(state = {}, programs = new Map(), o
 
 function mappingSurfaces(state, mappingId) {
   if (!mappingId) return state.surfaces || [];
+  // `state.surfaces` is the explicit compiled projection for the selected
+  // Mapping. Preview, Live, and Output may all derive different source routes
+  // from the same authored geometry; none of them should rewrite
+  // `mapping.surfaces` to communicate with this compiler.
+  if (
+    String(mappingId) === String(state.ui?.selectedMappingId || "") &&
+    Array.isArray(state.surfaces)
+  ) return state.surfaces;
   const surfaces = state.mappings?.find((mapping) => String(mapping.id || "") === String(mappingId))?.surfaces;
   if (!Array.isArray(surfaces)) return state.surfaces || [];
   return surfaces;

@@ -1,5 +1,48 @@
 import { latestProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 
+// These fields belong to a compiled Surface route, not to the authored
+// Mapping Surface. Keeping the list beside the route materializer gives model
+// normalization and project serialization one shared ownership contract.
+export const SURFACE_ROUTE_DERIVED_KEYS = Object.freeze([
+  "sourceNodeId",
+  "componentId",
+  "sceneCrop",
+  "sourceFit",
+  "sourceFitActive",
+  "sourceAspect",
+]);
+
+export function authoredSurfaceFields(surface = {}) {
+  const authored = { ...(surface || {}) };
+  for (const key of SURFACE_ROUTE_DERIVED_KEYS) delete authored[key];
+  return authored;
+}
+
+// A transition snapshot owns its previous route bindings, but never owns the
+// physical Surface geometry. Rebase only compiled route fields onto the
+// current authored rectangles so both compositor endpoints use one placement
+// contract even while Mapping is edited during a transition.
+export function rebaseSurfaceRouteProgram(previousRoutes = [], currentRoutes = []) {
+  const previousById = new Map((previousRoutes || []).map((surface) => [String(surface?.id || ""), surface]));
+  // A transition snapshot owns the presentation contract which was visible
+  // immediately before the transition as well as its compiled source binding.
+  // `projectionFit` is normally authored by the physical Surface, but a Live
+  // matrix patch deliberately replaces it with `cover`. Rebasing the previous
+  // route onto that target route without retaining its fit makes a `contain`
+  // source jump to `cover` on the first transition frame (progress zero).
+  const routeKeys = ["enabled", "projectionFit", ...SURFACE_ROUTE_DERIVED_KEYS];
+  return (currentRoutes || []).map((current) => {
+    const route = { ...(current || {}) };
+    const previous = previousById.get(String(current?.id || ""));
+    if (!previous) return route;
+    for (const key of routeKeys) {
+      if (Object.prototype.hasOwnProperty.call(previous, key)) route[key] = previous[key];
+      else delete route[key];
+    }
+    return route;
+  });
+}
+
 export function normalizeProjectionFit(value) {
   return value === "contain" || value === "stretch" ? value : "cover";
 }
@@ -53,7 +96,7 @@ export function visibleSceneSurfaceIds(surfaces = []) {
 
 // A Surface is both the Scene-space crop and the physical projection route.
 // Materialization adds only the current Scene source; it never looks through a
-// second Frame inventory or per-Scene routing table.
+// second crop inventory or per-Scene routing table.
 export function resolveSceneSurfaceRoute(state = {}, sceneComponent = null, route = {}) {
   if (!sceneComponent || sceneComponent.type !== "scene") return applySceneSourceNode(route, null);
   const surfaceId = String(route.id || "");
@@ -86,7 +129,7 @@ export function materializeSceneSurfaceRoutes(state = {}, sceneComponent = null,
 // Scene coordinate space once, then every Surface samples its own rectangle
 // from that shared space. It must not be independently fitted into every
 // Surface, because that repeats the whole Component instead of preserving the
-// authored Surface/Frame relationship.
+// authored Surface relationship.
 export function materializeLiveTargetSurfaceRoutes(state = {}, target = null, mapping = null) {
   if (!target) return { surfaces: [] };
   if (target.type === "scene") return materializeSceneSurfaceRoutes(state, target, mapping);
@@ -109,17 +152,16 @@ export function materializeLiveTargetSurfaceRoutes(state = {}, target = null, ma
 }
 
 // An individual Live Surface patch is an explicit source assignment. A Scene
-// selected here means the complete Scene component, not the Scene Frame that
-// happens to share this Surface's frame slot. Overall Live selection continues
-// to use materializeLiveTargetSurfaceRoutes() and therefore retains the Scene's
-// authored per-Frame routing.
+// selected here means the complete Scene component, not the Scene-space crop
+// represented by this Surface. Overall Live selection continues to use
+// materializeLiveTargetSurfaceRoutes() and retains the Scene's Surface routing.
 export function materializeLiveSurfacePatchRoute(state = {}, target = null, mapping = null, surfaceId = "") {
   if (!target || !surfaceId) return null;
   const surface = (mapping?.surfaces || state.surfaces || [])
     .find((candidate) => String(candidate.id) === String(surfaceId));
   if (!surface) return null;
   // A matrix-cell patch replaces the source at this Surface. It is not an
-  // Overall Scene substitution, so it must never inherit the Scene Frame crop
+  // Overall Scene substitution, so it must never inherit the Scene crop
   // represented by the Surface rectangle. The Surface's projectionFit remains the
   // single cover/contain/stretch stage for this direct Component or Scene.
   return {

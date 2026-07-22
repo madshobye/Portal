@@ -78,7 +78,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">grid_4x4</span><span>Scene proportion</span></div>
           ${aspectRatioField("Scene aspect ratio", "render.sceneAspectRatio", render.sceneAspectRatio)}
-          <div class="soft-note">One relative coordinate space shared by every Scene and Frame.</div>
+          <div class="soft-note">One relative coordinate space shared by every Scene and Surface.</div>
           </div>
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">aspect_ratio</span><span>Component proportion</span></div>
@@ -107,10 +107,10 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="settings-group-title"><span class="material-symbols-rounded">tune</span><span>Advanced sampling</span></div>
           <div class="field-pair">
             <label class="field">Surface overscan <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.surfaceOverscan" value="${render.sampling.surfaceOverscan}" /></label>
-            <label class="field">Frame detail <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.recordingFrameScale" value="${render.sampling.recordingFrameScale}" /></label>
+            <label class="field">Surface detail <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.recordingFrameScale" value="${render.sampling.recordingFrameScale}" /></label>
           </div>
           ${settingsToggle("Limit Scene raster to logical size", "render.sampling.limitSceneToLogicalSize", render.sampling.limitSceneToLogicalSize)}
-          <div class="soft-note">Independent raster-demand multipliers. Both default to 1×; Frames can be lowered to 0.5× for lower Scene cost.</div>
+          <div class="soft-note">Independent raster-demand multipliers. Both default to 1×; Surface detail can be lowered to 0.5× for lower Scene cost.</div>
           </div>
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">high_quality</span><span>Component upscaling</span></div>

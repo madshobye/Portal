@@ -2,120 +2,131 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { applySceneSourceNode, materializeLiveSurfacePatchRoute, materializeLiveTargetSurfaceRoutes, resolveSceneSourceNode, sceneSourceNodeId, sceneSourceNodes, visibleSceneFrameIds } from "../js/domain/scene-routing.js";
+import {
+  applySceneSourceNode,
+  authoredSurfaceFields,
+  materializeLiveSurfacePatchRoute,
+  materializeLiveTargetSurfaceRoutes,
+  rebaseSurfaceRouteProgram,
+  resolveSceneSourceNode,
+  sceneSourceNodeId,
+  sceneSourceNodes,
+  visibleSceneSurfaceIds,
+} from "../js/domain/scene-routing.js";
 
-test("scene routing exposes Components and Scene Frames without normalization state", () => {
+test("scene routing exposes user Components without inventing Frame sources", () => {
   const state = {
     components: [
       { id: "component-a", type: "chain", name: "A", activity: {} },
-      { id: "scene-a", type: "scene", name: "Scene", activity: {}, scene: { frameThumbnails: { "frame-a": "thumb" } } },
+      { id: "scene-a", type: "scene", name: "Scene", activity: {} },
+      { id: "system-a", type: "chain", name: "System", systemRole: "mapping-test-pattern", activity: {} },
     ],
-    frames: [{ id: "frame-a", name: "Crop", activity: {} }],
   };
   const nodes = sceneSourceNodes(state);
-  const frameNode = nodes.find((node) => node.outputFrameId === "frame-a");
+  const sceneNode = nodes.find((node) => node.componentId === "scene-a");
 
-  assert.equal(nodes.length, 3);
-  assert.equal(frameNode.thumbnail, "thumb");
-  assert.equal(resolveSceneSourceNode(state, "", {}), null);
-  assert.equal(resolveSceneSourceNode(state, "missing-node", {}), null);
-  assert.deepEqual(resolveSceneSourceNode(state, frameNode.id), frameNode);
-  assert.deepEqual(applySceneSourceNode({}, frameNode), {
-    sourceNodeId: frameNode.id,
+  assert.deepEqual(nodes.map((node) => node.componentId), ["component-a", "scene-a"]);
+  assert.equal(resolveSceneSourceNode(state, ""), null);
+  assert.equal(resolveSceneSourceNode(state, "missing-node"), null);
+  assert.deepEqual(resolveSceneSourceNode(state, sceneNode.id), sceneNode);
+  assert.deepEqual(applySceneSourceNode({}, sceneNode), {
+    sourceNodeId: sceneNode.id,
     componentId: "scene-a",
-    outputFrameId: "frame-a",
+    sceneCrop: false,
   });
 });
 
-test("models remains a compatibility facade for scene routing", () => {
+test("models remains a facade for the scene-routing domain", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
   assert.match(source, /from "\.\/scene-routing\.js\?v=[^"]+"/);
   assert.doesNotMatch(source, /export function sceneSourceNodes\(/);
 });
 
-test("a standalone Live Component covers each Mapping Frame without changing projection geometry", () => {
+test("an Overall Component covers Scene space while preserving authored Surface geometry", () => {
   const surface = {
     id: "surface-a",
-    frameSlotId: "frame-a",
+    x: 0.2,
+    y: 0.1,
+    width: 0.5,
+    height: 0.75,
     projectionFit: "contain",
-    destination: { type: "surface" },
+    destination: { type: "mapped" },
   };
-  const state = {
-    render: { sceneAspectRatio: 16 / 9 },
-    frames: [{ id: "frame-a", width: 0.5, height: 1 }],
-    surfaces: [surface],
-  };
+  const state = { render: { sceneAspectRatio: 16 / 9 }, surfaces: [surface] };
   const target = { id: "component-a", type: "chain" };
   const routes = materializeLiveTargetSurfaceRoutes(state, target);
 
   assert.equal(routes.surfaces[0].componentId, target.id);
-  assert.equal(routes.surfaces[0].outputFrameId, "");
-  assert.equal(routes.surfaces[0].frameSlotId, "frame-a");
-  assert.equal(routes.surfaces[0].frameFit, "cover");
-  assert.equal(routes.surfaces[0].frameFitActive, true);
+  assert.equal(routes.surfaces[0].sceneCrop, true);
+  assert.equal(routes.surfaces[0].sourceFit, "cover");
+  assert.equal(routes.surfaces[0].sourceFitActive, false);
   assert.equal(routes.surfaces[0].projectionFit, "contain");
-  assert.equal(routes.surfaces[0].destination.type, "surface");
+  assert.equal(routes.surfaces[0].x, surface.x);
+  assert.equal(routes.surfaces[0].width, surface.width);
   assert.deepEqual(state.surfaces, [surface]);
 });
 
-test("an individual Live Scene patch assigns the complete Scene instead of its routed Frame", () => {
+test("an individual Surface patch assigns the complete source through one cover stage", () => {
   const surface = {
     id: "surface-a",
-    frameSlotId: "frame-a",
-    projectionFit: "cover",
+    x: 0.2,
+    y: 0.1,
+    width: 0.5,
+    height: 0.75,
+    projectionFit: "contain",
   };
-  const scene = {
-    id: "scene-a",
-    type: "scene",
-    scene: { frames: [{ frameId: "frame-a", componentId: "component-a", fit: "contain" }] },
-  };
-  const state = {
-    render: { sceneAspectRatio: 16 / 9 },
-    frames: [{ id: "frame-a", width: 0.5, height: 1 }],
-    components: [scene, { id: "component-a", type: "chain" }],
-    surfaces: [surface],
-  };
+  const scene = { id: "scene-a", type: "scene" };
+  const state = { components: [scene], surfaces: [surface] };
 
   const route = materializeLiveSurfacePatchRoute(state, scene, null, surface.id);
 
   assert.equal(route.sourceNodeId, sceneSourceNodeId(scene.id));
   assert.equal(route.componentId, scene.id);
-  assert.equal(route.outputFrameId, "");
-  assert.equal(route.frameFitActive, false);
-  assert.equal(route.frameSlotId, surface.frameSlotId);
-  assert.equal(route.projectionFit, surface.projectionFit);
+  assert.equal(route.sceneCrop, false);
+  assert.equal(route.sourceFitActive, false);
+  assert.equal(route.projectionFit, "cover");
+  assert.equal(route.x, surface.x);
+  assert.equal(route.width, surface.width);
 });
 
-test("an individual Live Component patch bypasses the Scene Frame crop", () => {
-  const surface = {
-    id: "surface-a",
-    frameSlotId: "frame-a",
-    projectionFit: "contain",
-  };
-  const component = { id: "component-a", type: "chain" };
-  const state = {
-    frames: [{ id: "frame-a", width: 0.5, height: 1 }],
-    components: [component],
-    surfaces: [surface],
-  };
-
-  const route = materializeLiveSurfacePatchRoute(state, component, null, surface.id);
-
-  assert.equal(route.sourceNodeId, sceneSourceNodeId(component.id));
-  assert.equal(route.componentId, component.id);
-  assert.equal(route.outputFrameId, "");
-  assert.equal(route.frameFitActive, false);
-  assert.equal(route.frameSlotId, surface.frameSlotId);
-  assert.equal(route.projectionFit, surface.projectionFit);
-});
-
-test("visible Scene Frames are derived only from enabled Surface routes", () => {
-  const ids = visibleSceneFrameIds([
-    { enabled: true, frameSlotId: "frame-a" },
-    { enabled: false, frameSlotId: "frame-b" },
-    { outputFrameId: "frame-c" },
-    { enabled: true, frameSlotId: "" },
+test("visible Scene guide ids are the enabled Surface ids", () => {
+  const ids = visibleSceneSurfaceIds([
+    { id: "surface-a", enabled: true },
+    { id: "surface-b", enabled: false },
+    { id: "surface-c" },
+    { id: "", enabled: true },
   ]);
+  assert.deepEqual([...ids], ["surface-a", "surface-c"]);
+});
 
-  assert.deepEqual([...ids], ["frame-a", "frame-c"]);
+test("authored Surface fields exclude compiled route bindings", () => {
+  const authored = authoredSurfaceFields({
+    id: "surface-a",
+    x: 0.25,
+    sourceNodeId: "component:a",
+    componentId: "a",
+    sceneCrop: true,
+    sourceFit: "cover",
+    sourceFitActive: false,
+    sourceAspect: 1.5,
+  });
+  assert.deepEqual(authored, { id: "surface-a", x: 0.25 });
+});
+
+test("transition routes keep current Surface geometry and previous source bindings", () => {
+  const current = [{
+    id: "surface-a", x: 0.6, width: 0.3, componentId: "new",
+    sourceNodeId: "component:new", projectionFit: "cover",
+  }];
+  const previous = [{
+    id: "surface-a", x: 0.1, width: 0.8, componentId: "old",
+    sourceNodeId: "component:old", sceneCrop: true, projectionFit: "contain",
+  }];
+  const [route] = rebaseSurfaceRouteProgram(previous, current);
+  assert.equal(route.x, 0.6);
+  assert.equal(route.width, 0.3);
+  assert.equal(route.componentId, "old");
+  assert.equal(route.sourceNodeId, "component:old");
+  assert.equal(route.sceneCrop, true);
+  assert.equal(route.projectionFit, "contain");
 });

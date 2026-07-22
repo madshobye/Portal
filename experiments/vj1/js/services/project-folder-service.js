@@ -11,7 +11,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=scene-mapping-output-visibility-1";
+import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=transition-start-fit-1";
 import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=surface-identity-2";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
 import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";

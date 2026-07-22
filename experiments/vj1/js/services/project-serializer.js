@@ -1,5 +1,6 @@
 import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=surface-identity-2";
 import { normalizeOutputName } from "../domain/render-settings.js?v=output-one-1";
+import { authoredSurfaceFields } from "../domain/scene-routing.js?v=scene-mapping-output-visibility-1";
 import { serializeNodeProjectData } from "../libraries/node-engine/node-project.js";
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
@@ -41,18 +42,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
 export function persistedMappings(mappings = []) {
   return (mappings || []).map((mapping) => ({
     ...mapping,
-    surfaces: (mapping.surfaces || []).map((surface) => {
-      const {
-        sourceNodeId: _sourceNodeId,
-        componentId: _componentId,
-        sceneCrop: _sceneCrop,
-        sourceFit: _sourceFit,
-        sourceFitActive: _sourceFitActive,
-        sourceAspect: _sourceAspect,
-        ...authored
-      } = surface || {};
-      return authored;
-    }),
+    surfaces: (mapping.surfaces || []).map(authoredSurfaceFields),
   }));
 }
 

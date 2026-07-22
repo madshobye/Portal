@@ -4,7 +4,7 @@ export const SurfaceRouteNode = defineNode({
   id: "core.composition.surface-route",
   name: "Surface Route",
   version: "0.1.0",
-  description: "Routes one Component or Scene Frame texture into a named projection surface.",
+  description: "Routes one Component or Scene texture into a named projection Surface.",
   implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: { texture: { type: "texture", optional: true }, surface: { type: "any", required: true } },
   outlets: { route: { type: "any" } },

@@ -57,22 +57,22 @@ test("asset discovery never opens revisions or unrelated cache files", async () 
 });
 
 test("thumbnail cache names round-trip ids and cache URLs apply to components", () => {
-  const filename = componentThumbnailFilename("component / a", "frame:1", "png");
+  const filename = componentThumbnailFilename("component / a", "surface:1", "png");
   assert.deepEqual(parseComponentThumbnailFilename(filename), {
     componentId: "component / a",
-    frameId: "frame:1",
+    frameId: "surface:1",
     extension: "png",
   });
   const components = [{ id: "component / a", type: "scene", canvas: {} }];
   applyThumbnailUrls(components, [
     { componentId: "component / a", url: "blob:component", frameId: "" },
-    { componentId: "component / a", url: "blob:frame", frameId: "frame:1" },
+    { componentId: "component / a", url: "blob:surface", frameId: "surface:1" },
   ]);
   assert.equal(components[0].thumbnail, "blob:component");
-  assert.equal(components[0].scene.frameThumbnails["frame:1"], "blob:frame");
+  assert.equal(components[0].scene.surfaceThumbnails["surface:1"], "blob:surface");
   clearThumbnailUrls(components);
   assert.equal(components[0].thumbnail, "");
-  assert.deepEqual(components[0].scene.frameThumbnails, {});
+  assert.deepEqual(components[0].scene.surfaceThumbnails, {});
 });
 
 test("thumbnail data URLs become typed cache blobs", () => {
@@ -103,13 +103,13 @@ test("render transport strips local thumbnail URLs without mutating editor state
   const state = {
     components: [
       { id: "component-a", type: "chain", thumbnail: "blob:component" },
-      { id: "scene-a", type: "scene", thumbnail: "blob:scene", scene: { frameThumbnails: { frame: "blob:frame" } } },
+      { id: "scene-a", type: "scene", thumbnail: "blob:scene", scene: { surfaceThumbnails: { surface: "blob:surface" } } },
     ],
   };
   const transport = stateWithoutThumbnailUrls(state);
   assert.equal(transport.components[0].thumbnail, "");
   assert.equal(transport.components[1].thumbnail, "");
-  assert.deepEqual(transport.components[1].scene.frameThumbnails, {});
+  assert.deepEqual(transport.components[1].scene.surfaceThumbnails, {});
   assert.equal(state.components[0].thumbnail, "blob:component");
-  assert.equal(state.components[1].scene.frameThumbnails.frame, "blob:frame");
+  assert.equal(state.components[1].scene.surfaceThumbnails.surface, "blob:surface");
 });

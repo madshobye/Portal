@@ -2,178 +2,146 @@
 
 Updated: 2026-07-22
 
-VJ1 is a build-free browser VJ and projection-mapping application in `experiments/vj1`. It targets current Chrome with a capable GPU. p5 remains the browser/media host, while frame-critical rendering increasingly uses raw WebGL and shared p5 framebuffers. The user-selected project folder and its `project.json` are authoritative.
+VJ1 is a build-free browser VJ and projection-mapping application in `experiments/vj1`. It targets current Chrome with a capable GPU. p5 remains the browser/media host, while frame-critical work uses retained WebGL targets and specialized renderers. The user-selected folder and its `project.json` are authoritative. Current project schema is **30**.
 
-## Product Model
+## Product and Ownership Model
 
-- **Component**: reusable ordered chain of sources, effects, and isolated Groups.
-- **Scene**: the former Canvas. It uses the Component chain model, may arrange reusable Components, and owns the content and fit configuration of each shared Frame slot.
-- **Frame**: a stable, proportion-only output slot. In each Scene it exposes either the whole Scene or one ordinary Component, with `cover`, `contain`, or `stretch`.
-- **Mapping**: the former Scene preset. It stores physical Surfaces and assigns one Frame slot to each Surface; it does not directly own Components or Scenes.
-- **Live**: selects an on-air Scene or ordinary Component and applies temporary overrides. Scenes are the default catalog. The selected Mapping remains independent: a Scene resolves its authored Frame content, while a standalone Component feeds every mapped Frame with an explicit `cover` crop.
-- **Output**: renders the selected Live Scene through the selected Mapping in an embedded preview or standalone output window.
+- **Component**: reusable visual chain of media, generators, effects, nested Components, and Groups.
+- **Scene**: a spatial Component composition. It owns visual content, not projection geometry.
+- **Mapping**: an authored collection of Surfaces and calibration. Different Mappings may contain different Surfaces.
+- **Surface**: one identity represented as a relative 2D rectangle in Scene view and a projected quad/destination in Mapping view. There is no separate Frame model.
+- **Live**: a transient source program. It selects an Overall Scene/Component and may patch or hide individual Surfaces.
+- **Output**: the compiled Mapping program rendered in the embedded preview or a standalone output window.
 
-The current runtime and persisted model use these names canonically: Scene Components use `type: "scene"` and `.scene`; Mapping presets live in `state.mappings`; every Mapping directly owns its complete `surfaces` and `calibration`; workspace keys are `component`, `scene`, `mapping`, `nodes`, and `live`. Old Canvas/Scene names exist only inside historical migration steps, test descriptions, or where “canvas” literally means an HTML/p5 drawing surface. The serialized route token `recording-frame` and persisted setting key `recordingFrameScale` remain compatibility identifiers; active UI and runtime concepts are Scene Frame, `frameById`, and Frame detail.
+The central ownership rule is:
 
-Project schema is version **28**. The v26→v27 migration renames Canvas Components to Scenes and old Scene presets to Mappings. The v27→v28 migration folds the former global physical Surfaces and calibration into each Mapping and removes those roots from canonical persistence. Persisted format changes require one adjacent migration in `domain/project-migrations.js` plus focused tests. Do not restore obsolete parallel authorities such as `component.source`, `component.shaderChain`, legacy Canvas `layers`, root-level authored Surfaces/calibration, per-surface pixel crops, or chain-level source params.
+```text
+Component/Scene content + Mapping Surface geometry + Live route choices
+                         -> compiled Surface routes -> Output
+```
 
-## Architecture and Library Boundaries
+`mapping.surfaces` contains authored geometry, calibration-facing properties, ordering, destination, fit, feather, visibility defaults, and identity. `state.surfaces` is the selected renderer projection: it may additionally contain derived source bindings such as `sourceNodeId`, `componentId`, crop, and source-fit data. `ui.live.surfaceRoutes` and transition snapshots are transient route programs. Never persist derived bindings into a Mapping or create a parallel per-Scene Surface table.
 
-The application root (`app.js`, state, controllers, output hosts, services) configures focused libraries under `js/libraries`:
+Old projects are migrated on load. Do not restore runtime compatibility branches for the removed Canvas/Frame models; migration code is their only proper home.
 
-- `node-engine`: typed/versioned node definitions, ports, groups, packages, forks, and editable parts.
-- `composition-engine`: compiled Component, Scene, Mapping, surface-route, and application programs.
+## Libraries and Node Architecture
+
+The application root configures libraries under `js/libraries`:
+
+- `node-engine`: typed/versioned nodes, ports, groups, packages, forks, and editable parts.
+- `composition-engine`: Component, Scene, Mapping, Surface-route, Output, and application compilers.
 - `render-engine`: relative geometry, render views, and ROI contracts.
-- `mapping-engine`: surface homography, source fit, feathering, and projection sampling.
+- `mapping-engine`: projection sampling, homography, fit, and feathering.
 - `cache-engine`: retained render-target and signature caches.
-- `media-engine`: media/input lifecycle contracts.
-- `mesh-engine`: STL/OBJ parsers, format detection, mesh preparation/resolution, mesh rendering, and file-to-image groups.
-- `image-engine`: reusable image operations such as resize.
-- `isf-engine`: ISF 2 metadata parsing, first-class project nodes, GLSL host adaptation, and relative multipass descriptions.
-- `control-engine`, `data-store`, `state-engine`, `storage-engine`, `synchronization-engine`, `timing-engine`, and `diagnostics-engine`: non-render infrastructure.
-- `visual-nodes`: one folder per generator/effect with metadata, editable JavaScript, shaders, and runtime parts where applicable.
+- `media-engine`, `image-engine`, `mesh-engine`, `isf-engine`, and `procedural-2d`: reusable media and visual algorithms.
+- `state-engine`, `storage-engine`, `synchronization-engine`, `timing-engine`, `diagnostics-engine`, `control-engine`, and `data-store`: infrastructure.
+- `visual-nodes`: one folder per generator/effect with its metadata, editable code/shaders, and runtime parts.
 
-Nodes are real implementations, not decorative wrappers. Code, shader, parser, and group nodes own their editable algorithms. Optimized hosts may call the same exported implementation directly without allocating a generic NodeInstance or traversing packets each frame. Do not replace the current allocation-stable renderer with generic per-frame graph traversal. Compiler/custom-node boundaries are preferred when a relationship needs specialization.
+Nodes own real algorithms, not decorative wrappers. The graph is primarily an authored and inspectable program plus a compiler boundary. Optimized hosts may execute compiled node implementations directly; the renderer must not allocate generic packets or traverse a dynamic object graph every frame. Specialized shader fusion, retained targets, mesh renderers, media leases, and required ping-pong passes remain valid node host implementations.
 
-## Render Pipeline
+## Render Pipeline and Invariants
 
 ```text
 canonical state
-  -> selected Scene + selected Mapping materialization
-  -> compiled visible Surface routes
-  -> shared Component/Scene demand
-  -> retained source/effect textures
-  -> optional group/effect/transition materialization
-  -> Frame fit/feather + Surface fit/feather + mapping
-  -> embedded or standalone output
+  -> materialize selected Scene/Live routes over selected Mapping
+  -> compile reachable Surface/source graph
+  -> plan visible Component and media demand
+  -> render/reuse retained Component textures
+  -> optional effect/group/transition materialization
+  -> fit + Surface projection + feather + blend
+  -> preview or standalone Output
 ```
 
-Only visible dependencies render. Static nodes are signature-cached; dynamic nodes invalidate on their real time/media revision. Synchronized instances reuse eligible Component results. Frames are texture views into one parent Scene, not separate full-Scene renders. A Frame exposing an ordinary Component can route that retained Component directly.
+Keep these contracts intact:
 
-Important invariants:
-
-- `ui.live.selectedComponentId` identifies the on-air Scene or Component; `ui.live.selectedSceneId` retains the current Scene context; `ui.selectedMappingId` identifies the editor/output Mapping. Editor Mapping selection must never replace the on-air target.
-- A Mapping stores `frameSlotId`, never a concrete Component assignment. Resolve the slot against the selected Scene only at the Live/render-state boundary.
-- Relative Mapping corners use one canonical world derived from the configured Output proportions. Popup and preview pixel dimensions are raster hosts only and never become geometry authority. Mapping and Live contain this canonical world inside their fixed p5 canvas before applying the ordinary internal viewport zoom. Standalone Output uniformly covers the selected configured Output frame. Resizing may crop but never stretch Surface geometry.
-- Components render intrinsic textures. Parent transforms place them on Scenes, Surfaces, and Live.
-- Boundaries and content transforms are separate: the boundary owns placement, rotation, and clipping; content transform moves/scales the image or procedural domain inside it.
-- Geometry is relative and resolution-independent. Pixel dimensions are derived from host viewport, output proportions, quality, density, and visible demand.
-- ROI changes allocation/sampling only; it must not recenter, squeeze, or change generator/effect math.
-- Media and SVG detail demand follows the full logical node boundary, then content scale; visible ROI allocation must never be mistaken for the source-resolution demand.
-- Chain coordinates are screen-like: positive X right, positive Y down, positive rotation clockwise.
+- Geometry is relative. Pixel sizes are derived from the actual host, quality, density, visible footprint, content scale, and source detail demand.
+- A Surface is the geometry authority at both transition endpoints. A transition snapshot owns previous source bindings only.
+- Boundary transform and content transform are separate. Boundary controls placement, rotation, clipping, and allocation; content transform moves/scales the visual domain inside it.
+- ROI reduces allocation and sampling only. It must not recenter or squeeze generator/effect math.
+- Buffer size follows the visible boundary footprint. Source detail follows physical backing demand and content scale. Offscreen boundary areas allocate nothing.
+- `cover`, `contain`, and `stretch` are explicit presentation choices. Do not silently substitute one to compensate for incorrect aspect math.
 - Premultiplied alpha is the render contract.
-- `cover`, `contain`, and `stretch` are explicit route choices and must retain their normal meanings.
-- Avoid extra WebGL contexts, pixel readbacks, resizable cross-context canvas uploads, and unnecessary ping-pong buffers.
-- Frame fit and Surface fit are composed in the existing mapper shader. Non-direct routes reuse the already-required Surface target. Do not add a Frame framebuffer or mapping pass.
-- No silent media/render fallback. Emit structured `VJ1_*` diagnostics.
+- Avoid pixel readbacks, resizable cross-context canvas uploads, extra WebGL contexts, and new full-frame or ping-pong targets unless an algorithm genuinely requires them.
+- Static Components are signature-cached; dynamic Components invalidate only for real time/media changes. Eligible synchronized clients should share results rather than rerendering the full chain.
+- Preview and standalone Output are separate renderer clients but consume the same compiled Surface contract.
 
-### ISF shaders
+Mapping preview and its Test Pattern no longer rewrite Mapping data. Runtime source nodes are bound to the authored Mapping graph by `mapping-program-compiler.js`; authored reachability and Surface order remain intact. This compiler boundary is the intended way to combine stable topology with changing preview/Live source assignments.
 
-Project `.fs`, `.frag`, and `.glsl` files with an ISF 2 JSON header are discovered as first-class generator or effect nodes. Their declared scalar, boolean, enum, point, and color inputs become ordinary VJ1 parameters; source, metadata, version, description, ports, and editable shader part remain visible in Nodes. The source file is the base authority and is excluded from `project.json`; only references and edited project forks persist.
+## Live, Mapping, and Transitions
 
-Single-pass ISF shares the normal cached shader/target path. Multipass execution is invoked only for ISF that declares passes: named transient targets retain one framebuffer, persistent targets use the required two-target swap, float targets request a float shared framebuffer, and relative WIDTH/HEIGHT expressions are evaluated from current render demand. Standard TIME, TIMEDELTA, FRAMEINDEX, PASSINDEX, DATE, RENDERSIZE, image-size, and normalized/pixel sampling contracts are host-bound. Raw ISF `gl_FragCoord` is compiler-virtualized from boundary UV and logical `RENDERSIZE`; never bind it to preview framebuffer pixels, because resizing or ROI would move procedural centers. Ordinary VJ1 effects retain their established fusion and two-target path.
+Overall Live selection materializes a Scene across the Mapping Surfaces. An ordinary Component selected Overall behaves as a virtual Scene and covers the shared Scene space before each Surface samples it. An individual Surface patch assigns the complete selected Scene/Component to only that Surface through the Surface's presentation fit. Clearing a patch restores Overall routing without changing the Mapping.
 
-Current Component chains have one image inlet. ISF transitions, auxiliary images, audio, and FFT files remain represented as node ports but are omitted from the visual catalog with `VJ1_ISF_MULTI_INPUT_REQUIRES_NODE_GRAPH`; never bind them silently to the primary image. They should activate when graph-level multi-input placement is implemented.
+Direct outputs have a group route (`Full surface`) and per-output children. Current precedence is materialized centrally in `scene-routing.js`: an explicit group patch suppresses unpatched children, while explicitly patched children override their own output. This is route policy, not UI state.
 
-Invalid file-backed ISF definitions are memoized by semantic definition identity rather than project-array identity. Cloned state sent to multiple output windows therefore does not repeatedly parse the same invalid definition or flood `VJ1_ISF_DEFINITION_INVALID`; each browser realm reports a definition once. This is catalog caching only and adds no render buffer or pass.
+Transitions use the current Surface geometry for both endpoints. `rebaseSurfaceRouteProgram()` combines current authored geometry with previous source bindings. Focused model tests confirm identical Overall monitor placement and identical per-Surface endpoint geometry.
 
-Effects remain sequential. Shader fusion, direct placement, retained framebuffers, specialized model/terrain paths, and cache reuse must survive node-system work. Do not force optimized paths into a pure generic traversal when a compiled direct node or custom renderer is healthier.
+### Transition presentation contract
 
-## Current Render and Performance State
+Ordinary Surface transitions now reuse the stable prepared view contract: source texture, normalized source rectangle, source fit, logical aspect, projection fit, and opacity. Each endpoint retains its own `contain`/`cover` mapping throughout the blend, so the transition no longer substitutes `stretch` and then snaps back to the stable presentation.
 
-The latest committed baseline is `b3de46e2`. It contains the recent browser/video/cache/diagnostic work and the direct recording-frame correction.
+Complex routes that require transforms, final shaders, or thumbnail fallback still use retained endpoint textures. Their source-fit stage is already flattened into those textures, while the Surface projection-fit stage remains in the mapper. Unchanged Surfaces stay on the exact stable path. This adds no full-frame pass, ping-pong pair, or new buffer; ordinary changing routes now avoid the former per-Surface transition-buffer allocation.
 
-### Direct recording-frame presentation
+## Persistence, Transport, and Derived Data
 
-p5's source-rectangle `image()` path could trigger:
+- `project.json` stores canonical authored state and compact project node diffs, not installed node libraries, generated instances, thumbnails, or runtime route bindings.
+- Component and per-Surface thumbnails are derived assets in the cache. The last valid thumbnail stays visible until replacement succeeds.
+- `project-serializer.js` and model normalization use the same `authoredSurfaceFields()` contract, preventing preview/Live bindings from leaking into saved Mappings.
+- Output clients receive full recovery state plus revisioned live patches. High-frequency gestures are latest-value coalesced; do not add a second Mapping-specific protocol or an unbounded patch queue.
+- Autosave is quiet-period and lifecycle aware. Browser shutdown writes are best effort; committed autosave remains the crash-safety boundary.
+- Media, screen capture, video, parsed models, images, and GPU objects are lease-owned and must be disposed through bounded runtimes.
+- ISF source files remain file-backed node definitions. Scalar inputs are ordinary params. Multi-image ISF remains intentionally inactive until graph-level multi-input placement is implemented.
 
-`GL_INVALID_VALUE: glCopySubTextureCHROMIUM: Negative offset`
+## Cleanup Completed in the Current Worktree
 
-Direct Frame routes now sample the parent Scene through the existing mapping shader. This preserves fit semantics and remains one GPU draw. It adds no surface buffer, readback, or ping-pong pass. Crop bounds are normalized once by the mapper; a redundant outer clamp was removed after audit.
+- Removed derived runtime source bindings from Mapping mutations in Mapping preview, Live, transition, and monitor-state construction.
+- Added one shared authored/derived Surface-field contract used by normalization and serialization.
+- Moved changing preview/Live source binding to the Mapping program compiler while preserving authored graph reachability.
+- Rebased transition snapshots onto current Surface geometry rather than letting old route geometry survive.
+- Removed the obsolete runtime `(outputIndex, width, height)` output-construction signature; pixel dimensions are now derived only at the host boundary.
+- Removed Scene-thumbnail reconstruction from nested Component thumbnails. Scene thumbnails now use only the last authoritative Scene snapshot, so a dirty thumbnail cannot invent a partial composition.
+- Updated focused Scene/Mapping/routing/storage tests to the Surface-only schema.
+- Updated visible node descriptions away from the removed Frame concept where it is safe to do so.
+- Preserved the direct optimized renderer. This cleanup adds no framebuffer, readback, render pass, or ping-pong pair.
 
-### Parsed STL/OBJ presentation
+## Unresolved Architecture Decisions
 
-The same Chromium error was later confirmed in Scene view when a cached STL became ready. The cache was not corrupt: readiness merely activated a per-frame upload from a separate p5 WebGL canvas.
+1. **Transition presentation verification — high priority.** Manually verify `contain` and `cover` at transition start, midpoint, and end in both embedded preview and output windows, including ordinary direct routes and complex buffered fallback routes.
 
-The current worktree routes parsed STL/OBJ raw rendering into one retained shared-context depth framebuffer (`modelRaw`). The existing mesh renderer, transforms, LOD selection, QEM cache, and final presentation draw are unchanged. The cross-context texture upload is removed; no new pass or ping-pong pair is introduced.
+2. **Direct-output hierarchy.** Group/child precedence currently derives hierarchy from `destination.outputIds.length`. It is centralized and deterministic, but explicit parent/override graph edges would be clearer if output routing becomes more complex.
 
-For STL/OBJ-only use, target count remains one. If parsed meshes and procedural/imported p5 models are both used, `modelRaw` and the legacy p5 `model` scratch target can coexist. This is the only possible memory increase and is deliberate: sharing the incompatible target recreated the GPU fault. Both targets are retained, resized, reused, and disposed by `SpecializedSourceRuntime`. A failure emits `VJ1_MODEL_SHARED_RENDER_FAILED` once.
+3. **Mapping Test Pattern identity.** It is currently a hidden system Component because the renderer consumes Component textures. A system/runtime source node would be cleaner and would remove the hidden Component container, but this requires a general non-project source contract in demand planning and thumbnails.
 
-### Video and retained caching
+4. **Overall monitor adapter.** Live Overall preview is represented by a synthetic direct Surface/output in a cloned render state. It no longer mutates the Mapping, but an explicit monitor-output node would better describe this presentation boundary.
 
-Modern video elements use decoded-frame callbacks to advance a revision; cached Components invalidate only for presented frames rather than every renderer tick. A cached video Component renews its media lease so playback does not pause after its first retained frame. This is separate from the STL fix and is intended to reduce duplicate work.
+5. **Legacy persisted identities.** `scene-frame-guides` has Surface-oriented display text but a legacy internal ID and function names, and the technical sampling key is still `recordingFrameScale`. Renaming either needs a schema/node-diff migration policy; changing them directly could invalidate saved project edits or settings.
 
-SVG media stays logically vector but is rasterized into one retained demand-sized image for GPU upload. Render resolution and content scale may upgrade that image up to the normal media cap; the media revision invalidates stable Component output only when the variant changes. SVG bypasses persisted PNG rendition caches so an older low-resolution rendition cannot mask a sharper vector rasterization. This creates no render pass or ping-pong target.
+6. **Fallback policy.** Shared-framebuffer, media draw, sample draw, font, video-callback, and specialized ML fallbacks still exist and emit diagnostics. The product targets current Chrome/GPU, but removal should be a deliberate fail-fast policy with capability checks, not scattered deletion during render work.
 
-### Thumbnails
+7. **Serializer recovery fallback.** Project serialization can retain a legacy chain when graph compilation is unavailable. This protects data, but conflicts with a strict graph-authoritative model. Decide whether invalid graphs should block saving, enter explicit recovery mode, or retain this path.
 
-Component, Scene, and Frame thumbnails use stale-while-revalidate behavior. Mapping presets intentionally have no thumbnails because they contain geometry and routing rather than visual content. The last valid thumbnail stays visible until a replacement succeeds. Capture is serialized, idle/gesture-aware, GPU-downsampled before its small readback, and disabled in standalone outputs. Do not clear thumbnails on a dirty flag.
-
-## Scene, Mapping, Live, and Output Semantics
-
-Mapping routes use stable Frame slot IDs. At runtime `materializeSceneSurfaceRoutes()` resolves each slot against the selected Scene: either the Scene's own Frame view or the ordinary Component selected in that Scene's Frame configuration. A whole Scene and `Scene · Frame N` remain distinct render views. Frame fit is applied before the Surface's projection fit, and both retain their normal meanings. No automatic `cover` to `contain` migration exists.
-
-Live has one source catalog with Scene and Component filters; Scenes are selected by default. A separate Projection column forms a source × projection matrix. Overall Mapping shows the selected Scene or Component directly, without projection. Selecting a direct or mapped Surface keeps the complete Mapping visible, but substitutes the selected source only on that cloned Surface route; the other routes retain their authored sources. This selection affects only the shared embedded preview and never reroutes the on-air program. It adds no renderer, framebuffer, or ping-pong pass. Selecting a Component does not create or persist a temporary Scene. `materializeLiveTargetSurfaceRoutes()` supplies the selected route's explicit `cover` crop while leaving Surface geometry and projection fit untouched. Scene↔Component transitions reuse the existing transition textures.
-
-Control and outputs communicate through `BroadcastChannel("vj1-output-bridge")`. Full state comes from `store.getLiveRenderState()`. Gestures use stable-ID revisioned patches; resync must preserve Live Scene identity. Preview and standalone output remain separate renderer clients and may intentionally run different Components unless instances are synchronized.
-
-Transitions may prepare media before activation. Missing required media blacks out explicitly rather than flashing partial output. Numeric Live parameter truth updates immediately; interpolation stays renderer-local.
-
-## Persistence and Media
-
-- `project.json` stores canonical authored state, not generated thumbnails or cache artifacts.
-- Each persisted Mapping owns its own Surface inventory and calibration, so Mappings may contain different numbers of projection Surfaces. **New Mapping** starts with only the required disabled direct-output system routes; adding or removing a projection Surface changes only the selected Mapping. **Save Mapping** is the explicit way to duplicate the current Surface layout. Runtime `state.surfaces` and `state.mappingCalibration` are transient renderer projections of the selected Mapping and are never serialized as competing authorities. Live `surfaceRoutes` are materialized transiently from the selected Scene and Mapping.
-- Node persistence is a compact project diff, not a snapshot of the installed node system. Built-in definitions, package helper groups, generated flat instances, compiler hooks, control nodes, default wiring, and catalog artifacts are reconstructed from the installed libraries on load. Persist only version pins, project-local forks/special definitions, Component content topology, and explicitly authored graph edits. Untouched Scene/Application programs are derived and omitted.
-- The current `mappertest` fixture compacts from 3.13 MB of JSON (5.0 MB formatted on disk) to 489 KB compact / 902 KB formatted. Save-load-save is byte-stable and preserves Component/Scene chains, Mapping presets, and Surface state. Its legacy embedded package definitions compact to zero; genuine project forks remain separately persisted.
-- UI-only selection and recent-use changes remain pending instead of serializing the full project after every click. They join the next authored save or flush when Chrome hides, refreshes, closes, or the project is explicitly closed. Non-transactional checkpoints use a five-second quiet period; committed edits retain transaction/undo semantics.
-- Derived assets live outside canonical state; model artifacts use versioned entries under `vj1-cache/models`.
-- Undo records completed user transactions, not selection, metrics, thumbnails, or scrub samples.
-- Never scan `revisions` or `vj1-cache` during media discovery.
-- Media, decoded images, video, capture streams, parsed meshes, and GPU resources are acquired by active leases and disposed through bounded runtimes.
-- Screen sharing is explicitly user-started and session-owned; generators sample the registered stream.
-- Browser capability and internal fallback paths should produce mini-console diagnostics. Current Chrome is the supported target.
+8. **Stale regression suite.** The broad suite has many Frame-era assertions and UI fixtures. The last complete run was 903 tests: **852 passed, 51 failed**. Do not report the suite as green. Failures must be classified and rewritten against Surface-only behavior; some may expose real UI/layout regressions. The metrics suite also has one stale expectation for the removed "Sequential shader passes" hotspot label (9/10); render geometry is green (30/30).
 
 ## Important Files
 
-- `js/domain/models.js`, `project-migrations.js`, `scene-routing.js`: canonical schema, Scene Frame configuration, and Mapping materialization.
-- `js/control/*`, `style.css`: workspaces, inspectors, gestures, Live UI, diagnostics.
-- `js/libraries/node-engine`, `composition-engine`, `visual-nodes`: node definitions and compiled programs.
-- `js/output/output-renderer.js`: render orchestration and Component caching.
-- `js/output/component-render-*`, `surface-render-planner.js`, `output-surface-runtime.js`: demand, intrinsic rendering, placement, and surface presentation.
-- `js/output/render-draw-utils.js`, `shared-framebuffer-target.js`, `render-target-contract.js`: low-level target and orientation contracts.
-- `js/output/specialized/specialized-source-runtime.js`: retained model/terrain/morph/specialized targets.
-- `js/output/output-media-*`, `output-thumbnail-runtime.js`: media lifecycle and derived thumbnails.
-- `js/services/project-folder-service.js`, `project-serializer.js`, `media-library-service.js`, `output-bridge-service.js`: storage and transport.
-- `tests/*.test.mjs`: architecture and regression contracts.
+- `js/domain/models.js`, `scene-routing.js`, `project-migrations.js`: schema, route materialization, migrations.
+- `js/libraries/composition-engine/shared/mapping-program-compiler.js`: authored Mapping graph plus runtime source binding.
+- `js/output/output-renderer.js`, `output-surface-runtime.js`, `surface-render-planner.js`: orchestration, transition composition, demand.
+- `js/output/component-render-*`, `render-geometry.js`, `content-coordinate-space.js`: Component detail, placement, ROI.
+- `js/services/project-serializer.js`, `project-folder-service.js`, `output-bridge-service.js`: persistence and transport.
+- `js/control/mapping-live-view.js`, `control-shell-controller.js`, `style.css`: Mapping/Live UI and shared preview host.
+- `tests/scene-routing.test.mjs`, `scene-mapping-model.test.mjs`, `app-node-package.test.mjs`: current architectural contracts.
 
-## Handover Status
+## Verification Status
 
-### Architecture audit
+Focused architecture/storage/render-settings tests pass **60/60**:
 
-- The canonical ownership chain is sound: Components own intrinsic visual logic; Scenes arrange Components; Frames expose relative Scene views; Mappings assign Frames to physical Surfaces; Output presents the selected Mapping. Runtime route materialization is derived rather than a second persisted authority.
-- Frame content fit and Surface projection fit are separate, necessary stages. Direct routes compose both in the existing mapper shader; raster-required routes apply Frame fit while filling the already-required Surface target and then apply Surface fit during projection. There is no Frame buffer and no new ping-pong pair.
-- Live and Output use the same renderer and surface runtime. A transition snapshot owns only the previous source route: current Surface geometry, output layout, preview density, and Scene-space presentation remain authoritative for both endpoints. Only changed Surface routes use the existing retained transition textures; unchanged routes stay on their normal direct/cached path. Individual Surface patches feed the complete source directly through that Surface's projection fit, while an Overall Component first covers the stable Scene presentation. No new framebuffer or ping-pong pair was added.
-- The obsolete node-style `control/mapping-view.js` parallel UI was removed. The active Mapping presentation is `mapping-live-view.js` plus the generic embedded preview host.
-- Component, Scene, Mapping, and Live now share one embedded preview-host contract: one fixed p5 canvas fills the measured HTML stage, while renderer mode changes content semantics only. Frame, World, Manual, wheel, and +/- navigation use the same controller in all four workspaces; their zoom/pan is applied once as a final p5 presentation transform inside the fixed canvas, with inverse pointer mapping, rather than resizing the canvas element in CSS. The independent viewport states persist in `project.json`. Embedded render demand applies that same transform to authored Surface corners and clips demand to the fixed p5 viewport before allocating source textures; off-canvas pixels are not rendered. Standalone Output preserves its full projection request. This changes allocation only and adds no framebuffer, pass, readback, or ping-pong target. Do not restore per-mode canvas sizing or add viewport-specific render buffers.
-- Component and Frame editing handles counter-scale against the final preview viewport transform. Their visible dimensions and hit radii stay constant while zoom changes only the artwork and authored geometry.
-- Embedded HUD resolution reports the largest final content request presented by the preview render chain, including its effective quality density. At 1:1 fit, a Good preview occupying `W×H` visible pixels should therefore report a `2W×2H @2x` target. Standalone Output continues to report its GPU drawing buffer. Lower-level intermediate targets remain performance diagnostics. The temporary detailed HUD markup remains dormant in `previewDiagnosticHudMarkup()`, and the cyan p5 bounds, green diagonal, and magenta CSS bounds remain dormant in `drawPreviewGeometryDiagnostics()` for future geometry investigations; neither helper is called by the normal preview path.
-- Scene placement now derives its relative width from the Scene allocation and derives height from the child Component's intrinsic aspect. Landscape, portrait, and square Components retain their proportions independently of Scene aspect, raster density, and adaptive allocation. Do not compensate inside shader aspect math or add per-mode rendering buffers.
+```sh
+node --test tests/render-settings.test.mjs tests/project-storage.test.mjs tests/project-serializer.test.mjs \
+  tests/app-node-package.test.mjs tests/scene-routing.test.mjs \
+  tests/scene-mapping-model.test.mjs
+```
 
-- Current uncommitted work includes the Scene/Mapping migration plus the earlier parsed STL/OBJ shared target, direct-frame cleanup, quiet routine model-cache diagnostics, lower-frequency/lifecycle-aware autosave, compact node-project persistence, and ISF integration.
-- Scene/Mapping migration is canonical throughout current state, persistence, workspace selection, UI events, clipboard routing, node/compiler identities, renderer helper names, and CSS selectors. Legacy names are confined to migrations, compatibility route tokens/settings, tests, and literal browser canvas APIs. Live independently filters Scenes and Parts; at least one filter stays active. Surfaces select only Frame slots; each Scene owns per-Frame Component/fit; every Mapping owns an independent set of complete Surfaces plus calibration; Mapping cards have no thumbnails. Alpha-era direct Component routes in old Mapping presets may be discarded in favor of Frame-slot routing.
-- The migration adds no framebuffer, ping-pong pair, readback, or generic per-frame node traversal. Direct routes compose Frame fit and Surface fit in the existing mapper shader; raster-required routes use the existing Surface target.
-- Scene editing now keeps the p5 canvas as the full project-world host and fits the Scene inside the established world margin. User Frames retain enlarged border/corner hit targets; inactive Frames are thin translucent guides. Derived Output Frames remain selectable but locked, follow configured Output proportions, and deliberately show no resize handles.
-- Current focused transition checks pass: **32/32** render-geometry/context tests, **5/5** Live route/transition state tests, and the route-isolation identity test. `git diff --check` is clean. The broad suite still contains stale pre-Surface-migration fixture failures and must not be reported as fully green until those contracts are rewritten. File-backed nodes may be unresolved between the lightweight project snapshot and asset scan: UI and rendering treat them as pending/dynamic, and graph compilation temporarily represents a pending source as transparent or a pending effect as pass-through. Their IDs never enter the strict built-in catalog and the temporary result is never cached as stable; the same graph activates when asset definitions arrive. The real `mappertest` project also passes an in-memory compact save/load/save equivalence check.
-- Browser workspace selection is reapplied after asynchronous project restoration. A direct refresh on `workspace=scene` therefore cannot be replaced by the workspace stored in `project.json`, and the remembered Scene selection is normalized before the first preview.
-- Hidden or fully transparent list elements are not transformable and are excluded from recursive preview hit testing. Shift/Alt/middle drag pans the shared preview viewport without starting an object drag.
-- Latest changes were not browser-tested, following the user's request. The user should reload and verify that the skull appears normally without repeated `glCopySubTextureCHROMIUM` errors. If `VJ1_MODEL_SHARED_RENDER_FAILED` appears, inspect the raw mesh renderer against `SharedFramebufferTarget` rather than restoring a cross-context canvas upload.
-- Routine model cache-hit/write and LOD-ready success events are intentionally silent; cache failures, non-manifold topology, and simplification limits remain diagnostic warnings.
-- `VJ1_AUTOSAVE_PREPARE_SLOW` should no longer follow ordinary Component selection. Lifecycle writes are best-effort because Chrome cannot guarantee completion of asynchronous folder writes after shutdown begins; normal committed autosaves remain the crash-safety boundary.
-- Preserve unrelated user work and avoid broad reversions.
-
-## Verification
-
-From `experiments/vj1`:
+Before handoff also run:
 
 ```sh
 npm test
@@ -182,4 +150,4 @@ npm run test:render
 git diff --check
 ```
 
-Update browser module query strings when changing cached modules. Keep performance verification focused on draw count, retained-target count, decoded-frame invalidation, cross-context uploads, and full-resolution readbacks.
+The current changes were not browser-tested, following the user's request. When manually verifying, prioritize transition progress 0/1 equivalence, Scene Mapping with different source aspects, individual Surface patch add/remove, multiple output windows, output resize, retained target count, and absence of delayed patch queues.
