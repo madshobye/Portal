@@ -29,6 +29,7 @@ import {
   sceneSourceNodeId,
   sceneSourceNodes,
 } from "./scene-routing.js?v=transition-start-fit-1";
+import { compileLiveProjectionProgram } from "./live-projection-program.js?v=live-projection-program-1";
 
 export {
   createOutputDefinition,
@@ -182,17 +183,68 @@ export function createDefaultMapping(index = 0, surfaces = null) {
   };
 }
 
-// A new project begins as a small working set, not as one pre-authored visual.
+// A new project begins as a small, working tour of the composition model.
+// It deliberately uses only built-in procedural nodes so opening an empty
+// folder never depends on media files or project-owned node definitions.
 // Direct output surfaces remain derived from render.outputs; the template owns
 // only the user projection surface that can be positioned in Scene/Mapping.
 export function createStartupProjectTemplate() {
-  const ordinaryComponents = [
-    createDefaultComponent(0),
-    createDefaultComponent(1, { empty: true }),
-    createDefaultComponent(2, { empty: true }),
+  const testPattern = createDefaultComponent(0);
+
+  const plasma = createDefaultComponent(1, { empty: true });
+  plasma.chain = [createComponentLayer(0, createGeneratorSource("plasma", {
+    renderQuality: 0.5,
+    motionMode: "drift",
+    speed: 0.65,
+    direction: 0.65,
+    frequency: 8,
+    complexity: 0.7,
+    distortion: 0.55,
+    colorSpeed: 0.22,
+    hueShift: 0,
+  }))];
+
+  const liveText = createDefaultComponent(2, { empty: true });
+  liveText.chain = [
+    createComponentLayer(0, createGeneratorSource("text", {
+      renderQuality: 0.5,
+      text: "# VJ1\nLIVE TEXT",
+      bold: true,
+      layout: "fit lines",
+      fontFamily: "sans",
+      fontSize: 96,
+      align: "center",
+      verticalAlign: "center",
+      lineHeight: 0.92,
+      padding: 0.06,
+      fillColor: "#ffffffff",
+      backgroundColor: "#00000000",
+    })),
+    createComponentEffect("heartbeatPulse", { amount: 0.35 }),
   ];
-  const scenes = [0, 1].map((index) => createSceneComponent(index));
-  const mapping = createDefaultMapping(0, [createDefaultSurface(0)]);
+
+  const sceneOne = createSceneComponent(0);
+  const plasmaLayer = createComponentLayer(0, { type: "component", componentId: plasma.id });
+  plasmaLayer.boundary = { x: -0.14, y: 0.12, width: 0.59, height: 0.59, rotation: 0 };
+  const textLayer = createComponentLayer(1, { type: "component", componentId: liveText.id });
+  textLayer.boundary = { x: -0.15, y: 0.12, width: 0.55, height: 0.55, rotation: 0 };
+  sceneOne.chain = [plasmaLayer, textLayer];
+
+  const sceneTwo = createSceneComponent(1);
+  const fullPlasmaLayer = createComponentLayer(0, { type: "component", componentId: plasma.id });
+  fullPlasmaLayer.boundary = { x: -0.02, y: -0.02, width: 1.04, height: 1.04, rotation: 0 };
+  sceneTwo.chain = [fullPlasmaLayer];
+
+  const projectionSurface = {
+    ...createDefaultSurface(0),
+    x: 0.423,
+    y: 0.297,
+    width: 0.154,
+    height: 0.407,
+  };
+  const mapping = createDefaultMapping(0, [projectionSurface]);
+  const ordinaryComponents = [testPattern, plasma, liveText];
+  const scenes = [sceneOne, sceneTwo];
   return {
     components: [...ordinaryComponents, ...scenes],
     mapping,
@@ -571,17 +623,13 @@ function clampNumber(value, min, max, fallback) {
 
 export function createLiveRenderState(state = createInitialState()) {
   const next = clone(state);
-  const live = next.ui?.live || {};
-  const sceneId = String(live.selectedSceneId || "");
-  const scene = next.components?.find((item) => item.type === "scene" && item.id === sceneId);
-  const target = liveTargetComponent(next, scene);
-  const mapping = next.mappings?.find((item) => item.id === next.ui?.selectedMappingId) || next.mappings?.[0] || null;
+  const program = compileLiveProjectionProgram(next);
+  const { live, target, mapping } = program;
   if (mapping && (target || live.surfaceRoutes || live.overallSourceCleared === true)) {
     // Always derive the on-air program from the same route authority as the
     // Live monitor. ui.live.surfaceRoutes is a transition snapshot/cache; it
     // must not bypass newer visibility or patch state in an Output window.
-    const routeState = materializeLiveProgramSurfaceRoutes(next, target, mapping);
-    next.surfaces = clone(routeState.surfaces);
+    next.surfaces = clone(program.currentRoutes.surfaces);
     next.mappingCalibration = clone(mapping.calibration || {});
   }
   next.ui.selectedMappingId = mapping?.id || "";
@@ -589,26 +637,21 @@ export function createLiveRenderState(state = createInitialState()) {
   applyLiveComponentOverrides(next, live.componentOverrides);
   materializeLivePatchTargets(next);
 
-  const transition = live.transition;
-  const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
-  const startedAtMs = Number(transition?.startedAtMs) || 0;
-  if (durationMs > 0 && startedAtMs + durationMs > Date.now() && transition?.fromSurfaceRoutes) {
+  const transition = program.transition;
+  if (transition) {
     const fromState = clone(state);
-    fromState.surfaces = rebaseSurfaceRouteProgram(
-      transition.fromSurfaceRoutes.surfaces,
-      next.surfaces
-    );
+    fromState.surfaces = clone(transition.previousRoutes.surfaces);
     fromState.mappingCalibration = clone(mapping?.calibration || {});
     fromState.ui.selectedMappingId = mapping?.id || fromState.ui.selectedMappingId || "";
     fromState.global.calibrating = false;
-    applyLiveComponentOverrides(fromState, transition.fromComponentOverrides);
+    applyLiveComponentOverrides(fromState, transition.previousComponentOverrides);
     materializeLivePatchTargets(fromState);
     fromState.ui.live.transition = null;
     next.liveTransition = {
-      id: transition.id || `${transition.fromTargetId || transition.fromSceneId || "target"}:${target?.id || sceneId}:${startedAtMs}`,
-      startedAtMs,
-      durationMs,
-      componentsShared: JSON.stringify(transition.fromComponentOverrides || {}) === JSON.stringify(live.componentOverrides || {}),
+      id: transition.id,
+      startedAtMs: transition.startedAtMs,
+      durationMs: transition.durationMs,
+      componentsShared: transition.componentsShared,
       fromState,
     };
   }
@@ -621,75 +664,47 @@ export function createLiveRenderState(state = createInitialState()) {
 // outline. Source substitution belongs to the explicit patch action in state.
 export function createLiveScenePreviewState(state = createInitialState()) {
   const next = clone(state);
-  const live = next.ui?.live || {};
-  const sceneId = String(live.selectedSceneId || "");
-  const scene = next.components?.find((item) => item.type === "scene" && String(item.id) === sceneId)
-    || (live.overallSourceCleared === true
-      ? null
-      : next.components?.find((item) => item.type === "scene"))
-    || null;
-  const target = liveTargetComponent(next, scene);
-  const mapping = next.mappings?.find((item) => item.id === next.ui?.selectedMappingId) || next.mappings?.[0] || null;
-  const currentRoutes = mapping
-    ? materializeLiveProgramSurfaceRoutes(next, target, mapping)
-    : { surfaces: [] };
+  const program = compileLiveProjectionProgram(next);
+  const { live, target } = program;
   if (!target && live.overallSourceCleared !== true) return next;
   if (String(live.previewSurfaceId || "__mapping__") === "__mapping__" && live.sceneMappingVisible === false) {
     applyLiveMonitorTarget(next, null);
   } else if (!target && String(live.previewSurfaceId || "__mapping__") === "__mapping__") {
     applyLiveMonitorTarget(next, null);
   } else {
-    applyLivePreviewProjection(next, target, live.previewSurfaceId, currentRoutes);
+    applyLivePreviewProjection(next, target, live.previewSurfaceId, program.currentRoutes);
   }
   applyLiveComponentOverrides(next, live.componentOverrides);
   materializeLivePatchTargets(next);
 
-  const transition = live.transition;
-  const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
-  const startedAtMs = Number(transition?.startedAtMs) || 0;
-  const previousTarget = next.components?.find((item) =>
-    String(item.id) === String(transition?.fromTargetId || transition?.fromSceneId || "")
-  );
-  const previewSurfaceId = String(live.previewSurfaceId || "__mapping__");
-  const transitionSurfaceId = String(transition?.surfaceId || "");
-  const transitionAffectsPreview = !(previewSurfaceId === "__mapping__" && live.sceneMappingVisible === false)
-    && (!transitionSurfaceId || previewSurfaceId !== "__mapping__");
-  if (transitionAffectsPreview && transition?.fromSurfaceRoutes && durationMs > 0 && startedAtMs + durationMs > Date.now()) {
+  const transition = program.previewTransition;
+  if (transition) {
     const fromState = clone(state);
     applyLivePreviewProjection(
       fromState,
-      previousTarget || target || null,
+      transition.previousTarget || target || null,
       live.previewSurfaceId,
-      transition.fromSurfaceRoutes,
-      { rebaseGeometry: true }
+      transition.previousRoutes
     );
-    applyLiveComponentOverrides(fromState, transition.fromComponentOverrides);
+    applyLiveComponentOverrides(fromState, transition.previousComponentOverrides);
     materializeLivePatchTargets(fromState);
     fromState.ui.live.transition = null;
     next.liveTransition = {
-      id: transition.id || `${previousTarget?.id || "empty"}:${target?.id || "empty"}:${startedAtMs}`,
-      startedAtMs,
-      durationMs,
-      componentsShared: JSON.stringify(transition.fromComponentOverrides || {}) === JSON.stringify(live.componentOverrides || {}),
+      id: transition.id,
+      startedAtMs: transition.startedAtMs,
+      durationMs: transition.durationMs,
+      componentsShared: transition.componentsShared,
       fromState,
     };
   }
   return next;
 }
 
-function liveTargetComponent(state = {}, fallbackScene = null) {
-  const targetId = String(state.ui?.live?.selectedComponentId || "");
-  return state.components?.find((item) => !item.systemRole && String(item.id) === targetId)
-    || fallbackScene
-    || null;
-}
-
 function applyLivePreviewProjection(
   state,
   target,
   previewSurfaceId = "__mapping__",
-  routeState = null,
-  { rebaseGeometry = false } = {}
+  routeState = null
 ) {
   const mapping = state.mappings?.find((item) => item.id === state.ui?.selectedMappingId) || state.mappings?.[0] || null;
   if (!mapping) return;
@@ -699,9 +714,7 @@ function applyLivePreviewProjection(
     return;
   }
   const routes = routeState?.surfaces
-    ? rebaseGeometry
-      ? rebaseSurfaceRouteProgram(routeState.surfaces, mapping.surfaces)
-      : clone(routeState.surfaces)
+    ? clone(routeState.surfaces)
     : materializeLiveTargetSurfaceRoutes(state, target, mapping).surfaces;
   if (!routes.some((surface) => String(surface.id) === requestedId)) {
     applyLiveMonitorTarget(state, target);

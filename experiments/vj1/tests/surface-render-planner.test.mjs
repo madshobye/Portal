@@ -59,20 +59,17 @@ test("surface planner resolves visible routes and their shared component demand"
   assert.ok(metrics.componentRasterPixels > 0);
 });
 
-test("a region-safe recording frame renders at mapped demand instead of its share of a full Canvas", () => {
+test("a Surface route renders its source at mapped demand without a parallel Frame model", () => {
   const state = createInitialState();
-  const canvas = { ...state.components[0], id: "canvas-a", type: "scene", chain: [], canvas: { frameThumbnails: {} } };
-  const frame = { id: "frame-a", x: 0.45, y: 0.45, width: 0.1, height: 0.1 };
+  const canvas = { ...state.components[0], id: "canvas-a", type: "scene", chain: [] };
   const surface = {
     ...state.surfaces[0],
     id: "surface-a",
     enabled: true,
     componentId: canvas.id,
-    outputFrameId: frame.id,
-    sourceNodeId: `recording-frame:${canvas.id}:${frame.id}`,
+    sourceNodeId: `component:${canvas.id}`,
   };
   state.components = [canvas];
-  state.frames = [frame];
   state.surfaces = [surface];
   const mapperSurface = {
     name: surface.id,
@@ -82,19 +79,17 @@ test("a region-safe recording frame renders at mapped demand instead of its shar
     state,
     mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
     componentById: new Map([[canvas.id, canvas]]),
-    frameById: new Map([[frame.id, frame]]),
+    frameById: new Map(),
     viewport: { width: 1270, height: 855 },
     pixelScale: 1,
-    resolveRouteSourceNode: () => ({ id: surface.sourceNodeId, componentId: canvas.id, outputFrameId: frame.id }),
+    resolveRouteSourceNode: () => ({ id: surface.sourceNodeId, componentId: canvas.id }),
     isComponentRegionSafe: () => true,
   });
 
-  assert.equal(routes[0].componentRequest.role, "scene-region");
-  assert.equal(routes[0].componentRequest.regionView, true);
-  assert.deepEqual(
-    { width: routes[0].componentRequest.width, height: routes[0].componentRequest.height },
-    routes[0].demand.surfaceSize
-  );
+  assert.equal(routes[0].componentRequest.role, "texture");
+  assert.equal(routes[0].componentRequest.regionView, undefined);
+  assert.ok(routes[0].componentRequest.width > 0);
+  assert.ok(routes[0].componentRequest.height > 0);
   assert.equal(metrics.componentRasterPixels, routes[0].componentRequest.width * routes[0].componentRequest.height);
 });
 

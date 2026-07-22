@@ -10,12 +10,12 @@ import {
   projectHistorySignature,
   persistedRenderSettings,
 } from "../js/services/project-folder-service.js";
+import { CURRENT_PROJECT_VERSION } from "../js/domain/project-migrations.js";
 
 test("project payload preserves the selected component chain item", () => {
   const state = {
-    version: 28,
+    version: CURRENT_PROJECT_VERSION,
     project: {},
-    frames: [{ id: "frame-a", x: 10, y: 20, width: 640, height: 360 }],
     ui: {
       selectedMappingId: "mapping-a",
       selectedSurfaceId: "surface-a",
@@ -43,7 +43,7 @@ test("project payload preserves the selected component chain item", () => {
   };
 
   const payload = buildProjectPayload(state, "2026-07-12T00:00:00.000Z");
-  assert.equal(payload.version, 28);
+  assert.equal(payload.version, CURRENT_PROJECT_VERSION);
   assert.deepEqual(payload.nodes, {
     formatVersion: 1,
     authority: "component-import",
@@ -69,7 +69,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.equal(payload.ui.live.paramFadeDuration, 0.75);
   assert.equal(payload.ui.live.transition, undefined);
   assert.equal(payload.ui.live.componentOverrides, undefined);
-  assert.deepEqual(payload.frames, state.frames);
+  assert.equal(payload.frames, undefined);
   assert.equal(payload.surfaces, undefined);
   assert.equal(payload.mappingCalibration, undefined);
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
@@ -134,7 +134,7 @@ test("project payload persists canonical render settings without derived geometr
     previewViewportZoom: 1.25,
   };
   const persisted = persistedRenderSettings(render);
-  assert.deepEqual(persisted.outputs, [{ id: "main", name: "Main output", aspectRatio: 16 / 9 }]);
+  assert.deepEqual(persisted.outputs, [{ id: "main", name: "Output 1", aspectRatio: 16 / 9 }]);
   assert.equal(Object.hasOwn(persisted, "componentTexture"), false);
   assert.equal(Object.hasOwn(persisted, "canvasSize"), false);
   assert.equal(Object.hasOwn(persisted, "previewRasterScale"), false);
@@ -231,27 +231,27 @@ test("project history signature ignores UI-only save noise", () => {
   assert.notEqual(projectHistorySignature(base), projectHistorySignature(material));
 });
 
-test("project load restores the Mapping test-pattern preference and selected Frame", () => {
+test("project load restores the Mapping test-pattern preference and selected Surface", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
-  assert.match(source, /selectedFrameId: projectUi\?\.selectedFrameId \|\| currentUi\.selectedFrameId/);
+  assert.match(source, /selectedSurfaceId: projectUi\?\.selectedSurfaceId \|\| currentUi\.selectedSurfaceId/);
   assert.match(source, /mappingTestPattern: projectUi\?\.mappingTestPattern \?\? currentUi\.mappingTestPattern/);
 });
 
 test("project payload and undo signature exclude derived thumbnails and activity", () => {
   const state = {
-    version: 28,
-    project: {}, ui: {}, global: { calibrating: true }, render: {}, scheduler: {}, media: [], frames: [], mappings: [], shaders: {},
+    version: CURRENT_PROJECT_VERSION,
+    project: {}, ui: {}, global: { calibrating: true }, render: {}, scheduler: {}, media: [], mappings: [], shaders: {},
     components: [{
       id: "scene-a",
       type: "scene",
       thumbnail: "data:image/webp;base64,AAA=",
       activity: { updatedAt: "later" },
-      scene: { width: 100, height: 50, frameThumbnails: { frame: "blob:frame" } },
+      scene: { width: 100, height: 50, surfaceThumbnails: { surface: "blob:surface" } },
     }],
   };
   const payload = buildProjectPayload(state, "2026-07-18T00:00:00.000Z");
   assert.equal(Object.hasOwn(payload.components[0], "thumbnail"), false);
-  assert.equal(Object.hasOwn(payload.components[0].scene, "frameThumbnails"), false);
+  assert.equal(Object.hasOwn(payload.components[0].scene, "surfaceThumbnails"), false);
   assert.equal(Object.hasOwn(payload.components[0].scene, "width"), false);
   assert.equal(Object.hasOwn(payload.components[0].scene, "height"), false);
   const changedDerived = structuredClone(payload);

@@ -75,7 +75,7 @@ test("visual nodes own their definitions instead of using aggregate manifests", 
   const effectNodes = collectModules(resolve(libraryRoot, "visual-nodes/effects"));
   const generatorEntries = generatorNodes.filter((filename) => filename.endsWith(`${sep}index.js`));
   const effectEntries = effectNodes.filter((filename) => filename.endsWith(`${sep}index.js`));
-  assert.equal(generatorEntries.length, 31);
+  assert.equal(generatorEntries.length, listGeneratorNodeComponents().length);
   assert.equal(effectEntries.length, 33);
   // A node may split a substantial implementation into private sibling
   // modules, but every such module must remain inside a folder with one public

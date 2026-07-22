@@ -6,7 +6,7 @@ import {
   normalizeComponentFrameShape,
   normalizeComponentResolutionScale,
 } from "../js/domain/component-frame.js";
-import { createSceneComponent, createFrameSlot, createDefaultComponent, createDefaultSurface, createInitialState, createMappingFromState, directOutputSurfaceId, normalizeCameraSettings, normalizeComponentPipelineSettings, normalizeProjectionFit, normalizeSamplingSettings, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
+import { createSceneComponent, createDefaultComponent, createDefaultSurface, createInitialState, createMappingFromState, directOutputSurfaceId, normalizeCameraSettings, normalizeComponentPipelineSettings, normalizeProjectionFit, normalizeSamplingSettings, resolveSceneSourceNode, sanitizeState, sceneSourceNodes } from "../js/domain/models.js";
 
 const render = {
   componentAspectRatio: 10 / 7,
@@ -155,9 +155,9 @@ test("component upscale and post settings normalize with neutral defaults", () =
   });
 });
 
-test("legacy frame settings migrate to one output and multiple outputs persist", () => {
+test("legacy pixel output settings migrate to one relative output and multiple outputs persist", () => {
   const legacy = sanitizeState({ render: { frameWidth: 1280, frameHeight: 720 } });
-  assert.deepEqual(legacy.render.outputs, [{ id: "output-main", name: "Main output", aspectRatio: 16 / 9 }]);
+  assert.deepEqual(legacy.render.outputs, [{ id: "output-main", name: "Output 1", aspectRatio: 16 / 9 }]);
 
   const multi = sanitizeState({
     render: {
@@ -176,7 +176,7 @@ test("legacy frame settings migrate to one output and multiple outputs persist",
 test("configured outputs derive locked direct surfaces without enabling new routes", () => {
   const state = createInitialState();
   state.render.outputs = [
-    { id: "output-main", name: "Main output", width: 1920, height: 1080 },
+    { id: "output-main", name: "Output 1", width: 1920, height: 1080 },
     { id: "output-2", name: "Output 2", width: 1920, height: 1080 },
   ];
   const normalized = sanitizeState(state);
@@ -286,46 +286,23 @@ test("legacy canvas layers migrate into ordinary Groups without retaining a para
   assert.equal(state.render.sceneAspectRatio, 2);
 });
 
-test("Scene Frame configuration is reconciled against stable Mapping frame slots", () => {
-  const source = createDefaultComponent(0);
-  const canvas = createSceneComponent(0, source.id);
-  const frameId = "frame-slot-a";
-  canvas.scene.frames = [{ frameId, componentId: source.id, fit: "contain", feather: 0.2 }];
-  const state = sanitizeState({
-    version: createInitialState().version,
-    components: [source, canvas],
-    frames: [{ id: frameId, name: "Frame A", x: 0, y: 0, width: 1, height: 1 }],
-    surfaces: [{ id: "surface-a", frameSlotId: frameId }],
-  });
-  const scene = createMappingFromState(state, "Frame scene");
-  const config = state.components.find((component) => component.id === canvas.id).scene.frames.find((entry) => entry.frameId === frameId);
-  assert.deepEqual(config, { frameId, componentId: source.id, fit: "contain" });
-  assert.equal(state.frames.some((frame) => frame.id === frameId), true);
-  assert.equal(scene.surfaces[0].frameSlotId, frameId);
-});
-
-test("ordinary components and recording frames share one Scene source-node abstraction", () => {
+test("Scene source catalogs expose Components through one stable source-node abstraction", () => {
   const component = createDefaultComponent(0);
   component.id = "component-a";
   component.name = "Visual A";
-  const canvas = createSceneComponent(0, component.id);
-  canvas.id = "canvas-a";
-  canvas.name = "Wide Canvas";
+  const scene = createSceneComponent(0, component.id);
+  scene.id = "scene-a";
+  scene.name = "Spatial Scene";
   const state = sanitizeState({
     version: createInitialState().version,
-    components: [component, canvas],
-    frames: [{ id: "frame-a", name: "Frame 1", x: 0, y: 0, width: 1920, height: 1080 }],
+    components: [component, scene],
   });
   const nodes = sceneSourceNodes(state);
   assert.deepEqual(nodes.map((node) => ({ type: node.type, name: node.name })), [
     { type: "component", name: "Visual A" },
-    { type: "component", name: "Wide Canvas" },
-    { type: "recording-frame", name: "Wide Canvas · Main output" },
-    { type: "recording-frame", name: "Wide Canvas · Frame 1" },
+    { type: "component", name: "Spatial Scene" },
   ]);
-  assert.equal(resolveSceneSourceNode(state, nodes[1].id).componentId, canvas.id);
-  assert.equal(resolveSceneSourceNode(state, nodes[1].id).outputFrameId, "");
-  assert.equal(resolveSceneSourceNode(state, nodes[2].id).outputFrameId, state.frames[0].id);
+  assert.equal(resolveSceneSourceNode(state, nodes[1].id).componentId, scene.id);
 });
 
 test("stable Scene source IDs are the only runtime routing authority", () => {
@@ -340,79 +317,18 @@ test("stable Scene source IDs are the only runtime routing authority", () => {
   assert.equal(resolveSceneSourceNode(state, "missing-source"), null);
 });
 
-test("recording-frame source nodes prefer their Canvas-specific cropped thumbnail", () => {
-  const canvas = createSceneComponent(0);
-  const frame = createFrameSlot(0);
-  canvas.thumbnail = "whole-canvas";
-  canvas.scene.frameThumbnails = { [frame.id]: "cropped-frame" };
-  const nodes = sceneSourceNodes({ components: [canvas], frames: [frame] });
-  assert.equal(nodes.find((node) => node.type === "component").thumbnail, "whole-canvas");
-  assert.equal(nodes.find((node) => node.type === "recording-frame").thumbnail, "cropped-frame");
-});
-
-test("recording-frame source recency combines only its Canvas and shared frame", () => {
-  const nested = createDefaultComponent(0);
-  nested.activity = { createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-10T00:00:00.000Z", lastUsedAt: "" };
-  const canvas = createSceneComponent(0, nested.id);
-  canvas.activity = { createdAt: "2026-01-02T00:00:00.000Z", updatedAt: "2026-01-03T00:00:00.000Z", lastUsedAt: "" };
-  const frame = createFrameSlot(0);
-  frame.activity = { createdAt: "2026-01-04T00:00:00.000Z", updatedAt: "2026-01-05T00:00:00.000Z", lastUsedAt: "" };
-  const node = sceneSourceNodes({ components: [nested, canvas], frames: [frame] })
-    .find((item) => item.type === "recording-frame");
-
-  assert.equal(node.createdAt, frame.activity.createdAt);
-  assert.equal(node.updatedAt, frame.activity.updatedAt);
-  assert.equal(node.recentAt, new Date(frame.activity.updatedAt).getTime());
-});
-
-test("the shared Frame registry always includes the derived Main output Frame", () => {
-  const state = sanitizeState({
-    components: [createSceneComponent(0)],
-    frames: [],
-  });
-  assert.equal(state.frames.length, 1);
-  assert.equal(state.frames[0].kind, "output");
-  assert.equal(state.frames[0].name, "Main output");
-  assert.equal(state.frames[0].locked, false);
-  assert.equal(state.frames[0].keepProportions, true);
-});
-
-test("Output Frames retain authored placement and scale while following Output proportions", () => {
-  const state = sanitizeState(createInitialState());
-  const outputFrame = state.frames.find((frame) => frame.kind === "output");
-  Object.assign(outputFrame, { x: 0.1, y: 0.2, width: 0.5, height: 0.5, keepProportions: true });
-  const normalized = sanitizeState(state);
-  const frame = normalized.frames.find((candidate) => candidate.id === outputFrame.id);
-  const sceneAspect = normalized.render.sceneAspectRatio;
-  const outputAspect = normalized.render.outputs[0].aspectRatio;
-
-  assert.ok(Math.abs(sceneAspect * frame.width / frame.height - outputAspect) < 1e-9);
-  assert.ok(Math.abs((frame.x + frame.width * 0.5) - 0.35) < 1e-9);
-  assert.ok(Math.abs((frame.y + frame.height * 0.5) - 0.45) < 1e-9);
-  assert.ok(Math.abs(frame.width * frame.height - 0.25) < 1e-9);
-});
-
-test("assigned projection geometry governs a proportion-locked user Frame", () => {
+test("Surface ownership replaces the removed global Frame registry", () => {
   const state = createInitialState();
-  const frame = createFrameSlot(0);
-  state.frames.push(frame);
-  const mapping = state.mappings[0];
-  const surface = mapping.surfaces.find((candidate) => candidate.destination?.type !== "direct");
-  surface.frameSlotId = frame.id;
-  surface.outputFrameId = frame.id;
-  mapping.calibration = {
-    surfaces: [{
-      id: surface.id,
-      w: 400,
-      h: 200,
-      corners: [{ x: 0, y: 0 }, { x: 400, y: 0 }, { x: 360, y: 200 }, { x: 40, y: 200 }],
-    }],
-  };
-
+  const authored = state.mappings[0].surfaces[0];
+  Object.assign(authored, { x: 0.1, y: 0.2, width: 0.5, height: 0.4, projectionFit: "contain" });
   const normalized = sanitizeState(state);
-  const governed = normalized.frames.find((candidate) => candidate.id === frame.id);
-  const projectedAspect = ((400 + 320) * 0.5) / Math.hypot(40, 200);
-  assert.ok(Math.abs(normalized.render.sceneAspectRatio * governed.width / governed.height - projectedAspect) < 1e-9);
+  const surface = normalized.mappings[0].surfaces.find((candidate) => candidate.id === authored.id);
+
+  assert.equal(Object.hasOwn(normalized, "frames"), false);
+  assert.deepEqual(
+    { x: surface.x, y: surface.y, width: surface.width, height: surface.height, projectionFit: surface.projectionFit },
+    { x: 0.1, y: 0.2, width: 0.5, height: 0.4, projectionFit: "contain" }
+  );
 });
 
 function pickSize(metrics) {

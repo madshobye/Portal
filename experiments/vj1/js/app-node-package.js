@@ -63,7 +63,7 @@ import {
 import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js?v=isf-coordinates-1";
 
 const ProjectComponentNode = semanticProjectNode("vj1.project.component", "Component", "A task-oriented visual program composed from reusable nodes.", "texture");
-const ProjectSceneNode = semanticProjectNode("vj1.project.scene", "Scene", "A spatial visual program containing reusable Components and Frames.", "texture");
+const ProjectSceneNode = semanticProjectNode("vj1.project.scene", "Scene", "A spatial visual program arranging reusable Components against shared projection Surfaces.", "texture");
 const ProjectMappingNode = semanticProjectNode("vj1.project.mapping", "Mapping", "A routing program that assigns Scene content to projection Surfaces.", "texture");
 const ProjectLiveNode = semanticProjectNode("vj1.project.live", "Live", "The active performance projection of a selected Scene.", "event");
 

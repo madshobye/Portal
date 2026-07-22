@@ -40,7 +40,7 @@ export function touchComponentUsed(state, componentId, now = new Date().toISOStr
   return true;
 }
 
-export function touchRecordingFrameUsed(state, surfaceId, now = new Date().toISOString()) {
+export function touchSurfaceUsed(state, surfaceId, now = new Date().toISOString()) {
   const surface = (state?.mappings || []).flatMap((mapping) => mapping.surfaces || [])
     .find((item) => item.id === surfaceId);
   if (!surface) return false;

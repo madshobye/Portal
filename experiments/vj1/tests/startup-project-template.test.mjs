@@ -9,16 +9,31 @@ import {
   sanitizeState,
 } from "../js/domain/models.js";
 
-test("startup project provides three Components, two Scenes, and one user Surface", () => {
+test("startup project provides a built-in procedural composition tour", () => {
   const template = createStartupProjectTemplate();
   const components = template.components.filter((component) => component.type !== "scene");
   const scenes = template.components.filter((component) => component.type === "scene");
 
   assert.deepEqual(components.map((component) => component.name), ["Comp 1", "Comp 2", "Comp 3"]);
   assert.deepEqual(scenes.map((component) => component.name), ["Scene 1", "Scene 2"]);
-  assert.equal(components[0].chain.length, 1);
-  assert.ok([...components.slice(1), ...scenes].every((component) => component.chain.length === 0));
+  assert.deepEqual(
+    components.map((component) => component.chain.map((item) => item.source?.generatorId || item.componentId)),
+    [["testPattern"], ["plasma"], ["text", "heartbeatPulse"]]
+  );
+  assert.equal(components[1].chain[0].source.params.motionMode, "drift");
+  assert.equal(components[2].chain[0].source.params.text, "# VJ1\nLIVE TEXT");
+  assert.equal(components[2].chain[1].params.amount, 0.35);
+
+  assert.deepEqual(
+    scenes.map((scene) => scene.chain.map((item) => item.source.componentId)),
+    [[components[1].id, components[2].id], [components[1].id]]
+  );
+  assert.ok(scenes.every((scene) => scene.chain.every((item) => item.source.type === "component")));
   assert.deepEqual(template.mapping.surfaces.map((surface) => surface.name), ["Srf 1"]);
+  assert.deepEqual(
+    template.mapping.surfaces.map(({ x, y, width, height }) => ({ x, y, width, height })),
+    [{ x: 0.423, y: 0.297, width: 0.154, height: 0.407 }]
+  );
   assert.equal(template.selectedComponentId, components[0].id);
   assert.equal(template.selectedSceneId, scenes[0].id);
 });
