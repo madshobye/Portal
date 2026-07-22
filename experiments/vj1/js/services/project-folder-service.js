@@ -289,7 +289,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     }
     projectLoadBlocked = false;
     const { ui: projectUi, metrics: _projectMetrics, ...projectData } = data;
-    const currentState = store.getState();
+    // A folder without project.json is a genuinely new project. Seed it from
+    // the startup template instead of leaking components or mappings from the
+    // project that happened to be open before the folder picker was used.
+    const currentState = projectFileFound
+      ? store.getState()
+      : createInitialState({ startupTemplate: true });
     const currentUi = currentState.ui;
     const loadHandle = dirHandle;
     const loadGeneration = projectGeneration;

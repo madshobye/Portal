@@ -16,6 +16,7 @@ import { DataStoreNode } from "./libraries/data-store/index.js";
 import { DiagnosticsEngineNode } from "./libraries/diagnostics-engine/index.js";
 import { ImageResizeNode } from "./libraries/image-engine/index.js";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./libraries/timing-engine/index.js";
+import { NestedNoiseMotionNode, OrbitMotionNode } from "./libraries/motion-engine/index.js";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
 import { SceneFrameGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=scene-frame-guide-node-1";
 import {
@@ -76,6 +77,8 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   RateClockNode,
   VisualTimeScaleNode,
   InstanceTimeNode,
+  OrbitMotionNode,
+  NestedNoiseMotionNode,
   MappingEngineNode,
   SurfaceCompositionNode,
   SceneFrameGuideNode,
@@ -297,7 +300,15 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
   const applicationInstances = applicationProgramInstances(applicationGroup);
   const mappingInstances = mappingProgramInstances(mappingGroups);
   const mappingDefinitions = [SurfaceRouteNode, MappingProgramNode, OutputProgramNode, SurfaceCompositionNode, MappingEngineNode];
-  const componentDefinitions = [ComponentProgramNode, LayerGroupNode, VisualSourceNode, SliderNode, ValueControlNode];
+  const componentDefinitions = [
+    ComponentProgramNode,
+    LayerGroupNode,
+    VisualSourceNode,
+    SliderNode,
+    ValueControlNode,
+    OrbitMotionNode,
+    NestedNoiseMotionNode,
+  ];
   const applicationDefinitions = [
     ApplicationProgramNode,
     VisualTimeScaleNode,

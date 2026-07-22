@@ -182,6 +182,25 @@ export function createDefaultMapping(index = 0, surfaces = null) {
   };
 }
 
+// A new project begins as a small working set, not as one pre-authored visual.
+// Direct output surfaces remain derived from render.outputs; the template owns
+// only the user projection surface that can be positioned in Scene/Mapping.
+export function createStartupProjectTemplate() {
+  const ordinaryComponents = [
+    createDefaultComponent(0),
+    createDefaultComponent(1, { empty: true }),
+    createDefaultComponent(2, { empty: true }),
+  ];
+  const scenes = [0, 1].map((index) => createSceneComponent(index));
+  const mapping = createDefaultMapping(0, [createDefaultSurface(0)]);
+  return {
+    components: [...ordinaryComponents, ...scenes],
+    mapping,
+    selectedComponentId: ordinaryComponents[0].id,
+    selectedSceneId: scenes[0].id,
+  };
+}
+
 export function directOutputSurfaceId(outputId = "") {
   return outputId === "all"
     ? "surface-direct-all"
@@ -264,9 +283,10 @@ export function reconcileDirectOutputSurfaces(surfaces = [], render = {}) {
   return normalized;
 }
 
-export function createInitialState() {
-  const components = [createDefaultComponent(0)];
-  const mapping = createDefaultMapping(0);
+export function createInitialState({ startupTemplate = false } = {}) {
+  const startup = startupTemplate ? createStartupProjectTemplate() : null;
+  const components = startup?.components || [createDefaultComponent(0)];
+  const mapping = startup?.mapping || createDefaultMapping(0);
   return {
     version: CURRENT_PROJECT_VERSION,
     project: {
@@ -282,8 +302,8 @@ export function createInitialState() {
       selectedNodeDefinitionId: "",
       selectedNodeGroupId: "",
       workspaceSelectionIds: {
-        component: components[0].id,
-        scene: "",
+        component: startup?.selectedComponentId || components[0].id,
+        scene: startup?.selectedSceneId || "",
       },
       catalogSortModes: {
         component: "recent",
