@@ -1,4 +1,8 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
+import {
+  defineVisualNodeContract,
+  VISUAL_TRANSFORM_DOMAINS,
+} from "../../render-engine/visual-node-contract.js";
 
 export function materializeVisualNodeDefinition(component = {}, { shader = null, nativeRenderer = "", nativeModule = null } = {}) {
   const base = component.nodeDefinition || component;
@@ -82,6 +86,16 @@ export function executeVisualNode(inputs = {}, context = {}) {
 }
 
 function visualExecutionMetadata(component = {}) {
+  const effect = component.kind === "effect";
+  const transformDomain = effect
+    ? component.transformSource === false
+      ? VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD
+      : VISUAL_TRANSFORM_DOMAINS.COMPOSITION
+    : VISUAL_TRANSFORM_DOMAINS.CONTENT;
+  const visualContract = defineVisualNodeContract(component.visualContract, {
+    transform: { domain: transformDomain },
+    roi: component.runtime?.roi || { mode: "local", halo: 0, coordinateSpace: "boundary" },
+  });
   return {
     visualId: String(component.id || component.metadata?.visualId || ""),
     visualKind: String(component.kind || ""),
@@ -93,5 +107,7 @@ function visualExecutionMetadata(component = {}) {
     requiresBaseSample: component.requiresBaseSample !== false,
     fusible: component.fusible === true,
     roi: component.runtime?.roi || { mode: "local", halo: 0, coordinateSpace: "boundary" },
+    runtimePolicy: component.runtime || null,
+    visualContract,
   };
 }

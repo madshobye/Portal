@@ -30,6 +30,14 @@ export class NodeGraphProgram {
       const child = this.children.get(childId);
       const childInputs = {};
       const childParameters = {};
+      for (const section of this.definition.metadata?.controlProjection?.sections || []) {
+        for (const control of section.controls || []) {
+          if (!(control.parameterId in inputs)) continue;
+          for (const binding of control.bindings || []) {
+            if (binding.nodeId === childId) childParameters[binding.parameterId] = inputs[control.parameterId];
+          }
+        }
+      }
       for (const edge of this.graph.connections || []) {
         const target = parseEndpoint(edge.to);
         if (target.node !== childId) continue;
@@ -54,7 +62,9 @@ export class NodeGraphProgram {
       }
       outputs.set(childId, await child.run(childInputs, {
         ...context,
-        parameters: { ...(context.parameters || {}), ...childParameters },
+        // Group parameter overrides belong to the Group. Only bindings that
+        // explicitly target this child may cross the compound boundary.
+        parameters: childParameters,
       }));
     }
 

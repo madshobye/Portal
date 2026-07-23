@@ -38,8 +38,9 @@ export const VisualTimeScaleNode = defineNode({
   process: visualTimeScaleNodeProcess,
 });
 
-export function visualTimeScaleNodeProcess({ timeStretch } = {}) {
-  return { scale: globalVisualTimeScale({ timeStretch }) };
+export function visualTimeScaleNodeProcess({ timeStretch } = {}, { output = {} } = {}) {
+  output.scale = globalVisualTimeScale({ timeStretch });
+  return output;
 }
 
 export function globalVisualTimeScale(global = {}) {

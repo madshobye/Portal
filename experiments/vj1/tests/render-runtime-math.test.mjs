@@ -47,13 +47,16 @@ test("unchanged generator params and eyeball animation can remain allocation-sta
 
 test("output renderer imports runtime policy instead of defining it", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
 
   assert.match(rendererSource, /from "\.\/render-runtime-math\.js\?v=[^"]+"/);
   assert.doesNotMatch(rendererSource, /function qualityScaledRenderRequest\(/);
   assert.doesNotMatch(rendererSource, /function eyeballFrameUniforms\(/);
   assert.doesNotMatch(rendererSource, /function globalVisualTimeScale\(/);
   assert.doesNotMatch(rendererSource, /function effectTransformUniforms\(/);
-  assert.match(rendererSource, /globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams/);
+  assert.match(rendererSource, /globalVisualTimeScale, qualityAdjustedGeneratorParams/);
+  assert.match(sourceRuntime, /componentInstanceTime,\s*instanceTime,\s*qualityScaledRenderRequest/);
+  assert.doesNotMatch(sourceRuntime, /function instanceTime\(/);
 });
 
 test("timing nodes own phase continuity without changing direct render calls", () => {

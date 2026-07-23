@@ -7,6 +7,7 @@ import { createSceneComponent, createComponentEffect, createComponentLayer, crea
 import { normalizeParamValue, renderQualityScale } from "../js/libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, listGeneratorNodeComponents as listGeneratorComponents } from "../js/libraries/visual-nodes/index.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/libraries/render-engine/render-node-contract.js";
+import { mediaRenderInvalidation } from "../js/libraries/render-engine/invalidation/index.js";
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-6";
@@ -197,6 +198,7 @@ test("unknown generators fail instead of becoming Test Pattern", () => {
 
 test("render quality preserves current work at midpoint and scales expensive work around it", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const effectRuntimeSource = readFileSync(new URL("../js/output/shader-effect-runtime.js", import.meta.url), "utf8");
   const request = { role: "component", width: 1280, height: 720 };
   assert.deepEqual(qualityScaledRenderRequest(request, { renderQuality: 0.5 }), request);
   assert.deepEqual(qualityScaledRenderRequest(request, { renderQuality: 1 }), request);
@@ -213,8 +215,8 @@ test("render quality preserves current work at midpoint and scales expensive wor
   assert.equal(qualityAdjustedGeneratorParams("cloudyTunnel", { renderQuality: 0, raySteps: 72 }).raySteps, 25);
   assert.equal(qualityAdjustedGeneratorParams("cloudyTunnel", { renderQuality: 1, raySteps: 72 }).raySteps, 108);
   assert.ok(rendererSource.includes("this.getFxPingPongTarget(renderRequest, 0)"));
-  assert.ok(rendererSource.includes('shader.setUniform("resolution", [logicalWidth, logicalHeight])'));
-  assert.ok(rendererSource.includes('shader.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight])'));
+  assert.ok(effectRuntimeSource.includes('shader.setUniform("resolution", [logicalWidth, logicalHeight])'));
+  assert.ok(effectRuntimeSource.includes('shader.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight])'));
 });
 
 test("fireflies generator exposes cost and motion controls", () => {
@@ -455,6 +457,7 @@ test("low poly anatomy generator exposes body part and stl-style 3d controls", (
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
   const rendererSource = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/visual-nodes/generators/anatomy/runtime.js", import.meta.url), "utf8"),
   ].join("\n");
@@ -494,11 +497,13 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
   const rendererSource = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-mesh.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/shaders.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/terrain-engine/flight-controller/index.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/render-engine/raw-webgl-state.js", import.meta.url), "utf8"),
   ].join("\n");
   const profileSource = readFileSync(new URL("../js/output/output-render-profile.js", import.meta.url), "utf8");
@@ -528,11 +533,14 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("terrainSurfaceGridVertices(widthCells, depthCells)"));
   assert.ok(rendererSource.includes("terrainSurfaceTriangleIndices(widthCells, depthCells, baseRow)"));
   assert.ok(!rendererSource.includes("function drawTerrainSurfaceMesh("));
-  assert.ok(rendererSource.includes("continuousRateTime(`${source.instanceId || source.generatorId || \"terrain\"}:flight`"));
+  assert.ok(rendererSource.includes("terrainFlightControllerProcess({"));
+  assert.ok(rendererSource.includes('id: "core.terrain.flight-controller"'));
   assert.ok(rendererSource.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count)"));
   assert.ok(rendererSource.includes("if (style === 2)"));
   assert.ok(rendererSource.includes("gl.polygonOffset(1, 2)"));
-  assert.ok(rendererSource.includes("if (style !== 1) target.background"));
+  assert.ok(rendererSource.includes("if (drawSurface) target.background"));
+  assert.ok(rendererSource.includes('specializedCompoundStageEnabled(operation, "surface-render")'));
+  assert.ok(rendererSource.includes('specializedCompoundStageEnabled(operation, "wire-render")'));
   assert.ok(rendererSource.includes("markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft)"));
   assert.ok(rendererSource.includes("program: gl.getParameter(gl.CURRENT_PROGRAM)"));
   assert.ok(rendererSource.includes("gl.useProgram(state.program)"));
@@ -644,7 +652,7 @@ test("terrain camera space is independent from generic chain transforms", () => 
   assert.equal(view.altitude, 6);
   assert.equal(view.turn, 0.25);
   assert.equal(view.cameraAnchor.length, 2);
-  assert.match(drawTerrainSource, /terrainCameraView\(params, flightTime\)/);
+  assert.match(drawTerrainSource, /terrainFlightControllerProcess\(\{/);
   const cameraRenderSource = drawTerrainSource.slice(0, drawTerrainSource.indexOf("const flightParams"));
   assert.doesNotMatch(cameraRenderSource, /source\.contentTransform/);
   assert.match(drawTerrainSource, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.bottomLeft\)/);
@@ -942,9 +950,9 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
   assert.ok(source.includes("const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);"));
   assert.ok(source.includes("(Number(target?.width) || 1) * density"));
   assert.ok(source.includes("gl.viewport(0, 0, drawingWidth, drawingHeight);"));
-  assert.ok(source.includes("rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect)"));
+  assert.ok(source.includes("rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect, params.__sceneTransform, params.__sceneCamera)"));
   assert.ok(source.includes("applyModelViewportProjection(target, modelCameraFov(params), viewport)"));
-  assert.ok(source.includes("const cameraZ = Math.max(1, height) * 0.92;"));
+  assert.ok(source.includes(": [0, 0, verticalUnit * 0.92];"));
   assert.ok(!source.includes("Math.max(width, height) * 0.92"));
 });
 
@@ -1027,13 +1035,14 @@ test("output renderer blackouts while active media sources are missing or loadin
       createComponentLayer(0, { type: "media", mediaId: "clips/loop.mov" }),
     ];
     state.components = [component];
-    state.mappings[0].surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) }];
+    const route = { ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) };
     const requested = [];
     const renderer = new OutputRenderer({
       mode: "output",
       requestMediaFiles: (ids) => requested.push(ids),
     });
-    renderer.state = sanitizeState(state);
+    renderer.state = { ...sanitizeState(state), surfaces: [route] };
+    renderer.rebuildComponentPrograms();
 
     let status = renderer.outputMediaReadiness();
     renderer.outputMediaStatus = status;
@@ -1051,6 +1060,7 @@ test("output renderer blackouts while active media sources are missing or loadin
 
     const previewRenderer = new OutputRenderer({ mode: "preview" });
     previewRenderer.state = renderer.state;
+    previewRenderer.rebuildComponentPrograms();
     previewRenderer.media.set("clips/loop.mov", { id: "clips/loop.mov", video: null, image: null, ready: false });
     assert.equal(previewRenderer.prepareOutputState(renderer.state).blocked, false, "ordinary editor previews do not globally blackout");
     assert.equal(previewRenderer.prepareOutputState(renderer.state, { requireMedia: true }).blocked, true, "Live preparation explicitly waits for drawable media");
@@ -1075,6 +1085,43 @@ test("video readiness stays latched through temporary decoder readyState dips", 
   assert.equal(isReadyMediaItem(item), true);
 });
 
+test("video loop seek retains the last decoded texture until the start frame is ready", () => {
+  const element = {
+    tagName: "VIDEO",
+    currentTime: 1,
+    readyState: 1,
+    seeking: true,
+  };
+  const item = {
+    ready: true,
+    video: { elt: element },
+    videoFrameDriven: true,
+    videoFrameRevision: 8,
+    videoFrameMediaTime: 4,
+    revision: 2,
+  };
+  assert.deepEqual(mediaRenderInvalidation(item).key, {
+    asset: 2,
+    frame: 8,
+    timeMs: 4000,
+  }, "the seek does not invalidate the retained last good frame with an undecoded currentTime");
+  element.seeking = false;
+  element.readyState = 4;
+  element.currentTime = 1.5;
+  assert.deepEqual(mediaRenderInvalidation(item).key, {
+    asset: 2,
+    frame: 8,
+    timeMs: 4000,
+  }, "currentTime alone is never treated as evidence of a decoded texture");
+  item.videoFrameRevision = 9;
+  item.videoFrameMediaTime = 1;
+  assert.deepEqual(mediaRenderInvalidation(item).key, {
+    asset: 2,
+    frame: 9,
+    timeMs: 1000,
+  }, "the first decoded loop-start frame advances the texture normally");
+});
+
 test("decoded video frames invalidate render caches instead of renderer ticks", () => {
   const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
@@ -1083,24 +1130,47 @@ test("decoded video frames invalidate render caches instead of renderer ticks", 
   component.chain = [createComponentLayer(0, source)];
   state.components = [component];
   state.media = [{ id: "clips/loop.mov", path: "clips/loop.mov", type: "video", size: 42 }];
+  state.ui.selectedComponentId = component.id;
+  state.ui.debugPreview = true;
   renderer.state = state;
+  renderer.rebuildComponentPrograms();
+  const videoElement = {
+    tagName: "VIDEO",
+    videoWidth: 640,
+    videoHeight: 360,
+    readyState: 4,
+    currentTime: 1.25,
+  };
   const runtimeItem = {
     ready: true,
-    video: { elt: { tagName: "VIDEO", videoWidth: 640, videoHeight: 360, readyState: 4 } },
+    video: { elt: videoElement },
     videoFrameDriven: true,
     videoFrameRevision: 3,
+    videoFrameMediaTime: 1.25,
   };
   renderer.media.set("clips/loop.mov", runtimeItem);
 
   assert.equal(renderer.sourceIsFrameDynamic(source), false);
-  assert.equal(renderer.sourceRuntimeTimeKey(source, component.chain[0], { frame: 100 }), 3);
+  assert.equal(renderer.presentationFrameMode(), "continuous", "video presentation cadence is independent from decoded-frame callback cadence");
+  assert.deepEqual(
+    renderer.sourceRuntimeTimeKey(source, component.chain[0], { frame: 100 }),
+    { asset: 0, frame: 3, timeMs: 1250 },
+  );
   const first = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
   assert.ok(first);
 
-  runtimeItem.videoFrameRevision = 4;
+  videoElement.currentTime = 1.3;
   const next = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
-  assert.ok(next);
-  assert.notEqual(next, first, "a newly presented video frame invalidates the retained component");
+  assert.equal(next, first, "a fresh decoded-frame callback avoids rerendering at renderer cadence");
+
+  videoElement.currentTime = 1.6;
+  const stalled = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
+  assert.equal(stalled, first, "media time cannot publish a texture the decoder has not confirmed");
+
+  runtimeItem.videoFrameRevision = 4;
+  runtimeItem.videoFrameMediaTime = 1.6;
+  const callbackNext = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
+  assert.notEqual(callbackNext, stalled, "a decoded-frame callback publishes the next retained texture revision");
 
   runtimeItem.videoFrameDriven = false;
   assert.equal(renderer.sourceIsFrameDynamic(source), true, "older browsers retain renderer-frame invalidation");
@@ -1123,6 +1193,7 @@ test("retained video components renew playback ownership without rerendering", (
   state.components = [child, parent];
   state.media = [{ id: "clips/loop.mov", path: "clips/loop.mov", type: "video", size: 42 }];
   renderer.state = state;
+  renderer.rebuildComponentPrograms();
   renderer.media.set("clips/loop.mov", { video: { elt: {} } });
   const claims = [];
   renderer.acquireMedia = (id, options) => claims.push({ id, options });
@@ -1146,15 +1217,16 @@ test("output readiness includes images referenced by media-backed generators", (
       createComponentLayer(2, { type: "generator", generatorId: "featureMorphV2", params: { imageAId: "c.png", imageBId: "d.png" } }),
     ];
     state.components = [component];
-    state.mappings[0].surfaces = [{ ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) }];
+    const route = { ...state.surfaces[0], enabled: true, componentId: component.id, sourceNodeId: sceneSourceNodeId(component.id) };
     const requested = [];
     const renderer = new OutputRenderer({ mode: "output", requestMediaFiles: (ids) => requested.push(ids) });
-    renderer.state = sanitizeState(state);
+    renderer.state = { ...sanitizeState(state), surfaces: [route] };
+    renderer.rebuildComponentPrograms();
 
     const status = renderer.outputMediaReadiness();
     assert.equal(status.blocked, true);
-    assert.deepEqual(Array.from(status.missingIds), ["tiles.png", "a.png", "b.png", "c.png", "d.png"]);
-    assert.deepEqual(requested, [["tiles.png", "a.png", "b.png", "c.png", "d.png"]]);
+    assert.deepEqual(Array.from(status.missingIds), ["a.png", "b.png", "c.png", "d.png", "tiles.png"]);
+    assert.deepEqual(requested, [["a.png", "b.png", "c.png", "d.png", "tiles.png"]]);
   } finally {
     if (previousMillis === undefined) delete globalThis.millis;
     else globalThis.millis = previousMillis;
@@ -1291,6 +1363,7 @@ test("output playback control pauses output clocks while the editor preview rema
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
   const paused = createInitialState();
   paused.global.playing = false;
@@ -1299,7 +1372,8 @@ test("output playback control pauses output clocks while the editor preview rema
   assert.ok(shellSource.includes('id="toggle-output-playback"'));
   assert.ok(controllerSource.includes("refs.toggleOutputPlayback.disabled = !outputConnected"));
   assert.ok(controllerSource.includes('outputPlaying ? "pause" : "play_arrow"'));
-  assert.ok(rendererSource.includes("this.visualDeltaSeconds = playing ? dt * timeScale : 0"));
+  assert.ok(rendererSource.includes("this.presentationClock = advancePresentationClock("));
+  assert.ok(rendererSource.includes("this.visualDeltaSeconds = this.presentationClock.presentationDeltaSeconds * timeScale"));
   assert.ok(rendererSource.includes("if (!playing) return"));
   assert.ok(rendererSource.includes('return this.mode !== "output" || this.state?.global?.playing !== false'));
   assert.ok(rendererSource.includes("this.isPlaybackActive() ? 1 : 0"));
@@ -1309,7 +1383,11 @@ test("output playback control pauses output clocks while the editor preview rema
   );
   assert.ok(playbackOptions.includes("globalVisualTimeScale(this.state?.global)"));
   assert.ok(playbackOptions.includes("Number(source.speed)"));
-  assert.equal((rendererSource.match(/this\.videoPlaybackOptions\(source, component\)/g) || []).length, 3);
+  assert.equal(
+    (rendererSource.match(/this\.videoPlaybackOptions\(source, component\)/g) || []).length
+      + (sourceRuntime.match(/host\.videoPlaybackOptions\(source, component\)/g) || []).length,
+    3,
+  );
   assert.ok(bridgeSource.includes("const clientWatchdog = setInterval"));
 });
 
@@ -1317,21 +1395,25 @@ test("dirty cache classifier keeps static photo chains cacheable and animated no
   const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
   state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
-  renderer.state = state;
-  renderer.media.set("media/a.png", { ready: true });
   const component = createDefaultComponent(0);
   component.chain = [
     createComponentLayer(0, { type: "media", mediaId: "media/a.png" }),
     createComponentEffect("photoGrade"),
   ];
   component.chain[1].params = { exposure: 0.25, contrast: 0.15 };
+  state.components = [component];
+  renderer.state = state;
+  renderer.rebuildComponentPrograms();
+  renderer.media.set("media/a.png", { ready: true });
 
   assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[1].params = { grain: 0.5, seedMode: "animated" };
+  renderer.rebuildComponentPrograms();
   assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 
   component.chain[1].params = { grain: 0.5, seedMode: "fixed", seed: 9 };
+  renderer.rebuildComponentPrograms();
   assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[1] = createComponentEffect("smear");
@@ -1344,25 +1426,32 @@ test("dirty cache classifier keeps static photo chains cacheable and animated no
     smearAmount: 0,
     seedMode: "animated",
   };
+  renderer.rebuildComponentPrograms();
   assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[1].params = { cctvAmount: 0.35, seedMode: "animated" };
+  renderer.rebuildComponentPrograms();
   assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 
   component.chain[1].params = { cctvAmount: 0.35, screenPrintAmount: 0.25, seedMode: "fixed", seed: 4 };
+  renderer.rebuildComponentPrograms();
   assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain = [createComponentLayer(0, { type: "generator", generatorId: "anatomy" })];
   component.chain[0].source.params = { part: "arm", spinY: 0 };
+  renderer.rebuildComponentPrograms();
   assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[0].source.params = { part: "arm", spinY: 0.2 };
+  renderer.rebuildComponentPrograms();
   assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 
   component.chain[0].source.params = { part: "heart", heartPulse: 0 };
+  renderer.rebuildComponentPrograms();
   assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[0].source.params = { part: "heart", heartPulse: 0.35 };
+  renderer.rebuildComponentPrograms();
   assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
 });
 
@@ -1374,18 +1463,71 @@ test("Canvas and ordinary components share dependency-aware static caching", () 
   const canvas = createSceneComponent(0, child.id);
   state.components = [child, canvas];
   renderer.state = state;
+  renderer.rebuildComponentPrograms();
   const request = { role: "component", width: 640, height: 360 };
 
   const first = renderer.stableComponentSignature(canvas, request);
   assert.ok(first);
 
   child.chain[0].source.params.colorA = "#ff0000ff";
+  renderer.rebuildComponentPrograms();
   const changed = renderer.stableComponentSignature(canvas, request);
   assert.ok(changed);
   assert.notEqual(changed, first);
 
   child.chain[0] = createComponentLayer(0, { type: "generator", generatorId: "cloudyTunnel", params: { speed: 0.2 } });
+  renderer.rebuildComponentPrograms();
   assert.equal(renderer.stableComponentSignature(canvas, request), "");
+});
+
+test("a Live Canvas element scale patch updates compiled placement demand and retained cache identity", () => {
+  const renderer = new OutputRenderer({ mode: "live" });
+  const state = createInitialState();
+  const child = createDefaultComponent(0, { empty: true });
+  const canvas = createSceneComponent(0, child.id);
+  state.components = [child, canvas];
+  renderer.state = state;
+  renderer.rebuildComponentPrograms();
+
+  let compiledPlacement = null;
+  renderer.componentPrograms.get(canvas.id).forEachOperation((operation) => {
+    if (operation.configuration?.id === canvas.chain[0].id) compiledPlacement = operation.configuration;
+  });
+  assert.equal(compiledPlacement, canvas.chain[0], "the compiled Canvas operation owns the live materialized element by identity");
+
+  const outputRequest = { role: "component", width: 1000, height: 500 };
+  const signatureBefore = renderer.stableComponentSignature(canvas, outputRequest);
+  let childRequest = null;
+  renderer.renderComponentForRequest = (_component, _time, request) => {
+    childRequest = request;
+    return { width: request.width, height: request.height };
+  };
+  const resolvePlacement = () => renderer.resolvePlacedSourceResult(
+    { width: outputRequest.width, height: outputRequest.height },
+    {
+      ...compiledPlacement.source,
+      contentTransform: compiledPlacement.transform,
+      instanceId: compiledPlacement.id,
+    },
+    canvas,
+    0,
+    outputRequest,
+  );
+  resolvePlacement();
+  const widthBefore = childRequest.width;
+
+  const result = renderer.applyRenderPatches([{
+    target: "component",
+    componentId: canvas.id,
+    path: "chain.0.transform.scale",
+    value: 2,
+  }], 0, 0);
+  assert.equal(result.applied, true);
+  assert.equal(compiledPlacement.transform.scale, 2);
+  assert.notEqual(renderer.stableComponentSignature(canvas, outputRequest), signatureBefore);
+
+  resolvePlacement();
+  assert.ok(childRequest.width > widthBefore, "Content scale raises the nested Component raster demand through the shared placement contract");
 });
 
 test("component runtime policies decide whether generators and effects need time", () => {
@@ -1400,13 +1542,16 @@ test("component runtime policies decide whether generators and effects need time
   const grain = createComponentEffect("labelThresholdGrain");
   grain.params = { amount: 0.6, seedMode: "fixed", seed: 37 };
   component.chain = [cloudy, grain];
+  renderer.rebuildComponentPrograms();
   assert.ok(renderer.stableComponentSignature(component, request));
 
   cloudy.source.params.speed = 0.1;
+  renderer.rebuildComponentPrograms();
   assert.equal(renderer.stableComponentSignature(component, request), "");
 
   cloudy.source.params.speed = 0;
   grain.params.seedMode = "animated";
+  renderer.rebuildComponentPrograms();
   assert.equal(renderer.stableComponentSignature(component, request), "");
 });
 

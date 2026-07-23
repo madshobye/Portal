@@ -2,6 +2,12 @@ import { createBooleanParam, createColorParam, createEnumParam, createNumberPara
 import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
+  defineSpecializedVisualCompound,
+  NativeRenderToTextureNode,
+  ProceduralTopologyProviderNode,
+  ShaderMaterialProviderNode,
+} from "../../shared/specialized-compound.js?v=specialized-stage-authority-1";
+import {
   meshPatternNodeModuleParts,
   MeshPatternNodeModuleExports,
   meshPatternNodeProcess,
@@ -44,10 +50,43 @@ const manifest = Object.freeze({
     ],
   });
 
-export const VisualComponent = defineGeneratorNode(manifest, null, {
+const NativeVisualComponent = defineGeneratorNode(manifest, null, {
   direct: false,
   process: meshPatternNodeProcess,
   exports: MeshPatternNodeModuleExports,
   parts: meshPatternNodeModuleParts(),
+});
+
+export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
+  compoundKind: "mesh-patterns",
+  nodes: [
+    { id: "topology", type: ProceduralTopologyProviderNode.id, parameters: { providerId: "mesh-pattern-topology" } },
+    { id: "fill-material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "mesh-pattern-fill" } },
+    { id: "wire-material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "mesh-pattern-wire" } },
+    { id: "fill-render", type: NativeRenderToTextureNode.id, parameters: { providerId: "mesh-pattern-fill-pass" } },
+    { id: "wire-render", type: NativeRenderToTextureNode.id, parameters: { providerId: "mesh-pattern-wire-pass" } },
+  ],
+  connections: [
+    { from: "topology.topology", to: "fill-render.topology", type: "topology-provider" },
+    { from: "fill-material.material", to: "fill-render.material", type: "visual-material-provider" },
+    { from: "topology.topology", to: "wire-render.topology", type: "topology-provider" },
+    { from: "wire-material.material", to: "wire-render.material", type: "visual-material-provider" },
+    { from: "fill-render.texture", to: "wire-render.target", type: "texture" },
+  ],
+  output: "wire-render.texture",
+  parameterBindings: {
+    topology: ["pattern", "scale", "density", "irregularity", "rotation", "offsetX", "offsetY", "speed", "motion", "seed"],
+    "fill-material": ["palette", "colorCount", "baseColor", "colorB", "colorC", "colorD", "fillOpacity", "backgroundColor"],
+    "wire-material": ["wireColor", "wireOpacity", "wireWidth"],
+    "fill-render": ["drawMode", "amount", "renderQuality"],
+    "wire-render": ["drawMode", "amount", "renderQuality"],
+  },
+  parameterPresentation: {
+    topology: { label: "Topology", order: 10 },
+    "fill-material": { label: "Fill material", order: 20 },
+    "wire-material": { label: "Wire material", order: 30 },
+    "fill-render": { sectionId: "render", label: "Render", order: 40 },
+    "wire-render": { sectionId: "render", label: "Render", order: 40 },
+  },
 });
 export default VisualComponent;

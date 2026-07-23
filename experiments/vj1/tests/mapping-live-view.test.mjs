@@ -35,8 +35,7 @@ test("Mapping and Live Scene presentation lives outside the control orchestrator
   assert.match(liveInspectorTemplate(state), /live-component-card|No components/);
   const surfaceTemplate = mappingSurfaceTemplate(surface, state);
   assert.match(surfaceTemplate, /class="sculpt-card inspector-control-surface"/);
-  assert.match(surfaceTemplate, /data-set-route-frame-id=""/);
-  assert.match(surfaceTemplate, />Empty</);
+  assert.doesNotMatch(surfaceTemplate, /data-set-route-frame-id=/);
   assert.match(controller, /from "\.\/mapping-live-view\.js\?v=[^"]+"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
   assert.doesNotMatch(controller, /function mappingSurfaceTemplate\(/);
@@ -67,7 +66,7 @@ test("Live combines independently enabled Scene and Part filters while keeping o
   assert.match(componentsHtml, /data-live-scene=/);
 
   const legacy = sanitizeState({ ...state, ui: { ...state.ui, live: { sourceKind: "component" } } });
-  assert.equal(legacy.ui.live.showScenes, false);
+  assert.equal(legacy.ui.live.showScenes, true);
   assert.equal(legacy.ui.live.showComponents, true);
   assert.equal("sourceKind" in legacy.ui.live, false);
 
@@ -128,6 +127,36 @@ test("Live projection column exposes the overall Mapping and every Surface", () 
   assert.match(overallPatchedHtml, /data-clear-live-overall-component="__mapping__"/);
 });
 
+test("Mapping membership and Live visibility are independent Scene Mapping controls", () => {
+  const { state, mapping } = stateWithScene();
+  const mappingHtml = projectRailTemplate(state, { workspace: "mapping" });
+  assert.match(mappingHtml, /data-toggle-path="ui\.live\.sceneMappingInLive"/);
+  assert.match(mappingHtml, />Scene Mapping</);
+
+  state.ui.live.sceneMappingVisible = false;
+  state.ui.live.previewSurfaceId = "__mapping__";
+  const hiddenRouteHtml = liveProjectionRailTemplate(state);
+  assert.match(hiddenRouteHtml, /data-live-surface-visibility="__mapping__"[^>]*title="Show Scene Mapping"/);
+  assert.match(hiddenRouteHtml, /data-live-preview-surface="__mapping__"/);
+  assert.match(hiddenRouteHtml, />Scene Mapping</);
+
+  state.ui.live.sceneMappingInLive = false;
+  state.ui.live.previewSurfaceId = "__mapping__";
+  const disabledHtml = liveProjectionRailTemplate(state);
+  assert.match(disabledHtml, />Scene Mapping</);
+  assert.match(disabledHtml, /aria-label="Scene Mapping is disabled in Mapping" disabled/);
+  assert.doesNotMatch(disabledHtml, /data-live-preview-surface="__mapping__"/);
+  assert.doesNotMatch(disabledHtml, /data-live-surface-visibility="__mapping__"/);
+  assert.match(
+    disabledHtml,
+    new RegExp(`data-live-preview-surface="${mapping.surfaces[0].id}"`),
+  );
+  assert.match(
+    disabledHtml,
+    new RegExp(`class="[^"]*is-selected[^"]*"[^>]*data-live-preview-surface="${mapping.surfaces[0].id}"`),
+  );
+});
+
 test("Live internal Component focus is separate from the on-air source", () => {
   const { state, liveScene } = stateWithScene();
   const nestedComponent = state.components.find((component) => component.type !== "scene" && !component.systemRole);
@@ -150,16 +179,11 @@ test("Live Component navigation includes roots and sources across all Surface ro
   };
   state.components.push(patchedComponent);
   state.ui.live.selectedComponentId = liveScene.id;
-  state.ui.live.surfaceRoutes = {
-    surfaces: mapping.surfaces.map((surface, index) => ({
-      ...surface,
-      componentId: index === 0 ? patchedComponent.id : overallComponent.id,
-    })),
-  };
   state.ui.live.surfacePatches = { [mapping.surfaces[0].id]: patchedComponent.id };
 
   const components = liveProgramNavigableComponents(state);
   assert.deepEqual(new Set(components.map((component) => component.id)), new Set([
+    liveScene.id,
     overallComponent.id,
     patchedComponent.id,
   ]));
@@ -169,21 +193,14 @@ test("Live Component navigation includes roots and sources across all Surface ro
   assert.match(html, new RegExp(`data-live-component="${patchedComponent.id}"`));
 });
 
-test("Live inspector resolves an indirect Overall route when a Surface has no explicit patch", () => {
+test("Live inspector resolves the Overall Scene root when a Surface has no explicit patch", () => {
   const { state, liveScene, mapping } = stateWithScene();
-  const nestedComponent = state.components.find((component) => component.type !== "scene" && !component.systemRole);
   const surface = mapping.surfaces[0];
   state.ui.live.selectedComponentId = liveScene.id;
   state.ui.live.previewSurfaceId = surface.id;
   state.ui.live.patchSourceId = "";
-  state.ui.live.surfaceRoutes = {
-    surfaces: mapping.surfaces.map((candidate) => ({
-      ...candidate,
-      componentId: candidate.id === surface.id ? nestedComponent.id : liveScene.id,
-    })),
-  };
 
-  assert.match(liveInspectorTemplate(state), new RegExp(nestedComponent.name));
+  assert.match(liveInspectorTemplate(state), new RegExp(liveScene.name));
   assert.doesNotMatch(liveInspectorTemplate(state), /No sources/);
 });
 
@@ -191,9 +208,6 @@ test("Live Component navigation is the enabled final render graph including its 
   const { state, liveScene, mapping } = stateWithScene();
   const nested = state.components.find((component) => component.type !== "scene" && !component.systemRole);
   state.ui.live.selectedComponentId = liveScene.id;
-  state.ui.live.surfaceRoutes = {
-    surfaces: mapping.surfaces.map((surface) => ({ ...surface, componentId: liveScene.id })),
-  };
 
   assert.deepEqual(liveProgramNavigableComponents(state).map((component) => component.id), [
     liveScene.id,
@@ -207,8 +221,7 @@ test("Live Component navigation is the enabled final render graph including its 
 test("Live projection visibility reflects the routed program rather than changing Mapping state", () => {
   const { state, mapping } = stateWithScene();
   const surface = mapping.surfaces[0];
-  state.ui.live.surfaceRoutes = { surfaces: mapping.surfaces.map((candidate) => ({ ...candidate })) };
-  state.ui.live.surfaceRoutes.surfaces[0].enabled = false;
+  state.ui.live.surfaceVisibility = { [surface.id]: false };
 
   const html = liveProjectionRailTemplate(state);
   assert.match(html, new RegExp(`data-live-surface-visibility="${surface.id}"`));
@@ -243,27 +256,15 @@ test("Live Scene reset is absent until temporary parameters exist", () => {
   assert.match(liveScenePillTemplate(liveScene, state), /data-reset-live-scene/);
 });
 
-test("Mapping surface source catalogs contain only Frame slots", () => {
-  const { state, mapping, liveScene } = stateWithScene();
-  const mappingSurface = mapping.surfaces[0];
-  const frame = state.frames[0];
-  mappingSurface.frameSlotId = frame.id;
-  mappingSurface.outputFrameId = frame.id;
+test("Mapping Surface inspectors expose calibration only; source routing belongs to the Live program", () => {
+  const { state } = stateWithScene();
   const html = mappingSurfaceTemplate(state.surfaces[0], state);
-  const list = html.slice(html.indexOf('<div class="component-card-list assignment-card-list"'));
-  const styles = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
-  assert.match(html, /class="component-card assignment-selected-card is-selected"/);
-  assert.match(html, /data-catalog-sort-scope="source"/);
-  assert.ok(html.indexOf("assignment-selected-card") < html.indexOf("component-catalog-tools"), "current component appears before search and sorting");
-  assert.ok(html.indexOf("component-catalog-tools") < html.indexOf("assignment-card-list"), "search and sorting appear before the component list");
-  assert.equal((html.match(/data-set-route-frame-id=/g) || []).length, state.frames.length + 1);
-  assert.match(html, /Filter frames/);
-  assert.match(html, />Main output<\/span>/);
-  assert.doesNotMatch(html, new RegExp(`${liveScene.name} · Main output`));
-  assert.doesNotMatch(list, /component:a|component:b|component:c/);
-  assert.match(styles, /\.assignment-selected-card \{[\s\S]*?width: 100%;/);
-  assert.match(styles, /\.assignment-card-list \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+  assert.match(html, /data-reset-surface-mapping=/);
+  assert.match(html, /data-update="mappings\.[^.]+\.surfaces\.[^.]+\.feather"/);
+  assert.match(html, /data-update="mappings\.[^.]+\.surfaces\.[^.]+\.opacity"/);
+  assert.match(html, /data-update="mappings\.[^.]+\.surfaces\.[^.]+\.projectionFit"/);
+  assert.doesNotMatch(html, /data-set-route-frame-id=|data-catalog-sort-scope="source"|Filter frames/);
 });
 
 test("catalog presentation and component selectors have single owners", () => {
@@ -324,6 +325,23 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.match(elements, /class="live-chain-outline"/);
   assert.match(elements, /aria-label="Selected live element parameters"/);
   assert.doesNotMatch(elements, /class="live-component-controls"/);
+});
+
+test("Live Canvas controls expose element Content scale instead of a nonexistent Canvas-root transform", () => {
+  const { state, mapping, liveScene } = stateWithScene();
+  mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(liveScene.id)}`;
+  mapping.surfaces[0].componentId = liveScene.id;
+  state.ui.live.selectedComponentId = liveScene.id;
+  state.ui.live.componentView = "controls";
+
+  const controls = liveInspectorTemplate(state);
+  assert.doesNotMatch(controls, /class="live-component-transform-controls"/);
+  assert.doesNotMatch(controls, /data-live-update="transform\.scale"/);
+
+  state.ui.live.componentView = "elements";
+  const elements = liveInspectorTemplate(state);
+  assert.match(elements, /data-live-update="chain\.0\.transform\.scale"/);
+  assert.match(elements, /<span>Content scale<\/span>/);
 });
 
 test("Live component-source rows resolve user-facing component names", () => {

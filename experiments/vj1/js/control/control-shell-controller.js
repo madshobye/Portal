@@ -1,8 +1,8 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes, syncLiveRoutesFromMapping } from "../domain/models.js?v=transition-start-fit-1";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-navigation-reachability-2";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js?v=component-transport-patch-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=resolution-relative-model-clip-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=public-control-node-configuration-media-url-retirement-named-image-inputs-isf-texture-shader-composite-source-backends-2";
 import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=cursor-anchored-zoom-1";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
@@ -10,26 +10,34 @@ import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEdi
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=workspace-icons-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=sdf-content-editor-1";
-import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=surface-relative-aspect-1";
-import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=mapping-surface-section-1";
+import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=project-group-authoring-public-group-ports-1";
+import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=explicit-surface-visibility-1";
+import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=scene-mapping-controls-separated-explicit-surface-visibility-derived-thumbnail-projection-public-group-ports-1";
 import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
-import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
+import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
 import { createClipboardController } from "./clipboard-controller.js?v=scene-live-audit-1";
-import { createModalController } from "./modal-controller.js?v=output-one-1";
-import { createInputController } from "./input-controller.js?v=scene-inspector-authority-1";
+import { createModalController } from "./modal-controller.js?v=picker-filter-tabs-derived-thumbnail-projection-graph-parameter-authoring-1";
+import { createInputController } from "./input-controller.js?v=video-duration-metadata-public-group-ports-1";
 import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-controller-1";
-import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js?v=scene-mapping-visibility-1";
-import { selectedNodeEditorTemplate, withProjectGroupGraph, withProjectNodeFork, withProjectNodeGraph, withoutProjectNodeFork } from "./node-editor-view.js";
-import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=shared-list-section-1";
-import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=application-bootstrap-10";
+import { createControlRenderDiagnostics } from "./control-render-diagnostics.js?v=control-ui-long-render-1";
+import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js?v=scene-mapping-controls-separated-explicit-surface-visibility-disabled-row-derived-thumbnail-projection-1";
+import { selectedNodeEditorTemplate, withProjectGroupGraph, withProjectNodeFork, withProjectNodeGraph, withProjectNodeParameterExposure, withProjectNodePortExposure, withoutProjectNodeFork } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
+import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=public-control-node-configuration-1";
+import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=public-control-node-configuration-1";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
   "health-5", "health-6", "health-7", "health-8",
 ]);
 const performanceHealthThresholds = Object.freeze([0.18, 0.32, 0.46, 0.60, 0.72, 0.82, 0.92, 1.0]);
+const liveProgramRenderReasons = new Set([
+  "live:scene",
+  "live:target",
+  "live:surface-patch-clear",
+  "live:overall-component-clear",
+  "live:surface-visibility",
+]);
 
 export function rememberParamViewSelections(scope, selections = new Map()) {
   for (const input of scope?.querySelectorAll?.(".chain-param-view-input:checked") || []) {
@@ -70,6 +78,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     replaceHtmlIfChanged,
     setStatus,
   });
+  const controlRenderDiagnostics = createControlRenderDiagnostics({ diagnostics });
   const clipboard = createClipboardController({
     root,
     store,
@@ -106,6 +115,25 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       clipboard.setChainItemTarget(componentId, itemId);
     },
   });
+  let editorNodePackage = nodePackage?.editorContext?.(
+    projectService.getInstalledNodePackages?.() || [],
+    projectService.getAvailableNodePackages?.() || [],
+    latestState.nodes?.definitions || [],
+  ) || nodePackage;
+  let editorProjectDefinitions = latestState.nodes?.definitions || [];
+  projectService.subscribeNodePackages?.((packages, availablePackages) => {
+    editorNodePackage = nodePackage?.editorContext?.(
+      packages,
+      availablePackages,
+      latestState.nodes?.definitions || [],
+    ) || nodePackage;
+    editorProjectDefinitions = latestState.nodes?.definitions || [];
+    embeddedPreview.setInstalledNodePackages(packages);
+    if (currentWorkspace(latestState) !== "nodes") return;
+    renderProjectRail(latestState);
+    renderStudio(latestState);
+    renderInspector(latestState);
+  });
   const performanceSession = createControlPerformanceSession({
     getState: () => latestState,
     metricForState: performanceMetricForState,
@@ -125,11 +153,19 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs = collectRefs(root);
     bindStaticEvents();
     diagnosticsController.mount();
-    previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState));
+    previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState, { reason: "preview-layout" }));
     restorePreviewPreference();
     scheduleLiveTransitionRefresh(latestState);
     store.subscribe((state, reason, change) => {
       latestState = state;
+      if (state.nodes?.definitions !== editorProjectDefinitions) {
+        editorProjectDefinitions = state.nodes?.definitions || [];
+        editorNodePackage = nodePackage?.editorContext?.(
+          projectService.getInstalledNodePackages?.() || [],
+          projectService.getAvailableNodePackages?.() || [],
+          editorProjectDefinitions,
+        ) || nodePackage;
+      }
       scheduleLiveTransitionRefresh(state);
       performanceSession.recordStateEvent(reason);
       if (change.projectRestore) {
@@ -147,6 +183,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }
       if (reason === "output-metrics" || reason === "preview-metrics" || reason === "project-history" || reason === "project-autosave" || reason === "project-autosave-error") {
         renderTopbar(state);
+        return;
+      }
+      if (change.scope === "derived" && change.projection?.kind === "component-thumbnails") {
+        patchComponentThumbnails(change.projection.entries);
         return;
       }
       const patchedLivePreview = currentWorkspace(state) === "live" &&
@@ -187,19 +227,26 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         return;
       }
       if (reason === "workspace") {
-        if (renderFrame) cancelAnimationFrame(renderFrame);
-        renderFrame = 0;
-        render(state);
+        // State selection is committed synchronously, but a workspace switch
+        // can replace all three editor columns and retarget the retained
+        // Preview canvas. Reconcile that structure after the click event has
+        // returned so browser input latency does not include a complete shell
+        // render. `force` discards any older queued editor projection.
+        scheduleRenderNow(state, { force: true, reason, change });
+        return;
+      }
+      if (currentWorkspace(state) === "live" && liveProgramRenderReasons.has(reason)) {
+        scheduleRenderNow(state, { force: true, reason, change, projection: "live-program" });
         return;
       }
       if (change.structural) {
         // Structural commands change the identity and destination of controls.
         // They cannot wait behind a stale slider/text gesture hold: render on
         // the next frame after the current DOM event has completed.
-        scheduleRenderNow(state, { force: true });
+        scheduleRenderNow(state, { force: true, reason, change });
         return;
       }
-      scheduleRender(state);
+      scheduleRender(state, { reason, change });
     });
   }
 
@@ -214,19 +261,24 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     // at expiry so their route-derived catalogs discard the previous program.
     liveTransitionRefreshTimer = setTimeout(() => {
       liveTransitionRefreshTimer = 0;
-      if (currentWorkspace(latestState) === "live") scheduleRenderNow(latestState, { force: true });
+      if (currentWorkspace(latestState) === "live") {
+        renderMeasuredControlPhases(latestState, { reason: "live-transition-expired" }, [
+          ["live-projection-rail", () => renderLiveProjectionRail(latestState)],
+          ["inspector", () => renderInspector(latestState)],
+        ]);
+      }
     }, Math.max(0, expiresAt - Date.now()) + 20);
   }
 
-  function scheduleRender(state) {
+  function scheduleRender(state, context = {}) {
     if (shouldDeferRender()) {
       deferRender(state);
       return;
     }
-    scheduleRenderNow(state);
+    scheduleRenderNow(state, context);
   }
 
-  function scheduleRenderNow(state, { force = false } = {}) {
+  function scheduleRenderNow(state, { force = false, reason = "", change = null, projection = "shell" } = {}) {
     if (force) {
       deferredRenderState = null;
       renderPending = false;
@@ -243,7 +295,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       // A queued frame is only a request to render. Its captured snapshot is
       // not an authority: rapid scrubs/toggles may have advanced the store
       // before this callback runs.
-      render(latestState);
+      if (projection === "live-program") renderLiveProgramChange(latestState, { reason, change });
+      else render(latestState, { reason, change });
     });
   }
 
@@ -271,22 +324,71 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     if (shouldDeferRender()) return;
     deferredRenderState = null;
     renderPending = false;
-    scheduleRenderNow(latestState);
+    scheduleRenderNow(latestState, { reason: "deferred-interaction-flush" });
   }
 
-  function render(state) {
+  function render(state, context = {}) {
     const profileRenderStarted = performanceSession.isActive() ? performance.now() : 0;
-    prepareCatalogOrder(state);
-    setClass(root, "has-project-open", hasOpenProject(state));
-    setClass(root, "no-project-open", !hasOpenProject(state));
-    renderTopbar(state);
-    renderProjectRail(state);
-    renderLiveProjectionRail(state);
-    renderStudio(state);
-    renderInspector(state);
-    renderPreview(state);
+    renderMeasuredControlPhases(state, context, [
+      ["catalog-order", () => prepareCatalogOrder(state)],
+      ["shell-state", () => {
+        setClass(root, "has-project-open", hasOpenProject(state));
+        setClass(root, "no-project-open", !hasOpenProject(state));
+      }],
+      ["topbar", () => renderTopbar(state)],
+      ["project-rail", () => renderProjectRail(state)],
+      ["live-projection-rail", () => renderLiveProjectionRail(state)],
+      ["studio", () => renderStudio(state)],
+      ["inspector", () => renderInspector(state)],
+      ["preview", () => renderPreview(state)],
+      ["modals", () => modals.render(state)],
+    ]);
     if (performanceSession.isActive()) performanceSession.recordUiRender(performance.now() - profileRenderStarted);
-    modals.render(state);
+  }
+
+  function renderLiveProgramChange(state, context = {}) {
+    renderMeasuredControlPhases(state, context, [
+      ["project-rail", () => renderProjectRail(state)],
+      ["live-projection-rail", () => renderLiveProjectionRail(state)],
+      ["inspector", () => renderInspector(state)],
+      ["preview", () => renderPreview(state)],
+    ]);
+  }
+
+  function renderMeasuredControlPhases(state, context, operations) {
+    const renderStarted = performance.now();
+    const phases = [];
+    for (const [name, operation] of operations) {
+      const started = performance.now();
+      operation();
+      phases.push({ name, durationMs: performance.now() - started });
+    }
+    controlRenderDiagnostics.report({
+      durationMs: performance.now() - renderStarted,
+      phases,
+      reason: context.reason,
+      topic: context.change?.topic,
+      workspace: currentWorkspace(state),
+    });
+  }
+
+  function patchComponentThumbnails(entries = []) {
+    const updates = new Map((entries || []).map((entry) => [
+      `${String(entry?.componentId || "")}:${String(entry?.surfaceId || "")}`,
+      String(entry?.url || ""),
+    ]));
+    if (!updates.size) return;
+    for (const thumbnail of root.querySelectorAll("[data-component-thumbnail]")) {
+      const key = `${thumbnail.dataset.componentThumbnail || ""}:${thumbnail.dataset.surfaceThumbnail || ""}`;
+      const url = updates.get(key);
+      if (!url) continue;
+      const image = document.createElement("img");
+      image.src = url;
+      image.alt = "";
+      image.loading = "lazy";
+      thumbnail.classList.remove("component-card-empty");
+      thumbnail.replaceChildren(image);
+    }
   }
 
   function bindStaticEvents() {
@@ -638,6 +740,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       return null;
     });
     if (result?.fallback) refs.importFiles.click();
+    else if (result?.loaded === false) setStatus(result.error || "Project loading was blocked; no files were changed.");
   }
 
   async function closeProject() {
@@ -851,7 +954,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     refs.projectRail.dataset.workspace = workspace;
     const html = hasProject
       ? workspace === "nodes"
-        ? nodeLibraryRailTemplate(state, nodePackage)
+        ? nodeLibraryRailTemplate(state, editorNodePackage)
         : projectRailTemplate(state, {
           workspace,
           catalogItems: (scope, items) => catalogItemsInSnapshot(scope, items),
@@ -905,7 +1008,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }
     if (currentWorkspace(state) === "nodes") {
       embeddedPreview.pause();
-      if (replaceHtmlIfChanged(refs.studio, nodeLibraryStudioTemplate(state, nodePackage), { scrollKey: "node-library-workspace" })) bindStudioEvents();
+      if (replaceHtmlIfChanged(refs.studio, nodeLibraryStudioTemplate(state, editorNodePackage), { scrollKey: "node-library-workspace" })) bindStudioEvents();
       return;
     }
     if (previewLayoutQuery?.matches) {
@@ -1033,7 +1136,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const selectedSurface = state.surfaces.find((surface) => surface.id === state.ui.selectedSurfaceId) || state.surfaces[0];
     let html = "";
     if (currentWorkspace(state) === "nodes") {
-      html = panelTemplate("schema", "Node editor", nodeLibraryInspectorTemplate(state, nodePackage));
+      html = panelTemplate("schema", "Node editor", nodeLibraryInspectorTemplate(state, editorNodePackage));
       replaceInspectorHtml(html, state);
       return;
     }
@@ -1048,7 +1151,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           headerActionHtml: componentHeaderAddButtonTemplate(selectedComponent),
         } : {}
       )}${selectedComponent ? componentSelectedChainSettingsTemplate(selectedComponent, state, {
-        nodeEditorHtml: selectedNodeEditorTemplate(selectedComponent, state, nodePackage),
+        nodeEditorHtml: selectedNodeEditorTemplate(selectedComponent, state, editorNodePackage),
       }) : ""}`;
       replaceInspectorHtml(html, state);
       return;
@@ -1072,7 +1175,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           className: "scene-surface-panel",
         } : { className: "scene-surface-panel" })
         : selectedScene ? componentSelectedChainSettingsTemplate(selectedScene, state, {
-          nodeEditorHtml: selectedNodeEditorTemplate(selectedScene, state, nodePackage),
+          nodeEditorHtml: selectedNodeEditorTemplate(selectedScene, state, editorNodePackage),
         }) : ""}`;
       replaceInspectorHtml(html, state);
       return;
@@ -1105,6 +1208,34 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function bindRailEvents() {
     inputs.bind(refs.projectRail);
     bindNodeLibraryFilter(refs.projectRail);
+    refs.projectRail.querySelectorAll("[data-create-project-group]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const scene3d = button.dataset.createProjectGroup === "scene3d";
+        const kindName = scene3d ? "3D Group" : "Visual Group";
+        const name = globalThis.prompt?.(`${kindName} name`, scene3d ? "3D Scene Group" : "Visual Group")?.trim();
+        if (!name) return;
+        const used = new Set((latestState.nodes?.definitions || []).map((definition) => definition.id));
+        const baseId = `org.vj1.project.${packageIdentifier(name)}`;
+        let id = baseId;
+        let index = 2;
+        while (used.has(id) || editorNodePackage?.registry?.has?.(id)) id = `${baseId}-${index++}`;
+        try {
+          const definition = scene3d
+            ? nodePackage.createProjectScene3dGroupDefinition({ id, name })
+            : nodePackage.createProjectVisualGroupDefinition({ id, name });
+          store.update((draft) => {
+            draft.nodes.definitions = [...(draft.nodes.definitions || []), definition];
+            draft.ui.selectedNodeDefinitionId = id;
+            draft.ui.selectedNodeGroupId = "";
+          }, `update:create-project-${scene3d ? "scene3d" : "visual"}-group`);
+          setStatus(scene3d
+            ? `${name} created · its mesh, material, camera, Scene, and image nodes compile into retained 3D render steps`
+            : `${name} created · drag visual nodes into its graph`);
+        } catch (error) {
+          setStatus(`${kindName} was not created: ${error?.message || error}`);
+        }
+      });
+    });
     refs.projectRail.querySelectorAll("[data-select-node-definition]").forEach((button) => {
       button.addEventListener("click", () => updateUi((ui) => {
         ui.selectedNodeDefinitionId = button.dataset.selectNodeDefinition;
@@ -1115,6 +1246,111 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       button.addEventListener("click", () => updateUi((ui) => {
         ui.selectedNodeGroupId = button.dataset.selectNodeGroup;
       }, "select-node-group"));
+    });
+    refs.projectRail.querySelector("[data-node-package-export]")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      try {
+        const selection = selectedProjectPackageExport(latestState, editorNodePackage);
+        const suggestedId = `org.vj1.project.${packageIdentifier(latestState.project?.name || "visual")}`;
+        const id = globalThis.prompt?.("Stable package ID", suggestedId)?.trim();
+        if (!id) return;
+        const version = globalThis.prompt?.("Exact package version", "0.1.0")?.trim();
+        if (!version) return;
+        const name = globalThis.prompt?.("Package name", selection.name)?.trim() || selection.name;
+        button.disabled = true;
+        const encoded = nodePackage.exportProjectPackage(latestState, {
+          id,
+          version,
+          name,
+          description: `Reusable VJ1 package exported from ${selection.name}.`,
+          ...selection.manifest,
+        });
+        const path = await projectService.writeNodePackageManifest(encoded);
+        setStatus(`Package written to ${path}`);
+      } catch (error) {
+        button.disabled = false;
+        setStatus(`Package was not exported: ${error?.message || error}`);
+      }
+    });
+    refs.projectRail.querySelector("[data-node-package-import]")?.addEventListener("click", async (event) => {
+      const button = event.currentTarget;
+      const confirmed = typeof globalThis.confirm !== "function"
+        || globalThis.confirm("Import this node package? Node packages may contain executable JavaScript. Only import packages you trust.");
+      if (!confirmed) return;
+      button.disabled = true;
+      try {
+        const imported = await projectService.importNodePackageFolder();
+        setStatus(`${imported.id}@${imported.version} imported; choose Install to activate it`);
+      } catch (error) {
+        button.disabled = false;
+        if (error?.name !== "AbortError") {
+          setStatus(`Package was not imported: ${error?.message || error}`);
+        }
+      }
+    });
+    refs.projectRail.querySelectorAll("[data-node-package-toggle]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const packageId = button.dataset.nodePackageToggle || "";
+        const enable = button.dataset.nodePackageEnabled !== "true";
+        button.disabled = true;
+        try {
+          await projectService.setNodePackageEnabled(packageId, enable);
+          setStatus(`${packageId} ${enable ? "enabled" : "disabled"}`);
+        } catch (error) {
+          button.disabled = false;
+          setStatus(`${packageId} was not ${enable ? "enabled" : "disabled"}: ${error?.message || error}`);
+        }
+      });
+    });
+    refs.projectRail.querySelectorAll("[data-node-package-install]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const packageId = button.dataset.nodePackageInstall || "";
+        const version = [...refs.projectRail.querySelectorAll("[data-node-package-version-select]")]
+          .find((select) => select.dataset.nodePackageVersionSelect === packageId)?.value || "";
+        button.disabled = true;
+        try {
+          await projectService.installNodePackage(packageId, version);
+          setStatus(`${packageId}@${version} is active for this project`);
+        } catch (error) {
+          button.disabled = false;
+          setStatus(`${packageId}@${version} was not installed: ${error?.message || error}`);
+        }
+      });
+    });
+    refs.projectRail.querySelectorAll("[data-node-package-export-folder]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const packageId = button.dataset.nodePackageExportFolder || "";
+        const version = [...refs.projectRail.querySelectorAll("[data-node-package-version-select]")]
+          .find((select) => select.dataset.nodePackageVersionSelect === packageId)?.value
+          || button.dataset.nodePackageVersion
+          || "";
+        button.disabled = true;
+        try {
+          const exported = await projectService.exportNodePackageFolder(packageId, version);
+          setStatus(`${exported.id}@${exported.version} exported to ${exported.path}`);
+        } catch (error) {
+          button.disabled = false;
+          if (error?.name !== "AbortError") {
+            setStatus(`Package was not exported: ${error?.message || error}`);
+          }
+        }
+      });
+    });
+    refs.projectRail.querySelectorAll("[data-node-package-remove]").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const packageId = button.dataset.nodePackageRemove || "";
+        const confirmed = typeof globalThis.confirm !== "function"
+          || globalThis.confirm(`Remove ${packageId} from this project? Package files will remain in the folder.`);
+        if (!confirmed) return;
+        button.disabled = true;
+        try {
+          await projectService.removeNodePackage(packageId);
+          setStatus(`${packageId} project reference removed`);
+        } catch (error) {
+          button.disabled = false;
+          setStatus(`${packageId} was not removed: ${error?.message || error}`);
+        }
+      });
     });
     refs.projectRail.querySelector("[data-open-folder]")?.addEventListener("click", openProjectFolder);
     refs.projectRail.querySelectorAll("[data-add-component]").forEach((button) => {
@@ -1250,10 +1486,106 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       resetProjectMapping();
     });
     bindNodeGraphCanvas(refs.studio, {
-      registry: nodePackage?.registry,
+      registry: editorNodePackage?.registry,
       onStatus: setStatus,
+      onMediaParameterRequest: ({ accept, apply }) => {
+        modals.openMediaPicker("", accept, apply);
+      },
+      onPublicParameterToggle: ({ nodeId, parameterId, publicParameterId }) => {
+        const target = selectedNodeWorkspaceTarget(latestState, editorNodePackage);
+        if (target?.kind !== "definition" || target.baseDefinition?.metadata?.projectOwned !== true) {
+          setStatus("Only project-owned Groups can publish new controls");
+          return;
+        }
+        const graph = target.definition.parts?.find((part) => part.kind === "graph");
+        const child = graph?.nodes?.find((node) => String(node.id || "") === String(nodeId || ""));
+        let childDefinition = null;
+        try {
+          childDefinition = editorNodePackage?.registry?.get?.(
+            child?.type || child?.nodeId,
+            child?.version || child?.nodeVersion || "",
+          );
+        } catch {}
+        const parameter = childDefinition?.parameters?.[parameterId];
+        if (!parameter) {
+          setStatus(`Public control was not updated: parameter ${nodeId}.${parameterId} is unavailable`);
+          return;
+        }
+        const response = globalThis.prompt?.(
+          "Public control ID (clear to make internal)",
+          publicParameterId || packageIdentifier(`${nodeId}-${parameterId}`),
+        );
+        if (response == null) return;
+        const nextPublicId = response.trim();
+        const exposed = !!nextPublicId;
+        try {
+          store.update((draft) => {
+            draft.nodes = withProjectNodeParameterExposure(draft.nodes, target.baseDefinition, {
+              nodeId,
+              parameterId,
+              publicParameterId: nextPublicId,
+              parameter,
+              sectionLabel: childDefinition.name,
+              exposed,
+            });
+          }, `update:${exposed ? "publish" : "unpublish"}-node-parameter`);
+          setStatus(exposed
+            ? `${parameter.label || parameterId} is now public as ${nextPublicId}`
+            : `${parameter.label || parameterId} is internal again`);
+        } catch (error) {
+          setStatus(`Public control was not updated: ${error?.message || error}`);
+        }
+      },
+      onPublicPortToggle: ({ nodeId, portId, direction, publicPortId }) => {
+        const target = selectedNodeWorkspaceTarget(latestState, editorNodePackage);
+        if (target?.kind !== "definition" || target.baseDefinition?.metadata?.projectOwned !== true) {
+          setStatus("Only project-owned Groups can publish ports");
+          return;
+        }
+        const graph = target.definition.parts?.find((part) => part.kind === "graph");
+        const child = graph?.nodes?.find((node) => String(node.id || "") === String(nodeId || ""));
+        let childDefinition = null;
+        try {
+          childDefinition = editorNodePackage?.registry?.get?.(
+            child?.type || child?.nodeId,
+            child?.version || child?.nodeVersion || "",
+          );
+        } catch {}
+        const role = direction === "outlet" ? "outlet" : "inlet";
+        const port = role === "outlet"
+          ? childDefinition?.outlets?.[portId]
+          : childDefinition?.inlets?.[portId];
+        if (!port) {
+          setStatus(`Public port was not updated: ${role} ${nodeId}.${portId} is unavailable`);
+          return;
+        }
+        const response = globalThis.prompt?.(
+          `Public ${role} ID (clear to make internal)`,
+          publicPortId || packageIdentifier(`${nodeId}-${portId}`),
+        );
+        if (response == null) return;
+        const nextPublicId = response.trim();
+        const exposed = !!nextPublicId;
+        try {
+          store.update((draft) => {
+            draft.nodes = withProjectNodePortExposure(draft.nodes, target.baseDefinition, {
+              nodeId,
+              portId,
+              publicPortId: nextPublicId,
+              port,
+              direction: role,
+              exposed,
+            });
+          }, `update:${exposed ? "publish" : "unpublish"}-node-port`);
+          setStatus(exposed
+            ? `${port.label || portId} is now public as ${nextPublicId}`
+            : `${port.label || portId} is internal again`);
+        } catch (error) {
+          setStatus(`Public port was not updated: ${error?.message || error}`);
+        }
+      },
       onGraphChange: (graph, action) => {
-        const target = selectedNodeWorkspaceTarget(latestState, nodePackage);
+        const target = selectedNodeWorkspaceTarget(latestState, editorNodePackage);
         if (!target) return;
         try {
           store.update((draft) => {
@@ -1262,7 +1594,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
               : withProjectNodeGraph(draft.nodes, target.baseDefinition, graph);
           }, `update:node-graph-${action}`);
           if (target.id === "vj1.application.program") {
-            const activation = nodePackage?.applicationProgramStatus?.(store.getState());
+            const activation = editorNodePackage?.applicationProgramStatus?.(store.getState());
             setStatus(activation?.valid === false
               ? `Application setup is incomplete: ${activation.error}`
               : activation?.requiresRestart
@@ -1298,14 +1630,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function bindNodeEditorEvents(scope) {
-    if (!nodePackage?.registry) return;
+    if (!editorNodePackage?.registry) return;
     scope.querySelectorAll("[data-save-node-fork]").forEach((button) => {
       button.addEventListener("click", () => {
         const editor = button.closest("[data-node-editor]");
         if (!editor) return;
         let definition;
         try {
-          definition = nodePackage.registry.get(editor.dataset.nodeBaseId, editor.dataset.nodeBaseVersion);
+          definition = editorNodePackage.registry.get(editor.dataset.nodeBaseId, editor.dataset.nodeBaseVersion);
         } catch {
           setStatus("Node definition is no longer available");
           return;
@@ -1330,7 +1662,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         if (!editor) return;
         let definition;
         try {
-          definition = nodePackage.registry.get(editor.dataset.nodeBaseId, editor.dataset.nodeBaseVersion);
+          definition = editorNodePackage.registry.get(editor.dataset.nodeBaseId, editor.dataset.nodeBaseVersion);
         } catch {
           return;
         }
@@ -1383,7 +1715,6 @@ function refreshSelectedMappingProjection(state) {
   const mapping = getSelectedMapping(state);
   if (!mapping) return;
   projectSelectedMapping(state, mapping);
-  syncLiveRoutesFromMapping(state, mapping);
 }
 
 
@@ -1429,6 +1760,46 @@ function downloadPerformanceProfile(report, projectName = "vj1") {
   link.download = `${timestamp}-${safeProjectName}.profile.json`;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function selectedProjectPackageExport(state, nodePackage) {
+  const target = selectedNodeWorkspaceTarget(state, nodePackage);
+  if (!target) throw new Error("NODE_PACKAGE_EXPORT_SELECTION_REQUIRED");
+  if (target.kind === "project-group") {
+    return {
+      name: target.group.name || target.group.id,
+      manifest: { groupIds: [target.group.id] },
+    };
+  }
+  const definition = target.baseDefinition;
+  const localDefinition = (state.nodes?.definitions || []).find((item) =>
+    item.id === definition.id && item.version === definition.version);
+  const fork = (state.nodes?.forks || []).find((item) =>
+    item.base?.id === definition.id && item.base?.version === definition.version);
+  if (localDefinition) {
+    return {
+      name: definition.name || definition.id,
+      manifest: {
+        nodeIds: [{ id: definition.id, version: definition.version }],
+        ...(fork ? { forkIds: [fork.id] } : {}),
+      },
+    };
+  }
+  if (fork) {
+    return {
+      name: fork.name || definition.name || fork.id,
+      manifest: { forkIds: [fork.id] },
+    };
+  }
+  throw new Error("NODE_PACKAGE_EXPORT_REQUIRES_PROJECT_OWNED_SELECTION");
+}
+
+function packageIdentifier(value) {
+  return String(value || "visual")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "visual";
 }
 
 function formatNumber(value, precision = 1) {

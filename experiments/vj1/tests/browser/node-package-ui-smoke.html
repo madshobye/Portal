@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Node Package UI Smoke</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
+    <link rel="stylesheet" href="../../style.css" />
+    <style>
+      body { margin: 0; background: var(--app-bg); }
+      main { width: 320px; height: 100vh; padding: 8px; }
+    </style>
+  </head>
+  <body>
+    <main id="package-smoke">Loading package repository…</main>
+    <script type="module">
+      import { createVj1NodePackage } from "../../js/app-node-package.js";
+      import { nodeLibraryRailTemplate } from "../../js/control/node-library-view.js";
+      import { createInitialState } from "../../js/domain/models.js";
+      import { defineNode, defineNodePackage } from "../../js/libraries/node-engine/index.js";
+
+      const definition = defineNode({
+        id: "org.example.control.gain",
+        name: "Package Gain",
+        description: "Reusable package control.",
+        version: "1.0.0",
+        inlets: { value: { type: "number" } },
+        outlets: { value: { type: "number" } },
+        process: ({ value }) => ({ value }),
+      });
+      const versionOne = defineNodePackage({
+        id: "org.example.controls",
+        name: "Example Controls",
+        version: "1.0.0",
+        definitions: [definition],
+        resources: [{
+          id: "gain-docs",
+          kind: "other",
+          path: "docs/gain.md",
+          mediaType: "text/markdown",
+        }],
+      });
+      const versionTwo = defineNodePackage({
+        id: "org.example.controls",
+        name: "Example Controls",
+        version: "1.1.0",
+        definitions: [{ ...definition, version: "1.1.0" }],
+      });
+      const state = createInitialState();
+      state.nodes.packages = [{ id: versionOne.id, version: versionOne.version, enabled: true }];
+      const packageRoot = createVj1NodePackage().editorContext(
+        [versionOne],
+        [versionTwo, versionOne],
+      );
+      document.querySelector("#package-smoke").innerHTML = nodeLibraryRailTemplate(state, packageRoot);
+      document.documentElement.dataset.smokeReady = "true";
+    </script>
+  </body>
+</html>

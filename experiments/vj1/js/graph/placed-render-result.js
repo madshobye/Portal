@@ -4,6 +4,7 @@ export function directPlacementKind({
   dependency = null,
   mediaDrawable = false,
   mediaIsModel = false,
+  mediaRequiresRetainedFrame = false,
   cameraDrawable = false,
 } = {}) {
   if (blend === "overlay") return "";
@@ -11,7 +12,7 @@ export function directPlacementKind({
     return dependency && dependency.type !== "scene" ? "component-texture" : "";
   }
   if (source.type === "media") {
-    return mediaDrawable && !mediaIsModel ? "media-texture" : "";
+    return mediaDrawable && !mediaIsModel && !mediaRequiresRetainedFrame ? "media-texture" : "";
   }
   if (source.type === "camera") return cameraDrawable ? "camera-texture" : "";
   return "";

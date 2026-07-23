@@ -6,10 +6,13 @@ export function icon(name) {
   return `<span class="material-symbols-rounded" aria-hidden="true">${name}</span>`;
 }
 
-export function thumbnailTemplate(src, fallbackIcon = "account_tree") {
+export function thumbnailTemplate(src, fallbackIcon = "account_tree", componentId = "", surfaceId = "") {
+  const owner = componentId
+    ? ` data-component-thumbnail="${esc(componentId)}" data-surface-thumbnail="${esc(surfaceId)}"`
+    : "";
   return src
-    ? `<div class="component-thumbnail"><img src="${esc(src)}" alt="" loading="lazy" /></div>`
-    : `<div class="component-thumbnail component-card-empty">${icon(fallbackIcon)}</div>`;
+    ? `<div class="component-thumbnail"${owner}><img src="${esc(src)}" alt="" loading="lazy" /></div>`
+    : `<div class="component-thumbnail component-card-empty"${owner}>${icon(fallbackIcon)}</div>`;
 }
 
 export function sourceTypeIcon(type) {
@@ -27,9 +30,9 @@ export function formatRangeValue(value, step = 0.01) {
   return number.toFixed(decimals);
 }
 
-export function rangeTemplate(label, path, value, min = 0, max = 1, step = 0.01) {
+export function rangeTemplate(label, path, value, min = 0, max = 1, step = 0.01, defaultValue = value) {
   return `
-    <label class="field range-field">
+    <label class="field range-field param-context-target" data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(defaultValue))}">
       <span>${esc(label)}</span>
       <output class="range-value" data-range-value>${formatRangeValue(value, step)}</output>
       <input type="range" min="${min}" max="${max}" step="${step}" data-update="${path}" value="${value}" />

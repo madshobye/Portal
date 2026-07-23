@@ -1,17 +1,17 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=surface-relative-aspect-1";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1";
 import { liveProgramComponentIds } from "../domain/scene-routing.js?v=live-program-component-catalog-1";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=isf-nodes-1";
-import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js?v=surface-relative-aspect-1";
-import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=inspector-pending-node-1";
+import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=project-group-authoring-public-group-ports-1";
+import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js?v=explicit-surface-visibility-1";
+import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=param-reset-contract-1";
 import { mediaSourceParams } from "./source-control-schema.js?v=source-param-schema-1";
-import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
+import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
 import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { componentCardBarTemplate, deepEditButtonTemplate, editableSectionTitleTemplate, emptyStateTemplate, enableToggleButton, panelTemplate, scrollRegionTemplate, selectablePillTemplate, textListItemTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
-import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
+import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
@@ -35,6 +35,20 @@ export function mappingSurfacePillTemplate(surface, state) {
   });
 }
 
+export function sceneMappingOutputPillTemplate(state) {
+  const included = state.ui?.live?.sceneMappingInLive !== false;
+  return textListItemTemplate({
+    rowClass: "mapping-scene-output-row compact-list-row",
+    leadingHtml: enableToggleButton({
+      path: "ui.live.sceneMappingInLive",
+      value: included,
+      iconName: "crop_free",
+      label: "Scene Mapping",
+    }),
+    label: "Scene Mapping",
+  });
+}
+
 export function mappingSurfaceTemplate(surface, state, catalog = {}) {
   const mapping = getSelectedMapping(state);
   const surfaceBase = pathForSurface(state, surface);
@@ -50,9 +64,9 @@ export function mappingSurfaceTemplate(surface, state, catalog = {}) {
       ${direct ? "" : `<div class="surface-actions">
         <button type="button" data-reset-surface-mapping="${surface.id}">${icon("restart_alt")} Reset surface</button>
       </div>`}
-      ${rangeTemplate("Feather", `${surfaceBase}.feather`, surface.feather ?? 0, 0, 0.5, 0.005)}
+      ${rangeTemplate("Feather", `${surfaceBase}.feather`, surface.feather ?? 0, 0, 0.5, 0.005, 0)}
       ${hasMappingSurface ? `
-        ${rangeTemplate("Presence", `${mappingBase}.opacity`, mappingSurface.opacity)}
+        ${rangeTemplate("Presence", `${mappingBase}.opacity`, mappingSurface.opacity, 0, 1, 0.01, 1)}
         <label class="field">${direct ? "Fit" : "Projection fit"} ${selectValuesTemplate(`${mappingBase}.projectionFit`, PROJECTION_FIT_MODES, mappingSurface.projectionFit || (direct ? "contain" : "cover"))}</label>
       ` : `<div class="soft-note">This surface is not part of the selected Mapping.</div>`}
     </article>
@@ -109,7 +123,7 @@ export function liveScenePillTemplate(scene, state) {
   return `
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(scene.name.toLowerCase())}">
       <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
-        ${thumbnailTemplate(scene.thumbnail, "dashboard_customize")}
+        ${thumbnailTemplate(scene.thumbnail, "dashboard_customize", scene.id)}
         ${componentCardBarTemplate(scene.name)}
       </button>
       ${catalogMarkerButtonTemplate(scene, "scene")}
@@ -127,7 +141,7 @@ export function liveTargetComponentPillTemplate(component, state) {
   return `
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(component.name.toLowerCase())}">
       <button type="button" class="component-card live-component-picker ${selected ? "is-selected" : ""}" data-live-target-component="${esc(component.id)}">
-        ${thumbnailTemplate(component.thumbnail, "account_tree")}
+        ${thumbnailTemplate(component.thumbnail, "account_tree", component.id)}
         ${componentCardBarTemplate(component.name)}
       </button>
       ${catalogMarkerButtonTemplate(component, "component")}
@@ -149,7 +163,7 @@ export function liveComponentPillTemplate(component, state) {
   const selected = (state.ui?.live?.inspectedComponentId || "") === component.id;
   return `
     <button type="button" class="component-card live-component-picker ${selected ? "is-selected" : ""}" data-live-component="${esc(component.id)}">
-      ${thumbnailTemplate(component.thumbnail)}
+      ${thumbnailTemplate(component.thumbnail, "account_tree", component.id)}
       ${componentCardBarTemplate(component.name)}
     </button>
   `;
@@ -284,7 +298,7 @@ function liveComponentTemplate(component, view, selectedElement, state, componen
   return `
     <article class="ui-section focus-panel live-component-card">
       <header class="ui-section-header panel-title live-component-head">
-        ${thumbnailTemplate(component.thumbnail)}
+        ${thumbnailTemplate(component.thumbnail, "account_tree", component.id)}
         <strong>${esc(component.name)}</strong>
         ${deepEditButtonTemplate(component.id, { className: "header-edit-button", label: `Edit ${component.name}` })}
       </header>
@@ -312,10 +326,10 @@ function liveComponentControlsTemplate(component, view, state = {}) {
   return `
     <div class="live-component-controls inspector-control-surface" data-scroll-region data-scroll-key="live-controls:${esc(component.id)}">
       ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
-      <div class="live-component-transform-controls">
+      ${component.type === "scene" ? "" : `<div class="live-component-transform-controls">
         <span class="live-control-group-label">Component placement</span>
         ${liveComponentPlacementControlsTemplate(view?.transform, component.id)}
-      </div>
+      </div>`}
       ${liveRangeTemplate("Opacity", component.id, "opacity", view?.opacity ?? 1)}
       ${liveRangeTemplate("Speed", component.id, "speed", view?.speed ?? 1, 0, 4, 0.01)}
       <label class="field chain-param"><span>Blend</span>${liveSelectValuesTemplate(component.id, "blend", BLEND_MODES, view?.blend || "normal")}</label>

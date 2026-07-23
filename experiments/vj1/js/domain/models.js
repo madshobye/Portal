@@ -4,7 +4,7 @@ import { componentFrameMetrics, normalizeComponentFrameShape, normalizeComponent
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
 import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=surface-identity-2";
-import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js";
+import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
 import { normalizeRelativeRect, projectedQuadAspect, projectedRelativeQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=surface-relative-aspect-1";
 import { FULL_NODE_BOUNDARY, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
@@ -19,7 +19,6 @@ import {
 import {
   applySceneSourceNode,
   authoredSurfaceFields,
-  materializeLiveProgramSurfaceRoutes,
   materializeLiveSurfacePatchRoute,
   materializeLiveTargetSurfaceRoutes,
   materializeSceneSurfaceRoutes,
@@ -28,8 +27,8 @@ import {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=transition-start-fit-1";
-import { compileLiveProjectionProgram } from "./live-projection-program.js?v=live-projection-program-1";
+} from "./scene-routing.js?v=explicit-surface-visibility-1";
+import { compileLiveProjectionProgram } from "./live-projection-program.js?v=explicit-surface-visibility-1";
 
 export {
   createOutputDefinition,
@@ -53,7 +52,7 @@ export {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=transition-start-fit-1";
+} from "./scene-routing.js?v=explicit-surface-visibility-1";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -369,14 +368,15 @@ export function createInitialState({ startupTemplate = false } = {}) {
       selectedMappingId: mapping.id,
       selectedSurfaceId: mapping.surfaces[0]?.id || "",
       sceneInspectorTarget: "element",
-      mappingTestPattern: true,
+      mappingTestPattern: startup ? false : true,
       debugPreview: true,
       previewDiagnostics: false,
       outputWindowOpen: false,
       live: {
-        selectedSceneId: "",
+        selectedSceneId: startup?.selectedSceneId || "",
         selectedComponentId: "",
         overallSourceCleared: false,
+        sceneMappingInLive: true,
         sceneMappingVisible: true,
         showScenes: true,
         showComponents: true,
@@ -386,11 +386,12 @@ export function createInitialState({ startupTemplate = false } = {}) {
         patchSourceId: "",
         surfacePatches: {},
         surfaceVisibility: {},
-        surfaceRoutes: null,
         componentOverrides: {},
         sceneOverrides: {},
-        transitionDuration: 0,
-        paramFadeDuration: 0,
+        transitionId: "vj1.transition.dissolve",
+        transitionParameters: {},
+        transitionDuration: startup ? 1.2 : 0,
+        paramFadeDuration: startup ? 0.9 : 0,
         transition: null,
       },
       previewViewports: {
@@ -622,33 +623,30 @@ function clampNumber(value, min, max, fallback) {
 }
 
 export function createLiveRenderState(state = createInitialState()) {
-  const next = clone(state);
-  const program = compileLiveProjectionProgram(next);
-  const { live, target, mapping } = program;
-  if (mapping && (target || live.surfaceRoutes || live.overallSourceCleared === true)) {
-    // Always derive the on-air program from the same route authority as the
-    // Live monitor. ui.live.surfaceRoutes is a transition snapshot/cache; it
-    // must not bypass newer visibility or patch state in an Output window.
+  const program = compileLiveProjectionProgram(state);
+  const { live, mapping } = program;
+  const next = createLiveEndpointState(state, live.componentOverrides);
+  if (mapping) {
+    // The compiled Live program is the sole current-route authority. Only a
+    // transition's previous endpoint is stored because it is historical state.
     next.surfaces = clone(program.currentRoutes.surfaces);
     next.mappingCalibration = clone(mapping.calibration || {});
   }
   next.ui.selectedMappingId = mapping?.id || "";
   next.global.calibrating = false;
-  applyLiveComponentOverrides(next, live.componentOverrides);
-  materializeLivePatchTargets(next);
 
   const transition = program.transition;
   if (transition) {
-    const fromState = clone(state);
+    const fromState = createLiveEndpointState(state, transition.previousComponentOverrides);
     fromState.surfaces = clone(transition.previousRoutes.surfaces);
     fromState.mappingCalibration = clone(mapping?.calibration || {});
     fromState.ui.selectedMappingId = mapping?.id || fromState.ui.selectedMappingId || "";
     fromState.global.calibrating = false;
-    applyLiveComponentOverrides(fromState, transition.previousComponentOverrides);
-    materializeLivePatchTargets(fromState);
     fromState.ui.live.transition = null;
     next.liveTransition = {
       id: transition.id,
+      transitionId: transition.transitionId,
+      transitionParameters: clone(transition.transitionParameters),
       startedAtMs: transition.startedAtMs,
       durationMs: transition.durationMs,
       componentsShared: transition.componentsShared,
@@ -663,9 +661,9 @@ export function createLiveRenderState(state = createInitialState()) {
 // complete, already-routed Live program and merely selects that Surface for its
 // outline. Source substitution belongs to the explicit patch action in state.
 export function createLiveScenePreviewState(state = createInitialState()) {
-  const next = clone(state);
-  const program = compileLiveProjectionProgram(next);
+  const program = compileLiveProjectionProgram(state);
   const { live, target } = program;
+  const next = createLiveEndpointState(state, live.componentOverrides);
   if (!target && live.overallSourceCleared !== true) return next;
   if (String(live.previewSurfaceId || "__mapping__") === "__mapping__" && live.sceneMappingVisible === false) {
     applyLiveMonitorTarget(next, null);
@@ -674,28 +672,88 @@ export function createLiveScenePreviewState(state = createInitialState()) {
   } else {
     applyLivePreviewProjection(next, target, live.previewSurfaceId, program.currentRoutes);
   }
-  applyLiveComponentOverrides(next, live.componentOverrides);
-  materializeLivePatchTargets(next);
 
   const transition = program.previewTransition;
   if (transition) {
-    const fromState = clone(state);
+    const fromState = createLiveEndpointState(state, transition.previousComponentOverrides);
     applyLivePreviewProjection(
       fromState,
       transition.previousTarget || target || null,
       live.previewSurfaceId,
       transition.previousRoutes
     );
-    applyLiveComponentOverrides(fromState, transition.previousComponentOverrides);
-    materializeLivePatchTargets(fromState);
     fromState.ui.live.transition = null;
     next.liveTransition = {
       id: transition.id,
+      transitionId: transition.transitionId,
+      transitionParameters: clone(transition.transitionParameters),
       startedAtMs: transition.startedAtMs,
       durationMs: transition.durationMs,
       componentsShared: transition.componentsShared,
       fromState,
     };
+  }
+  return next;
+}
+
+// Live render endpoints are immutable projections of the same authored
+// project. Deep-cloning the complete project once for a cut and twice for a
+// transition made Preview activation proportional to unrelated media,
+// packages, Mappings, and editor data. Clone only branches that the renderer
+// or its compact patch protocol may mutate; keep immutable authored
+// collections structurally shared until browser transport performs its own
+// serialization.
+function createLiveEndpointState(state, overrides = {}) {
+  return {
+    ...state,
+    ui: clone(state.ui || {}),
+    global: { ...(state.global || {}) },
+    render: {
+      ...(state.render || {}),
+      outputs: (state.render?.outputs || []).map((output) => ({ ...output })),
+    },
+    components: (state.components || []).map((component) =>
+      createLiveEndpointComponent(component, overrides?.[component.id])
+    ),
+    surfaces: clone(state.surfaces || []),
+    mappingCalibration: clone(state.mappingCalibration || {}),
+  };
+}
+
+function createLiveEndpointComponent(component = {}, override = {}) {
+  return {
+    ...component,
+    opacity: override.opacity !== undefined ? clamp01(override.opacity) : component.opacity,
+    speed: override.speed !== undefined ? Math.max(0, Number(override.speed) || 0) : component.speed,
+    blend: override.blend || component.blend,
+    transform: override.transform && typeof override.transform === "object"
+      ? normalizeTransform({ ...(component.transform || {}), ...override.transform })
+      : normalizeTransform(component.transform),
+    chain: (component.chain || []).map((item, index) =>
+      materializeLiveEndpointChainItem(
+        mergeComponentChainItemOverride(item, override.chain?.[index] || {})
+      )
+    ),
+  };
+}
+
+function materializeLiveEndpointChainItem(item = {}) {
+  const next = {
+    ...item,
+    transform: normalizeTransform(item.transform),
+    boundary: normalizeNodeBoundary(item.boundary),
+  };
+  if (item.kind === "effect") {
+    next.params = { ...(item.params && typeof item.params === "object" ? item.params : {}) };
+  } else if (item.kind === "source") {
+    next.source = {
+      ...(item.source || {}),
+      ...(item.source && ["generator", "media"].includes(item.source.type)
+        ? { params: { ...(item.source.params && typeof item.source.params === "object" ? item.source.params : {}) } }
+        : {}),
+    };
+  } else if (item.kind === "group") {
+    next.chain = (item.chain || []).map(materializeLiveEndpointChainItem);
   }
   return next;
 }
@@ -773,55 +831,6 @@ function liveComponentMonitorAspect(render = {}, component = {}) {
   return Math.max(0.05, metrics.baseWidth / Math.max(1, metrics.baseHeight));
 }
 
-// Live controls edit a normalized view of optional model values. Materialize
-// only the containers/structural transform that those controls address before
-// this cloned state crosses the render transport boundary. This is not render
-// traversal work and it does not expand the persisted project model.
-function materializeLivePatchTargets(state) {
-  for (const component of state.components || []) {
-    component.transform = normalizeTransform(component.transform);
-    materializeLiveChainPatchTargets(component.chain);
-  }
-}
-
-function materializeLiveChainPatchTargets(chain = []) {
-  for (const item of chain || []) {
-    if (!item || typeof item !== "object") continue;
-    item.transform = normalizeTransform(item.transform);
-    if (item.kind === "effect") {
-      if (!item.params || typeof item.params !== "object") item.params = {};
-      continue;
-    }
-    if (item.kind === "source") {
-      if (
-        item.source &&
-        ["generator", "media"].includes(item.source.type) &&
-        (!item.source.params || typeof item.source.params !== "object")
-      ) item.source.params = {};
-      continue;
-    }
-    if (item.kind === "group") materializeLiveChainPatchTargets(item.chain);
-  }
-}
-
-function applyLiveComponentOverrides(state, overrides = {}) {
-  for (const component of state.components || []) {
-    const override = overrides?.[component.id];
-    if (!override) continue;
-    if (override.opacity !== undefined) component.opacity = clamp01(override.opacity);
-    if (override.speed !== undefined) component.speed = Math.max(0, Number(override.speed) || 0);
-    if (override.blend) component.blend = override.blend;
-    if (override.transform && typeof override.transform === "object") {
-      component.transform = normalizeTransform({ ...(component.transform || {}), ...override.transform });
-    }
-    if (Array.isArray(override.chain)) {
-      component.chain = component.chain.map((item, index) =>
-        mergeComponentChainItemOverride(item, override.chain[index] || {})
-      );
-    }
-  }
-}
-
 export function createLiveComponentView(component = {}, state = createInitialState()) {
   const override = state.ui?.live?.componentOverrides?.[component.id] || {};
   return {
@@ -855,6 +864,7 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   }));
   const performanceScenes = state.components?.filter((component) => component.type === "scene") || [];
   const overallSourceCleared = live.overallSourceCleared === true;
+  const sceneMappingInLive = live.sceneMappingInLive !== false;
   const sceneMappingVisible = live.sceneMappingVisible !== false;
   const selectedSceneId = !overallSourceCleared && live.selectedSceneId && performanceScenes.some((scene) => String(scene.id) === String(live.selectedSceneId))
     ? String(live.selectedSceneId)
@@ -870,9 +880,15 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   const selectedMapping = state.mappings?.find((mapping) => String(mapping.id) === String(state.ui?.selectedMappingId || "")) || state.mappings?.[0];
   const previewSurfaceIds = new Set((selectedMapping?.surfaces || []).map((surface) => String(surface.id || "")));
   const requestedPreviewSurfaceId = String(live.previewSurfaceId || "");
-  const previewSurfaceId = requestedPreviewSurfaceId === "__mapping__" || previewSurfaceIds.has(requestedPreviewSurfaceId)
-    ? requestedPreviewSurfaceId
-    : "__mapping__";
+  const firstPreviewSurfaceId = String(selectedMapping?.surfaces?.[0]?.id || "");
+  const defaultPreviewSurfaceId = sceneMappingInLive
+    ? "__mapping__"
+    : firstPreviewSurfaceId || "__mapping__";
+  const previewSurfaceId = requestedPreviewSurfaceId === "__mapping__"
+    ? (sceneMappingInLive ? "__mapping__" : defaultPreviewSurfaceId)
+    : previewSurfaceIds.has(requestedPreviewSurfaceId)
+      ? requestedPreviewSurfaceId
+      : defaultPreviewSurfaceId;
   const patchSourceId = previewSurfaceId !== "__mapping__" && state.components?.some((component) =>
     !component.systemRole && String(component.id) === String(live.patchSourceId || "")
   ) ? String(live.patchSourceId) : "";
@@ -894,6 +910,11 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   if (selectedTargetId && Object.keys(componentOverrides).length) sceneOverrides[selectedTargetId] = clone(componentOverrides);
   const transitionDuration = clampNumber(live.transitionDuration, 0, 30, 0);
   const paramFadeDuration = clampNumber(live.paramFadeDuration, 0, 30, 0);
+  const transitionId = String(live.transitionId || "vj1.transition.dissolve");
+  const transitionParameters = live.transitionParameters && typeof live.transitionParameters === "object"
+    && !Array.isArray(live.transitionParameters)
+    ? clone(live.transitionParameters)
+    : {};
   const transitionDurationMs = Math.max(0, Number(live.transition?.durationMs) || 0);
   const transitionStartedAtMs = Number(live.transition?.startedAtMs) || 0;
   const transition = transitionDurationMs > 0 && transitionStartedAtMs > 0 && live.transition?.fromSurfaceRoutes
@@ -912,6 +933,7 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     selectedSceneId,
     selectedComponentId: explicitTargetId,
     overallSourceCleared,
+    sceneMappingInLive,
     sceneMappingVisible,
     inspectedComponentId,
     ...normalizeLiveSourceFilters(live),
@@ -920,15 +942,10 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     patchSourceId,
     surfacePatches,
     surfaceVisibility,
-    surfaceRoutes: live.surfaceRoutes
-      ? normalizeSurfaceRoutes(live.surfaceRoutes, state)
-      : selectedScene
-        ? materializeSceneSurfaceRoutes(state, selectedScene, selectedMapping)
-        : overallSourceCleared && selectedMapping
-          ? materializeSceneSurfaceRoutes(state, null, selectedMapping)
-          : null,
     componentOverrides,
     sceneOverrides,
+    transitionId,
+    transitionParameters,
     transitionDuration,
     paramFadeDuration,
     transition,
@@ -1384,6 +1401,7 @@ function mergeShaderPassOverride(pass = {}, override = {}) {
 }
 
 export function normalizeMediaMeta(item = {}) {
+  const duration = Number(item.duration);
   return {
     id: item.id || uid("media"),
     name: item.name || item.id || "Media",
@@ -1391,6 +1409,7 @@ export function normalizeMediaMeta(item = {}) {
     type: item.type || "unknown",
     size: Number(item.size) || 0,
     catalogMarker: normalizeCatalogMarker(item.catalogMarker),
+    ...(Number.isFinite(duration) && duration > 0 ? { duration } : {}),
   };
 }
 
@@ -1447,16 +1466,6 @@ export function createEmptyMappingFromState(state, name) {
     surfaces: reconcileDirectOutputSurfaces([], state.render || {}),
     calibration: {},
   };
-}
-
-export function syncLiveRoutesFromMapping(state, mapping) {
-  if (!mapping?.surfaces || String(state.ui?.selectedMappingId || "") !== String(mapping.id || "")) return state;
-  const targetId = String(state.ui?.live?.selectedComponentId || state.ui?.live?.selectedSceneId || "");
-  const target = state.components?.find((component) =>
-    !component.systemRole && String(component.id) === targetId
-  ) || null;
-  state.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(state, target, mapping);
-  return state;
 }
 
 function mappingPreviewScene(state) {

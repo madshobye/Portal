@@ -11,7 +11,8 @@ export function getLiveSourceTarget(state) {
   const live = state.ui?.live || {};
   const previewSurfaceId = String(live.previewSurfaceId || "__mapping__");
   const resolvedRouteId = previewSurfaceId !== "__mapping__"
-    ? live.surfaceRoutes?.surfaces?.find((surface) => String(surface.id) === previewSurfaceId)?.componentId || ""
+    ? compileLiveProjectionProgram(state).currentRoutes.surfaces
+      .find((surface) => String(surface.id) === previewSurfaceId)?.componentId || ""
     : "";
   const id = String(previewSurfaceId !== "__mapping__"
     ? live.patchSourceId || resolvedRouteId
@@ -68,3 +69,4 @@ export function mappingSurface(mapping, surfaceId) {
 export function getMappingSurfaceView(surface, state) {
   return mappingSurface(getSelectedMapping(state), surface.id) || surface;
 }
+import { compileLiveProjectionProgram } from "../domain/live-projection-program.js?v=explicit-surface-visibility-1";

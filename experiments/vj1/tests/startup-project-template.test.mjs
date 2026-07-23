@@ -50,6 +50,9 @@ test("startup project derives Output 1 beside its authored projection Surface", 
   assert.equal(state.ui.workspaceSelectionIds.component, state.components[0].id);
   assert.equal(state.ui.workspaceSelectionIds.scene, state.components[3].id);
   assert.equal(state.ui.live.selectedSceneId, state.components[3].id);
+  assert.equal(state.ui.live.transitionDuration, 1.2);
+  assert.equal(state.ui.live.paramFadeDuration, 0.9);
+  assert.equal(state.ui.mappingTestPattern, false);
 });
 
 test("empty-folder loading explicitly seeds a fresh startup state", () => {

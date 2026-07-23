@@ -2,8 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { mediaFileFingerprint, OutputMediaRuntime } from "../js/output/output-media-runtime.js";
-import { syncVideoPlayback } from "../js/output/media-utils.js";
+import {
+  mediaFileFingerprint,
+  OutputMediaRuntime,
+  VIDEO_IDLE_GRACE_FRAMES,
+} from "../js/output/output-media-runtime.js";
+import { syncVideoPlayback } from "../js/output/media-utils.js?v=atomic-video-seek-1";
 import { OutputThumbnailRuntime } from "../js/output/output-thumbnail-runtime.js";
 import { mediaSourceDemandSize, mediaSourceDemandWidth, OutputRenderer } from "../js/output/output-renderer.js";
 import { createControlBridge, createOutputBridge } from "../js/services/output-bridge-service.js";
@@ -431,6 +435,7 @@ test("video import stays metadata-only until an active render acquires it", () =
   const attributes = new Map();
   const element = {
     tagName: "VIDEO",
+    duration: 10,
     muted: false,
     defaultMuted: false,
     playsInline: false,
@@ -459,7 +464,12 @@ test("video import stays metadata-only until an active render acquires it", () =
   URL.createObjectURL = () => "blob:clip";
   URL.revokeObjectURL = () => {};
   try {
-    const runtime = new OutputMediaRuntime();
+    const invalidations = [];
+    const metadata = [];
+    const runtime = new OutputMediaRuntime({
+      onInvalidate: (reason, item) => invalidations.push([reason, item.id]),
+      onMediaMetadata: (id, value) => metadata.push([id, value]),
+    });
     runtime.importFiles([{ id: "media/clip.mp4", file: { name: "clip.mp4", size: 20, lastModified: 1, type: "video/mp4" } }]);
     assert.equal(ready, null, "the library snapshot does not instantiate a video decoder");
     runtime.beginFrame();
@@ -476,12 +486,116 @@ test("video import stays metadata-only until an active render acquires it", () =
     frameCallback(100, { mediaTime: 1.25 });
     assert.equal(item.videoFrameRevision, 1, "a decoded frame advances the media dirty revision");
     assert.equal(item.videoFrameMediaTime, 1.25);
+    assert.deepEqual(invalidations, [["video-frame", "media/clip.mp4"]], "decoded frames invalidate the matching retained media node");
+    element.currentTime = 3.95;
+    syncVideoPlayback(video, { start: 1, end: 4, speed: 1 });
+    assert.equal(element.currentTime, 1);
+    frameCallback(110, { mediaTime: 3.95 });
+    assert.equal(item.videoFrameRevision, 1, "a callback queued before the loop seek cannot publish an old-segment frame");
+    assert.deepEqual(invalidations, [["video-frame", "media/clip.mp4"]]);
+    frameCallback(120, { mediaTime: 1 });
+    assert.equal(item.videoFrameRevision, 2, "the decoded frame at the current seek target publishes the next revision");
+    assert.equal(item.videoFrameMediaTime, 1);
+    assert.deepEqual(invalidations, [
+      ["video-frame", "media/clip.mp4"],
+      ["video-frame", "media/clip.mp4"],
+    ]);
     assert.equal(loopCalls, 0, "decode setup does not start playback");
     ready();
     assert.equal(runtime.media.get("media/clip.mp4").ready, true);
+    assert.deepEqual(metadata, [["media/clip.mp4", { duration: 10 }]], "decoded duration is published to the control catalog");
     assert.equal(loopCalls, 0);
     runtime.dispose();
     assert.deepEqual(cancelledFrameCallbacks, [41], "disposing media cancels the pending decoded-frame callback");
+  } finally {
+    if (previousCreateVideo === undefined) delete globalThis.createVideo;
+    else globalThis.createVideo = previousCreateVideo;
+    URL.createObjectURL = previousCreateUrl;
+    URL.revokeObjectURL = previousRevokeUrl;
+  }
+});
+
+test("large video cache uses decoded memory and survives temporary thumbnail preview", () => {
+  const previousCreateVideo = globalThis.createVideo;
+  const previousCreateUrl = URL.createObjectURL;
+  const previousRevokeUrl = URL.revokeObjectURL;
+  const revoked = [];
+  const retirement = [];
+  let ready = null;
+  const source = {
+    removeAttribute(name) { retirement.push(`source:${name}`); },
+  };
+  const element = {
+    tagName: "VIDEO",
+    videoWidth: 1920,
+    videoHeight: 1080,
+    addEventListener() {},
+    setAttribute() {},
+    removeAttribute(name) { retirement.push(`video:${name}`); },
+    querySelectorAll(selector) {
+      assert.equal(selector, "source");
+      return [source];
+    },
+    load() { retirement.push("load"); },
+    requestVideoFrameCallback() { return 1; },
+    cancelVideoFrameCallback() {},
+  };
+  const video = {
+    elt: element,
+    hide() {},
+    volume() {},
+    stop() { retirement.push("stop"); },
+    remove() { retirement.push("remove"); },
+  };
+  globalThis.createVideo = (_url, callback) => {
+    ready = callback;
+    return video;
+  };
+  URL.createObjectURL = () => "blob:large-video";
+  URL.revokeObjectURL = (url) => {
+    retirement.push("revoke");
+    revoked.push(url);
+  };
+  try {
+    const runtime = new OutputMediaRuntime({
+      maxCachedMedia: 12,
+      maxCachedMediaBytes: 30 * 1024 * 1024,
+    });
+    runtime.importFiles([{
+      id: "media/large.mov",
+      file: {
+        name: "large.mov",
+        size: 1024 * 1024 * 1024,
+        lastModified: 1,
+        type: "video/quicktime",
+      },
+    }]);
+    const item = runtime.media.get("media/large.mov");
+    runtime.beginFrame();
+    runtime.acquireMedia(item);
+    ready();
+    runtime.endFrame();
+
+    for (let frame = 0; frame < VIDEO_IDLE_GRACE_FRAMES + 5; frame++) {
+      runtime.beginFrame();
+      runtime.endFrame();
+    }
+    assert.strictEqual(item.video, video, "compressed file bytes do not evict the retained decoder");
+    assert.deepEqual(revoked, []);
+
+    runtime.maxCachedMediaBytes = 1;
+    runtime.beginFrame();
+    runtime.endFrame();
+    assert.equal(item.video, null, "genuine decoded-memory pressure still unloads an idle video");
+    assert.deepEqual(revoked, ["blob:large-video"]);
+    assert.deepEqual(retirement, [
+      "stop",
+      "video:src",
+      "source:src",
+      "load",
+      "remove",
+      "revoke",
+    ], "decoder sources are detached before their object URL is revoked");
   } finally {
     if (previousCreateVideo === undefined) delete globalThis.createVideo;
     else globalThis.createVideo = previousCreateVideo;
@@ -513,7 +627,7 @@ test("video playback owns loop state and reports promise rejection once", async 
     syncVideoPlayback(video, { speed: 1 });
     await Promise.resolve();
     await Promise.resolve();
-    assert.equal(element.loop, true);
+    assert.equal(element.loop, false, "full-length playback uses the same retained seek boundary as trimmed playback");
     assert.deepEqual(errors[0], ["[VJ1_VIDEO_PLAYBACK_FAILED]", {
       source: "VIDEO",
       operation: "play",
@@ -523,6 +637,41 @@ test("video playback owns loop state and reports promise rejection once", async 
   } finally {
     console.error = previousError;
   }
+});
+
+test("video playback enforces the authored end on the media clock", () => {
+  const listeners = new Map();
+  const element = {
+    tagName: "VIDEO",
+    paused: false,
+    duration: 10,
+    currentTime: 2,
+    playbackRate: 1,
+    loop: true,
+    addEventListener(type, listener) { listeners.set(type, listener); },
+  };
+  syncVideoPlayback({ elt: element }, { start: 2, end: 4, speed: 1 });
+  assert.equal(element.loop, false);
+  element.currentTime = 4;
+  listeners.get("timeupdate")();
+  assert.equal(element.currentTime, 2, "the authored end loops directly to the authored start");
+});
+
+test("full-length video loops before the decoder exposes its exhausted surface", () => {
+  const listeners = new Map();
+  const element = {
+    tagName: "VIDEO",
+    paused: false,
+    duration: 10,
+    currentTime: 9.94,
+    playbackRate: 1,
+    loop: true,
+    addEventListener(type, listener) { listeners.set(type, listener); },
+  };
+  syncVideoPlayback({ elt: element }, { speed: 1 });
+  assert.equal(element.loop, false);
+  assert.equal(element.currentTime, 0, "the common loop boundary seeks while the retained final frame is still valid");
+  assert.equal(typeof listeners.get("timeupdate"), "function");
 });
 
 test("video buffering never rewrites commanded playback intent", async () => {
@@ -1731,10 +1880,10 @@ test("media load failures update readiness and emit structured diagnostics", () 
 
 test("model imports expose processing state and exact preview diagnostics", () => {
   const runtimeSource = readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8");
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const rendererSource = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   assert.match(runtimeSource, /item\.loadStatus = "reading 3D model"/);
   assert.match(runtimeSource, /item\.loadStatus = "processing 3D model"/);
   assert.match(rendererSource, /`3D model error: \$\{item\.modelError\}`/);
   assert.match(rendererSource, /item\.loadStatus \|\| "loading media"/);
-  assert.match(rendererSource, /forceVisible && this\.mode !== "output"/);
+  assert.match(rendererSource, /forceVisible && this\.host\.mode !== "output"/);
 });

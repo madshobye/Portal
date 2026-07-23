@@ -12,6 +12,7 @@ import {
   sanitizeState,
 } from "../js/domain/models.js";
 import { createAppState } from "../js/app-state.js";
+import { compileLiveProjectionProgram } from "../js/domain/live-projection-program.js?v=live-projection-program-1";
 import { materializeLiveProgramSurfaceRoutes } from "../js/domain/scene-routing.js";
 
 function sceneMappingFixture() {
@@ -24,7 +25,6 @@ function sceneMappingFixture() {
   state.ui.selectedMappingId = state.mappings[0].id;
   state.ui.live.selectedSceneId = firstScene.id;
   state.ui.live.selectedComponentId = firstScene.id;
-  state.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(state, firstScene, state.mappings[0]);
   return sanitizeState(state);
 }
 
@@ -69,7 +69,6 @@ test("Live can put an ordinary Component over the shared Scene space", () => {
   const state = sceneMappingFixture();
   const component = state.components.find((candidate) => !candidate.systemRole && candidate.type !== "scene");
   state.ui.live.selectedComponentId = component.id;
-  state.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(state, component, state.mappings[0]);
 
   const output = createLiveRenderState(state);
   const preview = createLiveScenePreviewState(state);
@@ -96,7 +95,7 @@ test("Live Surface patches replace only the chosen destination", () => {
   assert.equal(current.ui.live.selectedComponentId, overallId);
   assert.equal(current.ui.live.surfacePatches[firstSurface.id], component.id);
   assert.equal(current.ui.live.surfacePatches[secondSurface.id], undefined);
-  const patched = current.ui.live.surfaceRoutes.surfaces.find((surface) => surface.id === firstSurface.id);
+  const patched = compileLiveProjectionProgram(current).currentRoutes.surfaces.find((surface) => surface.id === firstSurface.id);
   assert.equal(patched.componentId, component.id);
   assert.equal(patched.sceneCrop, false);
   assert.equal(patched.projectionFit, "cover");
@@ -116,7 +115,7 @@ test("clearing a Surface patch restores Overall routing without changing Mapping
   const current = store.getState();
   assert.equal(current.ui.live.surfacePatches[surface.id], undefined);
   assert.equal(
-    current.ui.live.surfaceRoutes.surfaces.find((route) => route.id === surface.id).componentId,
+    compileLiveProjectionProgram(current).currentRoutes.surfaces.find((route) => route.id === surface.id).componentId,
     current.ui.live.selectedComponentId
   );
   assert.deepEqual(current.mappings[0], mappingBefore);
@@ -148,7 +147,6 @@ test("surface transitions use current geometry at both endpoints", () => {
   state.ui.live.selectedSceneId = scenes[1].id;
   state.ui.live.selectedComponentId = scenes[1].id;
   state.ui.live.previewSurfaceId = surface.id;
-  state.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(state, scenes[1], state.mappings[0]);
   const previousRoutes = materializeLiveProgramSurfaceRoutes(state, scenes[0], state.mappings[0]);
   previousRoutes.surfaces[0] = { ...previousRoutes.surfaces[0], x: 0.02, width: 0.9 };
   state.ui.live.transition = {

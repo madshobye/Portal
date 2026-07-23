@@ -83,7 +83,6 @@ test("pasted elements also start disabled when their Canvas has a connected Live
   state.mappings = [scene];
   state.ui.selectedMappingId = scene.id;
   state.ui.live.selectedSceneId = canvas.id;
-  state.ui.live.surfaceRoutes = { surfaces: structuredClone(scene.surfaces) };
   state.metrics.clients = 1;
   state.metrics.outputs = { "output-main": 1 };
 

@@ -213,14 +213,17 @@ export function materializeLiveProgramSurfaceRoutes(state = {}, target = null, m
     const index = routeState.surfaces.findIndex((surface) => String(surface.id) === String(surfaceId));
     if (index >= 0) routeState.surfaces[index] = { ...routeState.surfaces[index], enabled: visible !== false };
   }
-  // Scene Mapping is the Overall source lane, not a master switch for the
-  // complete projection matrix. Hiding it removes only routes inherited from
-  // Overall; explicitly patched Surface cells remain independently routable.
+  // Scene Mapping supplies the default Overall route, but it is not a master
+  // switch for the projection matrix. A patched Surface or an explicitly
+  // visible Surface remains independently routable while Overall is hidden.
   // This route-level rule is shared by the embedded monitor and Output windows.
   if (live.sceneMappingVisible === false) {
-    routeState.surfaces = routeState.surfaces.map((surface) => patchedSurfaceIds.has(String(surface.id || ""))
-      ? surface
-      : { ...surface, enabled: false });
+    routeState.surfaces = routeState.surfaces.map((surface) => {
+      const surfaceId = String(surface.id || "");
+      const independentlyVisible = patchedSurfaceIds.has(surfaceId) ||
+        live.surfaceVisibility?.[surfaceId] === true;
+      return independentlyVisible ? surface : { ...surface, enabled: false };
+    });
   }
   applyDirectOutputPatchPrecedence(routeState.surfaces, live.surfacePatches || {});
   return routeState;

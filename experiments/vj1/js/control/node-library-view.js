@@ -1,5 +1,5 @@
-import { materializeProjectNodeDefinition, nodeDefinitionEditorTemplate } from "./node-editor-view.js";
-import { nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=application-bootstrap-10";
+import { materializeProjectNodeDefinition, nodeDefinitionEditorTemplate } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
+import { nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=public-control-node-configuration-1";
 import { emptyNote, esc, icon } from "./template-utils.js";
 import { railListSectionTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
 
@@ -20,12 +20,17 @@ export function selectedNodeWorkspaceTarget(state, nodePackage) {
 export function nodeLibraryRailTemplate(state, nodePackage) {
   const definitions = nodeDefinitions(nodePackage);
   const selected = selectedLibraryNode(state, nodePackage);
-  const sections = groupByLibraryRole(definitions);
+  const sections = groupByLibraryRole(definitions, nodePackage);
   const content = `${projectProgramSection(state)}
+        ${installedPackageSection(state, nodePackage)}
         ${sections.map(({ label, items }) => `
           <section class="node-library-section">
             <h3>${esc(label)} <small>${items.length}</small></h3>
-            ${items.map((definition) => nodeListItem(definition, definition.id === selected?.id)).join("")}
+            ${items.map((definition) => nodeListItem(
+              definition,
+              definition.id === selected?.id,
+              nodePackage,
+            )).join("")}
           </section>
         `).join("")}`;
   return railListSectionTemplate({
@@ -45,17 +50,28 @@ export function nodeLibraryStudioTemplate(state, nodePackage) {
   if (!target) return `<section class="node-library-workspace">${emptyNote("No registered nodes")}</section>`;
   const definition = target.definition;
   const graph = definition.parts?.find((part) => part.kind === "graph");
-  const visualProjectProgram = target.kind === "project-group" && !!target.group.componentId;
+  const definitionGraphEditable = graph?.editable !== false;
+  const visualProjectProgram = target.kind === "project-group" && (
+    !!target.group.componentId || target.group.kind === "visual-group"
+  ) || target.kind === "definition" &&
+    definition.metadata?.visualCompilerHook?.id === "vj1.visual.compound";
   const routeProjectProgram = target.kind === "project-group" && (
     target.group.mappingId !== undefined || target.group.id === "vj1.output.main"
   );
   const applicationProjectProgram = target.kind === "project-group" && target.group.id === "vj1.application.program";
+  const installedPackage = target.kind === "definition"
+    ? nodePackage.packageForDefinition?.(target.baseDefinition)
+    : null;
   return `
     <section class="node-library-workspace" data-node-library-workspace>
       <header class="node-library-header">
         <span class="material-symbols-rounded">${nodeIcon(definition)}</span>
         <span><strong>${esc(definition.name)}</strong><small>${esc(definition.id)} · v${esc(definition.version)}</small></span>
-        <em>${target.kind === "project-group" ? "project program" : esc(definition.implementation.kind)}</em>
+        <em>${target.kind === "project-group"
+          ? "project program"
+          : installedPackage
+            ? esc(installedPackage.name || installedPackage.id)
+            : esc(definition.implementation.kind)}</em>
       </header>
       <p>${esc(definition.description)}</p>
       <div class="node-structure-canvas">
@@ -68,10 +84,11 @@ export function nodeLibraryStudioTemplate(state, nodePackage) {
         ${portColumn("Outlets", definition.outlets, "outlet")}
       </div>
       ${graph ? nodeGraphCanvasTemplate(definition, nodePackage.registry, {
-        topologyEditable: target.kind !== "project-group" || visualProjectProgram,
-        connectionsEditable: target.kind !== "project-group" || visualProjectProgram || routeProjectProgram || applicationProjectProgram,
+        topologyEditable: definitionGraphEditable && (target.kind !== "project-group" || visualProjectProgram),
+        connectionsEditable: definitionGraphEditable && (target.kind !== "project-group" || visualProjectProgram || routeProjectProgram || applicationProjectProgram),
         editableConnectionTypes: applicationProjectProgram ? ["service", "state"] : null,
-        nodesEditable: target.kind !== "project-group" || visualProjectProgram,
+        nodesEditable: definitionGraphEditable && (target.kind !== "project-group" || visualProjectProgram),
+        publicInterfaceEditable: target.kind === "definition" && definition.metadata?.projectOwned === true,
         layoutEditable: true,
         visualProgram: visualProjectProgram,
       }) : ""}
@@ -127,12 +144,91 @@ function projectProgramSection(state) {
   const selectedId = String(state?.ui?.selectedNodeGroupId || "");
   return `<section class="node-library-section node-project-programs">
     <h3>Project programs <small>${groups.length}</small></h3>
+    <div class="node-project-group-actions">
+      <button type="button" class="secondary node-create-visual-group" data-create-visual-group data-create-project-group="visual" title="Create an empty reusable texture Group compiled before rendering">New visual Group</button>
+      <button type="button" class="secondary" data-create-project-group="scene3d" title="Create an editable mesh, material, camera, Scene, and image Group compiled into retained 3D render steps">New 3D Group</button>
+    </div>
     ${groups.map((group) => `<button type="button" class="node-library-item ${group.id === selectedId ? "is-selected" : ""}" data-select-node-group="${esc(group.id)}" data-node-library-item="${esc(`${group.name || group.id} ${group.id} project program`.toLowerCase())}">
       <span class="material-symbols-rounded">account_tree</span>
       <span><strong>${esc(group.name || group.id)}</strong><small>${esc(group.id)}</small></span>
       <em>${esc(projectGroupKind(group))}</em>
     </button>`).join("")}
   </section>`;
+}
+
+function installedPackageSection(state, nodePackage) {
+  const references = state?.nodes?.packages || [];
+  const installedPackages = nodePackage?.installedPackages || [];
+  const availablePackages = nodePackage?.availablePackages || [];
+  const hasProjectOwnedNodes = ["groups", "definitions", "forks"]
+    .some((key) => (state?.nodes?.[key] || []).length);
+  if (!references.length && !installedPackages.length && !availablePackages.length && !hasProjectOwnedNodes) return "";
+  const referencesById = new Map(references.map((reference) => [reference.id, reference]));
+  const installedById = new Map(installedPackages.map((installedPackage) => [
+    installedPackage.id, installedPackage,
+  ]));
+  const availableById = groupPackagesById(availablePackages);
+  const ids = [...new Set([
+    ...referencesById.keys(),
+    ...installedById.keys(),
+    ...availableById.keys(),
+  ])].sort();
+  return `<section class="node-library-section node-installed-packages">
+    <h3>Package repository <small>${ids.length}</small></h3>
+    <div class="node-package-repository-actions">
+      <button type="button" class="secondary" data-node-package-import title="Validate and copy a complete package folder into this project's library">Import package</button>
+      <button type="button" class="secondary" data-node-package-export title="Write the selected project-owned Group, fork, or definition as a new exact package manifest">Export selected</button>
+    </div>
+    ${ids.map((id) => {
+      const reference = referencesById.get(id);
+      const versions = availableById.get(id) || [];
+      const installedPackage = installedById.get(id)
+        || versions.find((item) => item.version === reference?.version)
+        || versions[0];
+      const enabled = reference?.enabled !== false;
+      const direct = !!reference;
+      const dependency = !direct && installedById.has(id);
+      const resources = installedPackage?.resources || [];
+      const visuals = installedPackage?.visualLibrary || [];
+      const definitions = installedPackage?.definitions || [];
+      const dependencies = installedPackage?.dependencies || [];
+      const search = `${installedPackage?.name || id} ${id} package ${resources.map((item) => item.path).join(" ")}`.toLowerCase();
+      return `<article class="node-package-card${enabled ? "" : " is-disabled"}" data-node-library-item="${esc(search)}">
+        <header>
+          <span class="material-symbols-rounded">inventory_2</span>
+          <span><strong>${esc(installedPackage?.name || id)}</strong><small>${esc(id)} · v${esc(reference?.version || installedPackage?.version || "")}</small></span>
+          <em>${direct ? enabled ? "active" : "disabled" : dependency ? "dependency" : "available"}</em>
+        </header>
+        <p>${esc(installedPackage?.description || (enabled ? "Package manifest is not loaded." : "Package is disabled for this project."))}</p>
+        ${installedPackage ? `<details>
+          <summary>${definitions.length} nodes · ${visuals.length} visuals · ${resources.length} resources</summary>
+          ${visuals.length ? `<strong>Visual artifacts</strong><ul>${visuals.map((artifact) =>
+            `<li>${esc(artifact.name || artifact.id)} <small>${esc(artifact.artifactType)}</small></li>`).join("")}</ul>` : ""}
+          ${resources.length ? `<strong>Resources</strong><ul>${resources.map((resource) =>
+            `<li>${esc(resource.path)} <small>${esc(resource.kind || resource.mediaType || "resource")}</small></li>`).join("")}</ul>` : ""}
+          ${dependencies.length ? `<strong>Dependencies</strong><ul>${dependencies.map((dependency) =>
+            `<li>${esc(dependency.id)} <small>${esc(dependency.range || dependency.version || "*")}</small></li>`).join("")}</ul>` : ""}
+        </details>` : ""}
+        ${installedPackage ? `<footer>
+          ${!dependency && versions.length ? `<label><span>Version</span><select data-node-package-version-select="${esc(id)}" aria-label="${esc(`${installedPackage?.name || id} version`)}">${versions.map((availablePackage) =>
+            `<option value="${esc(availablePackage.version)}"${availablePackage.version === (reference?.version || installedPackage?.version) ? " selected" : ""}>${esc(availablePackage.version)}</option>`).join("")}</select></label>
+          <button type="button" class="secondary" data-node-package-install="${esc(id)}">${direct ? "Use version" : "Install"}</button>` : ""}
+          ${direct ? `<button type="button" class="secondary" data-node-package-toggle="${esc(id)}" data-node-package-enabled="${enabled ? "true" : "false"}">${enabled ? "Disable" : "Enable"}</button>
+          <button type="button" class="secondary" data-node-package-remove="${esc(id)}" title="Remove the project reference; package files remain in the folder">Remove reference</button>` : ""}
+          <button type="button" class="secondary" data-node-package-export-folder="${esc(id)}" data-node-package-version="${esc(reference?.version || installedPackage.version)}" title="Copy this exact package and every declared resource to another folder">Export package</button>
+        </footer>` : ""}
+      </article>`;
+    }).join("")}
+  </section>`;
+}
+
+function groupPackagesById(packages = []) {
+  const grouped = new Map();
+  for (const nodePackage of packages) {
+    if (!grouped.has(nodePackage.id)) grouped.set(nodePackage.id, []);
+    grouped.get(nodePackage.id).push(nodePackage);
+  }
+  return grouped;
 }
 
 function projectGroupDefinition(group, registry) {
@@ -223,17 +319,19 @@ function projectGroupInspectorTemplate(group, { applicationStatus = null } = {})
   </div>`;
 }
 
-function groupByLibraryRole(definitions) {
+function groupByLibraryRole(definitions, nodePackage) {
   const groups = new Map();
   for (const definition of definitions) {
-    const label = libraryRole(definition);
+    const label = libraryRole(definition, nodePackage);
     if (!groups.has(label)) groups.set(label, []);
     groups.get(label).push(definition);
   }
   return [...groups].map(([label, items]) => ({ label, items }));
 }
 
-function libraryRole(definition) {
+function libraryRole(definition, nodePackage = null) {
+  const installedPackage = nodePackage?.packageForDefinition?.(definition);
+  if (installedPackage) return `Installed · ${installedPackage.name || installedPackage.id}`;
   if (definition.metadata?.visualKind === "generator") return "Generators";
   if (definition.metadata?.visualKind === "effect") return "Effects";
   if (definition.implementation.kind === "group") return "Groups";
@@ -242,8 +340,8 @@ function libraryRole(definition) {
   return "Core systems";
 }
 
-function nodeListItem(definition, selected) {
-  const search = `${definition.name} ${definition.id} ${libraryRole(definition)} ${(definition.capabilities || []).join(" ")}`.toLowerCase();
+function nodeListItem(definition, selected, nodePackage) {
+  const search = `${definition.name} ${definition.id} ${libraryRole(definition, nodePackage)} ${(definition.capabilities || []).join(" ")}`.toLowerCase();
   return `<button type="button" draggable="true" class="node-library-item ${selected ? "is-selected" : ""}" data-select-node-definition="${esc(definition.id)}" data-node-library-definition="${esc(definition.id)}" data-node-library-item="${esc(search)}">
     <span class="material-symbols-rounded">${nodeIcon(definition)}</span>
     <span><strong>${esc(definition.name)}</strong><small>${esc(definition.id)}</small></span>

@@ -67,7 +67,7 @@ test("label chromatic uses a cheap default path", () => {
 });
 
 test("zero amount shader passes are skipped before drawing", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/shader-effect-runtime.js", import.meta.url), "utf8");
 
   assert.ok(source.includes("if (pass.amount <= 0.0001) continue;"));
 });

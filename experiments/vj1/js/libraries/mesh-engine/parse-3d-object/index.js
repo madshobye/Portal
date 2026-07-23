@@ -16,6 +16,11 @@ export const Parse3dObjectGroup = defineNodeGroup({
   name: "Parse 3D Object",
   version: "0.1.0",
   description: "Detects STL or OBJ data and routes it through the corresponding owned parser node.",
+  executionModel: "native-composite",
+  authoring: {
+    activation: "recompile",
+    reason: "Its conditional graph is inspectable until conditional graph execution is supported.",
+  },
   inlets: {
     source: { type: "any", required: true, description: "STL or OBJ source data." },
     name: { type: "string", optional: true, defaultValue: "", description: "Optional filename used for format detection." },

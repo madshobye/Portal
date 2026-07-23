@@ -10,17 +10,14 @@ import {
   createComponentLayer,
   createInitialState,
   createLiveRenderState,
-  materializeLiveProgramSurfaceRoutes,
   materializeLiveSurfacePatchRoute,
-  materializeLiveTargetSurfaceRoutes,
-  materializeSceneSurfaceRoutes,
   createEmptyMappingFromState,
   createMappingFromState,
   sanitizeState,
   syncSurfaceProportionsFromMapping,
-  syncLiveRoutesFromMapping,
   uid,
-} from "./domain/models.js?v=transition-start-fit-1";
+} from "./domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1";
+import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=explicit-surface-visibility-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";
@@ -40,7 +37,6 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
   let state = normalizeState(initial || createInitialState());
   const dataStore = new ObservableDataStore(state, { clone });
   let pendingEditBaseline = null;
-  refreshLiveSelectedSceneSnapshot(state);
   function emit(change = "change") {
     const event = classifyChange(change);
     dataStore.publish(state, event);
@@ -61,7 +57,6 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     const normalized = normalizeState(next);
     state = event.projectRestore ? normalized : stampChangedProjectItems(previous, normalized);
     if (event.scope !== "live") reconcileLiveOverridesWithPersistentEdits(previous, state);
-    refreshLiveSelectedSceneSnapshot(state);
     emit(event);
   }
 
@@ -74,7 +69,6 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       pendingEditBaseline ||= getState();
       recipe(state);
       projectSelectedMapping(state);
-      refreshLiveSelectedSceneSnapshot(state);
       emit(event);
       return;
     }
@@ -101,7 +95,13 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     const draft = getState();
     recipe(draft);
     state = draft;
-    emit({ reason: change, scope: "derived", history: "none" });
+    const supplied = change && typeof change === "object" ? change : { reason: change };
+    emit({
+      ...supplied,
+      reason: String(supplied.reason || "derived-update"),
+      scope: "derived",
+      history: "none",
+    });
   }
 
   function setComponentThumbnail(componentId, surfaceId = "", thumbnail = "") {
@@ -225,17 +225,33 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       emit({ reason: "select-component", scope: "ui" });
     },
     setWorkspace(workspace) {
-      update((draft) => {
-        const current = draft.components.find((component) => component.id === draft.ui.selectedComponentId);
-        rememberWorkspaceComponent(draft, draft.ui.workspace, current);
-        draft.ui.workspace = WORKSPACES.includes(workspace) ? workspace : "scene";
-        restoreWorkspaceComponent(draft, draft.ui.workspace);
-        draft.global.calibrating = draft.ui.workspace === "mapping";
-        if (draft.ui.workspace === "mapping") {
-          const mapping = draft.mappings.find((item) => item.id === draft.ui.selectedMappingId) || draft.mappings[0];
-          if (mapping) projectSelectedMapping(draft, mapping);
-        }
-      }, "workspace");
+      const targetWorkspace = WORKSPACES.includes(workspace) ? workspace : "scene";
+      if (state.ui.workspace === targetWorkspace) return false;
+      // Workspace navigation changes editor projection only. Running it
+      // through the generic project update path cloned, normalized, and
+      // activity-diffed the complete project inside the browser click
+      // handler. Keep the authored collections structurally shared and clone
+      // only the UI/global/Mapping projection branches this command owns.
+      const draft = {
+        ...state,
+        ui: clone(state.ui),
+        global: { ...state.global },
+      };
+      const current = draft.components.find((component) => component.id === draft.ui.selectedComponentId);
+      rememberWorkspaceComponent(draft, draft.ui.workspace, current);
+      draft.ui.workspace = targetWorkspace;
+      restoreWorkspaceComponent(draft, targetWorkspace);
+      draft.global.calibrating = targetWorkspace === "mapping";
+      if (targetWorkspace === "mapping") {
+        const mapping = draft.mappings.find((item) => item.id === draft.ui.selectedMappingId) || draft.mappings[0];
+        if (mapping) projectSelectedMapping(draft, mapping);
+      }
+      state = draft;
+      // Workspace has an explicit browser preference owner in view-routing.
+      // It is not a project edit and must not serialize project.json or send a
+      // complete render state to Output.
+      emit({ reason: "workspace", scope: "ui", history: "none" });
+      return true;
     },
     getLiveRenderState() {
       // createLiveRenderState owns its clone. Passing the internal immutable
@@ -390,7 +406,6 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         surface.mappingId = surface.id;
         mapping.surfaces.push(surface);
         draft.ui.selectedSurfaceId = surface.id;
-        syncLiveRoutesFromMapping(draft, mapping);
       }, "add-surface");
     },
     removeSurface(id) {
@@ -431,7 +446,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       if (scene) replace(applyMappingForEditing(current, scene), "select-mapping");
     },
     selectLiveScene(id) {
-      update((draft) => {
+      updateLive((draft) => {
         const scene = draft.components.find((item) => item.type === "scene" && String(item.id) === String(id));
         if (!scene) return;
         const mapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
@@ -444,9 +459,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         ) || draft.components.find((item) => item.type === "scene" && String(item.id) === previousSceneId);
         if (previousSceneId === String(scene.id)
           && String(previousTarget?.id || "") === String(scene.id)) return;
-        const previousRoutes = draft.ui.live.surfaceRoutes || (previousTarget
-          ? materializeLiveTargetSurfaceRoutes(draft, previousTarget, mapping)
-          : null);
+        const previousRoutes = compileLiveProjectionProgram(draft).currentRoutes;
         if (previousTarget?.id && Object.keys(draft.ui.live.componentOverrides || {}).length) {
           draft.ui.live.sceneOverrides[previousTarget.id] = clone(draft.ui.live.componentOverrides);
         }
@@ -455,12 +468,11 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         draft.ui.live.selectedComponentId = scene.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
-        draft.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(draft, scene, mapping);
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
       }, "live:scene");
     },
     selectLiveComponent(id) {
-      update((draft) => {
+      updateLive((draft) => {
         const target = draft.components.find((item) =>
           item.type !== "scene" && !item.systemRole && String(item.id) === String(id)
         );
@@ -474,9 +486,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         const previousTarget = draft.components.find((item) =>
           !item.systemRole && String(item.id) === String(draft.ui.live.selectedComponentId || "")
         ) || scene;
-        const previousRoutes = draft.ui.live.surfaceRoutes || (previousTarget
-          ? materializeLiveTargetSurfaceRoutes(draft, previousTarget, mapping)
-          : null);
+        const previousRoutes = compileLiveProjectionProgram(draft).currentRoutes;
         draft.ui.live.sceneOverrides ||= {};
         if (previousTarget?.id && Object.keys(draft.ui.live.componentOverrides || {}).length) {
           draft.ui.live.sceneOverrides[previousTarget.id] = clone(draft.ui.live.componentOverrides);
@@ -485,7 +495,6 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         draft.ui.live.selectedComponentId = target.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
-        draft.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(draft, target, mapping);
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[target.id] || {});
       }, "live:target");
     },
@@ -509,11 +518,6 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       const current = getState();
       const mapping = current.mappings.find((item) => String(item.id) === String(current.ui.selectedMappingId || "")) || current.mappings[0];
       if (!surfaceId || !mapping) return false;
-      const liveTarget = current.components.find((component) =>
-        !component.systemRole && String(component.id) === String(current.ui.live?.selectedComponentId || "")
-      ) || current.components.find((component) =>
-        component.type === "scene" && String(component.id) === String(current.ui.live?.selectedSceneId || "")
-      );
       if (surfaceId === "__mapping__") {
         const visible = current.ui.live?.sceneMappingVisible === false;
         updateLive((draft) => {
@@ -522,20 +526,13 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         return true;
       }
       if (!mapping.surfaces?.some((surface) => String(surface.id) === surfaceId)) return false;
-      const routeState = current.ui.live?.surfaceRoutes || (liveTarget
-        ? materializeLiveTargetSurfaceRoutes(current, liveTarget, mapping)
-        : { surfaces: clone(mapping.surfaces || []) });
+      const routeState = compileLiveProjectionProgram(current).currentRoutes;
       const currentRoute = routeState.surfaces?.find((surface) => String(surface.id) === surfaceId);
       if (!currentRoute) return false;
       const visible = currentRoute.enabled === false;
       updateLive((draft) => {
         draft.ui.live.surfaceVisibility ||= {};
         draft.ui.live.surfaceVisibility[surfaceId] = visible;
-        draft.ui.live.surfaceRoutes = {
-          surfaces: (routeState.surfaces || []).map((surface) => String(surface.id) === surfaceId
-            ? { ...clone(surface), enabled: visible }
-            : clone(surface)),
-        };
         draft.ui.live.transition = null;
       }, "live:surface-visibility");
       return true;
@@ -547,20 +544,14 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       if (!surfaceId
         || !mapping?.surfaces?.some((surface) => String(surface.id) === surfaceId)
         || !current.ui.live?.surfacePatches?.[surfaceId]) return false;
-      const liveTarget = current.components.find((component) =>
-        !component.systemRole && String(component.id) === String(current.ui.live?.selectedComponentId || "")
-      ) || current.components.find((component) =>
-        component.type === "scene" && String(component.id) === String(current.ui.live?.selectedSceneId || "")
-      );
       const clearedPatchTargetId = String(current.ui.live.surfacePatches[surfaceId] || "");
       updateLive((draft) => {
         const draftMapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
         if (!draftMapping) return;
-        const previousRoutes = clone(draft.ui.live.surfaceRoutes || materializeLiveProgramSurfaceRoutes(draft, liveTarget, draftMapping));
+        const previousRoutes = clone(compileLiveProjectionProgram(draft).currentRoutes);
         draft.ui.live.surfacePatches ||= {};
         delete draft.ui.live.surfacePatches[surfaceId];
         draft.ui.live.patchSourceId = "";
-        draft.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(draft, liveTarget, draftMapping);
         scheduleLiveRouteTransition(draft, previousRoutes, clearedPatchTargetId, surfaceId);
       }, "live:surface-patch-clear");
       return true;
@@ -576,17 +567,13 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       updateLive((draft) => {
         const mapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
         if (!mapping) return;
-        const draftTarget = draft.components.find((component) =>
-          !component.systemRole && String(component.id) === String(selectedTarget.id)
-        ) || selectedTarget;
-        const previousRoutes = clone(draft.ui.live.surfaceRoutes || materializeLiveProgramSurfaceRoutes(draft, draftTarget, mapping));
+        const previousRoutes = clone(compileLiveProjectionProgram(draft).currentRoutes);
         scheduleLiveRouteTransition(draft, previousRoutes);
         draft.ui.live.overallSourceCleared = true;
         draft.ui.live.selectedSceneId = "";
         draft.ui.live.selectedComponentId = "";
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
-        draft.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(draft, null, mapping);
         draft.ui.live.componentOverrides = {};
       }, "live:overall-component-clear");
       return true;
@@ -595,21 +582,19 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       updateLive((draft) => {
         const scene = draft.components.find((item) => item.type === "scene" && String(item.id) === String(id));
         if (!scene) return;
-        const mapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
         draft.ui.live.sceneOverrides ||= {};
         draft.ui.live.overallSourceCleared = false;
         draft.ui.live.selectedSceneId = scene.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.surfacePatches = {};
         draft.ui.live.patchSourceId = "";
-        draft.ui.live.surfaceRoutes = materializeLiveTargetSurfaceRoutes(draft, scene, mapping);
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
         draft.ui.live.transition = null;
         draft.ui.live.selectedComponentId = scene.id;
       }, { reason: "live:scene-restore", history: "none" });
     },
     resetLiveScene(id) {
-      update((draft) => {
+      updateLive((draft) => {
         const sceneId = String(id || draft.ui.live?.selectedSceneId || "");
         if (!sceneId) return;
         draft.ui.live.sceneOverrides ||= {};
@@ -625,7 +610,6 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         if (String(draft.ui.selectedMappingId) === String(id)) draft.ui.selectedMappingId = draft.mappings[0]?.id || "";
         const selectedScene = draft.mappings.find((scene) => scene.id === draft.ui.selectedMappingId);
         if (selectedScene) projectSelectedMapping(draft, selectedScene);
-        refreshLiveSelectedSceneSnapshot(draft);
       }, "delete-mapping");
     },
   };
@@ -671,18 +655,6 @@ function removeChainItemFromChain(chain = [], itemId = "") {
   return false;
 }
 
-function refreshLiveSelectedSceneSnapshot(state) {
-  const liveSceneId = String(state.ui?.live?.selectedSceneId || "");
-  const liveScene = state.components?.find((scene) => scene.type === "scene" && String(scene.id) === liveSceneId);
-  const liveTarget = state.components?.find((component) =>
-    !component.systemRole && String(component.id) === String(state.ui?.live?.selectedComponentId || "")
-  ) || liveScene;
-  const mapping = state.mappings?.find((item) => String(item.id) === String(state.ui?.selectedMappingId || "")) || state.mappings?.[0];
-  if (!mapping) return;
-  if (!liveTarget && state.ui?.live?.overallSourceCleared !== true) return;
-  state.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(state, liveTarget, mapping);
-}
-
 // Overall selection changes the base Live program. Explicit per-Surface
 // patches remain independent matrix assignments and must survive that change.
 // Rebuild from the selected Scene/Component first, then apply those authored
@@ -693,23 +665,9 @@ function patchSelectedLiveSurface(state, target, mapping) {
   if (surfaceId === "__mapping__" || !mapping) return false;
   const targetRoute = materializeLiveSurfacePatchRoute(state, target, mapping, surfaceId);
   if (!targetRoute) return false;
-  const currentRoutes = state.ui.live.surfaceRoutes?.surfaces?.length
-    ? state.ui.live.surfaceRoutes.surfaces
-    : mapping.surfaces || [];
-  const previousRoutes = { surfaces: clone(currentRoutes) };
+  const previousRoutes = clone(compileLiveProjectionProgram(state).currentRoutes);
   state.ui.live.surfacePatches ||= {};
   state.ui.live.surfacePatches[surfaceId] = target.id;
-  const overallTarget = state.ui.live.overallSourceCleared === true
-    ? null
-    : state.components.find((component) =>
-      !component.systemRole && String(component.id) === String(state.ui.live.selectedComponentId || "")
-    ) || state.components.find((component) =>
-      component.type === "scene" && String(component.id) === String(state.ui.live.selectedSceneId || "")
-    ) || null;
-  // Rebuild the complete program instead of mutating one cached route. This
-  // applies group/child output precedence immediately and makes transition
-  // and settled rendering consume the same route graph.
-  state.ui.live.surfaceRoutes = materializeLiveProgramSurfaceRoutes(state, overallTarget, mapping);
   state.ui.live.patchSourceId = target.id;
   state.ui.live.inspectedComponentId = "";
   scheduleLiveRouteTransition(state, previousRoutes, target.id, surfaceId);

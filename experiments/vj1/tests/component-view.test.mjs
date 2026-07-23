@@ -2,8 +2,32 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { sceneInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "../js/control/component-view.js";
-import { createComponentEffect, createInitialState } from "../js/domain/models.js?v=render-coordinate-scope-3";
+import { sceneInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate, videoTrimValues } from "../js/control/component-view.js";
+import { createComponentEffect, createInitialState, normalizeMediaMeta } from "../js/domain/models.js?v=render-coordinate-scope-3";
+import { createProjectVisualGroupDefinition, defineNode, NodeRegistry } from "../js/libraries/node-engine/index.js";
+import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
+import { withProjectNodeGraph, withProjectNodeParameterExposure } from "../js/control/node-editor-view.js";
+
+test("video trim uses decoded duration and never invents a silent timeline", () => {
+  assert.deepEqual(videoTrimValues({}, { duration: 10 }), {
+    start: 0,
+    end: 10,
+    max: 10,
+    implicitEnd: true,
+    available: true,
+  });
+  assert.deepEqual(videoTrimValues({ start: 2, end: 7 }, { duration: 10 }), {
+    start: 2,
+    end: 7,
+    max: 10,
+    implicitEnd: false,
+    available: true,
+  });
+  assert.equal(videoTrimValues({}, {}).available, false);
+  assert.equal(videoTrimValues({}, {}).max, 1, "pending metadata only gets an inert one-second markup range");
+  assert.equal(normalizeMediaMeta({ id: "media/clip.mp4", duration: 10 }).duration, 10, "duration survives ordinary state normalization");
+  assert.equal("duration" in normalizeMediaMeta({ id: "media/clip.mp4", duration: Infinity }), false, "invalid duration is never normalized into the catalog");
+});
 
 test("Component and Canvas chain presentation lives outside the control orchestrator", () => {
   const state = createInitialState();
@@ -129,4 +153,123 @@ test("STL sources expose the same Primary Details and General views in Component
   assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.modelScale"/);
   assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.renderQuality"/);
   assert.match(html, /data-update="components\.0\.chain\.0\.transform\.scale"/);
+});
+
+test("compound generators project child-node controls into the shared Component inspector", () => {
+  const state = createInitialState();
+  const component = state.components.find((item) => item.type !== "scene");
+  const source = component.chain[0];
+  source.source = {
+    type: "generator",
+    generatorId: "terrainFlyover",
+    params: {},
+  };
+  state.ui.selectedChainItemId = source.id;
+
+  const html = componentSelectedChainSettingsTemplate(component, state);
+
+  for (const section of ["Flight", "Geometry", "Camera", "Surface material", "Wire material", "Render"]) {
+    assert.match(html, new RegExp(`<span>${section}<\\/span>`));
+  }
+  assert.match(html, /data-control-section="geometry"/);
+  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.mountainHeight"/);
+  assert.match(html, /data-color-path="components\.0\.chain\.0\.source\.params\.wireColor"/);
+  assert.equal(
+    (html.match(/data-update="components\.0\.chain\.0\.source\.params\.style"/g) || []).length,
+    1,
+    "a public parameter bound to multiple child nodes is still one shared UI control",
+  );
+});
+
+test("project-authored Group controls use the same shared Component inspector", () => {
+  const Child = defineNode({
+    id: "test.component-view.project-child",
+    name: "Project Child",
+    description: "A visual child with one project-published control.",
+    implementation: "shader",
+    parameters: {
+      gain: {
+        type: "number",
+        label: "Public gain",
+        defaultValue: 0.4,
+        allowedRange: [0, 1],
+      },
+    },
+    outlets: { texture: "texture" },
+    metadata: {
+      visualId: "project-child",
+      visualKind: "generator",
+      shaderInterface: "generator",
+    },
+  });
+  const base = createProjectVisualGroupDefinition({
+    id: "org.vj1.project.component-view-group",
+    name: "Project UI Group",
+  });
+  const registry = new NodeRegistry([Child, base]);
+  const sourceNode = graphNodeFromDefinition(Child, { id: "child", visualProgram: true });
+  let nodes = withProjectNodeGraph({}, registry.get(base.id), {
+    ...base.parts.find((part) => part.kind === "graph"),
+    nodes: [sourceNode],
+    connections: [{ from: "child.texture", to: "$out.texture", type: "texture" }],
+  });
+  nodes = withProjectNodeParameterExposure(nodes, registry.get(base.id), {
+    nodeId: "child",
+    parameterId: "gain",
+    publicParameterId: "gain",
+    parameter: Child.parameters.gain,
+    sectionLabel: "Project controls",
+    exposed: true,
+  });
+
+  const state = createInitialState();
+  const component = state.components.find((item) => item.type !== "scene");
+  const source = component.chain[0];
+  source.source = {
+    type: "generator",
+    generatorId: base.id,
+    params: { gain: 0.7 },
+  };
+  state.nodes = {
+    ...state.nodes,
+    definitions: [base],
+    forks: nodes.forks,
+  };
+  state.ui.selectedChainItemId = source.id;
+  const html = componentSelectedChainSettingsTemplate(component, state);
+
+  assert.match(html, /data-control-section="child"/);
+  assert.match(html, /<span>Project controls<\/span>/);
+  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.gain"/);
+});
+
+test("all specialized visual Groups use the same declarative inspector projection", () => {
+  const cases = [
+    {
+      generatorId: "anatomy",
+      sections: ["Geometry", "Transform", "Material"],
+      parameterPath: "modelScale",
+    },
+    {
+      generatorId: "meshPatterns",
+      sections: ["Topology", "Fill material", "Wire material", "Render"],
+      parameterPath: "drawMode",
+    },
+  ];
+  for (const example of cases) {
+    const state = createInitialState();
+    const component = state.components.find((item) => item.type !== "scene");
+    const source = component.chain[0];
+    source.source = { type: "generator", generatorId: example.generatorId, params: {} };
+    state.ui.selectedChainItemId = source.id;
+
+    const html = componentSelectedChainSettingsTemplate(component, state);
+    for (const section of example.sections) {
+      assert.match(html, new RegExp(`<span>${section}<\\/span>`), `${example.generatorId} contributes ${section}`);
+    }
+    assert.match(
+      html,
+      new RegExp(`data-update="components\\.0\\.chain\\.0\\.source\\.params\\.${example.parameterPath}"`),
+    );
+  }
 });

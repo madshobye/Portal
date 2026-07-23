@@ -7,10 +7,78 @@ import {
   COLD_BACKUP_INTERVAL,
   COLD_BACKUP_ROOT,
   nextColdBackupRevision,
+  projectFileForSave,
   projectHistorySignature,
+  readProjectFile,
   persistedRenderSettings,
 } from "../js/services/project-folder-service.js";
+import {
+  createProjectSavePreparer,
+  inspectProjectTextForSave,
+  prepareProjectSave,
+} from "../js/services/project-save-preparation.js";
 import { CURRENT_PROJECT_VERSION } from "../js/domain/project-migrations.js";
+
+test("project lookup distinguishes a missing project from an unreadable existing project", async () => {
+  const existingHandle = {
+    async getFile() {
+      return { async text() { return '{"version":30,"project":{"name":"Existing"}}'; } };
+    },
+  };
+  const existingDirectory = {
+    async getFileHandle(name, options = {}) {
+      assert.equal(name, "project.json");
+      assert.equal(options.create, undefined);
+      return existingHandle;
+    },
+  };
+  assert.deepEqual(await readProjectFile(existingDirectory), {
+    found: true,
+    data: { version: 30, project: { name: "Existing" } },
+  });
+
+  let createCalls = 0;
+  const missingDirectory = {
+    async getFileHandle(_name, options = {}) {
+      if (!options.create) throw domNamedError("NotFoundError", "missing");
+      createCalls += 1;
+      return existingHandle;
+    },
+  };
+  assert.deepEqual(await readProjectFile(missingDirectory), { found: false, data: {} });
+  const created = await projectFileForSave(missingDirectory);
+  assert.equal(created.created, true);
+  assert.equal(created.previousText, "");
+  assert.equal(createCalls, 1);
+
+  let unsafeCreateCalls = 0;
+  const unreadableDirectory = {
+    async getFileHandle(_name, options = {}) {
+      if (options.create) unsafeCreateCalls += 1;
+      throw domNamedError("NotAllowedError", "permission changed");
+    },
+  };
+  await assert.rejects(() => readProjectFile(unreadableDirectory), /permission changed/);
+  await assert.rejects(() => projectFileForSave(unreadableDirectory), /permission changed/);
+  assert.equal(unsafeCreateCalls, 0, "an unreadable project must never enter the create-and-overwrite path");
+
+  const invalidDirectory = {
+    async getFileHandle() {
+      return {
+        async getFile() {
+          return { async text() { return "{invalid"; } };
+        },
+      };
+    },
+  };
+  await assert.rejects(() => readProjectFile(invalidDirectory), SyntaxError);
+});
+
+function domNamedError(name, message) {
+  const error = new Error(message);
+  error.name = name;
+  return error;
+}
 
 test("project payload preserves the selected component chain item", () => {
   const state = {
@@ -31,10 +99,14 @@ test("project payload preserves the selected component chain item", () => {
       },
       live: {
         selectedSceneId: "scene-live",
+        sceneMappingInLive: false,
+        sceneMappingVisible: false,
         showScenes: false,
         showComponents: true,
         surfaceRoutes: { surfaces: [{ id: "surface-a", componentId: "component-a" }] },
         componentOverrides: { "component-a": { opacity: 0.5 } },
+        transitionId: "org.vj1.transition.soft-wipe",
+        transitionParameters: { softness: 0.25 },
         transitionDuration: 2.5,
         paramFadeDuration: 0.75,
         transition: { id: "runtime-only" },
@@ -53,6 +125,7 @@ test("project payload preserves the selected component chain item", () => {
     groups: [],
     artifacts: [],
     forks: [],
+    packages: [],
     migrations: [],
   });
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");
@@ -62,8 +135,12 @@ test("project payload preserves the selected component chain item", () => {
   assert.equal(payload.ui.previewDiagnostics, true);
   assert.deepEqual(payload.ui.previewViewports, state.ui.previewViewports);
   assert.equal(payload.ui.live.selectedSceneId, "scene-live");
+  assert.equal(payload.ui.live.sceneMappingInLive, false);
+  assert.equal(payload.ui.live.sceneMappingVisible, undefined, "on-air visibility remains transient Live state");
   assert.equal(payload.ui.live.showScenes, false);
   assert.equal(payload.ui.live.showComponents, true);
+  assert.equal(payload.ui.live.transitionId, "org.vj1.transition.soft-wipe");
+  assert.deepEqual(payload.ui.live.transitionParameters, { softness: 0.25 });
   assert.equal(payload.ui.live.surfaceRoutes, undefined);
   assert.equal(payload.ui.live.transitionDuration, 2.5);
   assert.equal(payload.ui.live.paramFadeDuration, 0.75);
@@ -179,6 +256,8 @@ test("project structure and cached thumbnails load before the media-library trav
   assert.ok(loadProject.indexOf("store.replace(nextState, reason)") < loadProject.indexOf("derivedAssets.loadComponentThumbnails"));
   assert.match(loadProject, /void derivedAssets\.loadComponentThumbnails/);
   assert.match(loadProject, /project-thumbnail-cache-batch/);
+  assert.match(loadProject, /kind: "component-thumbnails"/);
+  assert.match(loadProject, /entries: entries\.map/);
 });
 
 test("media import publishes known files without rescanning or replacing live project state", () => {
@@ -302,11 +381,89 @@ test("every 500 committed revisions creates a scan-excluded cold project backup"
 test("completed project transactions enter a serialized immutable save queue", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   const engine = readFileSync(new URL("../js/libraries/storage-engine/serialized-storage/index.js", import.meta.url), "utf8");
+  const application = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
   assert.match(source, /event\.history === "record" \? 0 : autosaveDelayMs/);
-  assert.match(source, /saveQueue\.enqueue\(\{ reason: saveReason, recordHistory, payload, json \}\)/);
-  assert.doesNotMatch(source, /payload: JSON\.parse\(json\)/);
+  assert.match(source, /const prepared = savePreparer\.prepareState\(state, new Date\(\)\.toISOString\(\)\)/);
+  assert.match(source, /saveQueue\.enqueue\(\{ reason: saveReason, recordHistory, prepared \}\)/);
+  assert.match(application, /scheduleAutoSave\(change, \{ state \}\)/);
+  assert.doesNotMatch(source, /VJ1_AUTOSAVE_PREPARE_SLOW/);
   assert.match(engine, /while \(this\.pending\.length\)/);
   assert.match(engine, /this\.pending\.unshift\(task\)/);
+});
+
+test("project save preparation produces exact JSON and stable save/history identities", () => {
+  const state = {
+    project: { name: "Worker test", warnings: ["runtime warning"] },
+    ui: { selectedComponentId: "a", live: {} },
+    global: {},
+    render: { outputs: [] },
+    scheduler: {},
+    nodes: {},
+    media: [],
+    components: [],
+    mappings: [],
+    shaders: {},
+  };
+  const first = prepareProjectSave(state, "2026-07-23T10:00:00.000Z");
+  const later = prepareProjectSave({
+    ...state,
+    ui: { ...state.ui, selectedComponentId: "b" },
+  }, "2026-07-23T10:01:00.000Z");
+  assert.deepEqual(
+    JSON.parse(first.json),
+    JSON.parse(JSON.stringify(buildProjectPayload(state, first.savedAt))),
+  );
+  assert.equal(first.savedAt, "2026-07-23T10:00:00.000Z");
+  assert.notEqual(first.signature, later.signature, "ordinary persisted UI changes remain save-relevant");
+  assert.equal(first.historySignature, later.historySignature, "UI-only changes do not create undo revisions");
+  assert.equal(inspectProjectTextForSave(first.json).historySignature, first.historySignature);
+  assert.equal(inspectProjectTextForSave("{invalid").valid, false);
+});
+
+test("project save preparer delegates projection and signatures to its worker", async () => {
+  const requests = [];
+  class FakeWorker {
+    constructor(url, options) {
+      this.url = String(url);
+      this.options = options;
+    }
+
+    postMessage(request) {
+      requests.push(request.kind);
+      queueMicrotask(() => {
+        let result;
+        if (request.kind === "prepare-state") result = prepareProjectSave(request.state, request.savedAt);
+        else if (request.kind === "inspect-text") result = inspectProjectTextForSave(request.text);
+        this.onmessage?.({ data: { id: request.id, ok: true, result } });
+      });
+    }
+
+    terminate() {}
+  }
+  const warnings = [];
+  const preparer = createProjectSavePreparer({
+    WorkerClass: FakeWorker,
+    workerUrl: new URL("https://example.test/project-save-worker.js"),
+    onFallback: (error) => warnings.push(error),
+  });
+  const state = {
+    project: {},
+    ui: { live: {} },
+    global: {},
+    render: { outputs: [] },
+    scheduler: {},
+    nodes: {},
+    media: [],
+    components: [],
+    mappings: [],
+    shaders: {},
+  };
+  const prepared = await preparer.prepareState(state, "2026-07-23T12:00:00.000Z");
+  const inspected = await preparer.inspectText(prepared.json);
+  assert.deepEqual(requests, ["prepare-state", "inspect-text"]);
+  assert.equal(inspected.historySignature, prepared.historySignature);
+  assert.deepEqual(warnings, []);
+  preparer.dispose();
 });
 
 test("undo and redo reload project state without rescanning assets", () => {

@@ -16,11 +16,14 @@ import {
   nodeEditorProjection,
   NodeInstance,
   NodeRegistry,
+  NODE_EDIT_ACTIVATION,
+  NODE_GROUP_EXECUTION_MODELS,
   NODE_PART_KINDS,
   NODE_COMPILER_TARGETS,
   numberType,
   recordType,
   materializeProjectNodeFork,
+  installNodePackageReference,
   normalizeNodeProjectData,
   pinNodeVersion,
   serializeNodeDefinition,
@@ -41,6 +44,12 @@ import {
   RenderContextType,
   TextureFrameType,
 } from "../js/libraries/render-engine/render-node-contract.js";
+import {
+  defineVisualNodeContract,
+  visualContractsCompatible,
+  VISUAL_ROI_MODES,
+  VISUAL_TRANSFORM_DOMAINS,
+} from "../js/libraries/render-engine/visual-node-contract.js";
 
 test("node definitions expose a versioned editable manifest", () => {
   const definition = defineNode({
@@ -60,11 +69,133 @@ test("node definitions expose a versioned editable manifest", () => {
   assert.equal(definition.version, "1.2.3");
   assert.equal(definition.formatVersion, 1);
   assert.equal(definition.description, "A test node with editable JavaScript and shader parts.");
+  assert.equal(definition.authoring.activation, NODE_EDIT_ACTIVATION.RECOMPILE);
   assert.deepEqual(nodeEditorPanels(definition).map((panel) => panel.editor), [
     "node-overview",
     "code-editor",
     "shader-editor",
   ]);
+});
+
+test("groups declare whether their graph or native program owns behavior", () => {
+  const graph = defineNodeGroup({
+    id: "test.semantic-group",
+    name: "Semantic group",
+    description: "A graph-owned group.",
+    executionModel: NODE_GROUP_EXECUTION_MODELS.GRAPH,
+  });
+  const native = defineNodeGroup({
+    id: "test.native-composite",
+    name: "Native composite",
+    description: "A code-owned composite with an inspectable graph.",
+    nodes: [{ id: "child", type: "test.child" }],
+    program: async () => ({}),
+  });
+
+  assert.equal(graph.implementation.executionModel, NODE_GROUP_EXECUTION_MODELS.GRAPH);
+  assert.equal(graph.parts.find((part) => part.kind === NODE_PART_KINDS.GRAPH).editable, true);
+  assert.equal(native.implementation.executionModel, NODE_GROUP_EXECUTION_MODELS.NATIVE_COMPOSITE);
+  assert.equal(native.parts.find((part) => part.kind === NODE_PART_KINDS.GRAPH).editable, false);
+});
+
+test("Groups declaratively project public controls through semantic child bindings", () => {
+  const group = defineNodeGroup({
+    id: "test.control-projection",
+    name: "Control projection",
+    description: "Projects shared controls without custom UI code.",
+    parameters: {
+      amount: { type: "number", defaultValue: 0.5 },
+      tint: { type: "color", defaultValue: "#ffffffff" },
+    },
+    nodes: [
+      { id: "geometry", type: "test.geometry" },
+      { id: "material", type: "test.material" },
+      { id: "render", type: "test.render" },
+    ],
+    controlBindings: {
+      geometry: [{ publicParameterId: "amount", targetParameterId: "density" }],
+      material: ["tint"],
+      render: ["amount"],
+    },
+    controlPresentation: {
+      geometry: { sectionId: "shape", label: "Shape", order: 10 },
+      material: { label: "Material", order: 20 },
+      render: { sectionId: "shape", label: "Shape", order: 10 },
+    },
+  });
+
+  assert.deepEqual(group.metadata.controlProjection, {
+    format: "vj1.control-projection@1",
+    sections: [
+      {
+        id: "shape",
+        label: "Shape",
+        controls: [{
+          parameterId: "amount",
+          bindings: [
+            { nodeId: "geometry", parameterId: "density" },
+            { nodeId: "render", parameterId: "amount" },
+          ],
+        }],
+      },
+      {
+        id: "material",
+        label: "Material",
+        controls: [{
+          parameterId: "tint",
+          bindings: [{ nodeId: "material", parameterId: "tint" }],
+        }],
+      },
+    ],
+  });
+  assert.throws(() => defineNodeGroup({
+    id: "test.invalid-control-node",
+    name: "Invalid controls",
+    description: "Rejects controls bound to a missing child.",
+    parameters: { amount: { type: "number" } },
+    controlBindings: { missing: ["amount"] },
+  }), /NODE_GROUP_CONTROL_NODE_UNKNOWN/);
+  assert.throws(() => defineNodeGroup({
+    id: "test.invalid-control-parameter",
+    name: "Invalid controls",
+    description: "Rejects controls without a public parameter.",
+    nodes: [{ id: "child", type: "test.child" }],
+    controlBindings: { child: ["missing"] },
+  }), /NODE_GROUP_CONTROL_PARAMETER_UNKNOWN/);
+});
+
+test("visual contracts normalize transform ROI allocation and alpha independently of backend", () => {
+  const generator = defineVisualNodeContract({
+    transform: { domain: VISUAL_TRANSFORM_DOMAINS.CONTENT },
+    roi: { mode: VISUAL_ROI_MODES.NEIGHBORHOOD, halo: 8 },
+  });
+  const effect = defineVisualNodeContract({
+    transform: { domain: VISUAL_TRANSFORM_DOMAINS.COMPOSITION },
+    roi: { mode: VISUAL_ROI_MODES.LOCAL },
+  });
+  const compatibility = visualContractsCompatible(generator, effect);
+
+  assert.equal(generator.roi.halo, 8);
+  assert.equal(generator.roi.inputMapping, "identity");
+  assert.equal(generator.alpha.output, "premultiplied");
+  assert.deepEqual(compatibility, { coordinates: true, alpha: true });
+});
+
+test("compiler targets keep control routing transitions and 3D specialization explicit", () => {
+  assert.deepEqual(Object.values(NODE_COMPILER_TARGETS), [
+    "direct",
+    "visual",
+    "control",
+    "routing",
+    "service",
+    "transition",
+    "scene-3d",
+  ]);
+  assert.throws(() => defineNodeCompiler({
+    id: "test.unknown-compiler",
+    target: "implicit-everything",
+    compile: () => ({ execute() {} }),
+  }), /NODE_COMPILER_TARGET_UNKNOWN/);
 });
 
 test("project node data persists editable definitions, pins, instances, groups, artifacts, forks, and migrations", () => {
@@ -86,6 +217,7 @@ test("project node data persists editable definitions, pins, instances, groups, 
     groups: [{ id: "group-a", nodes: ["instance-a"], connections: [] }],
     artifacts: [{ id: "artifact-a", artifactType: "component", implementation: { nodeType: definition.id } }],
     forks: [{ id: "fork-a", base: { id: definition.id, version: definition.version } }],
+    packages: installNodePackageReference([], "org.example.visuals", "2.3.0"),
     migrations: [{ id: "migration-a", from: "1.2.2", to: "1.2.3" }],
   });
 
@@ -98,6 +230,11 @@ test("project node data persists editable definitions, pins, instances, groups, 
   assert.equal(project.groups[0].id, "group-a");
   assert.equal(project.artifacts[0].artifactType, "component");
   assert.equal(project.forks[0].base.version, "1.2.3");
+  assert.deepEqual(project.packages, [{
+    id: "org.example.visuals",
+    version: "2.3.0",
+    enabled: true,
+  }]);
   assert.equal(project.migrations[0].to, "1.2.3");
 });
 
@@ -548,6 +685,39 @@ test("editable groups execute their graph directly without a scheduler", async (
   assert.deepEqual(await instance.run({ value: 4 }), { value: 9 });
   assert.equal(instance.graphProgram instanceof Object, true);
   assert.equal("scheduler" in instance.graphProgram, false);
+});
+
+test("Group public controls execute through their declared child parameter bindings", async () => {
+  const scale = defineNode({
+    id: "test.group-control-scale",
+    name: "Scale",
+    description: "Scales a value by a parameter.",
+    inlets: { value: "number" },
+    parameters: { factor: { type: "number", defaultValue: 1 } },
+    outlets: { value: "number" },
+    process: ({ value, factor }) => ({ value: value * factor }),
+  });
+  const group = defineNodeGroup({
+    id: "test.group-control-execution",
+    name: "Controlled group",
+    description: "Routes a public control into child parameters.",
+    inlets: { value: "number" },
+    parameters: { amount: { type: "number", defaultValue: 2 } },
+    outlets: { value: "number" },
+    nodes: [{ id: "scale", type: scale.id, parameters: { factor: 9 } }],
+    connections: [
+      { from: "$in.value", to: "scale.value" },
+      { from: "scale.value", to: "$out.value" },
+    ],
+    controlBindings: {
+      scale: [{ publicParameterId: "amount", targetParameterId: "factor" }],
+    },
+  });
+  const registry = new NodeRegistry([scale, group]);
+  const instance = createNodeInstance(group, { registry, parameters: { amount: 3 } });
+
+  assert.deepEqual(await instance.run({ value: 4 }), { value: 12 });
+  assert.deepEqual(await instance.run({ value: 4 }, { parameters: { amount: 5 } }), { value: 20 });
 });
 
 test("smart ports map declared numeric ranges automatically", async () => {

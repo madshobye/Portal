@@ -1,4 +1,111 @@
+import { defineNodeGroup } from "./node-group.js?v=explicit-group-compiler-1";
+
 export const NODE_PROJECT_FORMAT_VERSION = 1;
+
+export function createProjectVisualGroupDefinition({
+  id,
+  name = "Visual Group",
+  description = "A project-owned reusable visual graph compiled before rendering.",
+} = {}) {
+  const nodeId = String(id || "").trim();
+  if (!nodeId) throw new Error("NODE_PROJECT_VISUAL_GROUP_ID_REQUIRED");
+  const definition = defineNodeGroup({
+    id: nodeId,
+    name,
+    version: "0.1.0",
+    description,
+    executionModel: "compiled-graph",
+    authoring: {
+      activation: "recompile",
+      reason: "The authored texture graph compiles into nested optimized render operations.",
+    },
+    inlets: { texture: { type: "texture", optional: true } },
+    outlets: { texture: { type: "texture" } },
+    nodes: [],
+    connections: [],
+    capabilities: [
+      "visual-node",
+      "expandable-group",
+      "compiled-fast-path",
+      "project-owned",
+      "graph-placeable",
+    ],
+    presentation: {
+      catalogs: ["node-graph", "visual-source"],
+      placeableOn: ["visual-graph", "node-graph"],
+      expandable: true,
+      previewOutput: "texture",
+    },
+    metadata: {
+      visualCompilerHook: {
+        id: "vj1.visual.compound",
+        contract: {
+          transform: { domain: "content" },
+          roi: {
+            mode: "local",
+            coordinateSpace: "boundary",
+            inputMapping: "identity",
+            pixelEquivalentToFullFrame: true,
+          },
+          allocation: { mode: "retained" },
+          alpha: { input: "premultiplied", output: "premultiplied" },
+        },
+      },
+      projectOwned: true,
+    },
+  });
+  return Object.freeze({
+    ...serializeNodeDefinition(definition),
+    persistence: "project",
+  });
+}
+
+export function createProjectGroupDefinitionFromTemplate(template, {
+  id,
+  name = template?.name || "Project Group",
+  description = template?.description || "A project-owned reusable compiled graph.",
+} = {}) {
+  const nodeId = String(id || "").trim();
+  if (!nodeId) throw new Error("NODE_PROJECT_GROUP_ID_REQUIRED");
+  if (template?.implementation?.kind !== "group") {
+    throw new Error(`NODE_PROJECT_GROUP_TEMPLATE_INVALID:${template?.id || "missing"}`);
+  }
+  const graph = template.parts?.find((part) => part.kind === "graph");
+  if (!graph) throw new Error(`NODE_PROJECT_GROUP_TEMPLATE_GRAPH_MISSING:${template.id}`);
+  const definition = defineNodeGroup({
+    ...template,
+    id: nodeId,
+    name,
+    label: name,
+    version: "0.1.0",
+    description,
+    compiler: template.compiler || null,
+    program: null,
+    nodes: graph.nodes || [],
+    connections: graph.connections || [],
+    publicInlets: graph.publicInlets || {},
+    publicOutlets: graph.publicOutlets || {},
+    parts: (template.parts || []).filter((part) => part.kind !== "graph"),
+    capabilities: [...new Set([
+      ...(template.capabilities || []),
+      "project-owned",
+      "expandable-group",
+      "compiled-fast-path",
+    ])],
+    metadata: {
+      ...(template.metadata || {}),
+      projectOwned: true,
+      projectTemplateBase: {
+        id: template.id,
+        version: template.version,
+      },
+    },
+  });
+  return Object.freeze({
+    ...serializeNodeDefinition(definition),
+    persistence: "project",
+  });
+}
 
 export function createEmptyNodeProjectData() {
   return {
@@ -10,6 +117,7 @@ export function createEmptyNodeProjectData() {
     groups: [],
     artifacts: [],
     forks: [],
+    packages: [],
     migrations: [],
   };
 }
@@ -25,6 +133,7 @@ export function normalizeNodeProjectData(value = {}) {
     groups: normalizeCollection(source.groups),
     artifacts: normalizeCollection(source.artifacts),
     forks: normalizeCollection(source.forks),
+    packages: normalizePackageReferences(source.packages),
     migrations: normalizeCollection(source.migrations),
   };
 }
@@ -50,10 +159,12 @@ export function serializeNodeDefinition(definition = {}) {
     formatVersion: definition.formatVersion,
     description: definition.description,
     implementation: definition.implementation,
+    compiler: definition.compiler,
     inlets: definition.inlets,
     outlets: definition.outlets,
     parameters: definition.parameters,
     execution: definition.execution,
+    authoring: definition.authoring,
     parts: definition.parts,
     capabilities: definition.capabilities,
     dependencies: definition.dependencies,
@@ -78,12 +189,49 @@ export function pinNodeVersion(pins = [], nodeId, version) {
   ];
 }
 
+export function installNodePackageReference(packages = [], packageId, version, {
+  enabled = true,
+} = {}) {
+  const id = String(packageId || "").trim();
+  const packageVersion = String(version || "").trim();
+  if (!id || !packageVersion) throw new Error("NODE_PROJECT_PACKAGE_REFERENCE_INVALID");
+  if (!/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(packageVersion)) {
+    throw new Error(`NODE_PROJECT_PACKAGE_VERSION_INVALID:${id}:${packageVersion}`);
+  }
+  return [
+    ...normalizePackageReferences(packages).filter((item) => item.id !== id),
+    { id, version: packageVersion, enabled: enabled !== false },
+  ];
+}
+
+export function removeNodePackageReference(packages = [], packageId) {
+  const id = String(packageId || "").trim();
+  return normalizePackageReferences(packages).filter((item) => item.id !== id);
+}
+
 function normalizeCollection(value) {
   if (!Array.isArray(value)) return [];
   return value
     .filter(isRecord)
     .map((item) => jsonData(item))
     .filter(isRecord);
+}
+
+function normalizePackageReferences(value) {
+  if (!Array.isArray(value)) return [];
+  const result = new Map();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = String(item.id || item.packageId || "").trim();
+    const version = String(item.version || item.packageVersion || "").trim();
+    if (!id || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) continue;
+    result.set(id, {
+      id,
+      version,
+      enabled: item.enabled !== false,
+    });
+  }
+  return [...result.values()];
 }
 
 function persistableCollection(value) {

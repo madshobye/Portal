@@ -59,10 +59,12 @@ export function applyBlendGlobal(blend = "normal") {
   else if (blend === "add") blendMode(ADD);
   else if (blend === "screen") blendMode(SCREEN);
   else if (blend === "multiply") blendMode(MULTIPLY);
-  else {
-    const mode = globalThis[String(blend || "").toUpperCase()];
-    blendMode(typeof mode !== "undefined" ? mode : BLEND);
-  }
+  // p5 exposes several Canvas2D-only modes as globals but rejects them from
+  // a WebGL canvas on every call. The renderer's shader compositors own those
+  // richer modes; direct projection has no destination texture to sample, so
+  // use a deterministic normal blend instead of leaking the previous route's
+  // GL blend state and emitting one warning per frame.
+  else blendMode(BLEND);
 }
 
 export function drawWebGLBuffer(pg, source, x, y, w, h) {
@@ -228,13 +230,18 @@ function sharedReferenceResolutionScale(metrics = {}, demandScale = 1, limit = {
   return Math.min(limitScale, Math.max(demandScale, classLongest / baseLongest));
 }
 
-export function componentReferenceCount(component = {}, dependencyId = "") {
-  const visit = (chain) => (chain || []).reduce((count, item) => {
-    if (!item || item.enabled === false) return count;
-    if (item.kind === "group") return count + visit(item.chain);
-    return count + (item.kind === "source" && item.source?.type === "component" && item.source.componentId === dependencyId ? 1 : 0);
-  }, 0);
-  return dependencyId ? visit(component.chain) : 0;
+export function componentReferenceCount(program = null, dependencyId = "") {
+  if (!dependencyId) return 0;
+  const inspection = program?.inspect?.();
+  if (!inspection) throw new Error("VJ1_COMPONENT_PROGRAM_REQUIRED");
+  return (inspection.references || []).reduce((count, reference) =>
+    count + (
+      reference.kind === "component" &&
+      reference.id === dependencyId &&
+      reference.path === "source.componentId"
+        ? 1
+        : 0
+    ), 0);
 }
 
 export function componentReferencePrefersSharedTexture(component = {}, referenceCount = 0, request = {}) {

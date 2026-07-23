@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { createOutputTransportProfiler, transportTimestampMs } from "./output-transport-profiler.js?v=output-transport-profile-1";
-import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=transport-derived-assets-1";
+import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
 import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js?v=render-patch-coalescing-1";
 
 export function createControlBridge({ store, mediaLibrary, diagnostics = null, subscribeStore = true, deferAnnouncement = false }) {
@@ -14,6 +14,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
   let recoveryMediaBlocked = false;
   let pendingRecoveryState = null;
   let pendingRecoveryMedia = null;
+  let knownNodePackages = [];
   const liveSynchronization = new LivePatchSynchronizer({
     onPatch(packet) {
       channel.postMessage({
@@ -75,6 +76,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
         const isNewClient = !clients.has(msg.clientId || "output");
         clients.set(msg.clientId || "output", { at: performance.now(), outputId: msg.outputId || "output-main" });
         if (isNewClient) {
+          sendKnownNodePackages();
           sendState(null, {
             targetClientId: msg.clientId || "",
           });
@@ -265,6 +267,15 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     channel.postMessage({ type: "media-files", files: files || [], sessionId });
   }
 
+  function sendNodePackages(packages = []) {
+    knownNodePackages = Array.isArray(packages) ? packages : [];
+    channel.postMessage({ type: "node-packages", packages: knownNodePackages, sessionId });
+  }
+
+  function sendKnownNodePackages() {
+    channel.postMessage({ type: "node-packages", packages: knownNodePackages, sessionId });
+  }
+
   function sendKnownMediaFiles() {
     const files = mediaLibrary.getAllFiles();
     const state = store.getState();
@@ -285,6 +296,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     sendState,
     sendRenderPatches,
     sendMediaFiles,
+    sendNodePackages,
     acceptStateChange,
     announceControl,
     beginProjectRestore,
@@ -304,7 +316,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
   };
 }
 
-export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onCommand, onControlHello, mode, outputId = "" }) {
+export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onNodePackages, onCommand, onControlHello, mode, outputId = "" }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const clientId = `${mode}-${outputId || "default"}-${Math.random().toString(36).slice(2)}`;
   const transportProfiler = createOutputTransportProfiler();
@@ -351,6 +363,7 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onComma
       });
     }
     if (msg.type === "media-files") onMediaFiles?.(msg.files || []);
+    if (msg.type === "node-packages") onNodePackages?.(msg.packages || []);
     if (msg.type === "command") {
       flushPendingLivePatch();
       onCommand?.(msg.command, msg.payload || {});

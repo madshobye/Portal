@@ -60,13 +60,13 @@ test("thumbnail cache names round-trip ids and cache URLs apply to components", 
   const filename = componentThumbnailFilename("component / a", "surface:1", "png");
   assert.deepEqual(parseComponentThumbnailFilename(filename), {
     componentId: "component / a",
-    frameId: "surface:1",
+    surfaceId: "surface:1",
     extension: "png",
   });
   const components = [{ id: "component / a", type: "scene", canvas: {} }];
   applyThumbnailUrls(components, [
-    { componentId: "component / a", url: "blob:component", frameId: "" },
-    { componentId: "component / a", url: "blob:surface", frameId: "surface:1" },
+    { componentId: "component / a", url: "blob:component", surfaceId: "" },
+    { componentId: "component / a", url: "blob:surface", surfaceId: "surface:1" },
   ]);
   assert.equal(components[0].thumbnail, "blob:component");
   assert.equal(components[0].scene.surfaceThumbnails["surface:1"], "blob:surface");
@@ -97,6 +97,32 @@ test("thumbnail URL leases retire old blobs only after replacement rendering", (
 
   lease.release();
   assert.deepEqual(revoked, ["blob:old", "blob:new"]);
+});
+
+test("thumbnail URL leases retain blobs while a lazy image still references them", () => {
+  const deferred = [];
+  const revoked = [];
+  let referenced = true;
+  let notifyUnused = null;
+  const lease = createThumbnailUrlLease({
+    defer: (callback) => deferred.push(callback),
+    revoke: (url) => revoked.push(url),
+    isReferenced: () => referenced,
+    watchUntilUnused: (_url, callback) => {
+      notifyUnused = callback;
+      return () => {};
+    },
+  });
+
+  lease.activate(["blob:old"]);
+  lease.activate(["blob:new"]);
+  deferred.shift()();
+  assert.deepEqual(revoked, []);
+
+  referenced = false;
+  notifyUnused();
+  assert.deepEqual(revoked, ["blob:old"]);
+  lease.release();
 });
 
 test("render transport strips local thumbnail URLs without mutating editor state", () => {

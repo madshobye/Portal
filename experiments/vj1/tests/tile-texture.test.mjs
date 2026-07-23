@@ -62,10 +62,12 @@ test("Tile Texture repeats its selected image with wrapped shader coordinates", 
   assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /fract\(compositionUv \* repeatAmount/);
   assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /texture2D\(tileImage, tileUv\)/);
   const controls = generatorImageMediaControlTemplate("components.0.source", source, {
-    media: [{ id: "tiles.png", name: "Tiles", path: "media/tiles.png" }],
+    media: [{ id: "tiles.png", name: "media/textures/Tiles.png", path: "media/textures/Tiles.png", type: "image" }],
   });
   assert.match(controls, /data-media-path="components\.0\.source\.params\.imageId"/);
-  assert.match(controls, />Tiles</);
+  assert.match(controls, />Tiles\.png</);
+  assert.doesNotMatch(controls, /<small>/);
+  assert.doesNotMatch(controls, />media\/textures\//);
 });
 
 test("Tile Texture remains dynamic until its selected image is decoded", () => {

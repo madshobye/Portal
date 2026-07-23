@@ -13,7 +13,7 @@ import {
   directFitRects,
   scaledComponentSampleRect,
   unifyTransitionComponentRenderRequests,
-} from "./component-render-layout.js?v=transition-demand-stability-1";
+} from "./component-render-layout.js?v=webgl-direct-blend-1";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=live-overall-routing-1";
 import {
@@ -134,7 +134,12 @@ export class OutputSurfaceRuntime {
     const startedAtMs = Number(transition?.startedAtMs) || 0;
     if (!transition?.fromState || !durationMs || !startedAtMs) return null;
     const progress = Math.max(0, Math.min(1, (Number(nowMs) - startedAtMs) / durationMs));
-    return progress >= 1 ? null : { ...transition, progress };
+    if (progress >= 1) return null;
+    const resolved = this.renderer.resolveTransition?.(
+      transition.transitionId,
+      transition.transitionParameters
+    ) || {};
+    return { ...transition, ...resolved, progress };
   }
 
   renderTransitionSurfaces(transition) {
@@ -282,6 +287,11 @@ export class OutputSurfaceRuntime {
             } : {}),
             feather,
             progress: transition.progress,
+            transitionKernel: transition.kernel || transition.transitionKernel,
+            transitionParameters: transition.parameters || transition.transitionParameters,
+            transitionTime: renderer.visualTime,
+            transitionTimeDelta: renderer.visualDeltaSeconds,
+            transitionFrameIndex: renderer.frameIndex,
           });
           this.drawLiveMonitorGuideNodes(route);
         } finally {
@@ -390,9 +400,7 @@ export class OutputSurfaceRuntime {
     const previous = {
       state: renderer.state,
       componentById: renderer.componentById,
-      frameById: renderer.frameById,
       routeSourceNodeById: renderer.routeSourceNodeById,
-      routeSourceNodeByLegacyKey: renderer.routeSourceNodeByLegacyKey,
     };
     renderer.state = renderState;
     renderer.rebuildRouteLookups();
@@ -403,9 +411,7 @@ export class OutputSurfaceRuntime {
       // exact previous maps so temporary transition scopes cannot leak routes.
       renderer.state = previous.state;
       renderer.componentById = previous.componentById;
-      renderer.frameById = previous.frameById;
       renderer.routeSourceNodeById = previous.routeSourceNodeById;
-      renderer.routeSourceNodeByLegacyKey = previous.routeSourceNodeByLegacyKey;
     }
   }
 
@@ -567,7 +573,7 @@ export class OutputSurfaceRuntime {
     const selectedMapping = renderer.state?.mappings?.find((mapping) =>
       String(mapping.id) === String(renderer.state?.ui?.selectedMappingId || "")
     ) || renderer.state?.mappings?.[0] || null;
-    const guideSurfaces = renderer.state?.ui?.live?.surfaceRoutes?.surfaces
+    const guideSurfaces = renderer.state?.surfaces
       || selectedMapping?.surfaces
       || [];
     const visibleFrameIds = visibleSceneSurfaceIds(guideSurfaces);

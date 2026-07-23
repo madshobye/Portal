@@ -1,0 +1,337 @@
+import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
+import { evaluateIsfDimension } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+import {
+  createSharedFramebufferTarget,
+  unwrapRenderTarget,
+} from "./shared-framebuffer-target.js?v=isf-runtime-1";
+import {
+  applyShaderTarget,
+  clearShaderTarget,
+  disposeGraphics,
+  drawShaderTarget,
+  drawShaderTargetRect,
+  enumUniform,
+  resetShaderTarget,
+  setShaderUniformIfPresent,
+} from "./shader-target-runtime.js?v=source-roi-view-3";
+
+const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
+
+// Retained backend for portable ISF nodes. The visual graph compiler decides
+// topology and the Output renderer decides when an operation runs; this class
+// owns only ISF resources and the already-compiled GPU execution contract.
+export class IsfRenderRuntime {
+  constructor(host) {
+    this.host = host;
+    this.passTargets = new Map();
+    this.targetTextures = new Map();
+    this.dateUniform = [0, 0, 0, 0];
+  }
+
+  needsPassRuntime(component) {
+    const passes = component?.isf?.passes || [];
+    return passes.length > 1 || passes.some((pass) =>
+      pass.target || pass.persistent || pass.float ||
+      pass.width !== "$WIDTH" || pass.height !== "$HEIGHT"
+    );
+  }
+
+  dispose() {
+    const seen = new Set();
+    for (const entry of this.passTargets.values()) {
+      for (const target of entry.targets || []) {
+        if (!target || seen.has(target)) continue;
+        seen.add(target);
+        disposeGraphics(target);
+      }
+    }
+    this.passTargets.clear();
+    this.targetTextures.clear();
+  }
+
+  prune(maxIdleFrames = 600) {
+    const frameIndex = Math.max(0, Number(this.host.frameIndex) || 0);
+    for (const [key, entry] of this.passTargets) {
+      if (frameIndex - entry.lastUsed <= maxIdleFrames) continue;
+      for (const target of entry.targets) disposeGraphics(target);
+      this.passTargets.delete(key);
+    }
+  }
+
+  getPassTarget(component, instanceId, pass, widthPx, heightPx) {
+    const floatFormat = pass.float ? globalThis.FLOAT : null;
+    if (pass.float && floatFormat == null) {
+      console.error("[VJ1_ISF_FLOAT_TARGET_UNAVAILABLE]", {
+        shader: component?.id || "",
+        pass: pass.target || pass.index,
+        message: "This ISF requires floating-point framebuffer support.",
+      });
+      return null;
+    }
+    const key = [
+      component?.id || "isf",
+      component?.isf?.sourceHash || "",
+      instanceId || "shared",
+      pass.target,
+    ].join(":");
+    let entry = this.passTargets.get(key);
+    const targetCount = pass.persistent ? 2 : 1;
+    if (entry && (
+      entry.width !== widthPx ||
+      entry.height !== heightPx ||
+      entry.float !== !!pass.float ||
+      entry.targets.length !== targetCount
+    )) {
+      for (const target of entry.targets) disposeGraphics(target);
+      this.passTargets.delete(key);
+      entry = null;
+    }
+    if (!entry) {
+      const targets = [];
+      for (let index = 0; index < targetCount; index++) {
+        const target = createSharedFramebufferTarget(widthPx, heightPx, {
+          format: floatFormat,
+        });
+        if (!target) {
+          for (const created of targets) disposeGraphics(created);
+          return null;
+        }
+        drawShaderTarget(target, () => clearShaderTarget(target));
+        targets.push(target);
+      }
+      entry = {
+        targets,
+        width: widthPx,
+        height: heightPx,
+        float: !!pass.float,
+        current: 0,
+        lastUsed: Math.max(0, Number(this.host.frameIndex) || 0),
+      };
+      this.passTargets.set(key, entry);
+    }
+    entry.lastUsed = Math.max(0, Number(this.host.frameIndex) || 0);
+    return entry;
+  }
+
+  renderProgram({
+    component,
+    shader,
+    input = null,
+    inputs = null,
+    finalTarget,
+    renderRequest,
+    timeSeconds,
+    params = {},
+    instanceId = "",
+    contentMatrix = null,
+    useContentTransform = false,
+    effectTransform = null,
+    sourceDetail = null,
+  }) {
+    const passes = component?.isf?.passes || [];
+    if (!passes.length || !shader || !finalTarget) return null;
+    const baseWidth = Math.max(1, Number(renderRequest.width) || 1);
+    const baseHeight = Math.max(1, Number(renderRequest.height) || 1);
+    const dimensionValues = { WIDTH: baseWidth, HEIGHT: baseHeight };
+    for (const param of component.params || []) {
+      if (Number.isInteger(param.isfVectorIndex)) continue;
+      const normalized = normalizeParamValue(param, params[param.id]);
+      dimensionValues[param.id] = param.type === "enum" && Array.isArray(param.isfValues)
+        ? Number(param.isfValues[enumUniform(param, normalized)]) || 0
+        : Number(normalized) || 0;
+    }
+    const targetTextures = this.targetTextures;
+    targetTextures.clear();
+    let result = finalTarget;
+    for (let index = 0; index < passes.length; index++) {
+      const pass = passes[index];
+      const finalPass = index === passes.length - 1;
+      let widthPx;
+      let heightPx;
+      try {
+        widthPx = evaluateIsfDimension(pass.width, dimensionValues);
+        heightPx = evaluateIsfDimension(pass.height, dimensionValues);
+      } catch (error) {
+        console.error("[VJ1_ISF_PASS_SIZE_FAILED]", {
+          shader: component.id,
+          pass: pass.target || index,
+          message: error?.message || String(error),
+        });
+        return null;
+      }
+      let destination = finalTarget;
+      let passEntry = null;
+      if (pass.target) {
+        passEntry = this.getPassTarget(
+          component, instanceId, pass, widthPx, heightPx,
+        );
+        if (!passEntry) return null;
+        if (pass.persistent) {
+          targetTextures.set(pass.target, passEntry.targets[passEntry.current]);
+        }
+        destination = pass.persistent
+          ? passEntry.targets[passEntry.current === 0 ? 1 : 0]
+          : passEntry.targets[0];
+      } else if (
+        widthPx !== finalTarget.width ||
+        heightPx !== finalTarget.height
+      ) {
+        passEntry = this.getPassTarget(
+          component,
+          instanceId,
+          { ...pass, target: "__vj1FinalPass", persistent: false },
+          widthPx,
+          heightPx,
+        );
+        if (!passEntry) return null;
+        destination = passEntry.targets[0];
+      }
+      const passRequest = {
+        ...renderRequest,
+        width: widthPx,
+        height: heightPx,
+        logicalWidth: widthPx,
+        logicalHeight: heightPx,
+      };
+      const drawPass = () => drawShaderTarget(destination, () => {
+        clearShaderTarget(destination);
+        applyShaderTarget(destination, shader);
+        setShaderUniformIfPresent(
+          shader,
+          "renderUvRect",
+          renderRequest.uvRect || FULL_RENDER_UV_RECT,
+        );
+        if (contentMatrix) {
+          setShaderUniformIfPresent(shader, "contentUvMatrix", contentMatrix);
+        }
+        setShaderUniformIfPresent(
+          shader,
+          "useContentTransform",
+          useContentTransform ? 1 : 0,
+        );
+        if (effectTransform) {
+          this.host.setEffectInfrastructureUniforms(shader, effectTransform);
+        }
+        this.setFrameUniforms(shader, component, {
+          input,
+          inputs,
+          renderRequest: passRequest,
+          timeSeconds,
+          params,
+          passIndex: index,
+          targetTextures,
+          sourceDetail: finalPass ? sourceDetail : null,
+        });
+        setShaderUniformIfPresent(shader, "vj1IsfFinalPass", finalPass);
+        this.host.setShaderParamUniforms(shader, component, params, {
+          onlyPresent: true,
+        });
+        drawShaderTargetRect(destination, widthPx, heightPx);
+        resetShaderTarget(destination);
+      });
+      this.host.measureShaderPass(
+        { id: component.id, instanceId },
+        component,
+        passRequest,
+        {
+          handoff: false,
+          sourceIsShaderBuffer: this.host.isShaderBuffer(input),
+          targetSlot: -1,
+        },
+        destination,
+        drawPass,
+      );
+      if (passEntry && pass.target) {
+        if (pass.persistent) {
+          passEntry.current = passEntry.current === 0 ? 1 : 0;
+        }
+        targetTextures.set(pass.target, destination);
+      }
+      result = destination;
+    }
+    return result;
+  }
+
+  setFrameUniforms(shader, component, {
+    input = null,
+    inputs = null,
+    renderRequest = {},
+    timeSeconds,
+    params = {},
+    passIndex = 0,
+    generatorUniformState = null,
+    targetTextures = null,
+    sourceDetail = null,
+  } = {}) {
+    const logicalWidth = Math.max(
+      1,
+      Number(sourceDetail?.width) ||
+      Number(renderRequest.logicalWidth) ||
+      Number(renderRequest.width) ||
+      1,
+    );
+    const logicalHeight = Math.max(
+      1,
+      Number(sourceDetail?.height) ||
+      Number(renderRequest.logicalHeight) ||
+      Number(renderRequest.height) ||
+      1,
+    );
+    const now = new Date();
+    const date = generatorUniformState?.iDate || this.dateUniform;
+    date[0] = now.getFullYear();
+    date[1] = now.getMonth() + 1;
+    date[2] = now.getDate();
+    date[3] = now.getHours() * 3600 + now.getMinutes() * 60 +
+      now.getSeconds() + now.getMilliseconds() / 1000;
+    setShaderUniformIfPresent(
+      shader,
+      "TIME",
+      timeSeconds === undefined ? this.host.visualTime : timeSeconds,
+    );
+    setShaderUniformIfPresent(
+      shader,
+      "TIMEDELTA",
+      this.host.visualDeltaSeconds,
+    );
+    setShaderUniformIfPresent(shader, "FRAMEINDEX", this.host.frameIndex);
+    setShaderUniformIfPresent(shader, "PASSINDEX", passIndex);
+    setShaderUniformIfPresent(shader, "DATE", date);
+    setShaderUniformIfPresent(
+      shader,
+      "RENDERSIZE",
+      [logicalWidth, logicalHeight],
+    );
+    setShaderUniformIfPresent(shader, "vj1IsfFinalPass", true);
+    if (input) {
+      setShaderUniformIfPresent(
+        shader,
+        "inputImage",
+        unwrapRenderTarget(input),
+      );
+      setShaderUniformIfPresent(shader, "inputImage_imgSize", [
+        Math.max(1, input.width || logicalWidth),
+        Math.max(1, input.height || logicalHeight),
+      ]);
+    }
+    for (const [name, state] of inputs || []) {
+      const texture = state?.buffer || state;
+      if (!texture) continue;
+      setShaderUniformIfPresent(shader, name, unwrapRenderTarget(texture));
+      setShaderUniformIfPresent(shader, `${name}_imgSize`, [
+        Math.max(1, texture.width || logicalWidth),
+        Math.max(1, texture.height || logicalHeight),
+      ]);
+    }
+    for (const [name, texture] of targetTextures || []) {
+      if (!texture) continue;
+      setShaderUniformIfPresent(shader, name, unwrapRenderTarget(texture));
+      setShaderUniformIfPresent(shader, `${name}_imgSize`, [
+        Math.max(1, texture.width || 1),
+        Math.max(1, texture.height || 1),
+      ]);
+    }
+    void component;
+    void params;
+  }
+}

@@ -39,9 +39,14 @@ export const OrbitMotionNode = defineNode({
 export function orbitMotionNodeProcess({
   time = 0, centerX = 0.5, centerY = 0.5, radius = 0.25,
   secondaryRadius = 0.08, speed = 1, phase = 0,
-} = {}) {
+} = {}, { output = {} } = {}) {
   const clock = Number(time) * Number(speed) + Number(phase);
   const x = Number(centerX) + Math.cos(clock) * Number(radius) + Math.cos(clock * -2.17) * Number(secondaryRadius);
   const y = Number(centerY) + Math.sin(clock) * Number(radius) + Math.sin(clock * -2.17) * Number(secondaryRadius);
-  return { x, y, position: [x, y] };
+  const position = output.position || (output.position = [0, 0]);
+  position[0] = x;
+  position[1] = y;
+  output.x = x;
+  output.y = y;
+  return output;
 }

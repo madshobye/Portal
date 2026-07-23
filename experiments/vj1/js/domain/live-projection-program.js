@@ -1,7 +1,7 @@
 import {
   materializeLiveProgramSurfaceRoutes,
   rebaseSurfaceRouteProgram,
-} from "./scene-routing.js?v=transition-start-fit-1";
+} from "./scene-routing.js?v=explicit-surface-visibility-1";
 
 const EMPTY_ROUTES = Object.freeze({ surfaces: Object.freeze([]) });
 
@@ -77,6 +77,10 @@ function compileTransition(state, live, target, mapping, currentRoutes, now) {
     previousComponentOverrides: authored.fromComponentOverrides || {},
     currentComponentOverrides: live.componentOverrides || {},
     componentsShared: JSON.stringify(authored.fromComponentOverrides || {}) === JSON.stringify(live.componentOverrides || {}),
+    transitionId: String(live.transitionId || "vj1.transition.dissolve"),
+    transitionParameters: live.transitionParameters && typeof live.transitionParameters === "object"
+      ? Object.freeze({ ...live.transitionParameters })
+      : Object.freeze({}),
     startedAtMs,
     durationMs,
   });

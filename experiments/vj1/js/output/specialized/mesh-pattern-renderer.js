@@ -19,6 +19,10 @@ import {
   restoreRawWebGlState,
 } from "../../libraries/render-engine/raw-webgl-state.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
+import {
+  specializedCompoundRuntimeParameters,
+  specializedCompoundStageEnabled,
+} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=specialized-stage-authority-1";
 
 const MAX_CPU_TOPOLOGIES = 32;
 const MAX_GPU_TOPOLOGIES = 24;
@@ -58,8 +62,8 @@ export class MeshPatternRenderer {
 
   draw(target, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const gl = target?.drawingContext;
-    if (!gl) return false;
-    const params = source.params || {};
+    if (!gl || !specializedCompoundStageEnabled(operation, "topology")) return false;
+    const params = specializedCompoundRuntimeParameters(operation, source.params || {});
     const viewport = renderTargetPixelSize(target);
     const view = renderView(target, renderRequest);
     const nodeModule = meshPatternNodeRuntimeModule(operation);
@@ -111,8 +115,12 @@ export class MeshPatternRenderer {
     const background = parseColor(params.backgroundColor, "#08070c00");
     const placement = contentTransformUvMatrices(source.contentTransform).placement;
     const drawMode = String(params.drawMode || "fill + wire");
-    const drawFill = drawMode !== "wire" && resources.fillCount > 0;
-    const drawWire = drawMode !== "fill" && resources.wireCount > 0;
+    const drawFill = drawMode !== "wire" && resources.fillCount > 0 &&
+      specializedCompoundStageEnabled(operation, "fill-material") &&
+      specializedCompoundStageEnabled(operation, "fill-render");
+    const drawWire = drawMode !== "fill" && resources.wireCount > 0 &&
+      specializedCompoundStageEnabled(operation, "wire-material") &&
+      specializedCompoundStageEnabled(operation, "wire-render");
     const render = () => drawMeshPasses(gl, context, resources, {
       params,
       palette,

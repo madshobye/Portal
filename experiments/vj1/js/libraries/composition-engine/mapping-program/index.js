@@ -5,6 +5,8 @@ export const MappingProgramNode = defineNodeGroup({
   name: "Mapping Program",
   version: "0.1.0",
   description: "A persisted Mapping topology connecting Scene routes to physical Surfaces.",
+  executionModel: "compiled-graph",
+  authoring: { activation: "recompile" },
   outlets: { routes: { type: "any" } },
   execution: { trigger: "frame", domain: "main", stateful: true },
   capabilities: ["mapping-program", "surface-routing", "mapping", "expandable-group", "compiled-fast-path"],

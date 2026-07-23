@@ -1,12 +1,13 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=transition-start-fit-1";
+import { sanitizeState } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=render-patch-coalescing-1";
-import { OutputRenderer } from "./output-renderer.js?v=resolution-relative-model-clip-1";
+import { createOutputBridge } from "../services/output-bridge-service.js?v=thumbnail-url-lifecycle-1";
+import { OutputRenderer } from "./output-renderer.js?v=public-control-node-configuration-media-url-retirement-named-image-inputs-isf-texture-shader-composite-source-backends-2";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=output-one-1";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
+import { importNodePackage } from "../libraries/node-engine/node-package.js?v=project-group-authoring-compiler-transport-1";
 
 let outputFitSignature = "";
 
@@ -21,6 +22,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   `;
 
   let renderer = null;
+  let outputIdleSuspended = false;
   let pendingState = null;
   let acceptedState = null;
   let acceptedRevision = 0;
@@ -32,6 +34,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   let preparedTransportMeta = null;
   let prepareErrorSignature = "";
   let acceptedFiles = [];
+  let installedNodePackages = [];
   let bridge = null;
   let renderFont = null;
   let resizeObserver = null;
@@ -43,6 +46,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   window.addEventListener("pagehide", () => {
     renderer?.dispose?.();
     renderer = null;
+    outputIdleSuspended = false;
     resizeObserver?.disconnect?.();
     resizeObserver = null;
     if (observedResizeFrame) cancelAnimationFrame(observedResizeFrame);
@@ -75,6 +79,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
           // loops while retaining one resize per displayed browser frame.
           observedResizeFrame = requestAnimationFrame(() => {
             observedResizeFrame = 0;
+            wakeOutputPresentation();
             resizeOutputIfNeeded(pendingState, mode, renderer);
           });
         })
@@ -98,8 +103,17 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       },
       sendMapping: (id, mapping, status, meta) => bridge?.mappingState(id, mapping, status, meta),
       requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
+      requestPresentationFrame: wakeOutputPresentation,
+      installedNodePackages,
     });
-    const initialState = pendingState ? sanitizeState(pendingState) : null;
+    // Fixture preparation above has already normalized the model and compiled
+    // its node-project projections. Sanitizing it a second time would
+    // intentionally strip renderer-derived route bindings before setup.
+    const initialState = pendingState
+      ? fixtureUrl
+        ? pendingState
+        : sanitizeState(pendingState)
+      : null;
     await renderer.setup(initialState ? outputSizedState(initialState, outputSize(initialState, mode), mode, outputId) : null, { normalized: true });
     if (acceptedState) {
       acceptedState = renderer.state;
@@ -117,47 +131,73 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     renderer?.draw();
     bridge?.markTransportRendered(acceptedRevision);
     activatePreparedStateIfReady();
+    suspendStableOutputPresentation();
   };
 
   window.keyPressed = function keyPressed() {
+    wakeOutputPresentation();
     if (key === "c" || key === "C") renderer?.setCalibrate(!renderer.isCalibrating());
     if (key === "s" || key === "S") renderer?.saveMapping();
     if (key === "l" || key === "L") renderer?.loadMapping();
   };
 
   window.mousePressed = function mousePressed() {
+    wakeOutputPresentation();
     renderer?.mousePressed?.(mouseX, mouseY);
     return false;
   };
 
   window.mouseDragged = function mouseDragged() {
+    wakeOutputPresentation();
     renderer?.mouseDragged?.(mouseX, mouseY);
     return false;
   };
 
   window.mouseReleased = function mouseReleased() {
+    wakeOutputPresentation();
     renderer?.mouseReleased?.();
     return false;
   };
 
   window.touchStarted = function touchStarted() {
+    wakeOutputPresentation();
     renderer?.mousePressed?.(mouseX, mouseY);
     return false;
   };
 
   window.touchMoved = function touchMoved() {
+    wakeOutputPresentation();
     renderer?.mouseDragged?.(mouseX, mouseY);
     return false;
   };
 
   window.touchEnded = function touchEnded() {
+    wakeOutputPresentation();
     renderer?.mouseReleased?.();
     return false;
   };
 
   window.windowResized = function windowResized() {
+    wakeOutputPresentation();
     resizeOutputIfNeeded(pendingState, mode, renderer);
   };
+
+  function wakeOutputPresentation() {
+    if (!outputIdleSuspended) return;
+    outputIdleSuspended = false;
+    if (typeof loop === "function") loop();
+  }
+
+  function suspendStableOutputPresentation() {
+    if (
+      outputIdleSuspended ||
+      preparedState ||
+      renderer?.presentationFrameMode?.() !== "on-change" ||
+      typeof noLoop !== "function"
+    ) return;
+    outputIdleSuspended = true;
+    noLoop();
+  }
 
   bridge = createOutputBridge({
     mode,
@@ -228,6 +268,17 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       acceptedFiles = files || [];
       renderer?.importFiles(files);
       activatePreparedStateIfReady();
+    },
+    onNodePackages(packages) {
+      try {
+        installedNodePackages = (packages || []).map((nodePackage) => importNodePackage(nodePackage));
+        renderer?.setInstalledNodePackages(installedNodePackages);
+      } catch (error) {
+        console.error("[VJ1_NODE_PACKAGE_TRANSPORT_INVALID]", {
+          fallback: "retain the previously validated package set",
+          message: error?.message || String(error),
+        });
+      }
     },
     onControlHello(meta = {}) {
       if (meta.changed && meta.sessionId) {
@@ -323,11 +374,11 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
 
   if (fixtureUrl) {
     loadFixtureState(fixtureUrl)
-      .then((state) => {
+      .then(async (fixtureState) => {
+        const state = await prepareFixtureRuntimeState(fixtureState);
         pendingState = state;
         if (renderer) resizeOutputIfNeeded(state, mode, renderer);
-        const normalized = sanitizeState(state);
-        renderer?.setState(outputSizedState(normalized, outputSize(normalized, mode), mode, outputId), { normalized: true });
+        renderer?.setState(outputSizedState(state, outputSize(state, mode), mode, outputId), { normalized: true });
       })
       .catch((error) => {
         console.warn(`[vj1] Could not load fixture state: ${error.message}`);
@@ -418,6 +469,8 @@ export function queuedSceneTransitionState(state, fromState, startedAtMs = Date.
     ...state,
     liveTransition: {
       id: state.liveTransition?.id || `${outputSceneId(stableFromState)}:${outputSceneId(state)}:${startedAtMs}`,
+      transitionId: String(state.liveTransition?.transitionId || state.ui?.live?.transitionId || "vj1.transition.dissolve"),
+      transitionParameters: state.liveTransition?.transitionParameters || state.ui?.live?.transitionParameters || {},
       startedAtMs,
       durationMs,
       // A superseded queued Scene may have different temporary overrides from
@@ -522,6 +575,60 @@ async function loadFixtureState(url) {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response.json();
+}
+
+async function prepareFixtureRuntimeState(fixtureState = {}) {
+  const normalized = sanitizeState(fixtureState);
+  const legacyBindings = fixtureSurfaceSourceBindings(fixtureState);
+  const withBindings = legacyBindings.size
+    ? {
+        ...normalized,
+        surfaces: applyFixtureSourceBindings(normalized.surfaces, legacyBindings),
+        mappings: (normalized.mappings || []).map((mapping) => ({
+          ...mapping,
+          surfaces: applyFixtureSourceBindings(mapping.surfaces, legacyBindings),
+        })),
+      }
+    : normalized;
+  // The production bridge sends state prepared by the control process. A
+  // standalone fixture has no control process, so perform that one-time graph
+  // materialization here. This dynamic import stays outside normal output
+  // startup and cannot add node-catalog work to the render frame.
+  const { createVj1NodePackage } = await import("../app-node-package.js?v=public-control-node-configuration-named-image-inputs-1");
+  return createVj1NodePackage().prepareProjectState(withBindings);
+}
+
+function fixtureSurfaceSourceBindings(fixtureState = {}) {
+  const bindings = new Map();
+  const collect = (routes = []) => {
+    for (const route of routes || []) {
+      const surfaceId = String(route?.id || "");
+      const legacyComponentId = String(route?.componentId || route?.compositionId || "");
+      const sourceNodeId = String(route?.sourceNodeId || "");
+      if (!surfaceId || (!legacyComponentId && !sourceNodeId)) continue;
+      const componentId = legacyComponentId
+        .replace(/composition:/g, "component:")
+        .replace(/composition-/g, "component-")
+        .replace(/^composition$/, "component");
+      bindings.set(surfaceId, {
+        componentId,
+        sourceNodeId: sourceNodeId || `component:${encodeURIComponent(componentId)}`,
+      });
+    }
+  };
+  collect(fixtureState.surfaces);
+  for (const scene of fixtureState.scenes || []) collect(scene?.snapshot?.surfaces);
+  for (const mapping of Array.isArray(fixtureState.mappings) ? fixtureState.mappings : []) {
+    collect(mapping?.surfaces);
+  }
+  return bindings;
+}
+
+function applyFixtureSourceBindings(surfaces = [], bindings = new Map()) {
+  return (surfaces || []).map((surface) => {
+    const binding = bindings.get(String(surface?.id || ""));
+    return binding ? { ...surface, ...binding } : surface;
+  });
 }
 
 function recordRuntimeMetric(metrics) {

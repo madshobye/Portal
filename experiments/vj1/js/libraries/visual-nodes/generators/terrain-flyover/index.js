@@ -2,6 +2,15 @@ import { createBooleanParam, createColorParam, createEnumParam, createNumberPara
 import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
+  defineSpecializedVisualCompound,
+  NativeRenderToTextureNode,
+  PlanarGridGeometryProviderNode,
+  ProceduralGeometryProviderNode,
+  ShaderMaterialProviderNode,
+  VisualCameraProviderNode,
+} from "../../shared/specialized-compound.js?v=specialized-stage-authority-1";
+import { TerrainFlightControllerNode } from "../../../terrain-engine/flight-controller/index.js";
+import {
   terrainNodeModuleParts,
   terrainNodeProcess,
   TerrainNodeModuleExports,
@@ -49,10 +58,67 @@ const manifest = Object.freeze({
     ],
   });
 
-export const VisualComponent = defineGeneratorNode(manifest, null, {
+const NativeVisualComponent = defineGeneratorNode(manifest, null, {
   direct: false,
   process: terrainNodeProcess,
   exports: TerrainNodeModuleExports,
   parts: terrainNodeModuleParts(),
+});
+
+export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
+  compoundKind: "terrain-flyover",
+  nodes: [
+    { id: "flight", type: TerrainFlightControllerNode.id },
+    { id: "geometry", type: ProceduralGeometryProviderNode.id, parameters: { providerId: "terrain-height-field" } },
+    { id: "surface-material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "terrain-biome" } },
+    { id: "wire-material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "terrain-wire" } },
+    {
+      id: "camera",
+      type: VisualCameraProviderNode.id,
+      parameters: {
+        providerId: "terrain-flight-camera",
+        settings: { projection: "perspective" },
+      },
+    },
+    { id: "surface-render", type: NativeRenderToTextureNode.id, parameters: { providerId: "terrain-surface-pass" } },
+    { id: "wire-render", type: NativeRenderToTextureNode.id, parameters: { providerId: "terrain-wire-pass" } },
+  ],
+  connections: [
+    { from: "flight.flight", to: "surface-render.controller", type: "terrain-flight-state" },
+    { from: "flight.flight", to: "wire-render.controller", type: "terrain-flight-state" },
+    { from: "geometry.geometry", to: "surface-render.geometry", type: "geometry-provider" },
+    { from: "geometry.geometry", to: "wire-render.geometry", type: "geometry-provider" },
+    { from: "surface-material.material", to: "surface-render.material", type: "visual-material-provider" },
+    { from: "wire-material.material", to: "wire-render.material", type: "visual-material-provider" },
+    { from: "camera.camera", to: "surface-render.camera", type: "visual-camera-provider" },
+    { from: "camera.camera", to: "wire-render.camera", type: "visual-camera-provider" },
+    { from: "surface-render.texture", to: "wire-render.target", type: "texture" },
+  ],
+  output: "wire-render.texture",
+  parameterBindings: {
+    flight: ["flightMode", "flightSpeed", "turn", "altitude", "terrainScale"],
+    geometry: ["mountainHeight", "terrainScale", "lakeLevel", "viewDistance", "globeRadius", "gridWidth", "gridDepth", "gridDensity", "gridScale", "gridJitter"],
+    camera: ["pitch", "fieldOfView", "nearClip", "farClip", "lookAhead", "noseFollow"],
+    "surface-material": ["waterColor", "grassColor", "rockColor", "snowColor", "downSlopeColor", "directionColor", "skyColor", "textureGrain", "textureDepth", "colorDirection"],
+    "wire-material": ["wireColor", "wireWidth"],
+    "surface-render": ["style", "renderQuality"],
+    "wire-render": ["style", "renderQuality"],
+  },
+  parameterPresentation: {
+    flight: { label: "Flight", order: 10, omitParameterIds: ["terrainScale"] },
+    geometry: { label: "Geometry", order: 20 },
+    camera: { label: "Camera", order: 30 },
+    "surface-material": { label: "Surface material", order: 40 },
+    "wire-material": { label: "Wire material", order: 50 },
+    "surface-render": { sectionId: "render", label: "Render", order: 60 },
+    "wire-render": { sectionId: "render", label: "Render", order: 60 },
+  },
+  providerAlternatives: {
+    geometry: [{
+      nodeId: PlanarGridGeometryProviderNode.id,
+      providerId: "planar-grid",
+      label: "Planar grid",
+    }],
+  },
 });
 export default VisualComponent;

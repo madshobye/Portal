@@ -6,13 +6,25 @@ import { contentTransformUvMatrices, isIdentityTransform, normalizedContentTrans
 import { markRenderTargetOrientation, renderTargetDescriptor, renderTargetNeedsPresentationFlip, RENDER_TEXTURE_ORIENTATION } from "../render-target-contract.js?v=render-core-contract-1";
 import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
 import { GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "../render-pass-shaders.js?v=render-coordinate-scope-3";
-import { advanceSpatialScale, qualityComputeMultiplier } from "../render-runtime-math.js?v=render-coordinate-scope-3";
+import { qualityComputeMultiplier } from "../render-runtime-math.js?v=render-coordinate-scope-3";
 import { advanceRateClock } from "../../libraries/timing-engine/index.js";
+import {
+  lowerTerrainGeometryProvider,
+  terrainCameraView,
+  terrainFlightControllerProcess,
+} from "../../libraries/terrain-engine/index.js?v=provider-substitution-1";
+import {
+  specializedCompoundRuntimeParameters,
+  specializedCompoundStageEnabled,
+  specializedCompoundStageParameters,
+  specializedCompoundStageProvider,
+} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=specialized-stage-authority-1";
 import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.js?v=node-program-hooks-15";
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
 import { applyModelViewportProjection, modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js?v=resolution-relative-model-clip-1";
 import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "../../libraries/mesh-engine/mesh-render-cache.js";
-import { disposeRawModelItemResources, drawRawParsedModelMode } from "../../libraries/mesh-engine/mesh-render/index.js?v=resolution-relative-model-clip-1";
+import { disposeRawModelItemResources, renderMeshNodeProcess } from "../../libraries/mesh-engine/mesh-render/index.js?v=resolution-relative-model-clip-1";
+import { updateMediaMeshRenderValues } from "../../libraries/mesh-engine/media-mesh-render-adapter.js";
 import { modelLodTargetTriangles, selectModelLod } from "../../libraries/mesh-engine/mesh-resolution/index.js";
 import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=source-roi-view-3";
 import { TerrainNodeModuleExports as FALLBACK_TERRAIN_NODE_MODULE } from "./terrain-mesh.js?v=node-program-hooks-15";
@@ -41,7 +53,7 @@ import {
   textMaskDimensions as fallbackTextMaskDimensions,
   textMaskSignature as fallbackTextMaskSignature,
 } from "./text-generator-renderer.js?v=source-roi-view-3";
-import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=source-roi-view-3";
+import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=specialized-stage-authority-1";
 import { disposeRenderTarget } from "../../libraries/render-engine/render-target-lifetime.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
 
@@ -153,7 +165,7 @@ export class SpecializedSourceRuntime {
     this.terrainSurfaceResources = new Map();
     this.terrainWireResources = new Map();
     this.rateClocks = new Map();
-    this.terrainScalePhases = new Map();
+    this.terrainFlightStates = new Map();
     this.superPointPairs = new SuperPointPairService();
     this.mobileNetMorphPairs = new MobileNetMorphPairService();
     this.featureMorphShader = null;
@@ -404,24 +416,43 @@ export class SpecializedSourceRuntime {
   }
 
   drawAnatomy(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
-    const params = source.params || {};
+    if (
+      !specializedCompoundStageEnabled(operation, "geometry") ||
+      !specializedCompoundStageEnabled(operation, "transform") ||
+      !specializedCompoundStageEnabled(operation, "material") ||
+      !specializedCompoundStageEnabled(operation, "camera") ||
+      !specializedCompoundStageEnabled(operation, "render")
+    ) {
+      this.drawStandby(pg, "Anatomy compound stage disabled");
+      return;
+    }
+    const authoredParams = source.params || {};
+    const geometryParams = specializedCompoundStageParameters(operation, "geometry", authoredParams);
+    const transformParams = specializedCompoundStageParameters(operation, "transform", authoredParams);
+    const materialParams = specializedCompoundStageParameters(operation, "material", authoredParams);
+    const cameraParams = specializedCompoundStageParameters(operation, "camera", authoredParams);
+    const renderParams = specializedCompoundStageParameters(operation, "render", authoredParams);
     const nodeModule = anatomyNodeRuntimeModule(operation);
     const target = this.getModelTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
     const viewport = modelViewportMetrics(target, renderRequest);
-    const renderMode = params.renderMode || "surface";
-    const surfaceColor = modelColor(params.surfaceColor, [217, 212, 201, 255]);
-    const wireColor = modelColor(params.wireColor, [75, 73, 68, 204]);
-    const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(params), renderRequest);
-    const rotation = modelRotation(params, componentTime);
+    const renderMode = materialParams.renderMode || "surface";
+    const surfaceColor = modelColor(materialParams.surfaceColor, [217, 212, 201, 255]);
+    const wireColor = modelColor(materialParams.wireColor, [75, 73, 68, 204]);
+    const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(materialParams), renderRequest);
+    const rotation = modelRotation(transformParams, componentTime);
     const detail = Math.max(4, Math.min(14, Math.round(
-      (Number(params.detail) || 8) * qualityComputeMultiplier(params, { minimum: 0.55, maximum: 1.35 })
+      (Number(geometryParams.detail) || 8) * qualityComputeMultiplier(renderParams, { minimum: 0.55, maximum: 1.35 })
     )));
-    const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
-    const depth = Math.max(0.05, Number(params.depth) || 1);
+    const modelScale = Math.max(0.01, Number(transformParams.modelScale) || 1);
+    const depth = Math.max(0.05, Number(geometryParams.depth) || 1);
+    const requestedFov = Number(cameraParams.fieldOfView);
+    const cameraFov = Number.isFinite(requestedFov)
+      ? Math.max(20, Math.min(120, requestedFov)) * Math.PI / 180
+      : modelCameraFov(cameraParams);
     this.measureGpu(target, () => {
       target.push();
       target.clear();
-      applyModelViewportProjection(target, Math.PI / 3, viewport);
+      applyModelViewportProjection(target, cameraFov, viewport);
       target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
       target.ambientLight?.(96);
       target.directionalLight?.(238, 232, 220, -0.45, -0.55, -0.75);
@@ -430,9 +461,9 @@ export class SpecializedSourceRuntime {
       target.rotateX(rotation[0]);
       target.rotateY(rotation[1]);
       target.rotateZ(rotation[2]);
-      const scale = viewport.unitScale * modelScale * nodeModule.anatomyPartFitScale(params.part);
+      const scale = viewport.unitScale * modelScale * nodeModule.anatomyPartFitScale(geometryParams.part);
       target.scale(scale, -scale, scale * depth);
-      nodeModule.drawProceduralAnatomy(target, params, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
+      nodeModule.drawProceduralAnatomy(target, geometryParams, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
       target.pop();
     });
     markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft);
@@ -440,30 +471,55 @@ export class SpecializedSourceRuntime {
   }
 
   drawTerrain(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
-    const params = source.params || {};
+    if (
+      !specializedCompoundStageEnabled(operation, "flight") ||
+      !specializedCompoundStageEnabled(operation, "geometry") ||
+      !specializedCompoundStageEnabled(operation, "camera")
+    ) {
+      this.drawStandby(pg, "Terrain compound stage disabled");
+      return;
+    }
+    const params = specializedCompoundRuntimeParameters(operation, source.params || {});
     const renderViewport = renderView(pg, renderRequest);
     const target = this.getTerrainTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
-    const style = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
+    const authoredStyle = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
+    const drawSurface = authoredStyle !== 1 &&
+      specializedCompoundStageEnabled(operation, "surface-material") &&
+      specializedCompoundStageEnabled(operation, "surface-render");
+    const drawWire = authoredStyle >= 1 &&
+      specializedCompoundStageEnabled(operation, "wire-material") &&
+      specializedCompoundStageEnabled(operation, "wire-render");
+    const style = drawSurface && drawWire ? 2 : drawWire ? 1 : 0;
     const flightSpeed = Math.max(0, Number(params.flightSpeed) || 0);
-    const flightTime = this.continuousRateTime(`${source.instanceId || source.generatorId || "terrain"}:flight`, componentTime, flightSpeed);
-    const viewTransform = terrainCameraView(params, flightTime);
-    const { cameraAnchor } = viewTransform;
-    const scaleKey = `${source.instanceId || source.generatorId || "terrain"}:scale`;
-    const scaleState = advanceSpatialScale(this.terrainScalePhases.get(scaleKey), params.terrainScale, cameraAnchor);
-    this.terrainScalePhases.set(scaleKey, scaleState);
-    const flightParams = {
+    const flightKey = source.instanceId || source.generatorId || "terrain";
+    const flightState = this.terrainFlightStates.get(flightKey) || {};
+    const flight = terrainFlightControllerProcess({
+      componentTime,
+      flightSpeed,
+      turn: params.turn,
+      altitude: params.altitude,
+      terrainScale: params.terrainScale,
+    }, { state: flightState }).flight;
+    this.terrainFlightStates.set(flightKey, flightState);
+    const flightTime = flight.flightTime;
+    const geometryProvider = specializedCompoundStageProvider(
+      operation,
+      "geometry",
+      "terrain-height-field",
+    );
+    const flightParams = lowerTerrainGeometryProvider({
       ...params,
-      turn: viewTransform.turn,
-      altitude: viewTransform.altitude,
+      turn: flight.turn,
+      altitude: flight.altitude,
       flightSpeed: 1,
-      terrainScale: scaleState.scale,
-      terrainPhase: scaleState.phase,
+      terrainScale: flight.terrainScale,
+      terrainPhase: flight.terrainPhase,
       renderUvRect: renderViewport.uvRect,
       contentPlacementMatrix: contentTransformUvMatrices(source.contentTransform).placement,
       gridDensity: Math.max(0.25, Math.min(4,
         (Number(params.gridDensity) || 1) * qualityComputeMultiplier(params, { minimum: 0.4, maximum: 1.5 })
       )),
-    };
+    }, geometryProvider);
     const sky = normalizedModelColor(params.skyColor, [108, 165, 212, 255]);
     const terrainModule = terrainNodeRuntimeModule(operation);
     const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
@@ -474,9 +530,9 @@ export class SpecializedSourceRuntime {
     this.measureGpu(target, () => {
       target.push();
       target.clear();
-      if (style !== 1) target.background(sky[0] * 255, sky[1] * 255, sky[2] * 255, sky[3] * 255);
-      if (style !== 1) drawTerrainSurface(target, this.terrainSurfaceResources, flightParams, flightTime, renderViewport.width, renderViewport.height, style, sky, terrainModule, codeRevision, nodeShaders, surfaceShaderRevision);
-      if (style >= 1) drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, renderViewport.width, renderViewport.height, renderRequest, terrainModule, codeRevision, nodeShaders, wireShaderRevision);
+      if (drawSurface) target.background(sky[0] * 255, sky[1] * 255, sky[2] * 255, sky[3] * 255);
+      if (drawSurface) drawTerrainSurface(target, this.terrainSurfaceResources, flightParams, flightTime, renderViewport.width, renderViewport.height, style, sky, terrainModule, codeRevision, nodeShaders, surfaceShaderRevision);
+      if (drawWire) drawTerrainWireframe(target, this.terrainWireResources, flightParams, flightTime, renderViewport.width, renderViewport.height, renderRequest, terrainModule, codeRevision, nodeShaders, wireShaderRevision);
       target.pop();
     });
     // Camera/projected coordinates are already in screen-down Composition
@@ -524,8 +580,48 @@ export class SpecializedSourceRuntime {
       // Intentional allocation-stable fast path: the live loop invokes the node-owned
       // render implementation directly, avoiding packet, scheduler, and instance
       // allocation overhead while keeping the exact established p5/WebGL UX.
-      const rawParsedDrawn = item.modelData &&
-        drawRawParsedModelMode(target, item, { ...params, __importBasis: importBasis }, componentTime, renderMode, surfaceColor, wireColor, pointBudget, viewport, source.contentTransform, modelMesh);
+      // The media adapter now lowers legacy STL/OBJ controls to the same
+      // independently connectable values used by core.mesh.render. The shared
+      // framebuffer and retained mesh caches remain backend details.
+      const meshRenderValues = updateMediaMeshRenderValues(item.modelRenderNodeValues, {
+        id: `${item.id || "model"}-material`,
+        renderMode,
+        surfaceColor,
+        wireColor,
+        wireThickness: modelWireThickness(params),
+        pointBudget,
+        visibleDepth: params.visibleDepth,
+        rotation,
+        modelScale,
+        depth,
+        fieldOfView: modelCameraFov(params),
+      });
+      item.modelRenderNodeValues = meshRenderValues;
+      const modelRenderNodeState = item.modelRenderNodeState || (item.modelRenderNodeState = {});
+      const rawParsedDrawn = item.modelData && renderMeshNodeProcess({
+        ...params,
+        mesh: modelMesh,
+        material: meshRenderValues.material,
+        transform: meshRenderValues.transform,
+        camera: meshRenderValues.camera,
+        target,
+        cacheOwner: item,
+        componentTime,
+        viewport,
+        contentTransform: source.contentTransform,
+        modelScale: 1,
+        depth: 1,
+        rotationX: 0,
+        rotationY: 0,
+        rotationZ: 0,
+        spinX: 0,
+        spinY: 0,
+        spinZ: 0,
+        // drawModel already cleared the retained depth target above. Keeping
+        // the clear at this native-composite boundary avoids a second
+        // framebuffer clear inside the generalized node process.
+        clear: false,
+      }, { state: modelRenderNodeState }).result.rendered;
       if (!rawParsedDrawn && isSharedFramebufferTarget(target)) {
         if (!item.modelSharedRenderFailureLogged) {
           item.modelSharedRenderFailureLogged = true;
@@ -726,7 +822,7 @@ export class SpecializedSourceRuntime {
     this.resetTerrainResources();
     disposeGraphicsMap(this.targets);
     this.rateClocks.clear();
-    this.terrainScalePhases.clear();
+    this.terrainFlightStates.clear();
     this.featureMorphShader = null;
     this.featureMorphShaderRevision = "";
     this.featureMorphV2Shader = null;
@@ -751,18 +847,7 @@ function createSpecializedTarget(width, height, density, preferSharedFramebuffer
   return target;
 }
 
-export function terrainCameraView(params = {}, flightTime = 0) {
-  const turn = Math.max(-1, Math.min(1, Number(params.turn) || 0));
-  const yaw = turn * 0.72;
-  return {
-    turn,
-    altitude: Math.max(0.2, Number(params.altitude) || 2.5),
-    cameraAnchor: [
-      Math.sin(yaw) * flightTime * 7,
-      Math.cos(yaw) * flightTime * 7,
-    ],
-  };
-}
+export { terrainCameraView };
 
 function featureMorphFlowImage(field = {}) {
   if (field.flowImage) return field.flowImage;

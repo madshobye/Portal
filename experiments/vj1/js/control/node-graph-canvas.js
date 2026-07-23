@@ -13,6 +13,8 @@ export function nodeGraphCanvasTemplate(definition, registry, options = {}) {
     ? new Set(options.editableConnectionTypes.map((type) => String(type || "")))
     : null;
   const nodesEditable = options.nodesEditable ?? topologyEditable;
+  const parametersEditable = options.parametersEditable ?? nodesEditable;
+  const publicInterfaceEditable = options.publicInterfaceEditable === true;
   const layoutEditable = options.layoutEditable !== false;
   const visualProgram = options.visualProgram === true;
   const graph = definition?.parts?.find((part) => part.kind === "graph");
@@ -28,13 +30,13 @@ export function nodeGraphCanvasTemplate(definition, registry, options = {}) {
             ? "Compiler-owned nodes · select an outlet, then an inlet"
             : "Compiler-owned topology · node layout is editable"}</small>
       </header>
-      <div class="node-graph-canvas" data-node-graph-canvas data-node-graph-definition="${esc(definition.metadata?.baseNode?.id || definition.id)}" data-topology-editable="${nodesEditable || connectionsEditable}" data-connections-editable="${connectionsEditable}" data-nodes-editable="${nodesEditable}" data-layout-editable="${layoutEditable}" data-visual-program="${visualProgram}" style="--node-graph-width:${model.width}px;--node-graph-height:${model.height}px">
+      <div class="node-graph-canvas" data-node-graph-canvas data-node-graph-definition="${esc(definition.metadata?.baseNode?.id || definition.id)}" data-topology-editable="${nodesEditable || connectionsEditable}" data-connections-editable="${connectionsEditable}" data-nodes-editable="${nodesEditable}" data-parameters-editable="${parametersEditable}" data-public-interface-editable="${publicInterfaceEditable}" data-layout-editable="${layoutEditable}" data-visual-program="${visualProgram}" style="--node-graph-width:${model.width}px;--node-graph-height:${model.height}px">
         <svg class="node-graph-wires" viewBox="0 0 ${model.width} ${model.height}" aria-label="Node connections">
           ${(graph.connections || []).map((edge, index) => graphEdgeTemplate(edge, index, model, {
             editable: connectionsEditable && connectionTypeEditable(edge.type, editableConnectionTypes),
           })).join("")}
         </svg>
-        ${model.cards.map((card) => graphCardTemplate(card, { nodesEditable })).join("")}
+        ${model.cards.map((card) => graphCardTemplate(card, { nodesEditable, parametersEditable, publicInterfaceEditable })).join("")}
         <script type="application/json" data-node-graph-data>${safeJson(graph)}</script>
         <script type="application/json" data-node-graph-editable-connection-types>${safeJson(editableConnectionTypes ? [...editableConnectionTypes] : null)}</script>
       </div>
@@ -44,7 +46,10 @@ export function nodeGraphCanvasTemplate(definition, registry, options = {}) {
 export function bindNodeGraphCanvas(scope, {
   registry,
   onGraphChange = () => {},
+  onPublicParameterToggle = null,
+  onPublicPortToggle = null,
   onStatus = () => {},
+  onMediaParameterRequest = null,
 } = {}) {
   const canvas = scope?.querySelector?.("[data-node-graph-canvas]");
   if (!canvas || canvas.dataset.bound) return () => {};
@@ -54,8 +59,73 @@ export function bindNodeGraphCanvas(scope, {
   const connectionsEditable = canvas.dataset.connectionsEditable === "true";
   const editableConnectionTypes = readEditableConnectionTypes(canvas);
   const nodesEditable = canvas.dataset.nodesEditable === "true";
+  const parametersEditable = canvas.dataset.parametersEditable === "true";
+  const publicInterfaceEditable = canvas.dataset.publicInterfaceEditable === "true";
   const layoutEditable = canvas.dataset.layoutEditable === "true";
   const visualProgram = canvas.dataset.visualProgram === "true";
+
+  for (const input of parametersEditable ? canvas.querySelectorAll("[data-node-graph-parameter]") : []) {
+    input.addEventListener("change", () => {
+      try {
+        const value = readGraphParameterValue(input);
+        graph = graphWithNodeParameter(
+          graph,
+          input.dataset.nodeGraphParameterNode,
+          input.dataset.nodeGraphParameter,
+          value,
+        );
+        onGraphChange(graph, "change-parameter");
+      } catch (error) {
+        onStatus(error?.message || "Node parameter was not updated");
+      }
+    });
+  }
+
+  for (const button of parametersEditable ? canvas.querySelectorAll("[data-node-graph-media-parameter]") : []) {
+    button.addEventListener("click", () => {
+      const nodeId = button.dataset.nodeGraphParameterNode;
+      const parameterId = button.dataset.nodeGraphMediaParameter;
+      const accept = button.dataset.nodeGraphMediaAccept || "";
+      const apply = (value) => {
+        graph = graphWithNodeParameter(graph, nodeId, parameterId, String(value || ""));
+        onGraphChange(graph, "change-parameter");
+      };
+      if (typeof onMediaParameterRequest === "function") {
+        onMediaParameterRequest({ nodeId, parameterId, accept, apply });
+      } else {
+        onStatus("Media selection is unavailable in this editor");
+      }
+    });
+  }
+
+  for (const button of publicInterfaceEditable ? canvas.querySelectorAll("[data-node-graph-publish-parameter]") : []) {
+    button.addEventListener("click", () => {
+      if (typeof onPublicParameterToggle !== "function") {
+        onStatus("Public parameter authoring is unavailable in this editor");
+        return;
+      }
+      onPublicParameterToggle({
+        nodeId: button.dataset.nodeGraphParameterNode,
+        parameterId: button.dataset.nodeGraphPublishParameter,
+        publicParameterId: button.dataset.nodeGraphPublicParameter || "",
+      });
+    });
+  }
+
+  for (const button of publicInterfaceEditable ? canvas.querySelectorAll("[data-node-graph-publish-port]") : []) {
+    button.addEventListener("click", () => {
+      if (typeof onPublicPortToggle !== "function") {
+        onStatus("Public port authoring is unavailable in this editor");
+        return;
+      }
+      onPublicPortToggle({
+        nodeId: button.dataset.nodeGraphPortNode,
+        portId: button.dataset.nodeGraphPublishPort,
+        direction: button.dataset.nodeGraphPortDirection,
+        publicPortId: button.dataset.nodeGraphPublicPort || "",
+      });
+    });
+  }
 
   const updateWires = () => {
     const canvasRect = canvas.getBoundingClientRect();
@@ -145,6 +215,19 @@ export function bindNodeGraphCanvas(scope, {
     });
   }
 
+  for (const select of nodesEditable ? canvas.querySelectorAll("[data-node-provider-select]") : []) {
+    select.addEventListener("change", () => {
+      const option = select.selectedOptions?.[0];
+      if (!option) return;
+      graph = graphWithNodeProvider(graph, select.dataset.nodeProviderSelect, {
+        nodeId: option.dataset.nodeId,
+        nodeVersion: option.dataset.nodeVersion,
+        providerId: option.dataset.providerId,
+      });
+      onGraphChange(graph, "change-provider");
+    });
+  }
+
   canvas.addEventListener("dragover", (event) => {
     if (!nodesEditable) return;
     if (!event.dataTransfer?.types?.includes("application/x-vj1-node-definition")) return;
@@ -205,6 +288,44 @@ export function graphWithNode(graph, node) {
   if (!node?.id || !(node?.type || node?.nodeId)) throw new Error("NODE_GRAPH_CHILD_INVALID");
   if ((graph.nodes || []).some((item) => item.id === node.id)) throw new Error(`NODE_GRAPH_CHILD_DUPLICATE:${node.id}`);
   return cloneGraph(graph, { nodes: [...(graph.nodes || []), { ...node, position: normalizedPosition(node.position) }] });
+}
+
+export function graphWithNodeProvider(graph, nodeId, {
+  nodeId: providerNodeId,
+  nodeVersion = "",
+  providerId = "",
+} = {}) {
+  if (!(graph.nodes || []).some((node) => node.id === nodeId)) {
+    throw new Error(`NODE_GRAPH_CHILD_MISSING:${nodeId}`);
+  }
+  if (!providerNodeId || !providerId) throw new Error(`NODE_GRAPH_PROVIDER_INVALID:${nodeId}`);
+  return cloneGraph(graph, {
+    nodes: (graph.nodes || []).map((node) => node.id === nodeId
+      ? {
+          ...node,
+          type: providerNodeId,
+          ...(nodeVersion ? { version: nodeVersion } : {}),
+          parameters: {
+            ...(node.parameters || {}),
+            providerId,
+          },
+        }
+      : node),
+  });
+}
+
+export function graphWithNodeParameter(graph, nodeId, parameterId, value) {
+  const id = String(nodeId || "");
+  const parameter = String(parameterId || "");
+  if (!id || !parameter) throw new Error("NODE_GRAPH_PARAMETER_INVALID");
+  if (!(graph.nodes || []).some((node) => node.id === id)) {
+    throw new Error(`NODE_GRAPH_CHILD_MISSING:${id}`);
+  }
+  return cloneGraph(graph, {
+    nodes: (graph.nodes || []).map((node) => node.id === id
+      ? nodeWithParameter(node, parameter, value)
+      : node),
+  });
 }
 
 export function graphNodeFromDefinition(definition, {
@@ -279,7 +400,90 @@ export function graphNodeFromDefinition(definition, {
     connections: [],
     position: normalizedPosition(position),
   };
-  throw new Error(`Only visual generators, effects, and layer groups can be added to a Component program`);
+  const declaredVisualHook = definition?.metadata?.visualCompilerHook;
+  if (declaredVisualHook?.id === "vj1.visual.compound" && definition?.outlets?.texture) return {
+    id: instanceId,
+    nodeId,
+    nodeVersion: definition.version,
+    role: "group",
+    parameters,
+    configuration: {
+      id: instanceId,
+      kind: "source",
+      name: definition.name,
+      enabled: true,
+      opacity: 1,
+      blend: "normal",
+      source: {
+        type: "generator",
+        generatorId: definition.metadata?.visualId || nodeId,
+        instanceId,
+        params: { ...parameters },
+      },
+    },
+    compilerHook: { ...declaredVisualHook },
+    position: normalizedPosition(position),
+  };
+  if (declaredVisualHook?.id === "vj1.visual.texture-operator" && definition?.outlets?.texture) return {
+    id: instanceId,
+    nodeId,
+    nodeVersion: definition.version,
+    role: "operator",
+    parameters,
+    configuration: {
+      id: instanceId,
+      kind: "texture-operator",
+      operator: declaredVisualHook.operator || definition.metadata?.visualOperator || "",
+      enabled: true,
+      params: { ...parameters },
+    },
+    compilerHook: { ...declaredVisualHook },
+    position: normalizedPosition(position),
+  };
+  if (declaredVisualHook?.id && definition?.outlets?.texture) return {
+    id: instanceId,
+    nodeId,
+    nodeVersion: definition.version,
+    role: "source",
+    parameters,
+    configuration: {
+      id: instanceId,
+      kind: "source",
+      name: definition.name,
+      enabled: true,
+      opacity: 1,
+      blend: "normal",
+      source: {
+        type: "generator",
+        generatorId: definition.metadata?.visualId || nodeId,
+        instanceId,
+        params: { ...parameters },
+      },
+    },
+    compilerHook: { ...declaredVisualHook },
+    position: normalizedPosition(position),
+  };
+  if (isVisualControlDefinition(definition)) return {
+    id: instanceId,
+    nodeId,
+    nodeVersion: definition.version,
+    role: "control",
+    parameters,
+    position: normalizedPosition(position),
+  };
+  throw new Error(`Only nodes with a declared visual texture compiler can be added to a Component program`);
+}
+
+function isVisualControlDefinition(definition = {}) {
+  const capabilities = new Set(definition.capabilities || []);
+  return typeof definition.process === "function" && [
+    "numeric-control",
+    "value-control",
+    "timing",
+    "motion",
+    "coordinate-generator",
+    "inspector-control",
+  ].some((capability) => capabilities.has(capability));
 }
 
 export function graphWithoutNode(graph, nodeId) {
@@ -299,7 +503,17 @@ export function nodePortTypesCompatible(source, target) {
 function graphCanvasModel(definition, graph, registry) {
   const childNodes = graph.nodes || [];
   const unknownPorts = connectionPorts(graph.connections || []);
-  const childCards = childNodes.map((node, index) => childCard(node, index, registry, unknownPorts));
+  const publicParameters = publicParameterBindingMap(definition);
+  const publicPorts = publicPortBindingMap(definition);
+  const childCards = childNodes.map((node, index) => childCard(
+    node,
+    index,
+    registry,
+    unknownPorts,
+    compoundProviderOptions(definition, node, registry),
+    publicParameters,
+    publicPorts,
+  ));
   const defaultHeight = Math.max(430, 110 + childCards.length * 34);
   const width = Math.max(960, 430 + Math.max(1, childCards.length) * 230);
   const height = Math.max(defaultHeight, ...childCards.map((card) => card.y + card.height + 40));
@@ -310,19 +524,43 @@ function graphCanvasModel(definition, graph, registry) {
   return { width, height, cards, childNodes, byId };
 }
 
-function childCard(node, index, registry, unknownPorts) {
+function childCard(node, index, registry, unknownPorts, providerOptions = [], publicParameters = new Map(), publicPorts = new Map()) {
   let definition = null;
   try { definition = registry?.get?.(node.type || node.nodeId, node.version || node.nodeVersion); } catch {}
   const id = String(node.id || `node-${index + 1}`);
-  const inlets = mergedPorts(definition?.inlets, node.ports?.inlets).map((port) => graphPort(id, port, "inlet"));
+  const inlets = mergedPorts(definition?.inlets, node.ports?.inlets).map((port) =>
+    graphPort(id, port, "inlet", false, publicPorts.get(`inlet:${id}.${port.id}`) || ""));
   const parameters = Object.values(definition?.parameters || {}).map((port) => graphPort(id, port, "inlet", true));
-  const outlets = mergedPorts(definition?.outlets, node.ports?.outlets).map((port) => graphPort(id, port, "outlet"));
+  const parameterEditors = Object.values(definition?.parameters || {}).map((parameter) => {
+    const endpoint = `${id}.$parameter.${parameter.id}`;
+    return {
+      id: parameter.id,
+      label: parameter.label || parameter.id,
+      type: valueTypeId(parameter.type),
+      values: parameter.type?.values || parameter.editor?.options || [],
+      editor: parameter.editor || null,
+      value: node.parameters?.[parameter.id] ?? parameter.defaultValue,
+      allowedRange: parameter.allowedRange,
+      displayRange: parameter.displayRange,
+      connected: (graphConnectionsForNode(unknownPorts, id) || []).includes(endpoint),
+      publicParameterId: publicParameters.get(`${id}.${parameter.id}`) || "",
+      // Declared parameters are authored configuration regardless of whether
+      // the child produces an image or a control signal. Signal inlets/outlets
+      // remain ports and are never projected into the Group inspector here.
+      publishable: true,
+    };
+  });
+  const outlets = mergedPorts(definition?.outlets, node.ports?.outlets).map((port) =>
+    graphPort(id, port, "outlet", false, publicPorts.get(`outlet:${id}.${port.id}`) || ""));
   appendUnknownPorts(inlets, unknownPorts.targets.get(id), id, "inlet");
   appendUnknownPorts(outlets, unknownPorts.sources.get(id), id, "outlet");
   const position = node.position && Number.isFinite(node.position.x) && Number.isFinite(node.position.y)
     ? normalizedPosition(node.position)
     : { x: 246 + (index % 4) * 224, y: 48 + Math.floor(index / 4) * 230 };
   const rows = Math.max(inlets.length + parameters.length, outlets.length, 1);
+  const parameterTop = PORT_TOP + rows * PORT_ROW + 8;
+  const parameterHeight = parameterEditors.length ? 22 + parameterEditors.length * 30 : 0;
+  const providerHeight = providerOptions.length ? 34 : 0;
   return {
     id,
     name: definition?.name || node.type || node.nodeId || id,
@@ -330,9 +568,12 @@ function childCard(node, index, registry, unknownPorts) {
     x: position.x,
     y: position.y,
     width: CARD_WIDTH,
-    height: PORT_TOP + rows * PORT_ROW + 12,
+    height: parameterTop + parameterHeight + providerHeight + 8,
     inlets: [...inlets, ...parameters],
     outlets,
+    parameterEditors,
+    parameterTop,
+    providerOptions,
     removable: true,
   };
 }
@@ -368,7 +609,7 @@ function boundaryCard(id, name, ports, direction, x, y) {
   };
 }
 
-function graphPort(nodeId, port, direction, parameter = false) {
+function graphPort(nodeId, port, direction, parameter = false, publicPortId = "") {
   return {
     id: port.id,
     label: port.label || port.id,
@@ -376,19 +617,142 @@ function graphPort(nodeId, port, direction, parameter = false) {
     direction,
     type: valueTypeId(port.type),
     parameter,
+    publicPortId,
   };
 }
 
-function graphCardTemplate(card, { nodesEditable = true } = {}) {
+function graphCardTemplate(card, {
+  nodesEditable = true,
+  parametersEditable = true,
+  publicInterfaceEditable = false,
+} = {}) {
   return `<article class="node-graph-card ${card.id.startsWith("$") ? "is-boundary" : ""}" data-node-graph-node="${esc(card.id)}" data-x="${card.x}" data-y="${card.y}" style="left:${card.x}px;top:${card.y}px;width:${card.width}px;min-height:${card.height}px">
     <header data-node-graph-drag>${icon(card.id.startsWith("$") ? "input" : "data_object")}<span><strong>${esc(card.name)}</strong><small>${esc(card.type)}</small></span>${card.removable && nodesEditable ? `<button type="button" data-remove-graph-node="${esc(card.id)}" title="Remove node" aria-label="Remove ${esc(card.name)}">${icon("close")}</button>` : ""}</header>
-    <div class="node-graph-card-ports is-inlets">${card.inlets.map(graphPortTemplate).join("")}</div>
-    <div class="node-graph-card-ports is-outlets">${card.outlets.map(graphPortTemplate).join("")}</div>
+    <div class="node-graph-card-ports is-inlets">${card.inlets.map((port) => graphPortTemplate(port, publicInterfaceEditable && !card.id.startsWith("$"))).join("")}</div>
+    <div class="node-graph-card-ports is-outlets">${card.outlets.map((port) => graphPortTemplate(port, publicInterfaceEditable && !card.id.startsWith("$"))).join("")}</div>
+    ${card.parameterEditors?.length ? `<div class="node-graph-parameters" style="top:${card.parameterTop}px"><strong>Values</strong>${card.parameterEditors.map((parameter) =>
+      graphParameterTemplate(card.id, parameter, parametersEditable, publicInterfaceEditable)).join("")}</div>` : ""}
+    ${card.providerOptions?.length ? `<label class="node-graph-provider"><span>Provider</span><select data-node-provider-select="${esc(card.id)}"${nodesEditable ? "" : " disabled"}>${card.providerOptions.map((option) =>
+      `<option value="${esc(`${option.nodeId}:${option.providerId}`)}" data-node-id="${esc(option.nodeId)}" data-node-version="${esc(option.nodeVersion)}" data-provider-id="${esc(option.providerId)}"${option.selected ? " selected" : ""}>${esc(option.label)}</option>`).join("")}</select></label>` : ""}
   </article>`;
 }
 
-function graphPortTemplate(port) {
-  return `<button type="button" class="node-graph-port is-${port.direction}${port.parameter ? " is-parameter" : ""}" data-node-graph-port="${esc(port.endpoint)}" data-direction="${port.direction}" data-value-type="${esc(port.type)}" title="${esc(port.endpoint)} · ${esc(port.type)}"><i></i><span>${esc(port.label)}</span><small>${esc(port.type)}</small></button>`;
+function graphParameterTemplate(nodeId, parameter, editable, publicInterfaceEditable = false) {
+  const disabled = !editable || parameter.connected;
+  const common = `data-node-graph-parameter="${esc(parameter.id)}" data-node-graph-parameter-node="${esc(nodeId)}" data-node-graph-parameter-type="${esc(parameter.type)}"${disabled ? " disabled" : ""}`;
+  const connectedTitle = parameter.connected ? ' title="Value is supplied by a connected node"' : "";
+  const publicAction = publicInterfaceEditable && parameter.publishable
+    ? `<button type="button" class="node-graph-publish-parameter${parameter.publicParameterId ? " is-published" : ""}" data-node-graph-publish-parameter="${esc(parameter.id)}" data-node-graph-parameter-node="${esc(nodeId)}" data-node-graph-public-parameter="${esc(parameter.publicParameterId)}" title="${esc(parameter.publicParameterId ? `Rename public control ${parameter.publicParameterId}; clear its ID to remove it` : "Expose as a public Group control")}">${parameter.publicParameterId ? esc(parameter.publicParameterId) : "Expose"}</button>`
+    : "";
+  if (parameter.editor?.type === "media") {
+    const value = String(parameter.value || "");
+    const label = parameter.connected ? "Connected" : value.split("/").at(-1) || "Choose media";
+    return `<label><span>${esc(parameter.label)}${publicAction}</span><button type="button" data-node-graph-media-parameter="${esc(parameter.id)}" data-node-graph-parameter-node="${esc(nodeId)}" data-node-graph-media-accept="${esc(parameter.editor.category || "")}"${disabled ? " disabled" : ""} title="${esc(parameter.connected ? "Value is supplied by a connected node" : value)}">${esc(label)}</button></label>`;
+  }
+  if (parameter.type === "boolean") {
+    return `<label><span>${esc(parameter.label)}${publicAction}</span><input type="checkbox" ${common}${parameter.value ? " checked" : ""}${connectedTitle}></label>`;
+  }
+  if (parameter.type === "enum") {
+    return `<label><span>${esc(parameter.label)}${publicAction}</span><select ${common}>${parameter.values.map((value) =>
+      `<option value="${esc(value)}"${value === parameter.value ? " selected" : ""}>${esc(value)}</option>`).join("")}</select></label>`;
+  }
+  if (parameter.type === "number") {
+    const range = parameter.displayRange || parameter.allowedRange;
+    const rangeAttributes = Array.isArray(range)
+      ? ` min="${esc(range[0])}" max="${esc(range[1])}"`
+      : "";
+    const step = Number(parameter.editor?.step);
+    return `<label><span>${esc(parameter.label)}${publicAction}</span><input type="number" value="${esc(parameter.value ?? 0)}"${rangeAttributes}${Number.isFinite(step) && step > 0 ? ` step="${esc(step)}"` : ' step="any"'} ${common}${connectedTitle}></label>`;
+  }
+  if (parameter.type === "color" && typeof parameter.value === "string") {
+    return `<label><span>${esc(parameter.label)}${publicAction}</span><input type="color" value="${esc(parameter.value)}" ${common}${connectedTitle}></label>`;
+  }
+  const structured = parameter.value != null && typeof parameter.value === "object";
+  return `<label><span>${esc(parameter.label)}${publicAction}</span><input type="text" value="${esc(structured ? JSON.stringify(parameter.value) : parameter.value ?? "")}" ${common}${structured ? ' data-node-graph-parameter-json="true"' : ""}${connectedTitle}></label>`;
+}
+
+function publicParameterBindingMap(definition = {}) {
+  const result = new Map();
+  const projection = definition.metadata?.controlProjection;
+  if (projection?.format !== "vj1.control-projection@1") return result;
+  for (const section of projection.sections || []) {
+    for (const control of section.controls || []) {
+      for (const binding of control.bindings || []) {
+        result.set(`${binding.nodeId}.${binding.parameterId}`, control.parameterId);
+      }
+    }
+  }
+  return result;
+}
+
+function publicPortBindingMap(definition = {}) {
+  const result = new Map();
+  const graph = definition.parts?.find((part) => part.kind === "graph");
+  for (const [publicId, endpoint] of Object.entries(graph?.publicInlets || {})) {
+    result.set(`inlet:${endpoint}`, publicId);
+  }
+  for (const [publicId, endpoint] of Object.entries(graph?.publicOutlets || {})) {
+    result.set(`outlet:${endpoint}`, publicId);
+  }
+  return result;
+}
+
+function readGraphParameterValue(input) {
+  if (input.type === "checkbox") return input.checked;
+  if (input.type === "number") return Number(input.value);
+  if (input.dataset.nodeGraphParameterJson === "true") {
+    try { return JSON.parse(input.value); } catch { throw new Error(`NODE_GRAPH_PARAMETER_JSON_INVALID:${input.dataset.nodeGraphParameter}`); }
+  }
+  return input.value;
+}
+
+function nodeWithParameter(node, parameterId, value) {
+  const parameters = { ...(node.parameters || {}), [parameterId]: value };
+  const configuration = node.configuration ? { ...node.configuration } : null;
+  if (configuration?.source?.type === "generator") {
+    configuration.source = {
+      ...configuration.source,
+      params: { ...(configuration.source.params || {}), [parameterId]: value },
+    };
+  } else if (configuration?.kind === "effect") {
+    configuration.params = { ...(configuration.params || {}), [parameterId]: value };
+    if (parameterId === "amount") configuration.amount = value;
+  } else if (configuration?.kind === "texture-operator") {
+    configuration.params = { ...(configuration.params || {}), [parameterId]: value };
+  }
+  return {
+    ...node,
+    parameters,
+    ...(configuration ? { configuration } : {}),
+  };
+}
+
+function compoundProviderOptions(ownerDefinition, node, registry) {
+  const contract = ownerDefinition?.metadata?.nativeCompound || {};
+  const alternatives = contract.providerAlternatives?.[node.id] || [];
+  if (!alternatives.length) return [];
+  const expected = contract.stageContract?.[node.id];
+  const candidates = [expected, ...alternatives].filter((item) => item?.nodeId && item?.providerId);
+  return candidates.map((candidate) => {
+    let definition = null;
+    try { definition = registry?.get?.(candidate.nodeId); } catch {}
+    return {
+      nodeId: candidate.nodeId,
+      nodeVersion: definition?.version || "",
+      providerId: candidate.providerId,
+      label: candidate.label || definition?.name || candidate.providerId,
+      selected:
+        String(node.type || node.nodeType || "") === String(candidate.nodeId)
+        && String(node.parameters?.providerId || "") === String(candidate.providerId),
+    };
+  });
+}
+
+function graphPortTemplate(port, publicInterfaceEditable = false) {
+  const publicAction = publicInterfaceEditable && !port.parameter
+    ? `<button type="button" class="node-graph-publish-port${port.publicPortId ? " is-published" : ""}" data-node-graph-publish-port="${esc(port.id)}" data-node-graph-port-node="${esc(String(port.endpoint || "").split(".")[0])}" data-node-graph-port-direction="${esc(port.direction)}" data-node-graph-public-port="${esc(port.publicPortId)}" title="${esc(port.publicPortId ? `Rename public ${port.direction} ${port.publicPortId}; clear its ID to remove it` : `Expose as a public Group ${port.direction}`)}">${port.publicPortId ? esc(port.publicPortId) : "Expose"}</button>`
+    : "";
+  return `<div class="node-graph-port-row is-${port.direction}"><button type="button" class="node-graph-port is-${port.direction}${port.parameter ? " is-parameter" : ""}" data-node-graph-port="${esc(port.endpoint)}" data-direction="${port.direction}" data-value-type="${esc(port.type)}" title="${esc(port.endpoint)} · ${esc(port.type)}"><i></i><span>${esc(port.label)}</span><small>${esc(port.type)}</small></button>${publicAction}</div>`;
 }
 
 function graphEdgeTemplate(edge, index, model, { editable = true } = {}) {
@@ -434,6 +798,11 @@ function connectionPorts(connections) {
     addPort(targets, parseEndpoint(edge.to));
   }
   return { sources, targets };
+}
+
+function graphConnectionsForNode(unknownPorts, nodeId) {
+  const targets = unknownPorts?.targets?.get?.(nodeId);
+  return targets ? [...targets].map((portId) => `${nodeId}.${portId}`) : [];
 }
 
 function addPort(map, endpoint) {

@@ -2,13 +2,29 @@ import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "./node-d
 import { defineNodeArtifact } from "./node-artifact.js";
 import { compileJavaScriptNodeModule } from "./node-editor.js";
 import {
+  defineVisualArtifact,
+  defineVisualLibraryLayer,
+  VISUAL_IMPLEMENTATION_FORMATS,
+  VISUAL_LIBRARY_LAYER_KINDS,
+} from "../visual-library/index.js";
+import {
+  installNodePackageReference,
   normalizeNodeProjectData,
   pinNodeVersion,
   serializeNodeArtifact,
   serializeNodeDefinition,
-} from "./node-project.js";
+} from "./node-project.js?v=project-group-authoring-1";
 
-export const NODE_PACKAGE_FORMAT_VERSION = 2;
+export const NODE_PACKAGE_FORMAT_VERSION = 3;
+
+export const NODE_PACKAGE_RESOURCE_KINDS = Object.freeze({
+  SHADER: "shader",
+  MEDIA: "media",
+  PREVIEW: "preview",
+  PRESET: "preset",
+  DATA: "data",
+  OTHER: "other",
+});
 
 export function defineNodePackage({
   id,
@@ -21,6 +37,8 @@ export function defineNodePackage({
   artifacts = [],
   groups = [],
   forks = [],
+  resources = [],
+  visualLibrary = [],
   metadata = {},
 } = {}) {
   const packageId = requiredText(id, "NODE_PACKAGE_MISSING_ID");
@@ -29,10 +47,14 @@ export function defineNodePackage({
   assertUnique(normalizedDependencies, (dependency) => dependency.id, `NODE_PACKAGE_DEPENDENCY_DUPLICATE:${packageId}`);
   const normalizedNodeDependencies = nodeDependencies.map(normalizeNodeRequirement);
   assertUnique(normalizedNodeDependencies, (dependency) => dependency.id, `NODE_PACKAGE_NODE_DEPENDENCY_DUPLICATE:${packageId}`);
-  const normalizedDefinitions = definitions.map((definition) => defineNode(definition));
+  const normalizedDefinitions = definitions.map((definition) => (
+    attachSerializedCompiler(defineNode(definition), definition?.compiler)
+  ));
   const normalizedArtifacts = artifacts.map((artifact) => defineNodeArtifact(artifact));
   const normalizedGroups = groups.map(normalizePackageGroup);
   const normalizedForks = forks.map(normalizePackageFork);
+  const normalizedResources = resources.map(normalizePackageResource);
+  const normalizedVisualLibrary = visualLibrary.map((artifact) => defineVisualArtifact(artifact));
   const definitionKeys = new Set();
   for (const definition of normalizedDefinitions) {
     const key = `${definition.id}@${definition.version}`;
@@ -42,6 +64,15 @@ export function defineNodePackage({
   assertUnique(normalizedArtifacts, (artifact) => artifact.id, `NODE_PACKAGE_ARTIFACT_DUPLICATE:${packageId}`);
   assertUnique(normalizedGroups, (group) => group.id, `NODE_PACKAGE_GROUP_DUPLICATE:${packageId}`);
   assertUnique(normalizedForks, (fork) => fork.id, `NODE_PACKAGE_FORK_DUPLICATE:${packageId}`);
+  assertUnique(normalizedResources, (resource) => resource.id, `NODE_PACKAGE_RESOURCE_DUPLICATE:${packageId}`);
+  assertUnique(normalizedVisualLibrary, (artifact) => artifact.id, `NODE_PACKAGE_VISUAL_ARTIFACT_DUPLICATE:${packageId}`);
+  assertVisualLibraryReferences(
+    normalizedVisualLibrary,
+    normalizedResources,
+    normalizedDefinitions,
+    normalizedNodeDependencies,
+    packageId
+  );
   return Object.freeze({
     formatVersion: NODE_PACKAGE_FORMAT_VERSION,
     id: packageId,
@@ -54,6 +85,8 @@ export function defineNodePackage({
     artifacts: Object.freeze(normalizedArtifacts),
     groups: Object.freeze(normalizedGroups),
     forks: Object.freeze(normalizedForks),
+    resources: Object.freeze(normalizedResources),
+    visualLibrary: Object.freeze(normalizedVisualLibrary),
     metadata: Object.freeze({ ...metadata }),
   });
 }
@@ -72,6 +105,8 @@ export function serializeNodePackage(nodePackage) {
     artifacts: source.artifacts.map(serializeNodeArtifact),
     groups: source.groups.map(jsonData),
     forks: source.forks.map(jsonData),
+    resources: source.resources.map(jsonData),
+    visualLibrary: source.visualLibrary.map(jsonData),
     metadata: jsonData(source.metadata),
   };
 }
@@ -87,7 +122,7 @@ export function importNodePackage(value, {
   const source = typeof value === "string" ? JSON.parse(value) : value;
   if (!source || typeof source !== "object" || Array.isArray(source)) throw new Error("NODE_PACKAGE_INVALID");
   const formatVersion = Number(source.formatVersion);
-  if (formatVersion !== 1 && formatVersion !== NODE_PACKAGE_FORMAT_VERSION) {
+  if (![1, 2, NODE_PACKAGE_FORMAT_VERSION].includes(formatVersion)) {
     throw new Error(`NODE_PACKAGE_FORMAT_UNSUPPORTED:${source.formatVersion || "missing"}`);
   }
   const definitions = (source.definitions || []).map((definition) => hydrateImportedNodeDefinition({
@@ -104,6 +139,8 @@ export function importNodePackage(value, {
     nodeDependencies: source.nodeDependencies || [],
     groups: source.groups || [],
     forks: source.forks || [],
+    resources: source.resources || [],
+    visualLibrary: source.visualLibrary || [],
     definitions,
     artifacts,
   });
@@ -121,7 +158,12 @@ export function installNodePackage(nodePackage, { registry, artifactCatalog = nu
     if (!artifactCatalog?.register) break;
     if (!artifactCatalogHas(artifactCatalog, artifact.id)) installedArtifacts.push(artifactCatalog.register(artifact));
   }
-  return Object.freeze({ definitions: Object.freeze(installedDefinitions), artifacts: Object.freeze(installedArtifacts) });
+  return Object.freeze({
+    definitions: Object.freeze(installedDefinitions),
+    artifacts: Object.freeze(installedArtifacts),
+    resources: nodePackage.resources,
+    visualLibrary: nodePackage.visualLibrary,
+  });
 }
 
 // Project groups are persisted executable topology, not runtime wrappers. A
@@ -163,6 +205,11 @@ export function createNodePackageFromProject(projectData, manifest = {}) {
       range: dependency.range || "*",
       optional: dependency.optional === true,
     });
+    for (const graph of (definition.parts || []).filter((part) => part.kind === "graph")) {
+      for (const reference of groupNodeReferences(graph)) {
+        if (!includedKeys.has(`${reference.id}@${reference.version}`)) requirements.push(reference);
+      }
+    }
   }
   for (const artifact of selectedArtifacts) {
     const id = String(artifact.implementation?.nodeType || "");
@@ -171,6 +218,11 @@ export function createNodePackageFromProject(projectData, manifest = {}) {
   }
   for (const fork of selectedForks) {
     requirements.push({ id: fork.base.id, range: fork.base.version });
+    for (const graph of (fork.definition?.parts || []).filter((part) => part.kind === "graph")) {
+      for (const reference of groupNodeReferences(graph)) {
+        if (!includedKeys.has(`${reference.id}@${reference.version}`)) requirements.push(reference);
+      }
+    }
   }
 
   return defineNodePackage({
@@ -180,6 +232,8 @@ export function createNodePackageFromProject(projectData, manifest = {}) {
     artifacts: selectedArtifacts.map(defineNodeArtifact),
     groups: selectedGroups,
     forks: selectedForks,
+    resources: manifest.resources || [],
+    visualLibrary: manifest.visualLibrary || [],
   });
 }
 
@@ -209,6 +263,7 @@ export function installNodePackageIntoProject(nodePackage, projectData, {
     artifacts: mergeProjectRecords(project.artifacts, artifactRecords, (item) => item.id, replace),
     groups: mergeProjectRecords(project.groups, source.groups, (item) => item.id, replace),
     forks: mergeProjectRecords(forkUpgrades.forks, source.forks, (item) => item.id, replace),
+    packages: installNodePackageReference(project.packages, source.id, source.version),
   };
   if (pinVersions) {
     result.pins = definitionRecords.reduce(
@@ -225,9 +280,61 @@ export function installNodePackageIntoProject(nodePackage, projectData, {
       artifacts: Object.freeze(artifactRecords.map((artifact) => artifact.id)),
       groups: Object.freeze(source.groups.map((group) => group.id)),
       forks: Object.freeze(source.forks.map((fork) => fork.id)),
+      resources: source.resources,
+      visualLibrary: source.visualLibrary,
       upgradedForks: Object.freeze(forkUpgrades.upgraded),
     }),
   });
+}
+
+export function createNodePackageVisualLibraryLayer(nodePackage, { priority = 100 } = {}) {
+  const source = nodePackage?.formatVersion === NODE_PACKAGE_FORMAT_VERSION
+    ? nodePackage
+    : importNodePackage(nodePackage);
+  return defineVisualLibraryLayer({
+    id: source.id,
+    kind: VISUAL_LIBRARY_LAYER_KINDS.INSTALLED,
+    priority,
+    artifacts: source.visualLibrary,
+    metadata: {
+      packageId: source.id,
+      packageVersion: source.version,
+      resources: Object.freeze(source.resources.map((resource) => Object.freeze({ ...resource }))),
+    },
+  });
+}
+
+export function resolveProjectNodePackages(projectData = {}, availablePackages = []) {
+  const project = normalizeNodeProjectData(projectData);
+  const available = (availablePackages || []).map((nodePackage) =>
+    nodePackage?.formatVersion === NODE_PACKAGE_FORMAT_VERSION ? nodePackage : importNodePackage(nodePackage));
+  const availableByKey = new Map(available.map((nodePackage) => [
+    `${nodePackage.id}@${nodePackage.version}`,
+    nodePackage,
+  ]));
+  const resolvedById = new Map();
+  const ordered = [];
+  for (const reference of project.packages.filter((item) => item.enabled !== false)) {
+    const root = availableByKey.get(`${reference.id}@${reference.version}`);
+    if (!root) throw new Error(`NODE_PROJECT_PACKAGE_UNAVAILABLE:${reference.id}@${reference.version}`);
+    for (const nodePackage of resolveNodePackageDependencies(root, available)) {
+      const current = resolvedById.get(nodePackage.id);
+      if (current && current.version !== nodePackage.version) {
+        throw new Error(`NODE_PROJECT_PACKAGE_VERSION_CONFLICT:${nodePackage.id}:${current.version}:${nodePackage.version}`);
+      }
+      if (current) continue;
+      resolvedById.set(nodePackage.id, nodePackage);
+      ordered.push(nodePackage);
+    }
+  }
+  return Object.freeze(ordered);
+}
+
+export function projectNodePackageVisualLibraryLayers(projectData = {}, availablePackages = []) {
+  return Object.freeze(resolveProjectNodePackages(projectData, availablePackages)
+    .map((nodePackage, index) => createNodePackageVisualLibraryLayer(nodePackage, {
+      priority: 100 + index,
+    })));
 }
 
 export function resolveNodeVersion(registry, nodeId, { range = "*", pins = [] } = {}) {
@@ -696,7 +803,18 @@ function hydrateImportedNodeDefinition(source, { bindings, processFactory } = {}
     moduleExports: compiledModule?.exports || {},
     process,
   });
-  return definition;
+  return attachSerializedCompiler(definition, source.compiler);
+}
+
+function attachSerializedCompiler(definition, source) {
+  if (!source || typeof source !== "object") return definition;
+  const compiler = Object.freeze({
+    id: String(source.id || ""),
+    target: String(source.target || ""),
+    strategy: String(source.strategy || ""),
+  });
+  if (!compiler.id) throw new Error(`NODE_PACKAGE_COMPILER_MISSING_ID:${definition.id}`);
+  return Object.freeze({ ...definition, compiler });
 }
 
 function serializePackageNodeDefinition(definition) {
@@ -775,6 +893,68 @@ function normalizePackageFork(value) {
     base: { id: baseId, version: baseVersion },
     definition: value.definition || {},
   }));
+}
+
+function normalizePackageResource(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("NODE_PACKAGE_RESOURCE_INVALID");
+  const id = requiredText(value.id, "NODE_PACKAGE_RESOURCE_MISSING_ID");
+  const kind = String(value.kind || NODE_PACKAGE_RESOURCE_KINDS.OTHER);
+  if (!Object.values(NODE_PACKAGE_RESOURCE_KINDS).includes(kind)) {
+    throw new Error(`NODE_PACKAGE_RESOURCE_KIND_UNKNOWN:${id}:${kind}`);
+  }
+  const path = String(value.path || "").trim();
+  const url = String(value.url || "").trim();
+  if (!path && !url) throw new Error(`NODE_PACKAGE_RESOURCE_LOCATION_MISSING:${id}`);
+  if (path && url) throw new Error(`NODE_PACKAGE_RESOURCE_LOCATION_AMBIGUOUS:${id}`);
+  if (path && !isSafePackagePath(path)) throw new Error(`NODE_PACKAGE_RESOURCE_PATH_INVALID:${id}:${path}`);
+  return Object.freeze({
+    id,
+    kind,
+    path,
+    url,
+    mediaType: String(value.mediaType || ""),
+    integrity: String(value.integrity || ""),
+    metadata: Object.freeze(jsonData(value.metadata || {})),
+  });
+}
+
+function assertVisualLibraryReferences(artifacts, resources, definitions, nodeDependencies, packageId) {
+  const resourceIds = new Set(resources.map((resource) => resource.id));
+  const nodeIds = new Set([
+    ...definitions.map((definition) => definition.id),
+    ...nodeDependencies.map((dependency) => dependency.id),
+  ]);
+  for (const artifact of artifacts) {
+    for (const resourceId of visualArtifactResourceIds(artifact)) {
+      if (!resourceIds.has(resourceId)) {
+        throw new Error(`NODE_PACKAGE_VISUAL_RESOURCE_UNRESOLVED:${packageId}:${artifact.id}:${resourceId}`);
+      }
+    }
+    if (![VISUAL_IMPLEMENTATION_FORMATS.NODE, VISUAL_IMPLEMENTATION_FORMATS.COMPOUND]
+      .includes(artifact.implementation.format)) continue;
+    const nodeId = String(artifact.implementation.nodeId || artifact.implementation.nodeType || "");
+    if (nodeId && !nodeIds.has(nodeId)) {
+      throw new Error(`NODE_PACKAGE_VISUAL_NODE_UNRESOLVED:${packageId}:${artifact.id}:${nodeId}`);
+    }
+  }
+}
+
+function visualArtifactResourceIds(artifact) {
+  const values = [
+    artifact.implementation.resourceId,
+    artifact.implementation.sourceResourceId,
+    ...(Array.isArray(artifact.implementation.resourceIds) ? artifact.implementation.resourceIds : []),
+    artifact.preview.resourceId,
+  ];
+  return [...new Set(values.map((value) => String(value || "")).filter(Boolean))];
+}
+
+function isSafePackagePath(value) {
+  const path = String(value || "").replaceAll("\\", "/");
+  return !path.startsWith("/")
+    && !/^[A-Za-z]:\//.test(path)
+    && !path.split("/").includes("..")
+    && !path.includes("\0");
 }
 
 function normalizeNodeRequirement(value) {

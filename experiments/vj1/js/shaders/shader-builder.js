@@ -1,6 +1,11 @@
 import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
 
-export function createShaderBuilder({ getCustomCode, onStatus, getComponent = getShaderComponent } = {}) {
+export function createShaderBuilder({
+  getCustomCode,
+  onStatus,
+  getComponent = getShaderComponent,
+  disposeShader = null,
+} = {}) {
   const cache = new Map();
 
   function getShader(pass, target = null) {
@@ -52,12 +57,17 @@ export function createShaderBuilder({ getCustomCode, onStatus, getComponent = ge
 
   function invalidateCustom() {
     for (const key of Array.from(cache.keys())) {
-      if (key.includes(":custom:")) cache.delete(key);
+      if (!key.includes(":custom:")) continue;
+      const shader = cache.get(key);
+      cache.delete(key);
+      disposeShader?.(shader);
     }
   }
 
   function clear() {
+    const shaders = new Set(cache.values());
     cache.clear();
+    for (const shader of shaders) disposeShader?.(shader);
   }
 
   return { getShader, getFusedShader, invalidateCustom, clear };

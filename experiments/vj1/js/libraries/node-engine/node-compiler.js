@@ -1,15 +1,24 @@
 export const NODE_COMPILER_TARGETS = Object.freeze({
   DIRECT: "direct",
   VISUAL: "visual",
+  CONTROL: "control",
+  ROUTING: "routing",
+  SERVICE: "service",
+  TRANSITION: "transition",
+  SCENE_3D: "scene-3d",
 });
 
 export function defineNodeCompiler({ id, target = NODE_COMPILER_TARGETS.DIRECT, accepts = null, compile } = {}) {
   const compilerId = String(id || "").trim();
   if (!compilerId) throw new Error("NODE_COMPILER_MISSING_ID");
   if (typeof compile !== "function") throw new Error(`NODE_COMPILER_MISSING_COMPILE:${compilerId}`);
+  const compilerTarget = String(target || NODE_COMPILER_TARGETS.DIRECT);
+  if (!Object.values(NODE_COMPILER_TARGETS).includes(compilerTarget)) {
+    throw new Error(`NODE_COMPILER_TARGET_UNKNOWN:${compilerId}:${compilerTarget}`);
+  }
   return Object.freeze({
     id: compilerId,
-    target: String(target || NODE_COMPILER_TARGETS.DIRECT),
+    target: compilerTarget,
     accepts: typeof accepts === "function" ? accepts : () => true,
     compile,
   });

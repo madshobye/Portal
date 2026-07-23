@@ -269,7 +269,10 @@ test("Feature Morph V2 remains dynamic only while media or MobileNet analysis is
 test("Feature Morph V2 uses CDN MobileNet without SuperPoint and exposes two image inputs", () => {
   const component = getGeneratorComponent("featureMorphV2");
   const serviceSource = readFileSync(new URL("../js/output/specialized/mobilenet-morph-service.js", import.meta.url), "utf8");
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const rendererSource = [
+    readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
+  ].join("\n");
   const controls = featureMorphMediaControlsTemplate("components.0.source", { params: {} }, { media: [] }, {
     note: "MobileNet regions",
     emptyDetail: "MobileNet input",

@@ -36,7 +36,6 @@ test("analyzes component graph shape and missing media", () => {
   assert.equal(metrics.components[0].sources.missingMedia, 1);
   assert.ok(metrics.costliestChainItems.length >= 1);
   assert.equal(metrics.aggregate.topCostContributor.componentName, "Stress");
-  assert.ok(metrics.engineHotspots.some((item) => item.step === "Sequential shader passes"));
   assert.ok(metrics.engineHotspots.some((item) => item.step === "Heavy shader components"));
   assert.ok(metrics.bottlenecks.some((item) => item.severity === "critical" && item.message.includes("missing")));
   assert.ok(metrics.bottlenecks.some((item) => item.scope === "Stress" && item.message.includes("enabled effects")));

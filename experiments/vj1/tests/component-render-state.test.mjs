@@ -78,18 +78,20 @@ test("media signature helpers cover media-backed generators and runtime readines
     type: "generator",
     generatorId: "tileTexture",
     params: { imageId: "tile" },
-  }), [{ id: "tile", present: true, ready: true, revision: 0, fileKey: "", error: "", kind: "loading" }]);
-  const videoElement = { tagName: "VIDEO", videoWidth: 640, videoHeight: 360, readyState: 4 };
+  }), [{ id: "tile", present: true, ready: true, revision: 0, invalidationKey: 0, fileKey: "", error: "", kind: "loading" }]);
+  const videoElement = { tagName: "VIDEO", videoWidth: 640, videoHeight: 360, readyState: 4, currentTime: 9 };
   assert.deepEqual(runtimeMediaStateForSource(new Map([["clip", {
     ready: true,
     video: { elt: videoElement },
     videoFrameDriven: true,
     videoFrameRevision: 7,
+    videoFrameMediaTime: 1.25,
   }]]), { type: "media", mediaId: "clip" }), [{
     id: "clip",
     present: true,
     ready: true,
     revision: 0,
+    invalidationKey: { asset: 0, frame: 7, timeMs: 1250 },
     videoFrameRevision: 7,
     fileKey: "",
     error: "",
@@ -118,7 +120,7 @@ test("runtime cache policy has one owner outside the output orchestrator", () =>
   });
   assert.equal(componentRuntimeTimeKey({ runtime }, {}, { frame: 8, time: 2.75 }), 2);
   assert.equal(componentRuntimeTimeKey({ runtime: { cacheable: false } }, {}, { frame: 8, time: 2.75 }), 8);
-  assert.match(renderer, /from "\.\/component-render-state\.js\?v=scene-live-audit-1"/);
+  assert.match(renderer, /from "\.\/component-render-state\.js\?v=gapless-video-loop-1"/);
   assert.doesNotMatch(renderer, /function staticComponentGraphState\(/);
   assert.doesNotMatch(renderer, /function collectMediaIdsFromSource\(/);
 });

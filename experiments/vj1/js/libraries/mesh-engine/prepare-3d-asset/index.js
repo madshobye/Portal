@@ -12,6 +12,11 @@ export const Prepare3dAssetGroup = defineNodeGroup({
   name: "Prepare 3D Asset",
   version: "0.1.0",
   description: "Parses a supported 3D file and optionally builds its reusable mesh resolution set.",
+  executionModel: "native-composite",
+  authoring: {
+    activation: "recompile",
+    reason: "Its conditional graph is inspectable until conditional graph execution is supported.",
+  },
   inlets: {
     source: { type: "any", required: true },
     name: { type: "string", optional: true, defaultValue: "" },

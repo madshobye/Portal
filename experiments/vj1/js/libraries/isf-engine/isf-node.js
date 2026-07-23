@@ -9,11 +9,22 @@ import {
   textureOutlet,
 } from "../visual-nodes/shared/component-schema.js";
 import { componentFromNodeDefinition } from "../visual-nodes/shared/visual-node-factory.js";
-import { compileIsfFragmentSource } from "./isf-compiler.js?v=isf-coordinates-1";
+import {
+  defineVisualLibraryLayer,
+  VISUAL_IMPLEMENTATION_FORMATS,
+  VISUAL_LIBRARY_LAYER_KINDS,
+} from "../visual-library/index.js";
+import {
+  defineVisualNodeContract,
+  VISUAL_TRANSFORM_DOMAINS,
+} from "../render-engine/visual-node-contract.js";
+import { compileIsfFragmentSource, compileIsfTransitionKernel } from "./isf-compiler.js?v=isf-coordinates-1";
 import { parseIsfDocument, sourceHash } from "./isf-document.js?v=isf-coordinates-1";
 
 const projectComponentCache = new WeakMap();
 const projectDefinitionCache = new Map();
+const projectTransitionListCache = new WeakMap();
+const projectTransitionDefinitionCache = new Map();
 const PROJECT_DEFINITION_CACHE_LIMIT = 128;
 
 export function createIsfVisualComponent({ path = "", source = "" } = {}) {
@@ -22,8 +33,9 @@ export function createIsfVisualComponent({ path = "", source = "" } = {}) {
 
 export function createIsfNodeDefinition({ path = "", source = "" } = {}) {
   const document = parseIsfDocument(source, { path });
-  const visualKind = document.kind === "transition" ? "effect" : document.kind;
-  const visualId = `isf-${slug(path || document.name)}-${sourceHash(path || document.name)}`;
+  const visualKind = document.kind;
+  const declaredId = String(document.metadata?.VJ1?.ID || "").trim();
+  const visualId = declaredId || `isf-${slug(path || document.name)}-${sourceHash(path || document.name)}`;
   const params = isfParameters(document, visualKind);
   const inlets = document.inputs.filter((input) => ["image", "audio", "audioFFT"].includes(input.type))
     .map((input) => textureInlet(input.name, input.label));
@@ -49,6 +61,8 @@ export function createIsfNodeDefinition({ path = "", source = "" } = {}) {
     type: "isf",
     code: document.fragmentSource,
     runtime,
+    sampling: "neighborhood",
+    requiresBaseSample: visualKind === "effect",
     fusible: false,
     inlets,
     outlets: [textureOutlet("texture", "Texture")],
@@ -75,6 +89,7 @@ export function createIsfNodeDefinition({ path = "", source = "" } = {}) {
       processor: "isf",
       shaderInterface: "isf",
       nodeOwnedShader: true,
+      ...isfVisualExecutionMetadata(base),
       isf: isfMetadata(document),
       projectAssetPath: String(path || ""),
       projectLocalDefinition: true,
@@ -90,8 +105,11 @@ export function materializeIsfNodeDefinition(definition = {}) {
   if (!sourcePart) throw new Error(`VJ1_ISF_SOURCE_PART_MISSING:${definition.id || "unknown"}`);
   const path = definition.metadata?.projectAssetPath || definition.metadata?.isf?.path || "";
   const document = parseIsfDocument(sourcePart.source, { path });
+  if (document.kind === "transition") {
+    throw new Error(`VJ1_ISF_TRANSITION_NOT_COMPONENT:${document.path || document.name}`);
+  }
   assertComponentInputSupport(document);
-  const visualKind = document.kind === "transition" ? "effect" : document.kind;
+  const visualKind = document.kind;
   const params = isfParameters(document, visualKind);
   const base = {
     id: definition.metadata?.visualId || definition.id,
@@ -140,6 +158,7 @@ export function listProjectIsfVisualComponents(state = {}) {
   const result = [];
   for (const definition of definitions || []) {
     if (!isIsfNodeDefinition(definition)) continue;
+    if (definition.metadata?.isf?.kind === "transition") continue;
     const cached = cachedProjectIsfComponent(definition);
     if (cached.component) {
       result.push(cached.component);
@@ -154,6 +173,133 @@ export function listProjectIsfVisualComponents(state = {}) {
   }
   if (Array.isArray(definitions)) projectComponentCache.set(definitions, Object.freeze(result));
   return [...result];
+}
+
+export function listProjectIsfTransitions(state = {}) {
+  const definitions = state?.nodes?.definitions;
+  if (Array.isArray(definitions) && projectTransitionListCache.has(definitions)) {
+    return [...projectTransitionListCache.get(definitions)];
+  }
+  const result = [];
+  for (const definition of definitions || []) {
+    if (!isIsfNodeDefinition(definition) || definition.metadata?.isf?.kind !== "transition") continue;
+    const cached = cachedProjectIsfTransition(definition);
+    if (cached.transition) {
+      result.push(cached.transition);
+    } else if (cached.shouldWarn) {
+      console.warn("[VJ1_ISF_TRANSITION_INVALID]", {
+        nodeId: definition.id || "",
+        path: definition.metadata?.projectAssetPath || "",
+        fallback: "omit the transition and retain Dissolve",
+        message: cached.message,
+      });
+    }
+  }
+  if (Array.isArray(definitions)) projectTransitionListCache.set(definitions, Object.freeze(result));
+  return result;
+}
+
+export function materializeIsfTransitionDefinition(definition = {}) {
+  const cached = cachedProjectIsfTransition(definition);
+  if (!cached.transition) {
+    throw new Error(cached.message || `VJ1_ISF_TRANSITION_INVALID:${definition.id || "unknown"}`);
+  }
+  return cached.transition;
+}
+
+function cachedProjectIsfTransition(definition = {}) {
+  const key = projectIsfDefinitionKey(definition);
+  const previous = projectTransitionDefinitionCache.get(key);
+  if (previous) return { ...previous, shouldWarn: false };
+  let entry;
+  try {
+    const sourcePart = (definition.parts || []).find((part) => part.language === "isf" || part.id === "isf-source");
+    if (!sourcePart) throw new Error(`VJ1_ISF_SOURCE_PART_MISSING:${definition.id || "unknown"}`);
+    const path = definition.metadata?.projectAssetPath || definition.metadata?.isf?.path || "";
+    const document = parseIsfDocument(sourcePart.source, { path });
+    const id = String(document.metadata?.VJ1?.ID || definition.metadata?.visualId || definition.id);
+    const version = String(document.metadata?.VJ1?.VERSION || definition.version || "0.1.0");
+    const declaredReplaces = document.metadata?.VJ1?.REPLACES;
+    entry = Object.freeze({
+      transition: Object.freeze({
+        id,
+        version,
+        name: document.name,
+        description: document.description,
+        category: document.categories[0] || "Transition",
+        parameters: Object.freeze(isfParameters(document, "transition")),
+        kernel: compileIsfTransitionKernel(document, { id, version }),
+        replaces: Object.freeze(Array.isArray(declaredReplaces)
+          ? declaredReplaces.map(String)
+          : declaredReplaces ? [String(declaredReplaces)] : []),
+        origin: Object.freeze({ kind: "project", path: String(path || "") }),
+      }),
+      message: "",
+    });
+  } catch (error) {
+    entry = Object.freeze({ transition: null, message: error?.message || String(error) });
+  }
+  projectTransitionDefinitionCache.set(key, entry);
+  while (projectTransitionDefinitionCache.size > PROJECT_DEFINITION_CACHE_LIMIT) {
+    projectTransitionDefinitionCache.delete(projectTransitionDefinitionCache.keys().next().value);
+  }
+  return { ...entry, shouldWarn: !entry.transition };
+}
+
+export function createProjectIsfVisualLibraryLayer(state = {}) {
+  const artifacts = [];
+  for (const definition of state?.nodes?.definitions || []) {
+    if (!isIsfNodeDefinition(definition)) continue;
+    const sourcePart = (definition.parts || []).find((part) => part.language === "isf" || part.id === "isf-source");
+    if (!sourcePart) continue;
+    try {
+      const path = definition.metadata?.projectAssetPath || definition.metadata?.isf?.path || "";
+      const document = parseIsfDocument(sourcePart.source, { path });
+      const id = String(document.metadata?.VJ1?.ID || definition.metadata?.visualId || definition.id);
+      if (document.kind === "transition") {
+        compileIsfTransitionKernel(document, {
+          id,
+          version: String(document.metadata?.VJ1?.VERSION || definition.version || "0.1.0"),
+        });
+      }
+      const declaredReplaces = document.metadata?.VJ1?.REPLACES;
+      artifacts.push({
+        id,
+        version: String(document.metadata?.VJ1?.VERSION || definition.version || "0.1.0"),
+        name: document.name,
+        description: document.description,
+        artifactType: document.kind,
+        implementation: {
+          format: VISUAL_IMPLEMENTATION_FORMATS.ISF,
+          nodeId: definition.id,
+          visualId: definition.metadata?.visualId || id,
+          resourceId: String(path || definition.id),
+        },
+        capabilities: [
+          `visual-${document.kind}`,
+          ...(document.kind === "transition" ? ["single-pass", "direct-mapper-pass"] : []),
+        ],
+        categories: document.categories,
+        replaces: Array.isArray(declaredReplaces)
+          ? declaredReplaces
+          : declaredReplaces ? [declaredReplaces] : [],
+        ports: {
+          inlets: definition.inlets,
+          outlets: definition.outlets,
+        },
+        attribution: document.credit ? { credit: document.credit } : {},
+        origin: { kind: VISUAL_LIBRARY_LAYER_KINDS.PROJECT, path: String(path || "") },
+      });
+    } catch {
+      // Invalid definitions remain editable in the node library, but cannot
+      // enter the executable catalog until they compile again.
+    }
+  }
+  return defineVisualLibraryLayer({
+    id: "vj1.project.visuals",
+    kind: VISUAL_LIBRARY_LAYER_KINDS.PROJECT,
+    artifacts,
+  });
 }
 
 function cachedProjectIsfComponent(definition = {}) {
@@ -225,6 +371,7 @@ function isfParameters(document, visualKind) {
   if (visualKind === "effect") params.push(createNumberParam("amount", "Effect strength", { min: 0, max: 1, step: 0.01, defaultValue: 1 }));
   for (const input of document.inputs) {
     if (["image", "audio", "audioFFT"].includes(input.type)) continue;
+    if (visualKind === "transition" && input.name === "progress") continue;
     if (input.type === "point2D") {
       const defaults = arrayPair(input.defaultValue, [0, 0]);
       const min = arrayPair(input.min, [0, 0]);
@@ -271,17 +418,53 @@ function isfMetadata(document) {
   };
 }
 
+function isfVisualExecutionMetadata(component = {}) {
+  const effect = component.kind === "effect";
+  const transformDomain = effect
+    ? VISUAL_TRANSFORM_DOMAINS.COMPOSITION
+    : VISUAL_TRANSFORM_DOMAINS.CONTENT;
+  const roi = component.runtime?.roi || {
+    mode: "full-frame",
+    halo: 0,
+    coordinateSpace: "full-frame",
+  };
+  const contract = defineVisualNodeContract({}, {
+    transform: { domain: transformDomain },
+    roi,
+  });
+  return {
+    sampling: String(component.sampling || "unknown"),
+    transformSource: component.transformSource !== false,
+    requiresBaseSample: component.requiresBaseSample !== false,
+    fusible: component.fusible === true,
+    roi,
+    renderInvalidation: Object.freeze({
+      mode: component.runtime?.cacheable === false ? "frame" : "stable",
+      reason: component.runtime?.cacheable === false ? "isf-time" : "isf-static",
+    }),
+    visualContract: contract,
+    visualCompilerHook: Object.freeze({
+      id: effect ? "vj1.visual.shader-effect" : "vj1.visual.shader-generator",
+      shaderInterface: "isf",
+      sampling: String(component.sampling || "unknown"),
+      fusible: component.fusible === true,
+      transformDomain,
+      roi,
+      contract,
+    }),
+  };
+}
+
 function assertComponentInputSupport(document) {
   const unsupported = document.inputs.filter((input) =>
     ["audio", "audioFFT"].includes(input.type)
-    || (input.type === "image" && input.name !== "inputImage")
   );
-  if (!unsupported.length && document.kind !== "transition") return;
-  const names = unsupported.map((input) => input.name).join(", ") || "startImage, endImage";
-  // The ports remain represented in the node definition, but the current
-  // Component chain has one image inlet. Do not silently bind the wrong media;
-  // these nodes become executable when graph-level multi-input placement lands.
-  throw new Error(`VJ1_ISF_MULTI_INPUT_REQUIRES_NODE_GRAPH:${document.path || document.name}:${names}`);
+  if (!unsupported.length) return;
+  const names = unsupported.map((input) => input.name).join(", ");
+  // Named image ports are executable through the compiled texture DAG. Audio
+  // textures still need their own typed resource/clock contract; transitions
+  // remain first-class transition nodes rather than ordinary Components.
+  throw new Error(`VJ1_ISF_AUDIO_TEXTURE_HOST_UNAVAILABLE:${document.path || document.name}:${names}`);
 }
 
 function finite(value, fallback) {

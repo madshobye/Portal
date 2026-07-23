@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Provider Substitution Smoke</title>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
+    <link rel="stylesheet" href="../../style.css" />
+    <style>
+      body { margin: 0; background: var(--app-bg); }
+      main { min-height: 100vh; padding: 12px; }
+    </style>
+  </head>
+  <body>
+    <main id="provider-smoke">Loading Terrain graph…</main>
+    <script type="module">
+      import { createVj1NodePackage } from "../../js/app-node-package.js?v=general-group-controls-1";
+      import {
+        bindNodeGraphCanvas,
+        nodeGraphCanvasTemplate,
+      } from "../../js/control/node-graph-canvas.js?v=provider-substitution-1";
+
+      const packageRoot = createVj1NodePackage();
+      const definition = packageRoot.registry.get("vj1.visual.generator.terrainFlyover");
+      const host = document.querySelector("#provider-smoke");
+      host.innerHTML = nodeGraphCanvasTemplate(definition, packageRoot.registry);
+      bindNodeGraphCanvas(host, {
+        registry: packageRoot.registry,
+        onGraphChange(graph, action) {
+          document.documentElement.dataset.lastAction = action;
+          document.documentElement.dataset.provider = graph.nodes
+            .find((node) => node.id === "geometry")?.parameters?.providerId || "";
+        },
+      });
+      document.documentElement.dataset.smokeReady = "true";
+    </script>
+  </body>
+</html>

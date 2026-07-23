@@ -39,7 +39,7 @@ export const NestedNoiseMotionNode = defineNode({
 export function nestedNoiseMotionNodeProcess({
   time = 0, centerX = 0.5, centerY = 0.5, amount = 0.35,
   speed = 1, detail = 0.45, seed = 0,
-} = {}) {
+} = {}, { output = {} } = {}) {
   const clock = Number(time) * Number(speed);
   const layer = (value, offset) => {
     const base = Math.sin(value * 0.73 + offset) * 0.62;
@@ -49,5 +49,10 @@ export function nestedNoiseMotionNodeProcess({
   };
   const x = Number(centerX) + layer(clock, Number(seed) + 1.7) * Number(amount);
   const y = Number(centerY) + layer(clock * 0.91, Number(seed) + 13.1) * Number(amount);
-  return { x, y, position: [x, y] };
+  const position = output.position || (output.position = [0, 0]);
+  position[0] = x;
+  position[1] = y;
+  output.x = x;
+  output.y = y;
+  return output;
 }

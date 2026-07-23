@@ -1,0 +1,488 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Architecture Smoke</title>
+    <style>
+      body {
+        margin: 0;
+        background: #08090b;
+        color: #eef2ef;
+        font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      pre {
+        margin: 16px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <pre id="architecture-smoke-results">running...</pre>
+    <script type="module">
+      import Anatomy from "../../js/libraries/visual-nodes/generators/anatomy/index.js";
+      import MeshPatterns from "../../js/libraries/visual-nodes/generators/mesh-patterns/index.js";
+      import TerrainFlyover from "../../js/libraries/visual-nodes/generators/terrain-flyover/index.js";
+      import {
+        compileSpecializedCompoundProgram,
+      } from "../../js/libraries/visual-nodes/shared/specialized-compound.js";
+      import { compileVisualRenderPlan } from "../../js/libraries/composition-engine/index.js?v=temporal-invalidation-1";
+      import {
+        createIsfNodeDefinition,
+        createIsfVisualComponent,
+      } from "../../js/libraries/isf-engine/index.js?v=named-image-inputs-1";
+      import {
+        DissolveTransitionKernel,
+        textureTransitionFragmentShaderSource,
+      } from "../../js/libraries/transition-engine/index.js";
+      import {
+        MESH_PATTERN_FILL_FRAGMENT_SHADER,
+        MESH_PATTERN_FILL_VERTEX_SHADER,
+        MESH_PATTERN_WIRE_FRAGMENT_SHADER,
+        MESH_PATTERN_WIRE_VERTEX_SHADER,
+      } from "../../js/libraries/visual-nodes/generators/mesh-patterns/shaders.js";
+      import {
+        TERRAIN_SURFACE_FRAGMENT_SHADER,
+        TERRAIN_SURFACE_VERTEX_SHADER,
+        TERRAIN_WIRE_FRAGMENT_SHADER,
+        TERRAIN_WIRE_VERTEX_SHADER,
+      } from "../../js/libraries/visual-nodes/generators/terrain-flyover/shaders.js";
+
+      const resultElement = document.querySelector("#architecture-smoke-results");
+      const resourceCounts = {
+        shadersCreated: 0,
+        shadersDeleted: 0,
+        programsCreated: 0,
+        programsDeleted: 0,
+        texturesCreated: 0,
+        texturesDeleted: 0,
+        buffersCreated: 0,
+        buffersDeleted: 0,
+      };
+
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = 8;
+        canvas.height = 8;
+        const gl = canvas.getContext("webgl", {
+          alpha: true,
+          antialias: false,
+          depth: false,
+          premultipliedAlpha: true,
+          preserveDrawingBuffer: true,
+        });
+        if (!gl) throw new Error("WEBGL_CONTEXT_UNAVAILABLE");
+
+        const transition = verifyTransition(gl);
+        const namedIsfInputs = verifyNamedIsfInputs(gl);
+        const nativeShaders = [
+          compilePair(gl, "mesh-pattern-fill", MESH_PATTERN_FILL_VERTEX_SHADER, MESH_PATTERN_FILL_FRAGMENT_SHADER),
+          compilePair(gl, "mesh-pattern-wire", MESH_PATTERN_WIRE_VERTEX_SHADER, MESH_PATTERN_WIRE_FRAGMENT_SHADER),
+          compilePair(gl, "terrain-surface", TERRAIN_SURFACE_VERTEX_SHADER, TERRAIN_SURFACE_FRAGMENT_SHADER),
+          compilePair(gl, "terrain-wire", TERRAIN_WIRE_VERTEX_SHADER, TERRAIN_WIRE_FRAGMENT_SHADER),
+        ];
+        const compounds = [
+          compileCompound("anatomy", Anatomy),
+          compileCompound("mesh-patterns", MeshPatterns),
+          compileCompound("terrain-flyover", TerrainFlyover),
+        ];
+        const temporalInvalidation = verifyTemporalInvalidation();
+        const resourcesBalanced =
+          resourceCounts.shadersCreated === resourceCounts.shadersDeleted &&
+          resourceCounts.programsCreated === resourceCounts.programsDeleted &&
+          resourceCounts.texturesCreated === resourceCounts.texturesDeleted &&
+          resourceCounts.buffersCreated === resourceCounts.buffersDeleted;
+        const glError = gl.getError();
+        const ok =
+          transition.compiled &&
+          transition.linked &&
+          transition.endpointEquivalent &&
+          transition.midpointEquivalent &&
+          transition.roiPixelEquivalent &&
+          namedIsfInputs.compiled &&
+          namedIsfInputs.linked &&
+          namedIsfInputs.namedSamplerEquivalent &&
+          nativeShaders.every((entry) => entry.compiled && entry.linked) &&
+          compounds.every((entry) => entry.compiledFastPath && entry.graphEditable && entry.activation === "recompile") &&
+          temporalInvalidation.cloneable &&
+          temporalInvalidation.frameDependent &&
+          resourcesBalanced &&
+          glError === gl.NO_ERROR;
+        report({
+          ok,
+          webgl: {
+            renderer: gl.getParameter(gl.RENDERER),
+            version: gl.getParameter(gl.VERSION),
+            glError,
+          },
+          transition,
+          namedIsfInputs,
+          nativeShaders,
+          compounds,
+          temporalInvalidation,
+          resources: {
+            ...resourceCounts,
+            balanced: resourcesBalanced,
+          },
+        });
+      } catch (error) {
+        report({
+          ok: false,
+          error: error?.stack || error?.message || String(error),
+          resources: resourceCounts,
+        });
+      }
+
+      function compileCompound(expectedKind, component) {
+        const definition = component?.nodeDefinition;
+        const program = compileSpecializedCompoundProgram(definition);
+        const graphPart = definition.parts?.find((part) => part.kind === "graph");
+        if (program.kind !== expectedKind) {
+          throw new Error(`COMPOUND_KIND_MISMATCH:${expectedKind}:${program.kind}`);
+        }
+        return {
+          kind: program.kind,
+          format: program.format,
+          stages: program.stages.map(({ id, nodeId }) => ({ id, nodeId })),
+          output: program.output,
+          executionModel: definition.implementation?.executionModel || "",
+          graphEditable: graphPart?.editable === true,
+          activation: definition.authoring?.activation || "",
+          compiledFastPath: definition.capabilities?.includes("compiled-fast-path") === true,
+          renderer: definition.metadata?.visualCompilerHook?.renderer || "",
+        };
+      }
+
+      function verifyTemporalInvalidation() {
+        const definition = createIsfNodeDefinition({
+          path: "shaders/browser-smoke.fs",
+          source: `/*{ "ISFVSN": "2.0", "LABEL": "Browser Smoke" }*/
+            void main() { gl_FragColor = vec4(fract(TIME)); }`,
+        });
+        structuredClone(definition);
+        const node = {
+          id: "browser-smoke-isf",
+          nodeId: definition.id,
+          nodeVersion: definition.version,
+          role: "source",
+          configuration: {
+            id: "browser-smoke-isf",
+            kind: "source",
+            source: {
+              type: "generator",
+              generatorId: definition.metadata.visualId,
+              params: {},
+            },
+          },
+        };
+        const plan = compileVisualRenderPlan({
+          id: "browser-smoke-component",
+          nodes: [node],
+          connections: [
+            { from: "$in.texture", to: "browser-smoke-isf.image", type: "texture" },
+            { from: "browser-smoke-isf.texture", to: "$out.texture", type: "texture" },
+          ],
+        }, {}, {
+          resolveDefinition: () => definition,
+        });
+        const dynamics = plan.inspect().dynamics;
+        return {
+          cloneable: true,
+          frameDependent: dynamics.frameDependent,
+          mode: dynamics.invalidation.mode,
+          reasons: dynamics.invalidation.reasons,
+        };
+      }
+
+      function verifyTransition(gl) {
+        const vertexSource = `
+          precision highp float;
+          attribute vec2 aPosition;
+          varying vec2 vTexCoord;
+          void main() {
+            vTexCoord = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.0, 1.0);
+          }
+        `;
+        const fragmentSource = textureTransitionFragmentShaderSource(DissolveTransitionKernel);
+        const compiled = compileProgram(gl, "transition-dissolve", vertexSource, fragmentSource);
+        const program = compiled.program;
+        const position = gl.getAttribLocation(program, "aPosition");
+        const buffer = createBuffer(gl);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+          -1, -1,
+           1, -1,
+          -1,  1,
+          -1,  1,
+           1, -1,
+           1,  1,
+        ]), gl.STATIC_DRAW);
+
+        const startPixels = patternedPixels(8, 8, false);
+        const endPixels = patternedPixels(8, 8, true);
+        const startTexture = createTexture(gl, 8, 8, startPixels);
+        const endTexture = createTexture(gl, 8, 8, endPixels);
+        gl.useProgram(program);
+        gl.enableVertexAttribArray(position);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, startTexture);
+        gl.uniform1i(gl.getUniformLocation(program, "fromTex"), 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, endTexture);
+        gl.uniform1i(gl.getUniformLocation(program, "toTex"), 1);
+        gl.uniform1f(gl.getUniformLocation(program, "uFromOpacity"), 1);
+        gl.uniform1f(gl.getUniformLocation(program, "uToOpacity"), 1);
+
+        const fullStart = drawTransition(gl, program, 8, 8, [0, 0, 1, 1], 0);
+        const fullEnd = drawTransition(gl, program, 8, 8, [0, 0, 1, 1], 1);
+        const fullMidpoint = drawTransition(gl, program, 8, 8, [0, 0, 1, 1], 0.5);
+        const roiMidpoint = drawTransition(gl, program, 4, 4, [0.25, 0.25, 0.5, 0.5], 0.5);
+        const croppedMidpoint = cropPixels(fullMidpoint, 8, 2, 2, 4, 4);
+
+        const endpointEquivalent =
+          equalPixels(fullStart, startPixels) &&
+          equalPixels(fullEnd, endPixels);
+        const midpointEquivalent = midpointMatches(fullMidpoint, startPixels, endPixels);
+        const roiPixelEquivalent = equalPixels(roiMidpoint, croppedMidpoint);
+
+        gl.disableVertexAttribArray(position);
+        deleteBuffer(gl, buffer);
+        deleteTexture(gl, startTexture);
+        deleteTexture(gl, endTexture);
+        disposeProgram(gl, compiled);
+
+        return {
+          id: DissolveTransitionKernel.id,
+          compiled: true,
+          linked: true,
+          endpointEquivalent,
+          midpointEquivalent,
+          roiPixelEquivalent,
+          fullSize: [8, 8],
+          roi: [2, 2, 4, 4],
+        };
+      }
+
+      function verifyNamedIsfInputs(gl) {
+        const component = createIsfVisualComponent({
+          path: "shaders/browser-two-image.fs",
+          source: `/*{
+            "ISFVSN": "2.0",
+            "LABEL": "Browser Two Image",
+            "INPUTS": [
+              { "NAME": "foreground", "TYPE": "image" },
+              { "NAME": "background", "TYPE": "image" }
+            ]
+          }*/
+          void main() {
+            gl_FragColor = mix(
+              IMG_THIS_NORM_PIXEL(background),
+              IMG_THIS_NORM_PIXEL(foreground),
+              0.5
+            );
+          }`,
+        });
+        const vertexSource = `
+          precision highp float;
+          attribute vec2 aPosition;
+          varying vec2 vTexCoord;
+          void main() {
+            vTexCoord = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.0, 1.0);
+          }
+        `;
+        const compiled = compileProgram(
+          gl,
+          "isf-named-image-inputs",
+          vertexSource,
+          component.code,
+        );
+        const { program } = compiled;
+        const position = gl.getAttribLocation(program, "aPosition");
+        const buffer = createBuffer(gl);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+          -1, -1,
+           1, -1,
+          -1,  1,
+          -1,  1,
+           1, -1,
+           1,  1,
+        ]), gl.STATIC_DRAW);
+        const foregroundPixels = patternedPixels(8, 8, false);
+        const backgroundPixels = patternedPixels(8, 8, true);
+        const foreground = createTexture(gl, 8, 8, foregroundPixels);
+        const background = createTexture(gl, 8, 8, backgroundPixels);
+
+        gl.useProgram(program);
+        gl.enableVertexAttribArray(position);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, foreground);
+        gl.uniform1i(gl.getUniformLocation(program, "foreground"), 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, background);
+        gl.uniform1i(gl.getUniformLocation(program, "background"), 1);
+        gl.uniform2f(gl.getUniformLocation(program, "foreground_imgSize"), 8, 8);
+        gl.uniform2f(gl.getUniformLocation(program, "background_imgSize"), 8, 8);
+        gl.uniform4f(gl.getUniformLocation(program, "renderUvRect"), 0, 0, 1, 1);
+        gl.uniformMatrix3fv(
+          gl.getUniformLocation(program, "contentUvMatrix"),
+          false,
+          new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
+        );
+        gl.uniform1f(gl.getUniformLocation(program, "useContentTransform"), 0);
+        gl.uniform1i(gl.getUniformLocation(program, "vj1IsfFinalPass"), 1);
+        gl.uniform2f(gl.getUniformLocation(program, "RENDERSIZE"), 8, 8);
+        gl.viewport(0, 0, 8, 8);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        const pixels = new Uint8Array(8 * 8 * 4);
+        gl.readPixels(0, 0, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        const namedSamplerEquivalent = midpointMatches(
+          pixels,
+          foregroundPixels,
+          backgroundPixels,
+        );
+
+        gl.disableVertexAttribArray(position);
+        deleteBuffer(gl, buffer);
+        deleteTexture(gl, foreground);
+        deleteTexture(gl, background);
+        disposeProgram(gl, compiled);
+        return {
+          compiled: true,
+          linked: true,
+          ports: component.inlets.map((inlet) => inlet.id),
+          namedSamplerEquivalent,
+        };
+      }
+
+      function drawTransition(gl, program, width, height, sourceRect, progress) {
+        gl.viewport(0, 0, width, height);
+        gl.uniform4fv(gl.getUniformLocation(program, "uFromSourceRect"), sourceRect);
+        gl.uniform4fv(gl.getUniformLocation(program, "uToSourceRect"), sourceRect);
+        gl.uniform1f(gl.getUniformLocation(program, "uTransition"), progress);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        const pixels = new Uint8Array(width * height * 4);
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return pixels;
+      }
+
+      function compilePair(gl, id, vertexSource, fragmentSource) {
+        const compiled = compileProgram(gl, id, vertexSource, fragmentSource);
+        disposeProgram(gl, compiled);
+        return { id, compiled: true, linked: true };
+      }
+
+      function compileProgram(gl, id, vertexSource, fragmentSource) {
+        const vertex = compileShader(gl, id, gl.VERTEX_SHADER, vertexSource);
+        const fragment = compileShader(gl, id, gl.FRAGMENT_SHADER, fragmentSource);
+        const program = gl.createProgram();
+        resourceCounts.programsCreated += 1;
+        gl.attachShader(program, vertex);
+        gl.attachShader(program, fragment);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          throw new Error(`PROGRAM_LINK_FAILED:${id}:${gl.getProgramInfoLog(program) || "unknown"}`);
+        }
+        return { program, vertex, fragment };
+      }
+
+      function compileShader(gl, id, type, source) {
+        const shader = gl.createShader(type);
+        resourceCounts.shadersCreated += 1;
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          throw new Error(`SHADER_COMPILE_FAILED:${id}:${gl.getShaderInfoLog(shader) || "unknown"}`);
+        }
+        return shader;
+      }
+
+      function disposeProgram(gl, { program, vertex, fragment }) {
+        gl.deleteProgram(program);
+        resourceCounts.programsDeleted += 1;
+        gl.deleteShader(vertex);
+        gl.deleteShader(fragment);
+        resourceCounts.shadersDeleted += 2;
+      }
+
+      function createTexture(gl, width, height, pixels) {
+        const texture = gl.createTexture();
+        resourceCounts.texturesCreated += 1;
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        return texture;
+      }
+
+      function deleteTexture(gl, texture) {
+        gl.deleteTexture(texture);
+        resourceCounts.texturesDeleted += 1;
+      }
+
+      function createBuffer(gl) {
+        const buffer = gl.createBuffer();
+        resourceCounts.buffersCreated += 1;
+        return buffer;
+      }
+
+      function deleteBuffer(gl, buffer) {
+        gl.deleteBuffer(buffer);
+        resourceCounts.buffersDeleted += 1;
+      }
+
+      function patternedPixels(width, height, invert) {
+        const pixels = new Uint8Array(width * height * 4);
+        for (let y = 0; y < height; y += 1) {
+          for (let x = 0; x < width; x += 1) {
+            const offset = (y * width + x) * 4;
+            const red = x * 23 + y * 7;
+            const green = x * 5 + y * 29;
+            const blue = x * 13 + y * 11;
+            pixels[offset] = invert ? 255 - red : red;
+            pixels[offset + 1] = invert ? 255 - green : green;
+            pixels[offset + 2] = invert ? 255 - blue : blue;
+            pixels[offset + 3] = 255;
+          }
+        }
+        return pixels;
+      }
+
+      function cropPixels(pixels, sourceWidth, x, y, width, height) {
+        const cropped = new Uint8Array(width * height * 4);
+        for (let row = 0; row < height; row += 1) {
+          const sourceOffset = ((y + row) * sourceWidth + x) * 4;
+          cropped.set(pixels.subarray(sourceOffset, sourceOffset + width * 4), row * width * 4);
+        }
+        return cropped;
+      }
+
+      function midpointMatches(midpoint, start, end) {
+        for (let index = 0; index < midpoint.length; index += 1) {
+          const expected = Math.round((start[index] + end[index]) * 0.5);
+          if (Math.abs(midpoint[index] - expected) > 1) return false;
+        }
+        return true;
+      }
+
+      function equalPixels(left, right) {
+        if (left.length !== right.length) return false;
+        for (let index = 0; index < left.length; index += 1) {
+          if (left[index] !== right[index]) return false;
+        }
+        return true;
+      }
+
+      function report(payload) {
+        document.body.dataset.status = payload.ok ? "ok" : "failed";
+        resultElement.textContent = JSON.stringify(payload, null, 2);
+      }
+    </script>
+  </body>
+</html>

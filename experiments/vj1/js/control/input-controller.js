@@ -1,5 +1,5 @@
 import { bindReorderList } from "./reorder-list.js";
-import { formatTrimTime, roundTrimTime } from "./component-view.js?v=isf-nodes-1";
+import { formatTrimTime, roundTrimTime } from "./component-view.js?v=project-group-authoring-public-group-ports-1";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { createLiveRenderPatch } from "../domain/live-render-patch.js?v=live-param-patch-1";
 import { bindMarkdownEditors } from "./markdown-editor.js?v=text-style-controls-1";
@@ -246,6 +246,8 @@ export function createInputController({
     const component = componentMatch ? state.components?.[Number(componentMatch[1])] : null;
     const relativePath = componentMatch?.[2] || "";
     const significant = !!component && (component.significantParams || []).includes(relativePath);
+    const boundaryScaleInput = control.querySelector?.("input[type='range']");
+    const canMarkSignificant = !!component && !!relativePath && !isBoundaryScaleInput(boundaryScaleInput, path);
     const menu = document.createElement("div");
     menu.className = "param-context-menu";
     menu.dataset.paramContextMenu = "true";
@@ -253,7 +255,7 @@ export function createInputController({
     menu.style.top = `${Math.max(8, y)}px`;
     menu.innerHTML = `
       <button type="button" data-param-reset>Reset to default</button>
-      <button type="button" data-param-significant>${significant ? "Remove from significant" : "Make significant"}</button>
+      ${canMarkSignificant ? `<button type="button" data-param-significant>${significant ? "Remove from significant" : "Make significant"}</button>` : ""}
     `;
     document.body.append(menu);
     const bounds = menu.getBoundingClientRect();
@@ -268,6 +270,13 @@ export function createInputController({
         return;
       }
       store.update((draft) => {
+        if (isBoundaryScaleInput(boundaryScaleInput, path)) {
+          const boundary = boundaryFromScaleInput(boundaryScaleInput, value);
+          setByPath(draft, path.replace(/\.scale$/, ".width"), boundary.width);
+          setByPath(draft, path.replace(/\.scale$/, ".height"), boundary.height);
+          syncMappingEdits(draft, path.replace(/\.scale$/, ".width"));
+          return;
+        }
         setByPathCreate(draft, path, value);
         syncMappingEdits(draft, path);
       }, `update:${path}`);
@@ -295,6 +304,7 @@ export function createInputController({
     const startInput = control.querySelector("[data-video-trim-input='start']");
     const endInput = control.querySelector("[data-video-trim-input='end']");
     if (!startInput || !endInput) return;
+    if (control.dataset.videoTrimAvailable !== "true") return;
     const update = (event, phase) => updateVideoTrimFromInputs(
       control,
       event.currentTarget.dataset.videoTrimInput,
@@ -304,7 +314,7 @@ export function createInputController({
     startInput.addEventListener("change", (event) => update(event, "update"));
     endInput.addEventListener("input", (event) => update(event, "scrub"));
     endInput.addEventListener("change", (event) => update(event, "update"));
-    syncVideoTrimControl(control, Number(startInput.value) || 0, Number(endInput.value) || 0, Number(startInput.max) || 60);
+    syncVideoTrimControl(control, Number(startInput.value) || 0, Number(endInput.value) || 0, Number(startInput.max));
   }
 
   function bindParamRangeControl(control) {
@@ -372,7 +382,7 @@ export function createInputController({
     const startPath = startInput?.dataset.update;
     const endPath = endInput?.dataset.update;
     if (!startInput || !endInput || !startPath || !endPath) return;
-    const max = Math.max(0.01, Number(startInput.max) || Number(endInput.max) || 60);
+    const max = Math.max(0.01, Number(startInput.max) || Number(endInput.max));
     let start = clamp(Number(startInput.value) || 0, 0, max);
     let end = clamp(Number(endInput.value) || max, 0, max);
     if (start > end) {
@@ -554,7 +564,7 @@ function normalizeColorHex(value = "#ffffffff") {
 }
 
 function syncVideoTrimControl(control, start, end, max) {
-  const safeMax = Math.max(0.01, Number(max) || 60);
+  const safeMax = Math.max(0.01, Number(max));
   const safeStart = clamp(Number(start) || 0, 0, safeMax);
   const safeEnd = clamp(Number(end) || safeMax, safeStart, safeMax);
   control.style.setProperty("--trim-start", `${((safeStart / safeMax) * 100).toFixed(3)}%`);

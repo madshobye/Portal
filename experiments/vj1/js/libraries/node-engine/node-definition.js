@@ -27,6 +27,15 @@ export const NODE_EXECUTION_CLASSES = Object.freeze({
   OFFLINE: "offline",
 });
 
+export const NODE_EDIT_ACTIVATION = Object.freeze({
+  LIVE: "live",
+  RECOMPILE: "recompile",
+  RESTART: "restart",
+  NEW_INSTANCE: "new-instance",
+  READ_ONLY: "read-only",
+  UNSUPPORTED: "unsupported",
+});
+
 export function defineNode(definition = {}) {
   const id = requiredText(definition.id, "NODE_DEFINITION_MISSING_ID");
   const name = String(definition.name || definition.label || id);
@@ -60,6 +69,7 @@ export function defineNode(definition = {}) {
       : NODE_EXECUTION_CLASSES.INTERACTIVE,
     roi: normalizeRoiPolicy(definition.execution?.roi, definition.execution?.stateful === true),
   });
+  const authoring = normalizeAuthoring(definition.authoring);
 
   return Object.freeze({
     id,
@@ -73,6 +83,7 @@ export function defineNode(definition = {}) {
     outlets,
     parameters,
     execution,
+    authoring,
     parts,
     capabilities,
     dependencies,
@@ -88,6 +99,18 @@ export function defineNode(definition = {}) {
     // Like bindings, function objects are deliberately never serialized.
     moduleExports: freezeRecord(definition.moduleExports || {}),
     metadata: freezeRecord(definition.metadata || {}),
+  });
+}
+
+function normalizeAuthoring(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const activation = Object.values(NODE_EDIT_ACTIVATION).includes(source.activation)
+    ? source.activation
+    : NODE_EDIT_ACTIVATION.RECOMPILE;
+  return freezeRecord({
+    ...source,
+    activation,
+    reason: String(source.reason || ""),
   });
 }
 

@@ -107,11 +107,45 @@ export function modelViewportMetrics(target, request = {}) {
   };
 }
 
-export function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, rotation = [0, 0, 0], contentTransform = {}, cameraFov = Math.PI / 3, uvRect = FULL_RENDER_UV_RECT) {
-  const clip = modelCameraClipPlanes(height);
-  const projection = mat4Perspective(cameraFov, width / Math.max(1, height), clip.near, clip.far);
-  const cameraZ = Math.max(1, height) * 0.92;
-  const view = mat4LookAt([0, 0, cameraZ], [0, 0, 0], [0, 1, 0]);
+export function rawModelMatrices(
+  width = 1,
+  height = 1,
+  scale = 1,
+  depth = 1,
+  rotation = [0, 0, 0],
+  contentTransform = {},
+  cameraFov = Math.PI / 3,
+  uvRect = FULL_RENDER_UV_RECT,
+  sceneTransform = null,
+  sceneCamera = null
+) {
+  const verticalUnit = Math.max(1, Number(height) || 1);
+  const clip = sceneCamera
+    ? {
+      near: Math.max(verticalUnit * 0.00001, Number(sceneCamera.near) * verticalUnit || verticalUnit * 0.0005),
+      far: Math.max(verticalUnit * 0.001, Number(sceneCamera.far) * verticalUnit || verticalUnit * 25),
+    }
+    : modelCameraClipPlanes(height);
+  const fieldOfView = Number(sceneCamera?.fieldOfView) || cameraFov;
+  const aspect = width / Math.max(1, height);
+  const projection = sceneCamera?.projection === "orthographic"
+    ? mat4Orthographic(
+      -aspect / Math.max(0.0001, Number(sceneCamera.zoom) || 1) * verticalUnit * 0.5,
+      aspect / Math.max(0.0001, Number(sceneCamera.zoom) || 1) * verticalUnit * 0.5,
+      -verticalUnit * 0.5 / Math.max(0.0001, Number(sceneCamera.zoom) || 1),
+      verticalUnit * 0.5 / Math.max(0.0001, Number(sceneCamera.zoom) || 1),
+      clip.near,
+      clip.far
+    )
+    : mat4Perspective(fieldOfView, aspect, clip.near, clip.far);
+  const cameraPosition = sceneCamera
+    ? sceneCamera.position.map((value) => Number(value) * verticalUnit)
+    : [0, 0, verticalUnit * 0.92];
+  const cameraTarget = sceneCamera
+    ? sceneCamera.target.map((value) => Number(value) * verticalUnit)
+    : [0, 0, 0];
+  const cameraUp = sceneCamera?.up || [0, 1, 0];
+  const view = mat4LookAt(cameraPosition, cameraTarget, cameraUp);
   let model = mat4Identity();
   if (!isIdentityTransform(contentTransform)) {
     const content = contentTransformRawWebglPlacement(contentTransform, width, height);
@@ -119,10 +153,22 @@ export function rawModelMatrices(width = 1, height = 1, scale = 1, depth = 1, ro
     model = mat4Multiply(model, mat4RotationZ(content.rotation));
     model = mat4Multiply(model, mat4Scale(content.scale, content.scale, content.scale));
   }
-  model = mat4Multiply(model, mat4RotationX(rotation[0] || 0));
-  model = mat4Multiply(model, mat4RotationY(rotation[1] || 0));
-  model = mat4Multiply(model, mat4RotationZ(rotation[2] || 0));
-  model = mat4Multiply(model, mat4Scale(scale, scale, scale * depth));
+  const objectPosition = sceneTransform?.position || [0, 0, 0];
+  const objectRotation = sceneTransform?.rotation || [0, 0, 0];
+  const objectScale = sceneTransform?.scale || [1, 1, 1];
+  model = mat4Multiply(model, mat4Translation(
+    (Number(objectPosition[0]) || 0) * verticalUnit,
+    (Number(objectPosition[1]) || 0) * verticalUnit,
+    (Number(objectPosition[2]) || 0) * verticalUnit
+  ));
+  model = mat4Multiply(model, mat4RotationX((rotation[0] || 0) + (Number(objectRotation[0]) || 0)));
+  model = mat4Multiply(model, mat4RotationY((rotation[1] || 0) + (Number(objectRotation[1]) || 0)));
+  model = mat4Multiply(model, mat4RotationZ((rotation[2] || 0) + (Number(objectRotation[2]) || 0)));
+  model = mat4Multiply(model, mat4Scale(
+    scale * (Number(objectScale[0]) || 1),
+    scale * (Number(objectScale[1]) || 1),
+    scale * depth * (Number(objectScale[2]) || 1)
+  ));
   return {
     model,
     // Project in the complete boundary, then remap only the requested NDC
@@ -234,6 +280,21 @@ function mat4Perspective(fovy, aspect, near, far) {
     0, f, 0, 0,
     0, 0, (far + near) * nf, -1,
     0, 0, (2 * far * near) * nf, 0,
+  ]);
+}
+
+function mat4Orthographic(left, right, bottom, top, near, far) {
+  const lr = 1 / (left - right);
+  const bt = 1 / (bottom - top);
+  const nf = 1 / (near - far);
+  return new Float32Array([
+    -2 * lr, 0, 0, 0,
+    0, -2 * bt, 0, 0,
+    0, 0, 2 * nf, 0,
+    (left + right) * lr,
+    (top + bottom) * bt,
+    (far + near) * nf,
+    1,
   ]);
 }
 

@@ -1,4 +1,4 @@
-import GeneratorAnatomy from "./generators/anatomy/index.js";
+import GeneratorAnatomy from "./generators/anatomy/index.js?v=specialized-stage-authority-1";
 import GeneratorAdditiveLightOrbs from "./generators/additive-light-orbs/index.js";
 import GeneratorAnimatedDazzleStripes from "./generators/animated-dazzle-stripes/index.js";
 import GeneratorBezierStrokes from "./generators/bezier-strokes/index.js";
@@ -18,7 +18,7 @@ import GeneratorGalaxy from "./generators/galaxy/index.js";
 import GeneratorGradient from "./generators/gradient/index.js";
 import GeneratorGestureReticle from "./generators/gesture-reticle/index.js";
 import GeneratorLightning from "./generators/lightning/index.js";
-import GeneratorMeshPatterns from "./generators/mesh-patterns/index.js?v=source-roi-view-3";
+import GeneratorMeshPatterns from "./generators/mesh-patterns/index.js?v=specialized-stage-authority-1";
 import GeneratorNoise from "./generators/noise/index.js";
 import GeneratorNestedOrbitMotion from "./generators/nested-orbit-motion/index.js";
 import GeneratorPaintDrips from "./generators/paint-drips/index.js";
@@ -29,7 +29,7 @@ import GeneratorSeascape from "./generators/seascape/index.js";
 import GeneratorShadertoyBaseWarp from "./generators/shadertoy-base-warp/index.js";
 import GeneratorSunRays from "./generators/sun-rays/index.js";
 import GeneratorSwayingTrees from "./generators/swaying-trees/index.js";
-import GeneratorTerrainFlyover from "./generators/terrain-flyover/index.js?v=source-roi-view-3";
+import GeneratorTerrainFlyover from "./generators/terrain-flyover/index.js?v=specialized-stage-authority-1";
 import GeneratorExpressiveRibbonBrush from "./generators/expressive-ribbon-brush/index.js";
 import GeneratorTestPattern from "./generators/test-pattern/index.js?v=procedural-2d-1";
 import GeneratorText from "./generators/text/index.js";
@@ -71,12 +71,62 @@ import EffectSpinRotate from "./effects/spin-rotate/index.js";
 import EffectThreshold from "./effects/threshold/index.js";
 
 import { defaultParamValues, normalizeParamValues } from "./shared/component-schema.js";
+import {
+  defineVisualLibraryLayer,
+  resolveVisualLibrary,
+  VISUAL_IMPLEMENTATION_FORMATS,
+  VISUAL_LIBRARY_LAYER_KINDS,
+} from "../visual-library/index.js";
+import { DissolveTransitionKernel } from "../transition-engine/index.js";
 export { componentFromNodeDefinition } from "./shared/visual-node-factory.js";
 
 const generators = Object.freeze([GeneratorAnatomy, GeneratorAdditiveLightOrbs, GeneratorAnimatedDazzleStripes, GeneratorBezierStrokes, GeneratorBiomineLite, GeneratorBlack, GeneratorCellularCircles, GeneratorChainFollowerTrails, GeneratorChecker, GeneratorCherenkovVolume, GeneratorCloudyTunnel, GeneratorEyeball, GeneratorExpressiveRibbonBrush, GeneratorFeatureMorphV2, GeneratorFeatureMorph, GeneratorFireflies, GeneratorFog, GeneratorGalaxy, GeneratorGestureReticle, GeneratorGradient, GeneratorLightning, GeneratorMeshPatterns, GeneratorNestedOrbitMotion, GeneratorNoise, GeneratorPaintDrips, GeneratorPlasma, GeneratorScreenShare, GeneratorSdfSketch, GeneratorSeascape, GeneratorShadertoyBaseWarp, GeneratorSunRays, GeneratorSwayingTrees, GeneratorTerrainFlyover, GeneratorTestPattern, GeneratorText, GeneratorTileTexture, GeneratorVolumetricClouds, GeneratorWaves]);
 const effects = Object.freeze([EffectAlphaFeather, EffectAlphaVignette, EffectBlur, EffectBrokenFluorescent, EffectCrayonStroke, EffectCustom, EffectDilate, EffectEchoFade, EffectErode, EffectFlip, EffectGlitchDistort, EffectGray, EffectHardBlack, EffectHeartbeatPulse, EffectHeatShimmer, EffectHsvAlphaKey, EffectInvert, EffectKaleido, EffectLabelChromatic, EffectLabelGrain, EffectLabelThresholdGrain, EffectLumaKey, EffectMirrorFold, EffectPhotoGrade, EffectPixelArtUpscale, EffectPixelate, EffectPlasma, EffectPowerFlicker, EffectRgbSplit, EffectRipple, EffectSmear, EffectSpinRotate, EffectThreshold]);
 const generatorById = new Map(generators.map((component) => [component.id, component]));
 const effectById = new Map(effects.map((component) => [component.id, component]));
+
+export const BuiltInVisualLibraryLayer = defineVisualLibraryLayer({
+  id: "vj1.built-in.visuals",
+  kind: VISUAL_LIBRARY_LAYER_KINDS.BUILT_IN,
+  artifacts: [...generators, ...effects].map((component) => ({
+    id: component.nodeDefinition.id,
+    version: component.nodeDefinition.version,
+    name: component.name,
+    description: component.description,
+    artifactType: component.kind,
+    implementation: {
+      format: VISUAL_IMPLEMENTATION_FORMATS.NODE,
+      nodeId: component.nodeDefinition.id,
+      nodeVersion: component.nodeDefinition.version,
+      visualId: component.id,
+    },
+    capabilities: component.nodeDefinition.capabilities,
+    categories: [component.category],
+    ports: {
+      inlets: component.nodeDefinition.inlets,
+      outlets: component.nodeDefinition.outlets,
+    },
+    presentation: component.nodeDefinition.presentation,
+  })).concat([{
+    id: DissolveTransitionKernel.id,
+    version: DissolveTransitionKernel.version,
+    name: DissolveTransitionKernel.name,
+    description: DissolveTransitionKernel.description,
+    artifactType: "transition",
+    implementation: {
+      format: VISUAL_IMPLEMENTATION_FORMATS.NATIVE,
+      transitionKernelId: DissolveTransitionKernel.id,
+    },
+    capabilities: ["visual-transition", "single-pass", "direct-mapper-pass"],
+    categories: ["Transition"],
+  }]),
+});
+
+export const BuiltInVisualLibrary = resolveVisualLibrary([BuiltInVisualLibraryLayer]);
+
+export function listBuiltInVisualArtifacts(options = {}) {
+  return BuiltInVisualLibrary.list(options);
+}
 
 export function getGeneratorNodeComponent(id) {
   const key = String(id || "");

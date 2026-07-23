@@ -1,4 +1,4 @@
-import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
+import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
 
 export const CURRENT_PROJECT_VERSION = 30;
 export const OLDEST_PROJECT_VERSION = 1;

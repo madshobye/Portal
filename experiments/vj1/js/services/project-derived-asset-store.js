@@ -6,7 +6,7 @@ import {
   parseComponentThumbnailFilename,
   thumbnailExtension,
   thumbnailValueToBlob,
-} from "./component-thumbnail-store.js?v=thumbnail-pipeline-1";
+} from "./component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
 
 export class ProjectDerivedAssetStore {
   constructor({ getProjectDirectory, isCurrentProject, mediaLibrary, onMediaFilesChanged, maxIndexedRenditions = 1000 }) {
@@ -116,18 +116,18 @@ export class ProjectDerivedAssetStore {
     return await root.getDirectoryHandle(RENDITION_DIR, { create: true });
   }
 
-  async writeComponentThumbnail(componentId, frameId, thumbnail) {
+  async writeComponentThumbnail(componentId, surfaceId, thumbnail) {
     const projectHandle = this.getProjectDirectory?.();
     if (!projectHandle || !componentId || !thumbnail) return false;
     const blob = thumbnailValueToBlob(thumbnail);
     const extension = thumbnailExtension(blob);
     const directory = await this.thumbnailDirectory({ create: true, projectHandle });
-    const filename = componentThumbnailFilename(componentId, frameId, extension);
+    const filename = componentThumbnailFilename(componentId, surfaceId, extension);
     const handle = await directory.getFileHandle(filename, { create: true });
     const writable = await handle.createWritable();
     await writable.write(blob);
     await writable.close();
-    const alternate = componentThumbnailFilename(componentId, frameId, extension === "png" ? "webp" : "png");
+    const alternate = componentThumbnailFilename(componentId, surfaceId, extension === "png" ? "webp" : "png");
     try {
       await directory.removeEntry(alternate);
     } catch (error) {
@@ -139,11 +139,11 @@ export class ProjectDerivedAssetStore {
   async migrateEmbeddedThumbnails(entries) {
     for (const entry of entries || []) {
       try {
-        await this.writeComponentThumbnail(entry.componentId, entry.frameId, entry.url);
+        await this.writeComponentThumbnail(entry.componentId, entry.surfaceId, entry.url);
       } catch (error) {
         console.warn("[VJ1_EMBEDDED_THUMBNAIL_MIGRATION_FAILED]", {
           componentId: entry.componentId,
-          frameId: entry.frameId,
+          surfaceId: entry.surfaceId,
           fallback: "regenerate this thumbnail on demand",
           message: error?.message || String(error),
         });

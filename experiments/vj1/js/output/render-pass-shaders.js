@@ -67,6 +67,50 @@ void main() {
   gl_FragColor = color * inside;
 }`;
 
+export const TEXTURE_OPERATOR_FRAGMENT_SHADER = `
+precision highp float;
+uniform sampler2D textureA;
+uniform sampler2D textureB;
+uniform bool flipA;
+uniform bool flipB;
+uniform int operation;
+uniform int blendMode;
+uniform float amount;
+uniform bool maskLuminance;
+uniform bool invertMask;
+varying vec2 vTexCoord;
+
+vec2 storedUv(vec2 uv, bool flipY) {
+  return flipY ? vec2(uv.x, 1.0 - uv.y) : uv;
+}
+
+vec4 premultipliedBlend(vec4 a, vec4 b, int mode) {
+  if (mode == 0) return b;
+  float alpha = clamp(a.a + b.a, 0.0, 1.0);
+  if (mode == 1) return vec4(min(a.rgb + b.rgb, vec3(alpha)), alpha);
+  vec3 sa = a.a > 0.0001 ? a.rgb / a.a : vec3(0.0);
+  vec3 sb = b.a > 0.0001 ? b.rgb / b.a : vec3(0.0);
+  vec3 straight = mode == 2 ? sa * sb : 1.0 - (1.0 - sa) * (1.0 - sb);
+  float combinedAlpha = a.a + b.a - a.a * b.a;
+  return vec4(straight * combinedAlpha, combinedAlpha);
+}
+
+void main() {
+  vec4 a = texture2D(textureA, storedUv(vTexCoord, flipA));
+  vec4 b = texture2D(textureB, storedUv(vTexCoord, flipB));
+  float t = clamp(amount, 0.0, 1.0);
+  if (operation == 1) {
+    float maskValue = maskLuminance
+      ? dot(b.a > 0.0001 ? b.rgb / b.a : vec3(0.0), vec3(0.2126, 0.7152, 0.0722))
+      : b.a;
+    if (invertMask) maskValue = 1.0 - maskValue;
+    gl_FragColor = a * mix(1.0, clamp(maskValue, 0.0, 1.0), t);
+    return;
+  }
+  vec4 blended = premultipliedBlend(a, b, blendMode);
+  gl_FragColor = mix(a, blended, t);
+}`;
+
 // Presentation only normalizes texture storage orientation. Source and Group
 // transforms must already have affected the coordinates used during render.
 export const GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER = `

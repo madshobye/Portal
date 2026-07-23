@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 
 import {
   checkNodeCompatibility,
+  createNodePackageVisualLibraryLayer,
   createNodePackageFromProject,
   createNodeInstance,
   createProjectNodeFork,
   defineNode,
+  defineNodeGroup,
   defineNodePackage,
   exportNodePackage,
   importNodePackage,
@@ -17,9 +19,11 @@ import {
   NODE_PART_KINDS,
   resolveNodeDependencies,
   resolveNodePackageDependencies,
+  resolveProjectNodePackages,
   resolveNodeVersion,
   satisfiesNodeVersion,
   upgradeProjectNodeFork,
+  NODE_PACKAGE_FORMAT_VERSION,
 } from "../js/libraries/node-engine/index.js";
 
 function valueNode(version, additions = {}) {
@@ -49,6 +53,16 @@ function valueNode(version, additions = {}) {
     process: ({ value }) => ({ value: value * 2 }),
     ...additions,
   });
+}
+
+function artifactFixture(id, artifactType = "generator") {
+  return {
+    id,
+    version: "1.0.0",
+    name: id,
+    artifactType,
+    implementation: { format: "native", visualId: id },
+  };
 }
 
 test("node dependency resolution honors ranges and project pins", () => {
@@ -103,6 +117,32 @@ test("node packages export import install and execute linked source modules", as
   assert.equal(encoded.includes("moduleBindings"), false);
   assert.equal(encoded.includes("moduleExports"), false);
   assert.equal(encoded.includes("process\""), true, "the process entry metadata is transported with its source part");
+});
+
+test("node packages preserve compiled Group compiler identity", () => {
+  const group = defineNodeGroup({
+    id: "test.package.scene-group",
+    name: "Packaged Scene Group",
+    version: "1.0.0",
+    description: "A compiled Group whose compiler selection must survive transport.",
+    executionModel: "compiled-graph",
+    compiler: { id: "test.scene.direct-program", target: "scene-3d" },
+    nodes: [],
+    connections: [],
+  });
+  const imported = importNodePackage(exportNodePackage(defineNodePackage({
+    id: "test.scene-group-package",
+    version: "1.0.0",
+    definitions: [group],
+  }))).definitions[0];
+
+  assert.deepEqual(imported.compiler, {
+    id: "test.scene.direct-program",
+    target: "scene-3d",
+    strategy: "",
+  });
+  assert.equal(imported.implementation.kind, "group");
+  assert.equal(imported.implementation.executionModel, "compiled-graph");
 });
 
 test("project packages transport reusable group topology with explicit external node requirements", () => {
@@ -199,10 +239,78 @@ test("legacy package format imports through the additive package migration", () 
     definitions: [],
     artifacts: [],
   });
-  assert.equal(imported.formatVersion, 2);
+  assert.equal(imported.formatVersion, NODE_PACKAGE_FORMAT_VERSION);
   assert.deepEqual(imported.nodeDependencies, []);
   assert.deepEqual(imported.groups, []);
   assert.deepEqual(imported.forks, []);
+  assert.deepEqual(imported.resources, []);
+  assert.deepEqual(imported.visualLibrary, []);
+});
+
+test("packages transport file-backed visual-library resources without embedding resource contents", () => {
+  const original = defineNodePackage({
+    id: "test.visual-library-package",
+    version: "1.0.0",
+    resources: [
+      {
+        id: "soft-wipe-source",
+        kind: "shader",
+        path: "shaders/transitions/soft-wipe.fs",
+        mediaType: "text/x-isf",
+        integrity: "sha256-example",
+      },
+      {
+        id: "soft-wipe-preview",
+        kind: "preview",
+        path: "previews/soft-wipe.webp",
+        mediaType: "image/webp",
+      },
+    ],
+    visualLibrary: [{
+      id: "org.vj1.transition.soft-wipe",
+      version: "1.0.0",
+      name: "Soft Wipe",
+      artifactType: "transition",
+      implementation: {
+        format: "isf",
+        resourceId: "soft-wipe-source",
+      },
+      preview: { resourceId: "soft-wipe-preview" },
+    }],
+  });
+  const encoded = exportNodePackage(original);
+  const imported = importNodePackage(encoded);
+  const installed = installNodePackageIntoProject(imported, {});
+
+  assert.equal(imported.formatVersion, NODE_PACKAGE_FORMAT_VERSION);
+  assert.equal(imported.resources[0].path, "shaders/transitions/soft-wipe.fs");
+  assert.equal(imported.visualLibrary[0].implementation.resourceId, "soft-wipe-source");
+  assert.equal(encoded.includes("sha256-example"), true);
+  assert.equal(encoded.includes("void main"), false, "packages carry resource locations rather than file payloads");
+  assert.equal(installed.installed.resources.length, 2);
+  assert.equal(installed.installed.visualLibrary[0].artifactType, "transition");
+  assert.deepEqual(installed.project.packages, [{
+    id: "test.visual-library-package",
+    version: "1.0.0",
+    enabled: true,
+  }]);
+  const layer = createNodePackageVisualLibraryLayer(imported);
+  assert.equal(layer.id, imported.id);
+  assert.equal(layer.kind, "installed");
+  assert.equal(layer.metadata.packageVersion, "1.0.0");
+  assert.equal(layer.artifacts[0].origin.id, imported.id);
+  assert.throws(() => defineNodePackage({
+    id: "test.unsafe-resource-package",
+    resources: [{ id: "escape", kind: "shader", path: "../outside.fs" }],
+  }), /NODE_PACKAGE_RESOURCE_PATH_INVALID/);
+  assert.throws(() => defineNodePackage({
+    id: "test.missing-resource-package",
+    visualLibrary: [{
+      id: "org.vj1.effect.missing",
+      artifactType: "effect",
+      implementation: { format: "isf", resourceId: "missing" },
+    }],
+  }), /NODE_PACKAGE_VISUAL_RESOURCE_UNRESOLVED/);
 });
 
 test("package dependencies resolve in dependency-first order", () => {
@@ -213,6 +321,31 @@ test("package dependencies resolve in dependency-first order", () => {
     "test.core@1.0.0",
     "test.app@1.0.0",
   ]);
+});
+
+test("project package references resolve exact roots and dependency-first visual layers", () => {
+  const core = defineNodePackage({
+    id: "test.visual-core",
+    version: "1.2.0",
+    visualLibrary: [artifactFixture("org.example.generator.core")],
+  });
+  const app = defineNodePackage({
+    id: "test.visual-app",
+    version: "2.0.0",
+    dependencies: [{ id: core.id, range: "^1.0.0" }],
+    visualLibrary: [artifactFixture("org.example.effect.app", "effect")],
+  });
+  const installed = installNodePackageIntoProject(app, {});
+  const resolved = resolveProjectNodePackages(installed.project, [app, core]);
+
+  assert.deepEqual(resolved.map((item) => `${item.id}@${item.version}`), [
+    "test.visual-core@1.2.0",
+    "test.visual-app@2.0.0",
+  ]);
+  assert.throws(
+    () => resolveProjectNodePackages(installed.project, [core]),
+    /NODE_PROJECT_PACKAGE_UNAVAILABLE:test\.visual-app@2\.0\.0/,
+  );
 });
 
 test("compatibility reports and migrations rebase project forks explicitly", () => {

@@ -1,4 +1,4 @@
-import { createProjectNodeFork, materializeProjectNodeFork, validateProjectNodeFork } from "../libraries/node-engine/node-editor.js";
+import { createProjectNodeFork, materializeProjectNodeFork, validateProjectNodeFork } from "../libraries/node-engine/node-editor.js?v=explicit-group-compiler-public-group-ports-1";
 import { compileSdf2dSketchSource } from "../libraries/procedural-2d/compiler.js?v=procedural-2d-3";
 import { esc, icon } from "./template-utils.js";
 
@@ -43,6 +43,7 @@ export function nodeDefinitionEditorTemplate(baseDefinition, state, nodePackage,
         <span><strong>${esc(definition.name)}</strong><small>${esc(definition.id)} · v${esc(definition.version)}${fork ? " · project version" : ""}</small></span>
       </div>
       <p class="node-editor-description">${esc(definition.description)}</p>
+      <p class="soft-note">${esc(authoringActivationLabel(definition))}</p>
       ${portSection("Inlets", definition.inlets)}
       ${portSection("Outlets", definition.outlets)}
       ${parameterSection(definition.parameters, parameterValues)}
@@ -64,6 +65,20 @@ export function nodeDefinitionEditorTemplate(baseDefinition, state, nodePackage,
   `;
 }
 
+function authoringActivationLabel(definition = {}) {
+  const activation = definition.authoring?.activation || "recompile";
+  const labels = {
+    live: "Edits activate live.",
+    recompile: "Edits activate after the node program recompiles.",
+    restart: "Edits activate after saving and restarting the application.",
+    "new-instance": "Edits apply to newly created node instances.",
+    "read-only": "This node is inspectable but not editable.",
+    unsupported: "This host cannot activate edits to this node.",
+  };
+  const reason = String(definition.authoring?.reason || "");
+  return `${labels[activation] || labels.recompile}${reason ? ` ${reason}` : ""}`;
+}
+
 export function materializeProjectNodeDefinition(baseDefinition, state = {}) {
   return materializeForkSafely(baseDefinition, activeForkFor(state?.nodes, baseDefinition));
 }
@@ -79,6 +94,182 @@ export function withProjectNodeGraph(nodes, baseDefinition, graph) {
       publicOutlets: graph.publicOutlets || {},
     }),
   });
+}
+
+export function withProjectNodeParameterExposure(nodes, baseDefinition, {
+  nodeId,
+  parameterId,
+  publicParameterId = "",
+  parameter,
+  sectionLabel = "",
+  exposed = true,
+} = {}) {
+  if (baseDefinition?.metadata?.projectOwned !== true) {
+    throw new Error(`NODE_PUBLIC_PARAMETER_REQUIRES_PROJECT_GROUP:${baseDefinition?.id || "missing"}`);
+  }
+  const childId = String(nodeId || "");
+  const childParameterId = String(parameterId || "");
+  if (!childId || !childParameterId) throw new Error("NODE_PUBLIC_PARAMETER_TARGET_INVALID");
+  const current = nodes && typeof nodes === "object" ? nodes : {};
+  const existing = activeForkFor(current, baseDefinition);
+  const materialized = materializeForkSafely(baseDefinition, existing);
+  const graph = materialized.parts?.find((part) => part.kind === "graph");
+  if (!(graph?.nodes || []).some((node) => String(node.id || "") === childId)) {
+    throw new Error(`NODE_PUBLIC_PARAMETER_CHILD_MISSING:${baseDefinition.id}:${childId}`);
+  }
+
+  const projection = cloneControlProjection(materialized.metadata?.controlProjection);
+  const parameters = { ...(materialized.parameters || {}) };
+  let removedPublicId = "";
+  for (const section of projection.sections) {
+    section.controls = section.controls.filter((control) => {
+      const targetsParameter = (control.bindings || []).some((binding) =>
+        binding.nodeId === childId && binding.parameterId === childParameterId);
+      if (targetsParameter) removedPublicId = control.parameterId;
+      return !targetsParameter;
+    });
+  }
+  projection.sections = projection.sections.filter((section) => section.controls.length);
+  if (removedPublicId && !projection.sections.some((section) =>
+    section.controls.some((control) => control.parameterId === removedPublicId))) {
+    if (baseDefinition.parameters?.[removedPublicId]) {
+      parameters[removedPublicId] = baseDefinition.parameters[removedPublicId];
+    } else {
+      delete parameters[removedPublicId];
+    }
+  }
+
+  if (exposed) {
+    const publicId = normalizePublicParameterId(publicParameterId || `${childId}-${childParameterId}`);
+    const collision = projection.sections.some((section) =>
+      section.controls.some((control) => control.parameterId === publicId));
+    if (collision) throw new Error(`NODE_PUBLIC_PARAMETER_DUPLICATE:${baseDefinition.id}:${publicId}`);
+    if (!parameter || typeof parameter !== "object") {
+      throw new Error(`NODE_PUBLIC_PARAMETER_SPEC_MISSING:${baseDefinition.id}:${childId}.${childParameterId}`);
+    }
+    parameters[publicId] = {
+      ...parameter,
+      id: publicId,
+      label: String(parameter.label || childParameterId),
+      role: "parameter",
+    };
+    let section = projection.sections.find((item) => item.id === childId);
+    if (!section) {
+      section = {
+        id: childId,
+        label: String(sectionLabel || childId),
+        controls: [],
+      };
+      projection.sections.push(section);
+    }
+    section.controls.push({
+      parameterId: publicId,
+      bindings: [{ nodeId: childId, parameterId: childParameterId }],
+    });
+  }
+
+  const fork = createProjectNodeFork(baseDefinition, {
+    forkId: existing?.id?.split("/fork/").at(-1) || "project",
+    name: existing?.definition?.name || `${baseDefinition.name} (Project version)`,
+    description: existing?.definition?.description || baseDefinition.description,
+    overrides: {
+      ...existing?.definition,
+      parameters,
+      parts: existing?.definition?.parts || baseDefinition.parts || [],
+      metadata: {
+        ...materialized.metadata,
+        controlProjection: {
+          format: "vj1.control-projection@1",
+          sections: projection.sections,
+        },
+      },
+    },
+  });
+  validateProjectNodeFork(baseDefinition, fork);
+  return {
+    ...current,
+    forks: [
+      ...(current.forks || []).filter((item) => item?.base?.id !== baseDefinition.id),
+      { ...fork, active: true, updatedAt: new Date().toISOString() },
+    ],
+  };
+}
+
+export function withProjectNodePortExposure(nodes, baseDefinition, {
+  nodeId,
+  portId,
+  publicPortId = "",
+  port,
+  direction = "inlet",
+  exposed = true,
+} = {}) {
+  if (baseDefinition?.metadata?.projectOwned !== true) {
+    throw new Error(`NODE_PUBLIC_PORT_REQUIRES_PROJECT_GROUP:${baseDefinition?.id || "missing"}`);
+  }
+  const childId = String(nodeId || "");
+  const childPortId = String(portId || "");
+  const role = direction === "outlet" ? "outlet" : "inlet";
+  if (!childId || !childPortId) throw new Error("NODE_PUBLIC_PORT_TARGET_INVALID");
+  const current = nodes && typeof nodes === "object" ? nodes : {};
+  const existing = activeForkFor(current, baseDefinition);
+  const materialized = materializeForkSafely(baseDefinition, existing);
+  const graph = materialized.parts?.find((part) => part.kind === "graph");
+  if (!(graph?.nodes || []).some((node) => String(node.id || "") === childId)) {
+    throw new Error(`NODE_PUBLIC_PORT_CHILD_MISSING:${baseDefinition.id}:${childId}`);
+  }
+
+  const endpoint = `${childId}.${childPortId}`;
+  const mappingKey = role === "inlet" ? "publicInlets" : "publicOutlets";
+  const portKey = role === "inlet" ? "inlets" : "outlets";
+  const mappings = { ...(graph?.[mappingKey] || {}) };
+  const ports = { ...(materialized[portKey] || {}) };
+  for (const [id, mappedEndpoint] of Object.entries(mappings)) {
+    if (String(mappedEndpoint || "") !== endpoint) continue;
+    delete mappings[id];
+    delete ports[id];
+  }
+
+  if (exposed) {
+    const publicId = normalizePublicParameterId(publicPortId || `${childId}-${childPortId}`);
+    if (mappings[publicId] || ports[publicId]) {
+      throw new Error(`NODE_PUBLIC_PORT_DUPLICATE:${baseDefinition.id}:${role}:${publicId}`);
+    }
+    if (!port || typeof port !== "object") {
+      throw new Error(`NODE_PUBLIC_PORT_SPEC_MISSING:${baseDefinition.id}:${endpoint}`);
+    }
+    ports[publicId] = {
+      ...port,
+      id: publicId,
+      label: String(port.label || childPortId),
+      role,
+    };
+    mappings[publicId] = endpoint;
+  }
+
+  const parts = (materialized.parts || []).map((part) => part.kind !== "graph"
+    ? part
+    : {
+        ...part,
+        [mappingKey]: mappings,
+      });
+  const fork = createProjectNodeFork(baseDefinition, {
+    forkId: existing?.id?.split("/fork/").at(-1) || "project",
+    name: existing?.definition?.name || `${baseDefinition.name} (Project version)`,
+    description: existing?.definition?.description || baseDefinition.description,
+    overrides: {
+      ...existing?.definition,
+      [portKey]: ports,
+      parts,
+    },
+  });
+  validateProjectNodeFork(baseDefinition, fork);
+  return {
+    ...current,
+    forks: [
+      ...(current.forks || []).filter((item) => item?.base?.id !== baseDefinition.id),
+      { ...fork, active: true, updatedAt: new Date().toISOString() },
+    ],
+  };
 }
 
 export function withProjectGroupGraph(nodes, groupId, graph) {
@@ -109,6 +300,9 @@ export function withProjectNodeFork(nodes, baseDefinition, partSources = {}) {
   const parts = sourceParts.map((part) => Object.prototype.hasOwnProperty.call(compiledSources, part.id)
     ? editedPart(part, compiledSources[part.id])
     : part);
+  const interfaceOverrides = baseDefinition.metadata?.projectOwned === true
+    ? pruneProjectGroupInterface(baseDefinition, existing, parts)
+    : {};
   const fork = createProjectNodeFork(baseDefinition, {
     forkId: existing?.id?.split("/fork/").at(-1) || "project",
     name: existing?.definition?.name || `${baseDefinition.name} (Project version)`,
@@ -116,6 +310,7 @@ export function withProjectNodeFork(nodes, baseDefinition, partSources = {}) {
     overrides: {
       ...existing?.definition,
       parts,
+      ...interfaceOverrides,
     },
   });
   validateProjectNodeFork(baseDefinition, fork);
@@ -125,6 +320,67 @@ export function withProjectNodeFork(nodes, baseDefinition, partSources = {}) {
       ...(current.forks || []).filter((item) => item?.base?.id !== baseDefinition.id),
       { ...fork, active: true, updatedAt: new Date().toISOString() },
     ],
+  };
+}
+
+function pruneProjectGroupInterface(baseDefinition, existing, parts) {
+  const graph = (parts || []).find((part) => part.kind === "graph");
+  const nodeIds = new Set((graph?.nodes || []).map((node) => String(node.id || "")));
+  const keepMappedEndpoint = (value) => nodeIds.has(String(value || "").split(".")[0]);
+  const publicInlets = Object.fromEntries(Object.entries(graph?.publicInlets || {})
+    .filter(([, value]) => keepMappedEndpoint(value)));
+  const publicOutlets = Object.fromEntries(Object.entries(graph?.publicOutlets || {})
+    .filter(([, value]) => keepMappedEndpoint(value)));
+  const nextParts = (parts || []).map((part) => part !== graph
+    ? part
+    : { ...part, publicInlets, publicOutlets });
+  const metadata = {
+    ...baseDefinition.metadata,
+    ...(existing?.definition?.metadata || {}),
+  };
+  const projection = cloneControlProjection(metadata.controlProjection);
+  projection.sections = projection.sections.flatMap((section) => {
+    const controls = section.controls.flatMap((control) => {
+      const bindings = control.bindings.filter((binding) => nodeIds.has(binding.nodeId));
+      return bindings.length ? [{ ...control, bindings }] : [];
+    });
+    return controls.length ? [{ ...section, controls }] : [];
+  });
+  const referenced = new Set(projection.sections.flatMap((section) =>
+    section.controls.map((control) => control.parameterId)));
+  const parameters = {
+    ...baseDefinition.parameters,
+    ...(existing?.definition?.parameters || {}),
+  };
+  for (const id of Object.keys(parameters)) {
+    if (!baseDefinition.parameters?.[id] && !referenced.has(id)) delete parameters[id];
+  }
+  const inlets = {
+    ...baseDefinition.inlets,
+    ...(existing?.definition?.inlets || {}),
+  };
+  const outlets = {
+    ...baseDefinition.outlets,
+    ...(existing?.definition?.outlets || {}),
+  };
+  for (const id of Object.keys(inlets)) {
+    if (!baseDefinition.inlets?.[id] && !publicInlets[id]) delete inlets[id];
+  }
+  for (const id of Object.keys(outlets)) {
+    if (!baseDefinition.outlets?.[id] && !publicOutlets[id]) delete outlets[id];
+  }
+  return {
+    parts: nextParts,
+    inlets,
+    outlets,
+    parameters,
+    metadata: {
+      ...metadata,
+      controlProjection: {
+        format: "vj1.control-projection@1",
+        sections: projection.sections,
+      },
+    },
   };
 }
 
@@ -179,6 +435,32 @@ function activeForkFor(nodes, definition) {
     fork?.base?.id === definition.id &&
     fork?.base?.version === definition.version
   ) || null;
+}
+
+function cloneControlProjection(value = {}) {
+  if (value?.format !== "vj1.control-projection@1") {
+    return { format: "vj1.control-projection@1", sections: [] };
+  }
+  return {
+    format: "vj1.control-projection@1",
+    sections: (value.sections || []).map((section) => ({
+      id: String(section.id || ""),
+      label: String(section.label || section.id || "Controls"),
+      controls: (section.controls || []).map((control) => ({
+        parameterId: String(control.parameterId || ""),
+        bindings: (control.bindings || []).map((binding) => ({
+          nodeId: String(binding.nodeId || ""),
+          parameterId: String(binding.parameterId || ""),
+        })),
+      })),
+    })),
+  };
+}
+
+function normalizePublicParameterId(value) {
+  const id = String(value || "").trim().replace(/[^A-Za-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  if (!id || !/^[A-Za-z_]/.test(id)) throw new Error(`NODE_PUBLIC_PARAMETER_ID_INVALID:${value || "missing"}`);
+  return id;
 }
 
 function materializeForkSafely(baseDefinition, fork) {

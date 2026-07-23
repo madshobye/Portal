@@ -41,8 +41,9 @@ export function drawStandby(pg, label, { visible = true, frame = null, graceMs =
 
 export function drawGenerator(pg, id, time, _params, renderRequest = {}, view = null) {
   const generatorId = getGeneratorComponent(id).id;
-  // Compatibility entry for legacy plans. Current plans compile these exact
-  // node-owned functions and call them directly from the node process.
+  // Minimal native-host adapter for the two calibration primitives. Their
+  // algorithms remain node-owned; compiled node processes are the primary
+  // path, while native renderer metadata may enter through this same adapter.
   if (generatorId === "checker") return drawCheckerNode(pg, view);
   if (generatorId === "black") return drawBlackNode(pg);
   console.error("[VJ1_GENERATOR_RUNTIME_MISSING]", {

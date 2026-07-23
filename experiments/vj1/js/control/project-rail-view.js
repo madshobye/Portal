@@ -1,8 +1,11 @@
 import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { getLiveSourceTarget, sceneComponents, ordinaryComponents } from "./control-selectors.js?v=surface-relative-aspect-1";
-import { liveComponentPillTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingRailConfigTemplate, mappingSurfacePillTemplate } from "./mapping-live-view.js?v=mapping-surface-section-1";
+import { getLiveSourceTarget, sceneComponents, ordinaryComponents } from "./control-selectors.js?v=explicit-surface-visibility-1";
+import { liveComponentPillTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingRailConfigTemplate, mappingSurfacePillTemplate, sceneMappingOutputPillTemplate } from "./mapping-live-view.js?v=scene-mapping-controls-separated-explicit-surface-visibility-derived-thumbnail-projection-1";
 import { componentCardBarTemplate, railListSectionTemplate, textListItemTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
-import { esc, icon, thumbnailTemplate } from "./template-utils.js?v=power-flicker-1";
+import { esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
+import { compileLiveProjectionProgram } from "../domain/live-projection-program.js?v=explicit-surface-visibility-1";
+import { listProjectIsfTransitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+import { DissolveTransitionKernel } from "../libraries/transition-engine/index.js";
 
 export function projectRailTemplate(state, {
   workspace = "mapping",
@@ -20,8 +23,13 @@ export function liveProjectionRailTemplate(state) {
   const mapping = state.mappings?.find((item) => String(item.id) === String(state.ui?.selectedMappingId || ""))
     || state.mappings?.[0]
     || null;
-  const selectedId = String(state.ui?.live?.previewSurfaceId || "__mapping__");
+  const sceneMappingInLive = state.ui?.live?.sceneMappingInLive !== false;
+  const sceneMappingVisible = state.ui?.live?.sceneMappingVisible !== false;
   const surfaces = mapping?.surfaces || [];
+  const requestedSelectedId = String(state.ui?.live?.previewSurfaceId || "__mapping__");
+  const selectedId = requestedSelectedId === "__mapping__" && !sceneMappingInLive
+    ? String(surfaces[0]?.id || "__mapping__")
+    : requestedSelectedId;
   const sourceTarget = getLiveSourceTarget(state);
   const overallTarget = state.components?.find((component) =>
     !component.systemRole && String(component.id) === String(state.ui?.live?.selectedComponentId || "")
@@ -29,15 +37,16 @@ export function liveProjectionRailTemplate(state) {
     component.type === "scene" && String(component.id) === String(state.ui?.live?.selectedSceneId || "")
   );
   const overallHasSource = state.ui?.live?.overallSourceCleared !== true && Boolean(overallTarget);
-  const sceneMappingVisible = state.ui?.live?.sceneMappingVisible !== false;
+  const routeBySurfaceId = new Map(compileLiveProjectionProgram(state).currentRoutes.surfaces
+    .map((route) => [String(route.id || ""), route]));
   const components = liveProgramNavigableComponents(state);
-  const item = ({ id, iconName, label, leadingHtml = "", removeAction = "", removeTitle = "Remove" }) => textListItemTemplate({
-    rowClass: "live-projection-row compact-list-row",
+  const item = ({ id, iconName, label, leadingHtml = "", removeAction = "", removeTitle = "Remove", selectable = true }) => textListItemTemplate({
+    rowClass: `live-projection-row compact-list-row${selectable ? "" : " is-disabled"}`,
     selected: selectedId === id,
     leadingHtml: leadingHtml || `<span class="text-list-static-icon" aria-hidden="true">${icon(iconName)}</span>`,
     label,
     mainClass: "list-select",
-    mainAction: "data-live-preview-surface",
+    mainAction: selectable ? "data-live-preview-surface" : "",
     mainActionId: id,
     removeAction,
     removeActionId: id,
@@ -47,12 +56,15 @@ export function liveProjectionRailTemplate(state) {
           id: "__mapping__",
           iconName: "crop_free",
           label: "Scene Mapping",
-          leadingHtml: `<button type="button" class="enable-toggle ${sceneMappingVisible ? "is-enabled" : ""}" data-live-surface-visibility="__mapping__" title="${sceneMappingVisible ? "Hide" : "Show"} Scene Mapping" aria-label="${sceneMappingVisible ? "Hide" : "Show"} Scene Mapping">${icon(sceneMappingVisible ? "crop_free" : "hide_source")}</button>`,
-          removeAction: overallHasSource ? "data-clear-live-overall-component" : "",
+          leadingHtml: sceneMappingInLive
+            ? `<button type="button" class="enable-toggle ${sceneMappingVisible ? "is-enabled" : ""}" data-live-surface-visibility="__mapping__" title="${sceneMappingVisible ? "Hide" : "Show"} Scene Mapping" aria-label="${sceneMappingVisible ? "Hide" : "Show"} Scene Mapping">${icon(sceneMappingVisible ? "crop_free" : "hide_source")}</button>`
+            : `<button type="button" class="enable-toggle" title="Scene Mapping is disabled in Mapping" aria-label="Scene Mapping is disabled in Mapping" disabled>${icon("hide_source")}</button>`,
+          removeAction: sceneMappingInLive && overallHasSource ? "data-clear-live-overall-component" : "",
           removeTitle: "Clear Overall source",
+          selectable: sceneMappingInLive,
         })}${surfaces.map((surface) => {
           const direct = surface.destination?.type === "direct";
-          const liveRoute = state.ui?.live?.surfaceRoutes?.surfaces?.find((candidate) => String(candidate.id) === String(surface.id));
+          const liveRoute = routeBySurfaceId.get(String(surface.id));
           const visible = liveRoute ? liveRoute.enabled !== false : surface.enabled !== false;
           const patched = Boolean(state.ui?.live?.surfacePatches?.[surface.id]);
           return item({
@@ -136,7 +148,7 @@ function mappingToolsTemplate(state, catalogItems, catalogSortMode) {
     listAttributes: 'data-paste-scope="mapping-list"',
   })}${mappingRailConfigTemplate(state)}${railListSectionTemplate({
     headerHtml: addableRailTitleTemplate("select_all", "Surfaces", "data-add-surface", "Add surface"),
-    content: state.surfaces.map((surface) => mappingSurfacePillTemplate(surface, state)).join(""),
+    content: `${sceneMappingOutputPillTemplate(state)}${state.surfaces.map((surface) => mappingSurfacePillTemplate(surface, state)).join("")}`,
     emptyText: "Add a surface",
     className: "mapping-surface-rail-section",
     listClassName: "surface-pills",
@@ -148,6 +160,13 @@ function mappingToolsTemplate(state, catalogItems, catalogSortMode) {
 function liveToolsTemplate(state, catalogItems, catalogSortMode) {
   const transitionDuration = Math.max(0, Number(state.ui?.live?.transitionDuration) || 0);
   const paramFadeDuration = Math.max(0, Number(state.ui?.live?.paramFadeDuration) || 0);
+  const transitions = [{
+    id: DissolveTransitionKernel.id,
+    name: DissolveTransitionKernel.name,
+    parameters: [],
+  }, ...listProjectIsfTransitions(state)];
+  const transitionId = String(state.ui?.live?.transitionId || DissolveTransitionKernel.id);
+  const selectedTransition = transitions.find((item) => item.id === transitionId) || transitions[0];
   const timeStretch = Math.max(-4, Math.min(4, Number(state.global?.timeStretch) || 0));
   const timeScale = timeStretch <= -4 ? 0 : 2 ** timeStretch;
   const performanceScenes = sceneComponents(state);
@@ -177,6 +196,13 @@ function liveToolsTemplate(state, catalogItems, catalogSortMode) {
   })}<div class="ui-section rail-section">
       <div class="ui-section-header rail-title"><span class="material-symbols-rounded">tune</span><span>Timing</span></div>
       <div class="sculpt-card live-timing-params">
+      <label class="field">
+        <span>Transition style</span>
+        <select data-update="ui.live.transitionId">
+          ${transitions.map((item) => `<option value="${esc(item.id)}" ${item.id === selectedTransition.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}
+        </select>
+      </label>
+      ${transitionParameterControls(selectedTransition, state.ui?.live?.transitionParameters || {})}
       <label class="field range-field live-time-scale">
         <span>Time stretch</span>
         <output class="range-value" data-range-value>${timeStretch.toFixed(2)} · ${timeScale < 0.1 ? timeScale.toFixed(3) : timeScale.toFixed(2)}×</output>
@@ -196,6 +222,23 @@ function liveToolsTemplate(state, catalogItems, catalogSortMode) {
     </div>`;
 }
 
+function transitionParameterControls(transition, values) {
+  return (transition?.parameters || []).map((param) => {
+    const path = `ui.live.transitionParameters.${param.id}`;
+    const value = values[param.id] ?? param.defaultValue;
+    if (param.type === "boolean") {
+      return `<label class="field inline-param"><span>${esc(param.label || param.id)}</span><input type="checkbox" data-update="${esc(path)}" ${value ? "checked" : ""} /></label>`;
+    }
+    if (param.type === "enum") {
+      return `<label class="field"><span>${esc(param.label || param.id)}</span><select data-update="${esc(path)}">${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}</select></label>`;
+    }
+    if (param.type === "color") {
+      return `<label class="field"><span>${esc(param.label || param.id)}</span><input type="color" data-update="${esc(path)}" value="${esc(value || "#ffffffff").slice(0, 7)}" /></label>`;
+    }
+    return `<label class="field range-field"><span>${esc(param.label || param.id)}</span><output class="range-value" data-range-value>${Number(value).toFixed(2)}</output><input type="range" min="${Number(param.min ?? 0)}" max="${Number(param.max ?? 1)}" step="${Number(param.step ?? 0.01)}" data-update="${esc(path)}" value="${Number(value)}" /></label>`;
+  }).join("");
+}
+
 function componentPillTemplate(component, state) {
   const selected = state.ui.selectedComponentId === component.id;
   const fallbackIcon = component.type === "scene" ? "dashboard_customize" : "account_tree";
@@ -205,7 +248,7 @@ function componentPillTemplate(component, state) {
   return `
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(component.name.toLowerCase())}">
       <button type="button" class="component-card ${selected ? "is-selected" : ""}" data-select-component="${esc(component.id)}">
-        ${thumbnailTemplate(component.thumbnail, fallbackIcon)}
+        ${thumbnailTemplate(component.thumbnail, fallbackIcon, component.id)}
         ${componentCardBarTemplate(component.name)}
       </button>
       ${catalogMarkerButtonTemplate(component, "component")}

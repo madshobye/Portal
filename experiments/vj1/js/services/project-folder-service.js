@@ -4,25 +4,45 @@ import {
   applyThumbnailUrls,
   clearThumbnailUrls,
   createThumbnailUrlLease,
-} from "./component-thumbnail-store.js?v=thumbnail-pipeline-1";
+} from "./component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
 import {
   canPersistDirectoryHandles,
   clearProjectDirectoryHandle,
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=transition-start-fit-1";
-import { migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=surface-identity-2";
+import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1";
+import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=surface-identity-2";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
-import { isHistoryReason, projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-import { buildProjectPayload } from "./project-serializer.js?v=output-one-1";
+import { isHistoryReason } from "./project-history-policy.js?v=project-storage-1";
+import { buildProjectPayload } from "./project-serializer.js?v=project-group-authoring-1";
+import {
+  createProjectSavePreparer,
+  projectPayloadSignature,
+} from "./project-save-preparation.js?v=autosave-worker-2";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
 import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
 import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
-import { mergeProjectIsfDefinitions } from "../libraries/isf-engine/index.js?v=isf-coordinates-1";
+import { mergeProjectIsfDefinitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+import {
+  serializeNodePackage,
+} from "../libraries/node-engine/node-package.js?v=node-package-management-project-group-authoring-compiler-transport-1";
+import {
+  installNodePackageReference,
+  removeNodePackageReference,
+} from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
+import {
+  assertNodePackageUpdateSafe,
+  exportNodePackageDirectory,
+  importNodePackageDirectory,
+  loadNodePackageRepository,
+  resolveReferencedNodePackages,
+  writeNodePackageManifest as writeRepositoryNodePackageManifest,
+  NODE_PACKAGE_LIBRARY_ROOT,
+} from "./node-package-repository.js?v=node-package-management-project-group-authoring-compiler-transport-1";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=output-one-1";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=project-group-authoring-1";
 export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js?v=project-history-store-1";
 
 export function createProjectFolderService({ mediaLibrary, store, bridge, classifyChange = createChangeEvent }) {
@@ -34,14 +54,19 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   let isOpening = false;
   let historyInFlight = false;
   let projectLoadBlocked = false;
+  let projectMigrationSaveRequired = false;
   let pendingHistory = false;
   let pendingSaveReason = "";
+  let pendingAutoSaveState = null;
   let directoryPickerUnavailableReported = false;
   const thumbnailUrlLease = createThumbnailUrlLease();
   let fileObserver = null;
   let observedChangeQueue = Promise.resolve();
   let projectGeneration = 0;
   let loadedProjectHandle = null;
+  let installedNodePackages = Object.freeze([]);
+  let availableNodePackages = Object.freeze([]);
+  const nodePackageListeners = new Set();
   let thumbnailLoadRevision = 0;
   // Non-transactional state is a checkpoint, not a render-loop concern. Give
   // repeated UI/background changes a long quiet period and force the pending
@@ -82,6 +107,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       return false;
     },
   });
+  const savePreparer = createProjectSavePreparer();
   const lifecycleDocument = globalThis.document;
   const lifecycleTarget = globalThis.window || globalThis;
   lifecycleDocument?.addEventListener?.("visibilitychange", () => {
@@ -109,6 +135,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     }
     isOpening = true;
     let opened = false;
+    let loaded = false;
     try {
       const storedHandle = dirHandle ? null : await loadStoredHandle();
       let selectedHandle = null;
@@ -130,12 +157,18 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       opened = true;
       await saveStoredHandle(dirHandle);
       await ensureProjectScaffold(dirHandle);
-      await loadDirectory("project-open-media");
-      startFileObserver();
-      return { fallback: false };
+      loaded = await loadDirectory("project-open-media");
+      if (loaded) startFileObserver();
+      return {
+        fallback: false,
+        loaded,
+        error: loaded ? "" : String(store.getState().project?.warnings?.[0] || "Project loading was blocked."),
+      };
     } finally {
       isOpening = false;
-      if (opened && !projectLoadBlocked) scheduleAutoSave("project-open", { immediate: true });
+      if (opened && loaded && !projectLoadBlocked && projectMigrationSaveRequired) {
+        scheduleAutoSave("project-open", { immediate: true });
+      }
     }
   }
 
@@ -162,13 +195,14 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       derivedAssets.reset();
       projectGeneration++;
       await ensureProjectScaffold(dirHandle);
-      await loadDirectory("project-restore-media");
-      startFileObserver();
-      restored = true;
-      return true;
+      restored = await loadDirectory("project-restore-media");
+      if (restored) startFileObserver();
+      return restored;
     } finally {
       isOpening = false;
-      if (restored && !projectLoadBlocked) scheduleAutoSave({ reason: "project-restore-migration", history: "none" }, { immediate: true });
+      if (restored && !projectLoadBlocked && projectMigrationSaveRequired) {
+        scheduleAutoSave({ reason: "project-restore-migration", history: "none" }, { immediate: true });
+      }
     }
   }
 
@@ -209,6 +243,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     thumbnailLoadRevision++;
     dirHandle = null;
     loadedProjectHandle = null;
+    installedNodePackages = Object.freeze([]);
+    availableNodePackages = Object.freeze([]);
     saveQueue.clear();
     lastSavedSignature = "";
     lastDirectorySignature = "";
@@ -217,6 +253,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     historyStore.reset();
     mediaLibrary.clear();
     bridge.sendMediaFiles([]);
+    publishInstalledNodePackages([], []);
     await clearStoredHandle();
     store.replace(createInitialState(), "project-close");
     thumbnailUrlLease.activate([]);
@@ -228,6 +265,9 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     if (!dirHandle || isOpening || refreshInFlight) return false;
     refreshInFlight = true;
     try {
+      const repository = await loadNodePackageRepository(dirHandle);
+      const packages = resolveReferencedNodePackages(store.getState().nodes?.packages || [], repository);
+      publishInstalledNodePackages(packages, repository);
       const files = [...await collectProjectAssetFiles(dirHandle), ...await derivedAssets.loadIndexedRenditions()];
       const signature = directorySignature(files);
       if (!force && signature === lastDirectorySignature) return false;
@@ -260,22 +300,20 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
 
   async function loadProject(reason = "project-load", imported = { media: [], shaders: [] }, directorySig = "", { preserveMediaCatalog = false } = {}) {
     if (!dirHandle) return;
-    let data = {};
+    let data;
     let embeddedThumbnails = [];
-    let projectFileFound = false;
+    let projectFileFound;
     try {
-      const handle = await dirHandle.getFileHandle("project.json");
-      projectFileFound = true;
-      const text = await (await handle.getFile()).text();
-      data = JSON.parse(text);
+      const result = await readProjectFile(dirHandle);
+      projectFileFound = result.found;
+      data = result.data;
       embeddedThumbnails = embeddedThumbnailEntries(data.components);
     } catch (error) {
-      if (projectFileFound) {
-        blockProjectLoad(`Cannot open project.json: ${error.message || error}`);
-        return false;
-      }
-      data = {};
+      blockProjectLoad(`Cannot open project.json safely: ${error.message || error}. The existing project was not changed.`);
+      return false;
     }
+    const storedProjectVersion = Number(data?.version);
+    projectMigrationSaveRequired = !projectFileFound || storedProjectVersion !== CURRENT_PROJECT_VERSION;
     if (projectFileFound) {
       try {
         data = migrateProjectData(data);
@@ -289,6 +327,15 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     }
     projectLoadBlocked = false;
     const { ui: projectUi, metrics: _projectMetrics, ...projectData } = data;
+    let projectPackages;
+    try {
+      const repository = await loadNodePackageRepository(dirHandle);
+      projectPackages = resolveReferencedNodePackages(projectData.nodes?.packages || [], repository);
+      availableNodePackages = repository;
+    } catch (error) {
+      blockProjectLoad(`Cannot load project node packages safely: ${error.message || error}. The existing project was not changed.`);
+      return false;
+    }
     // A folder without project.json is a genuinely new project. Seed it from
     // the startup template instead of leaking components or mappings from the
     // project that happened to be open before the folder picker was used.
@@ -350,6 +397,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     };
     const selectedScene = nextState.mappings?.find((scene) => scene.id === nextState.ui.selectedMappingId) || nextState.mappings?.[0];
     if (selectedScene) projectSelectedMapping(nextState, selectedScene);
+    publishInstalledNodePackages(projectPackages, availableNodePackages);
     store.replace(nextState, reason);
     loadedProjectHandle = loadHandle;
     if (!sameProject) thumbnailUrlLease.activate([]);
@@ -367,7 +415,17 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         for (const entry of entries) thumbnailEntries.set(componentThumbnailKey(entry), entry);
         store.updateDerived((draft) => {
           applyThumbnailUrls(draft.components, entries);
-        }, "project-thumbnail-cache-batch");
+        }, {
+          reason: "project-thumbnail-cache-batch",
+          projection: {
+            kind: "component-thumbnails",
+            entries: entries.map(({ componentId, surfaceId = "", url }) => ({
+              componentId,
+              surfaceId,
+              url,
+            })),
+          },
+        });
         thumbnailUrlLease.activate(componentThumbnailObjectUrls(thumbnailEntries.values()));
       },
     }).catch((error) => console.warn("[VJ1_THUMBNAIL_CACHE_LOAD_FAILED]", {
@@ -376,16 +434,135 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     }));
     if (embeddedThumbnails.length) derivedAssets.migrateEmbeddedThumbnails(embeddedThumbnails);
     lastDirectorySignature = directorySig;
-    lastSavedSignature = payloadSignature(buildProjectPayload(store.getState(), projectData.project?.savedAt || ""));
+    lastSavedSignature = projectPayloadSignature(buildProjectPayload(store.getState(), projectData.project?.savedAt || ""));
     return true;
   }
 
   function blockProjectLoad(message) {
     projectLoadBlocked = true;
+    console.error("[VJ1_PROJECT_LOAD_BLOCKED]", {
+      folder: dirHandle?.name || "",
+      message,
+      fallback: "leave the current in-memory state unchanged and refuse autosave",
+    });
     store.update((draft) => {
       draft.project.folderName = dirHandle?.name || draft.project.folderName;
       draft.project.warnings = [message];
     }, "project-version-error");
+  }
+
+  function publishInstalledNodePackages(packages = [], availablePackages = availableNodePackages) {
+    installedNodePackages = Object.freeze([...(packages || [])]);
+    availableNodePackages = Object.freeze([...(availablePackages || [])]);
+    bridge.sendNodePackages?.(installedNodePackages.map((nodePackage) => serializeNodePackage(nodePackage)));
+    for (const listener of nodePackageListeners) {
+      try {
+        listener(installedNodePackages, availableNodePackages);
+      } catch (error) {
+        console.warn("[VJ1_NODE_PACKAGE_LISTENER_FAILED]", {
+          message: error?.message || String(error),
+        });
+      }
+    }
+  }
+
+  async function setNodePackageEnabled(packageId, enabled) {
+    if (!dirHandle) throw new Error("NODE_PACKAGE_PROJECT_FOLDER_REQUIRED");
+    const currentNodes = store.getState().nodes || {};
+    const reference = (currentNodes.packages || []).find((item) => item.id === packageId);
+    if (!reference) throw new Error(`NODE_PROJECT_PACKAGE_REFERENCE_MISSING:${packageId}`);
+    const nextReferences = installNodePackageReference(
+      currentNodes.packages,
+      reference.id,
+      reference.version,
+      { enabled: enabled !== false },
+    );
+    const repository = await loadNodePackageRepository(dirHandle);
+    const packages = resolveReferencedNodePackages(nextReferences, repository);
+    // Enabling publishes the superset first; disabling publishes the reduced
+    // set after state. Each renderer therefore resolves a valid package set at
+    // both sides of the ordered transition.
+    if (enabled !== false) publishInstalledNodePackages(packages, repository);
+    store.update((draft) => {
+      draft.nodes.packages = nextReferences;
+    }, "update:node-package-activation");
+    if (enabled === false) publishInstalledNodePackages(packages, repository);
+    return installedNodePackages;
+  }
+
+  async function installNodePackage(packageId, version) {
+    if (!dirHandle) throw new Error("NODE_PACKAGE_PROJECT_FOLDER_REQUIRED");
+    const currentNodes = store.getState().nodes || {};
+    const previous = (currentNodes.packages || []).find((item) => item.id === packageId);
+    const nextReferences = installNodePackageReference(
+      currentNodes.packages,
+      packageId,
+      version,
+      { enabled: previous?.enabled !== false },
+    );
+    const repository = await loadNodePackageRepository(dirHandle);
+    const packages = resolveReferencedNodePackages(nextReferences, repository);
+    if (previous && previous.version !== version) {
+      const previousPackage = repository.find((nodePackage) =>
+        nodePackage.id === previous.id && nodePackage.version === previous.version);
+      assertNodePackageUpdateSafe(store.getState(), previousPackage, packages);
+    }
+    // Validate the exact package and complete dependency closure before
+    // changing project truth. Publish an enabled superset first so renderers
+    // can resolve the new graph on the following ordered state message.
+    if (previous?.enabled !== false) publishInstalledNodePackages(packages, repository);
+    store.update((draft) => {
+      draft.nodes.packages = nextReferences;
+    }, previous ? "update:node-package-version" : "update:node-package-install");
+    if (previous?.enabled === false) publishInstalledNodePackages(packages, repository);
+    return installedNodePackages;
+  }
+
+  async function removeNodePackage(packageId) {
+    if (!dirHandle) throw new Error("NODE_PACKAGE_PROJECT_FOLDER_REQUIRED");
+    const currentNodes = store.getState().nodes || {};
+    if (!(currentNodes.packages || []).some((item) => item.id === packageId)) return false;
+    const nextReferences = removeNodePackageReference(currentNodes.packages, packageId);
+    const repository = await loadNodePackageRepository(dirHandle);
+    const packages = resolveReferencedNodePackages(nextReferences, repository);
+    store.update((draft) => {
+      draft.nodes.packages = nextReferences;
+    }, "update:node-package-remove");
+    publishInstalledNodePackages(packages, repository);
+    return true;
+  }
+
+  async function writeNodePackageManifest(encodedPackage) {
+    if (!dirHandle) throw new Error("NODE_PACKAGE_PROJECT_FOLDER_REQUIRED");
+    const path = await writeRepositoryNodePackageManifest(dirHandle, encodedPackage);
+    const repository = await loadNodePackageRepository(dirHandle);
+    const packages = resolveReferencedNodePackages(store.getState().nodes?.packages || [], repository);
+    publishInstalledNodePackages(packages, repository);
+    return path;
+  }
+
+  async function importNodePackageFolder(sourceDirectory = null) {
+    if (!dirHandle) throw new Error("NODE_PACKAGE_PROJECT_FOLDER_REQUIRED");
+    const source = sourceDirectory || await globalThis.showDirectoryPicker?.({ mode: "read" });
+    if (!source) throw new Error("NODE_PACKAGE_IMPORT_DIRECTORY_PICKER_UNAVAILABLE");
+    const imported = await importNodePackageDirectory(dirHandle, source);
+    const repository = await loadNodePackageRepository(dirHandle);
+    const packages = resolveReferencedNodePackages(store.getState().nodes?.packages || [], repository);
+    publishInstalledNodePackages(packages, repository);
+    return imported;
+  }
+
+  async function exportNodePackageFolder(packageId, version, destinationDirectory = null) {
+    if (!dirHandle) throw new Error("NODE_PACKAGE_PROJECT_FOLDER_REQUIRED");
+    const destination = destinationDirectory || await globalThis.showDirectoryPicker?.({ mode: "readwrite" });
+    if (!destination) throw new Error("NODE_PACKAGE_EXPORT_DIRECTORY_PICKER_UNAVAILABLE");
+    return exportNodePackageDirectory(dirHandle, destination, packageId, version);
+  }
+
+  function subscribeNodePackages(listener) {
+    if (typeof listener !== "function") return () => {};
+    nodePackageListeners.add(listener);
+    return () => nodePackageListeners.delete(listener);
   }
 
   function refreshProjectAssets(imported = { media: [], shaders: [] }, directorySig = "") {
@@ -405,7 +582,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     lastDirectorySignature = directorySig;
   }
 
-  function scheduleAutoSave(change = "change", { immediate = false } = {}) {
+  function scheduleAutoSave(change = "change", { immediate = false, state = null } = {}) {
     const event = classifyChange(change);
     const reason = event.reason;
     if (event.phase === "edit" || event.phase === "scrub") return;
@@ -421,21 +598,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     // into the next authored save or the browser lifecycle checkpoint.
     const previewViewportCheckpoint = event.scope === "ui" && reason.startsWith("preview-");
     if (event.scope === "ui" && !immediate && !previewViewportCheckpoint) return;
+    pendingAutoSaveState = state || pendingAutoSaveState;
     if (autosaveTimer) clearTimeout(autosaveTimer);
     const delay = immediate || reason === "live:scene" || event.history === "record" ? 0 : autosaveDelayMs;
     autosaveTimer = setTimeout(() => {
       autosaveTimer = null;
-      const startedAt = monotonicNow();
-      const save = flushAutoSave();
-      const elapsedMs = monotonicNow() - startedAt;
-      if (elapsedMs >= 40) {
-        console.warn("[VJ1_AUTOSAVE_PREPARE_SLOW]", {
-          reason: pendingSaveReason || reason || "change",
-          elapsedMs: Math.round(elapsedMs * 10) / 10,
-          message: "building and serializing project.json blocked the main thread before storage began",
-        });
-      }
-      void save;
+      void flushAutoSave();
     }, delay);
   }
 
@@ -447,14 +615,17 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     }
     const saveReason = reason || pendingSaveReason || "change";
     const recordHistory = pendingHistory || classifyChange(saveReason).history === "record";
+    const state = pendingAutoSaveState || store.getState();
     pendingHistory = false;
     pendingSaveReason = "";
-    const payload = buildProjectPayload(store.getState(), new Date().toISOString());
-    const json = JSON.stringify(payload, null, 2);
-    // buildProjectPayload already returns a detached persistable snapshot.
-    // Re-parsing the just-created JSON doubled the synchronous autosave cost
-    // for effect-heavy projects and is unnecessary for queue ownership.
-    return saveQueue.enqueue({ reason: saveReason, recordHistory, payload, json });
+    pendingAutoSaveState = null;
+    // The application dataflow already provides one detached state snapshot
+    // per emission. Send that immutable transaction to the preparation worker
+    // instead of cloning the complete store again. The serialized write queue
+    // still owns ordering and history; it simply awaits off-thread projection,
+    // JSON generation, and signatures before touching the project file.
+    const prepared = savePreparer.prepareState(state, new Date().toISOString());
+    return saveQueue.enqueue({ reason: saveReason, recordHistory, prepared });
   }
 
   function hasPendingAutoSave() {
@@ -463,36 +634,58 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
 
   function flushPendingAutoSave(reason) {
     if (!hasPendingAutoSave() || !dirHandle || isOpening || projectLoadBlocked) return false;
-    // flushAutoSave performs project snapshot creation synchronously before it
-    // returns its write promise. Starting at visibility loss gives the native
-    // file write more time than relying on beforeunload alone.
+    // Begin any pending worker preparation and native file write as soon as
+    // Chrome starts hiding the page instead of relying on beforeunload alone.
     void flushAutoSave(reason);
     return true;
   }
 
-  async function saveProject({ reason = "manual", recordHistory = true, payload: suppliedPayload = null, json: suppliedJson = "" } = {}) {
+  async function saveProject({
+    reason = "manual",
+    recordHistory = true,
+    payload: suppliedPayload = null,
+    json: suppliedJson = "",
+    prepared: suppliedPreparation = null,
+  } = {}) {
     if (projectLoadBlocked) return false;
-    const savedAt = suppliedPayload?.project?.savedAt || new Date().toISOString();
-    const payload = suppliedPayload || buildProjectPayload(store.getState(), savedAt);
-    const signature = payloadSignature(payload);
+    let prepared = suppliedPreparation ? await suppliedPreparation : null;
+    if (!prepared && suppliedPayload) prepared = await savePreparer.preparePayload({
+      ...suppliedPayload,
+      project: {
+        ...(suppliedPayload.project || {}),
+        savedAt: suppliedPayload.project?.savedAt || new Date().toISOString(),
+      },
+    });
+    if (!prepared && suppliedJson) {
+      const payload = parseProjectText(suppliedJson);
+      if (!payload) throw new Error("VJ1_PROJECT_SAVE_JSON_INVALID");
+      prepared = await savePreparer.preparePayload(payload);
+    }
+    if (!prepared) prepared = await savePreparer.prepareState(store.getState(), new Date().toISOString());
+    const { savedAt, json, signature, historySignature } = prepared;
     if (signature === lastSavedSignature) return false;
 
     if (!dirHandle) {
       return false;
     }
 
-    const json = suppliedJson || JSON.stringify(payload, null, 2);
-    let handle = null;
-    let previousText = "";
+    let handle;
+    let previousText;
     try {
-      handle = await dirHandle.getFileHandle("project.json");
-      previousText = await (await handle.getFile()).text();
+      ({ handle, previousText } = await projectFileForSave(dirHandle));
     } catch (error) {
-      if (!isNotFoundError(error)) console.warn("[VJ1_PROJECT_FILE_LOOKUP_FAILED]", { fallback: "attempt writable project handle", message: error?.message || String(error) });
-      handle = await dirHandle.getFileHandle("project.json", { create: true });
+      blockProjectLoad(`Cannot verify project.json before saving: ${error.message || error}. Save was refused to protect the existing project.`);
+      return false;
     }
 
-    const recordsProjectRevision = shouldWriteHistoryRevision(previousText, payload, json, reason, recordHistory);
+    const recordsProjectRevision = await shouldWriteHistoryRevision(
+      previousText,
+      historySignature,
+      json,
+      reason,
+      recordHistory,
+      savePreparer,
+    );
     if (recordsProjectRevision) {
       await historyStore.writeRevision(previousText, savedAt);
       if (!isHistoryReason(reason)) await historyStore.clearRedoRevisions();
@@ -513,9 +706,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       }
     }
     lastSavedSignature = signature;
+    projectMigrationSaveRequired = false;
     await refreshHistoryState();
     store.update((draft) => {
-      draft.project.savedAt = payload.project.savedAt;
+      draft.project.savedAt = savedAt;
       draft.project.warnings = [];
       draft.ui.mappingStatus = reason === "mapping-state" ? "Mapping autosaved" : draft.ui.mappingStatus;
     }, "project-autosave");
@@ -709,6 +903,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         byId.set(item.id, {
           ...item,
           catalogMarker: previous?.catalogMarker ?? item.catalogMarker ?? 0,
+          ...(Number(previous?.duration) > 0 ? { duration: Number(previous.duration) } : {}),
         });
       }
       draft.media = Array.from(byId.values());
@@ -742,37 +937,46 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     undoProject,
     redoProject,
     getHistoryState,
+    getInstalledNodePackages: () => installedNodePackages,
+    getAvailableNodePackages: () => availableNodePackages,
+    installNodePackage,
+    writeNodePackageManifest,
+    importNodePackageFolder,
+    exportNodePackageFolder,
+    setNodePackageEnabled,
+    removeNodePackage,
+    subscribeNodePackages,
     writeMediaRendition: (...args) => derivedAssets.writeMediaRendition(...args),
     writeComponentThumbnail: (...args) => derivedAssets.writeComponentThumbnail(...args),
   };
 }
 
-function monotonicNow() {
-  return typeof globalThis.performance?.now === "function" ? globalThis.performance.now() : Date.now();
-}
-
 function mergeMediaCatalogMarkers(imported = [], authored = []) {
-  const markers = new Map((Array.isArray(authored) ? authored : []).map((item) => [item.id, item.catalogMarker ?? 0]));
-  return (Array.isArray(imported) ? imported : []).map((item) => ({
-    ...item,
-    catalogMarker: markers.get(item.id) ?? item.catalogMarker ?? 0,
-  }));
+  const existing = new Map((Array.isArray(authored) ? authored : []).map((item) => [item.id, item]));
+  return (Array.isArray(imported) ? imported : []).map((item) => {
+    const previous = existing.get(item.id);
+    return {
+      ...item,
+      catalogMarker: previous?.catalogMarker ?? item.catalogMarker ?? 0,
+      ...(Number(previous?.duration) > 0 ? { duration: Number(previous.duration) } : {}),
+    };
+  });
 }
 
 function componentThumbnailEntries(components = []) {
   const entries = [];
   for (const component of components || []) {
-    if (component?.thumbnail) entries.push({ componentId: component.id, frameId: "", url: component.thumbnail });
+    if (component?.thumbnail) entries.push({ componentId: component.id, surfaceId: "", url: component.thumbnail });
     if (component?.type !== "scene") continue;
     for (const [surfaceId, url] of Object.entries(component.scene?.surfaceThumbnails || {})) {
-      if (url) entries.push({ componentId: component.id, frameId: surfaceId, url });
+      if (url) entries.push({ componentId: component.id, surfaceId, url });
     }
   }
   return entries;
 }
 
 function componentThumbnailKey(entry = {}) {
-  return `${String(entry.componentId || "")}:${String(entry.frameId || "")}`;
+  return `${String(entry.componentId || "")}:${String(entry.surfaceId || "")}`;
 }
 
 function componentThumbnailObjectUrls(entries = []) {
@@ -811,7 +1015,7 @@ function clearFileObserverAbort(handle) {
 
 async function ensureProjectScaffold(handle) {
   if (!handle?.getDirectoryHandle) return;
-  for (const name of ["media", "shaders", RENDITION_ROOT]) {
+  for (const name of ["media", "shaders", NODE_PACKAGE_LIBRARY_ROOT, RENDITION_ROOT]) {
     await handle.getDirectoryHandle(name, { create: true });
   }
   for (const name of ["scenes", "mappings"]) await removeObsoleteEmptyScaffold(handle, name);
@@ -833,13 +1037,26 @@ async function removeObsoleteEmptyScaffold(root, name) {
   }
 }
 
-function shouldWriteHistoryRevision(previousText = "", nextPayload = {}, nextText = "", reason = "", recordHistory = true) {
+async function shouldWriteHistoryRevision(
+  previousText = "",
+  nextHistorySignature = "",
+  nextText = "",
+  reason = "",
+  recordHistory = true,
+  savePreparer,
+) {
   if (!recordHistory) return false;
   if (reason === "component-thumbnail") return false;
   if (!previousText.trim() || previousText === nextText) return false;
-  const previousPayload = parseProjectText(previousText);
-  if (!previousPayload) return true;
-  return projectHistorySignature(previousPayload) !== projectHistorySignature(nextPayload);
+  const previous = await savePreparer.inspectText(previousText);
+  if (!previous.valid) {
+    console.warn("[VJ1_PROJECT_HISTORY_PARSE_FAILED]", {
+      fallback: "preserve a conservative history revision",
+      message: previous.message,
+    });
+    return true;
+  }
+  return previous.historySignature !== nextHistorySignature;
 }
 
 function parseProjectText(text = "") {
@@ -903,13 +1120,6 @@ async function verifyPermission(handle, mode, requestIfNeeded) {
   }
 }
 
-function payloadSignature(payload) {
-  return JSON.stringify({
-    ...payload,
-    project: { ...payload.project, savedAt: "" },
-  });
-}
-
 function directorySignature(files) {
   return JSON.stringify(Array.from(files || [])
     .map((file) => {
@@ -928,10 +1138,10 @@ function embeddedThumbnailEntries(components = []) {
   const entries = [];
   for (const component of components || []) {
     if (typeof component?.thumbnail === "string" && component.thumbnail.startsWith("data:image/")) {
-      entries.push({ componentId: component.id, frameId: "", url: component.thumbnail });
+      entries.push({ componentId: component.id, surfaceId: "", url: component.thumbnail });
     }
     for (const [surfaceId, url] of Object.entries(component?.scene?.surfaceThumbnails || {})) {
-      if (typeof url === "string" && url.startsWith("data:image/")) entries.push({ componentId: component.id, frameId: surfaceId, url });
+      if (typeof url === "string" && url.startsWith("data:image/")) entries.push({ componentId: component.id, surfaceId, url });
     }
   }
   return entries;
@@ -1028,6 +1238,35 @@ async function fileExists(directory, filename) {
 
 function isNotFoundError(error) {
   return error?.name === "NotFoundError";
+}
+
+// Missing and unreadable are intentionally different states. Only a real
+// NotFoundError may seed a new project; permission, I/O, parse, and transient
+// handle failures must leave the current state and disk untouched.
+export async function readProjectFile(directory) {
+  let handle;
+  try {
+    handle = await directory.getFileHandle("project.json");
+  } catch (error) {
+    if (isNotFoundError(error)) return { found: false, data: {} };
+    throw error;
+  }
+  const text = await (await handle.getFile()).text();
+  return { found: true, data: JSON.parse(text) };
+}
+
+// Saving also fails closed. A lookup failure other than NotFoundError is not
+// permission to create a replacement handle over a file we could not inspect.
+export async function projectFileForSave(directory) {
+  try {
+    const handle = await directory.getFileHandle("project.json");
+    const previousText = await (await handle.getFile()).text();
+    return { handle, previousText, created: false };
+  } catch (error) {
+    if (!isNotFoundError(error)) throw error;
+  }
+  const handle = await directory.getFileHandle("project.json", { create: true });
+  return { handle, previousText: "", created: true };
 }
 
 function safeFilename(value) {

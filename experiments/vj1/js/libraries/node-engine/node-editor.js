@@ -1,5 +1,6 @@
 import { NODE_PART_KINDS } from "./node-definition.js";
 import { defineNode } from "./node-definition.js";
+import { NODE_GROUP_EXECUTION_MODELS } from "./node-group.js";
 
 const DEFAULT_PART_EDITORS = Object.freeze({
   [NODE_PART_KINDS.JAVASCRIPT]: "code-editor",
@@ -124,6 +125,8 @@ export function createProjectNodeFork(definition, {
     definition: Object.freeze({
       name,
       description,
+      inlets: overrides.inlets || definition.inlets,
+      outlets: overrides.outlets || definition.outlets,
       parameters: overrides.parameters || definition.parameters,
       parts: Object.freeze([...(overrides.parts || definition.parts || [])]),
       metadata: Object.freeze({ ...definition.metadata, ...overrides.metadata }),
@@ -153,11 +156,23 @@ export function materializeProjectNodeFork(baseDefinition, fork) {
     },
   });
   if (baseDefinition.implementation?.kind !== "group") return materialized;
+  const executionModel = baseDefinition.implementation?.executionModel
+    || (typeof baseDefinition.program === "function"
+      ? NODE_GROUP_EXECUTION_MODELS.NATIVE_COMPOSITE
+      : NODE_GROUP_EXECUTION_MODELS.GRAPH);
+  if (graphChanged && executionModel === NODE_GROUP_EXECUTION_MODELS.NATIVE_COMPOSITE) {
+    throw new Error(`NODE_NATIVE_COMPOSITE_GRAPH_EDIT_UNSUPPORTED:${baseDefinition.id}`);
+  }
   return Object.freeze({
     ...materialized,
-    // An edited group graph uses the deterministic call-driven executor.
-    // Unchanged built-in groups retain their specialized direct program.
-    program: graphChanged ? null : baseDefinition.program,
+    compiler: baseDefinition.compiler || null,
+    // A graph-semantic Group may retain a code implementation as an
+    // optimization until its topology changes. Compiled Groups keep their
+    // compiler host entry point. Native composites never accept topology
+    // edits because their visible graph is explanatory rather than executable.
+    program: graphChanged && executionModel === NODE_GROUP_EXECUTION_MODELS.GRAPH
+      ? null
+      : baseDefinition.program,
   });
 }
 
@@ -224,7 +239,13 @@ export function validateProjectNodeFork(baseDefinition, fork) {
 }
 
 function compiledForkModule(baseDefinition, parts) {
-  if (baseDefinition.implementation?.kind !== "code" && baseDefinition.implementation?.kind !== "data") {
+  const nativeModuleGroup = baseDefinition.implementation?.kind === "group"
+    && baseDefinition.metadata?.nodeOwnedNativeModule === true;
+  if (
+    baseDefinition.implementation?.kind !== "code"
+    && baseDefinition.implementation?.kind !== "data"
+    && !nativeModuleGroup
+  ) {
     return { process: baseDefinition.process, exports: baseDefinition.moduleExports || {} };
   }
   const changed = changedParts(baseDefinition.parts, parts, NODE_PART_KINDS.JAVASCRIPT);
@@ -233,7 +254,10 @@ function compiledForkModule(baseDefinition, parts) {
   const moduleEntry = moduleEntryPart(moduleParts, baseDefinition);
   if (moduleEntry) {
     const compiled = compileJavaScriptNodeModule(moduleParts, baseDefinition);
-    return { process: compiled.process, exports: compiled.exports };
+    return {
+      process: nativeModuleGroup ? baseDefinition.process : compiled.process,
+      exports: compiled.exports,
+    };
   }
   const processName = baseDefinition.process?.name || "";
   const candidate = changed.find((part) => part.entry === "process" || (part.export && part.export === processName))

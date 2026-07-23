@@ -1,6 +1,7 @@
 import { renderQualityScale, renderQualityValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { contentTransformUvMatrices } from "./content-coordinate-space.js?v=render-coordinate-scope-3";
 export { advanceRateClock, componentInstanceTime, globalVisualTimeScale, instanceTime } from "../libraries/timing-engine/index.js";
+export { advanceSpatialScale } from "../libraries/timing-engine/index.js";
 
 export function qualityScaledRenderRequest(request = {}, params = {}, minimum = 0.35) {
   const scale = renderQualityScale(params, { minimum });
@@ -95,20 +96,6 @@ export function eyeballFrameUniforms(timeSeconds = 0, params = {}, output = null
 
   frame.blink = blink;
   return frame;
-}
-
-export function advanceSpatialScale(previous, scale, anchor = [0, 0]) {
-  const nextScale = Math.max(0.02, Number(scale) || 0.62);
-  const point = [Number(anchor[0]) || 0, Number(anchor[1]) || 0];
-  if (!previous) return { scale: nextScale, phase: [0, 0] };
-  const delta = previous.scale - nextScale;
-  return {
-    scale: nextScale,
-    phase: [
-      previous.phase[0] + point[0] * delta,
-      previous.phase[1] + point[1] * delta,
-    ],
-  };
 }
 
 export function generatorRateParam(generatorId) {

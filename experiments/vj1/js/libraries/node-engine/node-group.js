@@ -2,7 +2,19 @@ import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "./node-d
 import { NodeInstance } from "./node-runtime.js";
 import { NodeGraphProgram } from "./node-graph-program.js";
 
+export const NODE_GROUP_EXECUTION_MODELS = Object.freeze({
+  GRAPH: "graph",
+  COMPILED_GRAPH: "compiled-graph",
+  NATIVE_COMPOSITE: "native-composite",
+});
+
+export const NODE_GROUP_CONTROL_PROJECTION_FORMAT = "vj1.control-projection@1";
+
 export function defineNodeGroup(definition = {}) {
+  const executionModel = normalizeGroupExecutionModel(
+    definition.executionModel || definition.implementation?.executionModel,
+    definition.program
+  );
   const nodes = Object.freeze((definition.nodes || []).map((node) => Object.freeze({
     ...node,
     id: String(node.id || ""),
@@ -24,20 +36,146 @@ export function defineNodeGroup(definition = {}) {
     id: "graph",
     kind: NODE_PART_KINDS.GRAPH,
     name: "Internal graph",
-    editable: definition.graphEditable !== false,
+    editable: definition.graphEditable !== undefined
+      ? definition.graphEditable !== false
+      : executionModel !== NODE_GROUP_EXECUTION_MODELS.NATIVE_COMPOSITE,
     nodes,
     connections,
     publicInlets: Object.freeze({ ...(definition.publicInlets || {}) }),
     publicOutlets: Object.freeze({ ...(definition.publicOutlets || {}) }),
   };
+  const controlProjection = definition.controlBindings
+    ? defineNodeGroupControlProjection({
+        groupId: definition.id,
+        parameters: definition.parameters,
+        nodes,
+        bindings: definition.controlBindings,
+        presentation: definition.controlPresentation,
+      })
+    : null;
   const node = defineNode({
     ...definition,
-    implementation: { kind: NODE_IMPLEMENTATION_KINDS.GROUP },
+    implementation: {
+      ...(typeof definition.implementation === "object" ? definition.implementation : {}),
+      kind: NODE_IMPLEMENTATION_KINDS.GROUP,
+      executionModel,
+    },
     parts: [graphPart, ...(definition.parts || []).filter((part) => part.kind !== NODE_PART_KINDS.GRAPH)],
     presentation: { expandable: true, ...(definition.presentation || {}) },
+    metadata: controlProjection
+      ? { ...(definition.metadata || {}), controlProjection }
+      : definition.metadata,
     process: null,
   });
-  return Object.freeze({ ...node, program: typeof definition.program === "function" ? definition.program : null });
+  const compiler = definition.compiler && typeof definition.compiler === "object"
+    ? Object.freeze({
+        id: String(definition.compiler.id || ""),
+        target: String(definition.compiler.target || ""),
+        strategy: String(definition.compiler.strategy || ""),
+      })
+    : null;
+  if (compiler && !compiler.id) throw new Error(`NODE_GROUP_COMPILER_MISSING_ID:${definition.id || "missing"}`);
+  return Object.freeze({
+    ...node,
+    compiler,
+    program: typeof definition.program === "function" ? definition.program : null,
+  });
+}
+
+// A Group publishes ordinary public parameters. This projection only describes
+// how those controls are organized in a shared inspector and which semantic
+// child parameters they feed. It never installs custom UI code or participates
+// in the frame loop.
+export function defineNodeGroupControlProjection({
+  groupId = "",
+  parameters = {},
+  nodes = [],
+  bindings = {},
+  presentation = {},
+} = {}) {
+  const publicParameters = new Set(Array.isArray(parameters)
+    ? parameters.map((parameter) => String(parameter?.id || "")).filter(Boolean)
+    : Object.keys(parameters || {}));
+  const childNodes = new Set((nodes || []).map((node) => String(node?.id || "")).filter(Boolean));
+  const bindingsByParameter = new Map();
+  const normalizedBindings = [];
+  for (const [nodeId, controls] of Object.entries(bindings || {})) {
+    if (!childNodes.has(nodeId)) throw new Error(`NODE_GROUP_CONTROL_NODE_UNKNOWN:${groupId || "missing"}:${nodeId}`);
+    for (const entry of controls || []) {
+      const publicParameterId = String(
+        typeof entry === "string" ? entry : entry?.publicParameterId || entry?.parameterId || ""
+      );
+      const targetParameterId = String(
+        typeof entry === "string" ? entry : entry?.targetParameterId || entry?.parameterId || publicParameterId
+      );
+      if (!publicParameters.has(publicParameterId)) {
+        throw new Error(`NODE_GROUP_CONTROL_PARAMETER_UNKNOWN:${groupId || "missing"}:${nodeId}:${publicParameterId}`);
+      }
+      const binding = Object.freeze({ nodeId, parameterId: targetParameterId });
+      const parameterBindings = bindingsByParameter.get(publicParameterId) || [];
+      parameterBindings.push(binding);
+      bindingsByParameter.set(publicParameterId, parameterBindings);
+      normalizedBindings.push({ nodeId, publicParameterId });
+    }
+  }
+
+  const sections = new Map();
+  const presentedParameters = new Set();
+  for (const [nodeId, controls] of Object.entries(bindings || {})) {
+    const sectionPresentation = presentation?.[nodeId] || {};
+    if (sectionPresentation.hidden === true) continue;
+    const omittedParameters = new Set(sectionPresentation.omitParameterIds || []);
+    const sectionId = String(sectionPresentation.sectionId || nodeId);
+    const section = sections.get(sectionId) || {
+      id: sectionId,
+      label: String(sectionPresentation.label || humanizeControlSection(sectionId)),
+      order: Number.isFinite(Number(sectionPresentation.order)) ? Number(sectionPresentation.order) : sections.size,
+      controls: new Map(),
+    };
+    const nodeBindings = normalizedBindings.filter((binding) => binding.nodeId === nodeId);
+    for (const binding of nodeBindings) {
+      const parameterId = binding.publicParameterId;
+      if (omittedParameters.has(parameterId) || presentedParameters.has(parameterId)) continue;
+      section.controls.set(parameterId, {
+        parameterId,
+        bindings: bindingsByParameter.get(parameterId) || [],
+      });
+      presentedParameters.add(parameterId);
+    }
+    if (section.controls.size) sections.set(sectionId, section);
+  }
+  return Object.freeze({
+    format: NODE_GROUP_CONTROL_PROJECTION_FORMAT,
+    sections: Object.freeze([...sections.values()]
+      .sort((left, right) => left.order - right.order)
+      .map((section) => Object.freeze({
+        id: section.id,
+        label: section.label,
+        controls: Object.freeze([...section.controls.values()].map((control) => Object.freeze({
+          parameterId: control.parameterId,
+          bindings: Object.freeze(control.bindings),
+        }))),
+      }))),
+  });
+}
+
+function humanizeControlSection(value = "") {
+  const spaced = String(value || "")
+    .replace(/[-_]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .trim();
+  return spaced ? spaced.replace(/^./, (character) => character.toUpperCase()) : "Controls";
+}
+
+function normalizeGroupExecutionModel(value, program) {
+  const fallback = typeof program === "function"
+    ? NODE_GROUP_EXECUTION_MODELS.NATIVE_COMPOSITE
+    : NODE_GROUP_EXECUTION_MODELS.GRAPH;
+  const model = String(value || fallback);
+  if (!Object.values(NODE_GROUP_EXECUTION_MODELS).includes(model)) {
+    throw new Error(`NODE_GROUP_EXECUTION_MODEL_UNKNOWN:${model}`);
+  }
+  return model;
 }
 
 export class NodeGroupInstance extends NodeInstance {

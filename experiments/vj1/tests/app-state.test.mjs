@@ -14,8 +14,8 @@ import {
   createLiveScenePreviewState,
   createMappingFromState,
   sceneSourceNodeId,
-  syncLiveRoutesFromMapping,
 } from "../js/domain/models.js?v=world-frame-27";
+import { compileLiveProjectionProgram } from "../js/domain/live-projection-program.js?v=live-projection-program-1";
 import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
@@ -71,6 +71,28 @@ test("UI-only updates preserve project data and emit an explicit UI scope", () =
   assert.deepEqual(after.surfaces, before.surfaces);
 });
 
+test("workspace navigation is a structurally shared UI command, not a project autosave", () => {
+  const store = createAppState();
+  const before = store.getState();
+  let emitted = null;
+  const unsubscribe = store.subscribe((state, reason, change) => {
+    if (reason === "workspace") emitted = { state, change };
+  });
+
+  assert.equal(store.setWorkspace("scene"), true);
+  unsubscribe();
+  const after = store.getState();
+
+  assert.equal(emitted?.change.scope, "ui");
+  assert.equal(emitted?.change.history, "none");
+  assert.equal(after.ui.workspace, "scene");
+  assert.notStrictEqual(after.ui, before.ui);
+  assert.deepEqual(after.components, before.components);
+  assert.deepEqual(after.media, before.media);
+  assert.deepEqual(after.mappings, before.mappings);
+  assert.equal(store.setWorkspace("scene"), false, "selecting the active workspace is a no-op");
+});
+
 test("Live projection inspection is UI-only and does not reroute the program", () => {
   const store = createAppState(createInitialState());
   const before = store.getState();
@@ -86,7 +108,7 @@ test("Live projection inspection is UI-only and does not reroute the program", (
   assert.equal(after.ui.live.previewSurfaceId, surface.id);
   assert.equal(after.ui.live.patchSourceId, "");
   assert.deepEqual(after.mappings, before.mappings);
-  assert.deepEqual(after.ui.live.surfaceRoutes, before.ui.live.surfaceRoutes);
+  assert.deepEqual(compileLiveProjectionProgram(after).currentRoutes, compileLiveProjectionProgram(before).currentRoutes);
 });
 
 test("Live Surface visibility changes only the routed program and survives source changes", () => {
@@ -106,12 +128,12 @@ test("Live Surface visibility changes only the routed program and survives sourc
   let after = store.getState();
   assert.equal(observedEvent.scope, "live");
   assert.equal(after.ui.live.surfaceVisibility[surface.id], false);
-  assert.equal(after.ui.live.surfaceRoutes.surfaces.find((item) => item.id === surface.id).enabled, false);
+  assert.equal(compileLiveProjectionProgram(after).currentRoutes.surfaces.find((item) => item.id === surface.id).enabled, false);
   assert.equal(after.mappings[0].surfaces.find((item) => item.id === surface.id).enabled, before.mappings[0].surfaces.find((item) => item.id === surface.id).enabled);
 
   store.selectLiveScene(secondScene.id);
   after = store.getState();
-  assert.equal(after.ui.live.surfaceRoutes.surfaces.find((item) => item.id === surface.id).enabled, false);
+  assert.equal(compileLiveProjectionProgram(after).currentRoutes.surfaces.find((item) => item.id === surface.id).enabled, false);
   assert.equal(createLiveRenderState(after).surfaces.find((item) => item.id === surface.id).enabled, false);
 });
 
@@ -129,13 +151,14 @@ test("Scene Mapping visibility hides Overall routes in preview and Output but pr
   store.selectLivePreviewSurface(patchedSurface.id);
   store.selectLiveComponent(patchComponent.id);
   store.selectLivePreviewSurface("__mapping__");
-  const routesBefore = store.getState().ui.live.surfaceRoutes;
+  const routesBefore = compileLiveProjectionProgram(store.getState()).currentRoutes;
   assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
 
   let after = store.getState();
   assert.equal(after.ui.live.sceneMappingVisible, false);
+  assert.equal(after.ui.live.previewSurfaceId, "__mapping__", "route visibility does not change the selected Live output");
   assert.equal(after.ui.live.selectedComponentId, scene.id, "the overall source remains selected");
-  assert.deepEqual(after.ui.live.surfaceRoutes, routesBefore, "the stored transition snapshot is not rewritten");
+  assert.equal(after.ui.live.transition, null, "visibility changes do not create a transition snapshot");
   assert.equal(createLiveScenePreviewState(after).surfaces[0].componentId, "", "only the Scene Mapping monitor is blank");
   const hiddenOutput = createLiveRenderState(after);
   assert.equal(
@@ -152,9 +175,55 @@ test("Scene Mapping visibility hides Overall routes in preview and Output but pr
   assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
   after = store.getState();
   assert.equal(after.ui.live.sceneMappingVisible, true);
-  assert.deepEqual(after.ui.live.surfaceRoutes, routesBefore);
+  assert.equal(after.ui.live.previewSurfaceId, "__mapping__");
+  assert.deepEqual(compileLiveProjectionProgram(after).currentRoutes, routesBefore);
   assert.equal(createLiveScenePreviewState(after).surfaces[0].componentId, scene.id);
   assert.equal(createLiveRenderState(after).surfaces.some((item) => item.enabled !== false), true);
+});
+
+test("a direct output can be toggled independently while Scene Mapping is hidden", () => {
+  const state = createInitialState();
+  const scene = createSceneComponent(0, state.components[0].id);
+  state.components.push(scene);
+  state.ui.live.selectedSceneId = scene.id;
+  state.ui.live.selectedComponentId = scene.id;
+  const store = createAppState(state);
+  const mapping = store.getState().mappings[0];
+  const directOutput = mapping.surfaces.find((surface) => surface.destination?.type === "direct");
+
+  assert.ok(directOutput);
+  assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
+  assert.equal(
+    compileLiveProjectionProgram(store.getState()).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).enabled,
+    false,
+  );
+
+  assert.equal(store.toggleLiveSurfaceVisibility(directOutput.id), true);
+  let after = store.getState();
+  assert.equal(after.ui.live.sceneMappingVisible, false);
+  assert.equal(after.ui.live.surfaceVisibility[directOutput.id], true);
+  assert.equal(
+    compileLiveProjectionProgram(after).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).enabled,
+    true,
+  );
+  assert.equal(
+    createLiveRenderState(after).surfaces.find((surface) => surface.id === directOutput.id).enabled,
+    true,
+  );
+
+  assert.equal(store.toggleLiveSurfaceVisibility(directOutput.id), true);
+  after = store.getState();
+  assert.equal(after.ui.live.sceneMappingVisible, false);
+  assert.equal(after.ui.live.surfaceVisibility[directOutput.id], false);
+});
+
+test("state normalization chooses the first Surface when Scene Mapping is not included in Live", () => {
+  const state = createInitialState();
+  state.ui.live.sceneMappingInLive = false;
+  state.ui.live.previewSurfaceId = "__mapping__";
+
+  const normalized = createAppState(state).getState();
+  assert.equal(normalized.ui.live.previewSurfaceId, normalized.mappings[0].surfaces[0].id);
 });
 
 test("Live Surface patch assignment and removal use the configured transition", () => {
@@ -166,6 +235,8 @@ test("Live Surface patch assignment and removal use the configured transition", 
   authoredSurface.projectionFit = "contain";
   state.ui.live.selectedSceneId = "";
   state.ui.live.selectedComponentId = "";
+  state.ui.live.transitionId = "org.vj1.transition.soft-wipe";
+  state.ui.live.transitionParameters = { softness: 0.2 };
   state.ui.live.transitionDuration = 1.25;
   const store = createAppState(state);
 
@@ -176,7 +247,7 @@ test("Live Surface patch assignment and removal use the configured transition", 
 
   let after = store.getState();
   let previousRoute = after.ui.live.transition.fromSurfaceRoutes.surfaces.find((item) => item.id === surface.id);
-  let currentRoute = after.ui.live.surfaceRoutes.surfaces.find((item) => item.id === surface.id);
+  let currentRoute = compileLiveProjectionProgram(after).currentRoutes.surfaces.find((item) => item.id === surface.id);
   assert.equal(after.ui.live.transition.durationMs, 1250);
   assert.equal(previousRoute.componentId, scene.id);
   assert.equal(previousRoute.projectionFit, "contain");
@@ -185,6 +256,8 @@ test("Live Surface patch assignment and removal use the configured transition", 
   assert.equal(currentRoute.sceneCrop, false);
   assert.equal(currentRoute.sourceFitActive, false);
   const transitionRenderState = createLiveRenderState(after);
+  assert.equal(transitionRenderState.liveTransition.transitionId, "org.vj1.transition.soft-wipe");
+  assert.deepEqual(transitionRenderState.liveTransition.transitionParameters, { softness: 0.2 });
   assert.equal(
     transitionRenderState.liveTransition.fromState.surfaces.find((item) => item.id === surface.id).projectionFit,
     "contain",
@@ -200,7 +273,7 @@ test("Live Surface patch assignment and removal use the configured transition", 
   assert.equal(store.clearLiveSurfacePatch(surface.id), true);
   after = store.getState();
   previousRoute = after.ui.live.transition.fromSurfaceRoutes.surfaces.find((item) => item.id === surface.id);
-  currentRoute = after.ui.live.surfaceRoutes.surfaces.find((item) => item.id === surface.id);
+  currentRoute = compileLiveProjectionProgram(after).currentRoutes.surfaces.find((item) => item.id === surface.id);
   assert.equal(after.ui.live.transition.durationMs, 1250);
   assert.equal(previousRoute.componentId, patchComponent.id);
   assert.equal(currentRoute.componentId, scene.id);
@@ -231,7 +304,7 @@ test("Live Surface patches can be removed while Overall is explicitly empty", ()
 
   current = store.getState();
   assert.equal(current.ui.live.surfacePatches[surface.id], undefined);
-  assert.equal(current.ui.live.surfaceRoutes.surfaces.find((route) => route.id === surface.id).componentId, "");
+  assert.equal(compileLiveProjectionProgram(current).currentRoutes.surfaces.find((route) => route.id === surface.id).componentId, "");
 });
 
 test("Overall Scene and Component changes share the configured transition policy", () => {
@@ -288,7 +361,7 @@ test("Live transition snapshots retain source routes but use current Surface geo
   store.selectLiveScene(firstScene.id);
   store.selectLiveScene(secondScene.id);
   const current = store.getState();
-  const authored = current.ui.live.surfaceRoutes.surfaces.find((surface) => surface.destination?.type !== "direct");
+  const authored = compileLiveProjectionProgram(current).currentRoutes.surfaces.find((surface) => surface.destination?.type !== "direct");
   const stale = current.ui.live.transition.fromSurfaceRoutes.surfaces.find((surface) => surface.id === authored.id);
   stale.x = authored.x + 0.25;
   stale.width = authored.width * 0.5;
@@ -299,6 +372,56 @@ test("Live transition snapshots retain source routes but use current Surface geo
   assert.equal(fromSurface.width, authored.width);
   assert.equal(fromSurface.componentId, firstScene.id);
   assert.equal(rendered.surfaces.find((surface) => surface.id === authored.id).componentId, secondScene.id);
+});
+
+test("Live Scene selection structurally shares authored project collections", () => {
+  const initial = createInitialState();
+  const nextScene = createSceneComponent("Second Scene");
+  initial.components.push(nextScene);
+  let preparationCount = 0;
+  const store = createAppState(initial, {
+    prepareState(value) {
+      preparationCount++;
+      return value;
+    },
+  });
+  const events = [];
+  store.subscribe((_state, reason, event) => events.push({ reason, event }));
+
+  store.selectLiveScene(nextScene.id);
+
+  assert.equal(events.at(-1).reason, "live:scene");
+  assert.equal(events.at(-1).event.scope, "live");
+  assert.equal(preparationCount, 1, "Live selection bypasses whole-project normalization and package preparation");
+  assert.equal(store.getState().ui.live.selectedSceneId, nextScene.id);
+});
+
+test("Live transition endpoints clone mutable render branches without cloning unrelated project collections", () => {
+  const state = createInitialState();
+  const firstScene = createSceneComponent(0, state.components[0].id);
+  const secondScene = createSceneComponent(1, state.components[0].id);
+  state.components.push(firstScene, secondScene);
+  state.media.push({ id: "media/large.mov", name: "large.mov", type: "video", duration: 10 });
+  state.ui.live.transitionDuration = 1;
+  const store = createAppState(state);
+
+  store.selectLiveScene(firstScene.id);
+  store.selectLiveScene(secondScene.id);
+  const current = store.getState();
+  const rendered = createLiveScenePreviewState(current);
+
+  assert.strictEqual(rendered.media, current.media);
+  assert.strictEqual(rendered.nodes, current.nodes);
+  assert.strictEqual(rendered.mappings, current.mappings);
+  assert.notStrictEqual(rendered.components, current.components);
+  assert.notStrictEqual(rendered.components[0].chain, current.components[0].chain);
+  assert.ok(rendered.liveTransition?.fromState);
+  assert.strictEqual(rendered.liveTransition.fromState.media, current.media);
+  assert.strictEqual(rendered.liveTransition.fromState.nodes, current.nodes);
+  assert.notStrictEqual(rendered.liveTransition.fromState.components, current.components);
+
+  rendered.components[0].chain[0].source.params.renderQuality = 0.25;
+  assert.notEqual(current.components[0].chain[0].source.params.renderQuality, 0.25);
 });
 
 test("removing an Overall source transitions to an explicitly empty program", () => {
@@ -321,7 +444,7 @@ test("removing an Overall source transitions to an explicitly empty program", ()
   assert.equal(after.ui.live.selectedComponentId, "");
   assert.equal(after.ui.live.transition.durationMs, 750);
   assert.equal(after.ui.live.transition.fromTargetId, liveComponent.id);
-  assert.equal(after.ui.live.surfaceRoutes.surfaces.every((surface) => !surface.componentId), true);
+  assert.equal(compileLiveProjectionProgram(after).currentRoutes.surfaces.every((surface) => !surface.componentId), true);
   const renderState = createLiveRenderState(after);
   const previewState = createLiveScenePreviewState(after);
   assert.equal(renderState.surfaces.every((surface) => !surface.componentId), true);
@@ -599,7 +722,6 @@ function liveSceneMappingFixture() {
   state.mappings = [mapping];
   state.ui.selectedMappingId = mapping.id;
   state.ui.live.selectedSceneId = firstScene.id;
-  state.ui.live.surfaceRoutes = null;
   return { state, source, firstScene, secondScene, mapping };
 }
 
@@ -757,7 +879,7 @@ test("new Surfaces join the selected Mapping and refresh its pending Live route"
   const added = store.getState().surfaces.at(-1);
   let route = store.getState().mappings[0].surfaces.find((surface) => surface.id === added.id);
   assert.equal(route.enabled, true);
-  assert.ok(store.getState().ui.live.surfaceRoutes.surfaces.some((surface) => surface.id === added.id));
+  assert.ok(compileLiveProjectionProgram(store.getState()).currentRoutes.surfaces.some((surface) => surface.id === added.id));
   const rendered = store.getLiveRenderState().surfaces.find((surface) => surface.id === added.id);
   assert.equal(rendered.componentId, firstScene.id);
   assert.equal(store.getState().ui.selectedMappingId, mapping.id);
@@ -1033,7 +1155,6 @@ test("new elements stay enabled until their Component graph is connected to a Li
   const scene = createMappingFromState(state, "Program");
   state.mappings = [scene];
   state.ui.live.selectedSceneId = scene.id;
-  state.ui.live.surfaceRoutes = structuredClone(scene.snapshot);
   const store = createAppState(state);
 
   store.addChainEffect(component.id, "invert");
@@ -1298,6 +1419,26 @@ test("derived cache updates do not become project transactions", () => {
   assert.equal(events.at(-1).scope, "derived");
   assert.equal(events.at(-1).history, "none");
   assert.equal(store.getState().components[0].id, componentId);
+});
+
+test("derived cache updates preserve their targeted UI projection contract", () => {
+  const store = createAppState(createInitialState());
+  const events = [];
+  store.subscribe((_state, _reason, event) => events.push(event));
+  const componentId = store.getState().components[0].id;
+  const projection = {
+    kind: "component-thumbnails",
+    entries: [{ componentId, surfaceId: "", url: "blob:cached" }],
+  };
+
+  store.updateDerived((draft) => {
+    draft.components[0].thumbnail = "blob:cached";
+  }, { reason: "project-thumbnail-cache-batch", projection });
+
+  assert.equal(events.at(-1).reason, "project-thumbnail-cache-batch");
+  assert.equal(events.at(-1).scope, "derived");
+  assert.equal(events.at(-1).history, "none");
+  assert.deepEqual(events.at(-1).projection, projection);
 });
 
 test("thumbnail replacement publishes atomically without clearing the previous derived image", () => {

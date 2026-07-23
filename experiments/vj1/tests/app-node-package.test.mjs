@@ -3,7 +3,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { createVj1NodePackage, projectArtifactViews } from "../js/app-node-package.js";
-import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../js/libraries/visual-nodes/index.js";
+import {
+  compileSpecializedCompoundProgram,
+  listGeneratorNodeComponents as listGeneratorComponents,
+  listEffectNodeComponents as listShaderComponents,
+  PlanarGridGeometryProviderNode,
+  specializedCompoundRuntimeParameters,
+  specializedCompoundStageDescriptor,
+  specializedCompoundStageEnabled,
+  specializedCompoundStageParameters,
+  specializedCompoundStageProvider,
+} from "../js/libraries/visual-nodes/index.js";
 import {
   compileApplicationDataflowPlan,
   compileApplicationServicePlan,
@@ -17,10 +27,22 @@ import { applicationProgramFromProjectData, loadStoredApplicationProgram } from 
 import { createAppState } from "../js/app-state.js";
 import { createInitialState } from "../js/domain/models.js";
 import { migrateProjectData } from "../js/domain/project-migrations.js";
-import { selectedNodeEditorTemplate, withProjectGroupGraph, withProjectNodeFork } from "../js/control/node-editor-view.js";
+import {
+  selectedNodeEditorTemplate,
+  withProjectGroupGraph,
+  withProjectNodeFork,
+  withProjectNodeGraph,
+} from "../js/control/node-editor-view.js";
+import { nodeGraphCanvasTemplate } from "../js/control/node-graph-canvas.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/index.js";
 import { nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "../js/control/node-library-view.js";
-import { compileJavaScriptNodeModule, createProjectNodeFork, NODE_PART_KINDS } from "../js/libraries/node-engine/index.js";
+import {
+  compileJavaScriptNodeModule,
+  createProjectNodeFork,
+  defineNode,
+  defineNodePackage,
+  NODE_PART_KINDS,
+} from "../js/libraries/node-engine/index.js";
 
 test("application composition root registers reusable visual node definitions", () => {
   const packageRoot = createVj1NodePackage();
@@ -32,6 +54,21 @@ test("application composition root registers reusable visual node definitions", 
   assert.equal(packageRoot.registry.has("core.storage.serialized-writes"), true);
   assert.equal(packageRoot.registry.has("core.composition.surface-routes"), true);
   assert.equal(packageRoot.registry.has("core.media.input-lifecycle"), true);
+  for (const id of [
+    "core.control.vector2",
+    "core.control.vector3",
+    "core.control.smooth",
+    "core.control.select",
+    "core.control.frame-delay",
+    "core.control.event-trigger",
+    "core.control.sample-hold",
+    "core.control.midi-input",
+    "core.control.osc-input",
+    "core.control.audio-input",
+    "core.control.host-input",
+  ]) {
+    assert.equal(packageRoot.registry.has(id), true, id);
+  }
   assert.equal(typeof packageRoot.createProjectPackage, "function");
   assert.equal(typeof packageRoot.exportProjectPackage, "function");
   assert.equal(typeof packageRoot.installProjectPackage, "function");
@@ -41,6 +78,54 @@ test("application composition root registers reusable visual node definitions", 
   assert.equal(packageRoot.artifacts.list({ artifactType: "visual-element" }).length, expectedVisuals);
   assert.equal(packageRoot.artifacts.list({ view: "component-catalog" }).some((item) => item.id === "core.control.slider"), false);
   assert.equal(packageRoot.artifacts.list({ catalog: "component" }).length, 0, "built-in elements never become project Components");
+});
+
+test("installed package definitions and resources are honestly projected into the Nodes workspace", () => {
+  const packageRoot = createVj1NodePackage();
+  const definition = defineNode({
+    id: "org.example.control.gain",
+    name: "Package Gain",
+    description: "Reusable gain control supplied by a package.",
+    version: "1.0.0",
+    inlets: { value: { type: "number" } },
+    outlets: { value: { type: "number" } },
+    process: ({ value }) => ({ value }),
+  });
+  const installedPackage = defineNodePackage({
+    id: "org.example.controls",
+    name: "Example Controls",
+    version: "1.0.0",
+    description: "Reusable project controls.",
+    definitions: [definition],
+    resources: [{
+      id: "gain-docs",
+      kind: "other",
+      path: "docs/gain.md",
+      mediaType: "text/markdown",
+    }],
+  });
+  const editorPackage = packageRoot.editorContext([installedPackage]);
+  const state = createInitialState();
+  state.nodes.packages = [{
+    id: installedPackage.id,
+    version: installedPackage.version,
+    enabled: true,
+  }];
+  state.ui.selectedNodeDefinitionId = definition.id;
+
+  assert.equal(editorPackage.registry.has(definition.id, definition.version), true);
+  assert.equal(editorPackage.packageForDefinition(definition)?.id, installedPackage.id);
+  const rail = nodeLibraryRailTemplate(state, editorPackage);
+  assert.match(rail, /Package repository/);
+  assert.match(rail, /data-node-package-import/);
+  assert.match(rail, /data-node-package-export-folder="org\.example\.controls"/);
+  assert.match(rail, /Example Controls/);
+  assert.match(rail, /docs\/gain\.md/);
+  assert.match(rail, /data-node-package-toggle="org\.example\.controls"/);
+  assert.match(nodeLibraryStudioTemplate(state, editorPackage), /Example Controls/);
+
+  const disabled = packageRoot.editorContext([]);
+  assert.equal(disabled.registry.has(definition.id, definition.version), false);
 });
 
 test("every editable code node links its displayed JavaScript to execution", () => {
@@ -181,9 +266,21 @@ test("native visual nodes compile their specialized host renderer into the rende
   }).get(component.id);
   const operation = program.plan.operations[0];
 
-  assert.equal(operation.backend, "native-specialized");
+  assert.equal(operation.backend, "native-specialized-compound");
   assert.equal(operation.renderer, "output/specialized:terrainFlyover");
   assert.equal(operation.allocationStable, true);
+  assert.equal(operation.nativeCompoundProgram.format, "vj1.specialized-compound-program@1");
+  assert.equal(operation.nativeCompoundProgram.kind, "terrain-flyover");
+  assert.deepEqual(
+    operation.nativeCompoundProgram.stages.map((stage) => stage.id),
+    ["flight", "geometry", "surface-material", "wire-material", "camera", "surface-render", "wire-render"],
+  );
+  assert.equal(
+    operation.nativeCompoundProgram.connections.some((connection) =>
+      connection.from === "surface-render.texture" && connection.to === "wire-render.target"
+    ),
+    true,
+  );
   assert.equal(typeof operation.nodeModule.terrainSurfaceGridVertices, "function");
   assert.equal(typeof operation.nodeModule.terrainSafeNearDistance, "function");
   assert.match(operation.nodeShaders["terrain-surface-vertex"], /attribute vec2 aGridCoord/);
@@ -195,6 +292,236 @@ test("native visual nodes compile their specialized host renderer into the rende
   assert.match(operation.nodeShaderProgramRevisions.surface, /^[a-z0-9]+$/);
   assert.match(operation.nodeShaderProgramRevisions.wire, /^[a-z0-9]+$/);
   assert.equal(operation.nodeProcess, undefined, "the retained terrain WebGL host remains specialized");
+});
+
+test("persisted compact specialized generators hydrate before graph-authoritative project recovery", () => {
+  const packageRoot = createVj1NodePackage();
+  const component = {
+    id: "restored-terrain",
+    name: "Restored Terrain",
+    type: "component",
+    chain: [{
+      id: "terrain-source",
+      kind: "source",
+      source: { type: "generator", generatorId: "terrainFlyover", params: { flightSpeed: 0.7 } },
+    }],
+  };
+  const initial = createInitialState();
+  initial.components = [component];
+  initial.ui.selectedComponentId = component.id;
+  initial.ui.workspaceSelectionIds.component = component.id;
+  initial.nodes = {};
+  const prepared = packageRoot.prepareProjectState(initial);
+  const payload = buildProjectPayload(prepared, "2026-07-23T00:00:00.000Z");
+  const compact = payload.nodes.groups.find((group) => group.componentId === component.id);
+
+  assert.equal(compact.compactTopology, true);
+  assert.equal(compact.connections.length, 0);
+  const restored = packageRoot.prepareProjectState(payload);
+  const restoredGroup = restored.nodes.groups.find((group) => group.componentId === component.id);
+  assert.equal(restored.components[0].chain[0].source.generatorId, "terrainFlyover");
+  assert.equal(restored.components[0].chain[0].source.params.flightSpeed, 0.7);
+  assert.equal(restoredGroup.connections.some((edge) => edge.type === "texture"), true);
+  assert.equal(
+    restoredGroup.nodes.find((node) => node.id === "terrain-source")?.compilerHook?.id,
+    "vj1.visual.specialized-compound",
+  );
+});
+
+test("specialized compound edits are either consumed by the backend or rejected at recompile", () => {
+  const packageRoot = createVj1NodePackage();
+  const definition = listGeneratorComponents().find((entry) => entry.id === "terrainFlyover").nodeDefinition;
+  const graph = definition.parts.find((part) => part.kind === "graph");
+  const projection = definition.metadata.controlProjection;
+  assert.equal(projection.format, "vj1.control-projection@1");
+  assert.deepEqual(
+    projection.sections.map((section) => section.id),
+    ["flight", "geometry", "camera", "surface-material", "wire-material", "render"],
+  );
+  assert.deepEqual(
+    projection.sections.find((section) => section.id === "render").controls[0],
+    {
+      parameterId: "style",
+      bindings: [
+        { nodeId: "surface-render", parameterId: "style" },
+        { nodeId: "wire-render", parameterId: "style" },
+      ],
+    },
+    "one public control may drive several internal compound nodes",
+  );
+  const disabledWireGraph = {
+    ...graph,
+    nodes: graph.nodes.map((node) => node.id === "wire-render"
+      ? { ...node, parameters: { ...node.parameters, enabled: false } }
+      : node),
+  };
+  const disabledWireDefinition = {
+    ...definition,
+    parts: definition.parts.map((part) => part.kind === "graph" ? disabledWireGraph : part),
+  };
+  const disabledWireProgram = compileSpecializedCompoundProgram(disabledWireDefinition);
+
+  assert.equal(specializedCompoundStageEnabled({ nativeCompoundProgram: disabledWireProgram }, "wire-render"), false);
+  assert.equal(specializedCompoundStageEnabled({ nativeCompoundProgram: disabledWireProgram }, "surface-render"), true);
+
+  const planarGraph = {
+    ...graph,
+    nodes: graph.nodes.map((node) => node.id === "geometry"
+      ? {
+          ...node,
+          type: PlanarGridGeometryProviderNode.id,
+          version: PlanarGridGeometryProviderNode.version,
+          parameters: { ...node.parameters, providerId: "planar-grid" },
+        }
+      : node),
+  };
+  const planarProgram = compileSpecializedCompoundProgram({
+    ...definition,
+    parts: definition.parts.map((part) => part.kind === "graph" ? planarGraph : part),
+  });
+  assert.equal(
+    specializedCompoundStageProvider({ nativeCompoundProgram: planarProgram }, "geometry"),
+    "planar-grid",
+  );
+  const canvas = nodeGraphCanvasTemplate(definition, packageRoot.registry);
+  assert.match(canvas, /data-node-provider-select="geometry"/);
+  assert.match(canvas, />Planar grid<\/option>/);
+
+  const unsupportedProviderGraph = {
+    ...graph,
+    nodes: graph.nodes.map((node) => node.id === "geometry"
+      ? { ...node, parameters: { ...node.parameters, providerId: "unknown-height-field" } }
+      : node),
+  };
+  assert.throws(() => compileSpecializedCompoundProgram({
+    ...definition,
+    parts: definition.parts.map((part) => part.kind === "graph" ? unsupportedProviderGraph : part),
+  }), /SPECIALIZED_VISUAL_COMPOUND_PROVIDER_UNSUPPORTED/);
+  assert.throws(() => compileSpecializedCompoundProgram({
+    ...definition,
+    parts: definition.parts.map((part) => part.kind === "graph"
+      ? { ...part, connections: part.connections.slice(1) }
+      : part),
+  }), /SPECIALIZED_VISUAL_COMPOUND_TOPOLOGY_UNSUPPORTED/);
+});
+
+test("specialized compound stages own every parameter consumed by retained native lowering", () => {
+  const specializedIds = ["terrainFlyover", "anatomy", "meshPatterns"];
+  const definitions = new Map(listGeneratorComponents()
+    .filter((entry) => specializedIds.includes(entry.id))
+    .map((entry) => [entry.id, entry.nodeDefinition]));
+
+  for (const id of specializedIds) {
+    const definition = definitions.get(id);
+    assert.ok(definition, `${id} definition`);
+    const bindings = definition.metadata?.nativeCompound?.parameterBindings || {};
+    const ownedParameterIds = new Set(Object.values(bindings)
+      .flat()
+      .map((binding) => typeof binding === "string"
+        ? binding
+        : binding?.publicParameterId || binding?.parameterId)
+      .filter(Boolean));
+    assert.deepEqual(
+      [...Object.keys(definition.parameters || {}).filter((parameterId) => !ownedParameterIds.has(parameterId))],
+      [],
+      `${id} cannot expose a parameter with no semantic stage owner`,
+    );
+  }
+
+  const terrain = definitions.get("terrainFlyover");
+  const graph = terrain.parts.find((part) => part.kind === "graph");
+  const authoredCameraGraph = {
+    ...graph,
+    nodes: graph.nodes.map((node) => node.id === "camera"
+      ? {
+          ...node,
+          parameters: {
+            ...node.parameters,
+            settings: { projection: "perspective", fieldOfView: 72 },
+          },
+        }
+      : node),
+  };
+  const program = compileSpecializedCompoundProgram({
+    ...terrain,
+    parts: terrain.parts.map((part) => part.kind === "graph" ? authoredCameraGraph : part),
+  });
+  const operation = { nativeCompoundProgram: program };
+  const authored = {
+    mountainHeight: 2.5,
+    pitch: 0.2,
+    waterColor: "#123456",
+    renderQuality: 1.5,
+    hiddenHostCorrection: 99,
+  };
+
+  assert.deepEqual(
+    specializedCompoundStageDescriptor(operation, "camera")?.settings,
+    { projection: "perspective", fieldOfView: 72 },
+    "stage-local structured settings remain part of the compiled semantic program",
+  );
+  assert.deepEqual(
+    specializedCompoundStageParameters(operation, "geometry", authored),
+    { mountainHeight: 2.5 },
+    "a stage receives only the public parameters bound to it",
+  );
+  assert.deepEqual(
+    specializedCompoundStageParameters(operation, "camera", authored),
+    { projection: "perspective", fieldOfView: 72, pitch: 0.2 },
+  );
+  const runtimeParameters = specializedCompoundRuntimeParameters(operation, authored);
+  assert.equal(runtimeParameters.mountainHeight, 2.5);
+  assert.equal(runtimeParameters.pitch, 0.2);
+  assert.equal(runtimeParameters.waterColor, "#123456");
+  assert.equal(runtimeParameters.renderQuality, 1.5);
+  assert.equal(
+    Object.hasOwn(runtimeParameters, "hiddenHostCorrection"),
+    false,
+    "undeclared raw parameters cannot become hidden native-renderer authority",
+  );
+});
+
+test("authored Terrain provider selection reaches the compiled retained render operation", () => {
+  const packageRoot = createVj1NodePackage();
+  const base = packageRoot.registry.get("vj1.visual.generator.terrainFlyover");
+  const graph = base.parts.find((part) => part.kind === "graph");
+  const planarGraph = {
+    ...graph,
+    nodes: graph.nodes.map((node) => node.id === "geometry"
+      ? {
+          ...node,
+          type: PlanarGridGeometryProviderNode.id,
+          version: PlanarGridGeometryProviderNode.version,
+          parameters: { ...node.parameters, providerId: "planar-grid" },
+        }
+      : node),
+  };
+  const forkNodes = withProjectNodeGraph({}, base, planarGraph);
+  const component = {
+    id: "terrain-provider-component",
+    name: "Terrain provider",
+    type: "component",
+    chain: [{
+      id: "terrain-source",
+      kind: "source",
+      source: { type: "generator", generatorId: "terrainFlyover", params: {} },
+    }],
+  };
+  const state = packageRoot.prepareProjectState({
+    components: [component],
+    nodes: forkNodes,
+  });
+  const resolver = createProjectVisualNodeResolver({ nodes: state.nodes });
+  const operation = compileComponentRenderPrograms(state.components, state.nodes.groups, {
+    resolveNodeDefinition: (node) =>
+      resolver.definition(node.nodeId) || packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(component.id).plan.operations[0];
+
+  assert.equal(
+    specializedCompoundStageProvider(operation, "geometry"),
+    "planar-grid",
+  );
+  assert.equal(operation.compilerHook.renderer, "output/specialized:terrainFlyover");
 });
 
 test("Terrain shader forks compile by part id without invalidating its CPU topology module", () => {
@@ -343,6 +670,35 @@ test("pre-node project snapshots compile once into the native visual render-plan
   assert.deepEqual(renderedPlan.operations.map((operation) => operation.opcode), ["source"]);
 });
 
+test("Component compilation retains only the declared root dependency closure", () => {
+  const child = {
+    id: "child",
+    type: "component",
+    chain: [{ id: "child-source", kind: "source", source: { type: "generator", generatorId: "waves" } }],
+  };
+  const root = {
+    id: "root",
+    type: "component",
+    chain: [{
+      id: "child-reference",
+      kind: "source",
+      source: { type: "component", componentId: child.id },
+    }],
+  };
+  const unrelated = {
+    id: "unrelated",
+    type: "component",
+    chain: [{ id: "unrelated-source", kind: "source", source: { type: "generator", generatorId: "waves" } }],
+  };
+
+  const programs = compileComponentRenderPrograms([root, child, unrelated], [], {
+    rootComponentIds: new Set([root.id]),
+  });
+
+  assert.deepEqual([...programs.keys()].sort(), ["child", "root"]);
+  assert.equal(programs.has(unrelated.id), false);
+});
+
 test("application state keeps persisted Component groups synchronized after structural edits", () => {
   const packageRoot = createVj1NodePackage();
   const store = createAppState(createInitialState(), { prepareState: packageRoot.prepareProjectState });
@@ -391,6 +747,19 @@ test("persisted Component groups own configuration while chain remains an in-mem
   const reloadedGroup = reloaded.nodes.groups.find((item) => item.id === group.id);
   assert.equal(reloadedGroup.nodes.some((item) => item.role === "control"), true);
   assert.equal(reloadedGroup.connections.some((edge) => edge.type === "texture"), true);
+});
+
+test("graph-authoritative projects fail saving instead of falling back to a Component chain", () => {
+  const state = createInitialState();
+  state.nodes = {
+    ...(state.nodes || {}),
+    authority: "node-graph",
+    groups: [],
+  };
+  assert.throws(
+    () => buildProjectPayload(state, "2026-07-20T00:00:00.000Z"),
+    /VJ1_PROJECT_COMPONENT_GRAPH_MISSING:/,
+  );
 });
 
 test("v26 migration preserves graph-authoritative Component elements when the persisted chain is omitted", () => {
@@ -778,6 +1147,75 @@ test("the Nodes workspace selects persisted project programs and preserves their
 
   const payload = buildProjectPayload(state, "2026-07-20T00:00:00.000Z");
   assert.equal(payload.ui.selectedNodeGroupId, groupIds[0]);
+});
+
+test("project-owned visual Groups join the shared Nodes registry and expose an empty typed graph", () => {
+  const packageRoot = createVj1NodePackage();
+  const definition = packageRoot.createProjectVisualGroupDefinition({
+    id: "org.vj1.project.user-visual",
+    name: "User Visual",
+  });
+  const state = packageRoot.prepareProjectState({
+    ...createInitialState(),
+    nodes: {
+      ...createInitialState().nodes,
+      definitions: [definition],
+    },
+  });
+  const editor = packageRoot.editorContext([], [], state.nodes.definitions);
+  const registered = editor.registry.get(definition.id, definition.version);
+  const graph = registered.parts.find((part) => part.kind === "graph");
+
+  assert.equal(registered.implementation.executionModel, "compiled-graph");
+  assert.equal(registered.metadata.visualCompilerHook.id, "vj1.visual.compound");
+  assert.deepEqual(Object.keys(registered.inlets), ["texture"]);
+  assert.deepEqual(Object.keys(registered.outlets), ["texture"]);
+  assert.deepEqual(graph.nodes, []);
+  assert.match(nodeLibraryRailTemplate(state, editor), /data-create-visual-group/);
+  assert.match(nodeLibraryRailTemplate(state, editor), /data-create-project-group="scene3d"/);
+  const studio = nodeLibraryStudioTemplate({
+    ...state,
+    ui: { ...state.ui, selectedNodeDefinitionId: definition.id, selectedNodeGroupId: "" },
+  }, editor);
+  assert.match(studio, /data-nodes-editable="true"/);
+  assert.match(studio, /data-visual-program="true"/, "new visual Groups insert compiler-owned visual nodes");
+  assert.match(studio, /data-public-interface-editable="true"/);
+});
+
+test("project-owned 3D Groups retain the Scene compiler and expose editable reusable stages", () => {
+  const packageRoot = createVj1NodePackage();
+  const definition = packageRoot.createProjectScene3dGroupDefinition({
+    id: "org.vj1.project.user-scene3d",
+    name: "User 3D Scene",
+  });
+  const state = packageRoot.prepareProjectState({
+    ...createInitialState(),
+    nodes: {
+      ...createInitialState().nodes,
+      definitions: [definition],
+    },
+    ui: {
+      ...createInitialState().ui,
+      selectedNodeDefinitionId: definition.id,
+      selectedNodeGroupId: "",
+    },
+  });
+  const editor = packageRoot.editorContext([], [], state.nodes.definitions);
+  const registered = editor.registry.get(definition.id, definition.version);
+  const graph = registered.parts.find((part) => part.kind === "graph");
+  const studio = nodeLibraryStudioTemplate(state, editor);
+
+  assert.equal(registered.compiler.id, "vj1.scene-3d.direct-program");
+  assert.equal(registered.compiler.target, "scene-3d");
+  assert.equal(registered.metadata.visualCompilerHook.id, "vj1.visual.scene-3d-program");
+  assert.equal(registered.metadata.projectTemplateBase.id, "core.scene3d.composable-render");
+  assert.equal(graph.nodes.some((node) => node.type === "core.scene3d.media-mesh"), true);
+  assert.equal(graph.nodes.some((node) => node.type === "core.scene3d.material"), true);
+  assert.equal(graph.nodes.some((node) => node.type === "core.scene3d.perspective-camera"), true);
+  assert.equal(graph.nodes.some((node) => node.type === "core.scene3d.render"), true);
+  assert.match(studio, /data-nodes-editable="true"/);
+  assert.match(studio, /data-visual-program="false"/, "3D Group internals accept typed mesh and Scene nodes");
+  assert.match(studio, /data-node-graph-publish-parameter="renderMode"/);
 });
 
 test("authored Scene routes survive topology refresh and control the compiled render program", () => {

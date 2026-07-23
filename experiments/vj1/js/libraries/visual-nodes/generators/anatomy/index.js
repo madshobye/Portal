@@ -2,6 +2,14 @@ import { createBooleanParam, createColorParam, createEnumParam, createNumberPara
 import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
+  defineSpecializedVisualCompound,
+  NativeRenderToTextureNode,
+  ProceduralGeometryProviderNode,
+  ShaderMaterialProviderNode,
+  VisualCameraProviderNode,
+} from "../../shared/specialized-compound.js?v=specialized-stage-authority-1";
+import { Transform3dNode } from "../../../mesh-engine/transform-3d/index.js";
+import {
   anatomyNodeModuleParts,
   anatomyNodeProcess,
   AnatomyNodeExports,
@@ -43,10 +51,45 @@ const manifest = Object.freeze({
     ],
   });
 
-export const VisualComponent = defineGeneratorNode(manifest, null, {
+const NativeVisualComponent = defineGeneratorNode(manifest, null, {
   direct: false,
   process: anatomyNodeProcess,
   exports: AnatomyNodeExports,
   parts: anatomyNodeModuleParts(),
+});
+
+export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
+  compoundKind: "anatomy",
+  nodes: [
+    { id: "geometry", type: ProceduralGeometryProviderNode.id, parameters: { providerId: "low-poly-anatomy" } },
+    { id: "transform", type: Transform3dNode.id },
+    { id: "material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "lit-mesh" } },
+    {
+      id: "camera",
+      type: VisualCameraProviderNode.id,
+      parameters: {
+        providerId: "perspective-model",
+        settings: { fieldOfView: 60 },
+      },
+    },
+    { id: "render", type: NativeRenderToTextureNode.id, parameters: { providerId: "anatomy-retained-webgl" } },
+  ],
+  connections: [
+    { from: "geometry.geometry", to: "render.geometry", type: "geometry-provider" },
+    { from: "transform.transform", to: "render.transform", type: "transform3d" },
+    { from: "material.material", to: "render.material", type: "visual-material-provider" },
+    { from: "camera.camera", to: "render.camera", type: "visual-camera-provider" },
+  ],
+  parameterBindings: {
+    geometry: ["part", "detail", "depth", "expression", "mouthOpen", "brow", "eyeSquint", "fingerBend", "limbBend", "heartPulse"],
+    transform: ["modelScale", "rotationX", "rotationY", "rotationZ", "spinX", "spinY", "spinZ"],
+    material: ["renderMode", "surfaceColor", "wireColor", "wireThickness"],
+    render: ["renderQuality"],
+  },
+  parameterPresentation: {
+    geometry: { label: "Geometry", order: 10 },
+    transform: { label: "Transform", order: 20 },
+    material: { label: "Material", order: 30 },
+  },
 });
 export default VisualComponent;

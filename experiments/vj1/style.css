@@ -1587,11 +1587,12 @@ button.text-list-main:hover {
 .component-card-remove {
   position: absolute;
   top: 3px;
-  right: 3px;
-  width: 18px;
-  height: 18px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
   min-height: 0;
   padding: 0;
+  border-radius: 4px;
   border-color: rgba(0, 0, 0, 0.45);
   background: rgba(0, 0, 0, 0.5);
   color: rgba(255, 255, 255, 0.78);
@@ -1599,10 +1600,6 @@ button.text-list-main:hover {
   visibility: hidden;
   pointer-events: none;
   transition: opacity 120ms ease, background 120ms ease, color 120ms ease, visibility 0s linear 120ms;
-}
-
-.component-card-row.has-catalog-marker .component-card-remove {
-  top: 29px;
 }
 
 .component-card-row:hover .component-card-remove {
@@ -1620,7 +1617,7 @@ button.text-list-main:hover {
 }
 
 .component-card-remove .material-symbols-rounded {
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .component-card-remove:hover:not(:disabled) {
@@ -2520,15 +2517,6 @@ button.text-list-main:hover {
 .source-choice-button small {
   color: var(--muted);
   font-size: 11px;
-}
-
-.video-source-controls {
-  display: grid;
-  gap: 8px;
-  padding: 8px;
-  border: 0;
-  border-radius: var(--radius-section-inner);
-  background: var(--panel-soft);
 }
 
 .segmented-pills,
@@ -3465,6 +3453,106 @@ button.text-list-main:hover {
   font-style: normal;
 }
 
+.node-package-card {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--control-bg);
+}
+
+.node-package-repository-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+
+.node-package-repository-actions button {
+  min-height: 26px;
+  font-size: 9px;
+}
+
+.node-project-group-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.node-project-group-actions button {
+  width: 100%;
+  min-height: 27px;
+  font-size: 9px;
+}
+
+.node-package-card.is-disabled {
+  opacity: 0.68;
+}
+
+.node-package-card > header {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.node-package-card > header > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+}
+
+.node-package-card > header strong,
+.node-package-card > header small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-package-card p,
+.node-package-card details,
+.node-package-card li,
+.node-package-card em {
+  margin: 0;
+  color: var(--muted);
+  font-size: 8px;
+  font-style: normal;
+  overflow-wrap: anywhere;
+}
+
+.node-package-card details ul {
+  display: grid;
+  gap: 2px;
+  margin: 3px 0 6px;
+  padding-left: 15px;
+}
+
+.node-package-card > footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 4px;
+}
+
+.node-package-card > footer label {
+  display: grid;
+  flex: 1 1 88px;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 8px;
+}
+
+.node-package-card > footer select,
+.node-package-card > footer button {
+  min-height: 24px;
+  padding: 3px 6px;
+  font-size: 8px;
+}
+
+.node-package-card > footer select {
+  width: 100%;
+}
+
 .node-library-workspace {
   min-width: min(760px, 100%);
   padding: 18px;
@@ -3753,6 +3841,139 @@ button.text-list-main:hover {
 
 .node-graph-card-ports.is-inlets { left: -5px; }
 .node-graph-card-ports.is-outlets { right: -5px; }
+
+.node-graph-port-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 21px;
+}
+
+.node-graph-port-row.is-outlet {
+  flex-direction: row-reverse;
+}
+
+.node-graph-port-row .node-graph-port {
+  flex: 1 1 auto;
+}
+
+.node-graph-publish-port {
+  flex: 0 0 auto;
+  max-width: 72px;
+  height: 14px;
+  padding: 0 3px;
+  border: 1px solid #40504d;
+  border-radius: 3px;
+  background: #0c1110;
+  color: var(--muted);
+  font-size: 6px;
+  line-height: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-graph-publish-port.is-published {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.node-graph-parameters {
+  position: absolute;
+  right: 6px;
+  left: 6px;
+  display: grid;
+  gap: 4px;
+  padding-top: 5px;
+  border-top: 1px solid #26312f;
+}
+
+.node-graph-parameters > strong {
+  color: var(--muted);
+  font-size: 7px;
+  font-weight: 500;
+  text-transform: uppercase;
+}
+
+.node-graph-parameters label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.node-graph-parameters label > span,
+.node-graph-parameters input,
+.node-graph-parameters select,
+.node-graph-parameters button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-graph-parameters input,
+.node-graph-parameters select,
+.node-graph-parameters button {
+  height: 24px;
+  padding: 2px 5px;
+  border: 1px solid #34413f;
+  border-radius: 4px;
+  background: #0c1110;
+  color: var(--text);
+  font-size: 8px;
+}
+
+.node-graph-parameters input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  justify-self: end;
+}
+
+.node-graph-parameters .node-graph-publish-parameter {
+  display: inline-flex;
+  width: auto;
+  max-width: 92px;
+  height: 15px;
+  margin-left: 4px;
+  padding: 0 4px;
+  border-color: #40504d;
+  color: var(--muted);
+  font-size: 6px;
+  line-height: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.node-graph-parameters .node-graph-publish-parameter.is-published {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.node-graph-provider {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  left: 6px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 7px;
+}
+
+.node-graph-provider select {
+  min-width: 0;
+  height: 23px;
+  padding: 2px 5px;
+  font-size: 8px;
+}
 
 .node-graph-port {
   display: grid;
@@ -4067,6 +4288,16 @@ button.text-list-main:hover {
   display: flex;
   align-items: center;
   gap: 4px;
+}
+
+.modal-refresh-media {
+  min-height: 32px;
+  padding-inline: 9px 11px;
+  white-space: nowrap;
+}
+
+.modal-refresh-media .material-symbols-rounded {
+  font-size: 17px;
 }
 
 .element-modal {

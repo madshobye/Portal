@@ -374,6 +374,7 @@ test("v22 to v23 adds empty project-owned node data without changing authored co
     groups: [],
     artifacts: [],
     forks: [],
+    packages: [],
     migrations: [],
   });
   assert.deepEqual(migrated.project, input.project);

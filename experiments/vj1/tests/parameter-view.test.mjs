@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { colorParamControlTemplate, componentParamViews, paramControlTemplate, paramControlsTemplate, screenInputParamControlTemplate } from "../js/control/parameter-view.js";
-import { paramRangePairTemplate } from "../js/control/template-utils.js";
+import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-utils.js";
+
+test("shared standalone sliders expose the declared-parameter reset contract", () => {
+  const html = rangeTemplate("Movie speed", "components.0.chain.0.source.speed", 1.5, 0, 4, 0.01, 1);
+  assert.match(html, /data-param-context-path="components\.0\.chain\.0\.source\.speed"/);
+  assert.match(html, /data-param-default="1"/);
+});
 
 test("parameter views tolerate a file-backed node while its definition is pending", () => {
   assert.deepEqual(componentParamViews(null), { primary: [], details: [] });

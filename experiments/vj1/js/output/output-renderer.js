@@ -3,17 +3,22 @@ import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
 import { sceneFrameSize, renderMaxFrameRate, renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=transition-start-fit-1";
-import { normalizeParamValue, normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1";
+import { normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { advancePresentationClock, createPresentationClock } from "../libraries/timing-engine/presentation-clock/index.js?v=presentation-clock-1";
 import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/render-node-contract.js";
-import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, VISUAL_SOURCE_RENDERERS, visualSourceRenderer } from "../libraries/composition-engine/index.js?v=mapping-order-authority-1";
-import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../graph/placed-render-result.js?v=adaptive-component-demand-29";
-import { compileComponentPatch, compileShaderSchedule, flattenComponentChain, fuseLocalShaderSchedule, isFusibleShaderJob } from "../graph/render-scheduler.js?v=pending-project-node-1";
-import { createProjectVisualNodeResolver } from "../libraries/visual-nodes/index.js?v=procedural-2d-1";
-import { evaluateIsfDimension } from "../libraries/isf-engine/index.js?v=isf-definition-cache-1";
-import { createShaderBuilder, fusedUniformName } from "../shaders/shader-builder.js?v=isf-runtime-1";
+import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, TextureOperatorNodeDefinitions } from "../libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
+import { ComposableScene3dGroup, Transform3dNode } from "../libraries/mesh-engine/index.js?v=scene3d-media-resource-project-group-authoring-1";
+import { createPlacedRenderResult, directPlacementKind } from "../graph/placed-render-result.js?v=atomic-video-seek-1";
+import { compileShaderSchedule, flattenComponentChain, isFusibleShaderJob } from "../graph/render-scheduler.js?v=pending-project-node-1";
+import {
+  createProjectVisualNodeResolver,
+  SpecializedCompoundStageNodeDefinitions,
+} from "../libraries/visual-nodes/index.js?v=specialized-stage-authority-1";
+import { TerrainFlightControllerNode } from "../libraries/terrain-engine/index.js";
+import { listProjectIsfTransitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+import { createTransitionCatalog, transitionKernelCacheKey, transitionParameterValues } from "../libraries/transition-engine/index.js";
 import { applyBlend } from "./blend-utils.js";
 import {
   createSharedFramebufferTarget,
@@ -22,27 +27,33 @@ import {
 } from "./shared-framebuffer-target.js?v=isf-runtime-1";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
-import { drawGenerator, drawStandby } from "./generators.js?v=procedural-2d-1";
-import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=runtime-diagnostics-1";
-import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeComponentGraphMediaState, runtimeMediaStateForSource, staticComponentGraphMediaState, staticComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=scene-live-audit-1";
-import { isEffectNode, isSimpleLayer, isSourceNode, mediaSourceAlphaEdge, mediaSourceFit, nodesInComponentChainOrder, patchLayerForNode, shaderPassFromNode, sourceFromPatchNode, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
+import { drawMediaFit, isDrawableMedia } from "./media-utils.js?v=gapless-video-loop-1";
+import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeCompiledComponentGraphMediaState, runtimeMediaInvalidation, runtimeMediaStateForSource, staticCompiledComponentGraphMediaState, staticCompiledComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=gapless-video-loop-1";
+import { mediaSourceAlphaEdge, mediaSourceFit, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runtime-diagnostics-1";
-import { OutputMediaRuntime } from "./output-media-runtime.js?v=boundary-media-demand-1";
+import { OutputMediaRuntime } from "./output-media-runtime.js?v=media-url-retirement-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=transition-view-contract-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=webgl-direct-blend-1";
+import { IsfRenderRuntime } from "./isf-render-runtime.js?v=isf-backend-1";
+import { TextureOperatorRuntime } from "./texture-operator-runtime.js?v=texture-operator-backend-1";
+import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=shader-effect-backend-1";
+import { CompositeRenderRuntime } from "./composite-render-runtime.js?v=composite-backend-1";
+import {
+  mediaSourceDemandWidth,
+  SourceRenderRuntime,
+} from "./source-render-runtime.js?v=source-backend-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=transition-demand-stability-1";
-import { combineContentTransforms, isIdentityTransform, normalizedContentTransform, transformedRectBounds, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
+import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=direct-scene-surface-edit-1";
 import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=output-profile-runtime-1";
 import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
 import { FULL_NODE_BOUNDARY, isFullNodeBoundary, nodeBoundaryPixelRect, nodeRoiRequest, sameNodeBoundary } from "../libraries/render-engine/roi/index.js";
-import { renderSourceDetail, renderView, withRenderView } from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
-import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, drawWithContentTransform, effectNeedsComposite, effectParamNumber, enumUniform, nextFxTargetSlot, resetShaderTarget, setDynamicShaderUniformIfPresent, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=source-roi-view-3";
-import { COMPONENT_POST_FRAGMENT_SHADER, COMPONENT_UPSCALE_FRAGMENT_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "./render-pass-shaders.js?v=render-coordinate-scope-3";
-import { componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=volumetric-clouds-1";
+import { renderSourceDetail, renderView } from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
+import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, effectNeedsComposite, effectParamNumber, resetShaderTarget, setDynamicShaderUniformIfPresent, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=source-roi-view-3";
+import { effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=volumetric-clouds-1";
 import {
   createRenderRequest,
   defaultProjectSurfaceMapping,
@@ -60,27 +71,27 @@ import {
   worldSize,
 } from "./render-geometry.js?v=output-one-1";
 import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=transition-view-contract-1";
-import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=resolution-relative-model-clip-1";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=specialized-stage-authority-1";
 import {
   sceneMaxRasterSize,
   scenePreviewRenderRequest,
   componentAdaptiveRasterLimit,
   componentLogicalPreviewRect,
   componentPreviewRenderRequest,
-  componentReferencePlacement,
-  componentReferenceCount,
-  componentReferencePrefersSharedTexture,
-  componentReferenceRegionRequest,
-  componentReferenceRenderRequest,
-  componentRenderInstanceKey,
   componentSourceView,
   cornersRect,
-  fullTargetRect,
   rectToCorners,
   resolutionScaledStrokeWidth,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=transition-demand-stability-1";
+} from "./component-render-layout.js?v=transition-demand-stability-compiled-reference-count-1";
+
+const COMPILED_VISUAL_CORE_DEFINITIONS = new Map([
+  ...TextureOperatorNodeDefinitions,
+  ...SpecializedCompoundStageNodeDefinitions,
+  Transform3dNode,
+  TerrainFlightControllerNode,
+  ComposableScene3dGroup,
+].map((definition) => [definition.id, definition]));
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
 export { parseObjMesh } from "../libraries/mesh-engine/obj-parser/index.js";
@@ -89,6 +100,12 @@ export { chainTransformDragScale, pointInTransformedRect } from "./preview-inter
 export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=volumetric-clouds-1";
 export { sourceWithNodeParams } from "./component-patch-adapter.js?v=alpha-feather-1";
 export { effectNeedsComposite } from "./shader-target-runtime.js?v=source-roi-view-3";
+export {
+  compiledNativeSourceRenderer,
+  compiledVisualSourceRenderer,
+  mediaSourceDemandSize,
+  mediaSourceDemandWidth,
+} from "./source-render-runtime.js?v=source-backend-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {
@@ -121,11 +138,14 @@ export {
   resizeSceneFrameRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=transition-demand-stability-1";
+} from "./component-render-layout.js?v=transition-demand-stability-compiled-reference-count-1";
 
 export function visualOperationRenderItem(operation = {}, item = {}, inheritedTransform = {}, effectComponent = null) {
   const opcode = operation?.opcode || item?.kind;
-  const transformDomain = operation?.transformDomain || operation?.compilerHook?.transformDomain || "";
+  const transformDomain = operation?.contract?.transform?.domain
+    || operation?.transformDomain
+    || operation?.compilerHook?.transformDomain
+    || "";
   const inheritsGroupTransform = opcode !== "effect"
     || transformDomain === "group-field"
     || (!transformDomain && effectComponent?.transformSource === false);
@@ -136,48 +156,62 @@ export function visualOperationRenderItem(operation = {}, item = {}, inheritedTr
   return { ...item, transform: combineContentTransforms(inheritedTransform, item.transform || {}) };
 }
 
-const NATIVE_SOURCE_HOST_METHODS = Object.freeze({
-  "output/specialized:screenShare": "drawScreenShareGenerator",
-  "output/specialized:anatomy": "drawAnatomyGenerator",
-  "output/specialized:terrainFlyover": "drawTerrainGenerator",
-  "output/specialized:featureMorph": "drawFeatureMorphGenerator",
-  "output/specialized:featureMorphV2": "drawFeatureMorphGenerator",
-  "output/specialized:tileTexture": "drawTileTextureGenerator",
-  "output/specialized:text": "drawTextGenerator",
-  "output/specialized:meshPatterns": "drawMeshPatternsGenerator",
-});
-const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
-const BASIC_NATIVE_SOURCE_RENDERERS = new Set([
-  "output/specialized:black",
-  "output/specialized:checker",
-]);
-const SOURCE_HOST_METHODS = Object.freeze({
-  [VISUAL_SOURCE_RENDERERS.COMPONENT]: "drawComponentReferenceSource",
-  [VISUAL_SOURCE_RENDERERS.MEDIA]: "drawMediaSource",
-  [VISUAL_SOURCE_RENDERERS.CAMERA]: "drawCameraSource",
-  [VISUAL_SOURCE_RENDERERS.BLACK]: "drawBlackSource",
-  [VISUAL_SOURCE_RENDERERS.GENERATOR]: "drawGeneratorSource",
-});
-
-export function compiledVisualSourceRenderer(operation = {}, source = {}) {
-  if (operation.backend === "source-runtime") {
-    const renderer = String(operation.renderer || operation.compilerHook?.renderer || "");
-    if (renderer) return renderer;
-  }
-  return visualSourceRenderer(source);
+export function namedTextureStateKey(states = null) {
+  if (!states?.size) return [];
+  return [...states.entries()]
+    .sort(([left], [right]) => String(left).localeCompare(String(right)))
+    .map(([name, state]) => [String(name), textureStateKey(state)]);
 }
 
-export function compiledNativeSourceRenderer(operation = {}, source = {}, generatorComponent = null) {
-  if (operation.backend === "native-specialized") {
-    const renderer = String(operation.renderer || operation.compilerHook?.renderer || "");
-    if (renderer) return renderer;
+export function primaryTextureInputPort(operation = {}) {
+  const ports = operation.textureInputPorts || Object.keys(operation.textureInputs || {});
+  if (ports.includes("inputImage")) return "inputImage";
+  if (ports.includes("texture")) return "texture";
+  return ports[0] || "texture";
+}
+
+const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
+
+export function renderStateComponentProgramRoots(state = {}, mode = "output") {
+  const roots = new Set();
+  const availableIds = new Set((state.components || []).map((component) => String(component?.id || "")).filter(Boolean));
+  if (mode === "component") {
+    const requestedId = String(state.ui?.selectedComponentId || "");
+    if (availableIds.has(requestedId)) roots.add(requestedId);
+    else for (const componentId of availableIds) roots.add(componentId);
+    return roots;
   }
-  if (source.type !== "generator") return "";
-  return String(generatorComponent?.nodeDefinition?.metadata?.nativeRenderer || "");
+  const collectSurfaces = (surfaces = [], { includeDisabled = false } = {}) => {
+    for (const surface of surfaces || []) {
+      if (!includeDisabled && surface?.enabled === false) continue;
+      const componentId = String(surface?.componentId || "");
+      if (availableIds.has(componentId)) roots.add(componentId);
+    }
+  };
+  collectSurfaces(state.surfaces);
+  // Transition endpoints may have different source roots even though they
+  // share the same authored project and compiler. A historical route can be
+  // disabled in its stored endpoint while the transition compositor still
+  // samples it for an appearance/disappearance handoff. Reachability is
+  // therefore defined by its source binding, not its terminal enabled flag.
+  // Retain both closures only for the transition lifetime; unrelated catalog
+  // Components remain uncompiled.
+  collectSurfaces(state.liveTransition?.fromState?.surfaces, { includeDisabled: true });
+  // A state without a presentation root is incomplete rather than proven
+  // unreachable (for example a preparation/readiness probe or an isolated
+  // host test). Preserve the complete compiler contract in that case. Real
+  // Preview and Output states always provide selected/surface roots.
+  if (!roots.size) {
+    for (const component of state.components || []) {
+      const componentId = String(component?.id || "");
+      if (componentId) roots.add(componentId);
+    }
+  }
+  return roots;
 }
 
 export class OutputRenderer {
-  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendChainBoundary, sendSceneFrame, sendMediaRendition, requestMediaFiles, onSurfaceSelect, onChainItemSelect, onSceneFrameSelect }) {
+  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendChainBoundary, sendSceneFrame, sendMediaRendition, sendMediaMetadata, requestMediaFiles, requestPresentationFrame, onSurfaceSelect, onChainItemSelect, onSceneFrameSelect, controlSignals = null, installedNodePackages = [] }) {
     this.mode = mode;
     this.outputId = outputId;
     this.hud = hud;
@@ -189,10 +223,15 @@ export class OutputRenderer {
     this.sendChainBoundary = sendChainBoundary;
     this.sendSceneFrame = sendSceneFrame;
     this.sendMediaRendition = sendMediaRendition;
+    this.sendMediaMetadata = sendMediaMetadata;
     this.requestMediaFiles = requestMediaFiles;
+    this.requestPresentationFrame = requestPresentationFrame;
     this.onSurfaceSelect = onSurfaceSelect;
     this.onChainItemSelect = onChainItemSelect;
     this.onSceneFrameSelect = onSceneFrameSelect;
+    this.controlSignals = controlSignals;
+    this.installedNodePackages = Object.freeze([...(installedNodePackages || [])]);
+    this.installedNodePackageSignature = installedNodePackageSignature(this.installedNodePackages);
     this.state = null;
     this.mapper = null;
     this.renderCache = new OutputRenderCache();
@@ -207,14 +246,16 @@ export class OutputRenderer {
     this.eyeballUniformFrameUse = new Map();
     this.generatorUniformStates = new Map();
     this.generatorUniformStateUse = new Map();
-    this.compiledNodeProcessContexts = new WeakMap();
-    this.componentPatches = new Map();
-    this.visualNodes = createProjectVisualNodeResolver();
+    this.visualNodes = createProjectVisualNodeResolver({}, {
+      installedPackages: this.installedNodePackages,
+    });
+    this.transitionCatalog = createTransitionCatalog();
     this.visualResolverOptions = Object.freeze({
       getEffectComponent: (id) => this.effectNodeComponent(id),
       getGeneratorComponent: (id) => this.generatorNodeComponent(id),
     });
     this.visualForkSignature = "";
+    this.transitionCatalogSignature = "";
     this.componentPrograms = new Map();
     this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
@@ -230,6 +271,8 @@ export class OutputRenderer {
       requestMediaFiles: (ids) => this.requestMediaFiles?.(ids),
       sendMediaRendition: (mediaId, width, height, blob, sourceRevision) => this.sendMediaRendition?.(mediaId, width, height, blob, sourceRevision),
       applyGraphicsFont: (target) => this.applyGraphicsFont(target),
+      onInvalidate: (reason) => this.invalidatePresentation(reason),
+      onMediaMetadata: (mediaId, metadata) => this.sendMediaMetadata?.(mediaId, metadata),
     });
     this.media = this.mediaRuntime.media;
     this.thumbnailRuntime = new OutputThumbnailRuntime({
@@ -249,7 +292,7 @@ export class OutputRenderer {
     this.fxTargets = [null, null];
     this.fxTargetKey = "";
     this.fxTargetGroups = new Map();
-    this.isfPassTargets = new Map();
+    this.isfRuntime = new IsfRenderRuntime(this);
     this.mainMix = null;
     this.surfaceRuntime = new OutputSurfaceRuntime(this);
     this.previewInteraction = new ComponentPreviewInteraction(this);
@@ -289,16 +332,14 @@ export class OutputRenderer {
     this.rawElapsedTime = 0;
     this.presentationClock = createPresentationClock();
     this.frameIndex = 0;
-    this.isfDateUniform = [0, 0, 0, 0];
     this.outputMediaStatus = createMediaReadinessStatus();
     this.scheduledEvents = [];
     this.manualScheduler = createManualScheduler();
     this.componentTimes = new Map();
     this.cachedNoiseTexture = null;
-    this.overlayBlendShader = null;
-    this.layerTransformShader = null;
-    this.componentPipelineShaders = new Map();
-    this.shaderBuilder = createShaderBuilder({
+    this.textureOperatorRuntime = new TextureOperatorRuntime(this);
+    this.compositeRuntime = new CompositeRenderRuntime(this);
+    this.shaderEffectRuntime = new ShaderEffectRuntime(this, {
       getCustomCode: () => this.state?.shaders?.customCode || "",
       getComponent: (id) => this.effectNodeComponent(id),
       onStatus: (status, error) => {
@@ -306,11 +347,13 @@ export class OutputRenderer {
         this.state.ui.shaderError = error || "";
       },
     });
+    this.sourceRuntime = new SourceRenderRuntime(this);
   }
 
   async setup(initialState, { normalized = false } = {}) {
     this.state = normalized ? initialState : sanitizeState(initialState || {});
     this.rebuildVisualNodeResolver();
+    this.rebuildTransitionCatalog();
     this.rebuildComponentPrograms();
     this.rebuildMappingPrograms();
     this.rebuildRouteLookups();
@@ -326,9 +369,12 @@ export class OutputRenderer {
     this.previewInteraction.dispose();
     this.thumbnailRuntime.dispose();
     this.gpuTimer?.dispose?.();
+    for (const program of this.componentPrograms?.values?.() || []) program.dispose?.();
+    this.componentPrograms?.clear?.();
     this.disposeBuffers();
     this.mapperSurfaces?.clear?.();
-    this.mapper?.surfaces?.splice?.(0);
+    this.mapper?.dispose?.();
+    this.sourceRuntime.dispose();
     this.mediaRuntime.dispose();
   }
 
@@ -379,6 +425,11 @@ export class OutputRenderer {
 
   disposeBuffers({ preserveSpecialized = false } = {}) {
     if (!preserveSpecialized) this.specializedSources.dispose();
+    // Programs are context-bound. Release them while their owning targets and
+    // GL contexts are still alive, before disposing any framebuffer resources.
+    this.shaderEffectRuntime.clear();
+    this.textureOperatorRuntime.dispose();
+    this.compositeRuntime.dispose();
     disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
     this.surfaceRuntime.dispose();
@@ -398,11 +449,7 @@ export class OutputRenderer {
     this.mainMix = null;
     this.fxTargets = [null, null];
     this.fxTargetKey = "";
-    this.shaderBuilder.clear?.();
     this.cachedNoiseTexture = null;
-    this.overlayBlendShader = null;
-    this.layerTransformShader = null;
-    this.componentPipelineShaders?.clear?.();
   }
 
   getCachedNoiseTexture() {
@@ -481,15 +528,7 @@ export class OutputRenderer {
   }
 
   disposeIsfPassTargets() {
-    const seen = new Set();
-    for (const entry of this.isfPassTargets?.values?.() || []) {
-      for (const target of entry.targets || []) {
-        if (!target || seen.has(target)) continue;
-        seen.add(target);
-        disposeGraphics(target);
-      }
-    }
-    this.isfPassTargets?.clear?.();
+    this.isfRuntime.dispose();
   }
 
   createMapper() {
@@ -498,6 +537,18 @@ export class OutputRenderer {
         this.emitMapping(mapping, mappingStatusForReason(meta.reason), {
           live: meta.reason === "drag",
         });
+      },
+      onTransitionError: (error, kernel) => {
+        const message = error?.message || String(error);
+        console.error("[VJ1_TRANSITION_SHADER_FAILED]", {
+          transitionId: kernel?.id || "",
+          fallback: "vj1.transition.dissolve",
+          message,
+        });
+        if (this.state?.ui) {
+          this.state.ui.shaderStatus = "Transition fallback active";
+          this.state.ui.shaderError = message;
+        }
       },
     });
     this.syncMapperOverlayMode();
@@ -616,6 +667,7 @@ export class OutputRenderer {
   }
 
   setState(nextState, { normalized = false } = {}) {
+    this.invalidatePresentation("state");
     const wasThumbnailPreview = this.shouldUseThumbnailPreview();
     const previousCameraSignature = cameraSettingsSignature(this.state?.render);
     const previousSurfaceIds = (this.state?.surfaces || []).map((surface) => surface.id).join(",");
@@ -628,6 +680,7 @@ export class OutputRenderer {
     this.componentVideoPresence = new WeakMap();
     this.pruneComponentTimes();
     this.rebuildVisualNodeResolver();
+    this.rebuildTransitionCatalog();
     this.rebuildComponentPrograms();
     this.rebuildMappingPrograms();
     this.rebuildRouteLookups();
@@ -672,6 +725,23 @@ export class OutputRenderer {
     this.thumbnailRuntime.invalidateSelectedComponent();
   }
 
+  setInstalledNodePackages(packages = []) {
+    const next = Object.freeze([...(packages || [])]);
+    const signature = installedNodePackageSignature(next);
+    if (signature === this.installedNodePackageSignature) return false;
+    this.installedNodePackages = next;
+    this.installedNodePackageSignature = signature;
+    this.visualForkSignature = "";
+    this.transitionCatalogSignature = "";
+    this.rebuildVisualNodeResolver();
+    this.rebuildTransitionCatalog();
+    if (this.state) this.rebuildComponentPrograms();
+    this.componentRegionSafety = new WeakMap();
+    this.componentVideoPresence = new WeakMap();
+    this.invalidatePresentation("node-packages");
+    return true;
+  }
+
   applyLivePatches(patches = [], nowMs = performance.now()) {
     const durationMs = Math.max(0, Number(this.state?.ui?.live?.paramFadeDuration) || 0) * 1000;
     return this.applyRenderPatches(patches, nowMs, durationMs);
@@ -680,6 +750,7 @@ export class OutputRenderer {
   applyRenderPatches(patches = [], nowMs = performance.now(), durationMs = 0) {
     const resolution = resolveLiveRenderPatches(this.state, patches);
     if (!resolution.applied) return resolution;
+    this.invalidatePresentation("render-patch");
     if (resolution.statePaths.length) {
       // State-root patches update their narrowly owned renderer subsystem.
       // Rebuilding Component programs, media presence, caches, and route
@@ -725,6 +796,7 @@ export class OutputRenderer {
       // running clock rather than restarting the same fade on pointer release.
       if (active && Object.is(active.to, to)) continue;
       this.liveParamFades.set(key, {
+        componentId: destination.componentId,
         target: destination.target,
         leaf: destination.leaf,
         from,
@@ -734,12 +806,16 @@ export class OutputRenderer {
       });
     }
     for (const componentId of result.componentIds) this.refreshComponentLookup(componentId);
+    for (const componentId of result.componentIds) {
+      this.componentPrograms.get(componentId)?.syncGeneratedControlsFromConfiguration?.();
+    }
     if (result.componentIds.length) this.thumbnailRuntime.invalidateSelectedComponent();
     return result;
   }
 
   applyLiveParamFadeFrame(nowMs = performance.now()) {
     this.liveParamFadeRestores.length = 0;
+    const synchronizedComponents = new Set();
     for (const [key, fade] of this.liveParamFades) {
       if (!Object.is(fade.target[fade.leaf], fade.to)) {
         this.liveParamFades.delete(key);
@@ -747,11 +823,16 @@ export class OutputRenderer {
       }
       if (Number(nowMs) >= fade.startedAtMs + fade.durationMs) {
         this.liveParamFades.delete(key);
+        synchronizedComponents.add(fade.componentId);
         continue;
       }
       const value = interpolatedLiveRenderValue(fade.from, fade.to, fade.startedAtMs, fade.durationMs, nowMs);
       this.liveParamFadeRestores.push(fade);
       fade.target[fade.leaf] = value;
+      synchronizedComponents.add(fade.componentId);
+    }
+    for (const componentId of synchronizedComponents) {
+      this.componentPrograms.get(componentId)?.syncGeneratedControlsFromConfiguration?.();
     }
   }
 
@@ -766,10 +847,16 @@ export class OutputRenderer {
   }
 
   rebuildComponentPrograms() {
+    for (const program of this.componentPrograms?.values?.() || []) program.dispose?.();
     this.componentPrograms = compileComponentRenderPrograms(
       this.state?.components || [],
       this.state?.nodes?.groups || [],
-      { resolveNodeDefinition: (node) => this.visualNodes.definition(node.nodeId) }
+      {
+        rootComponentIds: renderStateComponentProgramRoots(this.state, this.mode),
+        resolveNodeDefinition: (node) =>
+          COMPILED_VISUAL_CORE_DEFINITIONS.get(String(node?.nodeId || "")) ||
+          this.visualNodes.definition(node?.nodeId),
+      }
     );
   }
 
@@ -779,22 +866,72 @@ export class OutputRenderer {
         fork?.id, fork?.active !== false, fork?.base?.id, fork?.base?.version, fork?.definition,
       ]),
       projectDefinitions: (this.state?.nodes?.definitions || [])
-        .filter((definition) => definition?.metadata?.isf?.format === "isf@2")
+        .filter((definition) => definition?.persistence !== "package")
         .map((definition) => [
-        definition?.id,
-        definition?.version,
-        definition?.metadata?.isf?.sourceHash || "",
+          definition?.id,
+          definition?.version,
+          definition?.metadata?.isf?.sourceHash || "",
+          definition?.parts || [],
         ]),
+      packages: (this.state?.nodes?.packages || []).map((reference) => [
+        reference?.id,
+        reference?.version,
+        reference?.enabled !== false,
+      ]),
     });
     if (signature === this.visualForkSignature) return;
     this.visualForkSignature = signature;
-    this.visualNodes = createProjectVisualNodeResolver(this.state || {});
+    this.visualNodes = createProjectVisualNodeResolver(this.state || {}, {
+      installedPackages: this.installedNodePackages,
+    });
     this.componentRegionSafety = new WeakMap();
     this.disposeIsfPassTargets();
     // Shader objects are context-bound and keyed by source. Clear only when
     // project node code changes, never during ordinary frames or parameter
     // scrubs.
-    this.shaderBuilder?.clear?.();
+    this.shaderEffectRuntime.clear();
+  }
+
+  rebuildTransitionCatalog() {
+    const signature = JSON.stringify({
+      definitions: (this.state?.nodes?.definitions || [])
+        .filter((definition) => definition?.metadata?.isf?.kind === "transition")
+        .map((definition) => [
+        definition?.id,
+        definition?.version,
+        definition?.metadata?.visualId,
+        definition?.metadata?.isf?.sourceHash,
+        ]),
+      packages: (this.state?.nodes?.packages || []).map((reference) => [
+        reference?.id,
+        reference?.version,
+        reference?.enabled !== false,
+      ]),
+    });
+    if (signature === this.transitionCatalogSignature) return;
+    this.transitionCatalogSignature = signature;
+    const activeArtifacts = new Map(this.visualNodes.visualLibrary
+      .list({ artifactType: "transition" })
+      .map((artifact) => [artifact.id, artifact]));
+    this.transitionCatalog = createTransitionCatalog(
+      [
+        ...this.visualNodes.packageTransitions,
+        ...listProjectIsfTransitions(this.state || {}),
+      ].filter((entry) => transitionEntryMatchesArtifact(entry, activeArtifacts.get(entry.id)))
+    );
+    this.disposeTextureTransitionShaders();
+    this.mapper?.retainTransitionKernels?.(this.transitionCatalog.list().map((entry) => entry.kernel));
+  }
+
+  resolveTransition(id = "", parameters = {}) {
+    const entry = this.transitionCatalog.get(id);
+    return Object.freeze({
+      transitionKernel: entry.kernel,
+      transitionParameters: transitionParameterValues(
+        entry,
+        parameters && typeof parameters === "object" ? parameters : {}
+      ),
+    });
   }
 
   effectNodeComponent(id) {
@@ -1150,6 +1287,7 @@ export class OutputRenderer {
   }
 
   importFiles(files) {
+    this.invalidatePresentation("media-files");
     this.mediaRuntime.importFiles(files);
   }
 
@@ -1503,13 +1641,11 @@ export class OutputRenderer {
         componentName: component.name || component.id || "Scene",
         width: outputRequest.width,
         height: outputRequest.height,
-      }, () => this.renderSceneComponent(component, componentTime, renderRequest));
+      }, () => this.renderCompiledComponent(component, componentTime, renderRequest));
       this.cacheComponentOutput(component, outputKey, output, outputRequest);
       if (stableSignature) this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
       return output;
     }
-    const patch = compileComponentPatch(component, renderRequest, this.visualResolverOptions);
-    this.componentPatches.set(component.id, patch);
     const output = this.measureComponentProfile({
       type: "component",
       componentId: component.id,
@@ -1519,7 +1655,7 @@ export class OutputRenderer {
       outputWidth: outputRequest.width,
       outputHeight: outputRequest.height,
     }, () => {
-      const source = this.renderComponentPatch(component, patch, componentTime, renderRequest);
+      const source = this.renderCompiledComponent(component, componentTime, renderRequest);
       const pipelined = this.renderComponentOutputPipeline(
         component,
         source,
@@ -1586,6 +1722,9 @@ export class OutputRenderer {
     const key = renderBufferKey("component-pipeline", id, renderRequestKey(renderRequest));
     let target = this.componentGpuBuffer.get(key);
     if (!target || target.width !== renderRequest.width || target.height !== renderRequest.height) {
+      if (target && !isSharedFramebufferTarget(target)) {
+        this.compositeRuntime.releaseContext(target);
+      }
       disposeGraphics(target);
       target = createSharedFramebufferTarget(renderRequest.width, renderRequest.height) || createGraphics(renderRequest.width, renderRequest.height, WEBGL);
       if (!isSharedFramebufferTarget(target)) {
@@ -1601,47 +1740,18 @@ export class OutputRenderer {
   }
 
   getComponentPipelineShader(kind, target) {
-    const contextKey = target?.__vj1ShaderContextId || target?._renderer || "global";
-    let shaders = this.componentPipelineShaders.get(contextKey);
-    if (!shaders) {
-      shaders = {};
-      this.componentPipelineShaders.set(contextKey, shaders);
-    }
-    if (shaders[kind]) return shaders[kind];
-    try {
-      const fragment = kind === "upscale"
-        ? COMPONENT_UPSCALE_FRAGMENT_SHADER
-        : kind === "transform"
-          ? LAYER_TRANSFORM_FRAGMENT_SHADER
-          : COMPONENT_POST_FRAGMENT_SHADER;
-      shaders[kind] = target.createShader(RENDER_PASS_VERTEX_SHADER, fragment);
-      return shaders[kind];
-    } catch (error) {
-      console.error("[VJ1_COMPONENT_PIPELINE_SHADER_FAILED]", { kind, message: error?.message || String(error) });
-      return null;
-    }
+    return this.compositeRuntime.getPipelineShader(kind, target);
   }
 
   drawComponentPipelinePass({ target, shaderProgram, source, request, passName, uniforms }) {
-    this.frameProfile.shaderPasses++;
-    this.frameProfile.shaderChains++;
-    return this.measureProfile("shaderMs", {
-      type: "component-pipeline",
+    return this.compositeRuntime.drawPipelinePass({
+      target,
+      shaderProgram,
+      source,
+      request,
       passName,
-      width: request.width,
-      height: request.height,
-    }, () => this.measureGpu(target, () => {
-      drawShaderTarget(target, () => {
-        clearShaderTarget(target);
-        applyShaderTarget(target, shaderProgram);
-        shaderProgram.setUniform("sourceTex", unwrapRenderTarget(source));
-        shaderProgram.setUniform("sourceFlipY", !this.isShaderBuffer(source));
-        uniforms?.();
-        drawShaderTargetRect(target, request.width, request.height);
-        resetShaderTarget(target);
-      });
-      return target;
-    }));
+      uniforms,
+    });
   }
 
   cacheComponentOutput(component, outputKey, output, renderRequest) {
@@ -1660,92 +1770,12 @@ export class OutputRenderer {
     this.stableComponentSignatures.set(stableKey, signature);
   }
 
-  renderSceneComponent(component, componentTime, request = frameRenderRequest(this.state.render)) {
+  renderCompiledComponent(component, componentTime, request = frameRenderRequest(this.state.render)) {
     const renderRequest = this.normalizeRenderRequest(request, "component");
     const program = this.componentPrograms.get(component.id);
     if (!program) throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id || "unknown"}`);
     const state = program.execute(this, component, componentTime, renderRequest, renderBufferKey(component.id, "component-output"));
     return state.buffer;
-  }
-
-  renderComponentPatch(component, patch, componentTime, request = frameRenderRequest(this.state.render)) {
-    const renderRequest = this.normalizeRenderRequest(patch?.renderRequest || request, "component");
-    const program = this.componentPrograms.get(component.id);
-    const programChain = this.componentProgramChain(component);
-    if (programChain.length) {
-      const state = program.execute(this, component, componentTime, renderRequest);
-      return state.buffer;
-    }
-
-    const output = this.getComponentGpuBuffer(component.id, renderRequest);
-    output.push();
-    output.clear();
-    output.pop();
-
-    const orderedNodes = nodesInComponentChainOrder(component, patch);
-    for (let index = 0; index < orderedNodes.length; index++) {
-      const node = orderedNodes[index];
-      if (node.enabled === false || node.role === "output") continue;
-      if (isSourceNode(node)) {
-        const layer = patchLayerForNode(node);
-        const source = this.renderPatchSourceTexture(component, node, layer, componentTime, renderRequest);
-        this.drawChainLayer(output, source, layer);
-        continue;
-      }
-      if (isEffectNode(node)) {
-        const effectRun = [node];
-        let nextIndex = index;
-        while (isEffectNode(orderedNodes[nextIndex + 1])) {
-          nextIndex++;
-          if (orderedNodes[nextIndex].enabled !== false) effectRun.push(orderedNodes[nextIndex]);
-        }
-        const effected = this.renderShaderNodes(output, effectRun, renderRequest, componentTime);
-        output.push();
-        output.clear();
-        drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
-        output.pop();
-        index = nextIndex;
-      }
-    }
-    return output;
-  }
-
-  renderPatchSourceTexture(component, node, layer, componentTime, renderRequest) {
-    const sourceState = sourceFromPatchNode(node);
-    const generatorComponent = sourceState.type === "generator"
-      ? this.generatorNodeComponent(sourceState.generatorId)
-      : null;
-    if (isSimpleLayer(layer) && generatorComponent && sourceState.generatorId !== "terrainFlyover" && this.generatorShaderComponent(generatorComponent.id)) {
-      return this.measureProfile("sourceMs", {
-        type: "source",
-        componentId: component.id,
-        componentName: component.name || component.id || "Component",
-        passId: node.componentId || node.id,
-        chainItemId: node.id || sourceState.instanceId || "",
-        implementationId: sourceState.generatorId || sourceState.type || node.componentId || "",
-        passName: layer.name || node.componentId || node.id,
-        width: renderRequest.width,
-        height: renderRequest.height,
-      }, () => this.renderShaderGeneratorSource(
-        sourceState.generatorId,
-        instanceTime(sourceState.instanceId || node.id, componentTime),
-        renderRequest,
-        sourceState.params || {},
-        sourceState.instanceId || node.id
-      ));
-    }
-    const source = this.measureProfile("sourceMs", {
-      type: "source",
-      componentId: component.id,
-      componentName: component.name || component.id || "Component",
-      passId: node.componentId || node.id,
-      chainItemId: node.id || sourceState.instanceId || "",
-      implementationId: sourceState.generatorId || sourceState.type || node.componentId || "",
-      passName: layer.name || node.componentId || node.id,
-      width: renderRequest.width,
-      height: renderRequest.height,
-    }, () => this.renderPatchSourceNode(component, node, componentTime, renderRequest));
-    return source;
   }
 
   renderComponentChain(component, componentTime, request = frameRenderRequest(this.state.render)) {
@@ -1770,7 +1800,265 @@ export class OutputRenderer {
     if (plan?.format !== "vj1.visual-render-plan@1" || !Array.isArray(plan.operations)) {
       throw new Error(`VJ1_VISUAL_RENDER_PLAN_INVALID:${plan?.id || component.id || "unknown"}`);
     }
-    return this.renderComponentOperationsState(component, plan.operations, componentTime, renderRequest, scopeId);
+    const restoreControls = plan.controlProgram?.apply({
+      componentTime,
+      timestamp: componentTime,
+      renderRequest,
+    }) || null;
+    try {
+      if (plan.executionModel === "texture-dag") {
+        return this.executeVisualTextureDag(plan, component, componentTime, renderRequest, scopeId);
+      }
+      return this.renderComponentOperationsState(component, plan.operations, componentTime, renderRequest, scopeId);
+    } finally {
+      restoreControls?.();
+    }
+  }
+
+  executeVisualTextureDag(
+    plan,
+    component,
+    componentTime,
+    renderRequest,
+    scopeId = component.id,
+    externalInputStates = null,
+    inheritedTransform = {},
+  ) {
+    const states = plan.runtimeStates;
+    states.clear();
+    const transparent = this.transparentChainState(component, renderRequest);
+    for (const operation of plan.operations) {
+      const item = operation.configuration || operation;
+      let state;
+      if (item.enabled === false) {
+        state = this.textureDagInputState(
+          plan,
+          operation,
+          primaryTextureInputPort(operation),
+          transparent,
+          externalInputStates,
+        );
+      } else if (operation.opcode === "source") {
+        const inputStates = this.textureDagInputStates(
+          plan,
+          operation,
+          transparent,
+          externalInputStates,
+        );
+        state = this.renderComponentOperationsState(
+          component, [operation], componentTime, renderRequest,
+          renderBufferKey(scopeId, operation.id), inheritedTransform, transparent,
+          inputStates,
+        );
+      } else if (operation.opcode === "effect") {
+        const firstPort = primaryTextureInputPort(operation);
+        const inputStates = this.textureDagInputStates(
+          plan,
+          operation,
+          transparent,
+          externalInputStates,
+        );
+        state = this.renderComponentOperationsState(
+          component, [operation], componentTime, renderRequest,
+          renderBufferKey(scopeId, operation.id), inheritedTransform,
+          inputStates.get(firstPort) || transparent,
+          inputStates,
+        );
+      } else if (operation.opcode === "group") {
+        const inputStates = this.textureDagInputStates(
+          plan,
+          operation,
+          transparent,
+          externalInputStates,
+        );
+        const firstPort = primaryTextureInputPort(operation);
+        state = this.renderComponentOperationsState(
+          component, [operation], componentTime, renderRequest,
+          renderBufferKey(scopeId, operation.id), inheritedTransform,
+          inputStates.get(firstPort) || transparent,
+          inputStates,
+        );
+      } else if (operation.opcode === "select") {
+        state = this.textureDagInputState(
+          plan,
+          operation,
+          item.params?.selection ? "b" : "a",
+          transparent,
+          externalInputStates,
+        );
+      } else {
+        state = this.renderTextureOperatorState(
+          plan,
+          operation,
+          component,
+          componentTime,
+          renderRequest,
+          scopeId,
+          transparent,
+          externalInputStates,
+        );
+      }
+      states.set(operation.id, state || transparent);
+      if (operation.runtimeOutputStates?.size) {
+        for (const [publicId, outputState] of operation.runtimeOutputStates) {
+          const valueId = publicId === "texture"
+            ? operation.id
+            : `${operation.id}.${publicId}`;
+          states.set(valueId, outputState || transparent);
+        }
+      }
+    }
+    return states.get(plan.operations[plan.operations.length - 1]?.id) || transparent;
+  }
+
+  textureDagInputState(plan, operation, port, fallback, externalInputStates = null) {
+    const sourceId = operation.textureInputs?.[port];
+    if (!sourceId) return fallback;
+    if (String(sourceId).split(".")[0] === "$in") {
+      const publicId = String(sourceId).split(".").slice(1).join(".") || "texture";
+      return externalInputStates?.get(publicId) || fallback;
+    }
+    return plan.runtimeStates.get(sourceId)
+      || plan.runtimeStates.get(String(sourceId).split(".")[0])
+      || fallback;
+  }
+
+  textureDagInputStates(plan, operation, fallback, externalInputStates = null) {
+    const states = operation.runtimeInputStates || new Map();
+    states.clear();
+    for (const port of operation.textureInputPorts || Object.keys(operation.textureInputs || {})) {
+      states.set(
+        port,
+        this.textureDagInputState(plan, operation, port, fallback, externalInputStates),
+      );
+    }
+    return states;
+  }
+
+  renderTextureOperatorState(
+    plan,
+    operation,
+    component,
+    componentTime,
+    renderRequest,
+    scopeId,
+    transparent,
+    externalInputStates = null,
+  ) {
+    const item = operation.configuration || operation;
+    const params = item.params || {};
+    const aPort = operation.opcode === "transition"
+      ? "startImage"
+      : operation.opcode === "mask" ? "texture" : "a";
+    const bPort = operation.opcode === "transition"
+      ? "endImage"
+      : operation.opcode === "mask" ? "mask" : "b";
+    const current = this.textureDagInputState(
+      plan,
+      operation,
+      operation.opcode === "feedback" || operation.opcode === "delay" ? "texture" : aPort,
+      transparent,
+      externalInputStates,
+    );
+    if (operation.opcode === "feedback" || operation.opcode === "delay") {
+      return this.renderRetainedTextureOperatorState(
+        plan, operation, current, renderRequest, scopeId, transparent
+      );
+    }
+    const secondary = this.textureDagInputState(
+      plan,
+      operation,
+      bPort,
+      transparent,
+      externalInputStates,
+    );
+    const amount = operation.opcode === "transition"
+      ? clamp01(params.progress ?? 0)
+      : clamp01(params.amount ?? 0.5);
+    const transition = operation.opcode === "transition"
+      ? this.resolveTransition(params.transitionId, params.transitionParameters)
+      : null;
+    const signature = stableStringify({
+      a: textureStateKey(current),
+      b: textureStateKey(secondary),
+      opcode: operation.opcode,
+      params,
+      transitionKernel: transition ? transitionKernelCacheKey(transition.transitionKernel) : "",
+      time: operation.opcode === "transition" ? componentTime : 0,
+      request: renderRequestStateKey(renderRequest),
+    });
+    return this.evaluateChainNode(
+      renderBufferKey(scopeId, operation.id),
+      signature,
+      renderRequest,
+      (target) => {
+        if (transition) {
+          this.drawTextureTransitionTarget(
+            target,
+            current.buffer,
+            secondary.buffer,
+            transition,
+            amount,
+            componentTime,
+          );
+        } else {
+          this.drawTextureOperatorTarget(
+            target,
+            current.buffer,
+            secondary.buffer,
+            operation.opcode,
+            params,
+            amount,
+          );
+        }
+      },
+      `texture-${operation.opcode}`,
+      { instanceInvariant: current.instanceInvariant === true && secondary.instanceInvariant === true },
+    );
+  }
+
+  renderRetainedTextureOperatorState(plan, operation, current, renderRequest, scopeId) {
+    return this.textureOperatorRuntime.renderRetained(
+      plan,
+      operation,
+      current,
+      renderRequest,
+      scopeId,
+    );
+  }
+
+  drawTextureOperatorTarget(target, textureA, textureB, opcode, params, amount) {
+    return this.textureOperatorRuntime.draw(
+      target,
+      textureA,
+      textureB,
+      opcode,
+      params,
+      amount,
+    );
+  }
+
+  getTextureOperatorShader(target) {
+    return this.textureOperatorRuntime.getOperatorShader(target);
+  }
+
+  drawTextureTransitionTarget(target, fromTexture, toTexture, transition, progress, componentTime) {
+    return this.textureOperatorRuntime.drawTransition(
+      target,
+      fromTexture,
+      toTexture,
+      transition,
+      progress,
+      componentTime,
+    );
+  }
+
+  getTextureTransitionShader(target, kernel) {
+    return this.textureOperatorRuntime.getTransitionShader(target, kernel);
+  }
+
+  disposeTextureTransitionShaders() {
+    this.textureOperatorRuntime.disposeTransitionShaders();
   }
 
   renderComponentChainState(component, chain, componentTime, renderRequest, scopeId = component.id, inheritedTransform = {}) {
@@ -1781,8 +2069,18 @@ export class OutputRenderer {
   // intentionally a tight specialized loop rather than generic runtime traversal:
   // graph topology, node definitions, and compiler hooks were already resolved
   // when the project state changed, outside the frame.
-  renderComponentOperationsState(component, operations, componentTime, renderRequest, scopeId = component.id, inheritedTransform = {}) {
+  renderComponentOperationsState(
+    component,
+    operations,
+    componentTime,
+    renderRequest,
+    scopeId = component.id,
+    inheritedTransform = {},
+    initialState = null,
+    externalInputStates = null,
+  ) {
     let state = this.transparentChainState(component, renderRequest);
+    if (initialState) state = initialState;
     for (let index = 0; index < (operations || []).length; index++) {
       const operation = operations[index];
       const item = operation?.configuration || operation;
@@ -1792,23 +2090,48 @@ export class OutputRenderer {
         ? this.effectNodeComponent(item.componentId)
         : null;
       const effectRoi = operation?.roi || operation?.compilerHook?.roi || effectComponent?.runtime?.roi;
+      const compiledEffectRoi = operation?.contract?.roi || effectRoi;
       const renderedItem = visualOperationRenderItem(operation, item, inheritedTransform, effectComponent);
       const nodeId = renderBufferKey(component.id, scopeId, index, item.id || item.componentId || item.kind);
       if (opcode === "source") {
         if (!isFullNodeBoundary(renderedItem.boundary)) {
+          const sourceRoi = operation?.contract?.roi;
           const roiRequest = nodeRoiRequest(renderRequest, renderedItem.boundary, {
             renderIdentity: renderBufferKey(renderRequest.renderIdentity || component.id, renderedItem.id || nodeId),
+            halo: sourceRoi?.halo,
+            coordinateSpace: sourceRoi?.coordinateSpace,
           });
           if (roiRequest.empty) continue;
-          const sourceState = this.renderComponentSourceItemState(component, renderedItem, componentTime, roiRequest, nodeId, operation);
+          const sourceState = this.measureCompiledSourceOperation(
+            component,
+            renderedItem,
+            roiRequest,
+            () => this.renderComponentSourceItemState(
+              component, renderedItem, componentTime, roiRequest, nodeId, operation,
+              externalInputStates,
+            ),
+          );
           state = this.renderBoundedLayerNodeState(nodeId, state, sourceState, renderedItem, renderRequest, roiRequest.roi);
           continue;
         }
         if (this.canDirectCompositeSource(renderedItem, renderRequest)) {
-          state = this.renderDirectSourceNodeState(nodeId, state, component, renderedItem, componentTime, renderRequest);
+          state = this.measureCompiledSourceOperation(
+            component,
+            renderedItem,
+            renderRequest,
+            () => this.renderDirectSourceNodeState(nodeId, state, component, renderedItem, componentTime, renderRequest),
+          );
           continue;
         }
-        const sourceState = this.renderComponentSourceItemState(component, renderedItem, componentTime, renderRequest, nodeId, operation);
+        const sourceState = this.measureCompiledSourceOperation(
+          component,
+          renderedItem,
+          renderRequest,
+          () => this.renderComponentSourceItemState(
+            component, renderedItem, componentTime, renderRequest, nodeId, operation,
+            externalInputStates,
+          ),
+        );
         // A source owns its coordinate-domain transform while retaining the
         // full Component framebuffer. Composite that already transformed frame
         // without moving or clipping the layer rectangle a second time.
@@ -1818,11 +2141,14 @@ export class OutputRenderer {
       if (opcode === "effect") {
         if (!isFullNodeBoundary(renderedItem.boundary)) {
           if (nodeBoundaryPixelRect(renderedItem.boundary, renderRequest).empty) continue;
-          if (effectRoi?.mode === "full-frame") {
-            state = this.renderFullFrameEffectWithinBoundary(nodeId, state, renderedItem, componentTime, renderRequest);
+          if (compiledEffectRoi?.mode === "full-frame") {
+            state = this.renderFullFrameEffectWithinBoundary(
+              nodeId, state, renderedItem, componentTime, renderRequest, externalInputStates,
+            );
             continue;
           }
           const run = [renderedItem];
+          let runHalo = Math.max(0, Number(compiledEffectRoi?.halo) || 0);
           let nextIndex = index + 1;
           while (nextIndex < (operations || []).length) {
             const nextOperation = operations[nextIndex];
@@ -1835,14 +2161,20 @@ export class OutputRenderer {
             const nextEffectComponent = !nextOperation?.transformDomain
               ? this.effectNodeComponent(nextItem.componentId)
               : null;
-            const nextEffectRoi = nextOperation?.roi || nextOperation?.compilerHook?.roi || nextEffectComponent?.runtime?.roi;
+            const nextEffectRoi = nextOperation?.contract?.roi
+              || nextOperation?.roi
+              || nextOperation?.compilerHook?.roi
+              || nextEffectComponent?.runtime?.roi;
             if (nextEffectRoi?.mode === "full-frame") break;
             const renderedNextItem = visualOperationRenderItem(nextOperation, nextItem, inheritedTransform, nextEffectComponent);
             if (!sameNodeBoundary(renderedItem.boundary, renderedNextItem.boundary)) break;
             run.push(renderedNextItem);
+            runHalo += Math.max(0, Number(nextEffectRoi?.halo) || 0);
             nextIndex++;
           }
-          state = this.renderBoundedEffectRunNodeState(nodeId, state, run, componentTime, renderRequest);
+          state = this.renderBoundedEffectRunNodeState(
+            nodeId, state, run, componentTime, renderRequest, runHalo, externalInputStates,
+          );
           index = nextIndex - 1;
           continue;
         }
@@ -1875,7 +2207,9 @@ export class OutputRenderer {
             continue;
           }
         }
-        state = this.renderEffectNodeState(nodeId, state, renderedItem, componentTime, renderRequest);
+        state = this.renderEffectNodeState(
+          nodeId, state, renderedItem, componentTime, renderRequest, externalInputStates,
+        );
         continue;
       }
       if (opcode === "group") {
@@ -1883,25 +2217,128 @@ export class OutputRenderer {
         const groupRequest = bounded
           ? nodeRoiRequest(renderRequest, renderedItem.boundary, {
               renderIdentity: renderBufferKey(renderRequest.renderIdentity || component.id, renderedItem.id || nodeId),
+              halo: operation?.contract?.roi?.halo,
+              coordinateSpace: operation?.contract?.roi?.coordinateSpace,
             })
           : renderRequest;
         if (groupRequest.empty) continue;
-        const groupState = this.renderComponentOperationsState(
-          component,
-          operation?.operations || item.chain || [],
+        const restoreGroupControls = operation?.controlProgram?.apply({
           componentTime,
-          groupRequest,
-          renderBufferKey(scopeId, item.id || index),
-          combineContentTransforms(inheritedTransform, item.transform || {})
-        );
+          timestamp: componentTime,
+          renderRequest: groupRequest,
+        }) || null;
+        let groupState;
+        try {
+          const compiledGroup = operation?.backend === "compiled-visual-group";
+          operation?.runtimeOutputStates?.clear?.();
+          const groupInputStates = compiledGroup
+            ? this.compiledVisualGroupInputStates(operation, state, externalInputStates)
+            : null;
+          const groupInitialState = groupInputStates?.get("texture")
+            || (groupInputStates?.size === 1 ? groupInputStates.values().next().value : null);
+          const groupScopeId = renderBufferKey(scopeId, item.id || index);
+          const groupTransform = combineContentTransforms(inheritedTransform, item.transform || {});
+          groupState = compiledGroup && operation.executionModel === "texture-dag"
+            ? this.executeVisualTextureDag(
+                operation,
+                component,
+                componentTime,
+                groupRequest,
+                groupScopeId,
+                groupInputStates,
+                groupTransform,
+              )
+            : this.renderComponentOperationsState(
+                component,
+                operation?.operations || item.chain || [],
+                componentTime,
+                groupRequest,
+                groupScopeId,
+                groupTransform,
+                groupInitialState,
+              );
+          if (compiledGroup) {
+            const rawOutputs = this.compiledVisualGroupOutputStates(operation, groupState);
+            for (const [publicId, rawOutputState] of rawOutputs) {
+              const outputNodeId = rawOutputs.size === 1
+                ? nodeId
+                : renderBufferKey(nodeId, "output", publicId);
+              const outputState = bounded
+                ? this.renderBoundedLayerNodeState(
+                    outputNodeId,
+                    state,
+                    rawOutputState,
+                    { ...item, transform: {} },
+                    renderRequest,
+                    groupRequest.roi,
+                  )
+                : this.renderLayerNodeState(
+                    outputNodeId,
+                    state,
+                    rawOutputState,
+                    { ...item, transform: {} },
+                    renderRequest,
+                  );
+              operation.runtimeOutputStates.set(publicId, outputState);
+            }
+            groupState = operation.runtimeOutputStates.get(operation.outputPort)
+              || operation.runtimeOutputStates.values().next().value
+              || groupState;
+          }
+        } finally {
+          restoreGroupControls?.();
+        }
         // A Group is a transform scope: its transform is precomposed into all
         // descendants above. Only its blend/opacity applies at this boundary.
-        state = bounded
-          ? this.renderBoundedLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest, groupRequest.roi)
-          : this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest);
+        state = operation?.backend === "compiled-visual-group"
+          ? groupState
+          : bounded
+            ? this.renderBoundedLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest, groupRequest.roi)
+            : this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest);
       }
     }
     return state;
+  }
+
+  compiledVisualGroupInputStates(operation, fallback, provided = null) {
+    const result = new Map();
+    const publicIds = Object.keys(operation?.publicTextureInputs || {});
+    for (const publicId of publicIds) {
+      const value = provided?.get(publicId)
+        || (publicId === "texture" || publicIds.length === 1 ? fallback : null);
+      if (value) result.set(publicId, value);
+    }
+    if (!result.size && Object.values(operation?.textureInputs || {}).length) {
+      result.set("texture", fallback);
+    }
+    return result;
+  }
+
+  compiledVisualGroupOutputStates(operation, fallback) {
+    const result = new Map();
+    for (const publicId of operation?.outputPorts || [operation?.outputPort || "texture"]) {
+      const valueId = operation?.outputBindings?.[publicId] || "";
+      const value = operation?.runtimeStates?.get(valueId)
+        || operation?.runtimeStates?.get(String(valueId).split(".")[0])
+        || fallback;
+      if (value) result.set(publicId, value);
+    }
+    return result;
+  }
+
+  measureCompiledSourceOperation(component, item, renderRequest, render) {
+    const source = item?.source || {};
+    return this.measureProfile("sourceMs", {
+      type: "source",
+      componentId: component.id,
+      componentName: component.name || component.id || "Component",
+      passId: item.id || source.instanceId || "",
+      chainItemId: item.id || source.instanceId || "",
+      implementationId: source.generatorId || source.mediaId || source.type || "",
+      passName: item.name || source.generatorId || source.mediaId || source.type || "Source",
+      width: renderRequest.width,
+      height: renderRequest.height,
+    }, render);
   }
 
   canDirectCompositeSource(item = {}, renderRequest = {}) {
@@ -1928,6 +2365,7 @@ export class OutputRenderer {
         (media.image && isDrawableMedia(media.image))
       ),
       mediaIsModel: !!(media?.model || media?.modelData),
+      mediaRequiresRetainedFrame: !!media?.video,
       cameraDrawable: !!camera && isDrawableMedia(camera),
     });
   }
@@ -1937,28 +2375,28 @@ export class OutputRenderer {
     const cached = this.componentRegionSafety.get(component);
     if (cached !== undefined) return cached;
     visiting.add(component.id);
-    const visit = (chain) => (chain || []).every((item) => {
-      if (item?.enabled === false) return true;
-      if (item?.kind === "group") return visit(item.chain);
-      if (item?.kind === "effect") {
-        const effect = this.effectNodeComponent(item.componentId);
-        // Surface ROI must be pixel-equivalent to a full Scene crop.
-        // Effects that sample neighboring/arbitrary source coordinates need
-        // a halo/global adapter and therefore retain the established full-
-        // Scene path for now. Local filters remain region-safe.
-        return !!effect?.code && effect.runtime?.roi?.mode === "local" && effect.sampling === "local";
+    const program = this.componentPrograms.get(component.id);
+    let safe = !!program;
+    program?.forEachOperation((operation) => {
+      if (!safe || operation.configuration?.enabled === false || operation.opcode === "group") return;
+      if (operation.opcode === "effect") {
+        // The compiler contract, rather than catalog-specific chain logic,
+        // decides whether a regional render is pixel-equivalent.
+        safe = operation.contract?.roi?.pixelEquivalentToFullFrame === true
+          && operation.contract?.roi?.mode === "local";
+        return;
       }
-      if (item?.kind !== "source") return false;
-      if (item.source?.type === "black") return true;
-      if (item.source?.type === "component") {
-        const dependency = this.state?.components?.find((candidate) => candidate.id === item.source.componentId);
-        return !!dependency && dependency.type !== "scene" && this.componentRegionSafe(dependency, visiting);
+      if (operation.opcode !== "source") return;
+      const source = operation.configuration?.source || {};
+      if (source.type === "component") {
+        const dependency = this.state?.components?.find((candidate) => candidate.id === source.componentId);
+        safe = !!dependency && dependency.type !== "scene" && this.componentRegionSafe(dependency, visiting);
+      } else if (!["black", "media", "camera", "generator"].includes(source.type)) {
+        safe = false;
+      } else if (source.type === "generator") {
+        safe = !!this.generatorNodeComponent(source.generatorId);
       }
-      if (item.source?.type === "media" || item.source?.type === "camera") return true;
-      if (item.source?.type !== "generator") return false;
-      return !!this.generatorNodeComponent(item.source.generatorId);
     });
-    const safe = visit(component.chain);
     visiting.delete(component.id);
     this.componentRegionSafety.set(component, safe);
     return safe;
@@ -1970,18 +2408,18 @@ export class OutputRenderer {
 
   sceneComponentFrameFanoutSafe(component = {}, visiting = new Set()) {
     if (component?.type !== "scene" || !component.id) return false;
-    const visitChain = (chain) => (chain || []).every((item) => {
-      if (item?.enabled === false) return true;
-      if (item?.kind === "group") return visitChain(item.chain);
-      if (item?.kind !== "source" || item.source?.type !== "component") return true;
-      const dependency = this.state?.components?.find((candidate) => candidate.id === item.source.componentId);
-      if (!dependency || dependency.syncInstances === false) return false;
-      return visitComponent(dependency);
-    });
     const visitComponent = (candidate) => {
       if (!candidate?.id || visiting.has(candidate.id)) return false;
       visiting.add(candidate.id);
-      const safe = visitChain(candidate.chain);
+      const inspection = this.componentPrograms.get(candidate.id)?.inspect();
+      let safe = !!inspection;
+      for (const dependencyId of inspection?.dependencies?.components || []) {
+        const dependency = this.state?.components?.find((item) => item.id === dependencyId);
+        if (!dependency || dependency.syncInstances === false || !visitComponent(dependency)) {
+          safe = false;
+          break;
+        }
+      }
       visiting.delete(candidate.id);
       return safe;
     };
@@ -2002,30 +2440,27 @@ export class OutputRenderer {
   claimRetainedComponentMedia(component = {}, visiting = new Set()) {
     if (!component?.id || visiting.has(component.id) || !this.componentContainsVideo(component)) return;
     visiting.add(component.id);
-    const visit = (chain = []) => {
-      for (const item of chain || []) {
-        if (!item || item.enabled === false) continue;
-        if (item.kind === "group") {
-          visit(item.chain || []);
-          continue;
-        }
-        if (item.kind !== "source") continue;
-        const source = sourceWithNodeParams(item.source, {}, item.id);
-        if (source.type === "component") {
-          const dependency = this.state?.components?.find((candidate) => candidate.id === source.componentId);
-          if (dependency) this.claimRetainedComponentMedia(dependency, visiting);
-          continue;
-        }
-        if (source.type !== "media") continue;
-        const runtimeItem = this.media.get(source.mediaId);
-        const mediaMeta = (this.state?.media || []).find((entry) => entry.id === source.mediaId);
-        if (mediaMeta?.type !== "video" && !runtimeItem?.video) continue;
-        this.acquireMedia(source.mediaId, {
-          playback: this.videoPlaybackOptions(source, component),
-        });
+    const program = this.componentPrograms.get(component.id);
+    if (!program) {
+      visiting.delete(component.id);
+      throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id}`);
+    }
+    program.forEachOperation((operation) => {
+      if (operation.configuration?.enabled === false || operation.opcode !== "source") return;
+      const source = sourceWithNodeParams(operation.configuration?.source, {}, operation.id);
+      if (source.type === "component") {
+        const dependency = this.state?.components?.find((candidate) => candidate.id === source.componentId);
+        if (dependency) this.claimRetainedComponentMedia(dependency, visiting);
+        return;
       }
-    };
-    visit(component.chain || []);
+      if (source.type !== "media") return;
+      const runtimeItem = this.media.get(source.mediaId);
+      const mediaMeta = (this.state?.media || []).find((entry) => entry.id === source.mediaId);
+      if (mediaMeta?.type !== "video" && !runtimeItem?.video) return;
+      this.acquireMedia(source.mediaId, {
+        playback: this.videoPlaybackOptions(source, component),
+      });
+    });
     visiting.delete(component.id);
   }
 
@@ -2035,29 +2470,27 @@ export class OutputRenderer {
     if (cached != null) return cached;
     if (visiting.has(component.id)) return false;
     visiting.add(component.id);
+    const inspection = this.componentPrograms.get(component.id)?.inspect();
+    if (!inspection) {
+      visiting.delete(component.id);
+      throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id}`);
+    }
     let containsVideo = false;
-    const visit = (chain = []) => {
-      for (const item of chain || []) {
-        if (!item || item.enabled === false) continue;
-        if (item.kind === "group") {
-          visit(item.chain || []);
-          if (containsVideo) return;
-          continue;
-        }
-        if (item.kind !== "source") continue;
-        const source = sourceWithNodeParams(item.source, {}, item.id);
-        if (source.type === "component") {
-          const dependency = this.state?.components?.find((candidate) => candidate.id === source.componentId);
-          if (dependency && this.componentContainsVideo(dependency, visiting)) containsVideo = true;
-        } else if (source.type === "media") {
-          const runtimeItem = this.media.get(source.mediaId);
-          const mediaMeta = (this.state?.media || []).find((entry) => entry.id === source.mediaId);
-          containsVideo = mediaMeta?.type === "video" || !!runtimeItem?.video || /\.(mp4|m4v|mov|webm|ogv)$/i.test(source.mediaId || "");
-        }
-        if (containsVideo) return;
+    for (const dependencyId of inspection?.dependencies?.components || []) {
+      const dependency = this.state?.components?.find((candidate) => candidate.id === dependencyId);
+      if (dependency && this.componentContainsVideo(dependency, visiting)) {
+        containsVideo = true;
+        break;
       }
-    };
-    visit(component.chain || []);
+    }
+    if (!containsVideo) for (const mediaId of inspection?.mediaDemand?.ids || []) {
+      const runtimeItem = this.media.get(mediaId);
+      const mediaMeta = (this.state?.media || []).find((entry) => entry.id === mediaId);
+      if (mediaMeta?.type === "video" || !!runtimeItem?.video || /\.(mp4|m4v|mov|webm|ogv)$/i.test(mediaId)) {
+        containsVideo = true;
+        break;
+      }
+    }
     visiting.delete(component.id);
     this.componentVideoPresence.set(component, containsVideo);
     return containsVideo;
@@ -2102,69 +2535,13 @@ export class OutputRenderer {
   }
 
   resolvePlacedSourceResult(output, source, component, componentTime, renderRequest) {
-    const target = { width: output.width, height: output.height };
-    if (source.type === "component") {
-      const dependency = this.state.components.find((item) => item.id === source.componentId);
-      if (!dependency || dependency.id === component.id || dependency.type === "scene") return null;
-      const placement = componentReferencePlacement(component, dependency, this.state.render, target, source.placement);
-      const placementTransform = combineContentTransforms(source.contentTransform, dependency.transform);
-      const demandRect = transformedPlacementDemandRect(placement, placementTransform);
-      const dependencyTime = this.componentTimes.get(dependency.id) || componentTime;
-      const renderIdentity = componentRenderInstanceKey(dependency, source.instanceId);
-      const referenceCount = componentReferenceCount(component, dependency.id);
-      const texture = this.renderComponentForRequest(
-        dependency,
-        componentInstanceTime(dependency, dependencyTime, source.instanceId),
-        componentReferenceRenderRequest(this.state.render, dependency, demandRect, {
-          reason: "direct-component-reference",
-          renderIdentity,
-          sharedResolutionClass: dependency.syncInstances !== false && referenceCount > 1,
-        })
-      );
-      return createPlacedRenderResult(texture, {
-        destinationRect: placement,
-        transform: placementTransform,
-        sourceIsWebGL: this.isShaderBuffer(texture),
-      });
-    }
-    if (source.type === "media") {
-      const playback = this.videoPlaybackOptions(source, component);
-      const qualityRequest = qualityScaledRenderRequest(renderRequest, source.params || {});
-      const media = this.acquireMedia(source.mediaId, {
-        playback,
-        width: mediaSourceDemandWidth(qualityRequest, source),
-      });
-      if (media?.video && isDrawableMedia(media.video)) {
-        return createPlacedRenderResult(media.video, {
-          destinationRect: fullTargetRect(target),
-          fit: mediaSourceFit(source),
-          transform: source.contentTransform,
-        });
-      }
-      if (media?.image && isDrawableMedia(media.image)) {
-        const fit = mediaSourceFit(source);
-        const renditionDemand = mediaSourceDemandSize(qualityRequest, source);
-        const texture = fit === "cover"
-          ? this.getImageRendition(media, renditionDemand.width, renditionDemand.height) || media.image
-          : media.image;
-        return createPlacedRenderResult(texture, {
-          destinationRect: fullTargetRect(target),
-          fit,
-          transform: source.contentTransform,
-        });
-      }
-      return null;
-    }
-    if (source.type === "camera") {
-      const camera = this.acquireCameraInput();
-      if (!camera || !isDrawableMedia(camera)) return null;
-      return createPlacedRenderResult(camera, {
-        destinationRect: fullTargetRect(target),
-        fit: "cover",
-        transform: source.contentTransform,
-      });
-    }
-    return null;
+    return this.sourceRuntime.resolvePlacedSourceResult(
+      output,
+      source,
+      component,
+      componentTime,
+      renderRequest,
+    );
   }
 
   drawPlacedSourceResult(output, placed, layer = {}, clipRect = null) {
@@ -2268,16 +2645,31 @@ export class OutputRenderer {
   }
 
   renderBoundedEffectNodeState(nodeId, inputState, item, componentTime, renderRequest) {
-    return this.renderBoundedEffectRunNodeState(nodeId, inputState, [item], componentTime, renderRequest);
+    return this.renderBoundedEffectRunNodeState(
+      nodeId,
+      inputState,
+      [item],
+      componentTime,
+      renderRequest,
+      Math.max(0, Number(item?.roi?.halo) || 0),
+    );
   }
 
-  renderFullFrameEffectWithinBoundary(nodeId, inputState, item, componentTime, renderRequest) {
+  renderFullFrameEffectWithinBoundary(
+    nodeId,
+    inputState,
+    item,
+    componentTime,
+    renderRequest,
+    inputStates = null,
+  ) {
     const fullState = this.renderEffectNodeState(
       renderBufferKey(nodeId, "full-frame-effect"),
       inputState,
       { ...item, boundary: FULL_NODE_BOUNDARY },
       componentTime,
-      renderRequest
+      renderRequest,
+      inputStates,
     );
     const roiRequest = nodeRoiRequest(renderRequest, item.boundary, {
       renderIdentity: renderBufferKey(renderRequest.renderIdentity || "effect", item.id || item.componentId),
@@ -2297,12 +2689,34 @@ export class OutputRenderer {
     );
   }
 
-  renderBoundedEffectRunNodeState(nodeId, inputState, items, componentTime, renderRequest) {
+  renderBoundedEffectRunNodeState(
+    nodeId,
+    inputState,
+    items,
+    componentTime,
+    renderRequest,
+    halo = 0,
+    inputStates = null,
+  ) {
     const boundary = items[0]?.boundary || FULL_NODE_BOUNDARY;
     const roiRequest = nodeRoiRequest(renderRequest, boundary, {
       renderIdentity: renderBufferKey(renderRequest.renderIdentity || "effect", items.map((item) => item.id || item.componentId).join("+")),
+      halo,
     });
     const regionState = this.extractNodeRegionState(renderBufferKey(nodeId, "extract"), inputState, renderRequest, roiRequest);
+    const regionInputStates = inputStates?.size
+      ? new Map([...inputStates].map(([port, textureState]) => [
+          port,
+          textureState === inputState
+            ? regionState
+            : this.extractNodeRegionState(
+                renderBufferKey(nodeId, "extract", port),
+                textureState,
+                renderRequest,
+                roiRequest,
+              ),
+        ]))
+      : null;
     let effectState = regionState;
     for (let index = 0; index < items.length; index++) {
       effectState = this.renderEffectNodeState(
@@ -2310,7 +2724,8 @@ export class OutputRenderer {
         effectState,
         { ...items[index], boundary: FULL_NODE_BOUNDARY },
         componentTime,
-        roiRequest
+        roiRequest,
+        index === 0 ? regionInputStates : null,
       );
     }
     return this.compositeNodeRegionState(renderBufferKey(nodeId, "roi-composite"), inputState, effectState, renderRequest, roiRequest.roi);
@@ -2406,62 +2821,39 @@ export class OutputRenderer {
         output.pop();
         return;
       }
-      const shaderProgram = this.getLayerTransformShader(output);
-      if (!shaderProgram) return;
       const matrix = effectTransformUniforms(transform).forward;
-      drawShaderTarget(output, () => {
-        clearShaderTarget(output);
-        applyShaderTarget(output, shaderProgram);
-        shaderProgram.setUniform("sourceTex", unwrapRenderTarget(inputState.buffer));
-        shaderProgram.setUniform("sourceFlipY", !this.isShaderBuffer(inputState.buffer));
-        shaderProgram.setUniform("sourceUvMatrix", matrix);
-        drawShaderTargetRect(output, output.width, output.height);
-        resetShaderTarget(output);
-      });
+      this.compositeRuntime.drawLayerTransform(
+        output,
+        inputState.buffer,
+        matrix,
+      );
     }, "content-transform", { instanceInvariant });
   }
 
   getLayerTransformShader(target) {
-    if (this.layerTransformShader) return this.layerTransformShader;
-    try {
-      this.layerTransformShader = target.createShader(RENDER_PASS_VERTEX_SHADER, LAYER_TRANSFORM_FRAGMENT_SHADER);
-    } catch (error) {
-      console.error("[VJ1_LAYER_TRANSFORM_SHADER_FAILED]", error?.message || error);
-      return null;
-    }
-    return this.layerTransformShader;
+    return this.compositeRuntime.getLayerTransformShader(target);
   }
 
   renderOverlayLayerToTarget(target, base, layerSource, layer = {}) {
-    const shaderProgram = this.getOverlayBlendShader(target);
-    if (!shaderProgram) return;
     const matrix = effectTransformUniforms(layer.transform || {}).forward;
-    drawShaderTarget(target, () => {
-      clearShaderTarget(target);
-      applyShaderTarget(target, shaderProgram);
-      shaderProgram.setUniform("baseTex", unwrapRenderTarget(base));
-      shaderProgram.setUniform("layerTex", unwrapRenderTarget(layerSource));
-      shaderProgram.setUniform("baseFlipY", !this.isShaderBuffer(base));
-      shaderProgram.setUniform("layerFlipY", !this.isShaderBuffer(layerSource));
-      shaderProgram.setUniform("layerUvMatrix", matrix);
-      shaderProgram.setUniform("layerOpacity", clamp01(layer.opacity ?? 1));
-      drawShaderTargetRect(target, target.width, target.height);
-      resetShaderTarget(target);
+    return this.compositeRuntime.drawOverlay(target, base, layerSource, {
+      layerUvMatrix: matrix,
+      opacity: clamp01(layer.opacity ?? 1),
     });
   }
 
   getOverlayBlendShader(target) {
-    if (this.overlayBlendShader) return this.overlayBlendShader;
-    try {
-      this.overlayBlendShader = target.createShader(RENDER_PASS_VERTEX_SHADER, OVERLAY_BLEND_FRAGMENT_SHADER);
-    } catch (error) {
-      console.error("[VJ1_OVERLAY_SHADER_FAILED]", error?.message || error);
-      return null;
-    }
-    return this.overlayBlendShader;
+    return this.compositeRuntime.getOverlayBlendShader(target);
   }
 
-  renderEffectNodeState(nodeId, inputState, item, componentTime, renderRequest) {
+  renderEffectNodeState(
+    nodeId,
+    inputState,
+    item,
+    componentTime,
+    renderRequest,
+    inputStates = null,
+  ) {
     const component = this.effectNodeComponent(item.componentId);
     if (!component) return inputState;
     const params = normalizeParamValues(component, effectParamState(item));
@@ -2470,7 +2862,10 @@ export class OutputRenderer {
     if (amount <= 0.0001) return inputState;
     const runtimeContext = this.nodeRuntimeContext(componentTime);
     const external = component.runtime?.externalKey?.(params, runtimeContext) ?? null;
+    const namedStatesInvariant = !inputStates?.size
+      || [...inputStates.values()].every((state) => state?.instanceInvariant === true);
     const instanceInvariant = inputState.instanceInvariant === true &&
+      namedStatesInvariant &&
       !this.effectPassIsFrameDynamic({ id: item.componentId, params, amount }) &&
       external === null;
     const evaluationRequest = instanceInvariant
@@ -2478,6 +2873,7 @@ export class OutputRenderer {
       : renderRequest;
     const signature = stableStringify({
       input: textureStateKey(inputState),
+      inputs: namedTextureStateKey(inputStates),
       params,
       transform: item.transform || {},
       time: componentRuntimeTimeKey(component, params, runtimeContext),
@@ -2492,10 +2888,14 @@ export class OutputRenderer {
       if (isSharedFramebufferTarget(output) &&
           output.width === qualityRequest.width &&
           output.height === qualityRequest.height) {
-        this.renderShaderPassToTarget(inputState.buffer, pass, output, qualityRequest, componentTime);
+        this.renderShaderPassToTarget(
+          inputState.buffer, pass, output, qualityRequest, componentTime, inputStates,
+        );
         return;
       }
-      const effected = this.renderShaderChain(inputState.buffer, [pass], qualityRequest, componentTime);
+      const effected = this.renderShaderChain(
+        inputState.buffer, [pass], qualityRequest, componentTime, inputStates,
+      );
       output.push();
       output.clear();
       drawBuffer(output, effected, 0, 0, output.width, output.height, this.isShaderBuffer(effected));
@@ -2597,6 +2997,9 @@ export class OutputRenderer {
     const pipeline = normalizeComponentPipelineSettings(this.state?.render || {});
     if (pipeline.postProcessing.noiseEnabled && pipeline.postProcessing.noiseAmount > 0.0001) return "";
     if (!component?.id || this.componentIsFrameDynamic(component, seen)) return "";
+    if (!this.componentPrograms.has(component.id)) {
+      throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id}`);
+    }
     return stableStringify({
       version: 3,
       request: {
@@ -2607,9 +3010,25 @@ export class OutputRenderer {
       // A component transform belongs to its consumer. The canonical texture
       // is reusable while that placement changes; nested component transforms
       // remain part of the parent component's rendered graph.
-      component: staticComponentGraphState(component, this.state?.components || [], new Set(), false),
-      media: staticComponentGraphMediaState(this.state?.media || [], component, this.state?.components || []),
-      runtimeMedia: runtimeComponentGraphMediaState(this.media, component, this.state?.components || []),
+      component: staticCompiledComponentGraphState(
+        component,
+        this.componentPrograms,
+        this.state?.components || [],
+        new Set(),
+        false,
+      ),
+      media: staticCompiledComponentGraphMediaState(
+        this.state?.media || [],
+        component,
+        this.componentPrograms,
+        this.state?.components || [],
+      ),
+      runtimeMedia: runtimeCompiledComponentGraphMediaState(
+        this.media,
+        component,
+        this.componentPrograms,
+        this.state?.components || [],
+      ),
       customShader: this.state?.shaders?.customCode || "",
       pipeline,
     });
@@ -2618,24 +3037,37 @@ export class OutputRenderer {
   componentIsFrameDynamic(component, seen = new Set()) {
     if (!component || seen.has(component.id)) return true;
     seen.add(component.id);
-    const dynamic = this.chainItemsAreFrameDynamic(component.chain || [], seen);
+    const inspection = this.componentPrograms.get(component.id)?.inspect();
+    if (!inspection) {
+      seen.delete(component.id);
+      return true;
+    }
+    let dynamic = inspection?.dynamics?.frameDependent === true;
+    if (!dynamic) {
+      for (const mediaId of inspection?.mediaDemand?.ids || []) {
+        const runtimeItem = this.media.get(mediaId);
+        const mediaMeta = (this.state?.media || []).find((item) => item.id === mediaId);
+        if (!mediaMeta || !isReadyMediaItem(runtimeItem)) {
+          dynamic = true;
+          break;
+        }
+        if (runtimeMediaInvalidation(runtimeItem, mediaMeta, { frame: this.frameIndex }).mode === "frame") {
+          dynamic = true;
+          break;
+        }
+      }
+    }
+    if (!dynamic) {
+      for (const dependencyId of inspection?.dependencies?.components || []) {
+        const dependency = this.state?.components?.find((candidate) => candidate.id === dependencyId);
+        if (!dependency || this.componentIsFrameDynamic(dependency, seen)) {
+          dynamic = true;
+          break;
+        }
+      }
+    }
     seen.delete(component.id);
     return dynamic;
-  }
-
-  chainItemsAreFrameDynamic(chain = [], seen = new Set()) {
-    for (const item of chain || []) {
-      if (item.enabled === false) continue;
-      if (item.kind === "group" && this.chainItemsAreFrameDynamic(item.chain || [], seen)) return true;
-      if (item.kind === "source" && item.source?.type === "component") {
-        const sourceComponent = this.state?.components?.find((component) => component.id === item.source.componentId);
-        if (!sourceComponent || this.componentIsFrameDynamic(sourceComponent, seen)) return true;
-        continue;
-      }
-      if (item.kind === "source" && this.sourceIsFrameDynamic(item.source || {}, item, seen)) return true;
-      if (item.kind === "effect" && this.effectPassIsFrameDynamic({ id: item.componentId, params: item.params, amount: item.amount })) return true;
-    }
-    return false;
   }
 
   featureMorphPairService(generatorId = "") {
@@ -2680,10 +3112,7 @@ export class OutputRenderer {
     const runtimeItem = this.media.get(mediaId);
     if (!mediaMeta || !isReadyMediaItem(runtimeItem)) return true;
     if (mediaMeta.type === "video" || runtimeItem?.video) {
-      // Modern video elements report decoded-frame presentation directly.
-      // Their revision is part of the stable component signature, so the
-      // chain only needs renderer-frame invalidation on older browsers.
-      return runtimeItem?.videoFrameDriven !== true;
+      return runtimeMediaInvalidation(runtimeItem, mediaMeta, { frame: this.frameIndex }).mode === "frame";
     }
     if (mediaMeta.type === "model" || runtimeItem?.model || runtimeItem?.modelData) {
       const params = source.params || {};
@@ -2719,14 +3148,24 @@ export class OutputRenderer {
     ).buffer;
   }
 
-  renderComponentSourceItemState(component, item, componentTime, request, nodeId, operation = null) {
+  renderComponentSourceItemState(
+    component,
+    item,
+    componentTime,
+    request,
+    nodeId,
+    operation = null,
+    inputStates = null,
+  ) {
     const renderRequest = this.normalizeRenderRequest(request, "source");
     const source = {
       ...sourceWithNodeParams(item.source, {}, item.id),
       contentTransform: item.transform || {},
     };
     const runtimeContext = this.nodeRuntimeContext(componentTime);
-    const instanceInvariant = !this.sourceIsFrameDynamic(source, item);
+    const namedStatesInvariant = !inputStates?.size
+      || [...inputStates.values()].every((state) => state?.instanceInvariant === true);
+    const instanceInvariant = namedStatesInvariant && !this.sourceIsFrameDynamic(source, item);
     const evaluationRequest = instanceInvariant
       ? instanceInvariantRenderRequest(renderRequest)
       : renderRequest;
@@ -2755,6 +3194,7 @@ export class OutputRenderer {
       runtimeMedia: runtimeMediaStateForSource(this.media, source),
       time: this.sourceRuntimeTimeKey(source, item, runtimeContext),
       external: this.sourceRuntimeExternalKey(source, item, runtimeContext),
+      inputs: namedTextureStateKey(inputStates),
       request: renderRequestStateKey(evaluationRequest),
     });
     let runtime = this.sourceNodeRuntimes.get(key);
@@ -2766,7 +3206,9 @@ export class OutputRenderer {
     const result = runtime.evaluate(sourceSignature, () => {
       pg.push();
       pg.clear();
-      this.safeDrawSourceToGraphics(pg, source, component, componentTime, evaluationRequest, operation);
+      this.safeDrawSourceToGraphics(
+        pg, source, component, componentTime, evaluationRequest, operation, inputStates,
+      );
       pg.pop();
       return pg;
     }, { frame: this.frameIndex, dirtyReason: "source" });
@@ -2822,8 +3264,17 @@ export class OutputRenderer {
       const dependency = this.state?.components?.find((component) => component.id === source.componentId);
       if (!dependency || this.componentIsFrameDynamic(dependency)) return runtimeContext.frame;
       return stableStringify({
-        component: staticComponentGraphState(dependency, this.state?.components || []),
-        media: staticComponentGraphMediaState(this.state?.media || [], dependency, this.state?.components || []),
+        component: staticCompiledComponentGraphState(
+          dependency,
+          this.componentPrograms,
+          this.state?.components || [],
+        ),
+        media: staticCompiledComponentGraphMediaState(
+          this.state?.media || [],
+          dependency,
+          this.componentPrograms,
+          this.state?.components || [],
+        ),
       });
     }
     if (source.type !== "media") return runtimeContext.frame;
@@ -2831,9 +3282,7 @@ export class OutputRenderer {
     const mediaMeta = (this.state?.media || []).find((entry) => entry.id === mediaId);
     const runtimeItem = this.media.get(mediaId);
     if (mediaMeta?.type === "video" || runtimeItem?.video) {
-      return runtimeItem?.videoFrameDriven === true
-        ? Math.max(0, Number(runtimeItem.videoFrameRevision) || 0)
-        : runtimeContext.frame;
+      return runtimeMediaInvalidation(runtimeItem, mediaMeta, runtimeContext).key;
     }
     if (mediaMeta?.type === "model" || runtimeItem?.model || runtimeItem?.modelData) {
       const params = source.params || owner.params || {};
@@ -2866,319 +3315,183 @@ export class OutputRenderer {
     return component.runtime?.externalKey?.(params, runtimeContext) ?? null;
   }
 
-  renderPatchSourceNode(component, node, componentTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
-    const renderRequest = this.normalizeRenderRequest(node?.state?.renderRequest || request, "source");
-    const key = renderBufferKey(component.id, node.id, renderRequestKey(renderRequest));
-    let pg = this.componentSource.get(key);
-    if (!pg || pg.width !== renderRequest.width || pg.height !== renderRequest.height) {
-      pg = createGraphics(renderRequest.width, renderRequest.height);
-      this.applyGraphicsPixelDensity(pg, this.requestPixelDensity(renderRequest));
-      this.applyGraphicsFont(pg);
-      this.componentSource.set(key, pg);
-    }
-    this.renderCache.touch("source", key, this.frameIndex);
-    pg.push();
-    pg.clear();
-    this.safeDrawSourceToGraphics(pg, sourceFromPatchNode(node), component, componentTime, renderRequest);
-    pg.pop();
-    return pg;
+  safeDrawSourceToGraphics(
+    pg,
+    source,
+    component,
+    componentTime,
+    renderRequest = frameRenderRequest(this.state.render),
+    operation = null,
+    inputStates = null,
+  ) {
+    return this.sourceRuntime.safeDrawSourceToGraphics(
+      pg,
+      source,
+      component,
+      componentTime,
+      renderRequest,
+      operation,
+      inputStates,
+    );
   }
 
-  safeDrawSourceToGraphics(pg, source, component, componentTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
-    try {
-      this.drawSourceToGraphics(pg, source, component, componentTime, renderRequest, operation);
-    } catch (error) {
-      console.error(`[VJ1_SOURCE_CRASH] ${error?.name || "Error"}: ${error?.message || String(error || "unknown")}`, {
-        componentId: component.id,
-        componentName: component.name,
-        source,
-        width: pg.width,
-        height: pg.height,
-        name: error?.name,
-        message: error?.message,
-        stack: error?.stack,
-      });
-      pg.background(0);
-    }
-  }
-
-  drawSourceToGraphics(pg, source, component, componentTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
-    const rendererId = compiledVisualSourceRenderer(operation || {}, source);
-    const method = SOURCE_HOST_METHODS[rendererId];
-    if (!method || typeof this[method] !== "function") {
-      console.error("[VJ1_SOURCE_RENDERER_MISSING]", { rendererId, sourceType: source.type || "unknown" });
-      this.drawStandby(pg, `source renderer unavailable: ${source.type || "unknown"}`);
-      return;
-    }
-    this[method](pg, source, component, componentTime, renderRequest, operation);
+  drawSourceToGraphics(
+    pg,
+    source,
+    component,
+    componentTime,
+    renderRequest = frameRenderRequest(this.state.render),
+    operation = null,
+    inputStates = null,
+  ) {
+    return this.sourceRuntime.drawSourceToGraphics(
+      pg,
+      source,
+      component,
+      componentTime,
+      renderRequest,
+      operation,
+      inputStates,
+    );
   }
 
   drawComponentReferenceSource(pg, source, component, componentTime, renderRequest) {
-    const sourceComponent = this.state.components.find((item) => item.id === source.componentId);
-    if (!sourceComponent || sourceComponent.id === component.id || sourceComponent.type === "scene") return;
-    const sourceTime = this.componentTimes.get(sourceComponent.id) || componentTime;
-    const renderIdentity = componentRenderInstanceKey(sourceComponent, source.instanceId);
-    const view = renderView(pg, renderRequest);
-    const placement = componentReferencePlacement(
+    return this.sourceRuntime.drawComponentReferenceSource(
+      pg,
+      source,
       component,
-      sourceComponent,
-      this.state.render,
-      view,
-      source.placement
+      componentTime,
+      renderRequest,
     );
-    const placementTransform = combineContentTransforms(source.contentTransform, sourceComponent.transform);
-    const demandRect = transformedPlacementDemandRect(placement, placementTransform);
-    const coordinateFrame = { x: 0, y: 0, width: view.width, height: view.height };
-    const viewport = {
-      x: view.x,
-      y: view.y,
-      width: view.allocationWidth,
-      height: view.allocationHeight,
-    };
-    const visiblePlacement = transformedRectBounds(
-      coordinateFrame,
-      placement,
-      placementTransform
-    );
-    if (!rectsIntersect(visiblePlacement, viewport)) return;
-    const referenceCount = componentReferenceCount(component, sourceComponent.id);
-    const fullSourceRequest = componentReferenceRenderRequest(this.state.render, sourceComponent, demandRect, {
-      reason: "component-reference",
-      renderIdentity,
-      sharedResolutionClass: sourceComponent.syncInstances !== false && referenceCount > 1,
-    });
-    // Small repeated synchronized references are cheaper as one shared full
-    // texture: at these sizes p5/shader setup dominates fragment work. Large
-    // references retain regional rendering so the previous multi-megapixel
-    // allocation problem cannot return.
-    const preferSharedTexture = componentReferencePrefersSharedTexture(sourceComponent, referenceCount, fullSourceRequest);
-    const visibleRegion = renderRequest.regionView === true && !preferSharedTexture && this.componentRegionSafe(sourceComponent)
-      ? transformedRectVisibleRegion(coordinateFrame, placement, placementTransform, viewport)
-      : null;
-    const sourceRequest = visibleRegion
-      ? componentReferenceRegionRequest(fullSourceRequest, visibleRegion.uvRect, {
-          reason: "component-reference-region",
-        })
-      : fullSourceRequest;
-    const sourceOutput = this.renderComponentForRequest(
-      sourceComponent,
-      componentInstanceTime(sourceComponent, sourceTime, source.instanceId),
-      sourceRequest
-    );
-    withRenderView(pg, renderRequest, () => {
-      this.drawPlacedResultGeometry(pg, createPlacedRenderResult(sourceOutput, {
-        destinationRect: visibleRegion?.destinationRect || placement,
-        transform: placementTransform,
-        sourceIsWebGL: this.isShaderBuffer(sourceOutput),
-      }), view);
-    });
   }
 
   drawMediaSource(pg, source, component, componentTime, renderRequest) {
-    const playback = this.videoPlaybackOptions(source, component);
-    const view = renderView(pg, renderRequest);
-    // `renderView` has already expanded a clipped ROI back to the full physical
-    // boundary. Do not carry the ROI UV rectangle into this second contract or
-    // it would expand the demand twice.
-    const qualityRequest = qualityScaledRenderRequest({
-      width: view.width,
-      height: view.height,
-    }, source.params || {});
-    const item = this.acquireMedia(source.mediaId, {
-      playback,
-      width: mediaSourceDemandWidth(qualityRequest, source),
-    });
-    if (item?.video && isDrawableMedia(item.video)) {
-      drawWithContentTransform(pg, source.contentTransform, (view) => {
-        drawMediaFit(pg, item.video, 0, 0, view.width, view.height, mediaSourceFit(source));
-      }, renderRequest);
-    }
-    else if (item?.image && isDrawableMedia(item.image)) {
-      const fit = mediaSourceFit(source);
-      const renditionDemand = mediaSourceDemandSize(qualityRequest, source);
-      const image = fit === "cover"
-        ? this.getImageRendition(item, renditionDemand.width, renditionDemand.height) || item.image
-        : item.image;
-      drawWithContentTransform(pg, source.contentTransform, (renderView) => {
-        drawMediaFit(pg, image, 0, 0, renderView.width, renderView.height, fit);
-      }, renderRequest);
-    }
-    else if (item?.model || item?.modelData) {
-      this.drawModelSource(pg, item, source, componentTime, renderRequest);
-    }
-    else if (item?.modelError) this.drawStandby(pg, `3D model error: ${item.modelError}`, { forceVisible: true });
-    else if (item?.loadError || item?.imageError) this.drawStandby(pg, item?.loadError || "image load failed", { forceVisible: true });
-    else if (item) this.drawStandby(pg, item.loadStatus || "loading media");
-    else {
-      this.requestMissingMedia(source.mediaId);
-      this.drawStandby(pg, "media file not loaded");
-    }
+    return this.sourceRuntime.drawMediaSource(
+      pg,
+      source,
+      component,
+      componentTime,
+      renderRequest,
+    );
   }
 
-  drawCameraSource(pg, source, _component, _componentTime, renderRequest) {
-    const camera = this.acquireCameraInput();
-    if (camera && isDrawableMedia(camera)) {
-      drawWithContentTransform(pg, source.contentTransform, (view) => {
-        drawCover(pg, camera, 0, 0, view.width, view.height);
-      }, renderRequest);
-    }
-    else this.drawStandby(pg, this.cameraError || "camera");
+  drawCameraSource(pg, source, component, componentTime, renderRequest) {
+    return this.sourceRuntime.drawCameraSource(
+      pg,
+      source,
+      component,
+      componentTime,
+      renderRequest,
+    );
   }
 
   drawBlackSource(pg) {
-    pg.background(0);
+    return this.sourceRuntime.drawBlackSource(pg);
   }
 
-  drawGeneratorSource(pg, source, _component, componentTime, renderRequest, operation) {
-    const generatorTime = instanceTime(source.instanceId || source.generatorId, componentTime);
-    if (typeof operation?.nodeProcess === "function") {
-      drawWithContentTransform(pg, source.contentTransform, (view) => {
-        this.executeCompiledVisualNodeProcess(operation, pg, source, generatorTime, renderRequest, view);
-      }, renderRequest);
-      return;
-    }
-    const generatorComponent = this.generatorNodeComponent(source.generatorId);
-    if (!generatorComponent) return;
-    const nativeRenderer = compiledNativeSourceRenderer(operation || {}, source, generatorComponent);
-    if (nativeRenderer && this.drawCompiledNativeSource(nativeRenderer, pg, source, generatorTime, renderRequest, operation)) return;
-    const shaderGenerator = this.generatorShaderComponent(generatorComponent.id);
-    if (shaderGenerator) {
-      if (this.drawShaderGenerator(pg, source, generatorTime, renderRequest)) return;
-      console.error("[VJ1_SHADER_GENERATOR_UNAVAILABLE]", {
-        generatorId: source.generatorId,
-        fallback: "transparent diagnostic standby",
-      });
-      this.drawStandby(pg, `shader unavailable: ${source.generatorId}`);
-      return;
-    }
-    drawWithContentTransform(pg, source.contentTransform, (view) => {
-      drawGenerator(pg, source.generatorId, generatorTime, source.params || {}, renderRequest, view);
-    }, renderRequest);
+  drawGeneratorSource(
+    pg,
+    source,
+    _component,
+    componentTime,
+    renderRequest,
+    operation,
+    inputStates = null,
+  ) {
+    return this.sourceRuntime.drawGeneratorSource(
+      pg,
+      source,
+      _component,
+      componentTime,
+      renderRequest,
+      operation,
+      inputStates,
+    );
+  }
+
+  drawCompiledScene3dProgram(target, source, componentTime, renderRequest, operation) {
+    return this.sourceRuntime.drawCompiledScene3dProgram(
+      target,
+      source,
+      componentTime,
+      renderRequest,
+      operation,
+    );
   }
 
   executeCompiledVisualNodeProcess(operation, target, source, time, renderRequest, sourceRenderView = null) {
-    let invocation = this.compiledNodeProcessContexts.get(operation);
-    if (!invocation) {
-      // One mutable invocation envelope per compiled operation avoids creating
-      // frame-local wrapper objects while preserving the ordinary node process
-      // signature used by editable project forks.
-      invocation = {
-        inputs: { source: null, params: null },
-        context: {
-          target: null,
-          source: null,
-          time: 0,
-          renderRequest: null,
-          renderView: null,
-          executionClass: "live-frame",
-          renderHost: this,
-          // Stable capability bindings let direct nodes own their behavior
-          // without importing application/output internals or allocating
-          // frame-local adapters.
-          acquireScreenInput: this.acquireScreenInput.bind(this),
-          screenInputError: this.screenError.bind(this),
-          isDrawableMedia,
-          drawMediaFit,
-          drawStandby: this.drawStandby.bind(this),
-        },
-      };
-      this.compiledNodeProcessContexts.set(operation, invocation);
-    }
-    invocation.inputs.source = source;
-    invocation.inputs.params = source.params || {};
-    invocation.context.target = target;
-    invocation.context.source = source;
-    invocation.context.time = time;
-    invocation.context.renderRequest = renderRequest;
-    invocation.context.renderView = sourceRenderView || renderView(target, renderRequest);
-    const result = operation.nodeProcess(invocation.inputs, invocation.context);
-    if (result && typeof result.then === "function") {
-      throw new Error(`VJ1_VISUAL_NODE_PROCESS_ASYNC:${operation.nodeProcessId || operation.nodeId || operation.id}`);
-    }
-    return result;
+    return this.sourceRuntime.executeCompiledVisualNodeProcess(
+      operation,
+      target,
+      source,
+      time,
+      renderRequest,
+      sourceRenderView,
+    );
   }
 
   drawCompiledNativeSource(rendererId, pg, source, generatorTime, renderRequest, operation = null) {
-    const method = NATIVE_SOURCE_HOST_METHODS[rendererId];
-    if (method && typeof this[method] === "function") {
-      this[method](pg, source, generatorTime, renderRequest, operation);
-      return true;
-    }
-    if (BASIC_NATIVE_SOURCE_RENDERERS.has(rendererId)) {
-      drawWithContentTransform(pg, source.contentTransform, (view) => {
-        drawGenerator(pg, source.generatorId, generatorTime, source.params || {}, renderRequest, view);
-      }, renderRequest);
-      return true;
-    }
-    console.error("[VJ1_NATIVE_SOURCE_RENDERER_MISSING]", {
+    return this.sourceRuntime.drawCompiledNativeSource(
       rendererId,
-      generatorId: source.generatorId,
-    });
-    this.drawStandby(pg, `native renderer unavailable: ${source.generatorId}`);
-    return true;
+      pg,
+      source,
+      generatorTime,
+      renderRequest,
+      operation,
+    );
   }
 
   drawScreenShareGenerator(pg, source = {}, _componentTime, renderRequest) {
-    const inputId = String(source.params?.inputId || "");
-    const screen = this.acquireScreenInput(inputId);
-    if (!screen || !isDrawableMedia(screen)) {
-      this.drawStandby(pg, this.screenError(inputId) || "screen share unavailable", { forceVisible: true });
-      return;
-    }
-    const fit = ["contain", "cover", "stretch"].includes(source.params?.fit) ? source.params.fit : "contain";
-    drawWithContentTransform(pg, source.contentTransform, (view) => {
-      pg.push();
-      if (source.params?.mirrored === true) {
-        pg.translate(view.width, 0);
-        pg.scale(-1, 1);
-      }
-      drawMediaFit(pg, screen, 0, 0, view.width, view.height, fit);
-      pg.pop();
-    }, renderRequest);
+    return this.sourceRuntime.drawScreenShareGenerator(
+      pg,
+      source,
+      _componentTime,
+      renderRequest,
+    );
   }
 
   drawStandby(target, label, { forceVisible = false } = {}) {
-    const transient = /loading|reading|processing|checking|preparing|matching|finding|not loaded/i.test(String(label || ""));
-    const debugVisible = this.state?.ui?.debugPreview !== false;
-    drawStandby(target, label, {
-      visible: debugVisible || (forceVisible && this.mode !== "output"),
-      frame: this.frameIndex,
-      graceMs: transient ? 1000 : 0,
-    });
+    return this.sourceRuntime.drawStandby(target, label, { forceVisible });
   }
 
   componentHasPendingAssets(component, seen = new Set()) {
     if (!component?.id || seen.has(component.id)) return false;
     seen.add(component.id);
-    const pending = (component.chain || []).some((item) => this.chainItemHasPendingAssets(item, seen));
+    const program = this.componentPrograms.get(component.id);
+    const inspection = program?.inspect();
+    let pending = !inspection;
+    if (!pending && inspection.mediaDemand.camera && !isDrawableMedia(this.acquireCameraInput())) pending = true;
+    if (!pending) for (const mediaId of inspection.mediaDemand.ids) {
+      if (!isReadyMediaItem(this.acquireMedia(mediaId))) {
+        pending = true;
+        break;
+      }
+    }
+    if (!pending) for (const dependencyId of inspection.dependencies.components) {
+      const dependency = this.state?.components?.find((candidate) => candidate.id === dependencyId);
+      if (!dependency || this.componentHasPendingAssets(dependency, seen)) {
+        pending = true;
+        break;
+      }
+    }
+    if (!pending) program.forEachOperation((operation) => {
+      if (pending || operation.configuration?.enabled === false || operation.opcode !== "source") return;
+      const source = operation.configuration?.source || {};
+      if (source.type !== "generator") return;
+      const pairs = this.featureMorphPairService(source.generatorId);
+      if (!pairs) return;
+      const params = source.params || {};
+      const imageA = this.acquireMedia(params.imageAId);
+      const imageB = this.acquireMedia(params.imageBId);
+      if (!isReadyMediaItem(imageA) || !isReadyMediaItem(imageB)) {
+        pending = true;
+        return;
+      }
+      const status = pairs.status(params, { imageAFile: imageA.file, imageBFile: imageB.file });
+      pending = status === "idle" || status === "loading";
+    });
     seen.delete(component.id);
     return pending;
-  }
-
-  chainItemHasPendingAssets(item, seen) {
-    if (!item || item.enabled === false) return false;
-    if (item.kind === "group") return (item.chain || []).some((child) => this.chainItemHasPendingAssets(child, seen));
-    if (item.kind !== "source") return false;
-    const source = item.source || {};
-    if (source.type === "component") {
-      const dependency = this.state?.components?.find((component) => component.id === source.componentId);
-      return dependency ? this.componentHasPendingAssets(dependency, seen) : false;
-    }
-    if (source.type === "camera" || source.type === "media") {
-      return source.type === "camera"
-        ? !isDrawableMedia(this.acquireCameraInput())
-        : !isReadyMediaItem(this.acquireMedia(source.mediaId));
-    }
-    if (source.type !== "generator") return false;
-    const params = source.params || {};
-    if (source.generatorId === "tileTexture") return !!params.imageId && !isReadyMediaItem(this.acquireMedia(params.imageId));
-    const pairs = this.featureMorphPairService(source.generatorId);
-    if (!pairs) return false;
-    const imageA = this.acquireMedia(params.imageAId);
-    const imageB = this.acquireMedia(params.imageBId);
-    if (!isReadyMediaItem(imageA) || !isReadyMediaItem(imageB)) return true;
-    const status = pairs.status(params, { imageAFile: imageA.file, imageBFile: imageB.file });
-    return status === "idle" || status === "loading";
   }
 
   drawFeatureMorphGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
@@ -3246,7 +3559,13 @@ export class OutputRenderer {
     return this.specializedSources.getTarget(kind, width, height, density, options);
   }
 
-  drawShaderGenerator(pg, sourceOrId, componentTime = this.visualTime, request = frameRenderRequest(this.state.render)) {
+  drawShaderGenerator(
+    pg,
+    sourceOrId,
+    componentTime = this.visualTime,
+    request = frameRenderRequest(this.state.render),
+    inputStates = null,
+  ) {
     const source = typeof sourceOrId === "object"
       ? sourceOrId
       : { generatorId: sourceOrId, params: {} };
@@ -3267,7 +3586,8 @@ export class OutputRenderer {
       source.params || {},
       source.instanceId || source.generatorId,
       source.contentTransform || {},
-      isSharedFramebufferTarget(pg) ? pg : null
+      isSharedFramebufferTarget(pg) ? pg : null,
+      inputStates,
     );
     if (!target) return false;
     if (target === pg) return true;
@@ -3278,7 +3598,16 @@ export class OutputRenderer {
     return true;
   }
 
-  renderShaderGeneratorSource(id, componentTime = this.visualTime, request = frameRenderRequest(this.state.render), params = {}, instanceId = id, contentTransform = {}, outputTarget = null) {
+  renderShaderGeneratorSource(
+    id,
+    componentTime = this.visualTime,
+    request = frameRenderRequest(this.state.render),
+    params = {},
+    instanceId = id,
+    contentTransform = {},
+    outputTarget = null,
+    inputStates = null,
+  ) {
     const generatorComponent = this.generatorNodeComponent(id);
     if (!generatorComponent) return null;
     const generatorId = generatorComponent.id;
@@ -3295,7 +3624,7 @@ export class OutputRenderer {
     const target = outputTarget && outputTarget.width === renderRequest.width && outputTarget.height === renderRequest.height
       ? outputTarget
       : this.getFxPingPongTarget(renderRequest, 0);
-    const shader = this.shaderBuilder.getShader({ id: component.id, component }, target);
+    const shader = this.shaderEffectRuntime.getShader({ id: component.id, component }, target);
     if (!shader) return null;
     const qualityParams = qualityAdjustedGeneratorParams(generatorId, params);
     const rateParam = generatorRateParam(generatorId);
@@ -3331,6 +3660,7 @@ export class OutputRenderer {
         contentMatrix: generatorUniformState.sampling,
         useContentTransform: !isIdentityTransform(contentTransform),
         sourceDetail,
+        inputs: inputStates,
       });
     }
     const started = this.collectDetailedProfile ? performance.now() : 0;
@@ -3372,6 +3702,7 @@ export class OutputRenderer {
         setShaderUniformIfPresent(shader, "iDate", generatorUniformState.iDate);
       } else if (isfInterface) {
         this.setIsfFrameUniforms(shader, component, {
+          inputs: inputStates,
           renderRequest,
           timeSeconds: shaderTime,
           params: shaderParams,
@@ -3480,6 +3811,7 @@ export class OutputRenderer {
       return target;
     }
     if (target.width !== widthPx || target.height !== heightPx) {
+      this.shaderEffectRuntime.clear();
       try {
         target.resizeCanvas(widthPx, heightPx);
       } catch {
@@ -3492,7 +3824,6 @@ export class OutputRenderer {
         this.applyGraphicsFont(target);
         target.noStroke();
       }
-      this.shaderBuilder.clear?.();
     }
     return target;
   }
@@ -3502,62 +3833,36 @@ export class OutputRenderer {
     const stale = Array.from(this.fxTargetGroups.entries())
       .sort((a, b) => (a[1].lastUsed || 0) - (b[1].lastUsed || 0));
     const removeCount = Math.max(1, this.fxTargetGroups.size - maxGroups + 1);
+    this.shaderEffectRuntime.clear();
     for (const [key, group] of stale.slice(0, removeCount)) {
       for (const target of group.targets || []) disposeGraphics(target);
       this.fxTargetGroups.delete(key);
     }
-    this.shaderBuilder.clear?.();
   }
 
   getIsfPassTarget(component, instanceId, pass, widthPx, heightPx) {
-    const floatFormat = pass.float ? globalThis.FLOAT : null;
-    if (pass.float && floatFormat == null) {
-      console.error("[VJ1_ISF_FLOAT_TARGET_UNAVAILABLE]", {
-        shader: component?.id || "",
-        pass: pass.target || pass.index,
-        message: "This ISF requires floating-point framebuffer support.",
-      });
-      return null;
-    }
-    const key = `${component?.id || "isf"}:${component?.isf?.sourceHash || ""}:${instanceId || "shared"}:${pass.target}`;
-    let entry = this.isfPassTargets.get(key);
-    const targetCount = pass.persistent ? 2 : 1;
-    if (entry && (entry.width !== widthPx || entry.height !== heightPx || entry.float !== !!pass.float || entry.targets.length !== targetCount)) {
-      for (const target of entry.targets) disposeGraphics(target);
-      this.isfPassTargets.delete(key);
-      entry = null;
-    }
-    if (!entry) {
-      const targets = [];
-      for (let index = 0; index < targetCount; index++) {
-        const target = createSharedFramebufferTarget(widthPx, heightPx, { format: floatFormat });
-        if (!target) {
-          for (const created of targets) disposeGraphics(created);
-          return null;
-        }
-        drawShaderTarget(target, () => clearShaderTarget(target));
-        targets.push(target);
-      }
-      entry = { targets, width: widthPx, height: heightPx, float: !!pass.float, current: 0, lastUsed: this.frameIndex };
-      this.isfPassTargets.set(key, entry);
-    }
-    entry.lastUsed = this.frameIndex;
-    return entry;
+    return this.isfRuntime.getPassTarget(
+      component, instanceId, pass, widthPx, heightPx,
+    );
   }
 
   pruneIsfPassTargets(maxIdleFrames = 600) {
-    for (const [key, entry] of this.isfPassTargets) {
-      if (this.frameIndex - entry.lastUsed <= maxIdleFrames) continue;
-      for (const target of entry.targets) disposeGraphics(target);
-      this.isfPassTargets.delete(key);
-    }
+    this.isfRuntime.prune(maxIdleFrames);
   }
 
   normalizeRenderRequest(request, role = "texture") {
     if (request && typeof request === "object") {
-      return createRenderRequest(request.role || role, request, request);
+      const normalized = createRenderRequest(request.role || role, request, request);
+      if (normalized.controlSignals === undefined && this.controlSignals) normalized.controlSignals = this.controlSignals;
+      return normalized;
     }
-    return createRenderRequest(role, frameSize(this.state?.render || {}));
+    return createRenderRequest(role, frameSize(this.state?.render || {}), {
+      ...(this.controlSignals ? { controlSignals: this.controlSignals } : {}),
+    });
+  }
+
+  setControlSignals(controlSignals = null) {
+    this.controlSignals = controlSignals;
   }
 
   pruneRenderCaches() {
@@ -3612,289 +3917,53 @@ export class OutputRenderer {
   }
 
   isfNeedsPassRuntime(component) {
-    const passes = component?.isf?.passes || [];
-    return passes.length > 1 || passes.some((pass) =>
-      pass.target || pass.persistent || pass.float || pass.width !== "$WIDTH" || pass.height !== "$HEIGHT"
+    return this.isfRuntime.needsPassRuntime(component);
+  }
+
+  renderIsfProgram(options) {
+    return this.isfRuntime.renderProgram(options);
+  }
+
+  renderShaderChain(
+    input,
+    chain,
+    request = frameRenderRequest(this.state.render),
+    timeSeconds = this.visualTime,
+    inputStates = null,
+  ) {
+    return this.shaderEffectRuntime.renderChain(
+      input,
+      chain,
+      request,
+      timeSeconds,
+      inputStates,
     );
   }
 
-  renderIsfProgram({
-    component,
-    shader,
-    input = null,
-    finalTarget,
-    renderRequest,
-    timeSeconds,
-    params = {},
-    instanceId = "",
-    contentMatrix = null,
-    useContentTransform = false,
-    effectTransform = null,
-    sourceDetail = null,
-  }) {
-    const passes = component?.isf?.passes || [];
-    if (!passes.length || !shader || !finalTarget) return null;
-    const baseWidth = Math.max(1, Number(renderRequest.width) || 1);
-    const baseHeight = Math.max(1, Number(renderRequest.height) || 1);
-    const dimensionValues = { WIDTH: baseWidth, HEIGHT: baseHeight };
-    for (const param of component.params || []) {
-      if (Number.isInteger(param.isfVectorIndex)) continue;
-      const normalized = normalizeParamValue(param, params[param.id]);
-      dimensionValues[param.id] = param.type === "enum" && Array.isArray(param.isfValues)
-        ? Number(param.isfValues[enumUniform(param, normalized)]) || 0
-        : Number(normalized) || 0;
-    }
-    const targetTextures = new Map();
-    let result = finalTarget;
-    for (let index = 0; index < passes.length; index++) {
-      const pass = passes[index];
-      const finalPass = index === passes.length - 1;
-      let widthPx;
-      let heightPx;
-      try {
-        widthPx = evaluateIsfDimension(pass.width, dimensionValues);
-        heightPx = evaluateIsfDimension(pass.height, dimensionValues);
-      } catch (error) {
-        console.error("[VJ1_ISF_PASS_SIZE_FAILED]", {
-          shader: component.id,
-          pass: pass.target || index,
-          message: error?.message || String(error),
-        });
-        return null;
-      }
-      let destination = finalTarget;
-      let passEntry = null;
-      if (pass.target) {
-        passEntry = this.getIsfPassTarget(component, instanceId, pass, widthPx, heightPx);
-        if (!passEntry) return null;
-        if (pass.persistent) targetTextures.set(pass.target, passEntry.targets[passEntry.current]);
-        destination = pass.persistent
-          ? passEntry.targets[passEntry.current === 0 ? 1 : 0]
-          : passEntry.targets[0];
-      } else if (widthPx !== finalTarget.width || heightPx !== finalTarget.height) {
-        const finalBufferPass = { ...pass, target: "__vj1FinalPass", persistent: false };
-        passEntry = this.getIsfPassTarget(component, instanceId, finalBufferPass, widthPx, heightPx);
-        if (!passEntry) return null;
-        destination = passEntry.targets[0];
-      }
-      const passRequest = {
-        ...renderRequest,
-        width: widthPx,
-        height: heightPx,
-        logicalWidth: widthPx,
-        logicalHeight: heightPx,
-      };
-      const drawPass = () => drawShaderTarget(destination, () => {
-        clearShaderTarget(destination);
-        applyShaderTarget(destination, shader);
-        setShaderUniformIfPresent(shader, "renderUvRect", renderRequest.uvRect || FULL_RENDER_UV_RECT);
-        if (contentMatrix) setShaderUniformIfPresent(shader, "contentUvMatrix", contentMatrix);
-        setShaderUniformIfPresent(shader, "useContentTransform", useContentTransform ? 1 : 0);
-        if (effectTransform) this.setEffectInfrastructureUniforms(shader, effectTransform);
-        this.setIsfFrameUniforms(shader, component, {
-          input,
-          renderRequest: passRequest,
-          timeSeconds,
-          params,
-          passIndex: index,
-          targetTextures,
-          sourceDetail: finalPass ? sourceDetail : null,
-        });
-        setShaderUniformIfPresent(shader, "vj1IsfFinalPass", finalPass);
-        this.setShaderParamUniforms(shader, component, params, { onlyPresent: true });
-        drawShaderTargetRect(destination, widthPx, heightPx);
-        resetShaderTarget(destination);
-      });
-      this.measureShaderPass({ id: component.id, instanceId }, component, passRequest, {
-        handoff: false,
-        sourceIsShaderBuffer: this.isShaderBuffer(input),
-        targetSlot: -1,
-      }, destination, drawPass);
-      if (passEntry && pass.target) {
-        if (pass.persistent) passEntry.current = passEntry.current === 0 ? 1 : 0;
-        targetTextures.set(pass.target, destination);
-      }
-      result = destination;
-    }
-    return result;
-  }
-
-  renderShaderChain(input, chain, request = frameRenderRequest(this.state.render), timeSeconds = this.visualTime) {
-    const renderRequest = this.normalizeRenderRequest(request, "effect");
-    const rw = renderRequest.width;
-    const rh = renderRequest.height;
-    // Effects use normalized UVs, but many convert their artistic sizes to pixels
-    // through `resolution`. Keep that coordinate system at the component size
-    // even when the physical target is rendered at a lower quality resolution.
-    const logicalWidth = Math.max(1, Number(renderRequest.logicalWidth) || rw);
-    const logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || rh);
-    let current = input;
-    let passCount = 0;
-    const logicalSchedule = compileShaderSchedule(chain, this.visualResolverOptions);
-    const schedule = fuseLocalShaderSchedule(logicalSchedule);
-    if (schedule.length) {
-      this.frameProfile.shaderChains++;
-      this.frameProfile.maxShaderChainLength = Math.max(this.frameProfile.maxShaderChainLength, logicalSchedule.length);
-    }
-    for (const job of schedule) {
-      const pass = job.pass;
-      if (pass.amount <= 0.0001) continue;
-      let handoff = false;
-      if (this.isShaderBuffer(current) && !isSharedFramebufferTarget(current) && schedule.length <= 1) {
-        handoff = true;
-        current = this.materializeDrawableBuffer(current, `fx-handoff:${renderRequestKey(renderRequest)}:${passCount}`, renderRequest);
-      }
-      const target = this.getFxPingPongTarget(renderRequest, this.isShaderBuffer(current) ? nextFxTargetSlot(this.fxTargets, current) : passCount % 2);
-      const shader = job.fused
-        ? this.shaderBuilder.getFusedShader(job.jobs, target)
-        : this.shaderBuilder.getShader(pass, target);
-      if (!shader) continue;
-      const sourceIsShaderBuffer = this.isShaderBuffer(current);
-      if (!job.fused && this.isfNeedsPassRuntime(job.component)) {
-        const rendered = this.renderIsfProgram({
-          component: job.component,
-          shader,
-          input: current,
-          finalTarget: target,
-          renderRequest,
-          timeSeconds: instanceTime(pass.instanceId || pass.id, timeSeconds),
-          params: pass.params,
-          instanceId: pass.instanceId || pass.id,
-          effectTransform: pass.transform,
-        });
-        if (rendered) {
-          current = rendered;
-          passCount++;
-        }
-        continue;
-      }
-      this.measureShaderPass(pass, job.component, renderRequest, {
-        handoff,
-        sourceIsShaderBuffer,
-        targetSlot: this.fxTargets?.[1] === target ? 1 : 0,
-      }, target, () => {
-        drawShaderTarget(target, () => {
-        clearShaderTarget(target);
-        applyShaderTarget(target, shader);
-        const isfInterface = job.component?.type === "isf";
-        if (isfInterface) {
-          setShaderUniformIfPresent(shader, "renderUvRect", renderRequest.uvRect || FULL_RENDER_UV_RECT);
-        } else {
-          shader.setUniform("tex0", unwrapRenderTarget(current));
-          shader.setUniform("resolution", [logicalWidth, logicalHeight]);
-          shader.setUniform("renderUvRect", renderRequest.uvRect || FULL_RENDER_UV_RECT);
-          shader.setUniform("canvasSize", [logicalWidth, logicalHeight]);
-          shader.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight]);
-          shader.setUniform("sourceFlipY", !sourceIsShaderBuffer);
-          shader.setUniform("sourceForceOpaque", false);
-        }
-        if (job.fused) this.setFusedShaderUniforms(shader, job.jobs, timeSeconds);
-        else {
-          const passTime = instanceTime(pass.instanceId || pass.id, timeSeconds);
-          if (isfInterface) setShaderUniformIfPresent(shader, "time", passTime);
-          else shader.setUniform("time", passTime);
-          this.setEffectInfrastructureUniforms(shader, pass.transform);
-          if (job.component?.type === "isf") {
-            this.setIsfFrameUniforms(shader, job.component, {
-              input: current,
-              renderRequest,
-              timeSeconds: passTime,
-              params: pass.params,
-            });
-          }
-          setShaderUniformIfPresent(shader, "vj1IsfFinalPass", true);
-          this.setShaderParamUniforms(shader, job.component, pass.params);
-        }
-        drawShaderTargetRect(target, rw, rh);
-        resetShaderTarget(target);
-        });
-      });
-      current = target;
-      passCount++;
-    }
-    return current;
-  }
-
-  renderShaderPassToTarget(input, pass, target, request, timeSeconds = this.visualTime) {
-    const renderRequest = this.normalizeRenderRequest(request, "effect");
-    const job = compileShaderSchedule([pass], this.visualResolverOptions)[0];
-    if (!job || job.pass.amount <= 0.0001) return input;
-    const shaderProgram = this.shaderBuilder.getShader(job.pass, target);
-    if (!shaderProgram) return input;
-    if (this.isfNeedsPassRuntime(job.component)) {
-      return this.renderIsfProgram({
-        component: job.component,
-        shader: shaderProgram,
-        input,
-        finalTarget: target,
-        renderRequest,
-        timeSeconds: instanceTime(job.pass.instanceId || job.pass.id, timeSeconds),
-        params: job.pass.params,
-        instanceId: job.pass.instanceId || job.pass.id,
-        effectTransform: job.pass.transform,
-      }) || input;
-    }
-    const logicalWidth = Math.max(1, Number(renderRequest.logicalWidth) || renderRequest.width);
-    const logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || renderRequest.height);
-    const sourceIsShaderBuffer = this.isShaderBuffer(input);
-    this.frameProfile.shaderChains++;
-    this.frameProfile.maxShaderChainLength = Math.max(this.frameProfile.maxShaderChainLength, 1);
-    this.measureShaderPass(job.pass, job.component, renderRequest, {
-      handoff: false,
-      sourceIsShaderBuffer,
-      targetSlot: -1,
-    }, target, () => {
-      drawShaderTarget(target, () => {
-        clearShaderTarget(target);
-        applyShaderTarget(target, shaderProgram);
-        const isfInterface = job.component?.type === "isf";
-        if (isfInterface) {
-          setShaderUniformIfPresent(shaderProgram, "renderUvRect", renderRequest.uvRect || FULL_RENDER_UV_RECT);
-        } else {
-          shaderProgram.setUniform("tex0", unwrapRenderTarget(input));
-          shaderProgram.setUniform("resolution", [logicalWidth, logicalHeight]);
-          shaderProgram.setUniform("renderUvRect", renderRequest.uvRect || FULL_RENDER_UV_RECT);
-          shaderProgram.setUniform("canvasSize", [logicalWidth, logicalHeight]);
-          shaderProgram.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight]);
-          shaderProgram.setUniform("sourceFlipY", !sourceIsShaderBuffer);
-          shaderProgram.setUniform("sourceForceOpaque", false);
-        }
-        const passTime = instanceTime(job.pass.instanceId || job.pass.id, timeSeconds);
-        if (isfInterface) setShaderUniformIfPresent(shaderProgram, "time", passTime);
-        else shaderProgram.setUniform("time", passTime);
-        this.setEffectInfrastructureUniforms(shaderProgram, job.pass.transform);
-        if (job.component?.type === "isf") {
-          this.setIsfFrameUniforms(shaderProgram, job.component, {
-            input,
-            renderRequest,
-            timeSeconds: passTime,
-            params: job.pass.params,
-          });
-        }
-        setShaderUniformIfPresent(shaderProgram, "vj1IsfFinalPass", true);
-        this.setShaderParamUniforms(shaderProgram, job.component, job.pass.params);
-        drawShaderTargetRect(target, renderRequest.width, renderRequest.height);
-        resetShaderTarget(target);
-      });
-    });
-    return target;
+  renderShaderPassToTarget(
+    input,
+    pass,
+    target,
+    request,
+    timeSeconds = this.visualTime,
+    inputStates = null,
+  ) {
+    return this.shaderEffectRuntime.renderPass(
+      input,
+      pass,
+      target,
+      request,
+      timeSeconds,
+      inputStates,
+    );
   }
 
   setFusedShaderUniforms(shaderProgram, jobs, timeSeconds) {
-    jobs.forEach((part, index) => {
-      shaderProgram.setUniform(
-        fusedUniformName(index, "time"),
-        instanceTime(part.pass.instanceId || part.pass.id, timeSeconds)
-      );
-      this.setShaderParamUniforms(shaderProgram, part.component, part.pass.params, {
-        uniformPrefix: `f${index}_`,
-      });
-    });
-    const noiseTexture = this.getCachedNoiseTexture();
-    if (noiseTexture) {
-      setShaderUniformIfPresent(shaderProgram, "noiseTex", noiseTexture);
-      setShaderUniformIfPresent(shaderProgram, "noiseTextureSize", [noiseTexture.width, noiseTexture.height]);
-    }
+    return this.shaderEffectRuntime.setFusedUniforms(
+      shaderProgram,
+      jobs,
+      timeSeconds,
+    );
   }
 
   measureShaderPass(pass, component, renderRequest, meta, target, drawPass) {
@@ -3940,80 +4009,17 @@ export class OutputRenderer {
     return this.profileRuntime.finishFrame(this.frameStart);
   }
 
-  renderShaderNodes(input, nodes, request = frameRenderRequest(this.state.render), timeSeconds = this.visualTime) {
-    return this.renderShaderChain(input, nodes.map(shaderPassFromNode), request, timeSeconds);
-  }
-
   setShaderParamUniforms(shader, component, params = {}, options = {}) {
-    const vectors = new Map();
-    for (const param of component?.params || []) {
-      const value = normalizeParamValue(param, params[param.id]);
-      const uniformId = `${options.uniformPrefix || ""}${param.id}`;
-      if (Number.isInteger(param.isfVectorIndex) && param.isfUniform) {
-        const vectorUniform = `${options.uniformPrefix || ""}${param.isfUniform}`;
-        const vector = vectors.get(vectorUniform) || [0, 0];
-        vector[param.isfVectorIndex] = Number(value) || 0;
-        vectors.set(vectorUniform, vector);
-        continue;
-      }
-      if (options.onlyPresent && !shader?.uniforms?.[uniformId]) continue;
-      if (param.type === "boolean") {
-        shader.setUniform(uniformId, value !== false);
-      } else if (param.type === "color") {
-        shader.setUniform(uniformId, colorUniform(value));
-      } else if (param.type === "enum") {
-        const enumIndex = enumUniform(param, value);
-        shader.setUniform(uniformId, Array.isArray(param.isfValues) ? Number(param.isfValues[enumIndex]) || 0 : enumIndex);
-      } else {
-        shader.setUniform(uniformId, Number(value) || 0);
-      }
-    }
-    for (const [uniformId, vector] of vectors) {
-      if (!options.onlyPresent || shader?.uniforms?.[uniformId]) shader.setUniform(uniformId, vector);
-    }
-    if (options.setDefaultAmount !== false && !component?.params?.some((param) => param.id === "amount")) {
-      shader.setUniform(`${options.uniformPrefix || ""}amount`, 0);
-    }
+    return this.shaderEffectRuntime.setParamUniforms(
+      shader,
+      component,
+      params,
+      options,
+    );
   }
 
-  setIsfFrameUniforms(shader, component, {
-    input = null,
-    renderRequest = {},
-    timeSeconds = this.visualTime,
-    params = {},
-    passIndex = 0,
-    generatorUniformState = null,
-    targetTextures = null,
-    sourceDetail = null,
-  } = {}) {
-    const logicalWidth = Math.max(1, Number(sourceDetail?.width) || Number(renderRequest.logicalWidth) || Number(renderRequest.width) || 1);
-    const logicalHeight = Math.max(1, Number(sourceDetail?.height) || Number(renderRequest.logicalHeight) || Number(renderRequest.height) || 1);
-    const now = new Date();
-    const date = generatorUniformState?.iDate || this.isfDateUniform;
-    date[0] = now.getFullYear();
-    date[1] = now.getMonth() + 1;
-    date[2] = now.getDate();
-    date[3] = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds() + now.getMilliseconds() / 1000;
-    setShaderUniformIfPresent(shader, "TIME", timeSeconds);
-    setShaderUniformIfPresent(shader, "TIMEDELTA", this.visualDeltaSeconds);
-    setShaderUniformIfPresent(shader, "FRAMEINDEX", this.frameIndex);
-    setShaderUniformIfPresent(shader, "PASSINDEX", passIndex);
-    setShaderUniformIfPresent(shader, "DATE", date);
-    setShaderUniformIfPresent(shader, "RENDERSIZE", [logicalWidth, logicalHeight]);
-    setShaderUniformIfPresent(shader, "vj1IsfFinalPass", true);
-    if (input) {
-      setShaderUniformIfPresent(shader, "inputImage", unwrapRenderTarget(input));
-      setShaderUniformIfPresent(shader, "inputImage_imgSize", [Math.max(1, input.width || logicalWidth), Math.max(1, input.height || logicalHeight)]);
-    }
-    for (const [name, texture] of targetTextures || []) {
-      if (!texture) continue;
-      setShaderUniformIfPresent(shader, name, unwrapRenderTarget(texture));
-      setShaderUniformIfPresent(shader, `${name}_imgSize`, [Math.max(1, texture.width || 1), Math.max(1, texture.height || 1)]);
-    }
-    // Parameter normalization remains centralized in the normal component
-    // uniform path; this call is intentionally limited to the ISF host API.
-    void component;
-    void params;
+  setIsfFrameUniforms(shader, component, options = {}) {
+    return this.isfRuntime.setFrameUniforms(shader, component, options);
   }
 
   renderSurfaces() { return this.surfaceRuntime.renderSurfaces(); }
@@ -4236,6 +4242,11 @@ export class OutputRenderer {
   schedule(event) {
     if (this.state?.scheduler?.manualLane === false) return;
     this.manualScheduler.enqueue(event);
+    this.invalidatePresentation("schedule");
+  }
+
+  invalidatePresentation(reason = "runtime") {
+    this.requestPresentationFrame?.(reason);
   }
 
   selectedTransformableChainItem() {
@@ -4333,6 +4344,11 @@ export class OutputRenderer {
       mode: requireMedia ? "output" : this.mode,
       state,
       media: this.media,
+      // Prepared transition states retain source bindings and Surface routes,
+      // not an alternative Component graph. Media readiness therefore uses
+      // the same compiled programs as rendering instead of reconstructing a
+      // second raw-chain dependency view.
+      programs: this.componentPrograms,
       acquireMedia: (id) => this.mediaRuntime.acquireMedia(this.media.get(id), { width: frame.width }),
     });
     this.requestMissingMediaBatch(Array.from(status.missingIds));
@@ -4355,6 +4371,30 @@ export class OutputRenderer {
   shouldUseThumbnailPreview() {
     return (this.mode === "preview" || this.mode === "component" || this.mode === "live") &&
       this.state?.ui?.debugPreview === false;
+  }
+
+  presentationFrameMode() {
+    if (!this.state || this.shouldUseThumbnailPreview()) return "continuous";
+    if (this.liveParamFades.size || this.chainTransformDrag || this.sceneFrameDrag) return "continuous";
+    if (this.manualScheduler.size || this.mapper?.isActive?.() || this.currentLiveTransition()) return "continuous";
+    const ids = this.neededComponentIds();
+    for (const componentId of ids) {
+      const component = this.componentPrograms.has(componentId)
+        ? this.state.components?.find((candidate) => candidate.id === componentId)
+        : null;
+      // Decoder callbacks identify new media revisions, but they are not a
+      // presentation clock. Browsers may coalesce or throttle callbacks for
+      // hidden MediaElements, so an active video graph must keep the host
+      // presentation cadence independently. Retained source nodes still use
+      // decoded-frame revisions and avoid uploading unchanged video frames.
+      if (!component ||
+          this.componentContainsVideo(component) ||
+          this.componentIsFrameDynamic(component)) return "continuous";
+    }
+    // Stable, revision-driven graphs present once and then sleep. State
+    // changes, static media revisions, scheduler events, and editor
+    // interactions wake the host loop explicitly.
+    return "on-change";
   }
 
   updateHudAndMetrics() {
@@ -4487,6 +4527,35 @@ function downloadJson(data, filename) {
   setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+function installedNodePackageSignature(packages = []) {
+  return JSON.stringify((packages || []).map((nodePackage) => ({
+    id: nodePackage?.id || "",
+    version: nodePackage?.version || "",
+    definitions: (nodePackage?.definitions || []).map((definition) => ({
+      id: definition?.id || "",
+      version: definition?.version || "",
+      parts: (definition?.parts || []).map((part) => [
+        part?.id || "",
+        part?.source || "",
+      ]),
+    })),
+    visualLibrary: nodePackage?.visualLibrary || [],
+    resources: nodePackage?.resources || [],
+  })));
+}
+
+function transitionEntryMatchesArtifact(entry, artifact) {
+  if (!entry || !artifact || entry.id !== artifact.id) return false;
+  if (entry.origin?.kind !== artifact.origin?.kind) return false;
+  if (artifact.origin.kind === "installed") {
+    return entry.origin.id === artifact.origin.id;
+  }
+  if (artifact.origin.kind === "project") {
+    return entry.origin.path === artifact.origin.path;
+  }
+  return true;
+}
+
 export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
   const upscaling = pipeline?.upscaling || {};
   if (upscaling.enabled !== true || Number(upscaling.amount) >= 0.999) return request;
@@ -4501,17 +4570,6 @@ export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
     pipelineSource: true,
     pipelineScale: amount,
   });
-}
-
-export function mediaSourceDemandSize(request = {}, source = {}) {
-  const descriptor = request && typeof request === "object" ? request : { width: request };
-  return renderSourceDetail(descriptor, descriptor, {
-    contentScale: source?.contentTransform?.scale,
-  });
-}
-
-export function mediaSourceDemandWidth(request = {}, source = {}) {
-  return mediaSourceDemandSize(request, source).width;
 }
 
 function containedRect(containerWidth, containerHeight, contentWidth, contentHeight) {
@@ -4625,18 +4683,6 @@ function withTargetScissor(target, rect, draw) {
     if (!wasEnabled) gl.disable(gl.SCISSOR_TEST);
   }
 }
-
-function rectsIntersect(left = {}, right = {}) {
-  const leftX = Number(left.x) || 0;
-  const leftY = Number(left.y) || 0;
-  const rightX = Number(right.x) || 0;
-  const rightY = Number(right.y) || 0;
-  return leftX < rightX + Math.max(0, Number(right.width) || 0) &&
-    leftX + Math.max(0, Number(left.width) || 0) > rightX &&
-    leftY < rightY + Math.max(0, Number(right.height) || 0) &&
-    leftY + Math.max(0, Number(left.height) || 0) > rightY;
-}
-
 
 function stableStringify(value) {
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;

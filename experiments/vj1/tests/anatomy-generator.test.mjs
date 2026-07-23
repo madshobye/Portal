@@ -9,7 +9,11 @@ test("Low Poly Anatomy compiles its complete procedural geometry module", () => 
   const definition = getGeneratorNodeComponent("anatomy").nodeDefinition;
   const compiled = compileJavaScriptNodeModule(definition.parts, definition);
 
-  assert.deepEqual(definition.parts.map((part) => part.id), ["anatomy-geometry-module", "anatomy-process"]);
+  assert.deepEqual(
+    definition.parts.map((part) => part.id),
+    ["graph", "anatomy-geometry-module", "anatomy-process"],
+  );
+  assert.equal(definition.parts[0].editable, true);
   assert.equal(typeof compiled.exports.anatomyPartFitScale, "function");
   assert.equal(typeof compiled.exports.drawProceduralAnatomy, "function");
   assert.equal(compiled.exports.anatomyPartFitScale("heart"), 0.64);

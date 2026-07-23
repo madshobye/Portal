@@ -5,6 +5,8 @@ const reportedMediaFallbacks = new WeakMap();
 const webGlMediaBridges = new WeakMap();
 const reportedVideoPlaybackFailures = new WeakSet();
 const pendingVideoPlays = new WeakMap();
+const videoSegmentStates = new WeakMap();
+const videoSegmentBoundaryElements = new WeakSet();
 
 export function drawCover(pg, media, x, y, w, h) {
   drawMediaFit(pg, media, x, y, w, h, "cover");
@@ -168,15 +170,31 @@ export function syncVideoPlayback(video, options = {}) {
   if (!elt) return;
   const duration = Number.isFinite(elt.duration) && elt.duration > 0 ? elt.duration : 0;
   const end = requestedEnd > start ? Math.min(requestedEnd, duration || requestedEnd) : duration;
-  const hasSegment = start > 0 || (end && end > start && end < duration - 0.02);
-  const current = Number(elt.currentTime) || 0;
-  if (hasSegment && (current < start - 0.04 || (end && current >= end - 0.035))) {
-    try {
-      elt.currentTime = start;
-    } catch (error) {
-      reportVideoPlaybackFailure(video, error, "seek");
-    }
+  // Use one boundary controller for trimmed and full-length playback. Native
+  // HTMLVideoElement looping is allowed to exhaust the decoder before it
+  // restarts, which can expose an empty frame. Seeking while the retained last
+  // frame is still valid gives both cases the same gap-free lifecycle.
+  const hasLoopBoundary = end > start;
+  let segmentState = videoSegmentStates.get(elt);
+  if (!segmentState) {
+    segmentState = {
+      video,
+      start,
+      end,
+      hasLoopBoundary,
+      pendingSeekTarget: null,
+    };
+    videoSegmentStates.set(elt, segmentState);
+  } else {
+    const boundaryChanged = segmentState.start !== start || segmentState.end !== end;
+    segmentState.video = video;
+    segmentState.start = start;
+    segmentState.end = end;
+    segmentState.hasLoopBoundary = hasLoopBoundary;
+    if (boundaryChanged) segmentState.pendingSeekTarget = null;
   }
+  bindVideoSegmentBoundary(elt);
+  enforceVideoSegmentBoundary(elt, segmentState);
   if (speed <= 0.001) {
     pauseVideoPlayback(video);
     return;
@@ -189,8 +207,54 @@ export function syncVideoPlayback(video, options = {}) {
       reportVideoPlaybackFailure(video, error, "speed");
     }
   }
-  elt.loop = !hasSegment;
+  elt.loop = !hasLoopBoundary;
   if (elt.paused) requestVideoPlayback(video, elt);
+}
+
+function bindVideoSegmentBoundary(element) {
+  if (!element?.addEventListener || videoSegmentBoundaryElements.has(element)) return;
+  videoSegmentBoundaryElements.add(element);
+  // The media clock owns the trim boundary. Renderer invalidation normally
+  // checks it too, but timeupdate keeps the authored end reliable while a
+  // retained presentation is asleep or decoded-frame callbacks are sparse.
+  element.addEventListener("timeupdate", () => {
+    const state = videoSegmentStates.get(element);
+    if (state) enforceVideoSegmentBoundary(element, state);
+  });
+}
+
+function enforceVideoSegmentBoundary(element, state) {
+  if (!state?.hasLoopBoundary) return false;
+  const current = Number(element.currentTime) || 0;
+  // Leave enough decode headroom to seek before the browser presents its
+  // exhausted end-of-stream surface. The retained render node continues to
+  // display the last confirmed frame until the loop-start frame is decoded.
+  if (current >= state.start - 0.04 && (!state.end || current < state.end - 0.075)) return false;
+  try {
+    element.currentTime = state.start;
+    state.pendingSeekTarget = state.start;
+    return true;
+  } catch (error) {
+    reportVideoPlaybackFailure(state.video, error, "seek");
+    return false;
+  }
+}
+
+// requestVideoFrameCallback callbacks already queued before a seek may be
+// delivered after currentTime has moved to the loop start. A callback is
+// publishable only when it belongs to the current seek target; otherwise the
+// retained pre-seek frame remains authoritative.
+export function acceptVideoDecodedFrame(element, mediaTime) {
+  if (!element || element.seeking === true) return false;
+  const state = videoSegmentStates.get(element);
+  if (!state || state.pendingSeekTarget == null) return true;
+  const presentedTime = Number(mediaTime);
+  const target = Number(state.pendingSeekTarget) || 0;
+  if (!Number.isFinite(presentedTime) ||
+      presentedTime < target - 0.04 ||
+      presentedTime > target + 0.25) return false;
+  state.pendingSeekTarget = null;
+  return true;
 }
 
 function requestVideoPlayback(video, element) {

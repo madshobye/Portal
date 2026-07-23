@@ -48,13 +48,21 @@ export const RateClockNode = defineNode({
   process: rateClockNodeProcess,
 });
 
-export function rateClockNodeProcess({ previous, baseTime, rate }) {
-  return { clock: advanceRateClock(previous, baseTime, rate) };
+export function rateClockNodeProcess({ previous, baseTime, rate }, { output = {}, state = {} } = {}) {
+  output.clock = advanceRateClock(previous, baseTime, rate, state.clockOutput);
+  state.clockOutput = output.clock;
+  return output;
 }
 
-export function advanceRateClock(previous, baseTime, rate) {
+export function advanceRateClock(previous, baseTime, rate, output = null) {
   const now = Number(baseTime) || 0;
   const speed = Math.max(0, Number(rate) || 0);
-  if (!previous || now < previous.baseTime) return { baseTime: now, time: now * speed };
-  return { baseTime: now, time: previous.time + Math.max(0, now - previous.baseTime) * speed };
+  const previousBaseTime = previous?.baseTime;
+  const previousTime = previous?.time;
+  const clock = output || { baseTime: 0, time: 0 };
+  clock.baseTime = now;
+  clock.time = !previous || now < previousBaseTime
+    ? now * speed
+    : previousTime + Math.max(0, now - previousBaseTime) * speed;
+  return clock;
 }

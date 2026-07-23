@@ -1,4 +1,4 @@
-import { clone, createSceneComponent, createMappingSurface, syncLiveRoutesFromMapping, uid } from "./models.js?v=render-coordinate-scope-3";
+import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js?v=render-coordinate-scope-3";
 import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
 import { sceneFrameSize } from "./render-settings.js?v=canvas-global-resolution-1";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
@@ -143,7 +143,6 @@ function pasteSurface(draft, source, target) {
     const calibrated = mapping.calibration.surfaces.find((item) => item.name === source.id || item.id === source.id);
     if (calibrated) mapping.calibration.surfaces.push({ ...clone(calibrated), id: copy.id, name: copy.id });
   }
-  syncLiveRoutesFromMapping(draft, mapping);
   draft.ui.selectedSurfaceId = copy.id;
   return { pasted: true, kind: "surface", id: copy.id };
 }

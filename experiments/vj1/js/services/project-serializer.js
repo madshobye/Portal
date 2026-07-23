@@ -1,7 +1,7 @@
 import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=surface-identity-2";
 import { normalizeOutputName } from "../domain/render-settings.js?v=output-one-1";
 import { authoredSurfaceFields } from "../domain/scene-routing.js?v=scene-mapping-output-visibility-1";
-import { serializeNodeProjectData } from "../libraries/node-engine/node-project.js";
+import { serializeNodeProjectData } from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
   return {
@@ -22,8 +22,13 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
       mappingTestPattern: state.ui.mappingTestPattern !== false,
       live: {
         selectedSceneId: state.ui.live?.selectedSceneId || "",
+        sceneMappingInLive: state.ui.live?.sceneMappingInLive !== false,
         showScenes: state.ui.live?.showScenes !== false,
         showComponents: state.ui.live?.showComponents !== false,
+        transitionId: String(state.ui.live?.transitionId || "vj1.transition.dissolve"),
+        transitionParameters: state.ui.live?.transitionParameters && typeof state.ui.live.transitionParameters === "object"
+          ? state.ui.live.transitionParameters
+          : {},
         transitionDuration: Math.max(0, Number(state.ui.live?.transitionDuration) || 0),
         paramFadeDuration: Math.max(0, Number(state.ui.live?.paramFadeDuration) || 0),
       },
@@ -50,6 +55,14 @@ export function persistedComponents(components = [], nodes = {}) {
   const graphComponents = new Set((nodes?.groups || [])
     .filter((group) => group.generatedBy === "vj1-component-compiler" && group.projectionSignature)
     .map((group) => String(group.componentId || "")));
+  if (nodes?.authority === "node-graph") {
+    const missing = (components || [])
+      .filter((component) => !component?.systemRole && !graphComponents.has(String(component?.id || "")))
+      .map((component) => String(component?.id || "missing"));
+    if (missing.length) {
+      throw new Error(`VJ1_PROJECT_COMPONENT_GRAPH_MISSING:${missing.join(",")}`);
+    }
+  }
   return (components || []).filter((component) => !component.systemRole).map((component) => {
     const {
       thumbnail: _derivedThumbnail,
@@ -59,7 +72,7 @@ export function persistedComponents(components = [], nodes = {}) {
     // Version 24 persists the node group as visual authority. `chain` remains
     // an in-memory projection for the established Component/Scene UI and is
     // retained only when importing a not-yet-compiled legacy component.
-    const persisted = nodes?.authority === "node-graph" && graphComponents.has(String(component?.id || ""))
+    const persisted = nodes?.authority === "node-graph"
       ? Object.fromEntries(Object.entries(componentData).filter(([key]) => key !== "chain"))
       : componentData;
     if (persisted.type !== "scene" || !persisted.scene) return persisted;

@@ -2,7 +2,12 @@ import { ComponentProgramNode } from "../component-program/index.js";
 import { LayerGroupNode } from "../layer-group/index.js";
 import { VisualSourceNode, visualSourceRenderer } from "../visual-source/index.js";
 import { defineNodeCompiler, NodeCompilerRegistry, NODE_COMPILER_TARGETS } from "../../node-engine/index.js";
-import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=node-program-hooks-15";
+import {
+  defineVisualNodeContract,
+  visualNodeContractFromMetadata,
+  VISUAL_TRANSFORM_DOMAINS,
+} from "../../render-engine/visual-node-contract.js";
+import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=public-control-node-configuration-named-image-inputs-1";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";
@@ -68,7 +73,7 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
       source: "legacy-component-import",
     };
   }
-  const graphChain = componentChainFromGroup(existingGroup);
+  const graphChain = componentChainFromGroup(existingGroup, options);
   const graphSignature = componentChainSignature(graphChain);
   const componentSignature = componentChainSignature(component.chain || []);
   const projectionMarker = String(component.nodeProjectionSignature || "");
@@ -144,8 +149,14 @@ function inheritGroupNodeLayout(group, existingGroup) {
   return { ...group, nodes: inherit(group.nodes || [], existingGroup?.nodes || []) };
 }
 
-export function componentChainFromGroup(group = {}) {
-  return visualRenderPlanConfiguration(compileVisualRenderPlan(group, {}));
+export function componentChainFromGroup(group = {}, {
+  definitions = new Map(),
+  resolveNodeDefinition = null,
+} = {}) {
+  const resolveDefinition = typeof resolveNodeDefinition === "function"
+    ? resolveNodeDefinition
+    : (node) => definitions.get(String(node?.nodeId || ""));
+  return visualRenderPlanConfiguration(compileVisualRenderPlan(group, {}, { resolveDefinition }));
 }
 
 export function componentProgramInstances(group = {}) {
@@ -154,11 +165,15 @@ export function componentProgramInstances(group = {}) {
   return result;
 }
 
-export function compileComponentRenderPrograms(components = [], groups = [], { resolveNodeDefinition = null } = {}) {
+export function compileComponentRenderPrograms(components = [], groups = [], {
+  resolveNodeDefinition = null,
+  rootComponentIds = null,
+} = {}) {
   const groupByComponent = new Map((groups || [])
     .filter((group) => group.generatedBy === COMPONENT_PROGRAM_GENERATOR)
     .map((group) => [group.componentId, group]));
-  return new Map((components || []).map((component) => {
+  const componentById = new Map((components || []).map((component) => [String(component.id || ""), component]));
+  const compileComponent = (component) => {
     // Old project snapshots are upgraded in memory at the compilation
     // boundary. Rendering therefore always consumes a Component program and
     // never needs a second raw-chain execution path.
@@ -168,7 +183,28 @@ export function compileComponentRenderPrograms(components = [], groups = [], { r
       component,
       resolveNodeDefinition,
     })];
-  }));
+  };
+  if (rootComponentIds == null) {
+    return new Map((components || []).map(compileComponent));
+  }
+
+  // A retained render plan owns only the programs reachable from its visible
+  // roots. Compile a root before reading its declared dependencies so authored
+  // Group topology—not a parallel raw-chain walker—remains dependency truth.
+  const programs = new Map();
+  const pending = [...new Set(Array.from(rootComponentIds || [], String))];
+  while (pending.length) {
+    const id = pending.shift();
+    if (!id || programs.has(id)) continue;
+    const component = componentById.get(id);
+    if (!component) continue;
+    const [componentId, program] = compileComponent(component);
+    programs.set(componentId, program);
+    for (const dependencyId of program.inspect()?.dependencies?.components || []) {
+      if (!programs.has(String(dependencyId || ""))) pending.push(String(dependencyId || ""));
+    }
+  }
+  return programs;
 }
 
 export class CompiledComponentRenderProgram {
@@ -193,6 +229,26 @@ export class CompiledComponentRenderProgram {
       this.plan.replaceConfiguration(itemId, nextItem);
     }
     return result.changed;
+  }
+
+  syncGeneratedControlsFromConfiguration() {
+    this.plan.controlProgram?.syncGeneratedControlsFromConfiguration();
+  }
+
+  inspect() {
+    return Object.freeze({
+      componentId: this.componentId,
+      groupId: this.id,
+      ...this.plan.inspect(),
+    });
+  }
+
+  forEachOperation(visitor) {
+    this.plan.introspection.forEachOperation(visitor);
+  }
+
+  dispose() {
+    this.plan?.dispose?.();
   }
 }
 
@@ -258,31 +314,59 @@ function nodeTypeForItem(item = {}) {
 
 function visualCompilerHookFor(item, definition) {
   const metadata = definition?.metadata || {};
-  if (item.kind === "group") return { id: VISUAL_COMPILER_HOOKS.GROUP };
+  if (metadata.visualCompilerHook?.id) {
+    return metadata.visualCompilerHook;
+  }
+  if (item.kind === "group") return {
+    id: VISUAL_COMPILER_HOOKS.GROUP,
+    contract: defineVisualNodeContract({}, {
+      transform: { domain: VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD },
+      roi: { mode: "local", coordinateSpace: "boundary" },
+    }),
+  };
   if (item.kind === "effect") return {
     id: VISUAL_COMPILER_HOOKS.SHADER_EFFECT,
     shaderInterface: metadata.shaderInterface || "effect",
     sampling: metadata.sampling || "unknown",
     fusible: metadata.fusible === true,
+    contract: visualNodeContractFromMetadata(metadata, {
+      transform: {
+        domain: metadata.transformSource === false
+          ? VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD
+          : VISUAL_TRANSFORM_DOMAINS.COMPOSITION,
+      },
+      roi: metadata.roi || { mode: "local", halo: 0, coordinateSpace: "boundary" },
+    }),
     roi: metadata.roi || { mode: "local", halo: 0, coordinateSpace: "boundary" },
     // Pointwise/neighborhood effects consume the already composed texture and
     // therefore stay in Composition coordinates. Spatial field effects own a
     // physical field whose placement follows its containing Group.
-    transformDomain: metadata.transformSource === false ? "group-field" : "composition",
+    transformDomain: metadata.transformSource === false
+      ? VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD
+      : VISUAL_TRANSFORM_DOMAINS.COMPOSITION,
   };
   if (metadata.nativeRenderer) return {
     id: VISUAL_COMPILER_HOOKS.NATIVE_SOURCE,
     renderer: metadata.nativeRenderer,
     allocationStable: metadata.allocationStableDirectPath === true,
+    contract: visualNodeContractFromMetadata(metadata, {
+      transform: { domain: VISUAL_TRANSFORM_DOMAINS.CONTENT },
+    }),
   };
   if (metadata.nodeOwnedShader) return {
     id: VISUAL_COMPILER_HOOKS.SHADER_GENERATOR,
     shaderInterface: metadata.shaderInterface || "generator",
+    contract: visualNodeContractFromMetadata(metadata, {
+      transform: { domain: VISUAL_TRANSFORM_DOMAINS.CONTENT },
+    }),
   };
   return {
     id: VISUAL_COMPILER_HOOKS.SOURCE,
     renderer: visualSourceRenderer(item.source || {}),
     allocationStable: true,
+    contract: visualNodeContractFromMetadata(metadata, {
+      transform: { domain: VISUAL_TRANSFORM_DOMAINS.CONTENT },
+    }),
   };
 }
 

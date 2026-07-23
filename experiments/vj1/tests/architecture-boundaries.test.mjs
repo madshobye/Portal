@@ -48,16 +48,17 @@ test("node engine and capability libraries do not delegate into application inte
 
 test("output and preview hot paths use node-owned algorithms without node-runtime overhead", () => {
   const renderer = readFileSync(resolve(jsRoot, "output/output-renderer.js"), "utf8");
+  const shaderEffectRuntime = readFileSync(resolve(jsRoot, "output/shader-effect-runtime.js"), "utf8");
   const surfaceRuntime = readFileSync(resolve(jsRoot, "output/output-surface-runtime.js"), "utf8");
   const surfacePlanner = readFileSync(resolve(jsRoot, "output/surface-render-planner.js"), "utf8");
   const app = readFileSync(resolve(jsRoot, "app.js"), "utf8");
   const outputBranch = app.slice(app.indexOf('if (mode === "output"'), app.indexOf("} else {"));
-  const hotPath = `${renderer}\n${surfaceRuntime}\n${surfacePlanner}\n${outputBranch}`;
+  const hotPath = `${renderer}\n${shaderEffectRuntime}\n${surfaceRuntime}\n${surfacePlanner}\n${outputBranch}`;
 
   assert.doesNotMatch(hotPath, /\b(?:NodeInstance|NodeGraphProgram|NodeCompilerRegistry|createNodeInstance|createNodePacket|createVj1NodePackage)\b/);
   assert.doesNotMatch(hotPath, /(?:\.\.\/)+node\/node-runtime\.js|app-node-package\.js/);
   assert.match(surfacePlanner, /export const planSurfaceRoutes = createSurfaceCompositionEngine\(/);
-  assert.match(renderer, /fuseLocalShaderSchedule\(logicalSchedule\)/);
+  assert.match(shaderEffectRuntime, /fuseLocalShaderSchedule\(logicalSchedule\)/);
   assert.match(renderer, /new SpecializedSourceRuntime\(/);
   assert.match(renderer, /createSharedFramebufferTarget\(/);
   assert.match(renderer, /stableComponentSignatures/);

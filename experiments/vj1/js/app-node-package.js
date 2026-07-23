@@ -1,33 +1,57 @@
-import { defineNode, NODE_IMPLEMENTATION_KINDS, NodeRegistry } from "./libraries/node-engine/index.js";
-import { defineNodeArtifact, NodeArtifactCatalog } from "./libraries/node-engine/index.js";
-import { nodeEditorProjection } from "./libraries/node-engine/index.js";
-import { normalizeNodeProjectData, serializeNodeArtifact, serializeNodeDefinition } from "./libraries/node-engine/index.js";
+import { defineNode, NODE_IMPLEMENTATION_KINDS, NodeRegistry } from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
+import { defineNodeArtifact, NodeArtifactCatalog } from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
+import { nodeEditorProjection } from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
+import { createProjectGroupDefinitionFromTemplate, createProjectVisualGroupDefinition, normalizeNodeProjectData, serializeNodeArtifact, serializeNodeDefinition } from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
 import {
   createNodePackageFromProject,
   exportNodePackage,
   importNodePackage,
   installNodePackageIntoProject,
-} from "./libraries/node-engine/index.js";
-import { listEffectNodeComponents, listGeneratorNodeComponents } from "./libraries/visual-nodes/index.js?v=sdf-content-editor-1";
-import { SliderArtifact, SliderNode } from "./libraries/control-engine/index.js";
-import { ValueControlNode } from "./libraries/control-engine/index.js";
+} from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
+import {
+  listEffectNodeComponents,
+  listGeneratorNodeComponents,
+  SpecializedCompoundStageNodeDefinitions,
+} from "./libraries/visual-nodes/index.js?v=specialized-stage-authority-1";
+import {
+  AudioControlInputNode,
+  ComponentTimeControlNode,
+  EventTriggerControlNode,
+  FrameDelayControlNode,
+  HostControlInputNode,
+  MapRangeControlNode,
+  MidiControlInputNode,
+  OscillatorControlNode,
+  OscControlInputNode,
+  SampleHoldControlNode,
+  ScalarMathControlNode,
+  SelectControlNode,
+  SliderArtifact,
+  SliderNode,
+  SmoothControlNode,
+  ValueControlNode,
+  Vector2ControlNode,
+  Vector3ControlNode,
+} from "./libraries/control-engine/index.js?v=architecture-r2-2";
 import { CacheEngineNode } from "./libraries/cache-engine/index.js";
 import { DataStoreNode } from "./libraries/data-store/index.js";
 import { DiagnosticsEngineNode } from "./libraries/diagnostics-engine/index.js";
 import { ImageResizeNode } from "./libraries/image-engine/index.js";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./libraries/timing-engine/index.js";
 import { NestedNoiseMotionNode, OrbitMotionNode } from "./libraries/motion-engine/index.js";
+import { TerrainFlightControllerNode } from "./libraries/terrain-engine/index.js?v=provider-substitution-1";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
-import { SceneFrameGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=scene-frame-guide-node-1";
+import { SceneFrameGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
 import {
   COMPONENT_PROGRAM_GENERATOR,
   ComponentProgramNode,
   LayerGroupNode,
+  TextureOperatorNodeDefinitions,
   VisualSourceNode,
   compileComponentGroupTopology,
   componentProgramInstances,
   reconcileComponentGroupTopology,
-} from "./libraries/composition-engine/index.js?v=mapping-order-authority-1";
+} from "./libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
 import {
   MAPPING_PROGRAM_GENERATOR,
   OutputProgramNode,
@@ -36,7 +60,7 @@ import {
   compileOutputGroupTopology,
   compileMappingGroupTopology,
   mappingProgramInstances,
-} from "./libraries/composition-engine/index.js?v=mapping-order-authority-1";
+} from "./libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
 import {
   APPLICATION_PROGRAM_GENERATOR,
   ApplicationProgramRuntime,
@@ -44,23 +68,25 @@ import {
   applicationProgramInstances,
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
-} from "./libraries/composition-engine/index.js?v=mapping-order-authority-1";
+} from "./libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
-import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=sdf-content-editor-1";
+import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=temporal-invalidation-1";
 import {
   Convert3dFileToImageGroup,
+  ComposableScene3dGroup,
   Detect3dFormatNode,
   MeshRenderNode,
   MeshResolutionNode,
   ObjParserNode,
   Parse3dObjectGroup,
   Prepare3dAssetGroup,
+  Scene3dNodeDefinitions,
   StlParserNode,
-} from "./libraries/mesh-engine/index.js";
-import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js?v=isf-coordinates-1";
+} from "./libraries/mesh-engine/index.js?v=scene3d-media-resource-project-group-authoring-1";
+import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js?v=named-image-inputs-1";
 
 const ProjectComponentNode = semanticProjectNode("vj1.project.component", "Component", "A task-oriented visual program composed from reusable nodes.", "texture");
 const ProjectSceneNode = semanticProjectNode("vj1.project.scene", "Scene", "A spatial visual program arranging reusable Components against shared projection Surfaces.", "texture");
@@ -70,6 +96,21 @@ const ProjectLiveNode = semanticProjectNode("vj1.project.live", "Live", "The act
 const CORE_NODE_DEFINITIONS = Object.freeze([
   SliderNode,
   ValueControlNode,
+  ComponentTimeControlNode,
+  OscillatorControlNode,
+  MapRangeControlNode,
+  ScalarMathControlNode,
+  Vector2ControlNode,
+  Vector3ControlNode,
+  SmoothControlNode,
+  SelectControlNode,
+  FrameDelayControlNode,
+  EventTriggerControlNode,
+  SampleHoldControlNode,
+  MidiControlInputNode,
+  OscControlInputNode,
+  AudioControlInputNode,
+  HostControlInputNode,
   CacheEngineNode,
   DataStoreNode,
   DiagnosticsEngineNode,
@@ -79,12 +120,14 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   InstanceTimeNode,
   OrbitMotionNode,
   NestedNoiseMotionNode,
+  TerrainFlightControllerNode,
   MappingEngineNode,
   SurfaceCompositionNode,
   SceneFrameGuideNode,
   ComponentProgramNode,
   LayerGroupNode,
   VisualSourceNode,
+  ...TextureOperatorNodeDefinitions,
   SurfaceRouteNode,
   MappingProgramNode,
   OutputProgramNode,
@@ -94,6 +137,7 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   LivePatchSynchronizerNode,
   MediaInputLifecycleNode,
   VisualNodeDefinitionNode,
+  ...SpecializedCompoundStageNodeDefinitions,
   Detect3dFormatNode,
   StlParserNode,
   ObjParserNode,
@@ -102,6 +146,7 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   MeshRenderNode,
   Prepare3dAssetGroup,
   Convert3dFileToImageGroup,
+  ...Scene3dNodeDefinitions,
   ProjectComponentNode,
   ProjectSceneNode,
   ProjectMappingNode,
@@ -140,10 +185,11 @@ const ModelPreviewPipelineArtifact = defineNodeArtifact({
 export function createVj1NodePackage() {
   const visualComponents = [...listGeneratorNodeComponents(), ...listEffectNodeComponents()];
   const visualDefinitions = visualComponents.map((component) => component.nodeDefinition);
-  const registry = new NodeRegistry([
+  const builtInDefinitions = [
     ...CORE_NODE_DEFINITIONS,
     ...visualDefinitions,
-  ]);
+  ];
+  const registry = new NodeRegistry(builtInDefinitions);
   const artifacts = new NodeArtifactCatalog([
     SliderArtifact,
     ...visualComponents.map(visualElementArtifact),
@@ -160,7 +206,58 @@ export function createVj1NodePackage() {
     activeApplicationProgram = group;
     return runtime;
   };
-  return Object.freeze({
+  let packageApi = null;
+  let cachedInstalledPackages = null;
+  let cachedAvailablePackages = null;
+  let cachedProjectDefinitions = null;
+  let cachedEditorContext = null;
+  const editorContext = (
+    installedPackages = [],
+    availablePackages = installedPackages,
+    projectDefinitions = [],
+  ) => {
+    if (
+      installedPackages === cachedInstalledPackages
+      && availablePackages === cachedAvailablePackages
+      && projectDefinitions === cachedProjectDefinitions
+      && cachedEditorContext
+    ) return cachedEditorContext;
+    const definitions = [...builtInDefinitions];
+    const known = new Set(definitions.map((definition) => `${definition.id}@${definition.version}`));
+    const packageByDefinition = new Map();
+    for (const installedPackage of installedPackages || []) {
+      for (const definition of installedPackage.definitions || []) {
+        const key = `${definition.id}@${definition.version}`;
+        packageByDefinition.set(key, installedPackage);
+        if (known.has(key)) continue;
+        known.add(key);
+        definitions.push(definition);
+      }
+    }
+    for (const definition of projectDefinitions || []) {
+      if (definition?.persistence === "package") continue;
+      const key = `${definition?.id || ""}@${definition?.version || ""}`;
+      if (!definition?.id || known.has(key)) continue;
+      known.add(key);
+      definitions.push(definition);
+    }
+    const editorRegistry = new NodeRegistry(definitions);
+    cachedInstalledPackages = installedPackages;
+    cachedAvailablePackages = availablePackages;
+    cachedProjectDefinitions = projectDefinitions;
+    cachedEditorContext = Object.freeze({
+      ...packageApi,
+      registry: editorRegistry,
+      installedPackages: Object.freeze([...(installedPackages || [])]),
+      availablePackages: Object.freeze([...(availablePackages || [])]),
+      packageForDefinition: (definition = {}) =>
+        packageByDefinition.get(`${definition.id}@${definition.version}`) || null,
+      editorProjection: (definition, options = {}) =>
+        nodeEditorProjection(definition, { nodeRegistry: editorRegistry, ...options }),
+    });
+    return cachedEditorContext;
+  };
+  packageApi = {
     id: "vj1.application",
     version: "0.1.0",
     registry,
@@ -174,6 +271,13 @@ export function createVj1NodePackage() {
     ),
     createApplicationRuntime,
     createProjectPackage: (state, manifest) => createNodePackageFromProject(state?.nodes, manifest),
+    createProjectVisualGroupDefinition,
+    createProjectScene3dGroupDefinition: ({ id, name = "3D Scene Group", description } = {}) =>
+      createProjectGroupDefinitionFromTemplate(ComposableScene3dGroup, {
+        id,
+        name,
+        description: description || "A project-owned mesh, material, transform, camera, Scene, and image graph compiled into retained 3D render steps.",
+      }),
     exportProjectPackage: (state, manifest, options) => exportNodePackage(
       createNodePackageFromProject(state?.nodes, manifest),
       options
@@ -189,8 +293,10 @@ export function createVj1NodePackage() {
     projectArtifacts: (state) => createProjectArtifactCatalog(state),
     projectViews: (state) => projectArtifactViews(state),
     prepareProjectState,
+    editorContext,
     editorProjection: (definition, options = {}) => nodeEditorProjection(definition, { nodeRegistry: registry, ...options }),
-  });
+  };
+  return Object.freeze(packageApi);
 }
 
 function applicationProgramActivationStatus(projectGroup, activeGroup) {
@@ -243,8 +349,12 @@ export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] 
   const topologyDefinitions = new Map([
     ...visualDefinitions,
     ...projectVisualDefinitions,
+    ...SpecializedCompoundStageNodeDefinitions,
+    ...Scene3dNodeDefinitions,
+    TerrainFlightControllerNode,
     LayerGroupNode,
     VisualSourceNode,
+    ...TextureOperatorNodeDefinitions,
   ].map((definition) => [definition.id, definition]));
   const currentGroups = new Map(currentNodes.groups
     .filter((group) => group.generatedBy === COMPONENT_PROGRAM_GENERATOR)
@@ -276,8 +386,12 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
   const topologyDefinitions = new Map([
     ...visualDefinitions,
     ...projectVisualDefinitions,
+    ...SpecializedCompoundStageNodeDefinitions,
+    ...Scene3dNodeDefinitions,
+    TerrainFlightControllerNode,
     LayerGroupNode,
     VisualSourceNode,
+    ...TextureOperatorNodeDefinitions,
   ].map((definition) => [definition.id, definition]));
   const componentGroups = (preparedComponentGroups || (components || []).map((component) => compileComponentGroupTopology(component, {
     definitions: topologyDefinitions,
@@ -304,8 +418,24 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
     ComponentProgramNode,
     LayerGroupNode,
     VisualSourceNode,
+    ...TextureOperatorNodeDefinitions,
     SliderNode,
     ValueControlNode,
+    ComponentTimeControlNode,
+    OscillatorControlNode,
+    MapRangeControlNode,
+    ScalarMathControlNode,
+    Vector2ControlNode,
+    Vector3ControlNode,
+    SmoothControlNode,
+    SelectControlNode,
+    FrameDelayControlNode,
+    EventTriggerControlNode,
+    SampleHoldControlNode,
+    MidiControlInputNode,
+    OscControlInputNode,
+    AudioControlInputNode,
+    HostControlInputNode,
     OrbitMotionNode,
     NestedNoiseMotionNode,
   ];

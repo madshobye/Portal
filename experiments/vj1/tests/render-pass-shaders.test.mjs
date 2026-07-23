@@ -23,11 +23,15 @@ test("shared render-pass shaders expose their required pipeline contracts", () =
   assert.doesNotMatch(GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER, /sourceUvMatrix|clamp/);
 });
 
-test("output renderer orchestrates imported passes without owning inline GLSL", () => {
+test("output renderer delegates imported fixed passes without owning inline GLSL", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const compositeSource = readFileSync(new URL("../js/output/composite-render-runtime.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./render-pass-shaders.js?v=render-coordinate-scope-3"'));
+  assert.ok(rendererSource.includes("new CompositeRenderRuntime(this)"));
+  assert.ok(compositeSource.includes('from "./render-pass-shaders.js?v=texture-dag-1"'));
   assert.doesNotMatch(rendererSource, /const OVERLAY_BLEND_VERTEX_SHADER\s*=\s*`/);
   assert.doesNotMatch(rendererSource, /const COMPONENT_POST_FRAGMENT_SHADER\s*=\s*`/);
-  assert.ok(rendererSource.includes("target.createShader(RENDER_PASS_VERTEX_SHADER, fragment)"));
+  assert.doesNotMatch(compositeSource, /const OVERLAY_BLEND_VERTEX_SHADER\s*=\s*`/);
+  assert.doesNotMatch(compositeSource, /const COMPONENT_POST_FRAGMENT_SHADER\s*=\s*`/);
+  assert.ok(compositeSource.includes("target.createShader("));
 });

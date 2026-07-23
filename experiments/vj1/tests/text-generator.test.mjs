@@ -81,14 +81,15 @@ test("Text host adapter consumes the compiler-supplied node module and shaders",
 
 test("text generator is routed through specialized cached rendering and compact editor", async () => {
   const component = getGeneratorComponent("text");
-  const [renderer, specialized, parameterView, inputController] = await Promise.all([
+  const [renderer, sourceRuntime, specialized, parameterView, inputController] = await Promise.all([
     readFile(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFile(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
     readFile(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFile(new URL("../js/control/parameter-view.js", import.meta.url), "utf8"),
     readFile(new URL("../js/control/input-controller.js", import.meta.url), "utf8"),
   ]);
   assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:text");
-  assert.match(renderer, /"output\/specialized:text": "drawTextGenerator"/);
+  assert.match(sourceRuntime, /"output\/specialized:text": "drawTextGenerator"/);
   assert.match(renderer, /this\.specializedSources\.drawText/);
   assert.match(specialized, /textMaskSignature/);
   assert.match(specialized, /operation\?\.nodeModule/);

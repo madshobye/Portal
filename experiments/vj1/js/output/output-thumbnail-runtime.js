@@ -101,7 +101,7 @@ export class OutputThumbnailRuntime {
     const liveKeys = new Set();
     if (needsComponentThumbnail) {
       liveKeys.add(component.id);
-      changed = this.enqueue({ key: component.id, componentId: component.id, frameId: "", signature }) || changed;
+      changed = this.enqueue({ key: component.id, componentId: component.id, signature }) || changed;
     }
     if (component.type === "scene") {
       for (const surface of state.surfaces || []) {

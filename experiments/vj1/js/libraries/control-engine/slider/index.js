@@ -74,6 +74,7 @@ export const SliderArtifact = defineNodeArtifact({
   presentation: SliderNode.presentation,
 });
 
-export function sliderNodeProcess({ value }) {
-  return { value };
+export function sliderNodeProcess({ value }, { output = {} } = {}) {
+  output.value = value;
+  return output;
 }

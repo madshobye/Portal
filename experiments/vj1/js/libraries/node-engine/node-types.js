@@ -169,6 +169,30 @@ export const CORE_VALUE_TYPES = Object.freeze([
     validate: (value) => !!value && typeof value === "object",
   },
   {
+    id: "material3d",
+    name: "3D Material",
+    description: "A backend-independent surface, wire, or point material contract.",
+    validate: (value) => value?.kind === "material3d" && typeof value.id === "string",
+  },
+  {
+    id: "object3d",
+    name: "3D Object",
+    description: "A mesh instance with an independent material and transform.",
+    validate: (value) => value?.kind === "object3d" && !!value.mesh && !!value.transform,
+  },
+  {
+    id: "camera3d",
+    name: "3D Camera",
+    description: "A perspective or orthographic camera in normalized scene coordinates.",
+    validate: (value) => value?.kind === "camera3d" && Array.isArray(value.position) && Array.isArray(value.target),
+  },
+  {
+    id: "scene3d",
+    name: "3D Scene",
+    description: "An ordered collection of 3D objects, lights, and a camera.",
+    validate: (value) => value?.kind === "scene3d" && Array.isArray(value.objects) && !!value.camera,
+  },
+  {
     id: "audio",
     name: "Audio",
     description: "An audio resource, buffer, stream, or handle.",

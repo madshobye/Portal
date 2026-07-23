@@ -1,19 +1,19 @@
 export const THUMBNAIL_ROOT = "vj1-cache";
 export const THUMBNAIL_DIR = "thumbnails";
 
-export function componentThumbnailFilename(componentId, frameId = "", extension = "webp") {
+export function componentThumbnailFilename(componentId, surfaceId = "", extension = "webp") {
   const component = encodeURIComponent(String(componentId || ""));
-  const frame = frameId ? `__frame__${encodeURIComponent(String(frameId))}` : "__component";
-  return `${component}${frame}.${extension === "png" ? "png" : "webp"}`;
+  const surface = surfaceId ? `__surface__${encodeURIComponent(String(surfaceId))}` : "__component";
+  return `${component}${surface}.${extension === "png" ? "png" : "webp"}`;
 }
 
 export function parseComponentThumbnailFilename(filename = "") {
-  const match = String(filename).match(/^(.+?)(__component|__frame__(.+))\.(webp|png)$/i);
+  const match = String(filename).match(/^(.+?)(__component|__surface__(.+))\.(webp|png)$/i);
   if (!match) return null;
   try {
     return {
       componentId: decodeURIComponent(match[1]),
-      frameId: match[3] ? decodeURIComponent(match[3]) : "",
+      surfaceId: match[3] ? decodeURIComponent(match[3]) : "",
       extension: match[4].toLowerCase(),
     };
   } catch {
@@ -49,11 +49,11 @@ export function applyThumbnailUrls(components = [], entries = []) {
   for (const entry of entries || []) {
     const component = byId.get(String(entry.componentId));
     if (!component || !entry.url) continue;
-    if (entry.frameId && component.type === "scene") {
+    if (entry.surfaceId && component.type === "scene") {
       component.scene ||= {};
       component.scene.surfaceThumbnails ||= {};
-      component.scene.surfaceThumbnails[entry.frameId] = entry.url;
-    } else if (!entry.frameId) {
+      component.scene.surfaceThumbnails[entry.surfaceId] = entry.url;
+    } else if (!entry.surfaceId) {
       component.thumbnail = entry.url;
     }
   }
@@ -86,25 +86,49 @@ export function stateWithoutThumbnailUrls(state = {}) {
 export function createThumbnailUrlLease({
   revoke = (url) => URL.revokeObjectURL(url),
   defer = deferUntilAfterPaint,
+  isReferenced = thumbnailUrlIsReferenced,
+  watchUntilUnused = watchUntilThumbnailUrlUnused,
 } = {}) {
   let active = new Set();
   const retired = new Set();
+  const watchers = new Map();
 
   function activate(urls = []) {
     const next = new Set(urls || []);
     const previous = active;
     active = next;
+    for (const url of next) {
+      watchers.get(url)?.();
+      watchers.delete(url);
+      retired.delete(url);
+    }
     const stale = [...previous].filter((url) => !next.has(url));
     for (const url of stale) retired.add(url);
     if (stale.length) defer(() => {
       for (const url of stale) {
-        if (active.has(url) || !retired.delete(url)) continue;
-        revoke(url);
+        retireWhenUnused(url);
       }
     });
   }
 
+  function retireWhenUnused(url) {
+    if (active.has(url) || !retired.has(url)) return;
+    if (isReferenced(url)) {
+      if (!watchers.has(url)) {
+        watchers.set(url, watchUntilUnused(url, () => {
+          watchers.delete(url);
+          retireWhenUnused(url);
+        }));
+      }
+      return;
+    }
+    retired.delete(url);
+    revoke(url);
+  }
+
   function release() {
+    for (const cancel of watchers.values()) cancel?.();
+    watchers.clear();
     for (const url of new Set([...active, ...retired])) revoke(url);
     active.clear();
     retired.clear();
@@ -119,4 +143,33 @@ function deferUntilAfterPaint(callback) {
     return;
   }
   requestAnimationFrame(() => requestAnimationFrame(callback));
+}
+
+function thumbnailUrlIsReferenced(url) {
+  if (!url || typeof document === "undefined") return false;
+  return [...document.querySelectorAll("img[src]")].some((image) =>
+    image.getAttribute("src") === url || image.currentSrc === url);
+}
+
+function watchUntilThumbnailUrlUnused(url, callback) {
+  if (
+    typeof MutationObserver !== "function"
+    || typeof document === "undefined"
+    || !document.documentElement
+  ) {
+    const timer = setTimeout(callback, 250);
+    return () => clearTimeout(timer);
+  }
+  const observer = new MutationObserver(() => {
+    if (thumbnailUrlIsReferenced(url)) return;
+    observer.disconnect();
+    callback();
+  });
+  observer.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["src"],
+    childList: true,
+    subtree: true,
+  });
+  return () => observer.disconnect();
 }

@@ -1,4 +1,4 @@
-import { drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=runtime-diagnostics-1";
+import { acceptVideoDecodedFrame, drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=atomic-video-seek-1";
 import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
 import { graphicsToPngBlob } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
@@ -12,6 +12,7 @@ let videoFrameCallbackUnavailableReported = false;
 let videoFrameCallbackFailureReported = false;
 let rasterDecodeApiFallbackReported = false;
 const MAX_IMAGE_VARIANT_WIDTH = 8192;
+export const VIDEO_IDLE_GRACE_FRAMES = 120;
 
 export class OutputMediaRuntime {
   constructor({
@@ -19,6 +20,8 @@ export class OutputMediaRuntime {
     requestMediaFiles,
     sendMediaRendition,
     applyGraphicsFont,
+    onInvalidate,
+    onMediaMetadata,
     maxCachedMedia = 12,
     maxCachedMediaBytes = 256 * 1024 * 1024,
     cameraIdleGraceMs,
@@ -27,6 +30,8 @@ export class OutputMediaRuntime {
     this.requestMediaFiles = requestMediaFiles;
     this.sendMediaRendition = sendMediaRendition;
     this.applyGraphicsFont = applyGraphicsFont || (() => {});
+    this.onInvalidate = onInvalidate;
+    this.onMediaMetadata = onMediaMetadata;
     this.media = new Map();
     this.pendingRenditionSaves = new Set();
     this.lastMediaRequestAt = 0;
@@ -66,6 +71,8 @@ export class OutputMediaRuntime {
         item = createMediaRuntimeItem(id, file, sourceRevision);
         this.media.set(id, item);
       }
+      item.onInvalidate = this.onInvalidate;
+      item.onMediaMetadata = this.onMediaMetadata;
       this.importRenditions(item, entry?.renditions || []);
     }
   }
@@ -158,6 +165,8 @@ export class OutputMediaRuntime {
     const loaded = Array.from(this.media.values()).filter(isMediaRuntimeItemLoaded);
     const inactive = loaded
       .filter((item) => !this.activeMediaItems.has(item) && !this.reservedMediaIds.has(item.id))
+      .filter((item) => !isVideoRuntimeItem(item)
+        || (Number(item.inactiveFrameCount) || 0) >= VIDEO_IDLE_GRACE_FRAMES)
       .sort((a, b) => (Number(a.lastMediaUse) || 0) - (Number(b.lastMediaUse) || 0));
     let loadedBytes = loaded.reduce((total, item) => total + estimateMediaRuntimeBytes(item), 0);
     const protectedCount = loaded.filter((item) => this.activeMediaItems.has(item) || this.reservedMediaIds.has(item.id)).length;
@@ -308,6 +317,8 @@ function createMediaRuntimeItem(id, file, sourceRevision = "") {
     videoFrameRevision: 0,
     videoFrameCallbackId: null,
     videoFrameElement: null,
+    duration: 0,
+    durationUnavailableReported: false,
   };
 }
 
@@ -514,6 +525,7 @@ function ensureVideoRuntimeItemLoaded(item) {
   item.loading = true;
   const loadToken = ++item.loadToken;
   const isCurrent = () => item.loadToken === loadToken;
+  let element = null;
   item.url = URL.createObjectURL(item.file);
   const markReady = () => {
     if (!isCurrent()) return false;
@@ -521,6 +533,7 @@ function ensureVideoRuntimeItemLoaded(item) {
     if (!item.ready || item.loadError) item.revision++;
     item.ready = true;
     item.loadError = "";
+    publishVideoDuration(item, element, isCurrent);
     return true;
   };
   const markError = (error) => {
@@ -544,7 +557,7 @@ function ensureVideoRuntimeItemLoaded(item) {
     markReady();
   });
   item.video?.hide?.();
-  const element = item.video?.elt;
+  element = item.video?.elt;
   if (element) {
     // The decoder only exists after an active render source acquires it.
     // Playback is still separately owned by the current rendered frame.
@@ -556,10 +569,33 @@ function ensureVideoRuntimeItemLoaded(item) {
     element.setAttribute?.("playsinline", "");
     startVideoFrameTracking(item, element, isCurrent);
   }
+  const publishDuration = () => publishVideoDuration(item, element, isCurrent);
+  const reportMissingDuration = () => {
+    if (!isCurrent() || item.duration > 0 || item.durationUnavailableReported) return;
+    item.durationUnavailableReported = true;
+    console.warn("[VJ1_VIDEO_DURATION_UNAVAILABLE]", {
+      id: item.id,
+      message: "Decoded video metadata did not provide a finite duration; trim controls remain unavailable",
+    });
+  };
+  element?.addEventListener?.("loadedmetadata", publishDuration);
+  element?.addEventListener?.("durationchange", publishDuration);
   element?.addEventListener?.("loadeddata", markReady, { once: true });
   element?.addEventListener?.("canplay", markReady, { once: true });
+  element?.addEventListener?.("loadeddata", reportMissingDuration, { once: true });
   element?.addEventListener?.("error", () => markError(element?.error), { once: true });
   return item.video;
+}
+
+function publishVideoDuration(item, element, isCurrent) {
+  if (!isCurrent?.()) return false;
+  const duration = Number(element?.duration);
+  if (!Number.isFinite(duration) || duration <= 0) return false;
+  if (Math.abs(duration - Number(item.duration || 0)) < 0.001) return true;
+  item.duration = duration;
+  item.durationUnavailableReported = false;
+  item.onMediaMetadata?.(item.id, { duration });
+  return true;
 }
 
 function ensurePersistedRenditionLoaded(item, key) {
@@ -657,8 +693,7 @@ function unloadMediaRuntimeItem(item) {
   item.loadToken++;
   item.loading = false;
   stopVideoFrameTracking(item);
-  item.video?.stop?.();
-  item.video?.remove?.();
+  releaseVideoRuntimeItem(item.video);
   item.video = null;
   item.image?.remove?.();
   if (typeof Image !== "undefined" && item.image instanceof Image) item.image.src = "";
@@ -698,6 +733,36 @@ function unloadMediaRuntimeItem(item) {
   item.revision++;
 }
 
+function releaseVideoRuntimeItem(video) {
+  if (!video) return;
+  const element = video.elt;
+  // A p5.MediaElement may be removed from the DOM while its underlying video
+  // and <source> nodes still own the blob URL. Revoking that URL first leaves
+  // Chrome free to complete or retry a queued decoder request against an
+  // invalid address. Retire decoder ownership in the opposite order: stop,
+  // detach all DOM sources, force the media resource selection algorithm to
+  // release them, then let the wrapper remove its element.
+  try {
+    video.stop?.();
+  } catch (_error) {
+    try {
+      element?.pause?.();
+    } catch (_pauseError) {
+      // The decoder may already be detached.
+    }
+  }
+  try {
+    element?.removeAttribute?.("src");
+    for (const source of element?.querySelectorAll?.("source") || []) {
+      source.removeAttribute?.("src");
+    }
+    element?.load?.();
+  } catch (_error) {
+    // Disposal remains best-effort for browser media implementations.
+  }
+  video.remove?.();
+}
+
 function startVideoFrameTracking(item, element, isCurrent) {
   stopVideoFrameTracking(item);
   if (!item || !element) return;
@@ -715,11 +780,26 @@ function startVideoFrameTracking(item, element, isCurrent) {
   item.videoFrameElement = element;
   const onFrame = (_now, metadata = {}) => {
     if (!item.videoFrameDriven || item.videoFrameElement !== element || !isCurrent()) return;
+    const callbackMediaTime = Number(metadata.mediaTime);
+    if (!acceptVideoDecodedFrame(element, callbackMediaTime)) {
+      try {
+        item.videoFrameCallbackId = element.requestVideoFrameCallback(onFrame);
+      } catch (error) {
+        item.videoFrameDriven = false;
+        item.videoFrameCallbackId = null;
+        reportVideoFrameCallbackFailure(error);
+      }
+      return;
+    }
+    const mediaTime = Number.isFinite(callbackMediaTime)
+      ? callbackMediaTime
+      : Number(element.currentTime);
     // The decoded frame—not the renderer tick—is the media dirty signal. This
     // lets a 30 fps clip retain its rendered component on the intervening
     // frames of a 60 fps Preview/Output loop without changing playback.
     item.videoFrameRevision = Math.max(0, Number(item.videoFrameRevision) || 0) + 1;
-    item.videoFrameMediaTime = Math.max(0, Number(metadata.mediaTime) || Number(element.currentTime) || 0);
+    item.videoFrameMediaTime = Math.max(0, mediaTime || 0);
+    item.onInvalidate?.("video-frame", item);
     try {
       item.videoFrameCallbackId = element.requestVideoFrameCallback(onFrame);
     } catch (error) {
@@ -817,8 +897,11 @@ function estimateMediaRuntimeBytes(item) {
     const width = Math.max(1, Number(element.videoWidth) || Number(element.width) || 1);
     const height = Math.max(1, Number(element.videoHeight) || Number(element.height) || 1);
     // A decoder commonly retains multiple YUV/RGBA frames. This conservative
-    // estimate is for eviction pressure, not accounting telemetry.
-    return Math.max(Number(item.file?.size) || 0, width * height * 12);
+    // estimate is for eviction pressure, not accounting telemetry. The source
+    // File is browser/disk-backed and is not resident decoded memory; counting
+    // a large movie's compressed file size made it exceed the cache by itself
+    // and churn its decoder whenever Preview switched to a thumbnail.
+    return width * height * 12;
   }
   if (item.image) {
     const element = item.image.elt || item.image;

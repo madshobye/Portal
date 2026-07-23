@@ -41,8 +41,9 @@ export const InstanceTimeNode = defineNode({
   process: instanceTimeNodeProcess,
 });
 
-export function instanceTimeNodeProcess({ instanceId, baseTime } = {}) {
-  return { time: instanceTime(instanceId, baseTime) };
+export function instanceTimeNodeProcess({ instanceId, baseTime } = {}, { output = {} } = {}) {
+  output.time = instanceTime(instanceId, baseTime);
+  return output;
 }
 
 export function componentInstanceTime(component = {}, baseTime = 0, instanceId = "") {

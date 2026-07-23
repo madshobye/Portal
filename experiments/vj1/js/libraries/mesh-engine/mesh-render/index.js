@@ -5,6 +5,13 @@ import { buildParsedModelSurfaceVertices } from "../mesh-geometry.js";
 import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "../mesh-render-cache.js";
 import { modelCameraFov, modelDepthCutoff, modelDepthSliceEnabled, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js?v=resolution-relative-model-clip-1";
 import { MeshType, modelTriangleCount } from "../mesh-types.js";
+import {
+  Camera3dType,
+  createCamera3d,
+  createMaterial3d,
+  createTransform3d,
+  Material3dType,
+} from "../scene-types.js";
 import { modelPreviewSvg } from "../mesh-preview-renderer.js";
 import { compileRawShader, linkSpecializedProgram } from "../../render-engine/raw-webgl-utils.js";
 import {
@@ -24,12 +31,15 @@ const MeshRenderResultType = recordType("mesh-render-result", {
 
 export const MeshRenderNode = defineNode({
   id: "core.mesh.render",
-  name: "Mesh Render",
+  name: "Mesh to Image",
   version: "0.1.0",
-  description: "Renders a mesh into a p5/WebGL target using cached raw GPU buffers and editable shaders.",
+  description: "Renders a mesh with independently connectable material, transform, camera, target, and time inputs.",
   implementation: NODE_IMPLEMENTATION_KINDS.SHADER,
   inlets: {
     mesh: { type: MeshType, required: true },
+    material: { type: Material3dType, optional: true },
+    transform: { type: "transform3d", optional: true },
+    camera: { type: Camera3dType, optional: true },
     target: { type: "any", optional: true },
     cacheOwner: { type: "any", optional: true },
     componentTime: { type: "number", defaultValue: 0 },
@@ -37,6 +47,7 @@ export const MeshRenderNode = defineNode({
     contentTransform: { type: valueType("transform2d"), optional: true },
     surfaceColor: { type: "color", defaultValue: [220, 225, 220, 255] },
     wireColor: { type: "color", defaultValue: [20, 20, 20, 220] },
+    clear: { type: "boolean", defaultValue: true },
   },
   parameters: {
     backend: {
@@ -56,10 +67,22 @@ export const MeshRenderNode = defineNode({
     wireThickness: { type: "number", defaultValue: 1, allowedRange: [0.5, 12], displayRange: [0.5, 12], clamp: true },
     pointBudget: { type: "number", defaultValue: 4000, allowedRange: [128, 75000], displayRange: [128, 75000], clamp: true },
   },
-  outlets: { result: { type: MeshRenderResultType } },
-  execution: { trigger: "frame", domain: "main", stateful: true, asynchronous: false },
-  capabilities: ["mesh-rendering", "produces-image", "gpu", "graph-placeable", "live-fast-path"],
-  presentation: { catalogs: ["graph", "mesh", "render"], placeableOn: ["node-graph"], previewOutput: "result" },
+  outlets: {
+    image: { type: optionalType("image") },
+    texture: { type: "texture" },
+    result: { type: MeshRenderResultType },
+  },
+  execution: {
+    trigger: "frame",
+    domain: "main",
+    stateful: true,
+    asynchronous: false,
+    dispose(instance) {
+      if (instance.state.cacheOwner) disposeRawModelItemResources(instance.state.cacheOwner);
+    },
+  },
+  capabilities: ["mesh-rendering", "produces-image", "gpu", "graph-placeable", "live-fast-path", "composable-render-operation"],
+  presentation: { catalogs: ["graph", "mesh", "render"], placeableOn: ["node-graph"], previewOutput: "image" },
   parts: [
     {
       id: "mesh-render-algorithm",
@@ -96,43 +119,85 @@ export const MeshRenderNode = defineNode({
   process: renderMeshNodeProcess,
 });
 
-export function renderMeshNodeProcess(inputs = {}) {
-  if (inputs.backend === "svg") {
-    const svg = modelPreviewSvg(inputs.mesh);
-    return {
-      result: {
-        rendered: true,
-        gpuBytes: 0,
-        backend: "svg",
-        image: { kind: "svg", data: svg, width: 100, height: 100 },
-      },
+export function renderMeshNodeProcess(inputs = {}, { state = {}, output = null } = {}) {
+  const nodeOutput = output || state.nodeOutput || (state.nodeOutput = {
+    image: null,
+    texture: null,
+    result: {
+      rendered: false,
+      gpuBytes: 0,
+      backend: "webgl",
+      image: null,
+    },
+  });
+  if (!nodeOutput.result) {
+    nodeOutput.result = {
+      rendered: false,
+      gpuBytes: 0,
+      backend: "webgl",
+      image: null,
     };
   }
-  const params = {
-    ...inputs,
-    pointBudget: boundedBudget(inputs.pointBudget),
-  };
+  if (inputs.backend === "svg") {
+    const svg = modelPreviewSvg(inputs.mesh);
+    const image = state.svgImage || (state.svgImage = { kind: "svg", data: "", width: 100, height: 100 });
+    image.data = svg;
+    nodeOutput.image = image;
+    nodeOutput.texture = image;
+    nodeOutput.result.rendered = true;
+    nodeOutput.result.gpuBytes = 0;
+    nodeOutput.result.backend = "svg";
+    nodeOutput.result.image = image;
+    return nodeOutput;
+  }
+  if (!inputs.cacheOwner && (!state.cacheOwner || state.mesh !== inputs.mesh)) {
+    if (state.cacheOwner) disposeRawModelItemResources(state.cacheOwner);
+    state.mesh = inputs.mesh;
+    state.cacheOwner = { modelData: inputs.mesh };
+  }
+  const cacheOwner = inputs.cacheOwner || state.cacheOwner;
+  const material = inputs.material?.kind === "material3d" ? inputs.material : null;
+  if (inputs.clear !== false) inputs.target?.clear?.();
+  const params = state.renderParams || (state.renderParams = {});
+  for (const key in inputs) params[key] = inputs[key];
+  params.pointBudget = boundedBudget(material?.pointBudget ?? inputs.pointBudget);
+  params.visibleDepth = material?.visibleDepth ?? inputs.visibleDepth;
+  params.wireThickness = material?.wireThickness ?? inputs.wireThickness;
+  params.__sceneTransform = inputs.transform?.kind === "transform3d"
+    ? inputs.transform
+    : state.defaultTransform || (state.defaultTransform = createTransform3d());
+  params.__sceneCamera = inputs.camera?.kind === "camera3d"
+    ? inputs.camera
+    : state.defaultCamera || (state.defaultCamera = createCamera3d());
+  params.__material = material || state.defaultMaterial || (state.defaultMaterial = createMaterial3d({
+      renderMode: inputs.renderMode,
+      surfaceColor: inputs.surfaceColor,
+      wireColor: inputs.wireColor,
+      wireThickness: inputs.wireThickness,
+      pointBudget: inputs.pointBudget,
+      visibleDepth: inputs.visibleDepth,
+    }));
   const rendered = drawRawParsedModelMode(
     inputs.target,
-    inputs.cacheOwner,
+    cacheOwner,
     params,
     inputs.componentTime,
-    inputs.renderMode,
-    inputs.surfaceColor,
-    inputs.wireColor,
+    material?.renderMode ?? inputs.renderMode,
+    material?.surfaceColor ?? inputs.surfaceColor,
+    material?.wireColor ?? inputs.wireColor,
     params.pointBudget,
     inputs.viewport,
     inputs.contentTransform,
     inputs.mesh,
   );
-  return {
-    result: {
-      rendered,
-      gpuBytes: estimateRawModelItemGpuBytes(inputs.cacheOwner),
-      backend: "webgl",
-      image: undefined,
-    },
-  };
+  const image = inputs.target;
+  nodeOutput.image = image;
+  nodeOutput.texture = image;
+  nodeOutput.result.rendered = rendered;
+  nodeOutput.result.gpuBytes = estimateRawModelItemGpuBytes(cacheOwner);
+  nodeOutput.result.backend = "webgl";
+  nodeOutput.result.image = image;
+  return nodeOutput;
 }
 
 export function drawRawParsedModelMode(target, item, params = {}, componentTime = 0, renderMode = "surface", surfaceColor = [220, 225, 220, 255], wireColor = [20, 20, 20, 220], pointBudget = 4000, viewport = null, contentTransform = {}, mesh = item?.modelData) {
@@ -166,6 +231,8 @@ export function disposeRawModelContextResources(gl, resources) {
   resources?.buffers?.clear?.();
   disposeRawModelProgram(gl, resources?.program);
   disposeRawModelProgram(gl, resources?.surfaceProgram);
+  for (const program of resources?.surfacePrograms?.values?.() || []) disposeRawModelProgram(gl, program);
+  resources?.surfacePrograms?.clear?.();
   disposeRawModelProgram(gl, resources?.wireProgram);
   disposeRawModelProgram(gl, resources?.perceptualWireProgram);
 }
@@ -204,7 +271,7 @@ function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode =
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect);
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect, params.__sceneTransform, params.__sceneCamera);
     const rgba = normalizedColor(color);
 
     gl.useProgram(resources.program);
@@ -248,7 +315,7 @@ function drawRawParsedWire(target, item, params = {}, componentTime = 0, color =
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect);
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect, params.__sceneTransform, params.__sceneCamera);
     const stride = 8 * 4;
 
     gl.useProgram(resources.program);
@@ -309,7 +376,7 @@ function drawRawParsedPerceptualEdges(target, item, params = {}, componentTime =
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect);
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect, params.__sceneTransform, params.__sceneCamera);
     const stride = 15 * 4;
     const requestedAngle = Number(params.edgeAngle);
     const edgeAngle = Math.max(0, Math.min(180, Number.isFinite(requestedAngle) ? requestedAngle : 35));
@@ -353,7 +420,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
   const passState = beginRawWebGlState(gl, "model-surface");
   let attributeStates = [];
   try {
-    const resources = ensureRawSurfaceResources(gl, item, mesh);
+    const resources = ensureRawSurfaceResources(gl, item, mesh, params.__material);
     if (!resources?.buffer || !resources.count || !resources.program) return false;
     attributeStates = captureRawWebGlAttributes(gl, passState, [resources.position, resources.normal]);
     bindRawWebGlVertexArray(gl, passState, resources.vertexArrayOwner);
@@ -363,7 +430,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
     const depth = Math.max(0.05, Number(params.depth) || 1);
     const scale = metrics.unitScale * modelScale;
     const rotation = modelRotation(params, componentTime, params.__importBasis);
-    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect);
+    const matrices = rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect, params.__sceneTransform, params.__sceneCamera);
     const stride = 6 * 4;
 
     gl.useProgram(resources.program);
@@ -380,6 +447,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
     gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
     gl.uniform1f(resources.depthSliceEnabled, modelDepthSliceEnabled(params) ? 1 : 0);
     gl.uniform4fv(resources.color, normalizedColor(color));
+    setMaterialUniforms(gl, resources, params.__material);
     gl.drawArrays(gl.TRIANGLES, 0, resources.count);
     return true;
   } finally {
@@ -415,13 +483,22 @@ function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000, 
   };
 }
 
-function ensureRawSurfaceResources(gl, item, mesh = item?.modelData) {
+function ensureRawSurfaceResources(gl, item, mesh = item?.modelData, material = null) {
   const contextResources = ensureRawModelContextResources(gl, item);
-  if (!rawModelProgramValid(gl, contextResources.surfaceProgram)) {
-    disposeRawModelProgram(gl, contextResources.surfaceProgram);
-    contextResources.surfaceProgram = createRawSurfaceProgram(gl);
+  if (!(contextResources.surfacePrograms instanceof Map)) contextResources.surfacePrograms = new Map();
+  const materialKey = material?.shader?.source
+    ? `${material.id}@${material.version}:${sourceHash(material.shader.source)}`
+    : "builtin";
+  let surfaceProgram = materialKey === "builtin"
+    ? contextResources.surfaceProgram
+    : contextResources.surfacePrograms.get(materialKey);
+  if (!rawModelProgramValid(gl, surfaceProgram)) {
+    disposeRawModelProgram(gl, surfaceProgram);
+    surfaceProgram = createRawSurfaceProgram(gl, material);
+    if (materialKey === "builtin") contextResources.surfaceProgram = surfaceProgram;
+    else if (surfaceProgram) contextResources.surfacePrograms.set(materialKey, surfaceProgram);
   }
-  if (!contextResources.surfaceProgram) return null;
+  if (!surfaceProgram) return null;
   const meshKey = `${modelTriangleCount(mesh)}`;
   const key = `surface:${meshKey}`;
   let buffer = validCachedBuffer(gl, contextResources, key);
@@ -434,8 +511,8 @@ function ensureRawSurfaceResources(gl, item, mesh = item?.modelData) {
   return {
     ...buffer,
     vertexArrayOwner: buffer,
-    ...contextResources.surfaceProgram,
-    program: contextResources.surfaceProgram.program,
+    ...surfaceProgram,
+    program: surfaceProgram.program,
   };
 }
 
@@ -495,7 +572,14 @@ function ensureRawModelContextResources(gl, item) {
   if (!(item.modelRawRenderers instanceof Map)) item.modelRawRenderers = new Map();
   let resources = item.modelRawRenderers.get(gl);
   if (!resources) {
-    resources = { program: null, surfaceProgram: null, wireProgram: null, perceptualWireProgram: null, buffers: new Map() };
+    resources = {
+      program: null,
+      surfaceProgram: null,
+      surfacePrograms: new Map(),
+      wireProgram: null,
+      perceptualWireProgram: null,
+      buffers: new Map(),
+    };
     item.modelRawRenderers.set(gl, resources);
   }
   return resources;
@@ -582,7 +666,10 @@ function createRawModelProgram(gl) {
   });
 }
 
-function createRawSurfaceProgram(gl) {
+function createRawSurfaceProgram(gl, material = null) {
+  const materialSource = String(material?.shader?.source || "").trim();
+  const materialUniforms = material?.shader?.uniforms || {};
+  const custom = !!materialSource;
   return createProgram(gl, {
     vertex: `
       attribute vec3 aPosition;
@@ -592,17 +679,31 @@ function createRawSurfaceProgram(gl) {
       uniform mat3 uNormalMatrix;
       varying float vLight;
       varying float vModelDepth;
+      ${custom ? "varying vec3 vSurfaceNormal; varying vec3 vSurfacePosition;" : ""}
       void main() {
         vec3 n = normalize(uNormalMatrix * aNormal);
         vec3 keyLight = normalize(vec3(-0.35, -0.45, 0.75));
         vLight = clamp(dot(n, keyLight) * 0.55 + 0.45, 0.0, 1.0);
         vModelDepth = (uModel * vec4(aPosition, 1.0)).z;
+        ${custom ? "vSurfaceNormal = n; vSurfacePosition = (uModel * vec4(aPosition, 1.0)).xyz;" : ""}
         gl_Position = uMvp * vec4(aPosition, 1.0);
       }
     `,
-    fragment: depthFragment("gl_FragColor = vec4(uColor.rgb * vLight, uColor.a);", "varying float vLight;"),
+    fragment: depthFragment(
+      custom
+        ? "gl_FragColor = vj1Surface(normalize(vSurfaceNormal), vSurfacePosition, vec2(0.0), uColor);"
+        : "gl_FragColor = vec4(uColor.rgb * vLight, uColor.a);",
+      custom
+        ? `varying float vLight;
+           varying vec3 vSurfaceNormal;
+           varying vec3 vSurfacePosition;
+           ${Object.entries(materialUniforms).map(([id, spec]) => `uniform ${spec.type} ${id};`).join("\n")}
+           ${materialSource}`
+        : "varying float vLight;"
+    ),
     attributes: ["position:aPosition", "normal:aNormal"],
     uniforms: ["mvp:uMvp", "model:uModel", "normalMatrix:uNormalMatrix", "color:uColor", "depthCutoff:uDepthCutoff", "depthSliceEnabled:uDepthSliceEnabled"],
+    extraUniforms: Object.keys(materialUniforms),
   });
 }
 
@@ -728,7 +829,7 @@ function createRawPerceptualWireProgram(gl) {
   });
 }
 
-function createProgram(gl, { vertex, fragment, attributes = [], uniforms = [] }) {
+function createProgram(gl, { vertex, fragment, attributes = [], uniforms = [], extraUniforms = [] }) {
   const vertexShader = compileRawShader(gl, gl.VERTEX_SHADER, vertex);
   const fragmentShader = compileRawShader(gl, gl.FRAGMENT_SHADER, fragment);
   const program = linkSpecializedProgram(gl, vertexShader, fragmentShader);
@@ -742,6 +843,10 @@ function createProgram(gl, { vertex, fragment, attributes = [], uniforms = [] })
     const [key, name] = entry.split(":");
     resource[key] = gl.getUniformLocation(program, name);
   }
+  resource.materialUniforms = Object.freeze(Object.fromEntries(extraUniforms.map((name) => [
+    name,
+    gl.getUniformLocation(program, name),
+  ])));
   return resource;
 }
 
@@ -762,6 +867,28 @@ function depthFragment(output, extra = "") {
 
 function normalizedColor(color) {
   return color.map((channel) => Math.max(0, Math.min(1, Number(channel) / 255 || 0)));
+}
+
+function setMaterialUniforms(gl, resources, material) {
+  for (const [id, specification] of Object.entries(material?.shader?.uniforms || {})) {
+    const location = resources.materialUniforms?.[id];
+    if (location === null || location === undefined) continue;
+    const value = specification.value;
+    if (specification.type === "float") gl.uniform1f(location, Number(value) || 0);
+    else if (specification.type === "int" || specification.type === "bool") gl.uniform1i(location, Math.round(Number(value) || 0));
+    else if (specification.type === "vec2") gl.uniform2fv(location, value || [0, 0]);
+    else if (specification.type === "vec3") gl.uniform3fv(location, value || [0, 0, 0]);
+    else if (specification.type === "vec4") gl.uniform4fv(location, value || [0, 0, 0, 0]);
+  }
+}
+
+function sourceHash(value) {
+  let hash = 2166136261;
+  for (let index = 0; index < String(value).length; index++) {
+    hash ^= String(value).charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 function rawModelTargetPixelSize(target) {

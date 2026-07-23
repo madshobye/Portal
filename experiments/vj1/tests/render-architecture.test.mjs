@@ -361,9 +361,9 @@ test("projection mapping exposes cover contain and stretch without another rende
   assert.match(featherSource, /float cornerRadius = min\(0\.08, max\(0\.012, uFeather \* 0\.35\)\)/);
   assert.match(featherSource, /length\(max\(roundedDelta, 0\.0\)\)/);
   assert.match(featherSource, /return smoothstep\(0\.0, uFeather, -roundedDistance\)/);
-  assert.match(featherSource, /vec2 featherUv = uUseFrameFit \? frameUv/);
-  assert.match(featherSource, /uniform float uFrameFit/);
-  assert.match(featherSource, /float featherAspect = uUseFrameFit \? uFrameAspect : \(uProjectionFit >= 1\.5 \? uSourceAspect : uTargetAspect\)/);
+  assert.match(featherSource, /vec2 featherUv = uUseSourceFit \? sourceTargetUv/);
+  assert.match(featherSource, /uniform bool uUseSourceFit/);
+  assert.match(featherSource, /float featherAspect = uUseSourceFit \? uSourceTargetAspect : \(uProjectionFit >= 1\.5 \? uSourceAspect : uTargetAspect\)/);
   assert.match(featherSource, /color \*= featherMask/);
   assert.match(fragmentSource, /uniform vec4 uSourceRect/);
   assert.match(fragmentSource, /textureUv = uSourceRect\.xy \+ clamp\(sampleUv/);
@@ -394,14 +394,16 @@ test("scene dissolve mixes premultiplied surface routes inside one projection sh
   const source = mapperTransitionFragmentShaderSource({ feather: true });
   assert.match(source, /uniform sampler2D fromTex/);
   assert.match(source, /uniform sampler2D toTex/);
-  assert.match(source, /vec4 color = mix\(fromColor, toColor/);
+  assert.match(source, /vec4 vj1Transition\(vec4 startColor, vec4 endColor/);
+  assert.match(source, /return mix\(startColor, endColor/);
+  assert.match(source, /vec4 color = vj1Transition\(fromColor, toColor, uv/);
   assert.match(source, /fromColor \*= roundedFeatherMask\(fromFeatherUv, fromFeatherAspect\)/);
   assert.match(source, /toColor \*= roundedFeatherMask\(toFeatherUv, toFeatherAspect\)/);
   assert.match(source, /uniform vec4 uFromSourceRect/);
   assert.match(source, /uniform vec4 uToSourceRect/);
   assert.match(source, /vec2 fromTextureUv = uFromSourceRect\.xy/);
   assert.match(source, /vec2 toTextureUv = uToSourceRect\.xy/);
-  assert.ok(source.indexOf("fromColor *= roundedFeatherMask") < source.indexOf("vec4 color = mix"));
+  assert.ok(source.indexOf("fromColor *= roundedFeatherMask") < source.indexOf("vec4 color = vj1Transition"));
 });
 
 function applyMat3(matrix, [x, y]) {

@@ -5,6 +5,8 @@ export const ComponentProgramNode = defineNodeGroup({
   name: "Component Program",
   version: "0.1.0",
   description: "A persisted Component or Scene visual topology compiled into a direct render program.",
+  executionModel: "compiled-graph",
+  authoring: { activation: "recompile" },
   inlets: { texture: { type: "texture", optional: true } },
   outlets: { texture: { type: "texture" } },
   execution: { trigger: "frame", domain: "main", stateful: true },

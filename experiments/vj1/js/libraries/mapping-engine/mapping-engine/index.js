@@ -1,17 +1,23 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
 import { projectedQuadAspect } from "../../render-engine/relative-geometry.js?v=frame-projection-aspect-1";
+import {
+  DissolveTransitionKernel,
+  transitionKernelCacheKey,
+  transitionKernelUniformValues,
+} from "../../transition-engine/index.js";
 
 export class VjMapper {
-  constructor({ onConfigChange } = {}) {
+  constructor({ onConfigChange, onTransitionError } = {}) {
     this.surfaces = [];
     this.shader = null;
     this.featherShader = null;
-    this.transitionShader = null;
-    this.transitionFeatherShader = null;
+    this.transitionShaders = new Map();
+    this.failedTransitionShaders = new Set();
     this.calibrate = true;
     this.overlayMode = "always";
     this.pickRadius = 60;
     this.onConfigChange = typeof onConfigChange === "function" ? onConfigChange : null;
+    this.onTransitionError = typeof onTransitionError === "function" ? onTransitionError : null;
     this._dragSurf = -1;
     this._dragCorner = -1;
     this._dragMode = "";
@@ -61,6 +67,31 @@ export class VjMapper {
     this._dragCorner = -1;
     this._dragMode = "";
     this._dragStart = null;
+  }
+
+  retainTransitionKernels(kernels = []) {
+    const retained = new Set([
+      transitionKernelCacheKey(DissolveTransitionKernel),
+      ...(kernels || []).map((kernel) => transitionKernelCacheKey(kernel)),
+    ]);
+    for (const [key, shaderProgram] of this.transitionShaders) {
+      const kernelKey = key.replace(/:(?:feather|plain)$/, "");
+      if (retained.has(kernelKey)) continue;
+      disposeP5Shader(shaderProgram);
+      this.transitionShaders.delete(key);
+      this.failedTransitionShaders.delete(key);
+    }
+  }
+
+  dispose() {
+    for (const shaderProgram of this.transitionShaders.values()) disposeP5Shader(shaderProgram);
+    disposeP5Shader(this.shader);
+    disposeP5Shader(this.featherShader);
+    this.transitionShaders.clear();
+    this.failedTransitionShaders.clear();
+    this.shader = null;
+    this.featherShader = null;
+    this.clearSurfaces();
   }
 
   exportData() {
@@ -193,16 +224,37 @@ export class VjMapper {
     toOpacity = 1,
     feather = 0,
     progress = 0,
+    transitionKernel = DissolveTransitionKernel,
+    transitionParameters = {},
+    transitionTime = 0,
+    transitionTimeDelta = 0,
+    transitionFrameIndex = 0,
   } = {}) {
     if (!fromTexture || !toTexture || !surface) return;
     const featherAmount = Math.max(0, Math.min(0.5, Number(feather) || 0));
-    const shaderProgram = this._ensureTransitionShader(featherAmount > 0);
+    let effectiveKernel = transitionKernel || DissolveTransitionKernel;
+    const requestedKey = `${transitionKernelCacheKey(effectiveKernel)}:${featherAmount > 0 ? "feather" : "plain"}`;
+    if (this.failedTransitionShaders.has(requestedKey)) effectiveKernel = DissolveTransitionKernel;
+    let shaderProgram;
     const dpr = currentPixelDensity();
     this._renderResolution[0] = width * dpr;
     this._renderResolution[1] = height * dpr;
     const cache = this._getRenderCache(surface, dpr);
     if (!cache) return;
-    shader(shaderProgram);
+    try {
+      shaderProgram = this._ensureTransitionShader(featherAmount > 0, effectiveKernel);
+      shader(shaderProgram);
+    } catch (error) {
+      if (effectiveKernel === DissolveTransitionKernel) throw error;
+      this.failedTransitionShaders.add(requestedKey);
+      const failedProgram = this.transitionShaders.get(requestedKey);
+      if (failedProgram) disposeP5Shader(failedProgram);
+      this.transitionShaders.delete(requestedKey);
+      this.onTransitionError?.(error, effectiveKernel);
+      effectiveKernel = DissolveTransitionKernel;
+      shaderProgram = this._ensureTransitionShader(featherAmount > 0, effectiveKernel);
+      shader(shaderProgram);
+    }
     shaderProgram.setUniform("fromTex", fromTexture?.framebuffer || fromTexture);
     shaderProgram.setUniform("toTex", toTexture?.framebuffer || toTexture);
     shaderProgram.setUniform("uCanvasSize", [width, height]);
@@ -229,6 +281,22 @@ export class VjMapper {
     shaderProgram.setUniform("uFromProjectionFit", projectionFitMode(fromProjectionFit));
     shaderProgram.setUniform("uToProjectionFit", projectionFitMode(toProjectionFit));
     shaderProgram.setUniform("uTransition", Math.max(0, Math.min(1, Number(progress) || 0)));
+    const transitionHostValues = {
+      startImageSize: [Math.max(1, Number(fromTexture.width) || 1), Math.max(1, Number(fromTexture.height) || 1)],
+      endImageSize: [Math.max(1, Number(toTexture.width) || 1), Math.max(1, Number(toTexture.height) || 1)],
+      renderSize: [Math.max(1, Number(surface.w) || 1), Math.max(1, Number(surface.h) || 1)],
+      time: Number(transitionTime) || 0,
+      timeDelta: Number(transitionTimeDelta) || 0,
+      frameIndex: Math.max(0, Math.floor(Number(transitionFrameIndex) || 0)),
+      passIndex: 0,
+    };
+    for (const [id, value] of Object.entries(transitionKernelUniformValues(
+      effectiveKernel,
+      transitionParameters,
+      transitionHostValues
+    ))) {
+      if (value !== undefined) shaderProgram.setUniform(id, value);
+    }
     if (featherAmount > 0) shaderProgram.setUniform("uFeather", featherAmount);
     this._drawSurfaceQuad(cache.vertices);
     resetShader();
@@ -378,13 +446,17 @@ export class VjMapper {
     return this.shader;
   }
 
-  _ensureTransitionShader(withFeather = false) {
-    if (withFeather) {
-      if (!this.transitionFeatherShader) this.transitionFeatherShader = createShader(mapperVertexShaderSource(), mapperTransitionFragmentShaderSource({ feather: true }));
-      return this.transitionFeatherShader;
+  _ensureTransitionShader(withFeather = false, transitionKernel = DissolveTransitionKernel) {
+    const key = `${transitionKernelCacheKey(transitionKernel)}:${withFeather ? "feather" : "plain"}`;
+    let shaderProgram = this.transitionShaders.get(key);
+    if (!shaderProgram) {
+      shaderProgram = createShader(
+        mapperVertexShaderSource(),
+        mapperTransitionFragmentShaderSource({ feather: withFeather, transitionKernel })
+      );
+      this.transitionShaders.set(key, shaderProgram);
     }
-    if (!this.transitionShader) this.transitionShader = createShader(mapperVertexShaderSource(), mapperTransitionFragmentShaderSource());
-    return this.transitionShader;
+    return shaderProgram;
   }
 
   _drawSurfaceQuad(vertices) {
@@ -596,7 +668,10 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
     `;
 }
 
-export function mapperTransitionFragmentShaderSource({ feather = false } = {}) {
+export function mapperTransitionFragmentShaderSource({
+  feather = false,
+  transitionKernel = DissolveTransitionKernel,
+} = {}) {
   const featherUniform = feather ? "uniform float uFeather;" : "";
   const featherFunction = feather ? `
       float roundedFeatherMask(vec2 maskUv, float maskAspect) {
@@ -641,6 +716,7 @@ export function mapperTransitionFragmentShaderSource({ feather = false } = {}) {
       ${featherUniform}
       varying vec3 vProjectiveUv;
       ${featherFunction}
+      ${transitionKernel?.source || DissolveTransitionKernel.source}
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
@@ -725,7 +801,7 @@ export function mapperTransitionFragmentShaderSource({ feather = false } = {}) {
         vec4 fromColor = texture2D(fromTex, fromTextureUv) * fromInside * uFromOpacity;
         vec4 toColor = texture2D(toTex, toTextureUv) * toInside * uToOpacity;
         ${featherCode}
-        vec4 color = mix(fromColor, toColor, clamp(uTransition, 0.0, 1.0));
+        vec4 color = vj1Transition(fromColor, toColor, uv, clamp(uTransition, 0.0, 1.0));
         gl_FragColor = color;
       }
     `;
@@ -778,6 +854,20 @@ function currentPixelDensity() {
     if (Number.isFinite(dpr) && dpr > 0) return dpr;
   }
   return 1;
+}
+
+export function disposeP5Shader(shaderProgram) {
+  if (!shaderProgram) return;
+  const gl = shaderProgram?._renderer?.GL || shaderProgram?._renderer?.drawingContext;
+  const program = shaderProgram?._glProgram;
+  if (gl && program && typeof gl.isProgram === "function" && gl.isProgram(program)) gl.deleteProgram(program);
+  const vertex = shaderProgram?._vertShader;
+  if (gl && vertex && typeof gl.isShader === "function" && gl.isShader(vertex)) gl.deleteShader(vertex);
+  const fragment = shaderProgram?._fragShader;
+  if (gl && fragment && typeof gl.isShader === "function" && gl.isShader(fragment)) gl.deleteShader(fragment);
+  shaderProgram._glProgram = 0;
+  shaderProgram._vertShader = 0;
+  shaderProgram._fragShader = 0;
 }
 
 function surfaceBounds(tl, tr, br, bl) {

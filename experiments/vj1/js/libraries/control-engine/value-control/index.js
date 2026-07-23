@@ -25,5 +25,10 @@ export const ValueControlNode = defineNode({
     control: "auto",
     parameter: "value",
   }],
-  process: ({ value }) => ({ value }),
+  process: valueControlProcess,
 });
+
+export function valueControlProcess({ value }, { output = {} } = {}) {
+  output.value = value;
+  return output;
+}

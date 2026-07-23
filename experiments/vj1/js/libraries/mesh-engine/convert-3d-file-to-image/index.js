@@ -17,6 +17,11 @@ export const Convert3dFileToImageGroup = defineNodeGroup({
   name: "Convert 3D File to Image",
   version: "0.1.0",
   description: "Prepares and renders a 3D file using live or bounded-thumbnail quality policies.",
+  executionModel: "native-composite",
+  authoring: {
+    activation: "recompile",
+    reason: "Its profile-dependent graph is inspectable until conditional graph execution is supported.",
+  },
   inlets: {
     source: { type: "any", required: true },
     name: { type: "string", optional: true, defaultValue: "" },

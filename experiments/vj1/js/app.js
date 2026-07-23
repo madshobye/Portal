@@ -1,10 +1,10 @@
-import { createAppState } from "./app-state.js?v=transition-start-fit-1";
-import { createControlShell } from "./control/control-shell-controller.js?v=resolution-relative-model-clip-1";
+import { createAppState } from "./app-state.js?v=retained-navigation-scene-mapping-controls-separated-explicit-surface-visibility-navigation-reachability-derived-thumbnail-projection-live-selection-projection-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=public-control-node-configuration-media-url-retirement-named-image-inputs-isf-texture-shader-composite-source-backends-2";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=scene-mapping-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=transition-start-fit-1";
-import { createControlBridge } from "./services/output-bridge-service.js?v=render-patch-coalescing-1";
-import { installOutputApp } from "./output/output-app.js?v=resolution-relative-model-clip-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=node-package-management-scene-mapping-controls-separated-explicit-surface-visibility-navigation-reachability-derived-thumbnail-projection-project-group-authoring-compiler-transport-autosave-worker-2";
+import { createControlBridge } from "./services/output-bridge-service.js?v=thumbnail-url-lifecycle-1";
+import { installOutputApp } from "./output/output-app.js?v=public-control-node-configuration-media-url-retirement-named-image-inputs-isf-texture-shader-composite-source-backends-2";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createRenderStatePatch } from "./domain/live-render-patch.js?v=render-state-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
@@ -25,7 +25,7 @@ if (mode === "output" || mode === "preview" || mode === "component") {
 async function installControlApp() {
   // Control-only composition keeps node catalog/editor metadata completely out
   // of output and preview render processes; no live-frame work is introduced.
-  const { createVj1NodePackage } = await import("./app-node-package.js?v=sdf-content-editor-1");
+  const { createVj1NodePackage } = await import("./app-node-package.js?v=public-control-node-configuration-named-image-inputs-1");
   const { applicationProgramFromProjectData, loadStoredApplicationProgram } = await import("./services/application-program-loader.js?v=application-bootstrap-10");
   const nodePackage = createVj1NodePackage();
   const fixtureUrl = fixtureStateUrl();
@@ -126,9 +126,9 @@ async function installControlApp() {
     });
   }
 
-  application.bindInput("storage", "value", ({ change }) => {
+  application.bindInput("storage", "value", ({ state, change }) => {
     if (["live", "runtime", "derived"].includes(change.scope)) return;
-    projectService.scheduleAutoSave(change);
+    projectService.scheduleAutoSave(change, { state });
   });
 
   application.bindInput("live-synchronization", "state", ({ state, reason, change }) => {

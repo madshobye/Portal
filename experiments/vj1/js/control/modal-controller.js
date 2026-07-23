@@ -2,11 +2,15 @@ import { createOutputDefinition, normalizeRenderSettings } from "../domain/rende
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=isf-nodes-1";
+import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=picker-filter-tabs-derived-thumbnail-projection-1";
 import { configuredOutputsTemplate, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js?v=output-one-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
 import { renameScreenCaptureInput, screenCaptureStatus, startScreenCapture, stopScreenCapture, stopScreenCaptureInput, subscribeScreenCapture } from "../output/screen-capture-service.js?v=screen-input-registry-1";
 import { screenInputOptionsTemplate } from "./parameter-view.js?v=inspector-pending-node-1";
+
+export function nextPickerFilter(activeFilter = "all", requestedFilter = "all") {
+  return activeFilter === requestedFilter ? "all" : requestedFilter;
+}
 
 export function createModalController({
   store,
@@ -131,6 +135,7 @@ export function createModalController({
     bindElementPickerFilters(host);
     bindCatalogSortControls(host);
     bindCatalogMarkerControls(host);
+    host.querySelector("[data-refresh-media]")?.addEventListener("click", refreshMediaPicker);
     focusPendingElementPickerSearch(host);
     bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-add-element-media]").forEach((button) => {
@@ -435,13 +440,14 @@ export function createModalController({
   function bindElementPickerFilters(host) {
     host.querySelectorAll("[data-element-filter]").forEach((button) => {
       button.addEventListener("click", () => {
-        const filter = button.dataset.elementFilter || "all";
+        const requestedFilter = button.dataset.elementFilter || "all";
+        const filter = nextPickerFilter(activeElementFilter(host), requestedFilter);
         const picker = sourceChoicePicker || elementPicker;
         if (picker && !picker.allowedCategory) picker.filter = filter;
         host.querySelectorAll("[data-element-filter]").forEach((candidate) => {
-          const active = candidate === button;
+          const active = candidate.dataset.elementFilter === filter;
           candidate.classList.toggle("is-active", active);
-          candidate.setAttribute("aria-pressed", active ? "true" : "false");
+          candidate.setAttribute("aria-selected", active ? "true" : "false");
         });
         filterElementPicker(host, host.querySelector("[data-element-search]")?.value || "", filter);
       });
@@ -494,16 +500,14 @@ export function createModalController({
     render();
   }
 
-  function openMediaPicker(path, accept = "") {
-    sourceChoicePicker = {
+  function openMediaPicker(path, accept = "", onSelect = null) {
+    openChoicePicker({
       path,
       allowedCategory: accept || "",
       filter: accept || "all",
       valueMode: "mediaId",
-    };
-    elementPicker = null;
-    settingsOpen = false;
-    render();
+      onSelect: typeof onSelect === "function" ? onSelect : null,
+    });
   }
 
   function openElementPicker(componentId, selectedChainItemId = "") {
@@ -525,7 +529,11 @@ export function createModalController({
   }
 
   function openSourceChoicePicker(path, allowedCategory = "") {
-    sourceChoicePicker = { path, allowedCategory, filter: allowedCategory || "all" };
+    openChoicePicker({ path, allowedCategory, filter: allowedCategory || "all" });
+  }
+
+  function openChoicePicker(picker) {
+    sourceChoicePicker = picker;
     elementPicker = null;
     settingsOpen = false;
     render();
@@ -546,6 +554,10 @@ export function createModalController({
   }
 
   function setMediaValue(mediaId, target = sourceChoicePicker) {
+    if (typeof target?.onSelect === "function") {
+      target.onSelect(mediaId);
+      return;
+    }
     if (!target?.path) return;
     store.update((draft) => {
       setByPath(draft, target.path, mediaId);

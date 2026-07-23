@@ -88,6 +88,7 @@ test("mesh palette returns four GPU-ready colors for every harmony", () => {
 test("mesh topology uses a cached specialized raw-WebGL render path", () => {
   const component = getGeneratorNodeComponent("meshPatterns");
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   const runtime = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
   const meshRenderer = readFileSync(new URL("../js/output/specialized/mesh-pattern-renderer.js", import.meta.url), "utf8");
   const algorithms = readFileSync(new URL("../js/libraries/visual-nodes/generators/mesh-patterns/runtime.js", import.meta.url), "utf8");
@@ -104,7 +105,7 @@ test("mesh topology uses a cached specialized raw-WebGL render path", () => {
     "mesh-pattern-wire-vertex",
     "mesh-pattern-wire-fragment",
   ]);
-  assert.match(renderer, /"output\/specialized:meshPatterns": "drawMeshPatternsGenerator"/);
+  assert.match(sourceRuntime, /"output\/specialized:meshPatterns": "drawMeshPatternsGenerator"/);
   assert.match(runtime, /this\.meshPatterns\.draw\(target, source, componentTime, renderRequest, operation\)/);
   assert.match(meshRenderer, /this\.cpuTopologies = new Map\(\)/);
   assert.match(meshRenderer, /gl\.bufferData\(gl\.ARRAY_BUFFER, topology\.fillVertices, gl\.STATIC_DRAW\)/);

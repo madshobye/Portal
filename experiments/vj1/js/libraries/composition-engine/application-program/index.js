@@ -30,6 +30,11 @@ export const ApplicationProgramNode = defineNodeGroup({
   name: "VJ Application Program",
   version: "0.1.0",
   description: "Configures state, control, media, Live synchronization, storage, cache, output, timing, and diagnostics nodes.",
+  executionModel: "compiled-graph",
+  authoring: {
+    activation: "restart",
+    reason: "The Application graph constructs services during bootstrap.",
+  },
   inlets: { command: { type: "command", optional: true } },
   outlets: { output: { type: "texture", optional: true }, diagnostics: { type: "any", optional: true } },
   execution: { trigger: "manual", domain: "main", stateful: true, asynchronous: true },
