@@ -2,6 +2,7 @@ import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
 import { sceneFrameSize, renderMaxFrameRate, renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
+import { runtimeVisualSourceComponents } from "../domain/runtime-visual-sources.js?v=runtime-visual-sources-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-projector-resolution-ceilings-1";
 import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-1-scene-mapping-default-selection-1";
 import { normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
@@ -72,7 +73,7 @@ import {
   worldSize,
 } from "./render-geometry.js?v=root-content-transform-roi-3";
 import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=compiled-artifact-authority-1";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=compiled-artifact-authority-2";
 import {
   sceneMaxRasterSize,
   scenePreviewRenderRequest,
@@ -173,9 +174,9 @@ export function primaryTextureInputPort(operation = {}) {
 
 const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
 
-export function renderStateComponentProgramRoots(state = {}, mode = "output") {
+export function renderStateComponentProgramRoots(state = {}, mode = "output", components = state.components || []) {
   const roots = new Set();
-  const availableIds = new Set((state.components || []).map((component) => String(component?.id || "")).filter(Boolean));
+  const availableIds = new Set((components || []).map((component) => String(component?.id || "")).filter(Boolean));
   if (mode === "component") {
     const requestedId = String(state.ui?.selectedComponentId || "");
     if (availableIds.has(requestedId)) roots.add(requestedId);
@@ -203,7 +204,7 @@ export function renderStateComponentProgramRoots(state = {}, mode = "output") {
   // host test). Preserve the complete compiler contract in that case. Real
   // Preview and Output states always provide selected/surface roots.
   if (!roots.size) {
-    for (const component of state.components || []) {
+    for (const component of components || []) {
       const componentId = String(component?.id || "");
       if (componentId) roots.add(componentId);
     }
@@ -268,6 +269,7 @@ export class OutputRenderer {
     this.outputProgram = null;
     this.mappingProgramCache = new WeakMap();
     this.componentById = new Map();
+    this.runtimeComponents = runtimeVisualSourceComponents();
     this.routeSourceNodeById = new Map();
     this.liveParamFades = new Map();
     this.liveParamFadeRestores = [];
@@ -857,11 +859,13 @@ export class OutputRenderer {
 
   rebuildComponentPrograms() {
     for (const program of this.componentPrograms?.values?.() || []) program.dispose?.();
+    this.runtimeComponents = runtimeVisualSourceComponents();
+    const components = [...(this.state?.components || []), ...this.runtimeComponents];
     this.componentPrograms = compileComponentRenderPrograms(
-      this.state?.components || [],
+      components,
       this.state?.nodes?.groups || [],
       {
-        rootComponentIds: renderStateComponentProgramRoots(this.state, this.mode),
+        rootComponentIds: renderStateComponentProgramRoots(this.state, this.mode, components),
         resolveNodeDefinition: (node) =>
           this.visualNodes.definition(node?.nodeId) ||
           COMPILED_VISUAL_CORE_DEFINITIONS.get(String(node?.nodeId || "")),
@@ -1004,10 +1008,9 @@ export class OutputRenderer {
   }
 
   rebuildRouteLookups() {
-    const components = this.state?.components || [];
-    // System Components are intentionally absent from user-facing catalogs,
-    // but their routes are still executable. Mapping's test-pattern preview
-    // is one such route, so the renderer index must include it.
+    const components = [...(this.state?.components || []), ...(this.runtimeComponents || [])];
+    // Host visual sources are executable through the same compiled Component
+    // path, while remaining absent from authored project data and catalogs.
     const sourceNodes = sceneSourceNodes(this.state || {}, { includeSystem: true });
     this.componentById = new Map(components.map((component) => [component.id, component]));
     this.routeSourceNodeById = new Map(sourceNodes.map((node) => [node.id, node]));
@@ -1016,7 +1019,11 @@ export class OutputRenderer {
   refreshComponentLookup(componentId) {
     const component = this.state?.components?.find((item) => item.id === componentId);
     if (component) this.componentById.set(componentId, component);
-    else this.componentById.delete(componentId);
+    else {
+      const runtimeComponent = this.runtimeComponents?.find((item) => item.id === componentId);
+      if (runtimeComponent) this.componentById.set(componentId, runtimeComponent);
+      else this.componentById.delete(componentId);
+    }
   }
 
   resolveRouteSourceNode(surface = {}) {
@@ -1511,7 +1518,10 @@ export class OutputRenderer {
     this.visualDeltaSeconds = this.presentationClock.presentationDeltaSeconds * timeScale;
     if (!playing) return;
     this.visualTime += this.visualDeltaSeconds;
-    for (const component of this.state.components || []) {
+    const components = this.componentById.size
+      ? this.componentById.values()
+      : [...(this.state.components || []), ...(this.runtimeComponents || [])];
+    for (const component of components) {
       const speed = Math.max(0, Number(component.speed) || 0);
       this.componentTimes.set(component.id, (this.componentTimes.get(component.id) || 0) + this.visualDeltaSeconds * speed);
     }
@@ -1519,7 +1529,10 @@ export class OutputRenderer {
 
   pruneComponentTimes() {
     if (!this.componentTimes.size) return;
-    const liveComponentIds = new Set((this.state?.components || []).map((component) => component.id));
+    const liveComponentIds = new Set([
+      ...(this.state?.components || []).map((component) => component.id),
+      ...(this.runtimeComponents || []).map((component) => component.id),
+    ]);
     for (const id of this.componentTimes.keys()) {
       if (!liveComponentIds.has(id)) this.componentTimes.delete(id);
     }
@@ -4670,7 +4683,9 @@ export class OutputRenderer {
     const ids = this.neededComponentIds();
     for (const componentId of ids) {
       const component = this.componentPrograms.has(componentId)
-        ? this.state.components?.find((candidate) => candidate.id === componentId)
+        ? this.componentById.get(componentId) ||
+          this.state.components?.find((candidate) => candidate.id === componentId) ||
+          this.runtimeComponents?.find((candidate) => candidate.id === componentId)
         : null;
       // Decoder callbacks identify new media revisions, but they are not a
       // presentation clock. Browsers may coalesce or throttle callbacks for

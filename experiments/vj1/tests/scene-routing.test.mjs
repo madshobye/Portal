@@ -13,6 +13,10 @@ import {
   sceneSourceNodes,
   visibleSceneSurfaceIds,
 } from "../js/domain/scene-routing.js";
+import {
+  MAPPING_TEST_PATTERN_COMPONENT_ID,
+  MAPPING_TEST_PATTERN_SOURCE_NODE_ID,
+} from "../js/domain/runtime-visual-sources.js";
 
 test("scene routing exposes user Components without inventing Frame sources", () => {
   const state = {
@@ -26,6 +30,14 @@ test("scene routing exposes user Components without inventing Frame sources", ()
   const sceneNode = nodes.find((node) => node.componentId === "scene-a");
 
   assert.deepEqual(nodes.map((node) => node.componentId), ["component-a", "scene-a"]);
+  const runtimeNodes = sceneSourceNodes(state, { includeSystem: true });
+  assert.deepEqual(runtimeNodes.map((node) => node.componentId), [
+    "component-a",
+    "scene-a",
+    MAPPING_TEST_PATTERN_COMPONENT_ID,
+  ]);
+  assert.equal(runtimeNodes.at(-1).id, MAPPING_TEST_PATTERN_SOURCE_NODE_ID);
+  assert.equal(runtimeNodes.at(-1).runtimeSource, true);
   assert.equal(resolveSceneSourceNode(state, ""), null);
   assert.equal(resolveSceneSourceNode(state, "missing-node"), null);
   assert.deepEqual(resolveSceneSourceNode(state, sceneNode.id), sceneNode);

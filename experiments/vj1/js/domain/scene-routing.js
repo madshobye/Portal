@@ -1,4 +1,5 @@
 import { latestProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
+import { runtimeVisualSourceNodes } from "./runtime-visual-sources.js?v=runtime-visual-sources-1";
 
 // These fields belong to a compiled Surface route, not to the authored
 // Mapping Surface. Keeping the list beside the route materializer gives model
@@ -52,7 +53,7 @@ export function sceneSourceNodeId(componentId = "") {
 }
 
 export function sceneSourceNodes(state = {}, { includeSystem = false } = {}) {
-  return (state.components || []).filter((component) => includeSystem || !component.systemRole).map((component) => ({
+  const projectNodes = (state.components || []).filter((component) => !component.systemRole).map((component) => ({
       id: sceneSourceNodeId(component.id),
       type: "component",
       name: component.name,
@@ -63,6 +64,7 @@ export function sceneSourceNodes(state = {}, { includeSystem = false } = {}) {
       updatedAt: component.activity?.updatedAt || component.activity?.createdAt || "",
       recentAt: latestProjectActivity(component.activity),
     }));
+  return includeSystem ? [...projectNodes, ...runtimeVisualSourceNodes()] : projectNodes;
 }
 
 export function resolveSceneSourceNode(state = {}, sourceNodeId = "") {

@@ -706,7 +706,7 @@ export class OutputSurfaceRuntime {
 
   drawSurfaceThumbnailRoute(target, surface, demand = null, compositeOpacity = 1) {
     const renderer = this.renderer;
-    const component = renderer.state.components.find((item) => item.id === surface.componentId);
+    const component = renderer.componentById.get(surface.componentId);
     const thumbnail = renderer.getThumbnailImage(component);
     target.push();
     applyBlend(target, "normal");

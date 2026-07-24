@@ -2218,7 +2218,6 @@ test("Surface route lookup indexes Components and explicit source nodes once per
   renderer.state = {
     components: [
       { id: "scene-a", type: "scene", name: "Scene A", scene: {} },
-      { id: "system-pattern", type: "chain", name: "Mapping test pattern", systemRole: "mapping-test-pattern" },
     ],
   };
   renderer.rebuildRouteLookups();
@@ -2230,10 +2229,11 @@ test("Surface route lookup indexes Components and explicit source nodes once per
   assert.equal(renderer.componentById.get("scene-a").type, "scene");
   assert.equal(node.componentId, "scene-a");
   assert.equal(renderer.resolveRouteSourceNode({
-    sourceNodeId: "component:system-pattern",
-    componentId: "system-pattern",
+    sourceNodeId: "component:vj1-system-mapping-test-pattern",
+    componentId: "vj1-system-mapping-test-pattern",
     outputFrameId: "",
-  })?.componentId, "system-pattern");
+  })?.componentId, "vj1-system-mapping-test-pattern");
+  assert.equal(renderer.componentById.get("vj1-system-mapping-test-pattern")?.runtimeSource, true);
   assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "", componentId: "", outputFrameId: "" }), null);
   assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "missing", componentId: "", outputFrameId: "" }), null);
 });

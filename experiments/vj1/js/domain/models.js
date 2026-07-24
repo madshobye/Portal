@@ -30,6 +30,10 @@ import {
 } from "./scene-routing.js?v=explicit-surface-visibility-1";
 import { compileLiveProjectionProgram } from "./live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
 import { firstEnabledLiveSurfaceId } from "./live-ui-state.js?v=scene-mapping-default-selection-1";
+import {
+  MAPPING_TEST_PATTERN_COMPONENT_ID,
+  MAPPING_TEST_PATTERN_SOURCE_NODE_ID,
+} from "./runtime-visual-sources.js?v=runtime-visual-sources-1";
 
 export {
   createOutputDefinition,
@@ -59,23 +63,7 @@ export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export const MAPPING_TEST_PATTERN_COMPONENT_ID = "vj1-system-mapping-test-pattern";
-
-export function createMappingTestPatternComponent() {
-  const component = createDefaultComponent(0);
-  component.id = MAPPING_TEST_PATTERN_COMPONENT_ID;
-  component.name = "Mapping test pattern";
-  component.systemRole = "mapping-test-pattern";
-  component.activity = { createdAt: "2000-01-01T00:00:00.000Z", updatedAt: "2000-01-01T00:00:00.000Z", lastUsedAt: "" };
-  component.chain = [
-    {
-      ...createComponentLayer(0, createGeneratorSource("testPattern")),
-      id: "vj1-system-mapping-test-pattern-source",
-      name: "Mapping test pattern",
-    },
-  ];
-  return component;
-}
+export { MAPPING_TEST_PATTERN_COMPONENT_ID } from "./runtime-visual-sources.js?v=runtime-visual-sources-1";
 
 export function createDefaultComponent(index = 0, { empty = false } = {}) {
   const initialSource = createDefaultSource();
@@ -1002,13 +990,13 @@ function normalizeLiveChainItemOverride(item = {}, authoredItem = {}) {
 }
 
 function normalizeComponents(input, base) {
-  const components = Array.isArray(input.components) && input.components.length
-    ? input.components.map(normalizeComponent)
+  const authored = (input.components || []).filter((component) =>
+    component?.systemRole !== "mapping-test-pattern" &&
+    String(component?.id || "") !== MAPPING_TEST_PATTERN_COMPONENT_ID
+  );
+  return Array.isArray(input.components) && authored.length
+    ? authored.map(normalizeComponent)
     : [createDefaultComponent(0)];
-  if (!components.some((component) => component.systemRole === "mapping-test-pattern")) {
-    components.push(normalizeComponent(createMappingTestPatternComponent()));
-  }
-  return components;
 }
 
 export function normalizeComponent(component = {}) {
@@ -1527,11 +1515,10 @@ export function applyMappingForEditing(state, mapping) {
   const selectedMapping = next.mappings?.find((item) => String(item.id) === String(mapping.id)) || null;
   if (!selectedMapping) return next;
   if (next.ui?.mappingTestPattern !== false) {
-    const component = next.components.find((item) => item.systemRole === "mapping-test-pattern");
     next.surfaces = selectedMapping.surfaces.map((surface) => ({
       ...surface,
-      sourceNodeId: component ? sceneSourceNodeId(component.id) : "",
-      componentId: component?.id || "",
+      sourceNodeId: MAPPING_TEST_PATTERN_SOURCE_NODE_ID,
+      componentId: MAPPING_TEST_PATTERN_COMPONENT_ID,
       sceneCrop: false,
       sourceFitActive: false,
     }));

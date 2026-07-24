@@ -210,7 +210,7 @@ export class SourceRenderRuntime {
 
   drawComponentReferenceSource(target, source, component, componentTime, renderRequest) {
     const host = this.host;
-    const sourceComponent = host.state.components.find((item) => item.id === source.componentId);
+    const sourceComponent = host.componentById.get(source.componentId);
     if (!sourceComponent || sourceComponent.id === component.id || sourceComponent.type === "scene") return;
     const sourceTime = host.componentTimes.get(sourceComponent.id) || componentTime;
     const renderIdentity = componentRenderInstanceKey(sourceComponent, source.instanceId);
@@ -610,7 +610,7 @@ export class SourceRenderRuntime {
     const host = this.host;
     const target = { width: output.width, height: output.height };
     if (source.type === "component") {
-      const dependency = host.state.components.find((item) => item.id === source.componentId);
+      const dependency = host.componentById.get(source.componentId);
       if (!dependency || dependency.id === component.id || dependency.type === "scene") return null;
       const placement = componentReferencePlacement(
         component,

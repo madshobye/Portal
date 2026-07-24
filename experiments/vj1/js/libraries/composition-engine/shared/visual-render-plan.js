@@ -234,6 +234,16 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
     compile: (node, { configuration, definition, path, hook, resolveDefinition }) => {
       if (!definition) throw new Error(`VISUAL_SPECIALIZED_COMPOUND_DEFINITION_MISSING:${path}`);
       const nativeCompoundProgram = compileSpecializedCompoundProgram(definition, { resolveDefinition });
+      let nativeModuleFields;
+      try {
+        nativeModuleFields = visualNativeModuleFields(
+          definition,
+          nativeCompoundProgram.nativeModuleDefinitions,
+        );
+      } catch (error) {
+        nativeCompoundProgram.dispose();
+        throw error;
+      }
       return operation(VISUAL_RENDER_OPCODES.SOURCE, node, configuration, path, {
         backend: "native-specialized-compound",
         renderer: hook.renderer || definition.metadata?.nativeRenderer,
@@ -243,7 +253,7 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
         nativeCompoundProgram,
         runtimePolicy: definition.metadata?.runtimePolicy || null,
         renderInvalidation: definition.metadata?.renderInvalidation || null,
-        ...visualNativeModuleFields(definition, nativeCompoundProgram.nativeModuleDefinitions),
+        ...nativeModuleFields,
       });
     },
   }),

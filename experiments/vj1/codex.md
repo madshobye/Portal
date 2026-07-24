@@ -205,6 +205,7 @@ The built-in, installed, and project visual-library layers use the same artifact
 - Removed generator-name policy from the optimized shader host. Phase-continuous time now reads a `rateParam` declared by the visual runtime contract, and quality-derived ray/detail/search budgets read `renderQualityScaling` from the owning numeric parameters. New or project-forked shader nodes can therefore opt into the same direct fast path without adding renderer branches. Media/image/mesh/texture/font parameter references likewise use one shared recursive contract for compiled-plan introspection and retained source signatures rather than Feature Morph/Tile Texture name checks. The renderer still applies these policies directly outside graph traversal and preserves the same shader passes, target allocation, and Surface/window path.
 - Removed the last generator-name execution table from the source backend. Code-owned visual primitives such as Black and Checker now compile as direct node processes through the generic source runtime; only implementations that genuinely require a retained host kernel compile to a native renderer capability. An operation lacking a process, shader, or registered capability emits one explicit diagnostic instead of silently selecting a visual-name fallback. No generic packets or graph traversal were added to the frame loop.
 - Restored effect-quality request ownership after the render-chain resolution HUD work accidentally moved that request into an unrelated direct-source/layer path. Nested Component effects now derive and record their quality-scaled request before retained evaluation; direct sources no longer reference effect parameters. The regression contract checks both boundaries, and the optimized Surface/window presentation path is unchanged.
+- Made compiled specialized-Group artifacts fail closed. Child nodes now declare the JavaScript exports and shader parts required by their retained kernel; specialized lowering validates the aggregated artifacts once and rejects a missing/empty module or GLSL part before the render plan becomes active, disposing the rejected partial program. Runtime adapters retain allocation-stable, cached corruption checks, while host-bundled JavaScript/GLSL remains available only to explicit legacy non-graph calls. Terrain, Mesh Patterns, Feature Morph, Tile Texture, Text, Screen Share, Eyeball, and legacy Anatomy hosting can therefore no longer display one editable graph while silently executing another host implementation. The native kernels and optimized Surface/window path are unchanged.
 
 ## Unresolved Architecture Decisions
 
@@ -245,10 +246,10 @@ The built-in, installed, and project visual-library layers use the same artifact
 
 ## Verification Status
 
-The complete automated VJ1 suite is green: **1136/1136**.
+The complete automated VJ1 suite is green: **1140/1140**.
 
 ```sh
-npm test                       # 1136/1136
+npm test                       # 1140/1140
 npm run test:metrics           # 10/10
 npm run test:render            # 31/31
 git diff --check               # clean

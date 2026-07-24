@@ -43,6 +43,8 @@ test("Mapping preview chooses Live Scene without writing route bindings into Map
 
 test("Mapping test pattern is a compiled preview source rather than authored Surface data", () => {
   const state = sceneMappingFixture();
+  assert.ok(state.components.every((component) => !component.systemRole));
+  assert.ok(state.components.every((component) => component.id !== "vj1-system-mapping-test-pattern"));
   state.ui.mappingTestPattern = true;
   const preview = applyMappingForEditing(state, state.mappings[0]);
 

@@ -55,7 +55,7 @@ import {
   textMaskDimensions as fallbackTextMaskDimensions,
   textMaskSignature as fallbackTextMaskSignature,
 } from "./text-generator-renderer.js?v=text-mask-readback-1";
-import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=compiled-artifact-authority-1";
+import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=compiled-artifact-authority-2";
 import { disposeRenderTarget } from "../../libraries/render-engine/render-target-lifetime.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
 
@@ -69,6 +69,27 @@ const FALLBACK_ANATOMY_NODE_MODULE = Object.freeze({
   anatomyPartFitScale,
   drawProceduralAnatomy,
 });
+const ANATOMY_MODULE_FUNCTIONS = Object.freeze(["anatomyPartFitScale", "drawProceduralAnatomy"]);
+const TEXT_MODULE_FUNCTIONS = Object.freeze(["createTextMask", "textMaskSignature"]);
+const TERRAIN_MODULE_FUNCTIONS = Object.freeze([
+  "normalizedTerrainIrregularity",
+  "terrainExpandedGridWireVertices",
+  "terrainGridSize",
+  "terrainRowMetrics",
+  "terrainSafeNearDistance",
+  "terrainSurfaceGridVertices",
+  "terrainSurfaceTriangleIndices",
+  "terrainTessellationSize",
+]);
+const TILE_TEXTURE_MODULE_FUNCTIONS = Object.freeze(["tileRepeatAmount"]);
+const FEATURE_MORPH_RENDER_MODULE_FUNCTIONS = Object.freeze(["imageFitUniform"]);
+const FEATURE_MORPH_ANALYSIS_MODULE_FUNCTIONS = Object.freeze([
+  "imageFitUniform",
+  "buildFeatureMorphField",
+  "matchSuperPointFeatures",
+]);
+const VALIDATED_COMPILED_MODULES = new WeakMap();
+const VALIDATED_COMPILED_SHADERS = new WeakMap();
 
 function compiledSpecializedOperation(operation = {}) {
   return !!operation?.nativeCompoundProgram;
@@ -76,41 +97,63 @@ function compiledSpecializedOperation(operation = {}) {
 
 function requireCompiledModuleFunctions(operation, functions, errorCode) {
   const module = operation?.nodeModule;
-  const missing = functions.filter((name) => typeof module?.[name] !== "function");
-  if (compiledSpecializedOperation(operation) && missing.length) {
-    throw new Error(`${errorCode}:${missing.join(",")}`);
+  if (compiledSpecializedOperation(operation)) {
+    let validations = VALIDATED_COMPILED_MODULES.get(operation);
+    if (validations?.has(errorCode)) return module;
+    let missing = "";
+    for (const name of functions) {
+      if (typeof module?.[name] === "function") continue;
+      missing += `${missing ? "," : ""}${name}`;
+    }
+    if (missing) throw new Error(`${errorCode}:${missing}`);
+    if (!validations) {
+      validations = new Set();
+      VALIDATED_COMPILED_MODULES.set(operation, validations);
+    }
+    validations.add(errorCode);
+    return module;
   }
-  return { module, missing };
+  for (const name of functions) {
+    if (typeof module?.[name] !== "function") return null;
+  }
+  return module;
 }
 
 function compiledShaderSource(operation, id, fallback, errorCode) {
   const source = operation?.nodeShaders?.[id];
-  if (typeof source === "string" && source.trim()) return source;
   if (compiledSpecializedOperation(operation)) {
-    throw new Error(`${errorCode}:${id}`);
+    let validations = VALIDATED_COMPILED_SHADERS.get(operation);
+    if (validations?.has(id)) return source;
+    if (typeof source !== "string" || !source.trim()) {
+      throw new Error(`${errorCode}:${id}`);
+    }
+    if (!validations) {
+      validations = new Set();
+      VALIDATED_COMPILED_SHADERS.set(operation, validations);
+    }
+    validations.add(id);
+    return source;
   }
-  return fallback;
+  return typeof source === "string" && source.trim() ? source : fallback;
 }
 
 export function anatomyNodeRuntimeModule(operation = {}) {
-  const { module, missing } = requireCompiledModuleFunctions(
+  return requireCompiledModuleFunctions(
     operation,
-    ["anatomyPartFitScale", "drawProceduralAnatomy"],
+    ANATOMY_MODULE_FUNCTIONS,
     "ANATOMY_COMPILED_MODULE_MISSING",
-  );
-  return missing.length ? FALLBACK_ANATOMY_NODE_MODULE : module;
+  ) || FALLBACK_ANATOMY_NODE_MODULE;
 }
 
 // This is the narrow host boundary for the Text node. The compiler supplies
 // editable algorithm exports and shader sources; the specialized runtime owns
 // only context-bound targets, mask images, and their bounded caches.
 export function textNodeRuntimeModule(operation = {}) {
-  const { module, missing } = requireCompiledModuleFunctions(
+  return requireCompiledModuleFunctions(
     operation,
-    ["createTextMask", "textMaskSignature"],
+    TEXT_MODULE_FUNCTIONS,
     "TEXT_COMPILED_MODULE_MISSING",
-  );
-  return missing.length ? FALLBACK_TEXT_NODE_MODULE : module;
+  ) || FALLBACK_TEXT_NODE_MODULE;
 }
 
 export function textNodeShaderSource(operation = {}, stage = "fragment") {
@@ -127,21 +170,11 @@ export function textNodeShaderSource(operation = {}, stage = "fragment") {
 // modules are validated before compilation, so the hot path needs only this
 // single capability check rather than revalidating every helper each frame.
 export function terrainNodeRuntimeModule(operation = {}) {
-  const { module, missing } = requireCompiledModuleFunctions(
+  return requireCompiledModuleFunctions(
     operation,
-    [
-      "normalizedTerrainIrregularity",
-      "terrainExpandedGridWireVertices",
-      "terrainGridSize",
-      "terrainRowMetrics",
-      "terrainSafeNearDistance",
-      "terrainSurfaceGridVertices",
-      "terrainSurfaceTriangleIndices",
-      "terrainTessellationSize",
-    ],
+    TERRAIN_MODULE_FUNCTIONS,
     "TERRAIN_COMPILED_MODULE_MISSING",
-  );
-  return missing.length ? FALLBACK_TERRAIN_NODE_MODULE : module;
+  ) || FALLBACK_TERRAIN_NODE_MODULE;
 }
 
 export function terrainNodeShaderSource(operation = {}, id = "") {
@@ -156,12 +189,11 @@ export function terrainNodeShaderSource(operation = {}, id = "") {
 const FALLBACK_TILE_TEXTURE_NODE_MODULE = Object.freeze({ tileRepeatAmount: fallbackTileRepeatAmount });
 
 export function tileTextureNodeRuntimeModule(operation = {}) {
-  const { module, missing } = requireCompiledModuleFunctions(
+  return requireCompiledModuleFunctions(
     operation,
-    ["tileRepeatAmount"],
+    TILE_TEXTURE_MODULE_FUNCTIONS,
     "TILE_TEXTURE_COMPILED_MODULE_MISSING",
-  );
-  return missing.length ? FALLBACK_TILE_TEXTURE_NODE_MODULE : module;
+  ) || FALLBACK_TILE_TEXTURE_NODE_MODULE;
 }
 
 export function tileTextureNodeShaderSource(operation = {}, stage = "fragment") {
@@ -182,14 +214,13 @@ const FALLBACK_FEATURE_MORPH_NODE_MODULE = Object.freeze({
 });
 
 export function featureMorphNodeRuntimeModule(operation = {}, { requireAnalysis = true } = {}) {
-  const functions = ["imageFitUniform"];
-  if (requireAnalysis) functions.push("buildFeatureMorphField", "matchSuperPointFeatures");
-  const { module, missing } = requireCompiledModuleFunctions(
+  return requireCompiledModuleFunctions(
     operation,
-    functions,
+    requireAnalysis
+      ? FEATURE_MORPH_ANALYSIS_MODULE_FUNCTIONS
+      : FEATURE_MORPH_RENDER_MODULE_FUNCTIONS,
     "FEATURE_MORPH_COMPILED_MODULE_MISSING",
-  );
-  return missing.length ? FALLBACK_FEATURE_MORPH_NODE_MODULE : module;
+  ) || FALLBACK_FEATURE_MORPH_NODE_MODULE;
 }
 
 export function featureMorphNodeShaderSource(operation = {}, stage = "fragment") {
