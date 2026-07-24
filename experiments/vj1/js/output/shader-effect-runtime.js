@@ -2,7 +2,7 @@ import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-
 import {
   compileShaderSchedule,
   fuseLocalShaderSchedule,
-} from "../graph/render-scheduler.js?v=pending-project-node-1";
+} from "../graph/render-scheduler.js?v=canonical-effect-params-1";
 import {
   createShaderBuilder,
   fusedUniformName,
@@ -21,7 +21,7 @@ import {
   nextFxTargetSlot,
   resetShaderTarget,
   setShaderUniformIfPresent,
-} from "./shader-target-runtime.js?v=source-roi-view-3";
+} from "./shader-target-runtime.js?v=canonical-effect-params-1";
 import { instanceTime } from "./render-runtime-math.js?v=volumetric-clouds-1";
 import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
 import { renderRequestKey } from "./render-geometry.js?v=output-one-1";

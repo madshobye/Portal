@@ -9,10 +9,12 @@ import {
 import {
   assertNodePackageUpdateSafe,
   collectNodePackageManifests,
+  createNodePackageLock,
   exportNodePackageDirectory,
   importNodePackageDirectory,
   loadNodePackageRepository,
   loadReferencedNodePackages,
+  resolveReferencedNodePackages,
   writeNodePackageManifest,
 } from "../js/services/node-package-repository.js";
 
@@ -384,6 +386,99 @@ test("referenced packages fail closed when the exact manifest or resource is una
       version: "1.0.0",
     }]),
     /NODE_PACKAGE_RESOURCE_UNAVAILABLE/,
+  );
+});
+
+test("project package locks reject same-version executable resource replacement", async () => {
+  const originalRepository = await loadNodePackageRepository(transitionPackageTree());
+  const references = [{
+    id: "org.example.transitions",
+    version: "1.0.0",
+    enabled: true,
+  }];
+  const lock = createNodePackageLock(resolveReferencedNodePackages(references, originalRepository));
+  const changedTree = transitionPackageTree();
+  const versionDirectory = await (await (await changedTree.getDirectoryHandle("libraries"))
+    .getDirectoryHandle("org.example.transitions")).getDirectoryHandle("1.0.0");
+  const originalShaderDirectory = await versionDirectory.getDirectoryHandle("shaders");
+  const changedShaderDirectory = directoryHandle({
+    "package-wipe.fs": fileHandle(`/*{
+      "ISFVSN":"2.0",
+      "LABEL":"Package Wipe",
+      "VJ1":{"ID":"org.example.transition.package-wipe","VERSION":"1.0.0"},
+      "INPUTS":[
+        {"NAME":"startImage","TYPE":"image"},
+        {"NAME":"endImage","TYPE":"image"},
+        {"NAME":"progress","TYPE":"float"}
+      ]
+    }*/
+    void main(){ gl_FragColor=IMG_THIS_NORM_PIXEL(endImage); }`),
+  });
+  versionDirectory.getDirectoryHandle = async (name) => {
+    if (name === "shaders") return changedShaderDirectory;
+    return originalShaderDirectory.getDirectoryHandle(name);
+  };
+  const changedRepository = await loadNodePackageRepository(changedTree);
+
+  assert.notEqual(
+    originalRepository[0].metadata.repositoryContentIntegrity,
+    changedRepository[0].metadata.repositoryContentIntegrity,
+  );
+  assert.throws(
+    () => resolveReferencedNodePackages(references, changedRepository, lock),
+    /NODE_PACKAGE_CONTENT_INTEGRITY_MISMATCH:org\.example\.transitions@1\.0\.0/,
+  );
+});
+
+test("project package locks pin the complete transitive dependency closure", async () => {
+  const core = defineNodePackage({
+    id: "org.example.core",
+    version: "1.0.0",
+    metadata: { repositoryContentIntegrity: `sha256-${"1".repeat(64)}` },
+  });
+  const app = defineNodePackage({
+    id: "org.example.app",
+    version: "1.0.0",
+    dependencies: [{ id: core.id, range: "^1.0.0" }],
+    metadata: { repositoryContentIntegrity: `sha256-${"2".repeat(64)}` },
+  });
+  const references = [{ id: app.id, version: app.version, enabled: true }];
+  const resolved = resolveReferencedNodePackages(references, [app, core]);
+  const lock = createNodePackageLock(resolved);
+  assert.deepEqual(lock.map((item) => item.id), [app.id, core.id].sort());
+
+  const changedCore = defineNodePackage({
+    ...core,
+    metadata: { repositoryContentIntegrity: `sha256-${"3".repeat(64)}` },
+  });
+  assert.throws(
+    () => resolveReferencedNodePackages(references, [app, changedCore], lock),
+    /NODE_PACKAGE_CONTENT_INTEGRITY_MISMATCH:org\.example\.core@1\.0\.0/,
+  );
+});
+
+test("installed project packages reject external URL resources", async () => {
+  const nodePackage = defineNodePackage({
+    id: "org.example.external",
+    version: "1.0.0",
+    resources: [{
+      id: "remote-shader",
+      kind: "shader",
+      url: "https://example.invalid/shader.fs",
+    }],
+  });
+  const root = directoryHandle({
+    libraries: directoryHandle({
+      "org.example.external": directoryHandle({
+        "1.0.0": directoryHandle({
+          "node-package.json": fileHandle(JSON.stringify(serializeNodePackage(nodePackage))),
+        }),
+      }),
+    }),
+  });
+  await assert.rejects(
+    () => loadNodePackageRepository(root),
+    /NODE_PACKAGE_REPOSITORY_EXTERNAL_RESOURCE_UNSUPPORTED/,
   );
 });
 

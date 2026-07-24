@@ -3,11 +3,11 @@ import { relativeRectToLogical } from "../libraries/render-engine/relative-geome
 import { fitRectGeometry } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
 import { normalizeRenderUvRect } from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { normalizePixelDensity, sceneFrameSize } from "../domain/render-settings.js?v=pixel-density-4";
+import { normalizePixelDensity, sceneLogicalSize } from "../domain/render-settings.js?v=surface-terminology-1";
 import {
   aspectPreservingRenderDemand,
   createRenderRequest,
-  RECORDING_FRAME_DEMAND_SCALE,
+  SURFACE_DETAIL_DEMAND_SCALE,
 } from "./render-geometry.js?v=aspect-preserving-demand-1";
 import { isIdentityTransform, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 
@@ -58,7 +58,7 @@ export function drawWebGLBuffer(pg, source, x, y, w, h) {
   pg.pop();
 }
 
-export function sceneFrameRectCorners(rect = {}) {
+export function surfaceRectCorners(rect = {}) {
   return [
     { id: "nw", x: rect.x, y: rect.y },
     { id: "ne", x: rect.x + rect.width, y: rect.y },
@@ -73,7 +73,7 @@ export function distanceSquared(ax, ay, bx, by) {
   return dx * dx + dy * dy;
 }
 
-export function sceneFrameBorderHit(rect = {}, x = 0, y = 0, tolerance = 8) {
+export function surfaceBorderHit(rect = {}, x = 0, y = 0, tolerance = 8) {
   const inset = Math.max(0, Number(tolerance) || 0);
   const left = Number(rect.x) || 0;
   const top = Number(rect.y) || 0;
@@ -85,7 +85,7 @@ export function sceneFrameBorderHit(rect = {}, x = 0, y = 0, tolerance = 8) {
     || (withinX && (Math.abs(y - top) <= inset || Math.abs(y - bottom) <= inset));
 }
 
-export function moveSceneFrameRect(rect, dx, dy, sceneWidth, sceneHeight) {
+export function moveSurfaceRect(rect, dx, dy, sceneWidth, sceneHeight) {
   const relative = sceneWidth <= 1.000001 && sceneHeight <= 1.000001;
   const round = relative ? (value) => value : Math.round;
   return {
@@ -95,7 +95,7 @@ export function moveSceneFrameRect(rect, dx, dy, sceneWidth, sceneHeight) {
   };
 }
 
-export function resizeSceneFrameRect(rect, corner, dx, dy, sceneWidth, sceneHeight, { keepProportions = false } = {}) {
+export function resizeSurfaceRect(rect, corner, dx, dy, sceneWidth, sceneHeight, { keepProportions = false } = {}) {
   const relative = sceneWidth <= 1.000001 && sceneHeight <= 1.000001;
   const minSize = relative ? 0.005 : 16;
   const round = relative ? (value) => value : Math.round;
@@ -170,7 +170,7 @@ export function componentReferencePlacement(parent = {}, child = {}, render = {}
   const targetWidth = Math.max(1, Number(target.width) || 1);
   const targetHeight = Math.max(1, Number(target.height) || 1);
   if (parent.type !== "scene") return { x: 0, y: 0, width: targetWidth, height: targetHeight };
-  return sceneComponentPlacementRect(sceneFrameSize(render), componentFrameMetrics(render, child), target, placement);
+  return sceneComponentPlacementRect(sceneLogicalSize(render), componentFrameMetrics(render, child), target, placement);
 }
 
 export function fullTargetRect(target = {}) {
@@ -309,7 +309,7 @@ export function componentPreviewRenderRequest(render = {}, component = {}, viewp
 // texture dimensions, but it must never resize the editing frame or handles.
 export function componentLogicalPreviewRect(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, options = {}) {
   const logical = component?.type === "scene"
-    ? sceneFrameSize(render)
+    ? sceneLogicalSize(render)
     : (() => {
         const metrics = componentFrameMetrics(render, component);
         return { width: metrics.baseWidth, height: metrics.baseHeight };
@@ -335,7 +335,7 @@ export function componentLogicalPreviewRect(render = {}, component = {}, viewpor
 }
 
 export function scenePreviewRenderRequest(render = {}, component = {}, viewportWidth = 1, viewportHeight = 1, meta = {}) {
-  const { width, height } = sceneFrameSize(render);
+  const { width, height } = sceneLogicalSize(render);
   const resolutionScale = Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1));
   const fitScale = Math.min(Math.max(1, Number(viewportWidth) || 1) / width, Math.max(1, Number(viewportHeight) || 1) / height, 1);
   // The embedded preview's effective density already encodes Auto/Good/Low.
@@ -353,7 +353,7 @@ export function scenePreviewRenderRequest(render = {}, component = {}, viewportW
 
 export function componentSourceView(render = {}, component = {}, surface = {}) {
   if (component.type === "scene") {
-    const logicalSize = sceneFrameSize(render);
+    const logicalSize = sceneLogicalSize(render);
     // A materialized Scene route marks its owning Surface as the crop source.
     // The Surface's relative rectangle is the sole 2D authority; there is no
     // separate crop lookup or per-Scene routing table.
@@ -366,7 +366,7 @@ export function componentSourceView(render = {}, component = {}, surface = {}) {
       sampleRect,
       maxRasterSize: sceneMaxRasterSize(render, logicalSize, component.resolutionScale),
       samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (cropsScene
-        ? Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE))
+        ? Math.max(0.5, Math.min(2, Number(render.sampling?.surfaceDetailScale) || SURFACE_DETAIL_DEMAND_SCALE))
         : 1),
     };
   }
@@ -447,7 +447,7 @@ export function componentRootTransformRegion({
 // virtual-Scene equivalent of the Scene component branch above and keeps one
 // crop authority without creating an intermediate raster or wrapper node.
 export function componentCoverSceneSampleRect(render = {}, componentSize = {}, surface = {}) {
-  const sceneSize = sceneFrameSize(render);
+  const sceneSize = sceneLogicalSize(render);
   const sceneRect = relativeRectToLogical(surface, sceneSize);
   const componentWidth = Math.max(1, Number(componentSize.width) || 1);
   const componentHeight = Math.max(1, Number(componentSize.height) || 1);
@@ -477,8 +477,8 @@ export function sceneMaxRasterSize(render = {}, logicalSize = {}, resolutionScal
   const componentScale = Math.max(0.5, Math.min(2, Number(resolutionScale) || 1));
   const limitToLogicalSize = render.sampling?.limitSceneToLogicalSize !== false;
   const density = normalizePixelDensity(render.pixelDensity);
-  const frameScale = Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE));
-  const scale = (limitToLogicalSize ? 1 : Math.max(1, frameScale, density)) * componentScale;
+  const surfaceDetailScale = Math.max(0.5, Math.min(2, Number(render.sampling?.surfaceDetailScale) || SURFACE_DETAIL_DEMAND_SCALE));
+  const scale = (limitToLogicalSize ? 1 : Math.max(1, surfaceDetailScale, density)) * componentScale;
   return { width: Math.min(8192, Math.max(1, Math.round(width * scale))), height: Math.min(8192, Math.max(1, Math.round(height * scale))) };
 }
 

@@ -435,13 +435,46 @@ test("surface planner consumes the compiled Scene surface program as routing aut
 
 test("direct output backplanes composite below mapped Surfaces", () => {
   const mappedA = { id: "mapped-a", destination: { type: "mapped" } };
-  const directMain = { id: "direct-main", destination: { type: "direct", outputIds: ["main"] } };
+  const directMain = {
+    id: "direct-main",
+    destination: {
+      type: "direct",
+      outputIds: ["main", "second"],
+      parentSurfaceId: "direct-all",
+    },
+  };
   const mappedB = { id: "mapped-b", destination: { type: "mapped" } };
-  const directAll = { id: "direct-all", destination: { type: "direct", outputIds: ["main", "second"] } };
+  const directAll = {
+    id: "direct-all",
+    destination: { type: "direct", outputIds: ["main"], parentSurfaceId: "" },
+  };
 
   assert.deepEqual(
     orderedSurfaceProgram([mappedA, directMain, mappedB, directAll]).map((surface) => surface.id),
     ["direct-all", "direct-main", "mapped-a", "mapped-b"]
+  );
+});
+
+test("invalid direct Surface parent edges fail explicitly", () => {
+  assert.throws(
+    () => orderedSurfaceProgram([{
+      id: "direct-with-inferred-parent",
+      destination: { type: "direct", outputIds: ["main", "side"] },
+    }]),
+    (error) => error?.code === "DIRECT_SURFACE_HIERARCHY_INVALID" &&
+      error.surfaceId === "direct-with-inferred-parent",
+  );
+  assert.throws(
+    () => orderedSurfaceProgram([{
+      id: "direct-child",
+      destination: {
+        type: "direct",
+        outputIds: ["main"],
+        parentSurfaceId: "missing-parent",
+      },
+    }]),
+    (error) => error?.code === "DIRECT_SURFACE_HIERARCHY_INVALID" &&
+      error.parentSurfaceId === "missing-parent",
   );
 });
 

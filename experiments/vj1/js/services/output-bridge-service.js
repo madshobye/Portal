@@ -4,6 +4,16 @@ import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=thum
 import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js?v=render-patch-coalescing-1";
 import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
 
+export const OUTPUT_BRIDGE_PROTOCOL_VERSION = 1;
+
+function protocolMessage(message = {}) {
+  return { ...message, protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION };
+}
+
+function hasCurrentProtocol(message) {
+  return Number(message?.protocolVersion) === OUTPUT_BRIDGE_PROTOCOL_VERSION;
+}
+
 export function createControlBridge({ store, mediaLibrary, diagnostics = null, subscribeStore = true, deferAnnouncement = false }) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const sessionId = `control-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -18,12 +28,12 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
   let knownNodePackages = [];
   const liveSynchronization = new LivePatchSynchronizer({
     onPatch(packet) {
-      channel.postMessage({
+      channel.postMessage(protocolMessage({
         type: "live-patch",
         ...packet,
         sessionId,
         transport: { sentAtMs: transportTimestampMs() },
-      });
+      }));
     },
   });
   const clientWatchdog = setInterval(() => {
@@ -43,11 +53,46 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     const messageStartedAt = performance.now();
     const msg = event.data || {};
     try {
+      if (msg.type === "hello") {
+        if (!announced) return;
+        if (!hasCurrentProtocol(msg)) {
+          rejectProtocol(msg);
+          return;
+        }
+        const clientId = String(msg.clientId || "");
+        if (!clientId) return;
+        if (msg.sessionId !== sessionId) {
+          channel.postMessage(protocolMessage({
+            type: "control-hello",
+            sessionId,
+            targetClientId: clientId,
+          }));
+        }
+        const isNewClient = !clients.has(clientId);
+        clients.set(clientId, { at: performance.now(), outputId: msg.outputId || "output-main" });
+        if (isNewClient) {
+          sendKnownNodePackages();
+          sendState(null, { targetClientId: clientId });
+          sendKnownMediaFiles();
+        }
+        return;
+      }
+      if (!hasCurrentProtocol(msg)) {
+        if (msg.clientId) rejectProtocol(msg);
+        return;
+      }
+      const clientId = String(msg.clientId || "");
+      if (!clientId || !clients.has(clientId)) return;
+      if (msg.sessionId !== sessionId) return;
+      clients.get(clientId).at = performance.now();
       if (msg.type === "recovery-state" && !store.getState().project.folderName && msg.state?.project?.folderName) {
         const recoveredState = resetRecoveredLiveSession(stateWithoutThumbnailUrls(msg.state));
+        const recoveryId = String(msg.recoveryId || "");
+        if (!recoveryId) return;
         activeRecovery = {
-          id: String(msg.recoveryId || "legacy"),
+          id: recoveryId,
           folderName: String(recoveredState.project.folderName || ""),
+          clientId,
         };
         if (recoveryMediaBlocked) {
           // Local project.json and its thumbnail cache are authoritative and
@@ -57,32 +102,22 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
         } else {
           store.replace(recoveredState, "project-output-recovery");
         }
-        // Older Output windows send state and files together. Retain protocol
-        // compatibility while still moving the file work behind first paint.
-        if (msg.files?.length) scheduleRecoveryMedia(msg.files, activeRecovery);
         return;
       }
       if (msg.type === "recovery-media-files" && activeRecovery) {
         const recovery = {
-          id: String(msg.recoveryId || "legacy"),
+          id: String(msg.recoveryId || ""),
           folderName: String(msg.folderName || ""),
+          clientId,
         };
-        if (recovery.id === activeRecovery.id && recovery.folderName === activeRecovery.folderName) {
+        if (
+          recovery.id === activeRecovery.id
+          && recovery.folderName === activeRecovery.folderName
+          && recovery.clientId === activeRecovery.clientId
+        ) {
           scheduleRecoveryMedia(msg.files || [], recovery);
         }
         return;
-      }
-      if (msg.type === "hello") {
-        if (!announced) return;
-        const isNewClient = !clients.has(msg.clientId || "output");
-        clients.set(msg.clientId || "output", { at: performance.now(), outputId: msg.outputId || "output-main" });
-        if (isNewClient) {
-          sendKnownNodePackages();
-          sendState(null, {
-            targetClientId: msg.clientId || "",
-          });
-          sendKnownMediaFiles();
-        }
       }
       if (msg.type === "request-media-files") sendKnownMediaFiles();
       if (msg.type === "request-state") {
@@ -132,8 +167,26 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     if (announced) return false;
     announced = true;
     clients.clear();
-    channel.postMessage({ type: "control-hello", sessionId });
+    channel.postMessage(protocolMessage({ type: "control-hello", sessionId }));
     return true;
+  }
+
+  function rejectProtocol(message) {
+    const clientId = String(message?.clientId || "");
+    diagnostics?.record?.("error", [{
+      code: "VJ1_OUTPUT_PROTOCOL_MISMATCH",
+      expected: OUTPUT_BRIDGE_PROTOCOL_VERSION,
+      received: message?.protocolVersion ?? null,
+      clientId,
+    }], "control · output bridge", 1);
+    channel.postMessage(protocolMessage({
+      type: "protocol-mismatch",
+      targetClientId: clientId,
+      expected: OUTPUT_BRIDGE_PROTOCOL_VERSION,
+      received: message?.protocolVersion ?? null,
+      action: "reload",
+      sessionId,
+    }));
   }
 
   if (!deferAnnouncement) announceControl();
@@ -230,14 +283,14 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     if (!targetClientId) {
       liveSynchronization.stateRevision({ broadcast: true });
     }
-    channel.postMessage({
+    channel.postMessage(protocolMessage({
       type: "state",
       state: stateWithoutThumbnailUrls(stateOverride || store.getLiveRenderState?.() || store.getRenderState?.() || store.getState()),
       targetClientId,
       revision: liveSynchronization.revision,
       sessionId,
       transport: { sentAtMs: transportTimestampMs() },
-    });
+    }));
   }
 
   function queueLivePatches(patches) {
@@ -265,16 +318,26 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
   function sendMediaFiles(files) {
     // An empty list is an authoritative snapshot too: it clears media owned
     // by an output after project close or a folder refresh.
-    channel.postMessage({ type: "media-files", files: files || [], sessionId });
+    channel.postMessage(protocolMessage({ type: "media-files", files: files || [], sessionId }));
   }
 
   function sendNodePackages(packages = []) {
     knownNodePackages = Array.isArray(packages) ? packages : [];
-    channel.postMessage({ type: "node-packages", packages: knownNodePackages, sessionId });
+    channel.postMessage(protocolMessage({
+      type: "node-packages",
+      packages: knownNodePackages,
+      packageLock: transportedNodePackageLock(knownNodePackages),
+      sessionId,
+    }));
   }
 
   function sendKnownNodePackages() {
-    channel.postMessage({ type: "node-packages", packages: knownNodePackages, sessionId });
+    channel.postMessage(protocolMessage({
+      type: "node-packages",
+      packages: knownNodePackages,
+      packageLock: transportedNodePackageLock(knownNodePackages),
+      sessionId,
+    }));
   }
 
   function sendKnownMediaFiles() {
@@ -290,7 +353,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
   }
 
   function command(name, payload = {}) {
-    channel.postMessage({ type: "command", command: name, payload, sessionId });
+    channel.postMessage(protocolMessage({ type: "command", command: name, payload, sessionId }));
   }
 
   return {
@@ -328,7 +391,17 @@ function resetRecoveredLiveSession(state = {}) {
   };
 }
 
-export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onNodePackages, onCommand, onControlHello, mode, outputId = "" }) {
+export function createOutputBridge({
+  onState,
+  onLivePatch,
+  onMediaFiles,
+  onNodePackages,
+  onCommand,
+  onControlHello,
+  onProtocolMismatch,
+  mode,
+  outputId = "",
+}) {
   const channel = new BroadcastChannel(VJ1.channelName);
   const clientId = `${mode}-${outputId || "default"}-${Math.random().toString(36).slice(2)}`;
   const transportProfiler = createOutputTransportProfiler();
@@ -339,7 +412,23 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onNodeP
   let livePatchScheduleToken = 0;
   channel.onmessage = (event) => {
     const msg = event.data || {};
-    if (msg.type === "control-hello") {
+    if (msg.type === "protocol-mismatch" && (!msg.targetClientId || msg.targetClientId === clientId)) {
+      onProtocolMismatch?.({
+        expected: Number(msg.expected) || OUTPUT_BRIDGE_PROTOCOL_VERSION,
+        received: msg.received ?? null,
+        action: String(msg.action || "reject"),
+      });
+      return;
+    }
+    if (msg.type === "control-hello" && (!msg.targetClientId || msg.targetClientId === clientId)) {
+      if (!hasCurrentProtocol(msg)) {
+        onProtocolMismatch?.({
+          expected: OUTPUT_BRIDGE_PROTOCOL_VERSION,
+          received: msg.protocolVersion ?? null,
+          action: "reload",
+        });
+        return;
+      }
       cancelPendingLivePatch();
       const nextSessionId = String(msg.sessionId || "");
       const changed = !!nextSessionId && nextSessionId !== controlSessionId;
@@ -350,6 +439,7 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onNodeP
       onControlHello?.({ sessionId: controlSessionId, changed });
       return;
     }
+    if (!hasCurrentProtocol(msg)) return;
     if (msg.sessionId && controlSessionId && msg.sessionId !== controlSessionId) return;
     if (msg.type === "state" && (!msg.targetClientId || msg.targetClientId === clientId)) {
       flushPendingLivePatch();
@@ -375,7 +465,7 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onNodeP
       });
     }
     if (msg.type === "media-files") onMediaFiles?.(msg.files || []);
-    if (msg.type === "node-packages") onNodePackages?.(msg.packages || []);
+    if (msg.type === "node-packages") onNodePackages?.(msg.packages || [], msg.packageLock || []);
     if (msg.type === "command") {
       flushPendingLivePatch();
       onCommand?.(msg.command, msg.payload || {});
@@ -447,21 +537,22 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onNodeP
   }
 
   function hello() {
-    channel.postMessage({ type: "hello", clientId, mode, outputId });
+    channel.postMessage(protocolMessage({ type: "hello", clientId, mode, outputId, sessionId: controlSessionId }));
   }
 
   function metrics(metrics) {
-    channel.postMessage({
+    channel.postMessage(protocolMessage({
       type: "metrics",
       clientId,
       outputId,
       metrics: { ...metrics, transport: transportProfiler.snapshot() },
-    });
+      sessionId: controlSessionId,
+    }));
   }
 
   function diagnostic(entry) {
     if (!entry?.message) return;
-    channel.postMessage({
+    channel.postMessage(protocolMessage({
       type: "diagnostic",
       clientId,
       mode,
@@ -472,34 +563,65 @@ export function createOutputBridge({ onState, onLivePatch, onMediaFiles, onNodeP
         source: entry.source,
         count: Math.max(1, Math.floor(Number(entry.count) || 1)),
       },
-    });
+      sessionId: controlSessionId,
+    }));
   }
 
   function mappingState(mappingId, mapping, status, meta = {}) {
-    channel.postMessage({ type: "mapping-state", clientId, mappingId, mapping, status, live: meta.live === true });
+    channel.postMessage(protocolMessage({
+      type: "mapping-state",
+      clientId,
+      mappingId,
+      mapping,
+      status,
+      live: meta.live === true,
+      sessionId: controlSessionId,
+    }));
   }
 
   function requestMediaFiles(mediaIds = []) {
-    channel.postMessage({ type: "request-media-files", clientId, mode, mediaIds });
+    channel.postMessage(protocolMessage({
+      type: "request-media-files",
+      clientId,
+      mode,
+      mediaIds,
+      sessionId: controlSessionId,
+    }));
   }
 
   function requestState() {
-    channel.postMessage({ type: "request-state", clientId, mode, outputId });
+    channel.postMessage(protocolMessage({
+      type: "request-state",
+      clientId,
+      mode,
+      outputId,
+      sessionId: controlSessionId,
+    }));
   }
 
   function recoveryState(state, files = []) {
     if (!state?.project?.folderName) return;
     const folderName = String(state.project.folderName || "");
     const recoveryId = `${clientId}-${Date.now().toString(36)}`;
-    channel.postMessage({
+    channel.postMessage(protocolMessage({
       type: "recovery-state",
       state: stateWithoutThumbnailUrls(state),
       recoveryId,
-    });
+      folderName,
+      clientId,
+      sessionId: controlSessionId,
+    }));
     if (!files.length) return;
     const timer = setTimeout(() => {
       recoveryTimers.delete(timer);
-      channel.postMessage({ type: "recovery-media-files", folderName, files, recoveryId });
+      channel.postMessage(protocolMessage({
+        type: "recovery-media-files",
+        folderName,
+        files,
+        recoveryId,
+        clientId,
+        sessionId: controlSessionId,
+      }));
     }, 0);
     recoveryTimers.add(timer);
   }
@@ -550,4 +672,12 @@ function activeOutputClients(clients) {
     outputs[outputId] = (outputs[outputId] || 0) + 1;
   }
   return outputs;
+}
+
+function transportedNodePackageLock(packages = []) {
+  return (packages || []).map((nodePackage) => ({
+    id: String(nodePackage?.id || ""),
+    version: String(nodePackage?.version || ""),
+    integrity: String(nodePackage?.metadata?.repositoryContentIntegrity || "").toLowerCase(),
+  }));
 }

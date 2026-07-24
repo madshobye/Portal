@@ -1,14 +1,8 @@
-import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
-import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
+import { createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
-import {
-  tileTextureNodeProcess,
-} from "./runtime.js?v=source-roi-view-3";
-import {
-  defineSpecializedVisualCompound,
-  MediaImageResourceNode,
-  TileTextureToImageNode,
-} from "../../shared/specialized-compound.js?v=tile-texture-semantic-1";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
+import MediaImage from "../media-image/index.js";
+import TileRepeat from "../../effects/tile-repeat/index.js";
 
 const manifest = Object.freeze({
     id: "tileTexture",
@@ -30,22 +24,15 @@ const manifest = Object.freeze({
     ],
   });
 
-const NativeVisualComponent = defineGeneratorNode(manifest, null, {
-  direct: false,
-  process: tileTextureNodeProcess,
-  exports: {},
-  parts: [],
-});
+const NativeVisualComponent = defineGeneratorNode(manifest);
 
-export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
-  compoundKind: "tile-texture",
-  nativeRenderer: "output/specialized:tileTexture",
+export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "image", type: MediaImageResourceNode.id },
-    { id: "render", type: TileTextureToImageNode.id, parameters: { providerId: "tile-texture-pass" } },
+    { id: "image", component: MediaImage, parameters: { fit: "stretch" } },
+    { id: "render", component: TileRepeat, parameters: { amount: 1 } },
   ],
   connections: [
-    { from: "image.image", to: "render.image", type: "media-image-resource" },
+    { from: "image.texture", to: "render.texture", type: "texture" },
   ],
   output: "render.texture",
   parameterBindings: {

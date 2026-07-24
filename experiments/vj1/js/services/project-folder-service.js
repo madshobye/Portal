@@ -11,39 +11,40 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=pixel-density-4";
+import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=package-content-lock-1";
 import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
-import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=model-media-scene-group-1";
+import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=package-content-lock-1";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
 import { isHistoryReason } from "./project-history-policy.js?v=project-storage-1";
-import { buildProjectPayload } from "./project-serializer.js?v=project-group-authoring-1";
+import { buildProjectPayload } from "./project-serializer.js?v=package-content-lock-1";
 import {
   createProjectSavePreparer,
   projectPayloadSignature,
-} from "./project-save-preparation.js?v=autosave-worker-2";
+} from "./project-save-preparation.js?v=surface-terminology-1";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
 import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
 import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
 import { mergeProjectIsfDefinitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
 import {
   serializeNodePackage,
-} from "../libraries/node-engine/node-package.js?v=node-package-management-project-group-authoring-compiler-transport-1";
+} from "../libraries/node-engine/node-package.js?v=package-content-lock-1";
 import {
   installNodePackageReference,
   removeNodePackageReference,
-} from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
+} from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
 import {
   assertNodePackageUpdateSafe,
+  createNodePackageLock,
   exportNodePackageDirectory,
   importNodePackageDirectory,
   loadNodePackageRepository,
   resolveReferencedNodePackages,
   writeNodePackageManifest as writeRepositoryNodePackageManifest,
   NODE_PACKAGE_LIBRARY_ROOT,
-} from "./node-package-repository.js?v=node-package-management-project-group-authoring-compiler-transport-1";
+} from "./node-package-repository.js?v=package-content-lock-1";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=project-group-authoring-1";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=package-content-lock-1";
 export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js?v=project-history-store-1";
 
 export function restoreProjectLiveUi(currentLive = {}, projectLive = {}) {
@@ -275,7 +276,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     refreshInFlight = true;
     try {
       const repository = await loadNodePackageRepository(dirHandle);
-      const packages = resolveReferencedNodePackages(store.getState().nodes?.packages || [], repository);
+      const nodeState = store.getState().nodes || {};
+      const packages = resolveReferencedNodePackages(
+        nodeState.packages || [],
+        repository,
+        nodeState.packageLock || [],
+      );
       publishInstalledNodePackages(packages, repository);
       const files = [...await collectProjectAssetFiles(dirHandle), ...await derivedAssets.loadIndexedRenditions()];
       const signature = directorySignature(files);
@@ -339,7 +345,22 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     let projectPackages;
     try {
       const repository = await loadNodePackageRepository(dirHandle);
-      projectPackages = resolveReferencedNodePackages(projectData.nodes?.packages || [], repository);
+      const projectNodes = projectData.nodes || {};
+      const references = projectNodes.packages || [];
+      let packageLock = projectNodes.packageLock || [];
+      if (references.length && !packageLock.length) {
+        const completePackages = resolveAllReferencedNodePackages(references, repository);
+        packageLock = createNodePackageLock(completePackages);
+        projectData.nodes = { ...projectNodes, packageLock };
+        projectMigrationSaveRequired = true;
+        console.warn("[VJ1_NODE_PACKAGE_LOCK_MIGRATED]", {
+          packages: packageLock.map((item) => `${item.id}@${item.version}`),
+          message: "Existing package references were pinned to their current verified repository content.",
+        });
+      } else if (references.length) {
+        resolveAllReferencedNodePackages(references, repository, packageLock);
+      }
+      projectPackages = resolveReferencedNodePackages(references, repository, packageLock);
       availableNodePackages = repository;
     } catch (error) {
       blockProjectLoad(`Cannot load project node packages safely: ${error.message || error}. The existing project was not changed.`);
@@ -483,7 +504,11 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       { enabled: enabled !== false },
     );
     const repository = await loadNodePackageRepository(dirHandle);
-    const packages = resolveReferencedNodePackages(nextReferences, repository);
+    const packages = resolveReferencedNodePackages(
+      nextReferences,
+      repository,
+      currentNodes.packageLock || [],
+    );
     // Enabling publishes the superset first; disabling publishes the reduced
     // set after state. Each renderer therefore resolves a valid package set at
     // both sides of the ordered transition.
@@ -506,7 +531,17 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       { enabled: previous?.enabled !== false },
     );
     const repository = await loadNodePackageRepository(dirHandle);
-    const packages = resolveReferencedNodePackages(nextReferences, repository);
+    // Installing one package must never silently re-approve altered content
+    // belonging to an already installed package.
+    resolveAllReferencedNodePackages(
+      currentNodes.packages || [],
+      repository,
+      currentNodes.packageLock || [],
+    );
+    const packageLock = createNodePackageLock(
+      resolveAllReferencedNodePackages(nextReferences, repository),
+    );
+    const packages = resolveReferencedNodePackages(nextReferences, repository, packageLock);
     if (previous && previous.version !== version) {
       const previousPackage = repository.find((nodePackage) =>
         nodePackage.id === previous.id && nodePackage.version === previous.version);
@@ -518,6 +553,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     if (previous?.enabled !== false) publishInstalledNodePackages(packages, repository);
     store.update((draft) => {
       draft.nodes.packages = nextReferences;
+      draft.nodes.packageLock = packageLock;
     }, previous ? "update:node-package-version" : "update:node-package-install");
     if (previous?.enabled === false) publishInstalledNodePackages(packages, repository);
     return installedNodePackages;
@@ -529,9 +565,16 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     if (!(currentNodes.packages || []).some((item) => item.id === packageId)) return false;
     const nextReferences = removeNodePackageReference(currentNodes.packages, packageId);
     const repository = await loadNodePackageRepository(dirHandle);
-    const packages = resolveReferencedNodePackages(nextReferences, repository);
+    const completePackages = resolveAllReferencedNodePackages(
+      nextReferences,
+      repository,
+      currentNodes.packageLock || [],
+    );
+    const packageLock = createNodePackageLock(completePackages);
+    const packages = resolveReferencedNodePackages(nextReferences, repository, packageLock);
     store.update((draft) => {
       draft.nodes.packages = nextReferences;
+      draft.nodes.packageLock = packageLock;
     }, "update:node-package-remove");
     publishInstalledNodePackages(packages, repository);
     return true;
@@ -541,7 +584,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     if (!dirHandle) throw new Error("NODE_PACKAGE_PROJECT_FOLDER_REQUIRED");
     const path = await writeRepositoryNodePackageManifest(dirHandle, encodedPackage);
     const repository = await loadNodePackageRepository(dirHandle);
-    const packages = resolveReferencedNodePackages(store.getState().nodes?.packages || [], repository);
+    const nodeState = store.getState().nodes || {};
+    const packages = resolveReferencedNodePackages(
+      nodeState.packages || [],
+      repository,
+      nodeState.packageLock || [],
+    );
     publishInstalledNodePackages(packages, repository);
     return path;
   }
@@ -552,7 +600,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     if (!source) throw new Error("NODE_PACKAGE_IMPORT_DIRECTORY_PICKER_UNAVAILABLE");
     const imported = await importNodePackageDirectory(dirHandle, source);
     const repository = await loadNodePackageRepository(dirHandle);
-    const packages = resolveReferencedNodePackages(store.getState().nodes?.packages || [], repository);
+    const nodeState = store.getState().nodes || {};
+    const packages = resolveReferencedNodePackages(
+      nodeState.packages || [],
+      repository,
+      nodeState.packageLock || [],
+    );
     publishInstalledNodePackages(packages, repository);
     return imported;
   }
@@ -954,6 +1007,14 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     writeMediaRendition: (...args) => derivedAssets.writeMediaRendition(...args),
     writeComponentThumbnail: (...args) => derivedAssets.writeComponentThumbnail(...args),
   };
+}
+
+function resolveAllReferencedNodePackages(references = [], repository = [], packageLock = []) {
+  return resolveReferencedNodePackages(
+    (references || []).map((reference) => ({ ...reference, enabled: true })),
+    repository,
+    packageLock,
+  );
 }
 
 function mergeMediaCatalogMarkers(imported = [], authored = []) {

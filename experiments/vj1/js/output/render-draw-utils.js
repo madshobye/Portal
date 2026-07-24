@@ -1,4 +1,4 @@
-import { drawWebGLBuffer } from "./component-render-layout.js?v=canvas-global-resolution-1";
+import { drawWebGLBuffer } from "./component-render-layout.js?v=surface-terminology-1";
 import { isSharedFramebufferTarget, unwrapRenderTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
 import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=render-core-contract-1";
 
@@ -32,14 +32,8 @@ export function drawSampleRect(pg, source, sampleRect = {}, x = 0, y = 0, width 
   try {
     pg.image(source, x, y, width, height, sx, sy, sw, sh);
   } catch (error) {
-    const drawable = source?.canvas || source?.elt || source;
-    const context = pg?.drawingContext;
-    if (typeof context?.drawImage !== "function") {
-      reportSampleDrawFailure(source, pg, error, false);
-      throw error;
-    }
-    reportSampleDrawFailure(source, pg, error, true);
-    context.drawImage(drawable, sx, sy, sw, sh, x, y, width, height);
+    reportSampleDrawFailure(source, pg, error);
+    throw error;
   }
 }
 
@@ -87,7 +81,7 @@ function reportSampleRectClamp(source, requested, bounded, sourceSize) {
   });
 }
 
-function reportSampleDrawFailure(source, target, error, recovered) {
+function reportSampleDrawFailure(source, target, error) {
   if (source && (typeof source === "object" || typeof source === "function")) {
     let targets = reportedSampleDrawFailures.get(source);
     if (!targets) {
@@ -104,6 +98,5 @@ function reportSampleDrawFailure(source, target, error, recovered) {
     target: target?.constructor?.name || typeof target,
     message: error?.message || String(error || "sample draw failed"),
   };
-  if (recovered) console.warn("[VJ1_SAMPLE_DRAW_FALLBACK]", { ...detail, fallback: "CanvasRenderingContext2D.drawImage" });
-  else console.error("[VJ1_SAMPLE_DRAW_FAILED]", detail);
+  console.error("[VJ1_SAMPLE_DRAW_FAILED]", detail);
 }

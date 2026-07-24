@@ -1,4 +1,4 @@
-import { createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=runtime-diagnostics-1";
+import { createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=canonical-effect-params-1";
 
 export function collectOutputMediaReadiness({
   mode = "output",

@@ -127,6 +127,7 @@ test("project payload preserves the selected component chain item", () => {
     artifacts: [],
     forks: [],
     packages: [],
+    packageLock: [],
     migrations: [],
   });
   assert.equal(payload.ui.selectedChainItemId, "chain-effect-b");

@@ -4,7 +4,7 @@ import {
   componentRootTransformRegion,
   componentSourceView,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=roi-composition-1";
+} from "./component-render-layout.js?v=surface-terminology-1";
 import {
   createRenderRequest,
   frameSize,
@@ -13,6 +13,7 @@ import {
 } from "./render-geometry.js?v=roi-composition-1";
 import { visibleSurfaceUvRect } from "../libraries/mapping-engine/mapping-engine/index.js?v=roi-composition-1";
 import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=roi-composition-1";
+import { directSurfaceHierarchy } from "../domain/direct-surface-hierarchy.js?v=explicit-direct-surface-hierarchy-1";
 
 // Direct render-host bridge: the node owns the route algorithm while the
 // renderer supplies its established geometry policies directly. This closure
@@ -31,19 +32,20 @@ export const planSurfaceRoutes = createSurfaceCompositionEngine({
   componentFrameFanoutSafe: (component) => component?.frameFanoutSafe !== false,
 });
 
-// Direct output routes are backplanes, not projection overlays. Draw a route
-// spanning several outputs first, then output-specific direct routes, and
-// finally authored mapped Surfaces. The stable source index preserves user
-// ordering within each layer and requires no extra render target or pass.
+// Direct output routes are backplanes, not projection overlays. Draw declared
+// parents before their overrides, then authored mapped Surfaces. The stable
+// source index preserves user ordering between peers and requires no extra
+// render target or pass.
 export function orderedSurfaceProgram(surfaces = []) {
+  const hierarchy = directSurfaceHierarchy(surfaces);
   return (surfaces || []).map((surface, index) => ({ surface, index })).sort((a, b) => {
     const aDirect = a.surface?.destination?.type === "direct";
     const bDirect = b.surface?.destination?.type === "direct";
     if (aDirect !== bDirect) return aDirect ? -1 : 1;
     if (aDirect) {
-      const spanDifference = (b.surface.destination?.outputIds?.length || 0)
-        - (a.surface.destination?.outputIds?.length || 0);
-      if (spanDifference) return spanDifference;
+      const depthDifference = (hierarchy.depthById.get(String(a.surface?.id || "")) || 0)
+        - (hierarchy.depthById.get(String(b.surface?.id || "")) || 0);
+      if (depthDifference) return depthDifference;
     }
     return a.index - b.index;
   }).map(({ surface }) => surface);

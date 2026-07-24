@@ -20,12 +20,13 @@ export function disposeGraphics(item) {
 }
 
 export function chainItemToShaderPass(item) {
+  const params = item.params || {};
   return {
     id: item.componentId || item.id,
     instanceId: item.id || item.componentId || "",
     enabled: item.enabled !== false,
-    params: item.params || {},
-    amount: item.amount,
+    params,
+    amount: params.amount,
     transform: item.transform || {},
     opacity: item.opacity ?? 1,
     blend: item.blend || "normal",

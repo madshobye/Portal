@@ -399,6 +399,30 @@ export function graphNodeFromDefinition(definition, {
     parameters,
     position: normalizedPosition(position),
   };
+  const declaredVisualHook = definition?.metadata?.visualCompilerHook;
+  if (declaredVisualHook?.id === "vj1.visual.compound" && definition?.outlets?.texture) return {
+    id: instanceId,
+    nodeId,
+    nodeVersion: definition.version,
+    role: "group",
+    parameters,
+    configuration: {
+      id: instanceId,
+      kind: "source",
+      name: definition.name,
+      enabled: true,
+      opacity: 1,
+      blend: "normal",
+      source: {
+        type: "generator",
+        generatorId: definition.metadata?.visualId || nodeId,
+        instanceId,
+        params: { ...parameters },
+      },
+    },
+    compilerHook: { ...declaredVisualHook },
+    position: normalizedPosition(position),
+  };
   const visualKind = definition?.metadata?.visualKind;
   if (visualKind === "generator") return {
     id: instanceId,
@@ -437,7 +461,6 @@ export function graphNodeFromDefinition(definition, {
       enabled: true,
       opacity: 1,
       blend: "normal",
-      amount: parameters.amount,
       params: { ...parameters },
     },
     compilerHook: visualCompilerHook(definition, "effect"),
@@ -453,30 +476,6 @@ export function graphNodeFromDefinition(definition, {
     compilerHook: { id: "vj1.visual.layer-group" },
     nodes: [],
     connections: [],
-    position: normalizedPosition(position),
-  };
-  const declaredVisualHook = definition?.metadata?.visualCompilerHook;
-  if (declaredVisualHook?.id === "vj1.visual.compound" && definition?.outlets?.texture) return {
-    id: instanceId,
-    nodeId,
-    nodeVersion: definition.version,
-    role: "group",
-    parameters,
-    configuration: {
-      id: instanceId,
-      kind: "source",
-      name: definition.name,
-      enabled: true,
-      opacity: 1,
-      blend: "normal",
-      source: {
-        type: "generator",
-        generatorId: definition.metadata?.visualId || nodeId,
-        instanceId,
-        params: { ...parameters },
-      },
-    },
-    compilerHook: { ...declaredVisualHook },
     position: normalizedPosition(position),
   };
   if (declaredVisualHook?.id === "vj1.visual.texture-operator" && definition?.outlets?.texture) return {
@@ -817,7 +816,6 @@ function nodeWithParameter(node, parameterId, value) {
     };
   } else if (configuration?.kind === "effect") {
     configuration.params = { ...(configuration.params || {}), [parameterId]: value };
-    if (parameterId === "amount") configuration.amount = value;
   } else if (configuration?.kind === "texture-operator") {
     configuration.params = { ...(configuration.params || {}), [parameterId]: value };
   }

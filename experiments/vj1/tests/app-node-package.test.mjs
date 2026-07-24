@@ -10,7 +10,6 @@ import {
   AnatomyGeometryProviderNode,
   AnatomyMaterialPaletteNode,
   AnatomyMotionTransform3dNode,
-  AnatomyToImageNode,
   LitMeshMaterialProviderNode,
   listGeneratorNodeComponents as listGeneratorComponents,
   listEffectNodeComponents as listShaderComponents,
@@ -107,7 +106,6 @@ test("application composition root registers reusable visual node definitions", 
     assert.equal(template.parts.find((part) => part.kind === "graph")?.editable, false);
     assert.equal(template.authoring.activation, "read-only");
   }
-  assert.equal(packageRoot.registry.has(AnatomyToImageNode.id), true);
   assert.equal(packageRoot.registry.has(MeshPatternTopologyProviderNode.id), true);
   assert.equal(packageRoot.registry.has(MeshPatternFillMaterialProviderNode.id), true);
   assert.equal(packageRoot.registry.has(MeshPatternWireMaterialProviderNode.id), true);
@@ -306,6 +304,8 @@ test("Components and Canvases persist and compile their executable node topology
     ["effect-a.texture", "$out.texture"],
   ]);
   assert.equal(componentGroup.connections.some((edge) => edge.to === "effect-a.$parameter.amount" && edge.sourceRange[1] === 1), true);
+  assert.equal(Object.hasOwn(componentGroup.nodes.find((node) => node.id === "effect-a").configuration, "amount"), false);
+  assert.equal(componentGroup.nodes.find((node) => node.id === "effect-a").configuration.params.amount, 0.4);
   assert.equal(canvasGroup.artifactType, "scene");
   const canvasLayerGroup = canvasGroup.nodes.find((node) => node.role === "group");
   assert.equal(canvasLayerGroup.nodeId, "core.composition.layer-group");
@@ -1170,7 +1170,7 @@ test("SDF Sketch Content edits regenerate the project-local shader", () => {
   assert.equal(shaderPart.source.includes("#ff4f92cc"), false);
 });
 
-test("specialized Text compiles node-owned helpers and shaders while retaining the host cache", () => {
+test("Text compiles retained value providers into an ordinary optimized visual Group", () => {
   const packageRoot = createVj1NodePackage();
   const component = {
     id: "text-component",
@@ -1187,18 +1187,25 @@ test("specialized Text compiles node-owned helpers and shaders while retaining t
     resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
   }).get(component.id).plan.operations[0];
 
-  assert.equal(operation.renderer, "output/specialized:text");
-  assert.equal(operation.backend, "native-specialized-compound");
-  assert.deepEqual(operation.nativeCompoundProgram.stages.map((stage) => stage.id), ["mask", "render"]);
-  assert.deepEqual(
-    operation.nativeCompoundProgram.nativeKernel("text-mask").inputBindings.mask,
-    { stageId: "mask", portId: "mask" },
+  const render = operation.operations[0];
+  assert.equal(operation.backend, "compiled-visual-group");
+  assert.equal(operation.nativeCompoundProgram, undefined);
+  assert.deepEqual(operation.valueProgram.steps.map((step) => step.nodeId), [
+    "core.render.demand",
+    "core.visual.text-mask",
+  ]);
+  assert.equal(operation.valueProgram.bindings.length, 1);
+  assert.equal(operation.valueProgram.bindings[0].targetPortId, "mask");
+  assert.strictEqual(
+    operation.valueProgram.bindings[0].operation.runtimeValueInputs,
+    render.runtimeValueInputs,
+    "contract normalization preserves the retained value-input map identity",
   );
-  assert.equal(typeof operation.nodeModule.createTextMask, "function");
-  assert.equal(typeof operation.nodeModule.textMaskSignature, "function");
-  assert.match(operation.nodeShaders.vertex, /attribute vec3 aPosition/);
-  assert.match(operation.nodeShaders.fragment, /uniform sampler2D textMask/);
-  assert.equal(operation.nodeProcess, undefined, "the cache-owning host adapter remains specialized");
+  assert.equal(render.renderer, "output/specialized:text");
+  assert.equal(render.backend, "native-specialized");
+  assert.match(render.nodeShaders.vertex, /attribute vec3 aPosition/);
+  assert.match(render.nodeShaders.fragment, /uniform sampler2D textMask/);
+  assert.equal(render.nodeProcess, undefined, "the context-bound cache remains a declared native operation");
 });
 
 test("ordinary source nodes compile their source-family host renderer without changing the direct render path", () => {

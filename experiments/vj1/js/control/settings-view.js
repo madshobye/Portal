@@ -1,4 +1,4 @@
-import { MAX_PIXEL_DENSITY, normalizeRenderSettings, RESOLUTION_CEILING_PRESETS } from "../domain/render-settings.js?v=pixel-density-4";
+import { MAX_PIXEL_DENSITY, normalizeRenderSettings, RESOLUTION_CEILING_PRESETS } from "../domain/render-settings.js?v=surface-terminology-1";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
 import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
 
@@ -105,7 +105,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="settings-group-title"><span class="material-symbols-rounded">tune</span><span>Advanced sampling</span></div>
           <div class="field-pair">
             <label class="field">Surface overscan <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.surfaceOverscan" value="${render.sampling.surfaceOverscan}" /></label>
-            <label class="field">Surface detail <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.recordingFrameScale" value="${render.sampling.recordingFrameScale}" /></label>
+            <label class="field">Surface detail <input type="number" min="0.5" max="2" step="0.05" data-settings-update="render.sampling.surfaceDetailScale" value="${render.sampling.surfaceDetailScale}" /></label>
           </div>
           ${settingsToggle("Limit Scene raster to logical size", "render.sampling.limitSceneToLogicalSize", render.sampling.limitSceneToLogicalSize)}
           <div class="soft-note">Independent raster-demand multipliers. Both default to 1×; Surface detail can be lowered to 0.5× for lower Scene cost.</div>

@@ -1,4 +1,4 @@
-import { buildProjectPayload } from "./project-serializer.js?v=autosave-worker-2";
+import { buildProjectPayload } from "./project-serializer.js?v=surface-terminology-1";
 import { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
 
 export function prepareProjectSave(state, savedAt = new Date().toISOString()) {
@@ -40,7 +40,7 @@ export function projectPayloadSignature(payload = {}) {
 
 export function createProjectSavePreparer({
   WorkerClass = globalThis.Worker,
-  workerUrl = new URL("./project-save-preparation-worker.js?v=autosave-worker-2", import.meta.url),
+  workerUrl = new URL("./project-save-preparation-worker.js?v=surface-terminology-1", import.meta.url),
   onFallback = defaultFallbackWarning,
 } = {}) {
   let worker = null;

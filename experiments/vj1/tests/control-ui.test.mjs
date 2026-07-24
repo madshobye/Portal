@@ -389,7 +389,7 @@ test("Component Scene and Live inspectors give range tracks their own full-width
   assert.match(styleSource, /\.chain-param-list \{[\s\S]*?gap: var\(--param-stack-gap\);/);
 });
 
-test("every Scene Frame exposes proportion locking and Output Frames remain interactive", () => {
+test("every Scene Surface exposes proportion locking and direct-output Surfaces remain interactive", () => {
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const interactionSource = readFileSync(new URL("../js/output/component-preview-interaction.js", import.meta.url), "utf8");
   assert.ok(componentSource.includes("Keep proportions"));
@@ -951,17 +951,17 @@ test("Mapping preview draws an editor-only output frame without another render t
 test("Live Scene Mapping Surface guides are a route-patched zero-buffer node", () => {
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const surfaceRuntime = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
-  const guideNode = readFileSync(new URL("../js/libraries/composition-engine/scene-frame-guides/index.js", import.meta.url), "utf8");
+  const guideNode = readFileSync(new URL("../js/libraries/composition-engine/scene-surface-guides/index.js", import.meta.url), "utf8");
   assert.doesNotMatch(renderer, /renderLiveOverallFrameOverlay/);
   assert.match(surfaceRuntime, /drawSurfaceRouteView\(view, route\);[\s\S]*?drawLiveMonitorGuideNodes\(route\)/);
   assert.match(surfaceRuntime, /drawGuidePaths\(\[\[[\s\S]*?color: \[84, 228, 212, 184\]/);
-  assert.match(surfaceRuntime, /SceneFrameGuideNode\.process/);
+  assert.match(surfaceRuntime, /SceneSurfaceGuideNode\.process/);
   assert.match(surfaceRuntime, /renderer\.mapper\.drawGuidePaths\(paths, route\.mapped\.mapperSurface\)/);
   assert.doesNotMatch(surfaceRuntime, /route\.component\?\.type !== "scene"/);
   assert.match(guideNode, /Output Surfaces are useful authored guides/);
   assert.match(guideNode, /"zero-buffer"/);
   const guideRuntime = surfaceRuntime.slice(
-    surfaceRuntime.indexOf("drawSceneFrameGuideNode(route = {})"),
+    surfaceRuntime.indexOf("drawSceneSurfaceGuideNode(route = {})"),
     surfaceRuntime.indexOf("drawSurfaceRouteViewBatch")
   );
   assert.doesNotMatch(guideNode + guideRuntime, /createGraphics\(/);
@@ -1205,7 +1205,7 @@ test("project settings expose proportions, an adaptive ceiling, and no authored 
   assert.ok(source.includes('data-settings-update="render.componentAspectRatio"'));
   assert.ok(source.includes('data-settings-update="render.resolutionCeiling"'));
   assert.ok(source.includes('data-settings-update="render.sampling.surfaceOverscan"'));
-  assert.ok(source.includes('data-settings-update="render.sampling.recordingFrameScale"'));
+  assert.ok(source.includes('data-settings-update="render.sampling.surfaceDetailScale"'));
   assert.ok(source.includes('data-settings-update="render.sampling.limitSceneToLogicalSize"'));
   assert.equal(source.includes('data-settings-update="render.edgeSoftness"'), false);
   assert.ok(source.includes("Auto · current window"));

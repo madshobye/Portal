@@ -29,14 +29,13 @@
       import Text from "../../js/libraries/visual-nodes/generators/text/index.js?v=text-mask-semantic-1";
       import ScreenShare from "../../js/libraries/visual-nodes/generators/screen-share/index.js?v=screen-input-semantic-1";
       import Eyeball from "../../js/libraries/visual-nodes/generators/eyeball/index.js?v=gaze-blink-semantic-1";
+      import EyeballRender from "../../js/libraries/visual-nodes/generators/eyeball-render/index.js";
+      import MediaImage from "../../js/libraries/visual-nodes/generators/media-image/index.js";
+      import TileRepeat from "../../js/libraries/visual-nodes/effects/tile-repeat/index.js";
       import {
         FEATURE_MORPH_FRAGMENT_SHADER,
         FEATURE_MORPH_VERTEX_SHADER,
       } from "../../js/libraries/visual-nodes/generators/feature-morph/runtime.js?v=feature-morph-semantic-1";
-      import {
-        TILE_TEXTURE_FRAGMENT_SHADER,
-        TILE_TEXTURE_VERTEX_SHADER,
-      } from "../../js/libraries/visual-nodes/generators/tile-texture/runtime.js?v=tile-texture-semantic-1";
       import { TerrainBiomeMaterialProviderNode } from "../../js/libraries/visual-nodes/providers/terrain-biome-material/index.js?v=semantic-terrain-node-ownership-1";
       import { TerrainWireMaterialProviderNode } from "../../js/libraries/visual-nodes/providers/terrain-wire-material/index.js?v=semantic-terrain-node-ownership-1";
       import { TextMaskProviderNode } from "../../js/libraries/visual-nodes/providers/text-mask/index.js?v=text-mask-semantic-1";
@@ -44,7 +43,10 @@
       import { ScreenInputResourceNode } from "../../js/libraries/visual-nodes/providers/screen-input-resource/index.js?v=screen-input-semantic-1";
       import { MediaResourceToImageNode } from "../../js/libraries/visual-nodes/renderers/media-resource-to-image/index.js?v=screen-input-semantic-1";
       import { GazeBlinkControllerNode } from "../../js/libraries/visual-nodes/providers/gaze-blink-controller/index.js?v=gaze-blink-semantic-1";
-      import { EyeballToImageNode } from "../../js/libraries/visual-nodes/renderers/eyeball-to-image/index.js?v=gaze-blink-semantic-1";
+      import { ComponentTimeControlNode } from "../../js/libraries/control-engine/index.js?v=architecture-r2-2";
+      import { CONTROLLED_IMAGE_VERTEX_SHADER } from "../../js/libraries/visual-nodes/renderers/eyeball-to-image/shader.js";
+      import { standaloneFragmentSource } from "../../js/shaders/shader-builder.js";
+      import { graphNodeFromDefinition } from "../../js/control/node-graph-canvas.js";
       import {
         compileSpecializedCompoundProgram,
       } from "../../js/libraries/visual-nodes/shared/specialized-compound.js";
@@ -95,21 +97,32 @@
           compilePair(gl, "mesh-pattern-fill", MESH_PATTERN_FILL_VERTEX_SHADER, MESH_PATTERN_FILL_FRAGMENT_SHADER),
           compilePair(gl, "mesh-pattern-wire", MESH_PATTERN_WIRE_VERTEX_SHADER, MESH_PATTERN_WIRE_FRAGMENT_SHADER),
           compilePair(gl, "feature-morph", FEATURE_MORPH_VERTEX_SHADER, FEATURE_MORPH_FRAGMENT_SHADER),
-          compilePair(gl, "tile-texture", TILE_TEXTURE_VERTEX_SHADER, TILE_TEXTURE_FRAGMENT_SHADER),
           compileNodeShaderProgram(gl, "terrain-surface", TerrainBiomeMaterialProviderNode, "surface"),
           compileNodeShaderProgram(gl, "terrain-wire", TerrainWireMaterialProviderNode, "wire"),
           compileNodeShaderProgram(gl, "text-mask", TextMaskToImageNode, "text-mask"),
-          compileNodeShaderProgram(gl, "eyeball", EyeballToImageNode, "controlled-shader"),
+          compilePair(
+            gl,
+            "eyeball",
+            CONTROLLED_IMAGE_VERTEX_SHADER,
+            standaloneFragmentSource(EyeballRender.code, EyeballRender),
+          ),
         ];
         const compounds = [
           compileCompound("mesh-patterns", MeshPatterns),
           compileCompound("terrain-flyover", TerrainFlyover),
           compileCompound("feature-morph", FeatureMorph),
           compileCompound("feature-morph-v2", FeatureMorphV2),
-          compileCompound("tile-texture", TileTexture),
+          compileOrdinaryCompound("tile-texture", TileTexture, [
+            MediaImage.nodeDefinition,
+            TileRepeat.nodeDefinition,
+          ]),
           compileCompound("text", Text),
           compileCompound("screen-share", ScreenShare),
-          compileCompound("eyeball", Eyeball),
+          compileOrdinaryCompound("eyeball", Eyeball, [
+            ComponentTimeControlNode,
+            GazeBlinkControllerNode,
+            EyeballRender.nodeDefinition,
+          ]),
         ];
         const textMask = verifyTextMaskGroup();
         const screenShare = verifyScreenShareGroup();
@@ -202,6 +215,45 @@
           compiledFastPath: definition.capabilities?.includes("compiled-fast-path") === true,
           renderer: definition.metadata?.visualCompilerHook?.renderer || "",
         };
+      }
+
+      function compileOrdinaryCompound(expectedKind, component, definitions) {
+        const definition = component?.nodeDefinition;
+        const graphPart = definition?.parts?.find((part) => part.kind === "graph");
+        const registry = new Map([
+          [definition.id, definition],
+          ...definitions.map((item) => [item.id, item]),
+        ]);
+        const outer = graphNodeFromDefinition(definition, {
+          id: `browser-${expectedKind}`,
+          visualProgram: true,
+        });
+        const plan = compileVisualRenderPlan({
+          id: `browser-${expectedKind}-plan`,
+          nodes: [outer],
+          connections: [{
+            from: `${outer.id}.texture`,
+            to: "$out.texture",
+            type: "texture",
+          }],
+        }, {}, {
+          resolveDefinition: (node) => registry.get(node.nodeId),
+        });
+        const operation = plan.operations[0];
+        const result = {
+          kind: expectedKind,
+          format: plan.format,
+          stages: operation.operations.map(({ id, nodeId }) => ({ id, nodeId })),
+          output: operation.outputPort,
+          executionModel: definition.implementation?.executionModel || "",
+          graphEditable: graphPart?.editable === true,
+          activation: definition.authoring?.activation || "",
+          compiledFastPath: definition.capabilities?.includes("compiled-fast-path") === true,
+          renderer: operation.renderer || "",
+          backend: operation.backend,
+        };
+        plan.dispose();
+        return result;
       }
 
       function verifyModelMediaGroup(component) {
@@ -321,48 +373,78 @@
       }
 
       function verifyEyeballGroup() {
+        const definition = Eyeball.nodeDefinition;
         const definitions = new Map([
+          [definition.id, definition],
+          [ComponentTimeControlNode.id, ComponentTimeControlNode],
           [GazeBlinkControllerNode.id, GazeBlinkControllerNode],
-          [EyeballToImageNode.id, EyeballToImageNode],
+          [EyeballRender.nodeDefinition.id, EyeballRender.nodeDefinition],
         ]);
-        const program = compileSpecializedCompoundProgram(Eyeball.nodeDefinition, {
-          resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+        const outer = graphNodeFromDefinition(definition, {
+          id: "browser-eyeball",
+          visualProgram: true,
         });
-        const context = { instanceId: "browser-eyeball" };
-        const first = program.evaluateGraph({
-          gazeRange: 0.8,
-          blinkRate: 1,
-          irisSize: 1.2,
-        }, context, {
-          motion: { componentTime: 2 },
+        const plan = compileVisualRenderPlan({
+          id: "browser-eyeball-plan",
+          nodes: [outer],
+          connections: [{
+            from: `${outer.id}.texture`,
+            to: "$out.texture",
+            type: "texture",
+          }],
+        }, {}, {
+          resolveDefinition: (node) => definitions.get(node.nodeId),
         });
-        const firstUniforms = first.stageInput("render", "uniforms");
-        const second = program.evaluateGraph({
-          gazeRange: 0.8,
-          blinkRate: 1,
-          irisSize: 1.2,
-        }, context, {
-          motion: { componentTime: 3 },
-        });
-        const secondUniforms = second.stageInput("render", "uniforms");
-        const values = [
-          ...secondUniforms.gazeDir,
-          ...secondUniforms.irisRight,
-          ...secondUniforms.irisUp,
-          secondUniforms.blink,
+        const operation = plan.operations[0];
+        const renderParams = operation.operations[0].configuration.source.params;
+        const firstRestore = operation.controlProgram.apply({ componentTime: 2 });
+        const firstValues = [
+          renderParams.gazeX,
+          renderParams.gazeY,
+          renderParams.gazeZ,
+          renderParams.irisRightX,
+          renderParams.irisRightY,
+          renderParams.irisRightZ,
+          renderParams.irisUpX,
+          renderParams.irisUpY,
+          renderParams.irisUpZ,
+          renderParams.blink,
         ];
+        firstRestore();
+        const secondRestore = operation.controlProgram.apply({ componentTime: 3 });
+        const values = [
+          renderParams.gazeX,
+          renderParams.gazeY,
+          renderParams.gazeZ,
+          renderParams.irisRightX,
+          renderParams.irisRightY,
+          renderParams.irisRightZ,
+          renderParams.irisUpX,
+          renderParams.irisUpY,
+          renderParams.irisUpZ,
+          renderParams.blink,
+        ];
+        secondRestore();
         const result = {
           connected:
-            program.nativeKernel("controlled-shader")?.inputBindings?.uniforms?.stageId === "motion",
-          retainedUniforms: firstUniforms === secondUniforms,
+            operation.backend === "compiled-visual-group" &&
+            operation.operations[0]?.backend === "shader-generator" &&
+            operation.controlProgram.bindings.length === 10,
+          retainedUniforms:
+            operation.controlProgram.steps[1]?.outputValues ===
+            operation.controlProgram.outputs.get(operation.controlProgram.steps[1]?.id),
           finiteAnimation:
             values.every(Number.isFinite) &&
-            secondUniforms.blink >= 0 &&
-            secondUniforms.blink <= 1,
-          stages: program.stages.map(({ id, nodeId }) => ({ id, nodeId })),
-          renderer: Eyeball.nodeDefinition.metadata?.visualCompilerHook?.renderer || "",
+            values.at(-1) >= 0 &&
+            values.at(-1) <= 1 &&
+            firstValues.some((value, index) => Math.abs(value - values[index]) > 0.000001),
+          stages: [
+            ...operation.controlProgram.steps.map(({ id, nodeId }) => ({ id, nodeId })),
+            ...operation.operations.map(({ id, nodeId }) => ({ id, nodeId })),
+          ],
+          renderer: operation.renderer || "",
         };
-        program.dispose();
+        plan.dispose();
         return result;
       }
 

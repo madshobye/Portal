@@ -1,12 +1,12 @@
-import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js?v=pixel-density-4";
+import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js?v=surface-terminology-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=picker-filter-tabs-derived-thumbnail-projection-shared-ui-icons-1";
-import { configuredOutputsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js?v=pixel-density-4";
+import { configuredOutputsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js?v=surface-terminology-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
 import { renameScreenCaptureInput, screenCaptureStatus, startScreenCapture, stopScreenCapture, stopScreenCaptureInput, subscribeScreenCapture } from "../output/screen-capture-service.js?v=screen-input-registry-1";
-import { screenInputOptionsTemplate } from "./parameter-view.js?v=remove-boundary-note-1";
+import { screenInputOptionsTemplate } from "./parameter-view.js?v=canonical-effect-params-1";
 
 export function nextPickerFilter(activeFilter = "all", requestedFilter = "all") {
   return activeFilter === requestedFilter ? "all" : requestedFilter;

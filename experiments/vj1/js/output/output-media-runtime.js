@@ -8,7 +8,6 @@ import { SharedInputRuntime } from "./shared-input-runtime.js?v=screen-input-reg
 
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=screen-input-registry-1";
 
-let videoFrameCallbackUnavailableReported = false;
 let videoFrameCallbackFailureReported = false;
 let rasterDecodeApiFallbackReported = false;
 const MAX_IMAGE_VARIANT_WIDTH = 8192;
@@ -767,14 +766,7 @@ function startVideoFrameTracking(item, element, isCurrent) {
   stopVideoFrameTracking(item);
   if (!item || !element) return;
   if (typeof element.requestVideoFrameCallback !== "function") {
-    if (!videoFrameCallbackUnavailableReported) {
-      videoFrameCallbackUnavailableReported = true;
-      console.warn("[VJ1_VIDEO_FRAME_CALLBACK_UNAVAILABLE]", {
-        fallback: "invalidate video components on every renderer frame",
-        message: "HTMLVideoElement.requestVideoFrameCallback is unavailable",
-      });
-    }
-    return;
+    throw new Error("VJ1_RENDER_CAPABILITY_REQUIRED:HTMLVideoElement.requestVideoFrameCallback");
   }
   item.videoFrameDriven = true;
   item.videoFrameElement = element;
@@ -823,8 +815,8 @@ function startVideoFrameTracking(item, element, isCurrent) {
 function reportVideoFrameCallbackFailure(error) {
   if (videoFrameCallbackFailureReported) return;
   videoFrameCallbackFailureReported = true;
-  console.warn("[VJ1_VIDEO_FRAME_CALLBACK_FAILED]", {
-    fallback: "invalidate video components on every renderer frame",
+  console.error("[VJ1_VIDEO_FRAME_CALLBACK_FAILED]", {
+    consequence: "decoded-frame invalidation stopped for this video resource",
     message: error?.message || String(error || "video frame callback failed"),
   });
 }

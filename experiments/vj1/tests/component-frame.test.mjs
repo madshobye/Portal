@@ -118,17 +118,17 @@ test("component geometry follows its independent proportion without authored pix
 test("adaptive sampling settings remain independent and accept half scale", () => {
   assert.deepEqual(normalizeSamplingSettings({}), {
     surfaceOverscan: 1,
-    recordingFrameScale: 1,
+    surfaceDetailScale: 1,
     limitSceneToLogicalSize: true,
   });
-  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.5, recordingFrameScale: 0.5 }), {
+  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.5, surfaceDetailScale: 0.5 }), {
     surfaceOverscan: 0.5,
-    recordingFrameScale: 0.5,
+    surfaceDetailScale: 0.5,
     limitSceneToLogicalSize: true,
   });
-  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.1, recordingFrameScale: 8, limitSceneToLogicalSize: false }), {
+  assert.deepEqual(normalizeSamplingSettings({ surfaceOverscan: 0.1, surfaceDetailScale: 8, limitSceneToLogicalSize: false }), {
     surfaceOverscan: 0.5,
-    recordingFrameScale: 2,
+    surfaceDetailScale: 2,
     limitSceneToLogicalSize: false,
   });
 });
@@ -197,6 +197,9 @@ test("configured outputs derive locked direct surfaces without enabling new rout
   ]);
   assert.ok(direct.every((surface) => surface.enabled === false));
   assert.deepEqual(direct[0].destination.outputIds, ["output-main", "output-2"]);
+  assert.equal(direct[0].destination.parentSurfaceId, "");
+  assert.equal(direct[1].destination.parentSurfaceId, directOutputSurfaceId("all"));
+  assert.equal(direct[2].destination.parentSurfaceId, directOutputSurfaceId("all"));
   assert.equal(direct[0].projectionFit, "contain");
   assert.equal(direct[0].calibrationLocked, true);
 
@@ -210,6 +213,7 @@ test("configured outputs derive locked direct surfaces without enabling new rout
   });
   const reducedDirect = reduced.surfaces.filter((surface) => surface.destination?.type === "direct");
   assert.deepEqual(reducedDirect.map((surface) => surface.id), [directOutputSurfaceId("output-main")]);
+  assert.equal(reducedDirect[0].destination.parentSurfaceId, "");
   assert.equal(reducedDirect[0].enabled, true);
   assert.equal(reducedDirect[0].feather, 0.2);
 });

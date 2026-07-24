@@ -6,6 +6,7 @@ import {
   applySceneSourceNode,
   authoredSurfaceFields,
   materializeLiveSurfacePatchRoute,
+  materializeLiveProgramSurfaceRoutes,
   materializeLiveTargetSurfaceRoutes,
   rebaseSurfaceRouteProgram,
   resolveSceneSourceNode,
@@ -109,6 +110,44 @@ test("visible Scene guide ids are the enabled Surface ids", () => {
     { id: "", enabled: true },
   ]);
   assert.deepEqual([...ids], ["surface-a", "surface-c"]);
+});
+
+test("Live direct-output precedence follows explicit parent edges", () => {
+  const parent = {
+    id: "direct-parent",
+    enabled: true,
+    destination: { type: "direct", outputIds: ["main"], parentSurfaceId: "" },
+  };
+  const child = {
+    id: "direct-child",
+    enabled: true,
+    destination: {
+      type: "direct",
+      outputIds: ["main", "side"],
+      parentSurfaceId: "direct-parent",
+    },
+  };
+  const state = {
+    render: { sceneAspectRatio: 16 / 9 },
+    components: [
+      { id: "base", type: "chain", name: "Base" },
+      { id: "patch", type: "chain", name: "Patch" },
+    ],
+    ui: {
+      live: {
+        surfacePatches: { "direct-parent": "patch" },
+        surfaceVisibility: {},
+      },
+    },
+  };
+  const result = materializeLiveProgramSurfaceRoutes(
+    state,
+    state.components[0],
+    { surfaces: [child, parent] },
+  );
+
+  assert.equal(result.surfaces.find((surface) => surface.id === "direct-parent").enabled, true);
+  assert.equal(result.surfaces.find((surface) => surface.id === "direct-child").enabled, false);
 });
 
 test("authored Surface fields exclude compiled route bindings", () => {

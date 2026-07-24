@@ -1,6 +1,6 @@
-import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
+import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
 
-export const CURRENT_PROJECT_VERSION = 31;
+export const CURRENT_PROJECT_VERSION = 34;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -56,6 +56,9 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   28: migrateProjectV28ToV29,
   29: migrateProjectV29ToV30,
   30: migrateProjectV30ToV31,
+  31: migrateProjectV31ToV32,
+  32: migrateProjectV32ToV33,
+  33: migrateProjectV33ToV34,
 });
 
 export function migrateProjectData(project = {}) {
@@ -945,6 +948,159 @@ export function migrateProjectV30ToV31(project) {
       ...component,
       chain: migrateModelMediaChain(component?.chain),
     })),
+  };
+}
+
+// v32 makes the effect parameter map the sole authored authority. Earlier
+// schemas mirrored strength into both `amount` and `params.amount`; migrate
+// every persisted Component, Surface shader pass, and compiled Component graph
+// configuration before runtime normalization sees the project.
+export function migrateProjectV31ToV32(project) {
+  return {
+    ...project,
+    components: (Array.isArray(project.components) ? project.components : []).map((component) => ({
+      ...component,
+      ...(Array.isArray(component?.chain)
+        ? { chain: migrateCanonicalEffectChain(component.chain) }
+        : {}),
+      ...(Array.isArray(component?.shaderChain)
+        ? { shaderChain: component.shaderChain.map(migrateCanonicalEffectRecord) }
+        : {}),
+    })),
+    mappings: (Array.isArray(project.mappings) ? project.mappings : []).map((mapping) => ({
+      ...mapping,
+      surfaces: (Array.isArray(mapping?.surfaces) ? mapping.surfaces : []).map(migrateCanonicalEffectSurface),
+    })),
+    nodes: migrateCanonicalEffectNodeProject(project.nodes),
+  };
+}
+
+// v33 makes direct-output hierarchy an explicit route edge. Earlier runtimes
+// inferred group/override ownership from outputIds cardinality on every route
+// materialization and render-plan sort. Infer the narrowest containing parent
+// once while migrating, then persist the semantic edge.
+export function migrateProjectV32ToV33(project) {
+  return {
+    ...project,
+    ...(Array.isArray(project.surfaces)
+      ? { surfaces: migrateDirectSurfaceHierarchy(project.surfaces) }
+      : {}),
+    mappings: (Array.isArray(project.mappings) ? project.mappings : []).map((mapping) => ({
+      ...mapping,
+      surfaces: migrateDirectSurfaceHierarchy(
+        Array.isArray(mapping?.surfaces) ? mapping.surfaces : [],
+      ),
+    })),
+  };
+}
+
+function migrateDirectSurfaceHierarchy(surfaces = []) {
+  const cloned = (surfaces || []).map((surface) => ({
+    ...surface,
+    ...(surface?.destination && typeof surface.destination === "object"
+      ? { destination: { ...surface.destination } }
+      : {}),
+  }));
+  const direct = cloned.filter((surface) =>
+    surface?.destination?.type === "direct" && String(surface?.id || "")
+  );
+  const outputsFor = (surface) => new Set(
+    (surface?.destination?.outputIds || []).map(String).filter(Boolean),
+  );
+  for (const surface of direct) {
+    if (Object.prototype.hasOwnProperty.call(surface.destination, "parentSurfaceId")) {
+      surface.destination.parentSurfaceId = String(surface.destination.parentSurfaceId || "");
+      continue;
+    }
+    const outputs = outputsFor(surface);
+    const candidates = direct.filter((candidate) => {
+      if (candidate === surface) return false;
+      const candidateOutputs = outputsFor(candidate);
+      return candidateOutputs.size > outputs.size &&
+        [...outputs].every((outputId) => candidateOutputs.has(outputId));
+    }).sort((a, b) => outputsFor(a).size - outputsFor(b).size);
+    surface.destination.parentSurfaceId = String(candidates[0]?.id || "");
+  }
+  return cloned;
+}
+
+// v34 completes the persisted Frame→Surface terminology migration. The
+// sampling value describes detail requested for a Scene Surface crop, and the
+// zero-buffer guide node consumes Surface geometry. Rewrite both authorities
+// once; current runtime code has no aliases for the removed names.
+export function migrateProjectV33ToV34(project) {
+  const render = project?.render && typeof project.render === "object"
+    ? { ...project.render }
+    : {};
+  const sampling = render?.sampling && typeof render.sampling === "object"
+    ? { ...render.sampling }
+    : {};
+  if (!Object.prototype.hasOwnProperty.call(sampling, "surfaceDetailScale")) {
+    sampling.surfaceDetailScale = sampling.recordingFrameScale ?? 1;
+  }
+  delete sampling.recordingFrameScale;
+  render.sampling = sampling;
+  return {
+    ...project,
+    render,
+    nodes: migrateSceneSurfaceGuideNodeId(project.nodes),
+  };
+}
+
+function migrateSceneSurfaceGuideNodeId(value) {
+  if (value === "core.composition.scene-frame-guides") {
+    return "core.composition.scene-surface-guides";
+  }
+  if (Array.isArray(value)) return value.map(migrateSceneSurfaceGuideNodeId);
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, child]) => [key, migrateSceneSurfaceGuideNodeId(child)]),
+  );
+}
+
+function migrateCanonicalEffectChain(chain) {
+  return (chain || []).map((item) => {
+    if (item?.kind === "group") {
+      return { ...item, chain: migrateCanonicalEffectChain(item.chain || []) };
+    }
+    return item?.kind === "effect" ? migrateCanonicalEffectRecord(item) : item;
+  });
+}
+
+function migrateCanonicalEffectSurface(surface = {}) {
+  return {
+    ...surface,
+    ...(Array.isArray(surface?.finalShaderChain)
+      ? { finalShaderChain: surface.finalShaderChain.map(migrateCanonicalEffectRecord) }
+      : {}),
+  };
+}
+
+function migrateCanonicalEffectRecord(record = {}) {
+  if (!record || typeof record !== "object") return record;
+  const { amount, ...canonical } = record;
+  const params = record.params && typeof record.params === "object" ? { ...record.params } : {};
+  if (params.amount === undefined && amount !== undefined) params.amount = amount;
+  return Object.keys(params).length ? { ...canonical, params } : canonical;
+}
+
+function migrateCanonicalEffectNodeProject(nodes) {
+  if (!nodes || typeof nodes !== "object") return nodes;
+  const migrateNodes = (items) => (items || []).map((node) => ({
+    ...node,
+    ...(node?.configuration && (node.role === "effect" || node.configuration.kind === "effect")
+      ? { configuration: migrateCanonicalEffectRecord(node.configuration) }
+      : {}),
+    ...(Array.isArray(node?.nodes) ? { nodes: migrateNodes(node.nodes) } : {}),
+  }));
+  return {
+    ...nodes,
+    groups: Array.isArray(nodes.groups)
+      ? nodes.groups.map((group) => ({
+        ...group,
+        ...(Array.isArray(group?.nodes) ? { nodes: migrateNodes(group.nodes) } : {}),
+      }))
+      : nodes.groups,
   };
 }
 

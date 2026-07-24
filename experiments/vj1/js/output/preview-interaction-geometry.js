@@ -1,4 +1,4 @@
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
 import {
   combineContentTransforms,
   contentTransformCanvasPlacement,

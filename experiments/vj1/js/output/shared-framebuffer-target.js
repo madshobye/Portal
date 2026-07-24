@@ -165,8 +165,7 @@ export class SharedFramebufferTarget {
 
 export function createSharedFramebufferTarget(width, height, { depth = false, format = null } = {}) {
   if (typeof globalThis.createFramebuffer !== "function") {
-    reportFramebufferUnavailable();
-    return null;
+    throw new Error("VJ1_RENDER_CAPABILITY_REQUIRED:p5.createFramebuffer");
   }
   try {
     const options = {
@@ -181,19 +180,8 @@ export function createSharedFramebufferTarget(width, height, { depth = false, fo
     return new SharedFramebufferTarget(framebuffer);
   } catch (error) {
     console.error("[VJ1_FRAMEBUFFER_CREATE_FAILED]", error);
-    return null;
+    throw error;
   }
-}
-
-let reportedFramebufferUnavailable = false;
-
-function reportFramebufferUnavailable() {
-  if (reportedFramebufferUnavailable) return;
-  reportedFramebufferUnavailable = true;
-  console.warn("[VJ1_FRAMEBUFFER_UNAVAILABLE]", {
-    fallback: "p5.Graphics",
-    message: "p5.createFramebuffer is unavailable; shared-context render targets are disabled",
-  });
 }
 
 export function isSharedFramebufferTarget(target) {

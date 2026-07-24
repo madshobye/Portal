@@ -2,7 +2,7 @@ import {
   inspectProjectTextForSave,
   prepareProjectPayload,
   prepareProjectSave,
-} from "./project-save-preparation.js?v=autosave-worker-2";
+} from "./project-save-preparation.js?v=surface-terminology-1";
 
 globalThis.onmessage = (event) => {
   const request = event?.data || {};

@@ -4,7 +4,6 @@ import { readFileSync } from "node:fs";
 
 import { getEffectNodeComponent as getShaderComponent, listEffectNodeComponents as listShaderComponents, getGeneratorNodeComponent as getGeneratorComponent, getGeneratorNodeShader, listGeneratorNodeComponents } from "../js/libraries/visual-nodes/index.js";
 import { getGeneratorShaderComponent } from "../js/libraries/visual-nodes/index.js";
-import { EyeballToImageNode } from "../js/libraries/visual-nodes/index.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 
 function generatorShaderCatalogSource() {
@@ -240,7 +239,7 @@ test("shared procedural hashes avoid shader trig", () => {
   for (const id of ["waves", "noise", "plasma", "gradient", "bezierStrokes", "fireflies", "swayingTrees"]) {
     assert.ok(!getGeneratorShaderComponent(id).code.includes("fract(sin"), `${id} regressed to a trig hash`);
   }
-  const eyeballCode = EyeballToImageNode.parts.find((part) => part.stage === "fragment")?.source || "";
+  const eyeballCode = getGeneratorShaderComponent("eyeballRender").code;
   assert.ok(!eyeballCode.includes("fract(sin"), "eyeball regressed to a trig hash");
   assert.ok(!diagnosticGeneratorSource.includes("Math.sin(x * 127.1"));
 });
@@ -263,10 +262,12 @@ test("Plasma generator and effect expose controllable motion with a true steady 
 });
 
 test("eyeball keeps frame-constant animation out of per-pixel work", () => {
-  const code = EyeballToImageNode.parts.find((part) => part.stage === "fragment")?.source || "";
+  const code = getGeneratorShaderComponent("eyeballRender").code;
 
-  assert.ok(code.includes("uniform vec3 eyeGazeDir;"));
-  assert.ok(code.includes("uniform float eyeBlink;"));
+  assert.ok(code.includes("uniform float gazeX;"));
+  assert.ok(code.includes("uniform float blink;"));
+  assert.ok(code.includes("vec3 eyeGazeDir = vec3(gazeX, gazeY, gazeZ);"));
+  assert.ok(code.includes("float eyeBlink = blink;"));
   assert.ok(code.includes("if (irisMask > 0.001)"));
   assert.ok(code.includes("if (eyeBlink > 0.02)"));
   assert.ok(!code.includes("randomGaze"));

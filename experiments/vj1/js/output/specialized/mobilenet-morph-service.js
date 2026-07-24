@@ -227,58 +227,7 @@ async function extractMobileNetGrid(model, image, { gridSize, patchScale, fit },
     onProgress?.(spatialFeatures.length, spatialFeatures.length);
     return spatialFeatures;
   }
-  console.warn("[VJ1_MOBILENET_SPATIAL_FALLBACK]", { fallback: "batched patch descriptors" });
-  const patch = createAnalysisCanvas();
-  const context = patch.getContext("2d", { willReadFrequently: false });
-  const features = [];
-  const total = gridSize * gridSize;
-  const patchSpan = ANALYSIS_SIZE / gridSize * patchScale;
-  const tf = globalThis.tf;
-  const fallbackBatchSize = 7;
-  for (let y = 0; y < gridSize; y++) {
-    for (let startX = 0; startX < gridSize; startX += fallbackBatchSize) {
-      const endX = Math.min(gridSize, startX + fallbackBatchSize);
-      const patchTensors = [];
-      for (let x = startX; x < endX; x++) {
-        const centerX = (x + 0.5) / gridSize * ANALYSIS_SIZE;
-        const centerY = (y + 0.5) / gridSize * ANALYSIS_SIZE;
-        context.fillStyle = "#000";
-        context.fillRect(0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
-        context.drawImage(
-          composition,
-          centerX - patchSpan * 0.5,
-          centerY - patchSpan * 0.5,
-          patchSpan,
-          patchSpan,
-          0,
-          0,
-          ANALYSIS_SIZE,
-          ANALYSIS_SIZE
-        );
-        patchTensors.push(tf.browser.fromPixels(patch));
-      }
-      const batch = tf.stack(patchTensors);
-      patchTensors.forEach((tensor) => tensor.dispose());
-      const embeddings = model.infer(batch, true);
-      batch.dispose();
-      const values = await embeddings.data();
-      const batchCount = endX - startX;
-      const descriptorSize = Math.floor(values.length / batchCount);
-      embeddings.dispose();
-      for (let batchIndex = 0; batchIndex < batchCount; batchIndex++) {
-        const x = startX + batchIndex;
-        const descriptor = normalizeDescriptor(values.subarray(batchIndex * descriptorSize, (batchIndex + 1) * descriptorSize));
-        features.push({
-          x: (x + 0.5) / gridSize,
-          y: (y + 0.5) / gridSize,
-          descriptor,
-        });
-        onProgress?.(features.length, total);
-      }
-    }
-    await yieldToUi();
-  }
-  return features;
+  throw new Error("VJ1_MOBILENET_SPATIAL_ENDPOINT_REQUIRED");
 }
 
 function cachedMobileNetGrid(model, image, options, onProgress) {
@@ -387,8 +336,12 @@ async function getMobileNetModel() {
         await globalThis.tf.setBackend("webgl");
         await globalThis.tf.ready();
       } catch (error) {
-        console.warn("[VJ1_TFJS_WEBGL_BACKEND_FAILED]", { fallback: globalThis.tf.getBackend(), message: error?.message || String(error) });
+        console.error("[VJ1_TFJS_WEBGL_BACKEND_FAILED]", { message: error?.message || String(error) });
+        throw error;
       }
+    }
+    if (globalThis.tf.getBackend() !== "webgl") {
+      throw new Error(`VJ1_TFJS_WEBGL_BACKEND_REQUIRED:${globalThis.tf.getBackend() || "none"}`);
     }
     await loadScript(MOBILENET_URL, () => globalThis.mobilenet);
     const model = await globalThis.mobilenet.load({ version: 2, alpha: 0.5 });
@@ -470,10 +423,6 @@ function withTimeout(promise, timeoutMs, message) {
     timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
   });
   return Promise.race([promise, guard]).finally(() => clearTimeout(timeout));
-}
-
-function yieldToUi() {
-  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function fileFingerprint(file = {}) {

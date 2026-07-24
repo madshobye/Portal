@@ -7,7 +7,7 @@ import {
   visualNodeContractFromMetadata,
   VISUAL_TRANSFORM_DOMAINS,
 } from "../../render-engine/visual-node-contract.js";
-import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=compiled-semantic-specialized-compounds-26";
+import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=compiled-graph-value-authority-1";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";
@@ -382,7 +382,7 @@ function visualCompilerHookFor(item, definition) {
 }
 
 function parametersForItem(item = {}) {
-  if (item.kind === "effect") return { ...(item.params || {}), amount: item.amount ?? item.params?.amount };
+  if (item.kind === "effect") return { ...(item.params || {}) };
   if (item.kind === "group") return {
     opacity: item.opacity ?? 1,
     blend: item.blend || "normal",

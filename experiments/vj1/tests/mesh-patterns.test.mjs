@@ -7,7 +7,7 @@ import {
   MESH_PATTERN_FAMILIES,
   meshPatternTopologySignature,
 } from "../js/output/specialized/mesh-pattern-algorithms.js";
-import { meshPatternNodeRuntimeModule, meshPatternNodeShaderSource, meshPatternPalette } from "../js/output/specialized/mesh-pattern-renderer.js";
+import { MeshPatternRenderer, meshPatternNodeRuntimeModule, meshPatternNodeShaderSource, meshPatternPalette } from "../js/output/specialized/mesh-pattern-renderer.js";
 import {
   compileSpecializedCompoundProgram,
   createGeneratorSource,
@@ -171,6 +171,7 @@ test("mesh topology uses a cached specialized raw-WebGL render path", () => {
   assert.match(meshRenderer, /graph\?\.stageInput\(fillStageId, "topology"\)/);
   assert.match(meshRenderer, /graph\?\.stageInput\(fillStageId, "material"\)/);
   assert.match(meshRenderer, /graph\?\.stageInput\(wireStageId, "material"\)/);
+  assert.match(meshRenderer, /MESH_PATTERN_GRAPH_INPUT_MISSING/);
   assert.match(meshRenderer, /let topology = topologyValue\?\.geometry \|\| null/);
   assert.match(meshRenderer, /MESH_PATTERN_TOPOLOGY_VALUE_MISSING/);
   assert.match(meshRenderer, /if \(!topology\) \{\s*const legacySignature = nodeModule\.meshPatternTopologySignature/);
@@ -179,6 +180,60 @@ test("mesh topology uses a cached specialized raw-WebGL render path", () => {
   assert.match(algorithms, /function marchingSquares/);
   assert.match(algorithms, /function rk4Step/);
   assert.match(algorithms, /function solveTruss/);
+});
+
+test("compiled Mesh Patterns never reconstruct missing graph providers in the retained host", () => {
+  const stages = [
+    { id: "topology", parameters: {} },
+    { id: "fill-material", parameters: {} },
+    { id: "wire-material", parameters: {} },
+    { id: "fill-render", parameters: {} },
+    { id: "wire-render", parameters: {} },
+  ];
+  const operation = {
+    nativeCompoundProgram: {
+      stages,
+      nativeKernel(kernel) {
+        if (kernel === "mesh-pattern-fill") {
+          return {
+            id: "fill-render",
+            inputBindings: {
+              topology: { stageId: "topology", portId: "topology" },
+              material: { stageId: "fill-material", portId: "material" },
+            },
+          };
+        }
+        return {
+          id: "wire-render",
+          inputBindings: {
+            material: { stageId: "wire-material", portId: "material" },
+          },
+        };
+      },
+      evaluateGraph() {
+        return {
+          stageInput() {
+            return null;
+          },
+          stageInputs() {
+            return { settings: {} };
+          },
+        };
+      },
+    },
+  };
+  const renderer = new MeshPatternRenderer();
+
+  assert.throws(
+    () => renderer.draw(
+      { drawingContext: {} },
+      { generatorId: "meshPatterns", params: {} },
+      0,
+      { width: 640, height: 360 },
+      operation,
+    ),
+    /MESH_PATTERN_GRAPH_INPUT_MISSING:fill-render\.topology,fill-render\.material,wire-render\.material/,
+  );
 });
 
 test("Mesh Patterns topology and materials execute as isolated typed provider stages", () => {

@@ -14,12 +14,12 @@ import {
   staticComponentGraphState,
 } from "../js/output/component-render-state.js";
 
-test("canonical effect params override the legacy top-level amount", () => {
+test("effect state has one canonical params authority", () => {
   assert.deepEqual(effectParamState({ amount: 0.2, params: { amount: 0.8, radius: 4 } }), {
     amount: 0.8,
     radius: 4,
   });
-  assert.deepEqual(effectParamState({ amount: 0.2 }), { amount: 0.2 });
+  assert.deepEqual(effectParamState({ amount: 0.2 }), {});
 });
 
 test("component render signatures include nested dependencies without recursing through cycles", () => {
@@ -125,7 +125,7 @@ test("runtime cache policy has one owner outside the output orchestrator", () =>
   });
   assert.equal(componentRuntimeTimeKey({ runtime }, {}, { frame: 8, time: 2.75 }), 2);
   assert.equal(componentRuntimeTimeKey({ runtime: { cacheable: false } }, {}, { frame: 8, time: 2.75 }), 8);
-  assert.match(renderer, /from "\.\/component-render-state\.js\?v=gapless-video-loop-1"/);
+  assert.match(renderer, /from "\.\/component-render-state\.js\?v=[^"]+"/);
   assert.doesNotMatch(renderer, /function staticComponentGraphState\(/);
   assert.doesNotMatch(renderer, /function collectMediaIdsFromSource\(/);
 });

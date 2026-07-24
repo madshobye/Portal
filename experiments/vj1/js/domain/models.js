@@ -1,10 +1,10 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
+import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
 import { componentFrameMetrics, normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js?v=pixel-density-4";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=model-media-scene-group-1";
-import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=package-content-lock-1";
+import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
 import { normalizeRelativeRect, projectedQuadAspect, projectedRelativeQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=surface-relative-aspect-1";
 import { FULL_NODE_BOUNDARY, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
@@ -15,7 +15,7 @@ import {
   normalizeRenderSettings,
   normalizeOutputName,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=pixel-density-4";
+} from "./render-settings.js?v=surface-terminology-1";
 import {
   applySceneSourceNode,
   authoredSurfaceFields,
@@ -27,7 +27,7 @@ import {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=explicit-surface-visibility-runtime-visual-sources-1";
+} from "./scene-routing.js?v=explicit-direct-surface-hierarchy-1";
 import { compileLiveProjectionProgram } from "./live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
 import { firstEnabledLiveSurfaceId } from "./live-ui-state.js?v=scene-mapping-default-selection-1";
 import {
@@ -44,7 +44,7 @@ export {
   normalizeRenderSettings,
   normalizeOutputName,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=pixel-density-4";
+} from "./render-settings.js?v=surface-terminology-1";
 export {
   applySceneSourceNode,
   authoredSurfaceFields,
@@ -57,7 +57,7 @@ export {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=explicit-surface-visibility-runtime-visual-sources-1";
+} from "./scene-routing.js?v=explicit-direct-surface-hierarchy-1";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -258,11 +258,13 @@ export function directOutputSurfaceDefinitions(render = {}) {
   const aspectSum = outputs.reduce((sum, output) => sum + Math.max(0.05, Number(output.aspectRatio) || 16 / 9), 0);
   const span = relativeAspectRect(aspectSum, sceneAspect);
   const definitions = [];
+  const groupSurfaceId = outputs.length > 1 ? directOutputSurfaceId("all") : "";
   if (outputs.length > 1) {
     definitions.push({
-      id: directOutputSurfaceId("all"),
+      id: groupSurfaceId,
       name: "Full surface · Direct",
       outputIds: outputs.map((output) => output.id),
+      parentSurfaceId: "",
       ...span,
     });
   }
@@ -274,6 +276,7 @@ export function directOutputSurfaceDefinitions(render = {}) {
       id: directOutputSurfaceId(output.id),
       name: `${output.name} · Direct`,
       outputIds: [output.id],
+      parentSurfaceId: groupSurfaceId,
       x: cursor,
       y: span.y,
       width,
@@ -309,7 +312,11 @@ export function reconcileDirectOutputSurfaces(surfaces = [], render = {}) {
       mappingId: "",
       showLabel: false,
       calibrationLocked: true,
-      destination: { type: "direct", outputIds: definition.outputIds },
+      destination: {
+        type: "direct",
+        outputIds: definition.outputIds,
+        parentSurfaceId: definition.parentSurfaceId,
+      },
     }));
   };
   for (const surface of surfaces || []) {
@@ -416,7 +423,7 @@ export function createInitialState({ startupTemplate = false } = {}) {
       pixelDensity: 1,
       sampling: {
         surfaceOverscan: 1,
-        recordingFrameScale: 1,
+        surfaceDetailScale: 1,
         limitSceneToLogicalSize: true,
       },
       camera: {
@@ -983,7 +990,6 @@ function normalizeLiveChainItemOverride(item = {}, authoredItem = {}) {
     ...(item.blend ? { blend: item.blend } : {}),
     ...(!isSource && Object.keys(params).length ? { params } : {}),
     ...(isSource && Object.keys(sourceParams).length ? { source: { params: sourceParams } } : {}),
-    ...(item.amount !== undefined ? { amount: clamp01(item.amount) } : {}),
     ...(item.transform && typeof item.transform === "object" ? { transform: normalizeTransform(item.transform) } : {}),
     ...(Array.isArray(item.chain) ? { chain: item.chain.map((child, index) => normalizeLiveChainItemOverride(child, authoredItem?.chain?.[index])) } : {}),
   };
@@ -1103,7 +1109,6 @@ export function normalizeComponentChainItem(item = {}) {
       id: item.componentId || item.id || "ripple",
       enabled: item.enabled,
       params: item.params,
-      amount: item.amount,
     });
     return {
       id: item.id || uid("chain"),
@@ -1112,7 +1117,6 @@ export function normalizeComponentChainItem(item = {}) {
       name: item.name || pass.id,
       enabled: pass.enabled,
       params: pass.params,
-      amount: pass.amount,
       transform: normalizeTransform(item.transform),
       boundary: normalizeNodeBoundary(item.boundary),
       opacity: clamp01(item.opacity ?? 1),
@@ -1210,6 +1214,7 @@ function normalizeSurfaceDestination(destination = {}, mappingId = "") {
     return {
       type: "direct",
       outputIds: [...new Set((destination.outputIds || []).map(String).filter(Boolean))],
+      parentSurfaceId: String(destination.parentSurfaceId || ""),
     };
   }
   return { type: "mapped", mappingId: destination?.mappingId || mappingId || "" };
@@ -1221,7 +1226,6 @@ export function normalizeShaderPass(pass = {}) {
     id: pass.id || "ripple",
     enabled: pass.enabled !== false,
     params,
-    amount: params.amount,
   };
 }
 
@@ -1237,7 +1241,6 @@ export function createComponentEffect(id = "ripple", params = {}) {
     componentId: pass.id,
     enabled: pass.enabled,
     params: pass.params,
-    amount: pass.amount,
   });
 }
 
@@ -1339,7 +1342,7 @@ function normalizeTransform(transform = {}) {
 
 function normalizeShaderPassParams(pass = {}) {
   const params = pass.params && typeof pass.params === "object" ? { ...pass.params } : {};
-  params.amount = clamp01(params.amount ?? pass.amount ?? 0.35);
+  params.amount = clamp01(params.amount ?? 0.35);
   return params;
 }
 
@@ -1350,13 +1353,11 @@ function mergeComponentChainItemOverride(item = {}, override = {}) {
       id: item.componentId || item.id,
       enabled: item.enabled,
       params: item.params,
-      amount: item.amount,
     }, override);
     return {
       ...item,
       enabled: pass.enabled,
       params: pass.params,
-      amount: pass.amount,
       ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
       ...(override.blend ? { blend: override.blend } : {}),
       ...(override.transform && typeof override.transform === "object"
@@ -1411,13 +1412,11 @@ function mergeShaderPassOverride(pass = {}, override = {}) {
     ...(pass.params && typeof pass.params === "object" ? pass.params : {}),
     ...(override.params && typeof override.params === "object" ? override.params : {}),
   };
-  if (override.amount !== undefined) params.amount = override.amount;
   return normalizeShaderPass({
     ...pass,
     ...(override.id ? { id: override.id } : {}),
     enabled: override.enabled ?? pass.enabled,
     params,
-    amount: params.amount ?? pass.amount,
   });
 }
 

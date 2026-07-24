@@ -1,13 +1,13 @@
 import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
+import { RenderDemandNode } from "../../../render-engine/index.js";
 import {
-  textNodeProcess,
-} from "./runtime.js?v=text-mask-readback-1";
-import {
-  defineSpecializedVisualCompound,
   TextMaskProviderNode,
   TextMaskToImageNode,
-} from "../../shared/specialized-compound.js?v=text-mask-semantic-1";
+} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
+import {
+  defineCompiledVisualCompound,
+} from "../../shared/compiled-visual-compound.js";
 
 const manifest = Object.freeze({
     id: "text",
@@ -41,21 +41,17 @@ const manifest = Object.freeze({
     ],
   });
 
-const NativeVisualComponent = defineGeneratorNode(manifest, null, {
-  direct: false,
-  process: textNodeProcess,
-  exports: {},
-  parts: [],
-});
+const NativeVisualComponent = defineGeneratorNode(manifest);
 
-export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
-  compoundKind: "text",
-  nativeRenderer: "output/specialized:text",
+export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "mask", type: TextMaskProviderNode.id, parameters: { providerId: "text-mask" } },
-    { id: "render", type: TextMaskToImageNode.id, parameters: { providerId: "text-mask-pass" } },
+    { id: "demand", definition: RenderDemandNode, role: "value" },
+    { id: "mask", definition: TextMaskProviderNode, role: "value", parameters: { providerId: "text-mask" } },
+    { id: "render", definition: TextMaskToImageNode, role: "renderer", parameters: { providerId: "text-mask-pass" } },
   ],
   connections: [
+    { from: "demand.width", to: "mask.width", type: "number" },
+    { from: "demand.height", to: "mask.height", type: "number" },
     { from: "mask.mask", to: "render.mask", type: "text-mask-provider" },
   ],
   output: "render.texture",

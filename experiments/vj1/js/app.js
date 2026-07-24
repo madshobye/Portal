@@ -1,22 +1,30 @@
-import { createAppState } from "./app-state.js?v=pixel-density-4";
-import { createControlShell } from "./control/control-shell-controller.js?v=video-loop-drawability-1";
+import { createAppState } from "./app-state.js?v=package-content-lock-1";
+import { createControlShell } from "./control/control-shell-controller.js?v=effect-quality-request-scope-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=scene-mapping-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=model-cache-2";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=pixel-density-4";
-import { createControlBridge } from "./services/output-bridge-service.js?v=thumbnail-url-lifecycle-1-scene-mapping-default-selection-1";
-import { installOutputApp } from "./output/output-app.js?v=video-loop-drawability-1";
+import { createProjectFolderService } from "./services/project-folder-service.js?v=package-content-lock-1";
+import { createControlBridge } from "./services/output-bridge-service.js?v=package-content-lock-1";
+import { installOutputApp } from "./output/output-app.js?v=effect-quality-request-scope-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createRenderStatePatch } from "./domain/live-render-patch.js?v=render-state-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
-import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js?v=runtime-diagnostics-1";
+import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js?v=explicit-capability-policy-1";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
+const compatibility = reportBrowserCompatibility({ mode: mode === "control" ? "control" : mode });
 
-if (mode === "output" || mode === "preview" || mode === "component") {
+if (!compatibility?.supported) {
+  root.innerHTML = `
+    <section class="empty-state">
+      <h1>Unsupported browser or GPU</h1>
+      <p>VJ1 requires current Google Chrome, WebGL2, and its modern media, worker, and file APIs.</p>
+      <p>${(compatibility?.missing || []).join(", ") || compatibility?.browser?.label || "Unsupported host"}</p>
+    </section>
+  `;
+} else if (mode === "output" || mode === "preview" || mode === "component") {
   const diagnostics = createDiagnosticsService();
   diagnostics.install();
-  reportBrowserCompatibility({ mode });
   installOutputApp({ root, mode, diagnostics });
 } else {
   installControlApp();
@@ -25,8 +33,8 @@ if (mode === "output" || mode === "preview" || mode === "component") {
 async function installControlApp() {
   // Control-only composition keeps node catalog/editor metadata completely out
   // of output and preview render processes; no live-frame work is introduced.
-  const { createVj1NodePackage } = await import("./app-node-package.js?v=nested-component-roi-1");
-  const { applicationProgramFromProjectData, loadStoredApplicationProgram } = await import("./services/application-program-loader.js?v=application-bootstrap-10");
+  const { createVj1NodePackage } = await import("./app-node-package.js?v=surface-terminology-1");
+  const { applicationProgramFromProjectData, loadStoredApplicationProgram } = await import("./services/application-program-loader.js?v=surface-terminology-1");
   const nodePackage = createVj1NodePackage();
   const fixtureUrl = fixtureStateUrl();
   let fixtureState = null;
@@ -61,7 +69,6 @@ async function installControlApp() {
       diagnostics: () => {
         const service = createDiagnosticsService();
         service.install();
-        reportBrowserCompatibility({ mode: "control" });
         return service;
       },
       "data-store": (dependencies) => createAppState(null, {

@@ -1,12 +1,13 @@
 import { VJ1 } from "../constants.js";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
-import { OutputRenderer } from "./output-renderer.js?v=roi-composition-1";
-import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderPresentationFrameRate } from "../domain/render-settings.js?v=pixel-density-4";
+import { OutputRenderer } from "./output-renderer.js?v=effect-quality-request-scope-1";
+import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderPresentationFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js?v=cursor-anchored-zoom-1";
 import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-4";
 import { createThumbnailUrlLease } from "../services/component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
+import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js?v=explicit-capability-policy-1";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
   let host = null;
@@ -48,8 +49,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let pendingTransformCommit = null;
   let boundaryCommitFrame = 0;
   let pendingBoundaryCommit = null;
-  let sceneFrameCommitRequest = 0;
-  let pendingSceneFrameCommit = null;
+  let sceneSurfaceCommitRequest = 0;
+  let pendingSurfaceCommit = null;
   let canvasFitSignature = "";
   const thumbnailObjectUrls = new Map();
   const thumbnailUrlLease = createThumbnailUrlLease();
@@ -163,13 +164,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   function cleanup() {
     if (transformCommitFrame) cancelAnimationFrame(transformCommitFrame);
     if (boundaryCommitFrame) cancelAnimationFrame(boundaryCommitFrame);
-    if (sceneFrameCommitRequest) cancelAnimationFrame(sceneFrameCommitRequest);
+    if (sceneSurfaceCommitRequest) cancelAnimationFrame(sceneSurfaceCommitRequest);
     transformCommitFrame = 0;
     boundaryCommitFrame = 0;
-    sceneFrameCommitRequest = 0;
+    sceneSurfaceCommitRequest = 0;
     pendingTransformCommit = null;
     pendingBoundaryCommit = null;
-    pendingSceneFrameCommit = null;
+    pendingSurfaceCommit = null;
     cancelPreviewPhaseShift();
     unbindCanvasPointerEvents?.();
     unbindCanvasPointerEvents = null;
@@ -215,6 +216,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     setupStarted = true;
     const size = stageSize();
     canvas = createCanvas(size.width, size.height, WEBGL);
+    assertP5RenderCapabilities();
     canvas.parent(stage);
     bindCanvasPointerEvents();
     applyLoadedFont();
@@ -236,8 +238,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       sendChainTransform: updateChainTransform,
       sendChainBoundary: updateChainBoundary,
       onChainItemSelect: selectChainItem,
-      onSceneFrameSelect: (surfaceId) => store.selectSurface?.(surfaceId),
-      sendSceneFrame: updateSceneFrame,
+      onSceneSurfaceSelect: (surfaceId) => store.selectSurface?.(surfaceId),
+      sendSurfaceRect: updateSceneSurface,
       sendMediaRendition: (mediaId, width, height, blob, sourceRevision) => projectService?.writeMediaRendition?.(mediaId, width, height, blob, sourceRevision),
       sendMediaMetadata: updateMediaMetadata,
       requestMediaFiles: () => importMediaFilesIfChanged(true),
@@ -870,29 +872,29 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     });
   }
 
-  function updateSceneFrame(componentId, frameId, rect, meta = {}) {
+  function updateSceneSurface(componentId, surfaceId, rect, meta = {}) {
     if (!meta.commit) {
-      pendingSceneFrameCommit = { componentId, frameId, rect };
-      if (!sceneFrameCommitRequest) sceneFrameCommitRequest = requestAnimationFrame(flushPendingSceneFrameCommit);
+      pendingSurfaceCommit = { componentId, surfaceId, rect };
+      if (!sceneSurfaceCommitRequest) sceneSurfaceCommitRequest = requestAnimationFrame(flushPendingSceneSurfaceCommit);
       return;
     }
-    if (sceneFrameCommitRequest) cancelAnimationFrame(sceneFrameCommitRequest);
-    sceneFrameCommitRequest = 0;
-    pendingSceneFrameCommit = null;
-    commitSceneFrame(componentId, frameId, rect, true);
+    if (sceneSurfaceCommitRequest) cancelAnimationFrame(sceneSurfaceCommitRequest);
+    sceneSurfaceCommitRequest = 0;
+    pendingSurfaceCommit = null;
+    commitSceneSurface(componentId, surfaceId, rect, true);
   }
 
-  function flushPendingSceneFrameCommit() {
-    sceneFrameCommitRequest = 0;
-    const pending = pendingSceneFrameCommit;
-    pendingSceneFrameCommit = null;
-    if (pending) commitSceneFrame(pending.componentId, pending.frameId, pending.rect, false);
+  function flushPendingSceneSurfaceCommit() {
+    sceneSurfaceCommitRequest = 0;
+    const pending = pendingSurfaceCommit;
+    pendingSurfaceCommit = null;
+    if (pending) commitSceneSurface(pending.componentId, pending.surfaceId, pending.rect, false);
   }
 
-  function commitSceneFrame(componentId, frameId, rect, commit) {
+  function commitSceneSurface(componentId, surfaceId, rect, commit) {
     store.update((draft) => {
       const mapping = draft.mappings?.find((item) => item.id === draft.ui?.selectedMappingId) || draft.mappings?.[0];
-      const surface = mapping?.surfaces?.find((item) => item.id === frameId);
+      const surface = mapping?.surfaces?.find((item) => item.id === surfaceId);
       if (surface) Object.assign(surface, rect);
     }, commit ? "update:scene-surface" : "scrub:scene-surface");
   }

@@ -1,4 +1,5 @@
-import { compileVisualControlProgram, setCompiledVisualParameter } from "./visual-control-program.js?v=public-control-node-configuration-editable-inlets-3";
+import { compileVisualControlProgram, setCompiledVisualParameter } from "./visual-control-program.js?v=canonical-effect-params-1";
+import { compileVisualValueProgram } from "./visual-value-program.js";
 import {
   defineVisualNodeContract,
   VISUAL_ALLOCATION_MODES,
@@ -22,7 +23,7 @@ import {
 import {
   compileSpecializedCompoundProgram,
   SPECIALIZED_COMPOUND_VISUAL_COMPILER_HOOK,
-} from "../../visual-nodes/shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
+} from "../../visual-nodes/shared/specialized-compound.js?v=compiled-graph-value-authority-1";
 
 export const VISUAL_RENDER_OPCODES = Object.freeze({
   SOURCE: "source",
@@ -155,6 +156,11 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
         nodes: graph.nodes || [],
         connections,
       }, operations, { resolveDefinition });
+      const valueProgram = compileVisualValueProgram({
+        id: `${path}.values`,
+        nodes: graph.nodes || [],
+        connections,
+      }, operations, { resolveDefinition });
       const compiled = operation(VISUAL_RENDER_OPCODES.GROUP, node, configuration, path, {
         backend: "compiled-visual-group",
         compilerHook: hook,
@@ -177,9 +183,11 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
           definition,
           operations,
           controlProgram,
+          valueProgram,
           path,
         ),
         controlProgram,
+        valueProgram,
       });
       synchronizeCompoundPublicParameters(compiled, definition);
       return compiled;
@@ -525,12 +533,13 @@ function compileOperations(nodes, connections, currentChain, path, hooks, diagno
       // Runtime values are written into this retained map by the optimized
       // texture-DAG executor. Graph topology never becomes per-frame packets.
       runtimeInputStates: new Map(),
+      runtimeValueInputs: new Map(),
     });
   });
 }
 
 function orderedRenderNodes(nodes, connections, path, diagnostics) {
-  const renderNodes = (nodes || []).filter((node) => node.role !== "control");
+  const renderNodes = (nodes || []).filter((node) => node.role !== "control" && node.role !== "value");
   if (!renderNodes.length) return [];
   const byId = new Map(renderNodes.map((node) => [String(node.id || ""), node]));
   const textureEdges = (connections || []).filter((edge) => edge.type === "texture" || isTextureEndpoint(edge.from) || isTextureEndpoint(edge.to));
@@ -720,11 +729,15 @@ function replaceOperationConfiguration(operations, itemId, nextConfiguration) {
   return { changed, operations: changed ? next : operations };
 }
 
-function compileCompoundPublicParameterBindings(definition, operations, controlProgram, path) {
+function compileCompoundPublicParameterBindings(definition, operations, controlProgram, valueProgram, path) {
   const projection = definition?.metadata?.controlProjection;
   if (projection?.format !== "vj1.control-projection@1") return Object.freeze([]);
   const operationById = new Map((operations || []).map((item) => [String(item.id || ""), item]));
   const controlStepById = new Map((controlProgram?.steps || []).map((step) => [
+    String(step.instanceId || ""),
+    step,
+  ]));
+  const valueStepById = new Map((valueProgram?.steps || []).map((step) => [
     String(step.instanceId || ""),
     step,
   ]));
@@ -737,7 +750,8 @@ function compileCompoundPublicParameterBindings(definition, operations, controlP
       }
       for (const binding of control.bindings || []) {
         const target = operationById.get(String(binding.nodeId || ""));
-        const controlStep = controlStepById.get(String(binding.nodeId || ""));
+        const controlStep = controlStepById.get(String(binding.nodeId || ""))
+          || valueStepById.get(String(binding.nodeId || ""));
         const targetParameterId = String(binding.parameterId || parameterId);
         if (!target && !controlStep) {
           throw new Error(`VISUAL_COMPOUND_PUBLIC_TARGET_MISSING:${path}:${binding.nodeId || "missing"}`);
@@ -780,8 +794,10 @@ function disposeVisualOperations(operations) {
   for (const operation of operations || []) {
     operation.scene3dProgram?.dispose?.();
     operation.nativeCompoundProgram?.dispose?.();
+    operation.valueProgram?.dispose?.();
     operation.runtimeStates?.clear?.();
     operation.runtimeInputStates?.clear?.();
+    operation.runtimeValueInputs?.clear?.();
     operation.runtimeOutputStates?.clear?.();
     operation.retainedOperators?.clear?.();
     if (operation.operations?.length) disposeVisualOperations(operation.operations);
@@ -814,6 +830,9 @@ function operationRenderInvalidation(operation) {
   const source = configuration.source || {};
   if ((operation.controlProgram?.steps || []).some(controlStepIsFrameDynamic)) {
     return frameRenderInvalidation(null, "compound-control-program");
+  }
+  if ((operation.valueProgram?.steps || []).some((step) => step.frameDynamic === true)) {
+    return frameRenderInvalidation(null, "compound-value-program");
   }
   if (source.type === "camera") return frameRenderInvalidation(null, "camera");
   if (source.type === "media") {

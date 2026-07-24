@@ -94,7 +94,7 @@ test("the duplicate embedded preview can occupy the opposite output render phase
 
 test("models remains a compatibility facade for render settings", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
-  assert.ok(source.includes('from "./render-settings.js?v=pixel-density-4"'));
+  assert.ok(source.includes('from "./render-settings.js?v=surface-terminology-1"'));
   assert.doesNotMatch(source, /export function normalizeRenderSettings\(/);
   assert.doesNotMatch(source, /export function normalizeCameraSettings\(/);
 });

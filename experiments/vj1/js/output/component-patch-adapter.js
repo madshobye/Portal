@@ -1,4 +1,4 @@
-import { flattenComponentChain } from "../graph/render-scheduler.js?v=chain-general-controls-1";
+import { flattenComponentChain } from "../graph/render-scheduler.js?v=canonical-effect-params-1";
 import { isIdentityTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
 
 export function isSourceNode(node = {}) {

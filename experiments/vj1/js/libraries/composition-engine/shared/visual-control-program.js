@@ -360,7 +360,6 @@ function writeDirectVisualParameter(operation, parameterId, value, restorations,
   if (!configuration) return index;
   if (operation.opcode === "effect") {
     index = writeProperty(configuration.params || (configuration.params = {}), parameterId, value, restorations, index);
-    if (parameterId === "amount") index = writeProperty(configuration, "amount", value, restorations, index);
     return index;
   }
   if (operation.opcode === "source" || configuration.kind === "source") {
@@ -381,9 +380,7 @@ function readVisualParameter(operation, parameterId) {
   const configuration = operation?.configuration;
   if (!configuration) return undefined;
   if (operation.opcode === "effect") {
-    return parameterId === "amount"
-      ? configuration.amount ?? configuration.params?.amount
-      : configuration.params?.[parameterId];
+    return configuration.params?.[parameterId];
   }
   if (operation.opcode === "source" || configuration.kind === "source") {
     if (parameterId === "sourceType") return configuration.source?.type;
@@ -411,7 +408,6 @@ function setDirectVisualParameter(operation, parameterId, value) {
   if (!configuration) return;
   if (operation.opcode === "effect") {
     (configuration.params || (configuration.params = {}))[parameterId] = value;
-    if (parameterId === "amount") configuration.amount = value;
     return;
   }
   if (operation.opcode === "source" || configuration.kind === "source") {

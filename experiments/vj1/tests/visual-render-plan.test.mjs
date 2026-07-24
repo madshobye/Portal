@@ -1086,7 +1086,6 @@ test("control compilation rejects cycles and asynchronous nodes before rendering
 
 test("component time and oscillator nodes modulate the optimized visual plan without generic graph execution", () => {
   const effect = renderNode("effect", "effect");
-  effect.configuration.amount = 0.2;
   effect.configuration.params.amount = 0.2;
   const plan = compileVisualRenderPlan({
     id: "vj1.component.animated-control",
@@ -1104,12 +1103,12 @@ test("component time and oscillator nodes modulate the optimized visual plan wit
   });
 
   const restore = plan.controlProgram.apply({ componentTime: 0.25 });
-  assert.equal(effect.configuration.amount, 1);
+  assert.equal(Object.hasOwn(effect.configuration, "amount"), false);
   assert.equal(effect.configuration.params.amount, 1);
   assert.equal(plan.controlProgram.steps.some((step) => step.nodeId === ComponentTimeControlNode.id), true);
   assert.equal(String(plan.controlProgram.constructor.name).includes("NodeGraph"), false);
   restore();
-  assert.equal(effect.configuration.amount, 0.2);
+  assert.equal(Object.hasOwn(effect.configuration, "amount"), false);
   assert.equal(effect.configuration.params.amount, 0.2);
 });
 

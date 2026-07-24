@@ -1,4 +1,4 @@
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
 
 export function createShaderBuilder({
   getCustomCode,
@@ -258,7 +258,7 @@ function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function standaloneFragmentSource(code, component) {
+export function standaloneFragmentSource(code, component) {
   let adapted = String(code || "");
   const varyingPlaceholder = "__VJ1_COMPOSITION_UV_DECLARATION__";
   adapted = adapted.replace(/varying\s+vec2\s+vTexCoord\s*;/, varyingPlaceholder);

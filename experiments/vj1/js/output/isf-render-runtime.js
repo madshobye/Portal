@@ -13,7 +13,7 @@ import {
   enumUniform,
   resetShaderTarget,
   setShaderUniformIfPresent,
-} from "./shader-target-runtime.js?v=source-roi-view-3";
+} from "./shader-target-runtime.js?v=canonical-effect-params-1";
 
 const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
 

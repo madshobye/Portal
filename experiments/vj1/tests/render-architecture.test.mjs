@@ -150,9 +150,13 @@ test("terrain raw WebGL passes are isolated from the shared p5 renderer", () => 
   assert.match(rawWebGlSource, /\[VJ1_RAW_PROGRAM_LINK_FAILED\]/);
 });
 
-test("render recovery paths are observable and mapper overlays restore depth state", () => {
+test("render failures are explicit and mapper overlays restore depth state", () => {
   const framebufferSource = readFileSync(new URL("../js/output/shared-framebuffer-target.js", import.meta.url), "utf8");
   const drawSource = readFileSync(new URL("../js/output/render-draw-utils.js", import.meta.url), "utf8");
+  const mediaDrawSource = readFileSync(new URL("../js/output/media-utils.js", import.meta.url), "utf8");
+  const fontSource = readFileSync(new URL("../js/output/font-loader.js", import.meta.url), "utf8");
+  const modelWorkerSource = readFileSync(new URL("../js/output/specialized/model-processing-client.js", import.meta.url), "utf8");
+  const mobileNetSource = readFileSync(new URL("../js/output/specialized/mobilenet-morph-service.js", import.meta.url), "utf8");
   const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
   const mapperSource = readFileSync(new URL("../js/libraries/mapping-engine/mapping-engine/index.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
@@ -163,9 +167,17 @@ test("render recovery paths are observable and mapper overlays restore depth sta
   const timerSource = readFileSync(new URL("../js/output/gpu-timer-tracker.js", import.meta.url), "utf8");
   const projectSource = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
 
-  assert.match(framebufferSource, /\[VJ1_FRAMEBUFFER_UNAVAILABLE\]/);
-  assert.match(drawSource, /\[VJ1_SAMPLE_DRAW_FALLBACK\]/);
+  assert.match(framebufferSource, /VJ1_RENDER_CAPABILITY_REQUIRED:p5\.createFramebuffer/);
+  assert.doesNotMatch(drawSource, /VJ1_SAMPLE_DRAW_FALLBACK/);
   assert.match(drawSource, /\[VJ1_SAMPLE_DRAW_FAILED\]/);
+  assert.doesNotMatch(mediaDrawSource, /VJ1_MEDIA_DRAW_FALLBACK/);
+  assert.match(mediaDrawSource, /\[VJ1_MEDIA_DRAW_FAILED\]/);
+  assert.match(fontSource, /VJ1_RENDER_FONT_REQUIRED/);
+  assert.doesNotMatch(fontSource, /renderer default font/);
+  assert.match(modelWorkerSource, /VJ1_RENDER_CAPABILITY_REQUIRED:Worker/);
+  assert.doesNotMatch(modelWorkerSource, /main thread/);
+  assert.match(mobileNetSource, /VJ1_MOBILENET_SPATIAL_ENDPOINT_REQUIRED/);
+  assert.match(mobileNetSource, /VJ1_TFJS_WEBGL_BACKEND_REQUIRED/);
   assert.match(specializedSource, /\[VJ1_PRESENTATION_SHADER_FAILED\]/);
   assert.match(specializedSource, /\[VJ1_SPECIALIZED_TARGET_RESIZE_FAILED\]/);
   assert.match(rendererSource, /\[VJ1_MAPPING_SIGNATURE_FAILED\]/);

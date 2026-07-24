@@ -32,11 +32,14 @@ import {
   migrateProjectV28ToV29,
   migrateProjectV29ToV30,
   migrateProjectV30ToV31,
+  migrateProjectV31ToV32,
+  migrateProjectV32ToV33,
+  migrateProjectV33ToV34,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 31);
+  assert.equal(CURRENT_PROJECT_VERSION, 34);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -376,6 +379,7 @@ test("v22 to v23 adds empty project-owned node data without changing authored co
     artifacts: [],
     forks: [],
     packages: [],
+    packageLock: [],
     migrations: [],
   });
   assert.deepEqual(migrated.project, input.project);
@@ -629,6 +633,153 @@ test("v30 to v31 migrates model media into an editable Scene3d visual Group", ()
   assert.deepEqual(image.source, { type: "media", mediaId: "media/still.png" });
   assert.equal(nested.chain[0].source.generatorId, "modelMedia");
   assert.equal(nested.chain[0].source.params.mediaId, "media/models/shape.obj");
+});
+
+test("v31 to v32 moves every authored effect strength into params exactly once", () => {
+  const input = {
+    version: 31,
+    components: [{
+      id: "component-a",
+      chain: [{
+        id: "effect-a",
+        kind: "effect",
+        componentId: "ripple",
+        amount: 0.2,
+        params: { speed: 1.5 },
+      }, {
+        id: "group-a",
+        kind: "group",
+        chain: [{
+          id: "effect-b",
+          kind: "effect",
+          componentId: "blur",
+          amount: 0.1,
+          params: { amount: 0.8 },
+        }],
+      }],
+    }],
+    mappings: [{
+      id: "mapping-a",
+      surfaces: [{
+        id: "surface-a",
+        finalShaderChain: [{ id: "invert", amount: 0.6 }],
+      }],
+    }],
+    nodes: {
+      groups: [{
+        id: "vj1.component.component-a",
+        nodes: [{
+          id: "effect-a",
+          role: "effect",
+          configuration: {
+            id: "effect-a",
+            kind: "effect",
+            componentId: "ripple",
+            amount: 0.2,
+            params: { speed: 1.5 },
+          },
+        }],
+      }],
+    },
+  };
+
+  const migrated = migrateProjectV31ToV32(input);
+  const first = migrated.components[0].chain[0];
+  const nested = migrated.components[0].chain[1].chain[0];
+  const surfacePass = migrated.mappings[0].surfaces[0].finalShaderChain[0];
+  const graphConfiguration = migrated.nodes.groups[0].nodes[0].configuration;
+
+  assert.deepEqual(first.params, { speed: 1.5, amount: 0.2 });
+  assert.equal(Object.hasOwn(first, "amount"), false);
+  assert.equal(nested.params.amount, 0.8, "canonical params win over the mirrored legacy field");
+  assert.equal(Object.hasOwn(nested, "amount"), false);
+  assert.deepEqual(surfacePass, { id: "invert", params: { amount: 0.6 } });
+  assert.deepEqual(graphConfiguration.params, { speed: 1.5, amount: 0.2 });
+  assert.equal(Object.hasOwn(graphConfiguration, "amount"), false);
+  assert.equal(input.components[0].chain[0].amount, 0.2, "migration does not mutate its input");
+});
+
+test("current-schema effect normalization never revives the removed top-level amount", () => {
+  const state = sanitizeState({
+    version: CURRENT_PROJECT_VERSION,
+    components: [{
+      id: "component-a",
+      type: "chain",
+      chain: [{
+        id: "effect-a",
+        kind: "effect",
+        componentId: "ripple",
+        amount: 0.9,
+        params: {},
+      }],
+    }],
+  });
+  const effect = state.components[0].chain[0];
+  assert.equal(effect.params.amount, 0.35);
+  assert.equal(Object.hasOwn(effect, "amount"), false);
+});
+
+test("v32 to v33 persists explicit direct Surface parent edges once", () => {
+  const input = {
+    version: 32,
+    mappings: [{
+      id: "mapping-a",
+      surfaces: [
+        {
+          id: "direct-child",
+          destination: { type: "direct", outputIds: ["main"] },
+        },
+        {
+          id: "mapped",
+          destination: { type: "mapped", mappingId: "mapped" },
+        },
+        {
+          id: "direct-parent",
+          destination: { type: "direct", outputIds: ["main", "side"] },
+        },
+      ],
+    }],
+  };
+  const migrated = migrateProjectV32ToV33(input);
+  const [child, mapped, parent] = migrated.mappings[0].surfaces;
+
+  assert.equal(child.destination.parentSurfaceId, "direct-parent");
+  assert.equal(parent.destination.parentSurfaceId, "");
+  assert.equal(Object.hasOwn(mapped.destination, "parentSurfaceId"), false);
+  assert.equal(
+    Object.hasOwn(input.mappings[0].surfaces[0].destination, "parentSurfaceId"),
+    false,
+    "migration does not mutate its input",
+  );
+});
+
+test("v33 to v34 replaces persisted Frame terminology without aliases", () => {
+  const input = {
+    version: 33,
+    render: {
+      sampling: {
+        surfaceOverscan: 0.75,
+        recordingFrameScale: 1.5,
+      },
+    },
+    nodes: {
+      pins: [{ nodeId: "core.composition.scene-frame-guides", version: "0.1.0" }],
+      groups: [{
+        id: "presentation",
+        nodes: [{
+          id: "guides",
+          nodeId: "core.composition.scene-frame-guides",
+        }],
+      }],
+    },
+  };
+  const migrated = migrateProjectV33ToV34(input);
+
+  assert.equal(migrated.render.sampling.surfaceDetailScale, 1.5);
+  assert.equal(Object.hasOwn(migrated.render.sampling, "recordingFrameScale"), false);
+  assert.equal(migrated.nodes.pins[0].nodeId, "core.composition.scene-surface-guides");
+  assert.equal(migrated.nodes.groups[0].nodes[0].nodeId, "core.composition.scene-surface-guides");
+  assert.equal(input.nodes.pins[0].nodeId, "core.composition.scene-frame-guides");
 });
 
 test("migration runner applies every adjacent step in order", () => {

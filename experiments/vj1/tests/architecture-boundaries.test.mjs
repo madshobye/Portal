@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { listGeneratorNodeComponents } from "../js/libraries/visual-nodes/index.js";
+import { listEffectNodeComponents, listGeneratorNodeComponents } from "../js/libraries/visual-nodes/index.js";
 
 const jsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../js");
 const vjRoot = resolve(jsRoot, "..");
@@ -100,7 +100,7 @@ test("visual nodes own their definitions instead of using aggregate manifests", 
   const generatorEntries = generatorNodes.filter((filename) => filename.endsWith(`${sep}index.js`));
   const effectEntries = effectNodes.filter((filename) => filename.endsWith(`${sep}index.js`));
   assert.equal(generatorEntries.length, listGeneratorNodeComponents().length);
-  assert.equal(effectEntries.length, 33);
+  assert.equal(effectEntries.length, listEffectNodeComponents().length);
   // A node may split a substantial implementation into private sibling
   // modules, but every such module must remain inside a folder with one public
   // node entry point.

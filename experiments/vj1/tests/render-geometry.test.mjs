@@ -33,7 +33,7 @@ import {
   outputSpanRect,
   renderRequestKey,
   renderRequestStateKey,
-  RECORDING_FRAME_DEMAND_SCALE,
+  SURFACE_DETAIL_DEMAND_SCALE,
   sourceRenderDemand,
   SURFACE_DEMAND_OVERSCAN,
   visibleMappedSurfaceSize,
@@ -144,7 +144,7 @@ test("adding Outputs arranges more frames without changing the Mapping world", (
 
 test("adaptive sampling safety multipliers are named render-contract constants", () => {
   assert.equal(SURFACE_DEMAND_OVERSCAN, 1);
-  assert.equal(RECORDING_FRAME_DEMAND_SCALE, 1);
+  assert.equal(SURFACE_DETAIL_DEMAND_SCALE, 1);
 });
 
 test("boundary scale preserves the authored ROI proportion", () => {
@@ -550,7 +550,7 @@ test("generic source demand propagates an upstream sampling requirement", () => 
   assert.ok(reduced.rasterSize.height < normal.rasterSize.height);
 });
 
-test("a small recording frame keeps mapped-surface detail independent from the shared full Canvas request", () => {
+test("a small Scene Surface crop keeps mapped detail independent from the shared full Canvas request", () => {
   const demand = sourceRenderDemand({
     logicalSize: { width: 1000, height: 500 },
     sampleRect: { x: 450, y: 225, width: 100, height: 50 },

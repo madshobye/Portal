@@ -1,13 +1,20 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=pixel-density-4";
+import { sanitizeState } from "../domain/models.js?v=surface-terminology-1";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
-import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
-import { createOutputBridge } from "../services/output-bridge-service.js?v=thumbnail-url-lifecycle-1-scene-mapping-default-selection-1";
-import { OutputRenderer } from "./output-renderer.js?v=roi-composition-1";
+import { renderMaxFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
+import {
+  createOutputBridge,
+  OUTPUT_BRIDGE_PROTOCOL_VERSION,
+} from "../services/output-bridge-service.js?v=package-content-lock-1";
+import { OutputRenderer } from "./output-renderer.js?v=effect-quality-request-scope-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=output-one-1";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
-import { importNodePackage } from "../libraries/node-engine/node-package.js?v=project-group-authoring-compiler-transport-1";
+import {
+  assertNodePackageTransportLock,
+  importNodePackage,
+} from "../libraries/node-engine/node-package.js?v=package-content-lock-1";
+import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js?v=explicit-capability-policy-1";
 
 let outputFitSignature = "";
 
@@ -61,6 +68,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   window.setup = async function setup() {
     const size = outputSize(pendingState, mode);
     const canvas = createCanvas(size.width, size.height, WEBGL);
+    assertP5RenderCapabilities();
     canvas.parent("output-stage");
     applyLoadedFont();
     fitOutputCanvas(size);
@@ -269,9 +277,11 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       renderer?.importFiles(files);
       activatePreparedStateIfReady();
     },
-    onNodePackages(packages) {
+    onNodePackages(packages, packageLock) {
       try {
-        installedNodePackages = (packages || []).map((nodePackage) => importNodePackage(nodePackage));
+        const importedPackages = (packages || []).map((nodePackage) => importNodePackage(nodePackage));
+        assertNodePackageTransportLock(importedPackages, packageLock);
+        installedNodePackages = importedPackages;
         renderer?.setInstalledNodePackages(installedNodePackages);
       } catch (error) {
         console.error("[VJ1_NODE_PACKAGE_TRANSPORT_INVALID]", {
@@ -281,6 +291,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       }
     },
     onControlHello(meta = {}) {
+      clearOutputProtocolReloadGuard();
       if (meta.changed && meta.sessionId) {
         receivedSessionId = meta.sessionId;
         receivedRevision = 0;
@@ -289,6 +300,19 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       }
       bridge?.recoveryState(acceptedState, acceptedFiles);
       if (meta.changed) diagnosticForwarder?.resend?.();
+    },
+    onProtocolMismatch(meta = {}) {
+      const received = meta.received ?? null;
+      const detail = {
+        expected: OUTPUT_BRIDGE_PROTOCOL_VERSION,
+        received,
+        action: meta.action || "reject",
+      };
+      if (requestOutputProtocolReload()) return;
+      console.error("[VJ1_OUTPUT_PROTOCOL_MISMATCH]", {
+        ...detail,
+        message: "Output transport rejected after one reload attempt; refresh Control and Output together.",
+      });
     },
     onCommand(command, payload) {
       if (command === "sync-global" && acceptedState) {
@@ -388,6 +412,27 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   loadClassicScript(VJ1.p5Script).catch((error) => {
     root.innerHTML = `<div class="empty-preview">${error.message}</div>`;
   });
+}
+
+const OUTPUT_PROTOCOL_RELOAD_KEY = `vj1-output-protocol-reload-${OUTPUT_BRIDGE_PROTOCOL_VERSION}`;
+
+function requestOutputProtocolReload() {
+  try {
+    if (sessionStorage.getItem(OUTPUT_PROTOCOL_RELOAD_KEY) === "1") return false;
+    sessionStorage.setItem(OUTPUT_PROTOCOL_RELOAD_KEY, "1");
+    window.location.reload();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function clearOutputProtocolReloadGuard() {
+  try {
+    sessionStorage.removeItem(OUTPUT_PROTOCOL_RELOAD_KEY);
+  } catch {
+    // A matching handshake is already sufficient when storage is unavailable.
+  }
 }
 
 function forwardDiagnosticsToBridge(diagnostics, bridge) {
@@ -594,7 +639,7 @@ async function prepareFixtureRuntimeState(fixtureState = {}) {
   // standalone fixture has no control process, so perform that one-time graph
   // materialization here. This dynamic import stays outside normal output
   // startup and cannot add node-catalog work to the render frame.
-  const { createVj1NodePackage } = await import("../app-node-package.js?v=public-control-node-configuration-named-image-inputs-1-text-mask-readback-compiled-semantic-specialized-compounds-27");
+  const { createVj1NodePackage } = await import("../app-node-package.js?v=surface-terminology-1");
   return createVj1NodePackage().prepareProjectState(withBindings);
 }
 

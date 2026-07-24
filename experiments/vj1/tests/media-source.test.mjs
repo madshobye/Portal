@@ -548,7 +548,7 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("if (drawSurface) target.background"));
   assert.ok(rendererSource.includes("specializedCompoundStageEnabled(operation, surfaceStageId)"));
   assert.ok(rendererSource.includes("specializedCompoundStageEnabled(operation, wireStageId)"));
-  assert.ok(rendererSource.includes("markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft)"));
+  assert.ok(rendererSource.includes("markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.bottomLeft)"));
   assert.ok(rendererSource.includes("program: gl.getParameter(gl.CURRENT_PROGRAM)"));
   assert.ok(rendererSource.includes("gl.useProgram(state.program)"));
   assert.ok(!rendererSource.includes("previousLiveSceneId !== nextLiveSceneId"));
@@ -964,7 +964,7 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
   ].join("\n");
 
   assert.ok(source.includes("const viewport = modelViewportMetrics(target, renderRequest);"));
-  assert.ok(source.includes("target.camera?.(0, 0, viewport.cameraZ"));
+  assert.ok(source.includes("gl.uniform3f(resources.cameraPosition, 0, 0, metrics.cameraZ)"));
   assert.ok(source.includes("const scale = metrics.unitScale * modelScale;"));
   assert.ok(source.includes("const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);"));
   assert.ok(source.includes("(Number(target?.width) || 1) * density"));
@@ -1388,7 +1388,9 @@ test("active output can return project state and files to a refreshed control wi
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
   const outputSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
 
-  assert.ok(bridgeSource.includes('channel.postMessage({ type: "control-hello", sessionId })'));
+  assert.ok(bridgeSource.includes('protocolMessage({ type: "control-hello", sessionId })'));
+  assert.ok(bridgeSource.includes("OUTPUT_BRIDGE_PROTOCOL_VERSION"));
+  assert.ok(bridgeSource.includes('msg.type === "protocol-mismatch"'));
   assert.ok(bridgeSource.includes('msg.sessionId !== controlSessionId'));
   assert.ok(bridgeSource.includes('msg.type === "recovery-state"'));
   assert.ok(bridgeSource.includes('store.replace(recoveredState, "project-output-recovery")'));
@@ -1633,7 +1635,7 @@ test("node output versions propagate dirtiness only to downstream nodes", () => 
   const renderer = new OutputRenderer({ mode: "component" });
   const request = { role: "component", width: 640, height: 360 };
   const buffers = new Map();
-  renderer.getComponentBuffer = (id) => {
+  renderer.getComponentGpuBuffer = (id) => {
     if (!buffers.has(id)) buffers.set(id, { id });
     return buffers.get(id);
   };
@@ -1691,6 +1693,7 @@ test("instance-invariant node states share one retained evaluation across async 
 
 test("static source textures repaint only when their own source state changes", () => {
   const previousCreateGraphics = globalThis.createGraphics;
+  const restoreFramebuffer = installFakeSharedFramebuffer();
   const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
   state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
@@ -1718,6 +1721,7 @@ test("static source textures repaint only when their own source state changes", 
     renderer.renderComponentSourceItem(state.components[0], item, 2, request);
     assert.equal(paints, 2);
   } finally {
+    restoreFramebuffer();
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
     else globalThis.createGraphics = previousCreateGraphics;
   }
@@ -1725,6 +1729,7 @@ test("static source textures repaint only when their own source state changes", 
 
 test("retained video source nodes renew playback ownership on a cache hit", () => {
   const previousCreateGraphics = globalThis.createGraphics;
+  const restoreFramebuffer = installFakeSharedFramebuffer();
   const renderer = new OutputRenderer({ mode: "output" });
   const state = createInitialState();
   const component = state.components[0];
@@ -1767,6 +1772,7 @@ test("retained video source nodes renew playback ownership on a cache hit", () =
     assert.deepEqual(claims[0].options.playback, { start: 1, end: 4, speed: 1 });
     assert.equal(claims[0].options.width, 640);
   } finally {
+    restoreFramebuffer();
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
     else globalThis.createGraphics = previousCreateGraphics;
   }
@@ -1774,6 +1780,7 @@ test("retained video source nodes renew playback ownership on a cache hit", () =
 
 test("media readiness invalidates a cached loading placeholder", () => {
   const previousCreateGraphics = globalThis.createGraphics;
+  const restoreFramebuffer = installFakeSharedFramebuffer();
   const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
   state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
@@ -1803,7 +1810,32 @@ test("media readiness invalidates a cached loading placeholder", () => {
     renderer.renderComponentSourceItem(state.components[0], item, 3, request);
     assert.equal(paints, 2);
   } finally {
+    restoreFramebuffer();
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
     else globalThis.createGraphics = previousCreateGraphics;
   }
 });
+
+function installFakeSharedFramebuffer() {
+  const names = ["createFramebuffer", "push", "pop", "translate", "imageMode", "rectMode", "clear"];
+  const previous = new Map(names.map((name) => [name, globalThis[name]]));
+  globalThis.createFramebuffer = ({ width, height }) => ({
+    width,
+    height,
+    begin() {},
+    end() {},
+    remove() {},
+    resize(nextWidth, nextHeight) {
+      this.width = nextWidth;
+      this.height = nextHeight;
+    },
+    get() {},
+  });
+  for (const name of names.slice(1)) globalThis[name] = () => {};
+  return () => {
+    for (const [name, value] of previous) {
+      if (value === undefined) delete globalThis[name];
+      else globalThis[name] = value;
+    }
+  };
+}

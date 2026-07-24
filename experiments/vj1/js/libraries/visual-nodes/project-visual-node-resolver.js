@@ -4,7 +4,7 @@ import {
   componentFromNodeDefinition,
   listEffectNodeComponents,
   listGeneratorNodeComponents,
-} from "./catalog.js?v=semantic-visual-catalog-8";
+} from "./catalog.js?v=compiled-graph-value-authority-1";
 import {
   isIsfNodeDefinition,
   listProjectIsfVisualComponents,

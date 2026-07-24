@@ -4,7 +4,7 @@ export * from "./node-runtime.js";
 export * from "./node-group.js?v=explicit-group-compiler-generic-graph-preflight-1";
 export * from "./node-artifact.js";
 export * from "./node-editor.js?v=shader-javascript-forks-2";
-export * from "./node-project.js?v=project-group-export-boundary-editable-inlets-2";
+export * from "./node-project.js?v=package-content-lock-1";
 export * from "./node-compiler.js";
 export * from "./node-graph-program.js?v=editable-inlet-literals-generic-graph-preflight-1";
 export * from "./node-package.js?v=installed-package-layers-project-group-authoring-compiler-transport-1";

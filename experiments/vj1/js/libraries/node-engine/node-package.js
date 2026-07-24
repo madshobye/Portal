@@ -13,7 +13,7 @@ import {
   pinNodeVersion,
   serializeNodeArtifact,
   serializeNodeDefinition,
-} from "./node-project.js?v=project-group-authoring-1";
+} from "./node-project.js?v=package-content-lock-1";
 
 export const NODE_PACKAGE_FORMAT_VERSION = 3;
 
@@ -109,6 +109,29 @@ export function serializeNodePackage(nodePackage) {
     visualLibrary: source.visualLibrary.map(jsonData),
     metadata: jsonData(source.metadata),
   };
+}
+
+export function nodePackageContentIntegrity(nodePackage) {
+  const integrity = String(nodePackage?.metadata?.repositoryContentIntegrity || "").toLowerCase();
+  return /^sha256-[0-9a-f]{64}$/.test(integrity) ? integrity : "";
+}
+
+export function assertNodePackageTransportLock(packages = [], packageLock = []) {
+  const lock = new Map((packageLock || []).map((item) => [
+    `${String(item?.id || "")}@${String(item?.version || "")}`,
+    String(item?.integrity || "").toLowerCase(),
+  ]));
+  if (lock.size !== (packages || []).length) {
+    throw new Error("NODE_PACKAGE_TRANSPORT_LOCK_SIZE_MISMATCH");
+  }
+  for (const nodePackage of packages || []) {
+    const key = `${nodePackage.id}@${nodePackage.version}`;
+    const actual = nodePackageContentIntegrity(nodePackage);
+    if (!actual || lock.get(key) !== actual) {
+      throw new Error(`NODE_PACKAGE_TRANSPORT_INTEGRITY_MISMATCH:${key}`);
+    }
+  }
+  return true;
 }
 
 export function exportNodePackage(nodePackage, { pretty = true } = {}) {

@@ -118,6 +118,7 @@ export function createEmptyNodeProjectData() {
     artifacts: [],
     forks: [],
     packages: [],
+    packageLock: [],
     migrations: [],
   };
 }
@@ -134,8 +135,25 @@ export function normalizeNodeProjectData(value = {}) {
     artifacts: normalizeCollection(source.artifacts),
     forks: normalizeCollection(source.forks),
     packages: normalizePackageReferences(source.packages),
+    packageLock: normalizeNodePackageLock(source.packageLock),
     migrations: normalizeCollection(source.migrations),
   };
+}
+
+export function normalizeNodePackageLock(value = []) {
+  if (!Array.isArray(value)) return [];
+  const result = new Map();
+  for (const item of value) {
+    if (!isRecord(item)) continue;
+    const id = String(item.id || item.packageId || "").trim();
+    const version = String(item.version || item.packageVersion || "").trim();
+    const integrity = String(item.integrity || "").trim().toLowerCase();
+    if (!id || !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)) continue;
+    if (!/^sha256-[0-9a-f]{64}$/.test(integrity)) continue;
+    result.set(`${id}@${version}`, { id, version, integrity });
+  }
+  return [...result.values()].sort((left, right) =>
+    left.id.localeCompare(right.id) || left.version.localeCompare(right.version));
 }
 
 export function serializeNodeProjectData(value = {}) {

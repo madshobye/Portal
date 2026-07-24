@@ -1,8 +1,8 @@
-import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js?v=render-coordinate-scope-3-scene-mapping-default-selection-runtime-visual-sources-1";
+import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js?v=surface-terminology-1";
 import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
-import { sceneFrameSize } from "./render-settings.js?v=canvas-global-resolution-1";
+import { sceneLogicalSize } from "./render-settings.js?v=surface-terminology-1";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
-import { initializeLiveChainInsertion } from "./scene-routing.js?v=chain-only-authority-runtime-visual-sources-1";
+import { initializeLiveChainInsertion } from "./scene-routing.js?v=explicit-direct-surface-hierarchy-1";
 
 export const VJ1_CLIPBOARD_TYPE = "application/x-vj1-item";
 
@@ -183,7 +183,7 @@ function insertIntoTarget(draft, target, item) {
 }
 
 function createComponentReferenceLayer(draft, scene, source) {
-  const sceneWidth = sceneFrameSize(draft.render).width;
+  const sceneWidth = sceneLogicalSize(draft.render).width;
   const metrics = componentFrameMetrics(draft.render || {}, source);
   return regenerateChainItemIds({
     id: uid("chain"),

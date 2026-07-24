@@ -1,11 +1,11 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { sanitizeState } from "../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-runtime-visual-sources-1";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=chain-only-authority-1";
+import { sanitizeState } from "../domain/models.js?v=surface-terminology-1";
+import { compileComponentPatch } from "../graph/render-scheduler.js?v=canonical-effect-params-1";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
 import { frameSize, worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
-import { normalizePixelDensity } from "../domain/render-settings.js?v=pixel-density-4";
+import { normalizePixelDensity } from "../domain/render-settings.js?v=surface-terminology-1";
 
 export function analyzeVj1Project(input = {}, options = {}) {
   const state = sanitizeState(input || {});
@@ -792,7 +792,7 @@ function effectCost(item, effectDepth = 1) {
     custom: 2.0,
   }[id] || 1.35;
   const depthPenalty = Math.max(0, effectDepth - 1) * 0.08;
-  const amount = Number(item.amount ?? item.params?.amount);
+  const amount = Number(item.params?.amount);
   const amountPenalty = Number.isFinite(amount) && amount > 0.75 ? 0.12 : 0;
   const component = getShaderComponent(id);
   const spatialPenalty = component?.spatial ? 0.12 : 0;

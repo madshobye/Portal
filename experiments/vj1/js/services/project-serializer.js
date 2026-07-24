@@ -1,7 +1,7 @@
-import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=model-media-scene-group-1";
-import { normalizeOutputName } from "../domain/render-settings.js?v=output-one-1";
-import { authoredSurfaceFields } from "../domain/scene-routing.js?v=scene-mapping-output-visibility-runtime-visual-sources-1";
-import { serializeNodeProjectData } from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
+import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=package-content-lock-1";
+import { normalizeOutputName } from "../domain/render-settings.js?v=surface-terminology-1";
+import { authoredSurfaceFields } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
+import { serializeNodeProjectData } from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
 
 export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
   return {

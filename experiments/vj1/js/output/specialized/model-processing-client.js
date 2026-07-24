@@ -1,5 +1,4 @@
 import { attachLegacyTriangleView } from "../../libraries/mesh-engine/mesh-types.js";
-import { prepare3dAsset } from "../../libraries/mesh-engine/prepare-3d-asset/index.js";
 import {
   modelDerivedCacheKey,
   readDerivedModelCache,
@@ -10,7 +9,6 @@ let worker = null;
 let requestSerial = 0;
 const pending = new Map();
 const inFlightByCacheKey = new Map();
-let fallbackLogged = false;
 const MODEL_PROCESSING_BASE_SLOW_MS = 120_000;
 const MODEL_PROCESSING_MAX_SLOW_MS = 600_000;
 
@@ -59,16 +57,7 @@ async function processModelWithCache(payload, cacheKey) {
 function processModelUncached(payload) {
   const runtimeWorker = ensureWorker();
   if (!runtimeWorker) {
-    if (!fallbackLogged) {
-      fallbackLogged = true;
-      console.warn("[VJ1_MODEL_WORKER_FALLBACK]", { message: "Web Worker unavailable; model processing will use the main thread" });
-    }
-    return Promise.resolve().then(async () => (await prepare3dAsset({
-      source: payload.type === "obj" ? (payload.text ?? payload.buffer) : payload.buffer,
-      format: payload.type,
-      resolution: "automatic",
-      levels: payload.levels,
-    })).mesh);
+    return Promise.reject(new Error("VJ1_RENDER_CAPABILITY_REQUIRED:Worker"));
   }
   const requestId = ++requestSerial;
   const requestType = payload.type;

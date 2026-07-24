@@ -67,6 +67,7 @@ export const TextMaskToImageNode = defineNode({
   metadata: {
     nativeKernel: "text-mask",
     nativeRenderer: "output/specialized:text",
+    nodeOwnedNativeModule: true,
     allocationStable: true,
     nativeArtifactRequirements: {
       moduleExports: [],

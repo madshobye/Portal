@@ -262,6 +262,7 @@ export function renderQualityScale(values = {}, { minimum = 0.35 } = {}) {
 }
 
 function normalizeRuntimePolicy(runtime = {}) {
+  const roi = runtime?.roi && typeof runtime.roi === "object" ? runtime.roi : {};
   return Object.freeze({
     cacheable: runtime?.cacheable !== false,
     timeDependent: typeof runtime?.timeDependent === "function"
@@ -275,11 +276,17 @@ function normalizeRuntimePolicy(runtime = {}) {
       : () => null,
     rateParam: String(runtime?.rateParam || ""),
     roi: Object.freeze({
-      mode: ["local", "neighborhood", "full-frame"].includes(runtime?.roi?.mode)
-        ? runtime.roi.mode
+      mode: ["local", "neighborhood", "full-frame", "projective"].includes(roi.mode)
+        ? roi.mode
         : runtime?.cacheable === false ? "full-frame" : "local",
-      halo: Math.max(0, Number(runtime?.roi?.halo) || 0),
-      coordinateSpace: runtime?.roi?.coordinateSpace === "full-frame" ? "full-frame" : "boundary",
+      halo: Math.max(0, Number(roi.halo) || 0),
+      coordinateSpace: ["boundary", "full-frame", "projective"].includes(roi.coordinateSpace)
+        ? roi.coordinateSpace
+        : "boundary",
+      ...(roi.inputMapping != null ? { inputMapping: String(roi.inputMapping) } : {}),
+      ...(roi.pixelEquivalentToFullFrame != null
+        ? { pixelEquivalentToFullFrame: roi.pixelEquivalentToFullFrame !== false }
+        : {}),
     }),
   });
 }

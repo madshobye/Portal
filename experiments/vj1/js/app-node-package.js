@@ -12,7 +12,7 @@ import {
   listEffectNodeComponents,
   listGeneratorNodeComponents,
   SpecializedCompoundStageNodeDefinitions,
-} from "./libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
+} from "./libraries/visual-nodes/index.js?v=eyeball-coordinate-contract-1";
 import {
   AudioControlInputNode,
   ComponentTimeControlNode,
@@ -41,7 +41,7 @@ import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./librarie
 import { NestedNoiseMotionNode, OrbitMotionNode } from "./libraries/motion-engine/index.js";
 import { TerrainFlightControllerNode } from "./libraries/terrain-engine/index.js?v=semantic-terrain-contract-4";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
-import { SceneFrameGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=nested-component-roi-1";
+import { SceneSurfaceGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=surface-terminology-1";
 import {
   COMPONENT_PROGRAM_GENERATOR,
   ComponentProgramNode,
@@ -52,7 +52,7 @@ import {
   compileVisualRenderPlan,
   componentProgramInstances,
   reconcileComponentGroupTopology,
-} from "./libraries/composition-engine/index.js?v=nested-component-roi-1";
+} from "./libraries/composition-engine/index.js?v=surface-terminology-1";
 import {
   MAPPING_PROGRAM_GENERATOR,
   OutputProgramNode,
@@ -62,7 +62,7 @@ import {
   compileMappingGroupTopology,
   compileReachableProgramGraph,
   mappingProgramInstances,
-} from "./libraries/composition-engine/index.js?v=nested-component-roi-1";
+} from "./libraries/composition-engine/index.js?v=surface-terminology-1";
 import {
   APPLICATION_PROGRAM_GENERATOR,
   ApplicationProgramRuntime,
@@ -70,12 +70,13 @@ import {
   applicationProgramInstances,
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
-} from "./libraries/composition-engine/index.js?v=nested-component-roi-1";
+} from "./libraries/composition-engine/index.js?v=surface-terminology-1";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
-import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
+import { RenderDemandNode } from "./libraries/render-engine/index.js";
+import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=eyeball-coordinate-contract-1";
 import {
   Convert3dFileToImageGroup,
   ComposableScene3dGroup,
@@ -126,7 +127,7 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   TerrainFlightControllerNode,
   MappingEngineNode,
   SurfaceCompositionNode,
-  SceneFrameGuideNode,
+  SceneSurfaceGuideNode,
   ComponentProgramNode,
   LayerGroupNode,
   VisualSourceNode,
@@ -139,6 +140,7 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   SerializedStorageNode,
   LivePatchSynchronizerNode,
   MediaInputLifecycleNode,
+  RenderDemandNode,
   VisualNodeDefinitionNode,
   ...SpecializedCompoundStageNodeDefinitions,
   Detect3dFormatNode,

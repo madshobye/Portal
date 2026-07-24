@@ -28,7 +28,6 @@ import {
   TerrainSurfaceToImageNode,
   TerrainWireToImageNode,
 } from "../renderers/terrain-passes/index.js?v=semantic-terrain-render-nodes-1";
-import { AnatomyToImageNode } from "../renderers/anatomy-to-image/index.js?v=semantic-anatomy-render-node-1";
 import {
   MeshPatternFillToImageNode,
   MeshPatternWireToImageNode,
@@ -39,13 +38,11 @@ import {
   SuperPointMorphAnalysisNode,
 } from "../providers/feature-morph-analysis/index.js?v=feature-morph-semantic-1";
 import { FeatureMorphToImageNode } from "../renderers/feature-morph-to-image/index.js?v=feature-morph-semantic-1";
-import { TileTextureToImageNode } from "../renderers/tile-texture-to-image/index.js?v=tile-texture-semantic-1";
 import { TextMaskProviderNode } from "../providers/text-mask/index.js?v=text-mask-semantic-1";
 import { TextMaskToImageNode } from "../renderers/text-mask-to-image/index.js?v=text-mask-semantic-1";
 import { ScreenInputResourceNode } from "../providers/screen-input-resource/index.js?v=screen-input-semantic-1";
 import { MediaResourceToImageNode } from "../renderers/media-resource-to-image/index.js?v=screen-input-semantic-1";
 import { GazeBlinkControllerNode } from "../providers/gaze-blink-controller/index.js?v=gaze-blink-semantic-1";
-import { EyeballToImageNode } from "../renderers/eyeball-to-image/index.js?v=gaze-blink-semantic-1";
 import { componentFromNodeDefinition } from "./visual-node-factory.js";
 
 export const SPECIALIZED_COMPOUND_VISUAL_COMPILER_HOOK = "vj1.visual.specialized-compound";
@@ -62,7 +59,6 @@ export {
   TerrainWireMaterialProviderNode,
   TerrainFlightCameraProviderNode,
   ModelFitCameraNode,
-  AnatomyToImageNode,
   FeatureMorphAnalysisType,
   DrawableMediaResourceType,
   GazeBlinkUniformsType,
@@ -81,12 +77,10 @@ export {
   TextMaskProviderNode,
   TextMaskProviderType,
   TextMaskToImageNode,
-  TileTextureToImageNode,
   TopologyProviderType,
   SuperPointMorphAnalysisNode,
   ScreenInputResourceNode,
   GazeBlinkControllerNode,
-  EyeballToImageNode,
   VisualCameraProviderType,
   VisualMaterialProviderType,
 };
@@ -160,16 +154,13 @@ export const SpecializedCompoundStageNodeDefinitions = Object.freeze([
   TerrainFlightCameraProviderNode,
   ModelFitCameraNode,
   VisualCameraProviderNode,
-  AnatomyToImageNode,
   MediaImageResourceNode,
   ScreenInputResourceNode,
   GazeBlinkControllerNode,
-  EyeballToImageNode,
   SuperPointMorphAnalysisNode,
   MobileNetMorphAnalysisNode,
   FeatureMorphToImageNode,
   MediaResourceToImageNode,
-  TileTextureToImageNode,
   MeshPatternTopologyProviderNode,
   MeshPatternFillMaterialProviderNode,
   MeshPatternWireMaterialProviderNode,
@@ -632,6 +623,27 @@ export function specializedCompoundStageParameterView(
     result[targetParameterId] = authoredParameters[publicParameterId];
   }
   return result;
+}
+
+export function specializedCompoundEvaluatedStageSettings(
+  operation = {},
+  evaluation = null,
+  stageId = "",
+  authoredParameters = {},
+  context = {},
+) {
+  const settings = evaluation?.stageInputs?.(stageId)?.settings;
+  if (operation?.nativeCompoundProgram) {
+    if (!isRecord(settings)) {
+      throw new Error(`SPECIALIZED_COMPOUND_STAGE_SETTINGS_MISSING:${stageId || "unknown"}`);
+    }
+    return settings;
+  }
+  return isRecord(settings)
+    ? settings
+    : specializedCompoundStageParameterView(
+      operation, stageId, authoredParameters, context,
+    ) || { ...(authoredParameters || {}) };
 }
 
 export function specializedCompoundRuntimeParameters(operation = {}, authoredParameters = {}) {

@@ -1,102 +1,118 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  compileSpecializedCompoundProgram,
-  createGeneratorSource,
-  evaluateSpecializedCompoundGraph,
-  getGeneratorNodeComponent as getGeneratorComponent,
-  MediaImageResourceNode,
-  SpecializedCompoundStageNodeDefinitions,
-  TileTextureToImageNode,
-} from "../js/libraries/visual-nodes/index.js";
-import {
-  createProjectNodeFork,
-  materializeProjectNodeFork,
-  NODE_PART_KINDS,
-} from "../js/libraries/node-engine/index.js";
-import { OutputRenderer } from "../js/output/output-renderer.js";
-import { TILE_TEXTURE_FRAGMENT_SHADER, TILE_TEXTURE_VERTEX_SHADER } from "../js/output/specialized/tile-texture-shader.js";
-import { generatorImageMediaControlTemplate } from "../js/control/generator-media-view.js";
-import { tileRepeatAmount, tileTextureNodeRuntimeModule, tileTextureNodeShaderSource } from "../js/output/specialized/specialized-source-runtime.js";
 
-test("Tile Texture exposes repeat offset and optional scrolling controls", () => {
-  const component = getGeneratorComponent("tileTexture");
+import { compileVisualRenderPlan } from "../js/libraries/composition-engine/index.js";
+import {
+  createGeneratorSource,
+  getEffectNodeComponent,
+  getGeneratorNodeComponent,
+  listEffectNodeComponents,
+  listGeneratorNodeComponents,
+} from "../js/libraries/visual-nodes/index.js";
+import { NODE_PART_KINDS } from "../js/libraries/node-engine/index.js";
+import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
+import { generatorImageMediaControlTemplate } from "../js/control/generator-media-view.js";
+import { mediaImageNodeProcess } from "../js/libraries/visual-nodes/generators/media-image/index.js";
+import { OutputRenderer } from "../js/output/output-renderer.js";
+import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-source-runtime.js";
+
+test("Tile Texture is an editable media-image plus shader-effect Group", () => {
+  const component = getGeneratorNodeComponent("tileTexture");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
+  const graph = component.nodeDefinition.parts.find((part) => part.kind === NODE_PART_KINDS.GRAPH);
+  const definitions = new Map([
+    ...listGeneratorNodeComponents(),
+    ...listEffectNodeComponents(),
+  ].map((visual) => [visual.nodeDefinition.id, visual.nodeDefinition]));
+  const outer = graphNodeFromDefinition(component.nodeDefinition, {
+    id: "tile-texture",
+    visualProgram: true,
+  });
+  const plan = compileVisualRenderPlan({
+    id: "tile-texture-test",
+    nodes: [outer],
+    connections: [{ from: "tile-texture.texture", to: "$out.texture", type: "texture" }],
+  }, {}, {
+    resolveDefinition: (node) =>
+      node.nodeId === component.nodeDefinition.id
+        ? component.nodeDefinition
+        : definitions.get(node.nodeId),
+  });
+
   assert.equal(component.category, "texture");
   assert.deepEqual(params.tileAxis.values, ["both", "horizontal", "vertical"]);
-  assert.equal(params.tileAxis.defaultValue, "both");
   assert.equal(params.repeat.min, 0.001);
   assert.equal(params.repeat.max, 64);
-  assert.equal(params.repeat.defaultValue, 1);
-  assert.equal(params.repeatX, undefined);
-  assert.equal(params.repeatY, undefined);
   assert.equal(component.runtime.timeDependent({ scrollX: 0, scrollY: 0 }), false);
   assert.equal(component.runtime.timeDependent({ scrollX: 0.1, scrollY: 0 }), true);
-  assert.deepEqual(tileRepeatAmount({ repeat: 8, tileAxis: "both" }), [8, 8]);
-  assert.deepEqual(tileRepeatAmount({ repeat: 8, tileAxis: "horizontal" }), [8, 1]);
-  assert.deepEqual(tileRepeatAmount({ repeat: 8, tileAxis: "vertical" }), [1, 8]);
-  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
-  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeProcess, false);
-  assert.deepEqual(TileTextureToImageNode.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => part.id), [
-    "tile-texture-vertex",
-    "tile-texture-fragment",
+  assert.equal(component.renderAuthority, "compiled-graph");
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "");
+  assert.deepEqual(graph.nodes.map((node) => node.type), [
+    "vj1.visual.generator.mediaImage",
+    "vj1.visual.effect.tileRepeat",
   ]);
-  assert.deepEqual(component.nodeDefinition.parts.filter((part) =>
-    part.kind === NODE_PART_KINDS.JAVASCRIPT || part.kind === NODE_PART_KINDS.SHADER
-  ), [], "the outer Group has no hidden tile implementation");
-  const definitions = new Map(SpecializedCompoundStageNodeDefinitions.map((definition) => [definition.id, definition]));
-  const program = compileSpecializedCompoundProgram(component.nodeDefinition, {
-    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
-  });
-  assert.deepEqual(program.stages.map((stage) => stage.nodeId), [
-    MediaImageResourceNode.id,
-    TileTextureToImageNode.id,
+  assert.deepEqual(graph.connections, [
+    { from: "image.texture", to: "render.texture", type: "texture" },
+    { from: "render.texture", to: "$out.texture", type: "texture" },
   ]);
-  assert.deepEqual(program.nativeKernel("tile-texture").inputBindings, {
-    image: { stageId: "image", portId: "image" },
-  });
-  const graph = evaluateSpecializedCompoundGraph(
-    { nativeCompoundProgram: program },
-    { imageId: "tiles.png", repeat: 8, tileAxis: "horizontal", scrollX: 0.25 },
-    { instanceId: "tile-texture-test" },
+  assert.deepEqual(plan.operations[0].operations.map((operation) => operation.backend), [
+    "source-runtime",
+    "shader-effect",
+  ]);
+  assert.equal(
+    plan.operations[0].operations[1].contract.transform.domain,
+    "group-field",
+    "the Group transform belongs to the repeat field rather than a composition-wide post effect",
   );
-  assert.equal(graph.stageInput("render", "image").mediaId, "tiles.png");
-  assert.deepEqual(graph.stageInputs("render").settings, {
-    tileAxis: "horizontal",
-    repeat: 8,
-    scrollX: 0.25,
+  assert.deepEqual(plan.operations[0].operations[1].lowering.inputDemand, {
+    mode: "full-frame",
+    halo: 0,
+    coordinateSpace: "full-frame",
+    mapping: "periodic",
   });
-  program.dispose();
+  assert.equal(plan.operations[0].nativeCompoundProgram, undefined);
+  assert.equal(
+    new SpecializedSourceRuntime().hasNativeRenderer("output/specialized:tileTexture"),
+    false,
+  );
 });
 
-test("Tile Texture render-node forks supply the retained host with node-owned helpers and shaders", () => {
-  const base = TileTextureToImageNode;
-  const fork = createProjectNodeFork(base, {
-    forkId: "tile-texture-project",
-    overrides: {
-      parts: base.parts.map((part) => part.id === "tile-repeat-module"
-        ? { ...part, source: "function tileRepeatAmount() { return [3, 4]; }" }
-        : part),
+test("Tile Repeat is a reusable ordinary shader effect", () => {
+  const effect = getEffectNodeComponent("tileRepeat");
+  const shader = effect.nodeDefinition.parts.find((part) => part.kind === NODE_PART_KINDS.SHADER);
+  assert.ok(shader);
+  assert.match(shader.source, /fract\(/);
+  assert.match(shader.source, /transformEffectUv\(effectScreenUv\(\)\)/);
+  assert.match(shader.source, /inverseTransformEffectUv\(tileFieldUv\)/);
+  assert.match(shader.source, /sampleSource\(sourceUv\)/);
+  assert.equal(effect.nodeDefinition.metadata.nativeRenderer, undefined);
+  assert.equal(effect.nodeDefinition.metadata.visualKind, "effect");
+  assert.equal(effect.nodeDefinition.metadata.transformSource, false);
+  assert.equal(effect.nodeDefinition.metadata.visualContract.roi.mode, "full-frame");
+  assert.equal(effect.nodeDefinition.metadata.visualContract.roi.inputMapping, "periodic");
+});
+
+test("Media Image is a reusable retained texture source", () => {
+  const calls = [];
+  const image = { width: 64, height: 64 };
+  mediaImageNodeProcess({ params: { mediaId: "tiles.png", fit: "stretch" } }, {
+    target: { id: "target" },
+    renderView: { width: 320, height: 180 },
+    acquireMedia: (id, options) => {
+      calls.push(["acquire", id, options]);
+      return { image };
     },
+    isDrawableMedia: (candidate) => candidate === image,
+    drawMediaFit: (...args) => calls.push(["draw", ...args]),
   });
-  const resolved = materializeProjectNodeFork(base, fork);
-  const operation = {
-    nodeModule: resolved.moduleExports,
-    nodeShaders: Object.fromEntries(resolved.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => [part.id, part.source])),
-  };
-
-  assert.deepEqual(tileTextureNodeRuntimeModule(operation).tileRepeatAmount({ repeat: 8 }), [3, 4]);
-  assert.equal(tileTextureNodeShaderSource(operation, "vertex"), TILE_TEXTURE_VERTEX_SHADER);
-  assert.equal(tileTextureNodeShaderSource(operation, "fragment"), TILE_TEXTURE_FRAGMENT_SHADER);
+  assert.deepEqual(calls[0], ["acquire", "tiles.png", { width: 320 }]);
+  assert.deepEqual(calls[1].slice(0, 3), ["draw", { id: "target" }, image]);
+  assert.deepEqual(calls[1].slice(-5), [0, 0, 320, 180, "stretch"]);
 });
 
-test("Tile Texture repeats its selected image with wrapped shader coordinates", () => {
+test("Tile Texture retains its existing catalog controls and media dependency", () => {
   const source = createGeneratorSource("tileTexture", { imageId: "tiles.png", repeat: 8 });
   assert.equal(source.params.imageId, "tiles.png");
-  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /renderUvRect\.xy \+ vTexCoord \* renderUvRect\.zw/);
-  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /contentUvMatrix \* vec3\(boundaryUv, 1\.0\)/);
-  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /fract\(compositionUv \* repeatAmount/);
-  assert.match(TILE_TEXTURE_FRAGMENT_SHADER, /texture2D\(tileImage, tileUv\)/);
   const controls = generatorImageMediaControlTemplate("components.0.source", source, {
     media: [{ id: "tiles.png", name: "media/textures/Tiles.png", path: "media/textures/Tiles.png", type: "image" }],
   });
@@ -104,11 +120,8 @@ test("Tile Texture repeats its selected image with wrapped shader coordinates", 
   assert.match(controls, />Tiles\.png</);
   assert.doesNotMatch(controls, /<small>/);
   assert.doesNotMatch(controls, />media\/textures\//);
-});
 
-test("Tile Texture remains dynamic until its selected image is decoded", () => {
   const renderer = new OutputRenderer({ mode: "component" });
-  const source = createGeneratorSource("tileTexture", { imageId: "tiles.png", scrollX: 0, scrollY: 0 });
   assert.equal(renderer.sourceIsFrameDynamic(source), true);
   assert.deepEqual(renderer.visualMediaResourceIds("tileTexture", source.params), ["tiles.png"]);
   renderer.media.set("tiles.png", { ready: true });

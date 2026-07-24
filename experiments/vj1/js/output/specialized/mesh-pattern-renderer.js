@@ -1,4 +1,4 @@
-import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=canvas-global-resolution-1";
+import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=surface-terminology-1";
 import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=render-core-contract-1";
 import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
 import { generateMeshPatternTopology, meshPatternTopologySignature } from "./mesh-pattern-algorithms.js?v=mesh-topology-4";
@@ -22,10 +22,11 @@ import { renderView } from "../../libraries/render-engine/render-view/index.js";
 import {
   evaluateSpecializedCompoundGraph,
   executeSpecializedCompoundProvider,
+  specializedCompoundEvaluatedStageSettings,
   specializedCompoundStageEnabled,
   specializedCompoundNativeKernel,
   specializedCompoundStageParameterView,
-} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
+} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=compiled-graph-value-authority-1";
 
 const MAX_CPU_TOPOLOGIES = 32;
 const MAX_GPU_TOPOLOGIES = 24;
@@ -116,12 +117,32 @@ export class MeshPatternRenderer {
       { instanceId },
       { [topologyStageId]: { aspect: view.width / view.height } },
     );
-    const topologyValue = graph?.stageInput(fillStageId, "topology") ||
-      executeSpecializedCompoundProvider(operation, topologyStageId, authoredParams, instanceId);
-    const fillMaterialValue = graph?.stageInput(fillStageId, "material") ||
-      executeSpecializedCompoundProvider(operation, fillMaterialStageId, authoredParams, instanceId);
-    const wireMaterialValue = graph?.stageInput(wireStageId, "material") ||
-      executeSpecializedCompoundProvider(operation, wireMaterialStageId, authoredParams, instanceId);
+    let topologyValue = graph?.stageInput(fillStageId, "topology") || null;
+    let fillMaterialValue = graph?.stageInput(fillStageId, "material") || null;
+    let wireMaterialValue = graph?.stageInput(wireStageId, "material") || null;
+    if (operation?.nativeCompoundProgram) {
+      const missingInputs = [
+        !topologyValue ? `${fillStageId}.topology` : "",
+        !fillMaterialValue ? `${fillStageId}.material` : "",
+        !wireMaterialValue ? `${wireStageId}.material` : "",
+      ].filter(Boolean);
+      if (missingInputs.length) {
+        throw new Error(`MESH_PATTERN_GRAPH_INPUT_MISSING:${missingInputs.join(",")}`);
+      }
+    } else {
+      // Only explicit uncompiled compatibility calls may reconstruct provider
+      // values. Production compiled Groups consume the displayed graph wires
+      // exclusively and fail closed when one is unavailable.
+      topologyValue = executeSpecializedCompoundProvider(
+        operation, topologyStageId, authoredParams, instanceId,
+      );
+      fillMaterialValue = executeSpecializedCompoundProvider(
+        operation, fillMaterialStageId, authoredParams, instanceId,
+      );
+      wireMaterialValue = executeSpecializedCompoundProvider(
+        operation, wireMaterialStageId, authoredParams, instanceId,
+      );
+    }
     const topologyParams = topologyValue?.settings || specializedCompoundStageParameterView(
       operation, topologyStageId, authoredParams, instanceId,
     );
@@ -131,10 +152,12 @@ export class MeshPatternRenderer {
     const wireMaterialParams = wireMaterialValue?.settings || specializedCompoundStageParameterView(
       operation, wireMaterialStageId, authoredParams, instanceId,
     );
-    const fillRenderParams = graph?.stageInputs(fillStageId)?.settings ||
-      specializedCompoundStageParameterView(operation, fillStageId, authoredParams, instanceId);
-    const wireRenderParams = graph?.stageInputs(wireStageId)?.settings ||
-      specializedCompoundStageParameterView(operation, wireStageId, authoredParams, instanceId);
+    const fillRenderParams = specializedCompoundEvaluatedStageSettings(
+      operation, graph, fillStageId, authoredParams, instanceId,
+    );
+    const wireRenderParams = specializedCompoundEvaluatedStageSettings(
+      operation, graph, wireStageId, authoredParams, instanceId,
+    );
     const nodeModule = operation?.nativeCompoundProgram
       ? operation.nodeModule
       : meshPatternNodeRuntimeModule(operation);

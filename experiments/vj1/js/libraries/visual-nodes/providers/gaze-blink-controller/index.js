@@ -28,6 +28,16 @@ export const GazeBlinkControllerNode = defineNode({
   },
   outlets: {
     uniforms: { type: GazeBlinkUniformsType },
+    gazeX: { type: "number" },
+    gazeY: { type: "number" },
+    gazeZ: { type: "number" },
+    irisRightX: { type: "number" },
+    irisRightY: { type: "number" },
+    irisRightZ: { type: "number" },
+    irisUpX: { type: "number" },
+    irisUpY: { type: "number" },
+    irisUpZ: { type: "number" },
+    blink: { type: "number" },
   },
   execution: {
     trigger: "frame",
@@ -84,6 +94,16 @@ export function gazeBlinkControllerProcess(inputs = {}, { state = {}, output = n
   state.uniforms = gazeBlinkUniforms(inputs.componentTime, inputs, state.uniforms);
   const result = output || state.output || (state.output = { uniforms: null });
   result.uniforms = state.uniforms;
+  result.gazeX = state.uniforms.gazeDir[0];
+  result.gazeY = state.uniforms.gazeDir[1];
+  result.gazeZ = state.uniforms.gazeDir[2];
+  result.irisRightX = state.uniforms.irisRight[0];
+  result.irisRightY = state.uniforms.irisRight[1];
+  result.irisRightZ = state.uniforms.irisRight[2];
+  result.irisUpX = state.uniforms.irisUp[0];
+  result.irisUpY = state.uniforms.irisUp[1];
+  result.irisUpZ = state.uniforms.irisUp[2];
+  result.blink = state.uniforms.blink;
   return result;
 }
 

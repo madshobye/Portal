@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  assertP5RenderCapabilities,
   chromeBrowserIdentity,
   reportBrowserCompatibility,
   VJ1_MINIMUM_CHROME_MAJOR,
@@ -11,6 +12,7 @@ function capableHost({ userAgent = `Mozilla/5.0 Chrome/${VJ1_MINIMUM_CHROME_MAJO
   const warnings = [];
   class HTMLVideoElement {}
   HTMLVideoElement.prototype.requestVideoFrameCallback = () => 1;
+  HTMLVideoElement.prototype.cancelVideoFrameCallback = () => {};
   const functions = {
     BroadcastChannel() {}, Worker() {}, OffscreenCanvas() {}, createImageBitmap() {},
     requestAnimationFrame() {}, requestIdleCallback() {}, ResizeObserver() {},
@@ -42,7 +44,22 @@ test("current Google Chrome with required APIs produces no compatibility warning
   const status = reportBrowserCompatibility({ host, mode: "control" });
   assert.equal(status.browser.isGoogleChrome, true);
   assert.deepEqual(status.missing, []);
+  assert.equal(status.supported, true);
   assert.deepEqual(host.warnings, []);
+});
+
+test("p5 render capabilities fail closed before render target allocation", () => {
+  assert.throws(
+    () => assertP5RenderCapabilities({ createGraphics() {} }),
+    /VJ1_RENDER_CAPABILITY_REQUIRED:p5\.createFramebuffer/,
+  );
+  assert.equal(assertP5RenderCapabilities({
+    createFramebuffer() {},
+    createGraphics() {},
+    createImage() {},
+    loadFont() {},
+    textFont() {},
+  }).supported, true);
 });
 
 test("wrong or old browsers produce one explicit startup warning", () => {

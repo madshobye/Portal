@@ -1,7 +1,7 @@
-import { clamp01 } from "../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-runtime-visual-sources-1";
-import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=surface-identity-runtime-visual-sources-1";
+import { clamp01 } from "../domain/models.js?v=surface-terminology-1";
+import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
 import { BoundedRenderTargetPool } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
-import { SceneFrameGuideNode } from "../libraries/composition-engine/index.js?v=fit-geometry-demand-1";
+import { SceneSurfaceGuideNode } from "../libraries/composition-engine/index.js?v=surface-terminology-1";
 import { projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=frame-projection-aspect-1";
 import { componentInstanceTime } from "../libraries/timing-engine/index.js";
 import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=gc-allocation-1";
@@ -14,9 +14,9 @@ import {
   fittedSampleRect,
   scaledComponentSampleRect,
   unifyTransitionComponentRenderRequests,
-} from "./component-render-layout.js?v=roi-composition-1";
+} from "./component-render-layout.js?v=surface-terminology-1";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=roi-composition-1";
+import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=explicit-direct-surface-hierarchy-1";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
@@ -380,7 +380,7 @@ export class OutputSurfaceRuntime {
     let target = this.transitionSurfaceTextures.get(key);
     if (!target || target.width !== widthPx || target.height !== heightPx) {
       target?.remove?.();
-      target = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx);
+      target = createSharedFramebufferTarget(widthPx, heightPx);
       if (!isSharedFramebufferTarget(target)) {
         this.renderer.applyGraphicsPixelDensity(target, this.renderer.requestPixelDensity(request));
         this.renderer.applyGraphicsFont(target);
@@ -492,7 +492,7 @@ export class OutputSurfaceRuntime {
     const heightPx = Math.max(1, Math.round(Number(request.height) || 1));
     const key = `${widthPx}x${heightPx}`;
     return this.surfaceTexturePool.acquire(key, this.renderer.frameIndex, () => {
-      const target = createSharedFramebufferTarget(widthPx, heightPx) || createGraphics(widthPx, heightPx);
+      const target = createSharedFramebufferTarget(widthPx, heightPx);
       if (!isSharedFramebufferTarget(target)) {
         this.renderer.applyGraphicsPixelDensity(target, this.renderer.requestPixelDensity(request));
         this.renderer.applyGraphicsFont(target);
@@ -614,10 +614,10 @@ export class OutputSurfaceRuntime {
       { x: 1, y: 1 },
       { x: 0, y: 1 },
     ]], route.mapped.mapperSurface, { color: [84, 228, 212, 184], weight: 1 });
-    this.drawSceneFrameGuideNode(route);
+    this.drawSceneSurfaceGuideNode(route);
   }
 
-  drawSceneFrameGuideNode(route = {}) {
+  drawSceneSurfaceGuideNode(route = {}) {
     const renderer = this.renderer;
     // The guide belongs to the Scene Mapping monitor, not to its current source.
     // Overall can transition between Scenes and standalone Components; tying the
@@ -640,14 +640,14 @@ export class OutputSurfaceRuntime {
     const guideSurfaces = renderer.state?.surfaces
       || selectedMapping?.surfaces
       || [];
-    const visibleFrameIds = visibleSceneSurfaceIds(guideSurfaces);
-    const { paths } = SceneFrameGuideNode.process({
+    const visibleSurfaceIds = visibleSceneSurfaceIds(guideSurfaces);
+    const { paths } = SceneSurfaceGuideNode.process({
       // Live's materialized route program is the authority here. It includes
       // output-backed Surfaces as well as authored projection Surfaces; the
       // Mapping model alone can omit those derived output routes and previously
       // left Overall preview showing only the Full surface rectangle.
-      frames: guideSurfaces.filter((frame) =>
-        visibleFrameIds.has(String(frame.id || ""))
+      surfaces: guideSurfaces.filter((surface) =>
+        visibleSurfaceIds.has(String(surface.id || ""))
       ),
       logicalSize,
       sampleRect,
@@ -691,7 +691,7 @@ export class OutputSurfaceRuntime {
     const texture = view?.texture;
     const mapperSurface = route.mapped?.mapperSurface;
     if (!texture || !sourceRect || !mapperSurface || opacity <= 0) return;
-    // A recording frame is a texture view, not a new raster. Sample it with
+    // A Scene Surface crop is a texture view, not a new raster. Sample it with
     // the same mapping shader used by projected surfaces so shared
     // framebuffers stay in the main GL context. p5.image's source-rectangle
     // path can ask Chromium to copy a sub-texture with a negative internal

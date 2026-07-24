@@ -2,11 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, sceneComponentPlacementRect, sceneFrameBorderHit, sceneMaxRasterSize, scenePreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentReferenceVisibleRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveSceneFrameRect, namedTextureStateKey, OutputRenderer, pointInTransformedRect, primaryTextureInputPort, qualityScaledRenderRequest, renderStateComponentProgramRoots, resizeSceneFrameRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, sceneComponentPlacementRect, surfaceBorderHit, sceneMaxRasterSize, scenePreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentReferenceVisibleRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveSurfaceRect, namedTextureStateKey, OutputRenderer, pointInTransformedRect, primaryTextureInputPort, qualityScaledRenderRequest, renderStateComponentProgramRoots, resizeSurfaceRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { defaultProjectSurfaceMapping, outputFrameForId, outputFrames, renderRequestKey, worldSize } from "../js/output/render-geometry.js";
 import { disposeP5Shader, mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
-import { ComponentPreviewInteraction, stateWithSceneFrameRect, stateWithChainItemBoundary, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
+import { ComponentPreviewInteraction, stateWithSurfaceRect, stateWithChainItemBoundary, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
 import { compileOutputGroupTopology, compileMappingGroupTopology } from "../js/libraries/composition-engine/index.js";
 import { IsfRenderRuntime } from "../js/output/isf-render-runtime.js";
 import { TextureOperatorRuntime } from "../js/output/texture-operator-runtime.js";
@@ -15,6 +15,7 @@ import { CompositeRenderRuntime } from "../js/output/composite-render-runtime.js
 import { mediaSourceDemandSize, SourceRenderRuntime } from "../js/output/source-render-runtime.js";
 import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-source-runtime.js";
 import { MAPPING_TEST_PATTERN_COMPONENT_ID } from "../js/domain/runtime-visual-sources.js";
+import { createIsfNodeDefinition } from "../js/libraries/isf-engine/index.js";
 
 test("effect opacity and blend request a separate generic composite", () => {
   assert.equal(effectNeedsComposite({}), false);
@@ -439,12 +440,20 @@ test("native source renderer capabilities are retained, collision checked, and b
   );
 
   const specialized = new SpecializedSourceRuntime();
+  assert.equal(
+    specialized.hasNativeRenderer("output/specialized:anatomy"),
+    false,
+    "Anatomy uses the ordinary Scene3D image operation rather than a parallel renderer",
+  );
+  assert.equal(
+    specialized.hasNativeRenderer("output/specialized:tileTexture"),
+    false,
+    "Tile Texture compiles Media Image and Tile Repeat through the ordinary texture graph",
+  );
   for (const rendererId of [
-    "output/specialized:anatomy",
     "output/specialized:terrainFlyover",
     "output/specialized:featureMorph",
     "output/specialized:featureMorphV2",
-    "output/specialized:tileTexture",
     "output/specialized:text",
     "output/specialized:meshPatterns",
   ]) {
@@ -641,7 +650,7 @@ test("local transform overlays path-copy store-owned component and Surface state
 
   const transformed = stateWithChainItemTransform(state, component.id, child.id, { x: 0.5 });
   const bounded = stateWithChainItemBoundary(transformed, component.id, child.id, { width: 0.5, height: 0.5, rotation: 0.3 });
-  const surfaced = stateWithSceneFrameRect(bounded, surface.id, { y: 24 });
+  const surfaced = stateWithSurfaceRect(bounded, surface.id, { y: 24 });
 
   assert.equal(child.transform.x, 0, "the store-owned nested item is not mutated");
   assert.equal(surface.y, 0, "the store-owned Surface is not mutated");
@@ -698,7 +707,7 @@ test("local drag overlays refresh only Component lookup entries while Surface ge
   const interaction = new ComponentPreviewInteraction(renderer);
 
   interaction.applyLocalChainTransform(component.id, "item", { x: 0.25 });
-  interaction.applyLocalSceneFrame(surface.id, { y: 20 });
+  interaction.applyLocalSurface(surface.id, { y: 20 });
 
   assert.equal(fullRebuilds, 0);
   assert.equal(renderer.componentById.get(component.id).chain[0].transform.x, 0.25);
@@ -742,7 +751,7 @@ test("preview transform ownership survives stale state until an exact acknowledg
   };
   const interaction = new ComponentPreviewInteraction({});
   interaction.pendingChainTransform = { componentId: "component", itemId: "item", transform };
-  interaction.pendingSceneFrame = { frameId: "surface", rect };
+  interaction.pendingSurface = { surfaceId: "surface", rect };
 
   const reconciled = interaction.reconcileIncomingState(stale);
   assert.deepEqual(stale.components[0].chain[0].transform, { x: 0, y: 0, scale: 1, rotation: 0 });
@@ -752,27 +761,27 @@ test("preview transform ownership survives stale state until an exact acknowledg
   assert.deepEqual(reconciled.surfaces[0], { id: "surface", ...rect });
   assert.equal(reconciled.ui.selectedChainItemId, "item");
   assert.ok(interaction.pendingChainTransform);
-  assert.ok(interaction.pendingSceneFrame);
+  assert.ok(interaction.pendingSurface);
 
-  const acknowledged = stateWithSceneFrameRect(
+  const acknowledged = stateWithSurfaceRect(
     stateWithChainItemTransform(stale, "component", "item", transform),
     "surface",
     rect
   );
   assert.equal(interaction.reconcileIncomingState(acknowledged), acknowledged);
   assert.equal(interaction.pendingChainTransform, null);
-  assert.equal(interaction.pendingSceneFrame, null);
+  assert.equal(interaction.pendingSurface, null);
 });
 
-test("selected element handles take priority over overlapping Canvas recording frames", () => {
+test("selected element handles take priority over overlapping Scene Surfaces", () => {
   const calls = [];
   const interaction = new ComponentPreviewInteraction({ mode: "component" });
   interaction.startChainTransformDrag = (_x, _y, options) => {
     calls.push(["chain", options]);
     return true;
   };
-  interaction.startSceneFrameDrag = () => {
-    calls.push(["frame"]);
+  interaction.startSurfaceDrag = () => {
+    calls.push(["surface"]);
     return true;
   };
 
@@ -781,21 +790,21 @@ test("selected element handles take priority over overlapping Canvas recording f
   assert.deepEqual(calls, [["chain", { handlesOnly: true }]]);
 });
 
-test("Canvas recording frames receive the pointer when no selected handle is hit", () => {
+test("Scene Surfaces receive the pointer when no selected handle is hit", () => {
   const calls = [];
   const interaction = new ComponentPreviewInteraction({ mode: "component" });
   interaction.startChainTransformDrag = () => {
     calls.push(["chain"]);
     return false;
   };
-  interaction.startSceneFrameDrag = () => {
-    calls.push(["frame"]);
+  interaction.startSurfaceDrag = () => {
+    calls.push(["surface"]);
     return true;
   };
 
   interaction.mousePressed(40, 50);
 
-  assert.deepEqual(calls, [["chain"], ["frame"]]);
+  assert.deepEqual(calls, [["chain"], ["surface"]]);
 });
 
 test("direct output Surfaces remain editable as 2D Scene rectangles", () => {
@@ -820,14 +829,14 @@ test("direct output Surfaces remain editable as 2D Scene rectangles", () => {
     },
     componentOutput: new Map(),
     componentPreviewRect: () => ({ x: 0, y: 0, width: 100, height: 100 }),
-    onSceneFrameSelect: (id) => selected.push(id),
+    onSceneSurfaceSelect: (id) => selected.push(id),
   };
   const interaction = new ComponentPreviewInteraction(renderer);
 
-  assert.equal(interaction.startSceneFrameDrag(20, 10), true);
+  assert.equal(interaction.startSurfaceDrag(20, 10), true);
   assert.deepEqual(selected, [surface.id]);
-  assert.equal(interaction.sceneFrameDrag?.frameId, surface.id);
-  assert.equal(interaction.sceneFrameDrag?.keepProportions, true);
+  assert.equal(interaction.surfaceDrag?.surfaceId, surface.id);
+  assert.equal(interaction.surfaceDrag?.keepProportions, true);
 });
 
 test("element scale dragging uses a softened bounded response", () => {
@@ -2262,14 +2271,14 @@ test("Scene Surface routes declare crop demand without changing uncropped Scene 
   assert.deepEqual(wholeView.sampleRect, { x: 0, y: 0, ...wholeView.logicalSize });
 
   const reducedSurfaceView = componentSourceView(
-    { ...render, sampling: { recordingFrameScale: 0.5 } },
+    { ...render, sampling: { surfaceDetailScale: 0.5 } },
     scene,
     surface
   );
   assert.equal(reducedSurfaceView.samplingScale, 0.5);
 });
 
-test("multiple recording frames share one parent Canvas texture request", () => {
+test("multiple Scene Surface crops share one parent Canvas texture request", () => {
   const component = { id: "canvas-a", type: "scene" };
   const sourceView = {
     logicalSize: { width: 3840, height: 2160 },
@@ -2464,11 +2473,11 @@ test("Scene editor world leaves a stable margin around edge-aligned Frames", () 
   assert.ok(Math.abs(editor.height - 281.25) < 1e-9);
 });
 
-test("Canvas recording frames move within bounds and corner resize changes both dimensions independently", () => {
-  const moved = moveSceneFrameRect({ x: 100, y: 100, width: 400, height: 200 }, 900, 900, 1200, 800);
+test("Scene Surfaces move within bounds and corner resize changes both dimensions independently", () => {
+  const moved = moveSurfaceRect({ x: 100, y: 100, width: 400, height: 200 }, 900, 900, 1200, 800);
   assert.deepEqual(moved, { x: 800, y: 600, width: 400, height: 200 });
 
-  const resized = resizeSceneFrameRect(
+  const resized = resizeSurfaceRect(
     { x: 100, y: 100, width: 400, height: 200 },
     "se",
     200,
@@ -2478,7 +2487,7 @@ test("Canvas recording frames move within bounds and corner resize changes both 
   );
   assert.deepEqual(resized, { x: 100, y: 100, width: 600, height: 220 });
 
-  const northwest = resizeSceneFrameRect(
+  const northwest = resizeSurfaceRect(
     { x: 100, y: 100, width: 400, height: 200 },
     "nw",
     -200,
@@ -2491,19 +2500,19 @@ test("Canvas recording frames move within bounds and corner resize changes both 
 
 test("proportion-locked Frames scale from corners without changing their aspect", () => {
   const original = { x: 0.1, y: 0.2, width: 0.4, height: 0.2 };
-  const resized = resizeSceneFrameRect(original, "se", 0.2, 0.02, 1, 1, { keepProportions: true });
+  const resized = resizeSurfaceRect(original, "se", 0.2, 0.02, 1, 1, { keepProportions: true });
   assert.equal(resized.x, original.x);
   assert.equal(resized.y, original.y);
   assert.ok(resized.width > original.width);
   assert.ok(Math.abs(resized.width / resized.height - original.width / original.height) < 1e-9);
 });
 
-test("Canvas recording frames drag only from their border so the interior passes through", () => {
+test("Scene Surfaces drag only from their border so the interior passes through", () => {
   const frame = { x: 100, y: 100, width: 400, height: 200 };
-  assert.equal(sceneFrameBorderHit(frame, 102, 180), true);
-  assert.equal(sceneFrameBorderHit(frame, 300, 296), true);
-  assert.equal(sceneFrameBorderHit(frame, 300, 200), false);
-  assert.equal(sceneFrameBorderHit(frame, 50, 200), false);
+  assert.equal(surfaceBorderHit(frame, 102, 180), true);
+  assert.equal(surfaceBorderHit(frame, 300, 296), true);
+  assert.equal(surfaceBorderHit(frame, 300, 200), false);
+  assert.equal(surfaceBorderHit(frame, 50, 200), false);
 });
 
 test("Canvas component placements use a stable normalized footprint", () => {
@@ -2902,6 +2911,7 @@ test("Group transforms place physical content but never resample a composition-w
 test("rasterized sources own a full-frame coordinate transform before neutral layer compositing", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const meshRenderSource = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
   const shaderSource = readFileSync(new URL("../js/output/render-pass-shaders.js", import.meta.url), "utf8");
   const chainRenderSource = source.slice(
     source.indexOf("  renderComponentChainState("),
@@ -2932,7 +2942,8 @@ test("rasterized sources own a full-frame coordinate transform before neutral la
   assert.ok(source.includes('setShaderUniformIfPresent(shader, "contentUvMatrix", contentMatrix)'));
   assert.ok(specializedSource.includes("presentGeneratedTarget(pg, target)"));
   assert.ok(specializedSource.includes("GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER"));
-  assert.ok(specializedSource.includes("applyModelContentTransform(target, source.contentTransform"));
+  assert.ok(meshRenderSource.includes("rawModelMatrices("));
+  assert.ok(meshRenderSource.includes("contentTransform,"));
 });
 
 test("component preview always draws its overarching frame independently of selection", () => {
@@ -2969,7 +2980,7 @@ test("scene surfaces render components at their configured shape and relative re
   assert.ok(!drawSurfaceRoute.includes("stableFrameRenderRequest(this.state.render"));
   assert.ok(drawSurfaceRoute.includes("scaledComponentSampleRect("));
   assert.ok(runtimeSource.includes("getSurfaceTexture(request)"));
-  assert.ok(runtimeSource.includes("createGraphics(widthPx, heightPx)"));
+  assert.ok(runtimeSource.includes("createSharedFramebufferTarget(widthPx, heightPx)"));
 });
 
 test("element render quality scales physical component pixels without changing logical proportions", () => {
@@ -3132,6 +3143,53 @@ test("zero-duration Live output retains the original single-scene surface path",
   assert.ok(rendererSource.includes("rebuildTransitionCatalog()"));
   assert.ok(rendererSource.includes("listProjectIsfTransitions(this.state || {})"));
   assert.ok(rendererSource.includes("transitionParameterValues("));
+});
+
+test("Preview and Output resolve one project transition kernel and parameter contract", () => {
+  const transitionDefinition = createIsfNodeDefinition({
+    path: "shaders/transitions/mode-contract.fs",
+    source: `/*{
+      "ISFVSN": "2.0",
+      "LABEL": "Mode Contract",
+      "VJ1": { "ID": "org.vj1.transition.mode-contract", "VERSION": "1.0.0" },
+      "INPUTS": [
+        { "NAME": "startImage", "TYPE": "image" },
+        { "NAME": "endImage", "TYPE": "image" },
+        { "NAME": "progress", "TYPE": "float", "MIN": 0, "MAX": 1 },
+        { "NAME": "softness", "TYPE": "float", "DEFAULT": 0.1, "MIN": 0, "MAX": 1 }
+      ]
+    }*/
+    void main() {
+      float edge = smoothstep(progress - softness, progress + softness, isf_FragNormCoord.x);
+      gl_FragColor = mix(
+        IMG_THIS_NORM_PIXEL(startImage),
+        IMG_THIS_NORM_PIXEL(endImage),
+        edge
+      );
+    }`,
+  });
+  const state = createInitialState();
+  state.nodes.definitions.push(transitionDefinition);
+  const resolutions = ["preview", "output"].map((mode) => {
+    const renderer = new OutputRenderer({ mode });
+    renderer.state = structuredClone(state);
+    renderer.rebuildVisualNodeResolver();
+    renderer.rebuildTransitionCatalog();
+    const resolved = renderer.resolveTransition(
+      "org.vj1.transition.mode-contract",
+      { softness: 0.37 }
+    );
+    return {
+      kernelId: resolved.transitionKernel.id,
+      kernelSource: resolved.transitionKernel.source,
+      parameters: resolved.transitionParameters,
+    };
+  });
+
+  assert.equal(resolutions[0].kernelId, "org.vj1.transition.mode-contract");
+  assert.deepEqual(resolutions[0], resolutions[1]);
+  assert.equal(resolutions[0].parameters.softness, 0.37);
+  assert.match(resolutions[0].kernelSource, /vj1Transition/);
 });
 
 test("Live transition shares stable route views and preserves endpoint projection fit", () => {

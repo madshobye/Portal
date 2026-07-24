@@ -1,11 +1,11 @@
 export const VJ1_MINIMUM_CHROME_MAJOR = 150;
 
-const reportedHosts = new WeakSet();
+const reportedHosts = new WeakMap();
 
 export function reportBrowserCompatibility({ host = globalThis, mode = "control" } = {}) {
   if (!host || (typeof host !== "object" && typeof host !== "function")) return null;
-  if (reportedHosts.has(host)) return null;
-  reportedHosts.add(host);
+  const prior = reportedHosts.get(host);
+  if (prior) return prior;
 
   const browser = chromeBrowserIdentity(host.navigator || {});
   const missing = requiredBrowserCapabilities(host, mode);
@@ -16,7 +16,10 @@ export function reportBrowserCompatibility({ host = globalThis, mode = "control"
   }
   const wrongBrowser = !browser.isGoogleChrome;
   const oldBrowser = browser.major > 0 && browser.major < VJ1_MINIMUM_CHROME_MAJOR;
-  if (!wrongBrowser && !oldBrowser && !missing.length) return { browser, gpu, missing: [] };
+  const supported = !wrongBrowser && !oldBrowser && !missing.length;
+  const status = { browser, gpu, missing, wrongBrowser, oldBrowser, supported };
+  reportedHosts.set(host, status);
+  if (supported) return status;
 
   host.console?.warn?.("[VJ1_BROWSER_UNSUPPORTED]", {
     expected: `Google Chrome ${VJ1_MINIMUM_CHROME_MAJOR}+ with WebGL2 and the required modern browser APIs`,
@@ -27,7 +30,22 @@ export function reportBrowserCompatibility({ host = globalThis, mode = "control"
     gpu,
     message: "VJ1 targets current Google Chrome on a capable GPU. Unsupported environments may fail; compatibility render fallbacks are not part of the supported architecture.",
   });
-  return { browser, gpu, missing, wrongBrowser, oldBrowser };
+  return status;
+}
+
+export function assertP5RenderCapabilities(host = globalThis) {
+  const missing = [
+    ["p5.createFramebuffer", host.createFramebuffer],
+    ["p5.createGraphics", host.createGraphics],
+    ["p5.createImage", host.createImage],
+    ["p5.loadFont", host.loadFont],
+    ["p5.textFont", host.textFont],
+  ].filter(([, value]) => typeof value !== "function").map(([name]) => name);
+  if (!missing.length) return Object.freeze({ supported: true, missing: [] });
+  const error = new Error(`VJ1_RENDER_CAPABILITY_REQUIRED:${missing.join(",")}`);
+  error.code = "VJ1_RENDER_CAPABILITY_REQUIRED";
+  error.missing = missing;
+  throw error;
 }
 
 export function chromeBrowserIdentity(navigatorValue = {}) {
@@ -58,6 +76,7 @@ function requiredBrowserCapabilities(host, mode) {
     ["PerformanceObserver", host.PerformanceObserver],
     ["structuredClone", host.structuredClone],
     ["HTMLVideoElement.requestVideoFrameCallback", host.HTMLVideoElement?.prototype?.requestVideoFrameCallback],
+    ["HTMLVideoElement.cancelVideoFrameCallback", host.HTMLVideoElement?.prototype?.cancelVideoFrameCallback],
     ["navigator.mediaDevices.getDisplayMedia", host.navigator?.mediaDevices?.getDisplayMedia],
   ];
   if (mode === "control") {

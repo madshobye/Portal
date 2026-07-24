@@ -10,11 +10,20 @@ import {
 import { acceptVideoDecodedFrame, syncVideoPlayback } from "../js/output/media-utils.js?v=decoded-frame-drawability-1";
 import { OutputThumbnailRuntime } from "../js/output/output-thumbnail-runtime.js";
 import { mediaSourceDemandSize, mediaSourceDemandWidth, OutputRenderer } from "../js/output/output-renderer.js";
-import { createControlBridge, createOutputBridge } from "../js/services/output-bridge-service.js";
+import {
+  createControlBridge,
+  createOutputBridge,
+  OUTPUT_BRIDGE_PROTOCOL_VERSION,
+} from "../js/services/output-bridge-service.js";
 import { applyLiveRenderPatches, createLiveRenderPatch, createRenderStatePatch } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
+
+const protocol = (message) => ({
+  ...message,
+  protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION,
+});
 
 test("media detail demand follows physical ROI backing and content scale", () => {
   const clippedBoundaryRequest = {
@@ -897,7 +906,7 @@ test("output bridge transmits an empty authoritative media snapshot", () => {
     const sessionId = messages.find((message) => message.type === "control-hello")?.sessionId;
     bridge.sendMediaFiles([]);
     bridge.close();
-    assert.deepEqual(messages.at(-1), { type: "media-files", files: [], sessionId });
+    assert.deepEqual(messages.at(-1), protocol({ type: "media-files", files: [], sessionId }));
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
     else globalThis.BroadcastChannel = previousBroadcastChannel;
@@ -949,6 +958,94 @@ test("output diagnostics cross the bridge with origin and bounded occurrence cou
   }
 });
 
+test("control bridge rejects stale clients before state, media, or recovery can cross", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let channel = null;
+  let state = { project: { folderName: "" }, metrics: { clients: 0, outputs: {} } };
+  let imports = 0;
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  let bridge = null;
+  try {
+    bridge = createControlBridge({
+      store: {
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        getLiveRenderState: () => state,
+        updateRuntime() {},
+        replace(next) { state = next; },
+      },
+      mediaLibrary: {
+        getAllFiles: () => [],
+        async importFiles() { imports++; },
+      },
+    });
+    const sessionId = messages.find((message) => message.type === "control-hello").sessionId;
+    channel.onmessage({ data: { type: "hello", clientId: "stale-output" } });
+    assert.equal(messages.some((message) => (
+      message.type === "protocol-mismatch"
+      && message.targetClientId === "stale-output"
+    )), true);
+    assert.equal(messages.some((message) => message.type === "state"), false);
+
+    channel.onmessage({ data: protocol({
+      type: "hello",
+      clientId: "current-output",
+      sessionId,
+    }) });
+    channel.onmessage({ data: {
+      type: "recovery-state",
+      clientId: "current-output",
+      sessionId,
+      recoveryId: "stale-recovery",
+      state: { project: { folderName: "must-not-load" }, metrics: { clients: 0, outputs: {} } },
+    } });
+    assert.equal(state.project.folderName, "");
+    assert.equal(imports, 0);
+  } finally {
+    bridge?.close();
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("output bridge reports protocol mismatch and ignores unversioned controller traffic", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  let channel = null;
+  const mismatches = [];
+  const states = [];
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage() {}
+    close() {}
+  };
+  let bridge = null;
+  try {
+    bridge = createOutputBridge({
+      mode: "output",
+      onState: (state) => states.push(state),
+      onProtocolMismatch: (mismatch) => mismatches.push(mismatch),
+    });
+    channel.onmessage({ data: { type: "control-hello", sessionId: "stale-control" } });
+    channel.onmessage({ data: {
+      type: "state",
+      sessionId: "stale-control",
+      state: { id: "must-not-render" },
+    } });
+    assert.equal(mismatches.length, 1);
+    assert.equal(mismatches[0].received, null);
+    assert.deepEqual(states, []);
+  } finally {
+    bridge?.close();
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
 test("controller startup never publishes a false empty media snapshot before recovery", async () => {
   const previousBroadcastChannel = globalThis.BroadcastChannel;
   const messages = [];
@@ -968,7 +1065,7 @@ test("controller startup never publishes a false empty media snapshot before rec
     };
     const bridge = createControlBridge({ store, mediaLibrary: { getAllFiles: () => [] } });
 
-    await channel.onmessage({ data: { type: "hello", clientId: "output-before-recovery" } });
+    await channel.onmessage({ data: protocol({ type: "hello", clientId: "output-before-recovery" }) });
     assert.equal(
       messages.some((message) => message.type === "media-files"),
       false,
@@ -976,7 +1073,7 @@ test("controller startup never publishes a false empty media snapshot before rec
     );
 
     state = { ...state, project: { folderName: "empty-show" } };
-    await channel.onmessage({ data: { type: "hello", clientId: "output-after-project-load" } });
+    await channel.onmessage({ data: protocol({ type: "hello", clientId: "output-after-project-load" }) });
     assert.deepEqual(messages.find((message) => message.type === "media-files")?.files, []);
     bridge.close();
   } finally {
@@ -1017,15 +1114,20 @@ test("stored project restore can become authoritative before Output recovery is 
     };
     assert.equal(bridge.announceControl(), true);
     assert.equal(messages.some((message) => message.type === "control-hello"), true);
+    const sessionId = messages.find((message) => message.type === "control-hello").sessionId;
+    channel.onmessage({ data: protocol({ type: "hello", clientId: "output-a", sessionId }) });
 
-    channel.onmessage({ data: {
+    channel.onmessage({ data: protocol({
       type: "recovery-state",
+      clientId: "output-a",
+      sessionId,
+      recoveryId: "recovery-a",
       state: {
         project: { folderName: "show" },
         components: [{ id: "component-a", thumbnail: "" }],
         metrics: { clients: 0, outputs: {} },
       },
-    } });
+    }) });
     assert.equal(state.components[0].thumbnail, "blob:folder-thumbnail");
     assert.equal(bridge.announceControl(), false);
   } finally {
@@ -1040,9 +1142,12 @@ test("local project restore queues competing Output state and media until its ou
   let channel = null;
   let state = { project: { folderName: "" }, components: [], metrics: { clients: 0, outputs: {} } };
   let imports = 0;
+  let sessionId = "";
   globalThis.BroadcastChannel = class {
     constructor() { channel = this; }
-    postMessage() {}
+    postMessage(message) {
+      if (message.type === "control-hello") sessionId = message.sessionId;
+    }
     close() {}
   };
   let bridge = null;
@@ -1063,11 +1168,22 @@ test("local project restore queues competing Output state and media until its ou
     });
     bridge.beginProjectRestore();
     bridge.announceControl();
-    channel.onmessage({ data: {
+    channel.onmessage({ data: protocol({ type: "hello", clientId: "output-a", sessionId }) });
+    channel.onmessage({ data: protocol({
       type: "recovery-state",
+      clientId: "output-a",
+      sessionId,
+      recoveryId: "recovery-a",
       state: { project: { folderName: "show" }, components: [], metrics: { clients: 0, outputs: {} } },
+    }) });
+    channel.onmessage({ data: protocol({
+      type: "recovery-media-files",
+      clientId: "output-a",
+      sessionId,
+      recoveryId: "recovery-a",
+      folderName: "show",
       files: [{ id: "media/a.png", file: { name: "a.png" } }],
-    } });
+    }) });
     assert.equal(state.project.folderName, "", "transport recovery must not replace an active local restore");
     await new Promise((resolve) => setTimeout(resolve, 5));
     assert.equal(imports, 0, "Output media must not compete with the local directory import");
@@ -1090,9 +1206,12 @@ test("queued Output state becomes the fallback when local project restore fails"
   let channel = null;
   let state = { project: { folderName: "" }, components: [], metrics: { clients: 0, outputs: {} } };
   let imports = 0;
+  let sessionId = "";
   globalThis.BroadcastChannel = class {
     constructor() { channel = this; }
-    postMessage() {}
+    postMessage(message) {
+      if (message.type === "control-hello") sessionId = message.sessionId;
+    }
     close() {}
   };
   let bridge = null;
@@ -1112,16 +1231,27 @@ test("queued Output state becomes the fallback when local project restore fails"
     });
     bridge.beginProjectRestore();
     bridge.announceControl();
-    channel.onmessage({ data: {
+    channel.onmessage({ data: protocol({ type: "hello", clientId: "output-a", sessionId }) });
+    channel.onmessage({ data: protocol({
       type: "recovery-state",
+      clientId: "output-a",
+      sessionId,
+      recoveryId: "recovery-a",
       state: {
         project: { folderName: "fallback-show" },
         components: [],
         metrics: { clients: 0, outputs: {} },
         ui: { live: { sceneMappingInLive: false, sceneMappingVisible: true } },
       },
+    }) });
+    channel.onmessage({ data: protocol({
+      type: "recovery-media-files",
+      clientId: "output-a",
+      sessionId,
+      recoveryId: "recovery-a",
+      folderName: "fallback-show",
       files: [{ id: "media/a.png", file: { name: "a.png" } }],
-    } });
+    }) });
     bridge.finishProjectRestore(false);
     assert.equal(state.project.folderName, "fallback-show");
     assert.equal(
@@ -1170,15 +1300,27 @@ test("output recovery publishes project state before importing media and never o
       },
     };
     bridge = createControlBridge({ store, mediaLibrary });
-    channel.onmessage({ data: {
+    const sessionId = messages.find((message) => message.type === "control-hello").sessionId;
+    channel.onmessage({ data: protocol({ type: "hello", clientId: "output-a", sessionId }) });
+    channel.onmessage({ data: protocol({
       type: "recovery-state",
+      clientId: "output-a",
+      sessionId,
+      recoveryId: "recovery-a",
       state: {
         project: { folderName: "show" },
         components: [{ id: "component-a", thumbnail: "blob:output" }],
         metrics: { clients: 0, outputs: {} },
       },
+    }) });
+    channel.onmessage({ data: protocol({
+      type: "recovery-media-files",
+      clientId: "output-a",
+      sessionId,
+      recoveryId: "recovery-a",
+      folderName: "show",
       files: [{ id: "media/a.png", file: { name: "a.png" } }],
-    } });
+    }) });
 
     assert.equal(state.project.folderName, "show");
     assert.equal(state.components[0].thumbnail, "");
@@ -1277,6 +1419,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       sessionId,
       patches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.3)],
       transport: undefined,
+      protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION,
     });
 
     revision = 3;
@@ -1294,6 +1437,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       sessionId,
       patches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.5)],
       transport: undefined,
+      protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION,
     });
 
     listener({}, "live:scene", { scope: "live", phase: "commit" });
@@ -1306,6 +1450,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       revision: 3,
       sessionId,
       transport: undefined,
+      protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION,
     });
     bridge.close();
     assert.equal(listener, null);
@@ -1444,12 +1589,12 @@ test("output bridge switches controller sessions and ignores stale controller tr
       onControlHello: (meta) => hellos.push(meta),
     });
     const initialHelloCount = messages.filter((message) => message.type === "hello").length;
-    channel.onmessage({ data: { type: "control-hello", sessionId: "control-new" } });
+    channel.onmessage({ data: protocol({ type: "control-hello", sessionId: "control-new" }) });
     assert.equal(messages.filter((message) => message.type === "hello").length, initialHelloCount + 1);
     assert.deepEqual(hellos.at(-1), { sessionId: "control-new", changed: true });
 
-    channel.onmessage({ data: { type: "state", sessionId: "control-new", revision: 0, state: { id: "new" } } });
-    channel.onmessage({ data: { type: "state", sessionId: "control-old", revision: 99, state: { id: "stale" } } });
+    channel.onmessage({ data: protocol({ type: "state", sessionId: "control-new", revision: 0, state: { id: "new" } }) });
+    channel.onmessage({ data: protocol({ type: "state", sessionId: "control-old", revision: 99, state: { id: "stale" } }) });
     assert.deepEqual(states.map((entry) => entry.state.id), ["new"]);
     assert.equal(states[0].meta.sessionId, "control-new");
     bridge.close();
@@ -1479,21 +1624,21 @@ test("output receiver drops superseded pointer samples before renderer applicati
       mode: "output",
       onLivePatch: (patches, meta) => received.push({ patches, meta }),
     });
-    channel.onmessage({ data: { type: "control-hello", sessionId: "control-a" } });
-    channel.onmessage({ data: {
+    channel.onmessage({ data: protocol({ type: "control-hello", sessionId: "control-a" }) });
+    channel.onmessage({ data: protocol({
       type: "live-patch",
       sessionId: "control-a",
       baseRevision: 0,
       revision: 1,
       patches: [createRenderStatePatch("mappingCalibration", { x: 0.1 })],
-    } });
-    channel.onmessage({ data: {
+    }) });
+    channel.onmessage({ data: protocol({
       type: "live-patch",
       sessionId: "control-a",
       baseRevision: 1,
       revision: 2,
       patches: [createRenderStatePatch("mappingCalibration", { x: 0.9 })],
-    } });
+    }) });
     assert.equal(received.length, 0);
     scheduledFrame();
     assert.equal(received.length, 1);

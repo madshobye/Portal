@@ -16,18 +16,18 @@ import {
   sanitizeState,
   syncSurfaceProportionsFromMapping,
   uid,
-} from "./domain/models.js?v=pixel-density-4";
-import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
+} from "./domain/models.js?v=package-content-lock-1";
+import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=explicit-direct-surface-hierarchy-1";
 import { firstEnabledLiveSurfaceId } from "./domain/live-ui-state.js?v=scene-mapping-default-selection-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";
 import { createChangeEvent } from "./libraries/state-engine/state-command/index.js";
-import { sceneFrameSize } from "./domain/render-settings.js?v=canvas-global-resolution-1";
+import { sceneLogicalSize } from "./domain/render-settings.js?v=surface-terminology-1";
 import { nextCatalogMarker } from "./domain/catalog-marker.js?v=catalog-marker-four-state-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
 import { copyComponentAsScene, pasteClipboardPayload } from "./domain/clipboard.js?v=canvas-global-resolution-1";
-import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-source-target-runtime-visual-sources-1";
+import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
 import { ObservableDataStore } from "./libraries/data-store/data-store/index.js";
 
 export function createAppState(initial = null, { prepareState = null, classifyChange = createChangeEvent } = {}) {
@@ -336,7 +336,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
           const referenced = draft.components.find((item) => item.id === source.componentId && item.type !== "scene");
           if (!referenced) return;
           const metrics = componentFrameMetrics(draft.render, referenced);
-          const sceneWidth = sceneFrameSize(draft.render).width;
+          const sceneWidth = sceneLogicalSize(draft.render).width;
           layer.source.placement = {
             scale: metrics.baseWidth / sceneWidth,
           };

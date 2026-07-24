@@ -9,7 +9,7 @@ import {
   drawShaderTarget,
   drawShaderTargetRect,
   resetShaderTarget,
-} from "./shader-target-runtime.js?v=source-roi-view-3";
+} from "./shader-target-runtime.js?v=canonical-effect-params-1";
 import {
   COMPONENT_POST_FRAGMENT_SHADER,
   COMPONENT_UPSCALE_FRAGMENT_SHADER,

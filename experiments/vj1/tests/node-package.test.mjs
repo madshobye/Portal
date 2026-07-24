@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  assertNodePackageTransportLock,
   checkNodeCompatibility,
   createNodePackageVisualLibraryLayer,
   createNodePackageFromProject,
@@ -54,6 +55,31 @@ function valueNode(version, additions = {}) {
     ...additions,
   });
 }
+
+test("transported package sets require an exact atomic content lock", () => {
+  const nodePackage = defineNodePackage({
+    id: "test.transport.locked",
+    version: "1.0.0",
+    metadata: { repositoryContentIntegrity: `sha256-${"a".repeat(64)}` },
+  });
+  assert.equal(assertNodePackageTransportLock([nodePackage], [{
+    id: nodePackage.id,
+    version: nodePackage.version,
+    integrity: nodePackage.metadata.repositoryContentIntegrity,
+  }]), true);
+  assert.throws(
+    () => assertNodePackageTransportLock([nodePackage], [{
+      id: nodePackage.id,
+      version: nodePackage.version,
+      integrity: `sha256-${"b".repeat(64)}`,
+    }]),
+    /NODE_PACKAGE_TRANSPORT_INTEGRITY_MISMATCH/,
+  );
+  assert.throws(
+    () => assertNodePackageTransportLock([nodePackage], []),
+    /NODE_PACKAGE_TRANSPORT_LOCK_SIZE_MISMATCH/,
+  );
+});
 
 function artifactFixture(id, artifactType = "generator") {
   return {

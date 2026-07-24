@@ -2,15 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
-  SceneFrameGuideNode,
-  sceneFrameGuideNodeProcess,
+  SceneSurfaceGuideNode,
+  sceneSurfaceGuideNodeProcess,
   sourceUvToSurfaceUv,
-} from "../js/libraries/composition-engine/scene-frame-guides/index.js";
+} from "../js/libraries/composition-engine/scene-surface-guides/index.js";
 import { projectSurfaceUv } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 
-test("Scene Frame guide node includes output and user Frames without changing its route space", () => {
-  const result = sceneFrameGuideNodeProcess({
-    frames: [
+test("Scene Surface guide node includes output and user Surfaces without changing its route space", () => {
+  const result = sceneSurfaceGuideNodeProcess({
+    surfaces: [
       { id: "main-output", kind: "output", x: 0, y: 0, width: 1, height: 1 },
       { id: "output-2", kind: "output", x: 0.5, y: 0, width: 0.5, height: 1 },
       { id: "frame-1", kind: "user", x: 0.2, y: 0.25, width: 0.4, height: 0.5 },
@@ -31,10 +31,10 @@ test("Scene Frame guide node includes output and user Frames without changing it
     assert.ok(Math.abs(point.x - expected[index].x) < 1e-8);
     assert.ok(Math.abs(point.y - expected[index].y) < 1e-8);
   });
-  assert.equal(SceneFrameGuideNode.capabilities.includes("zero-buffer"), true);
+  assert.equal(SceneSurfaceGuideNode.capabilities.includes("zero-buffer"), true);
 });
 
-test("Scene Frame guide fit conversion is the inverse of projection sampling", () => {
+test("Scene Surface guide fit conversion is the inverse of projection sampling", () => {
   assert.deepEqual(sourceUvToSurfaceUv({ x: 0, y: 0.5 }, 2, 1, "cover"), { x: -0.5, y: 0.5 });
   assert.deepEqual(sourceUvToSurfaceUv({ x: 0, y: 0.5 }, 2, 1, "contain"), { x: 0, y: 0.5 });
   assert.deepEqual(sourceUvToSurfaceUv({ x: 0, y: 0.5 }, 1, 2, "contain"), { x: 0.25, y: 0.5 });

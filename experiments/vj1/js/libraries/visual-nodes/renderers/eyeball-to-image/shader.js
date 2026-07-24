@@ -106,3 +106,36 @@ void main() {
   float alpha = sphere * edge * inside;
   gl_FragColor = vec4(clamp(color, 0.0, 1.0) * alpha, alpha);
 }`;
+
+// Ordinary visual shader parameters are scalar values so they can be driven
+// directly by the compiled control program without allocating a per-frame
+// uniform packet.
+export const EYEBALL_SCALAR_FRAGMENT_SHADER = EYEBALL_FRAGMENT_SHADER
+  .replace("uniform vec4 renderUvRect;\n", "")
+  .replace("uniform mat3 contentUvMatrix;\n", "")
+  .replace(
+    `  vec2 boundaryUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;
+  vec2 uv = (contentUvMatrix * vec3(boundaryUv, 1.0)).xy;`,
+    "  vec2 uv = vTexCoord;",
+  )
+  .replace(
+    "uniform vec3 eyeGazeDir;",
+    "uniform float gazeX;\nuniform float gazeY;\nuniform float gazeZ;",
+  )
+  .replace(
+    "uniform vec3 eyeIrisRight;",
+    "uniform float irisRightX;\nuniform float irisRightY;\nuniform float irisRightZ;",
+  )
+  .replace(
+    "uniform vec3 eyeIrisUp;",
+    "uniform float irisUpX;\nuniform float irisUpY;\nuniform float irisUpZ;",
+  )
+  .replace("uniform float eyeBlink;", "uniform float blink;")
+  .replace(
+    "void main() {",
+    `void main() {
+  vec3 eyeGazeDir = vec3(gazeX, gazeY, gazeZ);
+  vec3 eyeIrisRight = vec3(irisRightX, irisRightY, irisRightZ);
+  vec3 eyeIrisUp = vec3(irisUpX, irisUpY, irisUpZ);
+  float eyeBlink = blink;`,
+  );

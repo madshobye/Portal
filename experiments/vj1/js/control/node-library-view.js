@@ -1,5 +1,5 @@
 import { materializeProjectNodeDefinition, nodeDefinitionEditorTemplate } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
-import { NODE_GRAPH_AUTHORING_TARGETS, nodeDefinitionPlaceableInGraph, nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=public-control-node-configuration-editable-inlets-placement-contract-2";
+import { NODE_GRAPH_AUTHORING_TARGETS, nodeDefinitionPlaceableInGraph, nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=canonical-effect-params-1";
 import { emptyNote, esc, icon } from "./template-utils.js";
 import { railListSectionTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-card-type-icons-1";
 

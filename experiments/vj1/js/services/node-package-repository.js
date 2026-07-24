@@ -1,6 +1,7 @@
 import {
   defineNodePackage,
   importNodePackage,
+  nodePackageContentIntegrity,
   resolveProjectNodePackages,
   serializeNodePackage,
 } from "../libraries/node-engine/node-package.js?v=project-group-authoring-compiler-transport-1";
@@ -22,7 +23,8 @@ export async function loadNodePackageRepository(directory) {
   for (const entry of manifests) {
     let nodePackage;
     try {
-      nodePackage = importNodePackage(JSON.parse(await (await entry.handle.getFile()).text()));
+      const manifestPackage = importNodePackage(JSON.parse(await (await entry.handle.getFile()).text()));
+      nodePackage = await attachRepositoryContentIntegrity(manifestPackage, entry.directory, entry.path);
       nodePackage = await hydrateFileBackedIsfDefinitions(nodePackage, entry.directory, entry.path);
     } catch (error) {
       throw new Error(`NODE_PACKAGE_MANIFEST_INVALID:${entry.path}:${error.message || error}`);
@@ -36,10 +38,15 @@ export async function loadNodePackageRepository(directory) {
     left.id.localeCompare(right.id) || compareVersions(right.version, left.version)));
 }
 
-export function resolveReferencedNodePackages(references = [], availablePackages = []) {
+export function resolveReferencedNodePackages(references = [], availablePackages = [], packageLock = []) {
   const enabled = (references || []).filter((reference) => reference?.enabled !== false);
   if (!enabled.length) return Object.freeze([]);
-  const byKey = new Map(availablePackages.map((nodePackage) => [
+  const lock = normalizePackageLock(packageLock);
+  const lockedAvailable = lock.length
+    ? availablePackages.filter((nodePackage) => lock.some((item) =>
+      item.id === nodePackage.id && item.version === nodePackage.version))
+    : availablePackages;
+  const byKey = new Map(lockedAvailable.map((nodePackage) => [
     `${nodePackage.id}@${nodePackage.version}`,
     nodePackage,
   ]));
@@ -47,7 +54,39 @@ export function resolveReferencedNodePackages(references = [], availablePackages
     const key = `${reference.id}@${reference.version}`;
     if (!byKey.has(key)) throw new Error(`NODE_PROJECT_PACKAGE_UNAVAILABLE:${key}`);
   }
-  return resolveProjectNodePackages({ packages: enabled }, availablePackages);
+  const resolved = resolveProjectNodePackages({ packages: enabled }, lockedAvailable);
+  if (lock.length) assertNodePackageLock(resolved, lock);
+  return resolved;
+}
+
+export function createNodePackageLock(packages = []) {
+  return Object.freeze((packages || []).map((nodePackage) => {
+    const integrity = nodePackageContentIntegrity(nodePackage);
+    if (!integrity) {
+      throw new Error(`NODE_PACKAGE_CONTENT_INTEGRITY_MISSING:${nodePackage?.id || "missing"}@${nodePackage?.version || "missing"}`);
+    }
+    return Object.freeze({
+      id: nodePackage.id,
+      version: nodePackage.version,
+      integrity,
+    });
+  }).sort((left, right) =>
+    left.id.localeCompare(right.id) || left.version.localeCompare(right.version)));
+}
+
+export function assertNodePackageLock(packages = [], packageLock = []) {
+  const lock = new Map(normalizePackageLock(packageLock)
+    .map((item) => [`${item.id}@${item.version}`, item.integrity]));
+  for (const nodePackage of packages || []) {
+    const key = `${nodePackage.id}@${nodePackage.version}`;
+    const expected = lock.get(key);
+    if (!expected) throw new Error(`NODE_PACKAGE_LOCK_ENTRY_MISSING:${key}`);
+    const actual = nodePackageContentIntegrity(nodePackage);
+    if (!actual || actual !== expected) {
+      throw new Error(`NODE_PACKAGE_CONTENT_INTEGRITY_MISMATCH:${key}`);
+    }
+  }
+  return true;
 }
 
 export function assertNodePackageUpdateSafe(projectState = {}, previousPackage, nextPackages = []) {
@@ -289,6 +328,40 @@ async function hydrateFileBackedIsfDefinitions(nodePackage, directory, manifestP
   });
 }
 
+async function attachRepositoryContentIntegrity(nodePackage, directory, manifestPath) {
+  const resourceDigests = [];
+  for (const resource of nodePackage.resources) {
+    if (resource.url) {
+      throw new Error(`NODE_PACKAGE_REPOSITORY_EXTERNAL_RESOURCE_UNSUPPORTED:${manifestPath}:${resource.id}`);
+    }
+    const file = await resourceFile(directory, resource.path, manifestPath);
+    await verifyResourceIntegrity(file, resource, manifestPath);
+    resourceDigests.push({
+      id: resource.id,
+      integrity: await sha256Integrity(await file.arrayBuffer(), resource.id),
+    });
+  }
+  const serialized = serializeNodePackage(nodePackage);
+  const metadata = { ...(serialized.metadata || {}) };
+  delete metadata.repositoryContentIntegrity;
+  serialized.metadata = metadata;
+  const content = stableJson({
+    manifest: serialized,
+    resources: resourceDigests.sort((left, right) => left.id.localeCompare(right.id)),
+  });
+  const repositoryContentIntegrity = await sha256Integrity(
+    new TextEncoder().encode(content),
+    `${nodePackage.id}@${nodePackage.version}`,
+  );
+  return defineNodePackage({
+    ...nodePackage,
+    metadata: {
+      ...metadata,
+      repositoryContentIntegrity,
+    },
+  });
+}
+
 async function resourceFile(directory, path, manifestPath) {
   const parts = String(path || "").split("/").filter(Boolean);
   if (!parts.length || parts.some((part) => part === "." || part === "..")) {
@@ -309,12 +382,38 @@ async function verifyResourceIntegrity(file, resource, manifestPath) {
   if (!integrity) return;
   const match = /^sha256-([0-9a-f]{64})$/i.exec(integrity);
   if (!match) throw new Error(`NODE_PACKAGE_RESOURCE_INTEGRITY_INVALID:${manifestPath}:${resource.id}`);
-  if (!globalThis.crypto?.subtle) throw new Error(`NODE_PACKAGE_RESOURCE_INTEGRITY_UNAVAILABLE:${resource.id}`);
-  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-  const actual = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
-  if (actual.toLowerCase() !== match[1].toLowerCase()) {
+  const actual = await sha256Integrity(await file.arrayBuffer(), resource.id);
+  if (actual !== `sha256-${match[1].toLowerCase()}`) {
     throw new Error(`NODE_PACKAGE_RESOURCE_INTEGRITY_MISMATCH:${manifestPath}:${resource.id}`);
   }
+}
+
+async function sha256Integrity(value, identity) {
+  if (!globalThis.crypto?.subtle) throw new Error(`NODE_PACKAGE_RESOURCE_INTEGRITY_UNAVAILABLE:${identity}`);
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", value);
+  const hex = [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `sha256-${hex}`;
+}
+
+function normalizePackageLock(value = []) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => ({
+    id: String(item?.id || ""),
+    version: String(item?.version || ""),
+    integrity: String(item?.integrity || "").toLowerCase(),
+  })).filter((item) =>
+    item.id && item.version && /^sha256-[0-9a-f]{64}$/.test(item.integrity));
+}
+
+function stableJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function compareVersions(left, right) {

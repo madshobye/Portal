@@ -2,7 +2,7 @@ import { normalizeParamValues } from "../libraries/visual-nodes/shared/component
 import {
   VISUAL_SOURCE_RENDERERS,
   visualSourceRenderer,
-} from "../libraries/composition-engine/index.js?v=fit-geometry-demand-1";
+} from "../libraries/composition-engine/index.js?v=surface-terminology-1";
 import {
   createPlacedRenderResult,
   transformedPlacementDemandRect,
@@ -15,7 +15,7 @@ import {
   transformedRectBounds,
   transformedRectVisibleRegion,
 } from "./preview-interaction-geometry.js?v=alpha-feather-1";
-import { drawWithContentTransform } from "./shader-target-runtime.js?v=source-roi-view-3";
+import { drawWithContentTransform } from "./shader-target-runtime.js?v=canonical-effect-params-1";
 import {
   componentInstanceTime,
   instanceTime,
@@ -30,9 +30,10 @@ import {
 import {
   evaluateSpecializedCompoundGraph,
   specializedCompoundNativeKernel,
+  specializedCompoundEvaluatedStageSettings,
   specializedCompoundStageEnabled,
   specializedCompoundStageParameterView,
-} from "../libraries/visual-nodes/shared/specialized-compound.js?v=screen-input-semantic-1";
+} from "../libraries/visual-nodes/shared/specialized-compound.js?v=compiled-graph-value-authority-1";
 import {
   drawMediaResourceToImage as fallbackDrawMediaResourceToImage,
 } from "../libraries/visual-nodes/renderers/media-resource-to-image/index.js?v=screen-input-semantic-1";
@@ -44,7 +45,7 @@ import {
   componentReferenceVisibleRenderRequest,
   componentRenderInstanceKey,
   fullTargetRect,
-} from "./component-render-layout.js?v=nested-component-roi-1";
+} from "./component-render-layout.js?v=surface-terminology-1";
 
 const SOURCE_RUNTIME_METHODS = Object.freeze({
   [VISUAL_SOURCE_RENDERERS.COMPONENT]: "drawComponentReferenceSource",
@@ -383,7 +384,6 @@ export class SourceRenderRuntime {
       return;
     }
     const generatorComponent = host.generatorNodeComponent(source.generatorId);
-    if (!generatorComponent) return;
     const nativeRenderer = compiledNativeSourceRenderer(operation || {}, source, generatorComponent);
     if (nativeRenderer && this.drawCompiledNativeSource(
       nativeRenderer,
@@ -393,6 +393,7 @@ export class SourceRenderRuntime {
       renderRequest,
       operation,
     )) return;
+    if (!generatorComponent) return;
     const shaderGenerator = host.generatorShaderComponent(generatorComponent.id);
     if (shaderGenerator) {
       if (host.drawShaderGenerator(
@@ -509,6 +510,8 @@ export class SourceRenderRuntime {
           renderView: null,
           executionClass: "live-frame",
           renderHost: host,
+          acquireMedia: host.acquireMedia.bind(host),
+          requestMissingMedia: host.requestMissingMedia.bind(host),
           acquireScreenInput: host.acquireScreenInput.bind(host),
           screenInputError: host.screenError.bind(host),
           isDrawableMedia,
@@ -583,9 +586,9 @@ export class SourceRenderRuntime {
       ? evaluateSpecializedCompoundGraph(operation, authoredParams, { instanceId })
       : null;
     const resource = graph?.stageInput(renderStageId, "resource") || null;
-    const params = graph?.stageInputs(renderStageId)?.settings ||
-      specializedCompoundStageParameterView(operation, renderStageId, authoredParams, instanceId) ||
-      authoredParams;
+    const params = specializedCompoundEvaluatedStageSettings(
+      operation, graph, renderStageId, authoredParams, instanceId,
+    );
     if (operation?.nativeCompoundProgram && resource?.kind !== "screen-input-resource") {
       this.drawStandby(target, "screen input graph value unavailable", { forceVisible: true });
       return;

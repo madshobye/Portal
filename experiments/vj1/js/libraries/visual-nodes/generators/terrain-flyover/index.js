@@ -10,7 +10,7 @@ import {
   TerrainSurfaceToImageNode,
   TerrainWireMaterialProviderNode,
   TerrainWireToImageNode,
-} from "../../shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
+} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
 import { TerrainFlightControllerNode } from "../../../terrain-engine/flight-controller/index.js";
 import {
   terrainNodeModuleParts,

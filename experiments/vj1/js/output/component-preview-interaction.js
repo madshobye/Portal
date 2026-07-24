@@ -1,15 +1,14 @@
-import { sceneFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
-import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=surface-identity-runtime-visual-sources-1";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
+import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
 import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
-  sceneFrameBorderHit,
-  sceneFrameRectCorners,
+  surfaceBorderHit,
+  surfaceRectCorners,
   componentReferencePlacement,
   distanceSquared,
-  moveSceneFrameRect,
-  resizeSceneFrameRect,
-} from "./component-render-layout.js?v=frame-projection-aspect-1";
+  moveSurfaceRect,
+  resizeSurfaceRect,
+} from "./component-render-layout.js?v=surface-terminology-1";
 import {
   combineContentTransforms,
   findChainItemById,
@@ -32,18 +31,18 @@ export class ComponentPreviewInteraction {
   constructor(renderer) {
     this.renderer = renderer;
     this.chainTransformDrag = null;
-    this.sceneFrameDrag = null;
+    this.surfaceDrag = null;
     this.pendingChainTransform = null;
     this.pendingChainBoundary = null;
-    this.pendingSceneFrame = null;
+    this.pendingSurface = null;
   }
 
   dispose() {
     this.chainTransformDrag = null;
-    this.sceneFrameDrag = null;
+    this.surfaceDrag = null;
     this.pendingChainTransform = null;
     this.pendingChainBoundary = null;
-    this.pendingSceneFrame = null;
+    this.pendingSurface = null;
   }
 
   renderComponentFrameOverlay(component, source = null) {
@@ -66,17 +65,17 @@ export class ComponentPreviewInteraction {
     pop();
   }
 
-  renderSceneFrames(component, source = null) {
+  renderSceneSurfaces(component, source = null) {
     if (this.renderer.mode !== "component" || component?.type !== "scene") return;
     resetShader();
     push();
     noFill();
     const uiScale = this.uiPixelScale();
     rectMode(CORNER);
-    for (const item of this.sceneFrameRects(component, source)) {
+    for (const item of this.sceneSurfaceRects(component, source)) {
       noFill();
-      const selected = String(item.frame.id || "") === String(this.renderer.state?.ui?.selectedSurfaceId || "")
-        || String(item.frame.id || "") === String(this.sceneFrameDrag?.frameId || "");
+      const selected = String(item.surface.id || "") === String(this.renderer.state?.ui?.selectedSurfaceId || "")
+        || String(item.surface.id || "") === String(this.surfaceDrag?.surfaceId || "");
       stroke(255, 228, 94, selected ? 235 : 72);
       strokeWeight((selected ? 2 : 1) * uiScale);
       rect(item.x - width * 0.5, item.y - height * 0.5, item.width, item.height);
@@ -85,7 +84,7 @@ export class ComponentPreviewInteraction {
       if (!selected) continue;
       noStroke();
       fill(255, 228, 94, 245);
-      for (const corner of sceneFrameRectCorners(item)) {
+      for (const corner of surfaceRectCorners(item)) {
         rect(corner.x - width * 0.5 - 6 * uiScale, corner.y - height * 0.5 - 6 * uiScale, 12 * uiScale, 12 * uiScale);
       }
       noFill();
@@ -93,22 +92,22 @@ export class ComponentPreviewInteraction {
     pop();
   }
 
-  sceneFrameRects(component, source = null) {
+  sceneSurfaceRects(component, source = null) {
     if (component?.type !== "scene") return [];
     const renderer = this.renderer;
     const preview = renderer.componentPreviewRect(component, source);
     const mapping = renderer.state?.mappings?.find((item) =>
       String(item.id) === String(renderer.state?.ui?.selectedMappingId || "")
     ) || renderer.state?.mappings?.[0] || null;
-    const visibleFrameIds = visibleSceneSurfaceIds(mapping?.surfaces || []);
-    return (mapping?.surfaces || []).filter((frame) =>
-      visibleFrameIds.has(String(frame.id || ""))
-    ).map((frame) => ({
-      frame,
-      x: preview.x + Math.max(0, Number(frame.x) || 0) * preview.width,
-      y: preview.y + Math.max(0, Number(frame.y) || 0) * preview.height,
-      width: Math.max(0.005, Number(frame.width) || 0.005) * preview.width,
-      height: Math.max(0.005, Number(frame.height) || 0.005) * preview.height,
+    const visibleSurfaceIds = visibleSceneSurfaceIds(mapping?.surfaces || []);
+    return (mapping?.surfaces || []).filter((surface) =>
+      visibleSurfaceIds.has(String(surface.id || ""))
+    ).map((surface) => ({
+      surface,
+      x: preview.x + Math.max(0, Number(surface.x) || 0) * preview.width,
+      y: preview.y + Math.max(0, Number(surface.y) || 0) * preview.height,
+      width: Math.max(0.005, Number(surface.width) || 0.005) * preview.width,
+      height: Math.max(0.005, Number(surface.height) || 0.005) * preview.height,
     }));
   }
 
@@ -214,7 +213,7 @@ export class ComponentPreviewInteraction {
     // The explicitly selected object's controls own their pointer area. A
     // Scene Surface border may overlap them, but must not steal the gesture.
     if (renderer.mode === "component" && this.startChainTransformDrag(x, y, { handlesOnly: true })) return;
-    if (renderer.mode === "component" && this.startSceneFrameDrag(x, y)) return;
+    if (renderer.mode === "component" && this.startSurfaceDrag(x, y)) return;
     if (renderer.mode === "component") {
       const hit = this.chainItemAtPoint(x, y);
       if (hit && this.selectedChildOwnsGroupDrag(hit, x, y) && this.startChainTransformDrag(x, y, { moveOnly: true })) return;
@@ -231,19 +230,19 @@ export class ComponentPreviewInteraction {
   }
 
   mouseDragged(x, y) {
-    if (this.sceneFrameDrag) return this.updateSceneFrameDrag(x, y);
+    if (this.surfaceDrag) return this.updateSurfaceDrag(x, y);
     if (this.chainTransformDrag) return this.updateChainTransformDrag(x, y);
     this.renderer.mapper?.mouseDragged?.(x, y);
   }
 
   mouseReleased() {
     const renderer = this.renderer;
-    if (this.sceneFrameDrag) {
-      const drag = this.sceneFrameDrag;
-      this.sceneFrameDrag = null;
+    if (this.surfaceDrag) {
+      const drag = this.surfaceDrag;
+      this.surfaceDrag = null;
       if (drag.lastRect) {
-        this.pendingSceneFrame = { frameId: drag.frameId, rect: drag.lastRect };
-        renderer.sendSceneFrame?.(drag.componentId, drag.frameId, drag.lastRect, { commit: true });
+        this.pendingSurface = { surfaceId: drag.surfaceId, rect: drag.lastRect };
+        renderer.sendSurfaceRect?.(drag.componentId, drag.surfaceId, drag.lastRect, { commit: true });
       }
       return;
     }
@@ -272,24 +271,24 @@ export class ComponentPreviewInteraction {
     renderer.mapper?.mouseReleased?.();
   }
 
-  startSceneFrameDrag(x, y) {
+  startSurfaceDrag(x, y) {
     const renderer = this.renderer;
     const component = renderer.state?.components?.find((item) => item.id === renderer.state?.ui?.selectedComponentId);
     if (component?.type !== "scene") return false;
     const source = renderer.componentOutput.get(component.id);
-    const rects = this.sceneFrameRects(component, source);
+    const rects = this.sceneSurfaceRects(component, source);
     for (let index = rects.length - 1; index >= 0; index--) {
       const item = rects[index];
-      const corners = sceneFrameRectCorners(item);
+      const corners = surfaceRectCorners(item);
       const hitRadius = 15 * this.uiPixelScale();
       const corner = corners.find((entry) => distanceSquared(x, y, entry.x, entry.y) <= hitRadius * hitRadius);
-      const border = sceneFrameBorderHit(item, x, y, 12 * this.uiPixelScale());
+      const border = surfaceBorderHit(item, x, y, 12 * this.uiPixelScale());
       if (!corner && !border) continue;
-      const frame = item.frame;
-      renderer.onSceneFrameSelect?.(frame.id);
-      this.sceneFrameDrag = {
+      const surface = item.surface;
+      renderer.onSceneSurfaceSelect?.(surface.id);
+      this.surfaceDrag = {
         componentId: component.id,
-        frameId: frame.id,
+        surfaceId: surface.id,
         mode: corner?.id || "move",
         startX: x,
         startY: y,
@@ -298,38 +297,38 @@ export class ComponentPreviewInteraction {
         sceneWidth: 1,
         sceneHeight: 1,
         rect: {
-          x: Math.max(0, Number(frame.x) || 0),
-          y: Math.max(0, Number(frame.y) || 0),
-          width: Math.max(0.005, Number(frame.width) || 0.005),
-          height: Math.max(0.005, Number(frame.height) || 0.005),
+          x: Math.max(0, Number(surface.x) || 0),
+          y: Math.max(0, Number(surface.y) || 0),
+          width: Math.max(0.005, Number(surface.width) || 0.005),
+          height: Math.max(0.005, Number(surface.height) || 0.005),
         },
-        keepProportions: frame.keepProportions !== false,
+        keepProportions: surface.keepProportions !== false,
         lastRect: null,
       };
-      this.pendingSceneFrame = null;
+      this.pendingSurface = null;
       return true;
     }
     return false;
   }
 
-  updateSceneFrameDrag(x, y) {
-    const drag = this.sceneFrameDrag;
+  updateSurfaceDrag(x, y) {
+    const drag = this.surfaceDrag;
     if (!drag) return;
     const dx = (x - drag.startX) * drag.sceneWidth / drag.previewWidth;
     const dy = (y - drag.startY) * drag.sceneHeight / drag.previewHeight;
     const next = drag.mode === "move"
-      ? moveSceneFrameRect(drag.rect, dx, dy, drag.sceneWidth, drag.sceneHeight)
-      : resizeSceneFrameRect(drag.rect, drag.mode, dx, dy, drag.sceneWidth, drag.sceneHeight, {
+      ? moveSurfaceRect(drag.rect, dx, dy, drag.sceneWidth, drag.sceneHeight)
+      : resizeSurfaceRect(drag.rect, drag.mode, dx, dy, drag.sceneWidth, drag.sceneHeight, {
         keepProportions: drag.keepProportions,
       });
     drag.lastRect = next;
-    this.applyLocalSceneFrame(drag.frameId, next);
-    this.renderer.sendSceneFrame?.(drag.componentId, drag.frameId, next, { commit: false });
+    this.applyLocalSurface(drag.surfaceId, next);
+    this.renderer.sendSurfaceRect?.(drag.componentId, drag.surfaceId, next, { commit: false });
   }
 
-  applyLocalSceneFrame(frameId, rect) {
+  applyLocalSurface(surfaceId, rect) {
     const renderer = this.renderer;
-    renderer.state = stateWithSceneFrameRect(renderer.state, frameId, rect);
+    renderer.state = stateWithSurfaceRect(renderer.state, surfaceId, rect);
   }
 
   selectedTransformableChainItem() {
@@ -639,17 +638,17 @@ export class ComponentPreviewInteraction {
       }
     }
 
-    const frameOwner = this.sceneFrameDrag?.lastRect
-      ? { frameId: this.sceneFrameDrag.frameId, rect: this.sceneFrameDrag.lastRect }
-      : this.pendingSceneFrame;
-    if (frameOwner) {
+    const surfaceOwner = this.surfaceDrag?.lastRect
+      ? { surfaceId: this.surfaceDrag.surfaceId, rect: this.surfaceDrag.lastRect }
+      : this.pendingSurface;
+    if (surfaceOwner) {
       const mapping = nextState.mappings?.find((item) => item.id === nextState.ui?.selectedMappingId) || nextState.mappings?.[0];
-      const frame = mapping?.surfaces?.find((item) => item.id === frameOwner.frameId);
-      if (!frame) this.pendingSceneFrame = null;
-      else if (!this.sceneFrameDrag && recordIncludes(frame, frameOwner.rect)) {
-        this.pendingSceneFrame = null;
+      const surface = mapping?.surfaces?.find((item) => item.id === surfaceOwner.surfaceId);
+      if (!surface) this.pendingSurface = null;
+      else if (!this.surfaceDrag && recordIncludes(surface, surfaceOwner.rect)) {
+        this.pendingSurface = null;
       } else {
-        reconciled = stateWithSceneFrameRect(reconciled, frameOwner.frameId, frameOwner.rect);
+        reconciled = stateWithSurfaceRect(reconciled, surfaceOwner.surfaceId, surfaceOwner.rect);
       }
     }
     return reconciled;
@@ -682,15 +681,15 @@ export function stateWithChainItemBoundary(state, componentId, itemId, boundary)
   return componentChanged ? { ...state, components } : state;
 }
 
-export function stateWithSceneFrameRect(state, frameId, rect) {
+export function stateWithSurfaceRect(state, surfaceId, rect) {
   if (!state || !Array.isArray(state.mappings)) return state;
   const mappingIndex = state.mappings.findIndex((mapping) => String(mapping.id) === String(state.ui?.selectedMappingId || ""));
   if (mappingIndex < 0) return state;
   let changed = false;
-  const surfaces = state.mappings[mappingIndex].surfaces.map((frame) => {
-    if (frame.id !== frameId) return frame;
+  const surfaces = state.mappings[mappingIndex].surfaces.map((surface) => {
+    if (surface.id !== surfaceId) return surface;
     changed = true;
-    return { ...frame, ...rect };
+    return { ...surface, ...rect };
   });
   if (!changed) return state;
   const mappings = state.mappings.slice();

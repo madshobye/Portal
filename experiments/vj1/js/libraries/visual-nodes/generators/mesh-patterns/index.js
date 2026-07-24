@@ -8,7 +8,7 @@ import {
   MeshPatternTopologyProviderNode,
   MeshPatternWireMaterialProviderNode,
   MeshPatternWireToImageNode,
-} from "../../shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
+} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
 const manifest = Object.freeze({
     id: "meshPatterns",
     name: "2D Mesh Patterns",

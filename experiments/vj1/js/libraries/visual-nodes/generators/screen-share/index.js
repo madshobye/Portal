@@ -5,7 +5,7 @@ import {
   defineSpecializedVisualCompound,
   MediaResourceToImageNode,
   ScreenInputResourceNode,
-} from "../../shared/specialized-compound.js?v=screen-input-semantic-1";
+} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
 
 const manifest = Object.freeze({
     id: "screenShare",

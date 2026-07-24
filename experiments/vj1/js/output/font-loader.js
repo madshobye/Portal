@@ -2,7 +2,9 @@ import { VJ1 } from "../constants.js";
 
 export async function loadVjRenderFont() {
   await callPortalSetup();
-  return getPortalFont() || await loadFontAsync(VJ1.renderFont);
+  const font = getPortalFont() || await loadFontAsync(VJ1.renderFont);
+  if (!font) throw new Error(`VJ1_RENDER_FONT_REQUIRED:${VJ1.renderFont}`);
+  return font;
 }
 
 export function applyFontToTarget(target, font) {
@@ -10,7 +12,8 @@ export function applyFontToTarget(target, font) {
   try {
     target.textFont(font);
   } catch (error) {
-    console.warn("[VJ1_FONT_TARGET_FALLBACK]", { fallback: "target default font", message: error?.message || String(error) });
+    console.error("[VJ1_FONT_TARGET_FAILED]", { message: error?.message || String(error) });
+    throw error;
   }
 }
 
@@ -19,7 +22,8 @@ export function applyFontToGlobal(font) {
   try {
     textFont(font);
   } catch (error) {
-    console.warn("[VJ1_FONT_GLOBAL_FALLBACK]", { fallback: "global default font", message: error?.message || String(error) });
+    console.error("[VJ1_FONT_GLOBAL_FAILED]", { message: error?.message || String(error) });
+    throw error;
   }
 }
 
@@ -48,28 +52,34 @@ function getPortalFont() {
 }
 
 function loadFontAsync(path) {
-  if (typeof loadFont !== "function") return Promise.resolve(null);
-  return new Promise((resolve) => {
+  if (typeof loadFont !== "function") return Promise.reject(new Error("VJ1_RENDER_CAPABILITY_REQUIRED:p5.loadFont"));
+  return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (font) => {
       if (settled) return;
       settled = true;
       resolve(font || null);
     };
+    const fail = (error) => {
+      if (settled) return;
+      settled = true;
+      reject(error instanceof Error ? error : new Error(String(error || "load failed")));
+    };
     try {
       const maybeFont = loadFont(path, finish, (error) => {
-        console.warn("[VJ1_RENDER_FONT_LOAD_FAILED]", { path, fallback: "renderer default font", message: error?.message || String(error || "load failed") });
-        finish(null);
+        const failure = error instanceof Error ? error : new Error(String(error || "load failed"));
+        console.error("[VJ1_RENDER_FONT_LOAD_FAILED]", { path, message: failure.message });
+        fail(failure);
       });
       if (maybeFont && typeof maybeFont.then === "function") {
         maybeFont.then(finish).catch((error) => {
-          console.warn("[VJ1_RENDER_FONT_LOAD_FAILED]", { path, fallback: "renderer default font", message: error?.message || String(error) });
-          finish(null);
+          console.error("[VJ1_RENDER_FONT_LOAD_FAILED]", { path, message: error?.message || String(error) });
+          fail(error);
         });
       }
     } catch (error) {
-      console.warn("[VJ1_RENDER_FONT_LOAD_FAILED]", { path, fallback: "renderer default font", message: error?.message || String(error) });
-      finish(null);
+      console.error("[VJ1_RENDER_FONT_LOAD_FAILED]", { path, message: error?.message || String(error) });
+      fail(error);
     }
   });
 }

@@ -1,5 +1,5 @@
 import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "../libraries/visual-nodes/shared/component-schema.js";
-import { getEffectNodeComponent as getShaderComponent, getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
+import { getEffectNodeComponent as getShaderComponent, getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
 
 export function compileComponentPatch(component = {}, renderRequest = {}, resolvers = {}) {
   const request = normalizePatchRenderRequest(renderRequest);
@@ -94,7 +94,6 @@ function chainNodeForItem(component, item, index, resolvers = {}) {
       id: item.componentId,
       enabled: item.enabled,
       params: item.params,
-      amount: item.amount,
       transform: item.transform,
       opacity: item.opacity,
       blend: item.blend,
@@ -167,7 +166,7 @@ export function compileShaderSchedule(chain = [], { getEffectComponent = getShad
           ...pass,
           enabled: pass.enabled !== false,
           params,
-          amount: Number(paramValue(component, params, "amount", pass.amount ?? 0)) || 0,
+          amount: Number(paramValue(component, params, "amount", 0)) || 0,
         },
       };
     })
@@ -215,11 +214,10 @@ export function isFusibleShaderJob(job) {
 }
 
 export function passParams(component, pass = {}) {
-  const params = {
-    ...(pass.params && typeof pass.params === "object" ? pass.params : {}),
-  };
-  if (pass.amount !== undefined && params.amount === undefined) params.amount = pass.amount;
-  return normalizeParamValues(component, params);
+  return normalizeParamValues(
+    component,
+    pass.params && typeof pass.params === "object" ? pass.params : {},
+  );
 }
 
 function normalizePatchRenderRequest(request = {}) {

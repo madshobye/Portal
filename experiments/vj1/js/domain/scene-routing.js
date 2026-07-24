@@ -1,5 +1,6 @@
 import { latestProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { runtimeVisualSourceNodes } from "./runtime-visual-sources.js?v=runtime-visual-sources-1";
+import { directSurfaceHierarchy } from "./direct-surface-hierarchy.js?v=explicit-direct-surface-hierarchy-1";
 
 // These fields belong to a compiled Surface route, not to the authored
 // Mapping Surface. Keeping the list beside the route materializer gives model
@@ -233,19 +234,19 @@ export function materializeLiveProgramSurfaceRoutes(state = {}, target = null, m
   return routeState;
 }
 
-// Direct-output Surfaces are a hierarchy: the spanning "Full surface" route
-// is the group destination and each single-output route is a more specific
-// override. When the group has an explicit Live patch, unpatched children
+// Direct-output Surfaces declare their hierarchy through parentSurfaceId.
+// When a parent has an explicit Live patch, unpatched descendants
 // must become transparent or their automatically materialized Overall source
-// would cover the group after the transition texture is released. A child
+// would cover the parent after the transition texture is released. A child
 // with its own explicit patch remains enabled and wins only on that output.
 function applyDirectOutputPatchPrecedence(surfaces = [], patches = {}) {
-  const direct = (surfaces || []).filter((surface) => surface?.destination?.type === "direct");
-  const group = direct.find((surface) => (surface.destination?.outputIds?.length || 0) > 1);
-  if (!group || !patches[String(group.id || "")]) return;
-  for (const surface of direct) {
-    if (surface === group || (surface.destination?.outputIds?.length || 0) !== 1) continue;
-    if (patches[String(surface.id || "")]) continue;
+  const hierarchy = directSurfaceHierarchy(surfaces);
+  for (const surface of hierarchy.direct) {
+    const surfaceId = String(surface.id || "");
+    if (patches[surfaceId]) continue;
+    const patchedAncestor = hierarchy.ancestorsOf(surfaceId)
+      .some((ancestor) => patches[String(ancestor?.id || "")]);
+    if (!patchedAncestor) continue;
     surface.enabled = false;
   }
 }

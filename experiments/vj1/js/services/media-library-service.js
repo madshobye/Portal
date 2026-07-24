@@ -1,4 +1,4 @@
-import { uid } from "../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-runtime-visual-sources-1";
+import { uid } from "../domain/models.js?v=surface-terminology-1";
 import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
 import { createModelPreviewUrl } from "../libraries/mesh-engine/convert-3d-file-to-image/index.js";
 

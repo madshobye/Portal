@@ -303,7 +303,6 @@ export function paramCurrentValue(component, pass, param) {
   const values = {
     ...(pass.params && typeof pass.params === "object" ? pass.params : {}),
   };
-  if (param.id === "amount" && values.amount === undefined) values.amount = pass.amount;
   return normalizeParamValue(param, values[param.id]);
 }
 

@@ -2,7 +2,6 @@ import {
   createSharedFramebufferTarget,
   unwrapRenderTarget,
 } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
-import { sceneFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { normalizedContentTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
 import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=render-core-contract-1";
 import { boundedSampleRect } from "./render-draw-utils.js?v=runtime-diagnostics-1";
@@ -275,7 +274,7 @@ export class OutputThumbnailRuntime {
 
   ensureCaptureTarget(width, height) {
     if (!this.captureTarget) {
-      this.captureTarget = createSharedFramebufferTarget(width, height) || globalThis.createGraphics?.(width, height);
+      this.captureTarget = createSharedFramebufferTarget(width, height);
       this.captureTarget?.pixelDensity?.(1);
       return this.captureTarget;
     }

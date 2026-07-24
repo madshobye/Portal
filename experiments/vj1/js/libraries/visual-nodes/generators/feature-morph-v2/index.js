@@ -10,7 +10,7 @@ import {
   MediaImageResourceNode,
   MobileNetMorphAnalysisNode,
   SuperPointMorphAnalysisNode,
-} from "../../shared/specialized-compound.js?v=feature-morph-semantic-1";
+} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
 
 const manifest = Object.freeze({
     id: "featureMorphV2",

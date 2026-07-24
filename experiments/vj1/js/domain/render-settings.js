@@ -85,7 +85,7 @@ export function normalizePixelDensity(value) {
 
 // This is an aspect-based mathematical space used by interactions and shader
 // coordinates. It is not a requested backing-buffer resolution.
-export function sceneFrameSize(render = {}) {
+export function sceneLogicalSize(render = {}) {
   return compositionLogicalSize(render.sceneAspectRatio ?? (VJ1.sceneWidth / VJ1.sceneHeight));
 }
 
@@ -117,7 +117,7 @@ export function normalizeHostViewport(viewport = {}) {
 export function normalizeSamplingSettings(sampling = {}) {
   return {
     surfaceOverscan: clampNumber(sampling?.surfaceOverscan, 0.5, 2, 1),
-    recordingFrameScale: clampNumber(sampling?.recordingFrameScale, 0.5, 2, 1),
+    surfaceDetailScale: clampNumber(sampling?.surfaceDetailScale, 0.5, 2, 1),
     limitSceneToLogicalSize: sampling?.limitSceneToLogicalSize !== false,
   };
 }

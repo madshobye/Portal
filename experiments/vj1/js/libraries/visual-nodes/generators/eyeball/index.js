@@ -1,10 +1,9 @@
 import { createNumberParam } from "../../shared/component-schema.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
-import {
-  defineSpecializedVisualCompound,
-  EyeballToImageNode,
-  GazeBlinkControllerNode,
-} from "../../shared/specialized-compound.js?v=gaze-blink-semantic-1";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
+import { ComponentTimeControlNode } from "../../../control-engine/index.js?v=architecture-r2-2";
+import { GazeBlinkControllerNode } from "../../providers/gaze-blink-controller/index.js?v=gaze-blink-semantic-1";
+import EyeballRender from "../eyeball-render/index.js";
 
 const manifest = Object.freeze({
   id: "eyeball",
@@ -30,19 +29,24 @@ const manifest = Object.freeze({
 
 const NativeVisualComponent = defineGeneratorNode(manifest);
 
-export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
-  compoundKind: "eyeball",
-  nativeRenderer: "output/specialized:controlledShader",
+export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "motion", type: GazeBlinkControllerNode.id },
-    {
-      id: "render",
-      type: EyeballToImageNode.id,
-      parameters: { providerId: "eyeball-shader" },
-    },
+    { id: "time", definition: ComponentTimeControlNode, role: "control" },
+    { id: "motion", definition: GazeBlinkControllerNode, role: "control" },
+    { id: "render", component: EyeballRender },
   ],
   connections: [
-    { from: "motion.uniforms", to: "render.uniforms", type: "gaze-blink-uniforms" },
+    { from: "time.time", to: "motion.componentTime", type: "number" },
+    { from: "motion.gazeX", to: "render.$parameter.gazeX", type: "number" },
+    { from: "motion.gazeY", to: "render.$parameter.gazeY", type: "number" },
+    { from: "motion.gazeZ", to: "render.$parameter.gazeZ", type: "number" },
+    { from: "motion.irisRightX", to: "render.$parameter.irisRightX", type: "number" },
+    { from: "motion.irisRightY", to: "render.$parameter.irisRightY", type: "number" },
+    { from: "motion.irisRightZ", to: "render.$parameter.irisRightZ", type: "number" },
+    { from: "motion.irisUpX", to: "render.$parameter.irisUpX", type: "number" },
+    { from: "motion.irisUpY", to: "render.$parameter.irisUpY", type: "number" },
+    { from: "motion.irisUpZ", to: "render.$parameter.irisUpZ", type: "number" },
+    { from: "motion.blink", to: "render.$parameter.blink", type: "number" },
   ],
   output: "render.texture",
   parameterBindings: {
@@ -50,10 +54,10 @@ export const VisualComponent = defineSpecializedVisualCompound(NativeVisualCompo
     render: ["irisSize", "pupilSize", "lidAmount", "veinAmount", "renderQuality"],
   },
   parameterPresentation: {
+    time: { hidden: true },
     motion: { label: "Gaze and blink", order: 10 },
     render: { label: "Eyeball appearance", order: 20 },
   },
-  parts: [],
 });
 
 export default VisualComponent;

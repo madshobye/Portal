@@ -1,8 +1,8 @@
-import { clamp01 } from "../../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-runtime-visual-sources-1";
+import { clamp01 } from "../../domain/models.js?v=surface-terminology-1";
 import { createSharedFramebufferTarget, isSharedFramebufferTarget, unwrapRenderTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
 import { drawStandby } from "../generators.js?v=standby-grace-1";
-import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=canvas-global-resolution-1";
-import { contentTransformUvMatrices, isIdentityTransform, normalizedContentTransform } from "../content-coordinate-space.js?v=render-core-contract-1";
+import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=surface-terminology-1";
+import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=render-core-contract-1";
 import { markRenderTargetOrientation, renderTargetDescriptor, renderTargetNeedsPresentationFlip, RENDER_TEXTURE_ORIENTATION } from "../render-target-contract.js?v=render-core-contract-1";
 import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
 import { GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "../render-pass-shaders.js?v=render-coordinate-scope-3";
@@ -16,15 +16,14 @@ import {
 import {
   evaluateSpecializedCompoundGraph,
   executeSpecializedCompoundProvider,
-  executeSpecializedCompoundStage,
+  specializedCompoundEvaluatedStageSettings,
   specializedCompoundNativeKernel,
   specializedCompoundStageEnabled,
   specializedCompoundStageParameterView,
   specializedCompoundStageProvider,
-} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
-import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.js?v=node-program-hooks-15";
+} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=compiled-graph-value-authority-1";
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
-import { applyModelViewportProjection, modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js?v=resolution-relative-model-clip-1";
+import { modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js?v=resolution-relative-model-clip-1";
 import { disposeRawModelItemResources, renderMeshNodeProcess } from "../../libraries/mesh-engine/mesh-render/index.js?v=resolution-relative-model-clip-1";
 import { updateMediaMeshRenderValues } from "../../libraries/mesh-engine/media-mesh-render-adapter.js";
 import { modelLodTargetTriangles, selectModelLod } from "../../libraries/mesh-engine/mesh-resolution/index.js";
@@ -43,19 +42,13 @@ import {
 import { mobileNetAnalysisModule, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-6";
 import { SuperPointPairService } from "./superpoint-service.js?v=surface-media-contract-6";
 import {
-  TILE_TEXTURE_FRAGMENT_SHADER,
-  TILE_TEXTURE_VERTEX_SHADER,
-  tileRepeatAmount as fallbackTileRepeatAmount,
-} from "./tile-texture-shader.js?v=source-roi-view-3";
-export { tileRepeatAmount } from "./tile-texture-shader.js?v=source-roi-view-3";
-import {
   createTextMask as fallbackCreateTextMask,
   TEXT_GENERATOR_FRAGMENT_SHADER as FALLBACK_TEXT_FRAGMENT_SHADER,
   TEXT_GENERATOR_VERTEX_SHADER as FALLBACK_TEXT_VERTEX_SHADER,
   textMaskDimensions as fallbackTextMaskDimensions,
   textMaskSignature as fallbackTextMaskSignature,
 } from "./text-generator-renderer.js?v=text-mask-readback-1";
-import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=compiled-artifact-authority-2";
+import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=connected-mesh-pattern-providers-1";
 import { disposeRenderTarget } from "../../libraries/render-engine/render-target-lifetime.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
 
@@ -65,11 +58,6 @@ const FALLBACK_TEXT_NODE_MODULE = Object.freeze({
   textMaskSignature: fallbackTextMaskSignature,
 });
 
-const FALLBACK_ANATOMY_NODE_MODULE = Object.freeze({
-  anatomyPartFitScale,
-  drawProceduralAnatomy,
-});
-const ANATOMY_MODULE_FUNCTIONS = Object.freeze(["anatomyPartFitScale", "drawProceduralAnatomy"]);
 const TEXT_MODULE_FUNCTIONS = Object.freeze(["createTextMask", "textMaskSignature"]);
 const TERRAIN_MODULE_FUNCTIONS = Object.freeze([
   "normalizedTerrainIrregularity",
@@ -81,7 +69,6 @@ const TERRAIN_MODULE_FUNCTIONS = Object.freeze([
   "terrainSurfaceTriangleIndices",
   "terrainTessellationSize",
 ]);
-const TILE_TEXTURE_MODULE_FUNCTIONS = Object.freeze(["tileRepeatAmount"]);
 const FEATURE_MORPH_RENDER_MODULE_FUNCTIONS = Object.freeze(["imageFitUniform"]);
 const FEATURE_MORPH_ANALYSIS_MODULE_FUNCTIONS = Object.freeze([
   "imageFitUniform",
@@ -93,6 +80,19 @@ const VALIDATED_COMPILED_SHADERS = new WeakMap();
 
 function compiledSpecializedOperation(operation = {}) {
   return !!operation?.nativeCompoundProgram;
+}
+
+export function specializedResourceIdentity(
+  operation = {},
+  resource = null,
+  field = "mediaId",
+  legacyFallback = "",
+) {
+  const connectedValue = resource?.[field];
+  if (compiledSpecializedOperation(operation)) {
+    return String(connectedValue ?? "");
+  }
+  return String(connectedValue || legacyFallback || "");
 }
 
 function requireCompiledModuleFunctions(operation, functions, errorCode) {
@@ -137,14 +137,6 @@ function compiledShaderSource(operation, id, fallback, errorCode) {
   return typeof source === "string" && source.trim() ? source : fallback;
 }
 
-export function anatomyNodeRuntimeModule(operation = {}) {
-  return requireCompiledModuleFunctions(
-    operation,
-    ANATOMY_MODULE_FUNCTIONS,
-    "ANATOMY_COMPILED_MODULE_MISSING",
-  ) || FALLBACK_ANATOMY_NODE_MODULE;
-}
-
 // This is the narrow host boundary for the Text node. The compiler supplies
 // editable algorithm exports and shader sources; the specialized runtime owns
 // only context-bound targets, mask images, and their bounded caches.
@@ -183,26 +175,6 @@ export function terrainNodeShaderSource(operation = {}, id = "") {
     id,
     null,
     "TERRAIN_COMPILED_SHADER_MISSING",
-  );
-}
-
-const FALLBACK_TILE_TEXTURE_NODE_MODULE = Object.freeze({ tileRepeatAmount: fallbackTileRepeatAmount });
-
-export function tileTextureNodeRuntimeModule(operation = {}) {
-  return requireCompiledModuleFunctions(
-    operation,
-    TILE_TEXTURE_MODULE_FUNCTIONS,
-    "TILE_TEXTURE_COMPILED_MODULE_MISSING",
-  ) || FALLBACK_TILE_TEXTURE_NODE_MODULE;
-}
-
-export function tileTextureNodeShaderSource(operation = {}, stage = "fragment") {
-  const id = stage === "vertex" ? "tile-texture-vertex" : "tile-texture-fragment";
-  return compiledShaderSource(
-    operation,
-    id,
-    stage === "vertex" ? TILE_TEXTURE_VERTEX_SHADER : TILE_TEXTURE_FRAGMENT_SHADER,
-    "TILE_TEXTURE_COMPILED_SHADER_MISSING",
   );
 }
 
@@ -258,12 +230,6 @@ export class SpecializedSourceRuntime {
     this.requestPixelDensity = requestPixelDensity || ((request = {}) => request.pixelDensity);
     this.nativeRenderers = new Map();
     this.registerNativeRenderer(
-      "output/specialized:anatomy",
-      (target, source, time, request, operation) => this.drawAnatomy(
-        target, source, time, this.nativeRenderRequest(request), operation,
-      ),
-    );
-    this.registerNativeRenderer(
       "output/specialized:terrainFlyover",
       (target, source, time, request, operation) => this.drawTerrain(
         target, source, time, this.nativeRenderRequest(request), operation,
@@ -278,18 +244,6 @@ export class SpecializedSourceRuntime {
     this.registerNativeRenderer(
       "output/specialized:featureMorphV2",
       (target, source, time, request, operation) => this.drawFeatureMorph(
-        target, source, time, this.nativeRenderRequest(request), operation,
-      ),
-    );
-    this.registerNativeRenderer(
-      "output/specialized:controlledShader",
-      (target, source, time, request, operation) => this.drawControlledShader(
-        target, source, time, this.nativeRenderRequest(request), operation,
-      ),
-    );
-    this.registerNativeRenderer(
-      "output/specialized:tileTexture",
-      (target, source, time, request, operation) => this.drawTileTexture(
         target, source, time, this.nativeRenderRequest(request), operation,
       ),
     );
@@ -309,7 +263,6 @@ export class SpecializedSourceRuntime {
     this.terrainSurfaceResources = new Map();
     this.terrainWireResources = new Map();
     this.rateClocks = new Map();
-    this.anatomyGraphExternalInputs = new Map();
     this.terrainFlightStates = new Map();
     this.terrainGraphExternalInputs = new Map();
     this.superPointPairs = new SuperPointPairService();
@@ -344,10 +297,6 @@ export class SpecializedSourceRuntime {
     this.featureMorphShaderRevision = "";
     this.featureMorphV2Shader = null;
     this.featureMorphV2ShaderRevision = "";
-    this.controlledShaderPrograms = new Map();
-    this.controlledShaderGraphExternalInputs = new Map();
-    this.tileTextureShader = null;
-    this.tileTextureShaderRevision = "";
     this.textGeneratorShader = null;
     this.textGeneratorShaderRevision = "";
     this.textMasks = new Map();
@@ -407,96 +356,6 @@ export class SpecializedSourceRuntime {
     };
   }
 
-  drawControlledShader(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
-    const kernel = specializedCompoundNativeKernel(operation, "controlled-shader");
-    if (!operation?.nativeCompoundProgram || !kernel) {
-      throw new Error("CONTROLLED_SHADER_COMPILED_KERNEL_MISSING");
-    }
-    const renderStageId = kernel.id;
-    const controllerStageId = kernel.inputBindings?.uniforms?.stageId || "";
-    if (
-      !controllerStageId ||
-      !specializedCompoundStageEnabled(operation, controllerStageId) ||
-      !specializedCompoundStageEnabled(operation, renderStageId)
-    ) {
-      this.drawStandby(pg, "Controlled shader stage disabled");
-      return;
-    }
-
-    const authoredParams = source.params || {};
-    const instanceId = source.instanceId || renderRequest.renderIdentity || operation.id || "controlled-shader";
-    let external = this.controlledShaderGraphExternalInputs.get(instanceId);
-    if (!external || external.stageId !== controllerStageId) {
-      const stageInputs = { componentTime: 0 };
-      external = {
-        stageId: controllerStageId,
-        stageInputs,
-        inputs: { [controllerStageId]: stageInputs },
-      };
-      this.controlledShaderGraphExternalInputs.set(instanceId, external);
-    }
-    external.stageInputs.componentTime = componentTime;
-    const graph = evaluateSpecializedCompoundGraph(
-      operation,
-      authoredParams,
-      { instanceId },
-      external.inputs,
-    );
-    const uniforms = graph?.stageInput(renderStageId, "uniforms");
-    const params = graph?.stageInputs(renderStageId)?.settings;
-    if (!uniforms || !params) {
-      this.drawStandby(pg, "Controlled shader graph input unavailable");
-      return;
-    }
-    const applyUniforms = operation?.nodeModule?.applyControlledShaderUniforms;
-    if (typeof applyUniforms !== "function") {
-      throw new Error("CONTROLLED_SHADER_UNIFORM_BINDING_MISSING");
-    }
-
-    const targetKind = `controlledShader:${operation.nodeId || kernel.nodeId || "visual"}`;
-    const shaderRevision = String(
-      operation.nodeShaderProgramRevisions?.["controlled-shader"] ||
-      operation.nodeShaderRevision ||
-      operation.nodeModuleRevision ||
-      "",
-    );
-    const target = this.getTarget(targetKind, pg.width, pg.height, renderRequest.pixelDensity, {
-      preferSharedFramebuffer: true,
-      onContextDiscard: () => this.controlledShaderPrograms.delete(targetKind),
-    });
-    let shaderState = this.controlledShaderPrograms.get(targetKind);
-    if (
-      !shaderState ||
-      shaderState.target !== target ||
-      shaderState.revision !== shaderRevision
-    ) {
-      shaderState = {
-        target,
-        revision: shaderRevision,
-        shader: target.createShader(
-          operation.nodeShaders?.vertex || "",
-          operation.nodeShaders?.fragment || "",
-        ),
-      };
-      this.controlledShaderPrograms.set(targetKind, shaderState);
-    }
-    const view = renderView(pg, renderRequest);
-    drawShaderTarget(target, () => {
-      clearShaderTarget(target);
-      applyShaderTarget(target, shaderState.shader);
-      shaderState.shader.setUniform("resolution", [view.width, view.height]);
-      shaderState.shader.setUniform("renderUvRect", view.uvRect);
-      shaderState.shader.setUniform(
-        "contentUvMatrix",
-        contentTransformUvMatrices(source.contentTransform).sampling,
-      );
-      applyUniforms(shaderState.shader, uniforms, params);
-      drawShaderTargetRect(target, pg.width, pg.height);
-      resetShaderTarget(target);
-    });
-    this.presentGeneratedTarget(pg, target);
-  }
-
   drawFeatureMorph(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const authoredParams = source.params || {};
     const kernel = specializedCompoundNativeKernel(operation, "feature-morph");
@@ -517,10 +376,18 @@ export class SpecializedSourceRuntime {
     if (operation?.nativeCompoundProgram && (!imageAValue || !imageBValue || !analysisValue)) {
       throw new Error(`FEATURE_MORPH_GRAPH_VALUE_MISSING:${imageAStageId}:${imageBStageId}:${analysisStageId}`);
     }
-    const params = graph?.stageInputs(renderStageId)?.settings ||
-      specializedCompoundStageParameterView(operation, renderStageId, authoredParams, instanceId) ||
-      authoredParams;
-    const analysisParams = analysisValue?.settings || authoredParams;
+    const params = specializedCompoundEvaluatedStageSettings(
+      operation, graph, renderStageId, authoredParams, instanceId,
+    );
+    const analysisParams = compiledSpecializedOperation(operation)
+      ? analysisValue?.settings
+      : analysisValue?.settings || authoredParams;
+    if (
+      compiledSpecializedOperation(operation) &&
+      (!analysisParams || typeof analysisParams !== "object" || Array.isArray(analysisParams))
+    ) {
+      throw new Error(`FEATURE_MORPH_ANALYSIS_SETTINGS_MISSING:${analysisStageId}`);
+    }
     const providerId = String(analysisValue?.providerId || "");
     const analysisProvider = this.featureMorphAnalysisProvider(providerId);
     if (!analysisProvider) {
@@ -537,8 +404,12 @@ export class SpecializedSourceRuntime {
       operation?.nodeModuleRevision ||
       "legacy"
     );
-    const imageAId = imageAValue?.mediaId || authoredParams.imageAId || "";
-    const imageBId = imageBValue?.mediaId || authoredParams.imageBId || "";
+    const imageAId = specializedResourceIdentity(
+      operation, imageAValue, "mediaId", authoredParams.imageAId,
+    );
+    const imageBId = specializedResourceIdentity(
+      operation, imageBValue, "mediaId", authoredParams.imageBId,
+    );
     if (!imageAId || !imageBId) {
       this.drawStandby(pg, "choose two images");
       return;
@@ -615,73 +486,6 @@ export class SpecializedSourceRuntime {
     this.presentGeneratedTarget(pg, target);
   }
 
-  drawTileTexture(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
-    const authoredParams = source.params || {};
-    const kernel = specializedCompoundNativeKernel(operation, "tile-texture");
-    if (operation?.nativeCompoundProgram && !kernel) {
-      throw new Error("TILE_TEXTURE_NATIVE_KERNEL_MISSING");
-    }
-    const renderStageId = kernel?.id || "render";
-    const imageStageId = kernel?.inputBindings?.image?.stageId || "image";
-    const instanceId = source.instanceId || renderRequest.renderIdentity || source.generatorId || "tile-texture";
-    const graph = operation?.nativeCompoundProgram
-      ? evaluateSpecializedCompoundGraph(operation, authoredParams, { instanceId })
-      : null;
-    const imageValue = graph?.stageInput(renderStageId, "image") || null;
-    if (operation?.nativeCompoundProgram && !imageValue) {
-      throw new Error(`TILE_TEXTURE_GRAPH_VALUE_MISSING:${imageStageId}`);
-    }
-    const params = graph?.stageInputs(renderStageId)?.settings ||
-      specializedCompoundStageParameterView(operation, renderStageId, authoredParams, instanceId) ||
-      authoredParams;
-    const nodeModule = tileTextureNodeRuntimeModule(operation);
-    const shaderRevision = String(
-      operation?.nodeShaderProgramRevisions?.["tile-texture"] ||
-      operation?.nodeShaderRevision ||
-      operation?.nodeModuleRevision ||
-      "legacy"
-    );
-    const imageId = imageValue?.mediaId || authoredParams.imageId || "";
-    if (!imageId) {
-      this.drawStandby(pg, "choose a tileable texture");
-      return;
-    }
-    const item = this.acquireMedia(imageId, { width: pg.width });
-    if (!item?.image) {
-      if (!item) this.requestMissingMedia(imageId);
-      this.drawStandby(pg, item?.imageError || "loading tile texture");
-      return;
-    }
-    const target = this.getTarget("tileTexture", pg.width, pg.height, renderRequest.pixelDensity, {
-      preferSharedFramebuffer: true,
-      onContextDiscard: () => {
-    this.tileTextureShader = null;
-    this.tileTextureShaderRevision = "";
-      },
-    });
-    if (!this.tileTextureShader || this.tileTextureShaderRevision !== shaderRevision) {
-      this.tileTextureShader = target.createShader(
-        tileTextureNodeShaderSource(operation, "vertex"),
-        tileTextureNodeShaderSource(operation, "fragment")
-      );
-      this.tileTextureShaderRevision = shaderRevision;
-    }
-    drawShaderTarget(target, () => {
-      clearShaderTarget(target);
-      applyShaderTarget(target, this.tileTextureShader);
-      this.tileTextureShader.setUniform("tileImage", item.image);
-      this.tileTextureShader.setUniform("repeatAmount", nodeModule.tileRepeatAmount(params));
-      this.tileTextureShader.setUniform("offsetAmount", [Number(params.offsetX) || 0, Number(params.offsetY) || 0]);
-      this.tileTextureShader.setUniform("scrollSpeed", [Number(params.scrollX) || 0, Number(params.scrollY) || 0]);
-      this.tileTextureShader.setUniform("time", componentTime);
-      this.tileTextureShader.setUniform("contentUvMatrix", contentTransformUvMatrices(source.contentTransform).sampling);
-      setOptionalShaderUniform(this.tileTextureShader, "renderUvRect", renderView(pg, renderRequest).uvRect);
-      drawShaderTargetRect(target, pg.width, pg.height);
-      resetShaderTarget(target);
-    });
-    this.presentGeneratedTarget(pg, target);
-  }
-
   drawText(pg, source = {}, _componentTime = 0, renderRequest = {}, operation = null) {
     const authoredParams = source.params || {};
     const kernel = specializedCompoundNativeKernel(operation, "text-mask");
@@ -700,7 +504,7 @@ export class SpecializedSourceRuntime {
     }
     const instanceId = source.instanceId || renderRequest.renderIdentity || source.generatorId || "text";
     const view = renderView(pg, renderRequest);
-    let maskValue = null;
+    let maskValue = operation?.runtimeValueInputs?.get?.("mask") || null;
     let params = authoredParams;
     if (operation?.nativeCompoundProgram) {
       let external = this.textGraphExternalInputs.get(instanceId);
@@ -722,12 +526,17 @@ export class SpecializedSourceRuntime {
         external.inputs,
       );
       maskValue = graph?.stageInput(renderStageId, "mask") || null;
-      params = graph?.stageInputs(renderStageId)?.settings ||
-        specializedCompoundStageParameterView(operation, renderStageId, authoredParams, instanceId);
+      params = specializedCompoundEvaluatedStageSettings(
+        operation, graph, renderStageId, authoredParams, instanceId,
+      );
       if (!maskValue?.canvas) {
         this.drawStandby(pg, "Text mask graph input unavailable");
         return;
       }
+    }
+    if (!operation?.nativeCompoundProgram && operation?.runtimeValueInputs && !maskValue?.canvas) {
+      this.drawStandby(pg, "Text mask value unavailable");
+      return;
     }
     const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
     const shaderRevision = String(operation?.nodeShaderRevision || operation?.nodeModuleRevision || "legacy");
@@ -838,134 +647,6 @@ export class SpecializedSourceRuntime {
     });
   }
 
-  drawAnatomy(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
-    const kernel = specializedCompoundNativeKernel(operation, "anatomy-retained-webgl");
-    if (operation?.nativeCompoundProgram && !kernel) {
-      this.drawStandby(pg, "Anatomy kernel schedule unavailable");
-      return;
-    }
-    const renderStageId = kernel?.id || "render";
-    const geometryStageId = kernel?.inputBindings?.geometry?.stageId || "geometry";
-    const transformStageId = kernel?.inputBindings?.transform?.stageId || "transform";
-    const materialStageId = kernel?.inputBindings?.material?.stageId || "material";
-    const cameraStageId = kernel?.inputBindings?.camera?.stageId || "camera";
-    if (
-      !specializedCompoundStageEnabled(operation, geometryStageId) ||
-      !specializedCompoundStageEnabled(operation, transformStageId) ||
-      !specializedCompoundStageEnabled(operation, materialStageId) ||
-      !specializedCompoundStageEnabled(operation, cameraStageId) ||
-      !specializedCompoundStageEnabled(operation, renderStageId)
-    ) {
-      this.drawStandby(pg, "Anatomy compound stage disabled");
-      return;
-    }
-    const authoredParams = source.params || {};
-    const anatomyInstanceId = source.instanceId || renderRequest.renderIdentity || source.generatorId || "anatomy";
-    let external = this.anatomyGraphExternalInputs.get(anatomyInstanceId);
-    if (!external || external.stageId !== transformStageId) {
-      const stageInputs = { componentTime: 0 };
-      external = {
-        stageId: transformStageId,
-        stageInputs,
-        inputs: { [transformStageId]: stageInputs },
-      };
-      this.anatomyGraphExternalInputs.set(anatomyInstanceId, external);
-    }
-    external.stageInputs.componentTime = componentTime;
-    const graph = evaluateSpecializedCompoundGraph(
-      operation,
-      authoredParams,
-      { instanceId: anatomyInstanceId },
-      external.inputs,
-    );
-    let transformParams = graph?.stageInputs(transformStageId)?.settings ||
-      specializedCompoundStageParameterView(operation, transformStageId, authoredParams, anatomyInstanceId);
-    const renderParams = graph?.stageInputs(renderStageId)?.settings ||
-      specializedCompoundStageParameterView(operation, renderStageId, authoredParams, anatomyInstanceId);
-    let geometryValue = graph?.stageInput(renderStageId, "geometry");
-    let transformValue = graph?.stageInput(renderStageId, "transform");
-    let materialValue = graph?.stageInput(renderStageId, "material");
-    let cameraValue = graph?.stageInput(renderStageId, "camera");
-    if (operation?.nativeCompoundProgram && (
-      !geometryValue ||
-      !transformValue ||
-      !materialValue ||
-      !cameraValue
-    )) {
-      this.drawStandby(pg, "Anatomy graph input unavailable");
-      return;
-    }
-    if (!operation?.nativeCompoundProgram) {
-      geometryValue = executeSpecializedCompoundProvider(
-        operation, geometryStageId, authoredParams, anatomyInstanceId,
-      );
-      materialValue = executeSpecializedCompoundProvider(
-        operation, materialStageId, authoredParams, anatomyInstanceId,
-      );
-      cameraValue = executeSpecializedCompoundProvider(
-        operation, cameraStageId, authoredParams, anatomyInstanceId,
-      );
-      transformParams.componentTime = componentTime;
-      transformValue = executeSpecializedCompoundStage(
-        operation,
-        transformStageId,
-        transformParams,
-        anatomyInstanceId,
-      )?.transform;
-    }
-    const resolvedGeometryParams = geometryValue?.settings ||
-      specializedCompoundStageParameterView(operation, geometryStageId, authoredParams, anatomyInstanceId);
-    const resolvedMaterialParams = materialValue?.settings ||
-      specializedCompoundStageParameterView(operation, materialStageId, authoredParams, anatomyInstanceId);
-    const resolvedCameraParams = specializedCompoundStageParameterView(
-      operation, cameraStageId, authoredParams, anatomyInstanceId,
-    );
-    const nodeModule = anatomyNodeRuntimeModule(operation);
-    const target = this.getModelTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
-    const viewport = modelViewportMetrics(target, renderRequest);
-    const renderMode = resolvedMaterialParams.renderMode || "surface";
-    const surfaceColor = modelColor(resolvedMaterialParams.surfaceColor, [217, 212, 201, 255]);
-    const wireColor = modelColor(resolvedMaterialParams.wireColor, [75, 73, 68, 204]);
-    const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(resolvedMaterialParams), renderRequest);
-    const rotation = transformValue?.rotation || modelRotation(transformParams, componentTime);
-    const detail = Math.max(4, Math.min(14, Math.round(
-      (Number(resolvedGeometryParams.detail) || 8) * qualityComputeMultiplier(renderParams, { minimum: 0.55, maximum: 1.35 })
-    )));
-    const modelScale = Math.max(
-      0.01,
-      Number(transformValue?.scale?.[0] ?? transformParams.modelScale) || 1,
-    );
-    const depth = Math.max(0.05, Number(resolvedGeometryParams.depth) || 1);
-    const canonicalCameraFov = cameraValue?.kind === "camera3d"
-      ? Number(cameraValue.fieldOfView)
-      : NaN;
-    const requestedFov = Number(resolvedCameraParams.fieldOfView);
-    const cameraFov = Number.isFinite(canonicalCameraFov)
-      ? Math.max(20 * Math.PI / 180, Math.min(120 * Math.PI / 180, canonicalCameraFov))
-      : Number.isFinite(requestedFov)
-        ? Math.max(20, Math.min(120, requestedFov)) * Math.PI / 180
-        : modelCameraFov(resolvedCameraParams);
-    this.measureGpu(target, () => {
-      target.push();
-      target.clear();
-      applyModelViewportProjection(target, cameraFov, viewport);
-      target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
-      target.ambientLight?.(96);
-      target.directionalLight?.(238, 232, 220, -0.45, -0.55, -0.75);
-      target.directionalLight?.(82, 94, 108, 0.7, 0.15, -0.35);
-      applyModelContentTransform(target, source.contentTransform, viewport);
-      target.rotateX(rotation[0]);
-      target.rotateY(rotation[1]);
-      target.rotateZ(rotation[2]);
-      const scale = viewport.unitScale * modelScale * nodeModule.anatomyPartFitScale(resolvedGeometryParams.part);
-      target.scale(scale, -scale, scale * depth);
-      nodeModule.drawProceduralAnatomy(target, resolvedGeometryParams, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
-      target.pop();
-    });
-    markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft);
-    this.presentGeneratedTarget(pg, target);
-  }
-
   drawTerrain(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
     const surfaceKernel = specializedCompoundNativeKernel(operation, "terrain-surface");
     const wireKernel = specializedCompoundNativeKernel(operation, "terrain-wire");
@@ -1007,10 +688,12 @@ export class SpecializedSourceRuntime {
       { instanceId: flightKey },
       external.inputs,
     );
-    const surfaceRenderSettings = graph?.stageInputs(surfaceStageId)?.settings ||
-      specializedCompoundStageParameterView(operation, surfaceStageId, authoredParams, flightKey);
-    const wireRenderSettings = graph?.stageInputs(wireStageId)?.settings ||
-      specializedCompoundStageParameterView(operation, wireStageId, authoredParams, flightKey);
+    const surfaceRenderSettings = specializedCompoundEvaluatedStageSettings(
+      operation, graph, surfaceStageId, authoredParams, flightKey,
+    );
+    const wireRenderSettings = specializedCompoundEvaluatedStageSettings(
+      operation, graph, wireStageId, authoredParams, flightKey,
+    );
     const renderViewport = renderView(pg, renderRequest);
     const target = this.getTerrainTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
     const authoredStyleValue = surfaceRenderSettings.style ?? wireRenderSettings.style;
@@ -1355,17 +1038,12 @@ export class SpecializedSourceRuntime {
     this.resetTerrainResources();
     disposeGraphicsMap(this.targets);
     this.rateClocks.clear();
-    this.anatomyGraphExternalInputs.clear();
     this.terrainFlightStates.clear();
     this.terrainGraphExternalInputs.clear();
     this.featureMorphShader = null;
     this.featureMorphShaderRevision = "";
     this.featureMorphV2Shader = null;
     this.featureMorphV2ShaderRevision = "";
-    this.controlledShaderPrograms.clear();
-    this.controlledShaderGraphExternalInputs.clear();
-    this.tileTextureShader = null;
-    this.tileTextureShaderRevision = "";
     this.textGeneratorShader = null;
     this.textGeneratorShaderRevision = "";
     this.textMasks.clear();
@@ -1377,8 +1055,9 @@ export class SpecializedSourceRuntime {
 }
 
 function createSpecializedTarget(width, height, density, preferSharedFramebuffer, depth, applyDensity) {
-  const target = (preferSharedFramebuffer ? createSharedFramebufferTarget(width, height, { depth }) : null)
-    || createGraphics(width, height, WEBGL);
+  const target = preferSharedFramebuffer
+    ? createSharedFramebufferTarget(width, height, { depth })
+    : createGraphics(width, height, WEBGL);
   if (!isSharedFramebufferTarget(target)) applyDensity(target, density);
   target.__vj1PixelDensity = density;
   if (!isSharedFramebufferTarget(target)) target.noStroke();
@@ -1395,16 +1074,6 @@ function featureMorphFlowImage(field = {}) {
   image.updatePixels();
   field.flowImage = image;
   return image;
-}
-
-function applyModelContentTransform(target, transform = {}, viewport = {}) {
-  if (isIdentityTransform(transform)) return;
-  const value = normalizedContentTransform(transform);
-  const width = Math.max(1, Number(viewport.width) || Number(target?.width) || 1);
-  const height = Math.max(1, Number(viewport.height) || Number(target?.height) || 1);
-  target.translate(value.x * width * 0.5, value.y * height * 0.5, 0);
-  target.rotateZ(value.rotation);
-  target.scale(value.scale, value.scale, value.scale);
 }
 
 function drawShaderTarget(target, draw) {

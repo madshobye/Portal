@@ -2,7 +2,7 @@ import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=rend
 import { renderTargetDescriptor, RENDER_TARGET_KIND } from "./render-target-contract.js?v=render-core-contract-1";
 import { fitOverflowDestination } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
 
-const reportedMediaFallbacks = new WeakMap();
+const reportedMediaDrawFailures = new WeakMap();
 const webGlMediaBridges = new WeakMap();
 const reportedVideoPlaybackFailures = new WeakSet();
 const pendingVideoPlays = new WeakMap();
@@ -58,17 +58,7 @@ export function drawMediaFit(pg, media, x, y, w, h, fit = "cover") {
     // Canvas2D context retain the ordinary p5 image call.
     pg.image(primarySource, dx, dy, dw, dh);
   } catch (primaryError) {
-    reportMediaDrawFallback(media, webglTarget ? "webgl-texture-source" : "canvas-image-source", pg, primaryError);
-    const context = pg.drawingContext;
-    if (!webglTarget && typeof context?.drawImage === "function") {
-      context.drawImage(element, dx, dy, dw, dh);
-      return;
-    }
-    console.error("[VJ1_MEDIA_DRAW_FAILED]", {
-      source: mediaSourceKind(media),
-      target: mediaTargetKind(pg),
-      message: primaryError?.message || String(primaryError || "media draw failed"),
-    });
+    reportMediaDrawFailure(media, webglTarget ? "webgl-texture-source" : "canvas-image-source", pg, primaryError);
     throw primaryError;
   }
 }
@@ -119,20 +109,20 @@ function isP5TextureSource(media) {
   return false;
 }
 
-function reportMediaDrawFallback(media, fallback, target, error) {
+function reportMediaDrawFailure(media, path, target, error) {
   if (!media || (typeof media !== "object" && typeof media !== "function")) {
-    console.warn("[VJ1_MEDIA_DRAW_FALLBACK]", { fallback, target: mediaTargetKind(target), message: error?.message || String(error || "draw failed") });
+    console.error("[VJ1_MEDIA_DRAW_FAILED]", { path, target: mediaTargetKind(target), message: error?.message || String(error || "draw failed") });
     return;
   }
-  let fallbacks = reportedMediaFallbacks.get(media);
-  if (!fallbacks) {
-    fallbacks = new Set();
-    reportedMediaFallbacks.set(media, fallbacks);
+  let paths = reportedMediaDrawFailures.get(media);
+  if (!paths) {
+    paths = new Set();
+    reportedMediaDrawFailures.set(media, paths);
   }
-  if (fallbacks.has(fallback)) return;
-  fallbacks.add(fallback);
-  console.warn("[VJ1_MEDIA_DRAW_FALLBACK]", {
-    fallback,
+  if (paths.has(path)) return;
+  paths.add(path);
+  console.error("[VJ1_MEDIA_DRAW_FAILED]", {
+    path,
     source: mediaSourceKind(media),
     target: mediaTargetKind(target),
     message: error?.message || String(error || "draw failed"),

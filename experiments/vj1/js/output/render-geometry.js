@@ -7,7 +7,7 @@ import {
 } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
 
 export const SURFACE_DEMAND_OVERSCAN = 1;
-export const RECORDING_FRAME_DEMAND_SCALE = 1;
+export const SURFACE_DETAIL_DEMAND_SCALE = 1;
 
 export function outputDefinitions(render = {}) {
   if (Array.isArray(render.outputs) && render.outputs.length) {

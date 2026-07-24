@@ -4,7 +4,7 @@ import {
   transitionKernelUniformValues,
 } from "../libraries/transition-engine/index.js";
 import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
-import { renderBufferKey } from "./component-render-state.js?v=gapless-video-loop-1";
+import { renderBufferKey } from "./component-render-state.js?v=canonical-effect-params-1";
 import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import {
   RENDER_PASS_VERTEX_SHADER,
@@ -17,7 +17,7 @@ import {
   drawShaderTargetRect,
   resetShaderTarget,
   setShaderUniformIfPresent,
-} from "./shader-target-runtime.js?v=source-roi-view-3";
+} from "./shader-target-runtime.js?v=canonical-effect-params-1";
 import { unwrapRenderTarget } from "./shared-framebuffer-target.js?v=isf-runtime-1";
 
 // Optimized backend for the generic texture-node family. The compiled visual
