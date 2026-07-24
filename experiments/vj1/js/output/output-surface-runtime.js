@@ -1,7 +1,7 @@
-import { clamp01 } from "../domain/models.js?v=chain-only-authority-1";
+import { clamp01 } from "../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-1";
 import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=surface-identity-1";
 import { BoundedRenderTargetPool } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
-import { SceneFrameGuideNode } from "../libraries/composition-engine/index.js?v=scene-frame-guide-node-1";
+import { SceneFrameGuideNode } from "../libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
 import { projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=frame-projection-aspect-1";
 import { componentInstanceTime } from "../libraries/timing-engine/index.js";
 import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=gc-allocation-1";
@@ -11,11 +11,12 @@ import {
   applyBlendGlobal,
   cornersRect,
   directFitRects,
+  fittedSampleRect,
   scaledComponentSampleRect,
   unifyTransitionComponentRenderRequests,
-} from "./component-render-layout.js?v=webgl-direct-blend-1";
+} from "./component-render-layout.js?v=root-content-transform-roi-1";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=live-overall-routing-1";
+import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=root-content-transform-roi-3";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
@@ -40,6 +41,7 @@ export class OutputSurfaceRuntime {
     this.activeTransitionTextureId = "";
     this.renderIdentityPrefix = "";
     this.transitionEffectPrefix = "";
+    this.rootTransformDetailWarnings = new Set();
   }
 
   applyFont(applyFont) {
@@ -53,6 +55,7 @@ export class OutputSurfaceRuntime {
     this.activeTransitionTextureId = "";
     this.renderIdentityPrefix = "";
     this.transitionEffectPrefix = "";
+    this.rootTransformDetailWarnings.clear();
   }
 
   renderSurfaces() {
@@ -448,13 +451,21 @@ export class OutputSurfaceRuntime {
       renderIdentityPrefix: this.renderIdentityPrefix,
       surfaceProgram: orderedSurfaceProgram(surfaceProgram || renderer.mappingProgramSurfaces(renderer.state)),
       resolveRouteSourceNode: (surface) => renderer.resolveRouteSourceNode(surface),
-      isComponentRegionSafe: (component) => renderer.sceneComponentRegionSafe?.(component) === true,
+      isComponentRegionSafe: (component) => renderer.componentRegionSafe?.(component) === true,
       isComponentFrameFanoutSafe: (component) => renderer.sceneComponentFrameFanoutSafe?.(component) !== false,
     });
     renderer.frameProfile.surfaceRouteCandidates += metrics.candidates;
     renderer.frameProfile.surfaceRoutesCulled += metrics.culled;
     renderer.frameProfile.surfaceRoutesVisible += metrics.visible;
     renderer.frameProfile.componentRasterPixels += metrics.componentRasterPixels;
+    for (const componentId of metrics.rootTransformDetailLimited || []) {
+      if (this.rootTransformDetailWarnings.has(componentId)) continue;
+      this.rootTransformDetailWarnings.add(componentId);
+      console.warn("[VJ1_ROOT_CONTENT_DETAIL_LIMITED]", {
+        componentId,
+        message: "Root Content scale cannot use transformed ROI because the compiled graph contains a full-frame or non-region-safe operation; retaining bounded render demand.",
+      });
+    }
     for (const route of routes) {
       renderer.recordPresentedRenderRequest(route.componentRequest || route.surfaceRequest);
     }
@@ -658,18 +669,31 @@ export class OutputSurfaceRuntime {
       return this.drawSurfaceThumbnailRoute(target, surface, demand, compositeOpacity);
     }
     const componentTime = componentInstanceTime(component, renderer.componentTimes.get(surface.componentId) || 0, surface.id);
+    if (route.rootTransformRegion?.empty === true) {
+      target.clear();
+      return;
+    }
     const source = component ? renderer.renderComponentForRequest(component, componentTime, componentRequest) : renderer.mainMix;
     target.push();
     applyBlend(target, "normal");
     target.tint(255, 255 * clamp01(compositeOpacity));
-    const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, source);
-    drawTransformedSampleRect(
-      target,
-      source,
-      sampleRect,
-      component?.transform,
-      surface.sourceFitActive ? surface.sourceFit : "stretch"
-    );
+    if (route.rootTransformRegion) {
+      drawTransformedRegion(
+        target,
+        source,
+        route.rootTransformRegion.destinationRect,
+        component?.transform,
+      );
+    } else {
+      const sampleRect = scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, source);
+      drawTransformedSampleRect(
+        target,
+        source,
+        sampleRect,
+        component?.transform,
+        surface.sourceFitActive ? surface.sourceFit : "stretch"
+      );
+    }
     target.noTint();
     target.blendMode(BLEND);
     target.pop();
@@ -738,28 +762,23 @@ function drawTransformedSampleRect(target, source, sampleRect, transform = {}, f
   target.pop();
 }
 
-function fittedSampleRect(source = {}, targetWidth = 1, targetHeight = 1, fit = "stretch") {
-  const tw = Math.max(1, Number(targetWidth) || 1);
-  const th = Math.max(1, Number(targetHeight) || 1);
-  const sw = Math.max(1, Number(source.width) || 1);
-  const sh = Math.max(1, Number(source.height) || 1);
-  if (fit === "contain") {
-    const scale = Math.min(tw / sw, th / sh);
-    const width = sw * scale;
-    const height = sh * scale;
-    return { source, x: (tw - width) * 0.5, y: (th - height) * 0.5, width, height };
-  }
-  if (fit === "cover") {
-    const targetAspect = tw / th;
-    const sourceAspect = sw / sh;
-    if (sourceAspect > targetAspect) {
-      const width = sh * targetAspect;
-      return { source: { ...source, x: source.x + (sw - width) * 0.5, width }, x: 0, y: 0, width: tw, height: th };
-    }
-    const height = sw / targetAspect;
-    return { source: { ...source, y: source.y + (sh - height) * 0.5, height }, x: 0, y: 0, width: tw, height: th };
-  }
-  return { source, x: 0, y: 0, width: tw, height: th };
+function drawTransformedRegion(target, source, destinationRect = {}, transform = {}) {
+  const value = normalizedContentTransform(transform);
+  const placement = contentTransformCanvasPlacement(value, target.width, target.height);
+  target.push();
+  target.translate(placement.centerX, placement.centerY);
+  target.rotate(value.rotation);
+  target.scale(value.scale);
+  drawBuffer(
+    target,
+    source,
+    destinationRect.x - target.width * 0.5,
+    destinationRect.y - target.height * 0.5,
+    destinationRect.width,
+    destinationRect.height,
+    source?.__vj1ShaderBuffer === true,
+  );
+  target.pop();
 }
 
 function disposeGraphicsMap(map) {

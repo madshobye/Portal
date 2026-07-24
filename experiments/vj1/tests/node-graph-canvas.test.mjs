@@ -10,12 +10,14 @@ import {
   graphNodeFromDefinition,
   graphWithoutConnection,
   graphWithoutNode,
+  NODE_GRAPH_AUTHORING_TARGETS,
+  nodeDefinitionPlaceableInGraph,
   nodeGraphCanvasTemplate,
   nodePortTypesCompatible,
 } from "../js/control/node-graph-canvas.js";
-import { withProjectGroupGraph, withProjectNodeGraph } from "../js/control/node-editor-view.js";
+import { prepareProjectNodeGraphEdit, withProjectGroupGraph, withProjectNodeGraph } from "../js/control/node-editor-view.js";
 import { defineNode, defineNodeGroup, materializeProjectNodeFork, NodeRegistry } from "../js/libraries/node-engine/index.js";
-import { MixTextureNode } from "../js/libraries/composition-engine/index.js";
+import { LayerGroupNode, MixTextureNode } from "../js/libraries/composition-engine/index.js";
 
 const AddNode = defineNode({
   id: "test.canvas.add",
@@ -25,6 +27,34 @@ const AddNode = defineNode({
   parameters: { amount: { type: "number", defaultValue: 1 } },
   outlets: { value: "number" },
   process: ({ value, amount }) => ({ value: value + amount }),
+});
+
+const VisualControlNode = defineNode({
+  id: "test.canvas.visual-control",
+  name: "Visual control",
+  description: "Produces a reusable control value.",
+  capabilities: ["numeric-control"],
+  outlets: { value: "number" },
+  process: () => ({ value: 0.5 }),
+});
+
+const SceneValueNode = defineNode({
+  id: "test.canvas.scene-value",
+  name: "Scene value",
+  description: "Produces a synchronous Scene graph value.",
+  presentation: { placeableOn: ["node-graph"] },
+  outlets: { value: "record" },
+  process: () => ({ value: {} }),
+});
+
+const OfflineSceneValueNode = defineNode({
+  id: "test.canvas.offline-scene-value",
+  name: "Offline Scene value",
+  description: "Produces a value outside the live frame compiler.",
+  presentation: { placeableOn: ["node-graph"] },
+  execution: { workload: "offline" },
+  outlets: { value: "record" },
+  process: () => ({ value: {} }),
 });
 
 const directProgram = async (inputs, { run }) => run("add", inputs);
@@ -55,6 +85,52 @@ test("graph canvas renders draggable nodes, typed ports, and selectable wires", 
   assert.match(html, /data-node-graph-parameter="amount"/);
   assert.match(html, /value="2"/);
   assert.match(html, /Drag library nodes here/);
+});
+
+test("graph placement eligibility matches each production compiler boundary", () => {
+  const visualGenerator = {
+    id: "test.canvas.generator",
+    metadata: { visualKind: "generator" },
+    outlets: { texture: "texture" },
+  };
+  const compiledTexture = {
+    id: "test.canvas.compiled-texture",
+    metadata: { visualCompilerHook: { id: "test.visual.compiler" } },
+    outlets: { texture: "texture" },
+  };
+
+  assert.equal(nodeDefinitionPlaceableInGraph(
+    visualGenerator,
+    NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
+  ), true);
+  assert.equal(nodeDefinitionPlaceableInGraph(
+    compiledTexture,
+    NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
+  ), true);
+  assert.equal(nodeDefinitionPlaceableInGraph(
+    VisualControlNode,
+    NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
+  ), true);
+  assert.equal(nodeDefinitionPlaceableInGraph(
+    LayerGroupNode,
+    NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
+  ), true, "the editor exposes the same nested Layer Group accepted by visual lowering");
+  assert.equal(nodeDefinitionPlaceableInGraph(
+    AddNode,
+    NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
+  ), false);
+  assert.equal(nodeDefinitionPlaceableInGraph(
+    SceneValueNode,
+    NODE_GRAPH_AUTHORING_TARGETS.SCENE_3D,
+  ), true);
+  assert.equal(nodeDefinitionPlaceableInGraph(
+    OfflineSceneValueNode,
+    NODE_GRAPH_AUTHORING_TARGETS.SCENE_3D,
+  ), false);
+  assert.equal(nodeDefinitionPlaceableInGraph(
+    SceneValueNode,
+    NODE_GRAPH_AUTHORING_TARGETS.GENERIC,
+  ), true);
 });
 
 test("project Group canvases expose typed child ports as public interface actions", () => {
@@ -261,6 +337,77 @@ test("graph literal editors honor declared ranges and defer to connected paramet
   assert.match(html, /Value is supplied by a connected node/);
 });
 
+test("configurable inlet literals stay visible and defer to ordinary graph wires", () => {
+  const TransformNode = defineNode({
+    id: "test.canvas.configurable-inlet",
+    name: "Configurable inlet",
+    description: "Uses one typed inlet as editable configuration or a wired value.",
+    inlets: {
+      position: {
+        type: "vec3",
+        defaultValue: [0, 0, 0],
+      },
+    },
+    outlets: { value: "vec3" },
+    process: ({ position }) => ({ value: position }),
+  });
+  const Group = defineNodeGroup({
+    id: "test.canvas.connected-inlet",
+    name: "Connected inlet",
+    description: "Connects a public value to a configurable child inlet.",
+    executionModel: "graph",
+    inlets: { position: "vec3" },
+    outlets: { value: "vec3" },
+    nodes: [{
+      id: "transform",
+      type: TransformNode.id,
+      parameters: { position: [1, 2, 3] },
+    }],
+    connections: [
+      { from: "$in.position", to: "transform.position", type: "vec3" },
+      { from: "transform.value", to: "$out.value", type: "vec3" },
+    ],
+  });
+  const html = nodeGraphCanvasTemplate(Group, new NodeRegistry([TransformNode, Group]));
+
+  assert.match(html, /data-node-graph-parameter="position"/);
+  assert.match(html, /value="\[1,2,3\]"/);
+  assert.match(html, /data-node-graph-parameter="position"[^>]* disabled/);
+  assert.match(html, /Value is supplied by a connected node/);
+});
+
+test("color inlet literals expose RGB and alpha without losing transparent values", () => {
+  const ColorNode = defineNode({
+    id: "test.canvas.color-inlet",
+    name: "Color inlet",
+    description: "Keeps an authored RGBA value editable.",
+    inlets: {
+      color: {
+        type: "color",
+        defaultValue: "#12345680",
+      },
+    },
+    outlets: { value: "color" },
+    process: ({ color }) => ({ value: color }),
+  });
+  const Group = defineNodeGroup({
+    id: "test.canvas.color-group",
+    name: "Color group",
+    description: "Exposes one transparent color.",
+    executionModel: "graph",
+    outlets: { value: "color" },
+    nodes: [{ id: "color", type: ColorNode.id }],
+    connections: [{ from: "color.value", to: "$out.value", type: "color" }],
+  });
+  const html = nodeGraphCanvasTemplate(Group, new NodeRegistry([ColorNode, Group]));
+
+  assert.match(html, /data-node-graph-color-control/);
+  assert.match(html, /type="color" value="#123456"/);
+  assert.match(html, /data-node-graph-color-alpha/);
+  assert.match(html, /value="0\.5019607843137255"/);
+  assert.doesNotMatch(html, /type="color" value="#12345680"/);
+});
+
 test("graph connections enforce declared value-type compatibility", () => {
   assert.equal(nodePortTypesCompatible("number", "number"), true);
   assert.equal(nodePortTypesCompatible("any", "mesh"), true);
@@ -324,6 +471,39 @@ test("persisted project groups accept graph presentation changes without losing 
   assert.deepEqual(updated.groups[0].nodes[0].position, { x: 144, y: 88 });
   assert.equal(updated.groups[0].compiler.id, "specialized.visual");
   assert.equal(nodes.groups[0].nodes[0].position, undefined, "source project data is unchanged");
+});
+
+test("project graph mutations commit only after compiler preflight accepts the candidate", () => {
+  const nodes = {
+    authority: "node-graph",
+    groups: [{
+      id: "vj1.component.atomic",
+      componentId: "atomic",
+      nodes: [{ id: "source", nodeId: "test.canvas.add", nodeVersion: "0.1.0" }],
+      connections: [],
+    }],
+  };
+  const target = {
+    kind: "project-group",
+    id: "vj1.component.atomic",
+    group: nodes.groups[0],
+  };
+  const graph = graphWithNodePosition(nodes.groups[0], "source", { x: 210, y: 90 });
+  let candidate = null;
+  const accepted = prepareProjectNodeGraphEdit(nodes, target, graph, {
+    preflight: (nextTarget) => { candidate = nextTarget.group; },
+  });
+
+  assert.deepEqual(candidate.nodes[0].position, { x: 210, y: 90 });
+  assert.deepEqual(accepted.groups[0].nodes[0].position, { x: 210, y: 90 });
+  assert.equal(nodes.groups[0].nodes[0].position, undefined);
+  assert.throws(
+    () => prepareProjectNodeGraphEdit(nodes, target, graph, {
+      preflight: () => { throw new Error("COMPILER_REJECTED"); },
+    }),
+    /COMPILER_REJECTED/,
+  );
+  assert.equal(nodes.groups[0].nodes[0].position, undefined, "a rejected candidate cannot mutate project state");
 });
 
 test("dropping visual definitions creates compiler-owned Component operations rather than generic wrappers", () => {

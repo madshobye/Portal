@@ -1,4 +1,5 @@
 import { icon } from "./template-utils.js";
+import { UI_ICONS } from "./ui-icons.js";
 
 export function shellTemplate() {
   return `
@@ -17,30 +18,30 @@ export function shellTemplate() {
             <button id="close-project" class="icon-buttonish close-project-button is-hidden" type="button" title="Close project" aria-label="Close project">${icon("close")}</button>
           </div>
           <div id="workspace-switch" class="workspace-switch workspace-view-switch" role="group" aria-label="Views">
-            <button type="button" data-workspace="component" title="Components" aria-label="Components">${icon("extension")}</button>
-            <button type="button" data-workspace="scene" title="Scenes" aria-label="Scenes">${icon("landscape")}</button>
-            <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon("play_circle")}</button>
+            <button type="button" data-workspace="component" title="Components" aria-label="Components">${icon(UI_ICONS.component)}</button>
+            <button type="button" data-workspace="scene" title="Scenes" aria-label="Scenes">${icon(UI_ICONS.scene)}</button>
+            <button type="button" data-workspace="live" title="Live" aria-label="Live">${icon(UI_ICONS.live)}</button>
           </div>
           <button id="return-from-deep-edit" class="icon-buttonish deep-edit-return is-hidden" type="button" title="Return" aria-label="Return">${icon("arrow_back")}</button>
         </div>
         <div class="top-actions" data-scroll-region data-scroll-key="top-actions">
-          <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <div class="workspace-switch workspace-tool-switch" role="group" aria-label="Technical views">
-            <button type="button" data-workspace="mapping" class="is-active" title="Mapping" aria-label="Mapping">${icon("map")}</button>
-            <button type="button" data-workspace="nodes" title="Nodes" aria-label="Nodes">${icon("schema")}</button>
+            <button type="button" data-workspace="mapping" class="is-active" title="Mapping" aria-label="Mapping">${icon(UI_ICONS.mapping)}</button>
+            <button type="button" data-workspace="nodes" title="Nodes" aria-label="Nodes">${icon(UI_ICONS.nodes)}</button>
           </div>
+          <button id="toggle-preview" class="icon-buttonish" type="button" title="Toggle preview" aria-label="Toggle preview">${icon("visibility")}</button>
           <button id="toggle-output-hud" class="icon-buttonish" type="button" title="Output FPS and resolution" aria-label="Toggle output FPS and resolution">${icon("bug_report")}</button>
           <button id="open-settings" class="icon-buttonish" type="button" title="Settings" aria-label="Settings">${icon("settings")}</button>
           <div class="diagnostics-menu">
-            <button id="diagnostics-toggle" class="icon-buttonish diagnostics-toggle is-ok" type="button" title="Diagnostics: OK" aria-label="Open diagnostics, status OK" aria-expanded="false">${icon("check_circle")}</button>
+            <button id="diagnostics-toggle" class="icon-buttonish diagnostics-toggle is-ok" type="button" title="Diagnostics: OK" aria-label="Open diagnostics, status OK" aria-expanded="false"><span id="diagnostics-icon" class="material-symbols-rounded">check_circle</span><span id="diagnostics-count" class="diagnostics-count is-hidden" aria-hidden="true">0</span></button>
             <div id="diagnostics-summary" class="diagnostics-summary is-hidden" role="dialog" aria-label="Application diagnostics">
               <div id="diagnostics-summary-content"></div>
             </div>
           </div>
           <button id="undo-project" class="icon-buttonish" type="button" title="Undo" aria-label="Undo" disabled>${icon("undo")}</button>
           <button id="redo-project" class="icon-buttonish" type="button" title="Redo" aria-label="Redo" disabled>${icon("redo")}</button>
-          <button id="toggle-output-playback" class="icon-buttonish" type="button" title="Pause output" aria-label="Pause output" disabled>${icon("pause")}</button>
-          <button id="blackout-main" class="icon-buttonish danger" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
+          <button id="toggle-output-playback" class="icon-buttonish" type="button" title="Pause playback" aria-label="Pause playback">${icon("pause")}</button>
+          <button id="blackout-main" class="icon-buttonish danger is-output-enabled" type="button" title="Blackout" aria-label="Blackout">${icon("brightness_1")}</button>
           <details id="output-menu" class="output-menu">
             <summary class="icon-buttonish" title="Open output" aria-label="Open output">${icon("open_in_new")}</summary>
             <div id="output-menu-items" class="output-menu-items"></div>
@@ -94,6 +95,8 @@ export function collectRefs(root) {
     toggleOutputHud: root.querySelector("#toggle-output-hud"),
     openSettings: root.querySelector("#open-settings"),
     diagnosticsToggle: root.querySelector("#diagnostics-toggle"),
+    diagnosticsIcon: root.querySelector("#diagnostics-icon"),
+    diagnosticsCount: root.querySelector("#diagnostics-count"),
     diagnosticsSummary: root.querySelector("#diagnostics-summary"),
     diagnosticsSummaryContent: root.querySelector("#diagnostics-summary-content"),
     undo: root.querySelector("#undo-project"),

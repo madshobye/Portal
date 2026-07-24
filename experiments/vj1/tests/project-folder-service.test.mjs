@@ -11,6 +11,7 @@ import {
   projectHistorySignature,
   readProjectFile,
   persistedRenderSettings,
+  restoreProjectLiveUi,
 } from "../js/services/project-folder-service.js";
 import {
   createProjectSavePreparer,
@@ -22,7 +23,7 @@ import { CURRENT_PROJECT_VERSION } from "../js/domain/project-migrations.js";
 test("project lookup distinguishes a missing project from an unreadable existing project", async () => {
   const existingHandle = {
     async getFile() {
-      return { async text() { return '{"version":30,"project":{"name":"Existing"}}'; } };
+      return { async text() { return '{"version":31,"project":{"name":"Existing"}}'; } };
     },
   };
   const existingDirectory = {
@@ -34,7 +35,7 @@ test("project lookup distinguishes a missing project from an unreadable existing
   };
   assert.deepEqual(await readProjectFile(existingDirectory), {
     found: true,
-    data: { version: 30, project: { name: "Existing" } },
+    data: { version: 31, project: { name: "Existing" } },
   });
 
   let createCalls = 0;
@@ -172,6 +173,22 @@ test("Live scene selection is autosaved so reload restores user truth", () => {
   assert.doesNotMatch(skipBlock, /"live:scene"/);
   assert.match(skipBlock, /"live:update"/);
   assert.match(source, /const delay = immediate \|\| reason === "live:scene" \|\| event\.history === "record" \? 0 : autosaveDelayMs;/);
+});
+
+test("project restore resets transient Scene Mapping visibility to Mapping's persisted default", () => {
+  const disabled = restoreProjectLiveUi(
+    { sceneMappingInLive: true, sceneMappingVisible: true },
+    { sceneMappingInLive: false },
+  );
+  const enabled = restoreProjectLiveUi(
+    { sceneMappingInLive: false, sceneMappingVisible: false },
+    { sceneMappingInLive: true, sceneMappingVisible: false },
+  );
+
+  assert.equal(Object.hasOwn(disabled, "sceneMappingVisible"), false);
+  assert.equal(Object.hasOwn(enabled, "sceneMappingVisible"), false);
+  assert.equal(disabled.sceneMappingInLive, false);
+  assert.equal(enabled.sceneMappingInLive, true);
 });
 
 test("UI-only selection waits for an authored save or browser lifecycle checkpoint", () => {

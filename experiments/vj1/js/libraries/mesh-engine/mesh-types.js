@@ -1,5 +1,8 @@
 import { valueType } from "../node-engine/node-types.js";
 
+const meshResourceIdentities = new WeakMap();
+let nextMeshResourceIdentity = 1;
+
 export const MeshType = valueType("mesh", {
   name: "triangle-mesh",
   contractVersion: 1,
@@ -17,6 +20,26 @@ export function modelTriangleCount(mesh = {}) {
   if (mesh.triangleIndices instanceof Uint32Array) return Math.floor(mesh.triangleIndices.length / 3);
   if (mesh.positions instanceof Float32Array) return Math.floor(mesh.positions.length / 9);
   return Array.isArray(mesh.triangles) ? mesh.triangles.length : 0;
+}
+
+// GPU caches follow the actual canonical Mesh value, not merely its topology.
+// A replacement mesh with the same triangle count is still a different
+// resource. Producers that intentionally mutate one retained Mesh object must
+// advance `resourceRevision` (or metadata.resourceRevision) before publishing
+// it again.
+export function meshResourceCacheKey(mesh = {}) {
+  if (!mesh || typeof mesh !== "object") return "mesh:missing@0";
+  let identity = meshResourceIdentities.get(mesh);
+  if (!identity) {
+    identity = nextMeshResourceIdentity++;
+    meshResourceIdentities.set(mesh, identity);
+  }
+  const revision = mesh.resourceRevision ??
+    mesh.metadata?.resourceRevision ??
+    mesh.revision ??
+    mesh.metadata?.revision ??
+    0;
+  return `mesh:${identity}@${String(revision)}`;
 }
 
 export function modelTriangle(mesh = {}, index = 0) {

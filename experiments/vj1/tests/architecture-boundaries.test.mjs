@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { listGeneratorNodeComponents } from "../js/libraries/visual-nodes/index.js";
 
 const jsRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../js");
+const vjRoot = resolve(jsRoot, "..");
 const libraryRoot = resolve(jsRoot, "libraries");
 const modules = collectModules(jsRoot);
 const moduleSet = new Set(modules);
@@ -14,6 +15,28 @@ const graph = new Map(modules.map((filename) => [filename, localImports(filename
 test("JavaScript modules have an acyclic static dependency graph", () => {
   const cycles = findCycles(graph);
   assert.deepEqual(cycles, [], cycles.map((cycle) => cycle.map(moduleName).join(" -> ")).join("\n"));
+});
+
+test("browser source loading bypasses caches for the complete native module graph on ordinary refresh", () => {
+  const index = readFileSync(resolve(vjRoot, "index.html"), "utf8");
+  const worker = readFileSync(resolve(vjRoot, "module-source-worker.js"), "utf8");
+  const terrainFacade = readFileSync(resolve(libraryRoot, "terrain-engine/index.js"), "utf8");
+
+  assert.match(index, /module-source-worker\.js/);
+  assert.match(index, /updateViaCache:\s*"none"/);
+  assert.match(index, /navigator\.serviceWorker\.ready/);
+  assert.match(index, /navigator\.serviceWorker\.controller/);
+  assert.match(index, /controller\?\.scriptURL === workerUrl/);
+  assert.match(index, /controllerchange/);
+  assert.match(index, /VJ1_SOURCE_COHERENCE_BLOCKED/);
+  assert.match(index, /import\(`\.\/js\/app\.js\?v=/);
+  assert.doesNotMatch(index, /<script[^>]+type="module"[^>]+src="js\/app\.js/);
+  assert.match(worker, /self\.skipWaiting\(\)/);
+  assert.match(worker, /self\.clients\.claim\(\)/);
+  assert.match(worker, /fetch\(request,\s*\{\s*cache:\s*"no-store"\s*\}\)/);
+  assert.match(worker, /request\.mode === "navigate"/);
+  assert.match(terrainFacade, /\.\/geometry-provider\/index\.js\?v=/);
+  assert.match(terrainFacade, /\.\/flight-controller\/index\.js\?v=/);
 });
 
 test("domain and graph modules do not depend on application, UI, services, or output runtimes", () => {
@@ -89,15 +112,35 @@ test("visual nodes own their definitions instead of using aggregate manifests", 
   assert.match(renderer, /VJ1_COMPONENT_PROGRAM_MISSING/);
 });
 
-test("every native generator owns executable node code", () => {
-  const nativeGenerators = listGeneratorNodeComponents().filter((component) => component.nodeDefinition.metadata.nativeRenderer);
-  assert.equal(nativeGenerators.length > 0, true);
+test("every code generator or compiled visual Group exposes its real executable owner", () => {
+  const compiledGroups = listGeneratorNodeComponents().filter((component) =>
+    component.nodeDefinition.implementation.kind === "group" &&
+    component.nodeDefinition.implementation.executionModel === "compiled-graph"
+  );
+  const codeGenerators = listGeneratorNodeComponents().filter((component) =>
+    component.nodeDefinition.implementation.kind === "code"
+  );
+  assert.equal(codeGenerators.length > 0, true);
   assert.deepEqual(
-    nativeGenerators.filter((component) => component.nodeDefinition.metadata.nodeOwnedNativeModule !== true).map((component) => component.id),
+    codeGenerators.filter((component) => component.nodeDefinition.metadata.nodeOwnedNativeModule !== true).map((component) => component.id),
     []
   );
-  for (const component of nativeGenerators) {
+  for (const component of codeGenerators) {
     assert.ok(component.nodeDefinition.parts.some((part) => part.kind === "javascript"), `${component.id} needs editable JavaScript`);
+    assert.equal(component.nodeDefinition.metadata.nativeRenderer, undefined, `${component.id} executes its process without a host renderer label`);
+  }
+  for (const component of compiledGroups) {
+    const graph = component.nodeDefinition.parts.find((part) => part.kind === "graph");
+    assert.ok(graph?.editable, `${component.id} needs an editable executable graph`);
+    assert.ok(
+      component.nodeDefinition.compiler?.id || component.nodeDefinition.metadata?.visualCompilerHook?.id,
+      `${component.id} needs an explicit compiler`,
+    );
+    assert.equal(
+      component.nodeDefinition.parts.some((part) => part.kind === "javascript"),
+      false,
+      `${component.id} cannot expose unused parent code beside its executable child graph`,
+    );
   }
 });
 

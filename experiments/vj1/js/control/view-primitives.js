@@ -1,12 +1,31 @@
 import { esc, icon } from "./template-utils.js?v=slider-values-70";
 
-export function componentCardBarTemplate(label) {
-  return `<div class="component-card-bar"><span>${esc(label)}</span></div>`;
+export function componentCardBarTemplate(label, iconName) {
+  return `<div class="component-card-bar">
+    <span class="material-symbols-rounded component-card-type-icon" aria-hidden="true">${esc(iconName)}</span>
+    <span class="component-card-name">${esc(label)}</span>
+  </div>`;
 }
 
 export function scrollRegionTemplate(key, content, { className = "", attributes = "", tagName = "div" } = {}) {
   const safeTag = ["div", "nav", "ol", "section"].includes(tagName) ? tagName : "div";
   return `<${safeTag} class="${esc(className)}" data-scroll-region data-scroll-key="${esc(key)}" ${attributes}>${content}</${safeTag}>`;
+}
+
+export function elementListTemplate(key, content, {
+  className = "",
+  listClassName = "",
+  attributes = "",
+  listAttributes = "",
+  tagName = "section",
+} = {}) {
+  const safeTag = ["div", "nav", "section"].includes(tagName) ? tagName : "section";
+  return `<${safeTag} class="element-list-surface${className ? ` ${esc(className)}` : ""}" ${attributes}>
+    ${scrollRegionTemplate(key, content, {
+      className: listClassName,
+      attributes: listAttributes,
+    })}
+  </${safeTag}>`;
 }
 
 export function emptyStateTemplate(text) {
@@ -50,15 +69,28 @@ export function deepEditButtonTemplate(componentId, { chainItemId = "", classNam
   return `<button type="button" class="deep-edit-button ${esc(className)}" data-edit-component="${esc(componentId)}"${chainTarget} title="${esc(label)}" aria-label="${esc(label)}">${icon("edit")}</button>`;
 }
 
-export function enableToggleButton({ path = "", livePath = "", componentId = "", value = true, iconName = "power_settings_new", label = "", selectAction = "", selectId = "" }) {
+export function enableToggleButton({
+  path = "",
+  livePath = "",
+  componentId = "",
+  value = true,
+  iconName = "power_settings_new",
+  disabledIconName = "hide_source",
+  label = "",
+  showLabel = false,
+  className = "",
+  selectAction = "",
+  selectId = "",
+}) {
   const enabled = value !== false;
   const toggleAttrs = livePath
     ? `data-live-component-id="${esc(componentId)}" data-live-toggle="${esc(livePath)}"`
     : `data-toggle-path="${esc(path)}"`;
   const action = enabled ? "Disable" : "Enable";
   return `
-    <button type="button" class="enable-toggle ${enabled ? "is-enabled" : ""}" ${toggleAttrs} ${selectAction ? `data-toggle-select-action="${esc(selectAction)}" data-toggle-select-id="${esc(selectId)}"` : ""} data-toggle-value="${enabled ? "true" : "false"}" title="${action} ${esc(label)}" aria-label="${action} ${esc(label)}">
-      ${icon(enabled ? iconName : "hide_source")}
+    <button type="button" class="enable-toggle${showLabel ? " enable-toggle-labeled" : ""}${className ? ` ${esc(className)}` : ""} ${enabled ? "is-enabled" : ""}" ${toggleAttrs} ${selectAction ? `data-toggle-select-action="${esc(selectAction)}" data-toggle-select-id="${esc(selectId)}"` : ""} data-toggle-value="${enabled ? "true" : "false"}" aria-pressed="${enabled}" title="${action} ${esc(label)}" aria-label="${action} ${esc(label)}">
+      ${icon(enabled ? iconName : disabledIconName)}
+      ${showLabel ? `<span>${esc(label)}</span>` : ""}
     </button>
   `;
 }
@@ -98,6 +130,7 @@ export function textListItemTemplate({
   mainClass = "",
   mainAction = "",
   mainActionId = "",
+  mainAttributes = "",
   removeClass = "",
   removeAction = "",
   removeActionId = "",
@@ -118,7 +151,7 @@ export function textListItemTemplate({
   ].filter(Boolean).join(" ");
   const mainContent = `<span>${esc(label)}</span>${meta ? `<small>${esc(meta)}</small>` : ""}`;
   const main = mainAction
-    ? `<button type="button" class="${mainClasses}" ${mainAction}="${esc(mainActionId)}">${mainContent}</button>`
+    ? `<button type="button" class="${mainClasses}" ${mainAction}="${esc(mainActionId)}" ${mainAttributes}>${mainContent}</button>`
     : `<div class="${mainClasses}">${mainContent}</div>`;
   const remove = hasRemove
     ? `<button type="button" class="text-list-remove ${removeClass}" ${removeAction ? `${removeAction}="${esc(removeActionId)}"` : ""} ${removeAttributes} title="${esc(removeTitle)}" aria-label="${esc(removeTitle)} ${esc(label)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>`

@@ -1,10 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { buildFeatureMorphField, buildFeatureMorphMesh, matchSuperPointFeatures } from "../js/output/specialized/feature-morph-field.js";
 import { featureMorphPersistentKey, superPointAnalysisModule, SuperPointPairService } from "../js/output/specialized/superpoint-service.js";
-import { createGeneratorSource, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
+import {
+  compileSpecializedCompoundProgram,
+  createGeneratorSource,
+  evaluateSpecializedCompoundGraph,
+  FeatureMorphToImageNode,
+  getGeneratorNodeComponent as getGeneratorComponent,
+  MediaImageResourceNode,
+  MobileNetMorphAnalysisNode,
+  SpecializedCompoundStageNodeDefinitions,
+  SuperPointMorphAnalysisNode,
+} from "../js/libraries/visual-nodes/index.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/index.js";
-import { compileJavaScriptNodeModule, createProjectNodeFork, NODE_PART_KINDS } from "../js/libraries/node-engine/index.js";
+import {
+  compileJavaScriptNodeModule,
+  createProjectNodeFork,
+  materializeProjectNodeFork,
+  NODE_PART_KINDS,
+} from "../js/libraries/node-engine/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
 import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER } from "../js/output/specialized/feature-morph-shader.js";
 import { featureMorphNodeRuntimeModule, featureMorphNodeShaderSource } from "../js/output/specialized/specialized-source-runtime.js";
@@ -25,31 +41,125 @@ test("Feature Morph is a two-image generator with cached animation controls", ()
   assert.equal(component.runtime.timeDependent({ autoSpeed: 0.5 }), true);
   assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
   assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeProcess, false);
-  assert.deepEqual(component.nodeDefinition.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => part.id), [
+  assert.deepEqual(FeatureMorphToImageNode.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => part.id), [
     "feature-morph-vertex",
     "feature-morph-fragment",
   ]);
-  const compiled = compileJavaScriptNodeModule(component.nodeDefinition.parts, component.nodeDefinition);
-  assert.equal(typeof compiled.process, "function");
-  assert.equal(typeof compiled.exports.imageFitUniform, "function");
-  assert.equal(typeof compiled.exports.matchSuperPointFeatures, "function");
-  assert.equal(typeof compiled.exports.buildFeatureMorphField, "function");
-  assert.ok(component.nodeDefinition.parts.some((part) => part.id === "feature-morph-analysis-module"));
+  assert.equal(component.nodeDefinition.parts.some((part) => part.kind === NODE_PART_KINDS.SHADER), false);
+  assert.equal(component.nodeDefinition.parts.some((part) => part.id === "feature-morph-analysis-module"), false);
+  const analysisModule = compileJavaScriptNodeModule(SuperPointMorphAnalysisNode.parts, SuperPointMorphAnalysisNode);
+  const renderModule = compileJavaScriptNodeModule(FeatureMorphToImageNode.parts, FeatureMorphToImageNode);
+  assert.equal(typeof analysisModule.process, "function");
+  assert.equal(typeof analysisModule.exports.matchSuperPointFeatures, "function");
+  assert.equal(typeof analysisModule.exports.buildFeatureMorphField, "function");
+  assert.equal(typeof renderModule.exports.imageFitUniform, "function");
+
+  const definitions = new Map(SpecializedCompoundStageNodeDefinitions.map((definition) => [definition.id, definition]));
+  const program = compileSpecializedCompoundProgram(component.nodeDefinition, {
+    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  });
+  assert.deepEqual(program.stages.map((stage) => stage.nodeId), [
+    MediaImageResourceNode.id,
+    MediaImageResourceNode.id,
+    SuperPointMorphAnalysisNode.id,
+    FeatureMorphToImageNode.id,
+  ]);
+  assert.deepEqual(program.nativeKernel("feature-morph").inputBindings, {
+    imageA: { stageId: "image-a", portId: "image" },
+    imageB: { stageId: "image-b", portId: "image" },
+    analysis: { stageId: "analysis", portId: "analysis" },
+  });
+  const graph = evaluateSpecializedCompoundGraph(
+    { nativeCompoundProgram: program },
+    { imageAId: "a.png", imageBId: "b.png", landmarkCount: 88, morph: 0.4 },
+    { instanceId: "feature-morph-test" },
+  );
+  assert.equal(graph.stageInput("render", "imageA").mediaId, "a.png");
+  assert.equal(graph.stageInput("render", "imageB").mediaId, "b.png");
+  assert.equal(graph.stageInput("render", "analysis").providerId, "superpoint");
+  assert.equal(graph.stageInput("render", "analysis").settings.landmarkCount, 88);
+  assert.equal(graph.stageInputs("render").settings.morph, 0.4);
+  program.dispose();
 
   const source = createGeneratorSource("featureMorph", { imageAId: "a.png", imageBId: "b.png" });
   assert.equal(source.params.imageAId, "a.png");
   assert.equal(source.params.imageBId, "b.png");
 });
 
-test("Feature Morph project forks supply image fitting and GLSL to the retained host", () => {
-  const base = getGeneratorComponent("featureMorph").nodeDefinition;
-  const fork = createProjectNodeFork(base, {
-    forkId: "feature-morph-project",
-    overrides: {
-      parts: base.parts.map((part) => {
-        if (part.id === "feature-morph-fit-module") {
-          return { ...part, source: "function imageFitUniform() { return [2, 3, 4, 5]; }" };
+test("Feature Morph analysis is a typed provider substitution rather than a second renderer", () => {
+  const definition = getGeneratorComponent("featureMorph").nodeDefinition;
+  const definitions = new Map(SpecializedCompoundStageNodeDefinitions.map((item) => [item.id, item]));
+  const edited = {
+    ...definition,
+    parts: definition.parts.map((part) => part.kind === NODE_PART_KINDS.GRAPH
+      ? {
+          ...part,
+          nodes: part.nodes.map((node) => node.id === "analysis"
+            ? {
+                ...node,
+                type: MobileNetMorphAnalysisNode.id,
+                parameters: { providerId: "mobilenet", featureGrid: 15 },
+              }
+            : node),
         }
+      : part),
+  };
+  const program = compileSpecializedCompoundProgram(edited, {
+    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  });
+  const graph = evaluateSpecializedCompoundGraph(
+    { nativeCompoundProgram: program },
+    { imageAId: "a", imageBId: "b" },
+    { instanceId: "feature-morph-substitution" },
+  );
+
+  assert.equal(graph.stageInput("render", "analysis").providerId, "mobilenet");
+  assert.equal(graph.stageInput("render", "analysis").settings.featureGrid, 15);
+  assert.equal(program.nativeKernel("feature-morph").kernel, "feature-morph");
+  assert.ok(program.nativeModuleDefinitions.includes(MobileNetMorphAnalysisNode));
+
+  const renderer = new OutputRenderer({ mode: "component" });
+  const superPointService = renderer.superPointPairs;
+  const mobileNetService = renderer.mobileNetMorphPairs;
+  const projectService = {};
+  renderer.specializedSources.registerFeatureMorphAnalysisProvider("project-analysis", {
+    service: () => projectService,
+  });
+  assert.strictEqual(renderer.featureMorphPairService("project-analysis"), projectService);
+  assert.equal(renderer.featureMorphPairService("unknown-analysis"), null);
+  renderer.generatorNodeComponent = () => ({ nodeDefinition: edited });
+  assert.strictEqual(
+    renderer.featureMorphPairService("mobilenet"),
+    mobileNetService,
+    "dirty/readiness analysis follows the authored provider rather than the legacy visual ID",
+  );
+  assert.equal(
+    renderer.featureMorphAnalysisContract("featureMorph", {
+      imageAId: "a",
+      imageBId: "b",
+    }).params.featureGrid,
+    15,
+    "dirty/readiness keys include internal provider literals used by rendering",
+  );
+  renderer.generatorNodeComponent = () => ({ nodeDefinition: definition });
+  assert.strictEqual(renderer.featureMorphPairService("superpoint"), superPointService);
+  const specializedSource = readFileSync(
+    new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url),
+    "utf8",
+  );
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  assert.doesNotMatch(specializedSource, /source\.generatorId === "featureMorphV2"|isMobileNet/);
+  assert.doesNotMatch(rendererSource, /generatorId === "featureMorph"|generatorId === "featureMorphV2"/);
+  renderer.dispose();
+  program.dispose();
+});
+
+test("Feature Morph child forks supply analysis, image fitting, and GLSL to the retained host", () => {
+  const analysisBase = SuperPointMorphAnalysisNode;
+  const analysisFork = createProjectNodeFork(analysisBase, {
+    forkId: "feature-morph-analysis-project",
+    overrides: {
+      parts: analysisBase.parts.map((part) => {
         if (part.id === "feature-morph-analysis-module") {
           return {
             ...part,
@@ -64,18 +174,33 @@ test("Feature Morph project forks supply image fitting and GLSL to the retained 
       }),
     },
   });
-  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
-  const resolved = resolver.definition(base.id);
+  const renderBase = FeatureMorphToImageNode;
+  const renderFork = createProjectNodeFork(renderBase, {
+    forkId: "feature-morph-render-project",
+    overrides: {
+      parts: renderBase.parts.map((part) => {
+        if (part.id === "feature-morph-fit-module") {
+          return { ...part, source: "function imageFitUniform() { return [2, 3, 4, 5]; }" };
+        }
+        if (part.id === "feature-morph-fragment") {
+          return { ...part, source: "precision mediump float; void main() { gl_FragColor = vec4(0.25); }" };
+        }
+        return part;
+      }),
+    },
+  });
+  const resolvedAnalysis = materializeProjectNodeFork(analysisBase, analysisFork);
+  const resolvedRender = materializeProjectNodeFork(renderBase, renderFork);
   const operation = {
-    nodeModule: resolved.moduleExports,
-    nodeShaders: Object.fromEntries(resolved.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => [part.id, part.source])),
+    nodeModule: { ...resolvedAnalysis.moduleExports, ...resolvedRender.moduleExports },
+    nodeShaders: Object.fromEntries(resolvedRender.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => [part.id, part.source])),
   };
 
   assert.deepEqual(featureMorphNodeRuntimeModule(operation).imageFitUniform({}, 1, 1), [2, 3, 4, 5]);
   assert.deepEqual(superPointAnalysisModule(featureMorphNodeRuntimeModule(operation)).matchSuperPointFeatures(), ["project-fork"]);
   assert.deepEqual(superPointAnalysisModule(featureMorphNodeRuntimeModule(operation)).buildFeatureMorphField(), { width: 7 });
   assert.equal(featureMorphNodeShaderSource(operation, "vertex"), FEATURE_MORPH_VERTEX_SHADER);
-  assert.equal(featureMorphNodeShaderSource(operation, "fragment"), FEATURE_MORPH_FRAGMENT_SHADER);
+  assert.match(featureMorphNodeShaderSource(operation, "fragment"), /vec4\(0\.25\)/);
 });
 
 test("mutual descriptor matching rejects ambiguous and excessive motion", () => {

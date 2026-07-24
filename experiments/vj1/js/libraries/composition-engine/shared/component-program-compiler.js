@@ -1,5 +1,5 @@
-import { ComponentProgramNode } from "../component-program/index.js";
-import { LayerGroupNode } from "../layer-group/index.js";
+import { ComponentProgramNode } from "../component-program/index.js?v=compiler-template-authority-1";
+import { LayerGroupNode } from "../layer-group/index.js?v=compiler-template-authority-1";
 import { VisualSourceNode, visualSourceRenderer } from "../visual-source/index.js";
 import { defineNodeCompiler, NodeCompilerRegistry, NODE_COMPILER_TARGETS } from "../../node-engine/index.js";
 import {
@@ -7,7 +7,7 @@ import {
   visualNodeContractFromMetadata,
   VISUAL_TRANSFORM_DOMAINS,
 } from "../../render-engine/visual-node-contract.js";
-import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=public-control-node-configuration-named-image-inputs-1";
+import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=compiled-semantic-specialized-compounds-26";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";
@@ -344,6 +344,17 @@ function visualCompilerHookFor(item, definition) {
     transformDomain: metadata.transformSource === false
       ? VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD
       : VISUAL_TRANSFORM_DOMAINS.COMPOSITION,
+  };
+  // A code-owned visual process is already the executable source operation.
+  // Prefer that generic compiled path over any legacy nativeRenderer label so
+  // simple node implementations never require visual-name host dispatch.
+  if (metadata.nodeOwnedNativeProcess) return {
+    id: VISUAL_COMPILER_HOOKS.SOURCE,
+    renderer: visualSourceRenderer(item.source || {}),
+    allocationStable: metadata.allocationStableDirectPath === true,
+    contract: visualNodeContractFromMetadata(metadata, {
+      transform: { domain: VISUAL_TRANSFORM_DOMAINS.CONTENT },
+    }),
   };
   if (metadata.nativeRenderer) return {
     id: VISUAL_COMPILER_HOOKS.NATIVE_SOURCE,

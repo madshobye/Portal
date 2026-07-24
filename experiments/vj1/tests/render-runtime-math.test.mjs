@@ -18,13 +18,15 @@ import {
   RateClockNode,
   VisualTimeScaleNode,
 } from "../js/libraries/timing-engine/index.js";
+import { getGeneratorNodeComponent } from "../js/libraries/visual-nodes/index.js";
 
 test("render runtime math owns quality timing and transform policy", () => {
   assert.deepEqual(
     qualityScaledRenderRequest({ width: 200, height: 100 }, { renderQuality: 0 }),
     { width: 70, height: 35, logicalWidth: 200, logicalHeight: 100, qualityScale: 0.35 }
   );
-  assert.equal(qualityAdjustedGeneratorParams("cellularCircles", { renderQuality: 1, searchRadius: 4 }).searchRadius, 5);
+  const cellularCircles = getGeneratorNodeComponent("cellularCircles");
+  assert.equal(qualityAdjustedGeneratorParams(cellularCircles, { renderQuality: 1, searchRadius: 4 }).searchRadius, 5);
   assert.equal(componentInstanceTime({ id: "shared", syncInstances: true }, 12, "a"), 12);
   assert.notEqual(instanceTime("chain-item-a", 12), instanceTime("chain-item-b", 12));
   assert.equal(globalVisualTimeScale({ timeStretch: -4 }), 0);
@@ -35,7 +37,7 @@ test("render runtime math owns quality timing and transform policy", () => {
 
 test("unchanged generator params and eyeball animation can remain allocation-stable", () => {
   const params = { renderQuality: 0.5, gazeRange: 1 };
-  assert.equal(qualityAdjustedGeneratorParams("eyeball", params), params);
+  assert.equal(qualityAdjustedGeneratorParams(getGeneratorNodeComponent("eyeball"), params), params);
 
   const frame = eyeballFrameUniforms(1, params);
   const vectorReferences = [frame.gazeDir, frame.irisRight, frame.irisUp];
@@ -45,9 +47,44 @@ test("unchanged generator params and eyeball animation can remain allocation-sta
   assert.equal(frame.irisUp, vectorReferences[2]);
 });
 
+test("generator definitions own phase-rate and quality-derived work budgets", () => {
+  const expectedRateOwners = [
+    "fireflies",
+    "bezierStrokes",
+    "shadertoyBaseWarp",
+    "cellularCircles",
+    "galaxy",
+    "lightning",
+    "fog",
+    "volumetricClouds",
+    "sunRays",
+    "seascape",
+    "paintDrips",
+    "cloudyTunnel",
+    "cherenkovVolume",
+    "biomineLite",
+  ];
+  for (const id of expectedRateOwners) {
+    assert.equal(getGeneratorNodeComponent(id).runtime.rateParam, "speed", `${id} must declare its own rate parameter`);
+  }
+
+  const cloudy = getGeneratorNodeComponent("cloudyTunnel");
+  assert.deepEqual(
+    [0, 0.5, 1].map((renderQuality) =>
+      qualityAdjustedGeneratorParams(cloudy, { renderQuality, raySteps: 72, cloudDetail: 2 })
+    ),
+    [
+      { renderQuality: 0, raySteps: 25, cloudDetail: 1 },
+      { renderQuality: 0.5, raySteps: 72, cloudDetail: 2 },
+      { renderQuality: 1, raySteps: 108, cloudDetail: 3 },
+    ],
+  );
+});
+
 test("output renderer imports runtime policy instead of defining it", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  const runtimeMathSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.match(rendererSource, /from "\.\/render-runtime-math\.js\?v=[^"]+"/);
   assert.doesNotMatch(rendererSource, /function qualityScaledRenderRequest\(/);
@@ -55,6 +92,7 @@ test("output renderer imports runtime policy instead of defining it", () => {
   assert.doesNotMatch(rendererSource, /function globalVisualTimeScale\(/);
   assert.doesNotMatch(rendererSource, /function effectTransformUniforms\(/);
   assert.match(rendererSource, /globalVisualTimeScale, qualityAdjustedGeneratorParams/);
+  assert.doesNotMatch(runtimeMathSource, /QUALITY_ADJUSTED_GENERATORS|generatorId ===/);
   assert.match(sourceRuntime, /componentInstanceTime,\s*instanceTime,\s*qualityScaledRenderRequest/);
   assert.doesNotMatch(sourceRuntime, /function instanceTime\(/);
 });

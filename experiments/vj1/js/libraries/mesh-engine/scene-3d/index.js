@@ -1,6 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../node-engine/node-definition.js";
 import { listType } from "../../node-engine/node-types.js";
-import { Camera3dType, createScene3d, Object3dType, Scene3dType } from "../scene-types.js";
+import { Camera3dType, createScene3d, Object3dType, Scene3dType } from "../scene-types.js?v=editable-inlet-literals-1";
 
 export const Scene3dNode = defineNode({
   id: "core.scene3d.scene",
@@ -11,7 +11,7 @@ export const Scene3dNode = defineNode({
   inlets: {
     objects: { type: listType(Object3dType), defaultValue: [] },
     camera: { type: Camera3dType, optional: true },
-    background: { type: "color", defaultValue: [0, 0, 0, 0] },
+    background: { type: "color", defaultValue: "#00000000" },
   },
   outlets: { scene: { type: Scene3dType } },
   execution: { trigger: "input-change", domain: "main", pure: true },

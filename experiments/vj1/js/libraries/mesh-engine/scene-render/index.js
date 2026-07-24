@@ -1,5 +1,9 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
-import { renderMeshNodeProcess, disposeRawModelItemResources } from "../mesh-render/index.js";
+import {
+  releaseMeshRenderCacheOwner,
+  renderMeshNodeProcess,
+  retainMeshRenderCacheOwner,
+} from "../mesh-render/index.js";
 import { Scene3dType } from "../scene-types.js";
 
 export const SceneToImageNode = defineNode({
@@ -56,7 +60,8 @@ export const SceneToImageNode = defineNode({
   }],
   moduleBindings: {
     renderMeshNodeProcess,
-    disposeRawModelItemResources,
+    retainMeshRenderCacheOwner,
+    releaseMeshRenderCacheOwner,
   },
   process: sceneToImageNodeProcess,
 });
@@ -93,7 +98,7 @@ export function sceneToImageNodeProcess(inputs = {}, { state = {}, output = null
     }
     let cacheOwner = meshCacheOwners.get(object.mesh);
     if (!cacheOwner) {
-      cacheOwner = { modelData: object.mesh };
+      cacheOwner = retainMeshRenderCacheOwner(object.mesh);
       meshCacheOwners.set(object.mesh, cacheOwner);
     }
     renderMeshNodeProcess({
@@ -115,7 +120,7 @@ export function sceneToImageNodeProcess(inputs = {}, { state = {}, output = null
   }
   for (const [mesh, cacheOwner] of meshCacheOwners) {
     if (activeMeshes.has(mesh)) continue;
-    disposeRawModelItemResources(cacheOwner);
+    releaseMeshRenderCacheOwner(cacheOwner);
     meshCacheOwners.delete(mesh);
   }
 
@@ -126,7 +131,7 @@ export function sceneToImageNodeProcess(inputs = {}, { state = {}, output = null
 
 export function disposeSceneRenderState(state = {}) {
   for (const cacheOwner of state.meshCacheOwners?.values?.() || []) {
-    disposeRawModelItemResources(cacheOwner);
+    releaseMeshRenderCacheOwner(cacheOwner);
   }
   state.meshCacheOwners?.clear?.();
   state.objectStates?.clear?.();

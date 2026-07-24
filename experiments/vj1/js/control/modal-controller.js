@@ -1,15 +1,24 @@
-import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js?v=output-one-1";
+import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js?v=projector-resolution-ceilings-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=picker-filter-tabs-derived-thumbnail-projection-1";
-import { configuredOutputsTemplate, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js?v=output-one-1";
+import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=picker-filter-tabs-derived-thumbnail-projection-shared-ui-icons-1";
+import { configuredOutputsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js?v=parameter-surface-projector-resolution-ceilings-inputs-tab-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
 import { renameScreenCaptureInput, screenCaptureStatus, startScreenCapture, stopScreenCapture, stopScreenCaptureInput, subscribeScreenCapture } from "../output/screen-capture-service.js?v=screen-input-registry-1";
-import { screenInputOptionsTemplate } from "./parameter-view.js?v=inspector-pending-node-1";
+import { screenInputOptionsTemplate } from "./parameter-view.js?v=remove-boundary-note-1";
 
 export function nextPickerFilter(activeFilter = "all", requestedFilter = "all") {
   return activeFilter === requestedFilter ? "all" : requestedFilter;
+}
+
+export function sourceForCatalogMedia(mediaId, state = {}) {
+  const id = String(mediaId || "");
+  const media = (state?.media || []).find((item) => String(item.id || "") === id);
+  const model = media?.type === "model" || /\.(?:stl|obj)$/i.test(id);
+  return model
+    ? { type: "generator", generatorId: "modelMedia", params: { mediaId: id } }
+    : { type: "media", mediaId: id };
 }
 
 export function createModalController({
@@ -65,12 +74,13 @@ export function createModalController({
 
   function renderSettings(host, state) {
     resetDemandMediaPreviews();
+    settingsTab = normalizeSettingsTab(settingsTab);
     if (!host.querySelector("[data-settings-modal]")) {
       replaceHtmlIfChanged(host, settingsModalTemplate(state, settingsTab));
       bindClose(host, closeSettings);
       host.querySelectorAll("[data-settings-tab]").forEach((button) => {
         button.addEventListener("click", () => {
-          settingsTab = button.dataset.settingsTab || "outputs";
+          settingsTab = normalizeSettingsTab(button.dataset.settingsTab);
           applySettingsTab(host);
         });
       });
@@ -139,7 +149,10 @@ export function createModalController({
     focusPendingElementPickerSearch(host);
     bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-add-element-media]").forEach((button) => {
-      button.addEventListener("click", () => addElement("source", { type: "media", mediaId: button.dataset.addElementMedia || "" }));
+      button.addEventListener("click", () => {
+        const mediaId = button.dataset.addElementMedia || "";
+        addElement("source", sourceForCatalogMedia(mediaId, getState()));
+      });
     });
     host.querySelectorAll("[data-add-element-component]").forEach((button) => {
       button.addEventListener("click", () => addElement("source", { type: "component", componentId: button.dataset.addElementComponent || "" }));
@@ -419,6 +432,7 @@ export function createModalController({
   }
 
   function applySettingsTab(host) {
+    settingsTab = normalizeSettingsTab(settingsTab);
     host.querySelectorAll("[data-settings-tab]").forEach((button) => {
       const active = button.dataset.settingsTab === settingsTab;
       setClass(button, "is-active", active);
@@ -549,7 +563,12 @@ export function createModalController({
     if (!target?.path) return;
     store.update((draft) => {
       const previous = getByPath(draft, target.path) || {};
-      setByPath(draft, target.path, mergeSourceChoice(previous, source));
+      setByPath(draft, target.path, mergeSourceChoice(
+        previous,
+        source?.type === "media"
+          ? sourceForCatalogMedia(source.mediaId, draft)
+          : source,
+      ));
     }, `update:${target.path}`);
   }
 

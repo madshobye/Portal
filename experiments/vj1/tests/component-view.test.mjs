@@ -2,8 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { sceneInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate, videoTrimValues } from "../js/control/component-view.js";
-import { createComponentEffect, createInitialState, normalizeMediaMeta } from "../js/domain/models.js?v=render-coordinate-scope-3";
+import { sceneInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate, sourceChainItemDisplayName, videoTrimValues } from "../js/control/component-view.js";
+import { createComponentEffect, createInitialState, normalizeComponentChainItem, normalizeMediaMeta } from "../js/domain/models.js?v=derived-media-element-names-1";
 import { createProjectVisualGroupDefinition, defineNode, NodeRegistry } from "../js/libraries/node-engine/index.js";
 import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
 import { withProjectNodeGraph, withProjectNodeParameterExposure } from "../js/control/node-editor-view.js";
@@ -27,6 +27,28 @@ test("video trim uses decoded duration and never invents a silent timeline", () 
   assert.equal(videoTrimValues({}, {}).max, 1, "pending metadata only gets an inert one-second markup range");
   assert.equal(normalizeMediaMeta({ id: "media/clip.mp4", duration: 10 }).duration, 10, "duration survives ordinary state normalization");
   assert.equal("duration" in normalizeMediaMeta({ id: "media/clip.mp4", duration: Infinity }), false, "invalid duration is never normalized into the catalog");
+});
+
+test("media element names follow the current file basename until explicitly renamed", () => {
+  const source = { type: "media", mediaId: "media/sets/old-name.png" };
+  const automatic = normalizeComponentChainItem({
+    id: "media-layer",
+    kind: "source",
+    name: "media/sets/old-name.png",
+    source,
+  });
+
+  assert.equal(automatic.name, "", "legacy copied repository paths migrate back to an automatic label");
+  assert.equal(
+    sourceChainItemDisplayName(automatic, { id: source.mediaId, name: "renamed-file.png" }),
+    "renamed-file.png",
+  );
+
+  const custom = normalizeComponentChainItem({
+    ...automatic,
+    name: "Backdrop",
+  });
+  assert.equal(sourceChainItemDisplayName(custom, { id: source.mediaId, name: "renamed-again.png" }), "Backdrop");
 });
 
 test("Component and Canvas chain presentation lives outside the control orchestrator", () => {

@@ -1,19 +1,17 @@
-import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
-import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
+import { createColorParam, createEnumParam, createNumberParam } from "../../shared/component-schema.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
-  defineSpecializedVisualCompound,
-  NativeRenderToTextureNode,
-  ProceduralGeometryProviderNode,
-  ShaderMaterialProviderNode,
-  VisualCameraProviderNode,
-} from "../../shared/specialized-compound.js?v=specialized-stage-authority-1";
-import { Transform3dNode } from "../../../mesh-engine/transform-3d/index.js";
+  AnatomyGeometryProviderNode,
+  ModelFitCameraNode,
+} from "../../shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
+import { defineScene3dVisualCompound } from "../../shared/scene3d-visual-compound.js?v=anatomy-scene3d-1";
+import { AnatomyMotionTransform3dNode } from "../../providers/anatomy-motion-transform/index.js?v=anatomy-scene3d-1";
+import { AnatomyMaterialPaletteNode } from "../../providers/anatomy-material-palette/index.js?v=anatomy-scene3d-1";
 import {
-  anatomyNodeModuleParts,
-  anatomyNodeProcess,
-  AnatomyNodeExports,
-} from "./node-module.js";
+  MeshCollectionObjects3dNode,
+  Scene3dNode,
+  SceneToImageNode,
+} from "../../../mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
 
 const manifest = Object.freeze({
     id: "anatomy",
@@ -51,45 +49,42 @@ const manifest = Object.freeze({
     ],
   });
 
-const NativeVisualComponent = defineGeneratorNode(manifest, null, {
-  direct: false,
-  process: anatomyNodeProcess,
-  exports: AnatomyNodeExports,
-  parts: anatomyNodeModuleParts(),
-});
+const NativeVisualComponent = defineGeneratorNode(manifest);
 
-export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
-  compoundKind: "anatomy",
+export const VisualComponent = defineScene3dVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "geometry", type: ProceduralGeometryProviderNode.id, parameters: { providerId: "low-poly-anatomy" } },
-    { id: "transform", type: Transform3dNode.id },
-    { id: "material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "lit-mesh" } },
-    {
-      id: "camera",
-      type: VisualCameraProviderNode.id,
-      parameters: {
-        providerId: "perspective-model",
-        settings: { fieldOfView: 60 },
-      },
-    },
-    { id: "render", type: NativeRenderToTextureNode.id, parameters: { providerId: "anatomy-retained-webgl" } },
+    { id: "geometry", type: AnatomyGeometryProviderNode.id, parameters: { providerId: "low-poly-anatomy" } },
+    { id: "motion", type: AnatomyMotionTransform3dNode.id },
+    { id: "materials", type: AnatomyMaterialPaletteNode.id },
+    { id: "objects", type: MeshCollectionObjects3dNode.id },
+    { id: "camera", type: ModelFitCameraNode.id, parameters: { fieldOfView: Math.PI / 3 } },
+    { id: "scene", type: Scene3dNode.id },
+    { id: "render", type: SceneToImageNode.id },
   ],
   connections: [
-    { from: "geometry.geometry", to: "render.geometry", type: "geometry-provider" },
-    { from: "transform.transform", to: "render.transform", type: "transform3d" },
-    { from: "material.material", to: "render.material", type: "visual-material-provider" },
-    { from: "camera.camera", to: "render.camera", type: "visual-camera-provider" },
+    { from: "geometry.collection", to: "motion.collection", type: "mesh-collection" },
+    { from: "geometry.collection", to: "objects.collection", type: "mesh-collection" },
+    { from: "motion.transform", to: "objects.transform", type: "transform3d" },
+    { from: "materials.defaultMaterial", to: "objects.defaultMaterial", type: "material3d" },
+    { from: "materials.bindings", to: "objects.materialBindings", type: "list<material-binding3d>" },
+    { from: "objects.objects", to: "scene.objects", type: "list<object3d>" },
+    { from: "camera.camera", to: "scene.camera", type: "camera3d" },
+    { from: "scene.scene", to: "render.scene", type: "scene3d" },
+    { from: "$in.componentTime", to: "render.componentTime", type: "number" },
   ],
-  parameterBindings: {
-    geometry: ["part", "detail", "depth", "expression", "mouthOpen", "brow", "eyeSquint", "fingerBend", "limbBend", "heartPulse"],
-    transform: ["modelScale", "rotationX", "rotationY", "rotationZ", "spinX", "spinY", "spinZ"],
-    material: ["renderMode", "surfaceColor", "wireColor", "wireThickness"],
-    render: ["renderQuality"],
+  controlBindings: {
+    geometry: ["part", "detail", "depth", "expression", "mouthOpen", "brow", "eyeSquint", "fingerBend", "limbBend", "renderQuality"],
+    motion: [
+      "modelScale",
+      "rotationX", "rotationY", "rotationZ", "spinX", "spinY", "spinZ",
+      "heartPulse",
+    ],
+    materials: ["renderMode", "surfaceColor", "wireColor", "wireThickness"],
   },
-  parameterPresentation: {
+  controlPresentation: {
     geometry: { label: "Geometry", order: 10 },
-    transform: { label: "Transform", order: 20 },
-    material: { label: "Material", order: 30 },
+    motion: { label: "Transform", order: 20 },
+    materials: { label: "Material", order: 30 },
   },
 });
 export default VisualComponent;

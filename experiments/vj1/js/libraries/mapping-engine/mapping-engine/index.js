@@ -860,14 +860,31 @@ export function disposeP5Shader(shaderProgram) {
   if (!shaderProgram) return;
   const gl = shaderProgram?._renderer?.GL || shaderProgram?._renderer?.drawingContext;
   const program = shaderProgram?._glProgram;
-  if (gl && program && typeof gl.isProgram === "function" && gl.isProgram(program)) gl.deleteProgram(program);
+  deleteWebGlResource(gl, program, "isProgram", "deleteProgram");
   const vertex = shaderProgram?._vertShader;
-  if (gl && vertex && typeof gl.isShader === "function" && gl.isShader(vertex)) gl.deleteShader(vertex);
+  deleteWebGlResource(gl, vertex, "isShader", "deleteShader");
   const fragment = shaderProgram?._fragShader;
-  if (gl && fragment && typeof gl.isShader === "function" && gl.isShader(fragment)) gl.deleteShader(fragment);
+  deleteWebGlResource(gl, fragment, "isShader", "deleteShader");
   shaderProgram._glProgram = 0;
   shaderProgram._vertShader = 0;
   shaderProgram._fragShader = 0;
+}
+
+function deleteWebGlResource(gl, resource, predicateName, deleteName) {
+  if (!gl || !resource ||
+      typeof gl[predicateName] !== "function" ||
+      typeof gl[deleteName] !== "function") return false;
+  // p5 shader wrappers can retain source/wrapper values in these private
+  // fields while compilation or context replacement is in progress. WebIDL
+  // predicates throw for those values instead of returning false, so resource
+  // disposal must treat type rejection as "not owned by this GL context".
+  try {
+    if (!gl[predicateName](resource)) return false;
+    gl[deleteName](resource);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function surfaceBounds(tl, tr, br, bl) {

@@ -30,6 +30,7 @@ test("Mapping and Live Scene presentation lives outside the control orchestrator
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.match(mappingPillTemplate(mapping, state), /data-select-mapping=/);
+  assert.match(mappingPillTemplate(mapping, state), />select_all</);
   assert.match(liveScenePillTemplate(liveScene, state), /data-live-scene=/);
   assert.match(liveScenePillTemplate(liveScene, state), /data-cycle-catalog-marker="scene"/);
   assert.match(liveInspectorTemplate(state), /live-component-card|No components/);
@@ -127,10 +128,20 @@ test("Live projection column exposes the overall Mapping and every Surface", () 
   assert.match(overallPatchedHtml, /data-clear-live-overall-component="__mapping__"/);
 });
 
+test("Scene and Component cards share their workspace type icons across Live and authored catalogs", () => {
+  const { state, liveScene } = stateWithScene();
+  const component = state.components.find((candidate) => candidate.type !== "scene" && !candidate.systemRole);
+
+  assert.match(liveScenePillTemplate(liveScene, state), /component-card-type-icon[^>]*>landscape</);
+  assert.match(liveTargetComponentPillTemplate(component, state), /component-card-type-icon[^>]*>extension</);
+  assert.match(projectRailTemplate(state, { workspace: "scene" }), /component-card-type-icon[^>]*>landscape</);
+  assert.match(projectRailTemplate(state, { workspace: "component" }), /component-card-type-icon[^>]*>extension</);
+});
+
 test("Mapping membership and Live visibility are independent Scene Mapping controls", () => {
   const { state, mapping } = stateWithScene();
   const mappingHtml = projectRailTemplate(state, { workspace: "mapping" });
-  assert.match(mappingHtml, /data-toggle-path="ui\.live\.sceneMappingInLive"/);
+  assert.match(mappingHtml, /data-scene-mapping-in-live="true"/);
   assert.match(mappingHtml, />Scene Mapping</);
 
   state.ui.live.sceneMappingVisible = false;
@@ -139,22 +150,15 @@ test("Mapping membership and Live visibility are independent Scene Mapping contr
   assert.match(hiddenRouteHtml, /data-live-surface-visibility="__mapping__"[^>]*title="Show Scene Mapping"/);
   assert.match(hiddenRouteHtml, /data-live-preview-surface="__mapping__"/);
   assert.match(hiddenRouteHtml, />Scene Mapping</);
+  assert.doesNotMatch(hiddenRouteHtml, /data-clear-live-overall-component="__mapping__"/);
 
   state.ui.live.sceneMappingInLive = false;
   state.ui.live.previewSurfaceId = "__mapping__";
   const disabledHtml = liveProjectionRailTemplate(state);
   assert.match(disabledHtml, />Scene Mapping</);
-  assert.match(disabledHtml, /aria-label="Scene Mapping is disabled in Mapping" disabled/);
-  assert.doesNotMatch(disabledHtml, /data-live-preview-surface="__mapping__"/);
-  assert.doesNotMatch(disabledHtml, /data-live-surface-visibility="__mapping__"/);
-  assert.match(
-    disabledHtml,
-    new RegExp(`data-live-preview-surface="${mapping.surfaces[0].id}"`),
-  );
-  assert.match(
-    disabledHtml,
-    new RegExp(`class="[^"]*is-selected[^"]*"[^>]*data-live-preview-surface="${mapping.surfaces[0].id}"`),
-  );
+  assert.match(disabledHtml, /data-live-surface-visibility="__mapping__"[^>]*title="Show Scene Mapping"/);
+  assert.match(disabledHtml, /data-live-preview-surface="__mapping__"/);
+  assert.doesNotMatch(disabledHtml, /Scene Mapping is disabled in Mapping/);
 });
 
 test("Live internal Component focus is separate from the on-air source", () => {
@@ -244,7 +248,7 @@ test("Mapping cards intentionally avoid render thumbnails", () => {
   const html = mappingPillTemplate(mapping, state);
   assert.doesNotMatch(html, /src="frame-thumb"/);
   assert.doesNotMatch(html, /src="scene-thumb"/);
-  assert.match(html, /display_settings/);
+  assert.match(html, /select_all/);
 });
 
 test("Live Scene reset is absent until temporary parameters exist", () => {
@@ -322,12 +326,16 @@ test("Live separates a Component's public controls from its element inspector", 
 
   state.ui.live.componentView = "elements";
   const elements = liveInspectorTemplate(state);
-  assert.match(elements, /class="live-chain-outline"/);
+  assert.match(elements, /class="element-list-surface live-element-list-surface"[\s\S]*?class="live-chain-outline"/);
+  assert.match(elements, /class="text-list-item live-chain-outline-row compact-list-row has-leading is-selected"/);
+  assert.match(elements, /data-live-toggle="chain\.0\.enabled"/);
+  assert.match(elements, /data-live-chain-item="[^"]+" data-live-component-id="[^"]+"/);
+  assert.doesNotMatch(elements, />visibility(?:_off)?<\/span>/);
   assert.match(elements, /aria-label="Selected live element parameters"/);
   assert.doesNotMatch(elements, /class="live-component-controls"/);
 });
 
-test("Live Canvas controls expose element Content scale instead of a nonexistent Canvas-root transform", () => {
+test("Live Scene controls expose element Content scale instead of a Scene-root transform", () => {
   const { state, mapping, liveScene } = stateWithScene();
   mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(liveScene.id)}`;
   mapping.surfaces[0].componentId = liveScene.id;

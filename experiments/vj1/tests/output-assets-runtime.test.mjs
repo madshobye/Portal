@@ -1082,11 +1082,21 @@ test("queued Output state becomes the fallback when local project restore fails"
     bridge.announceControl();
     channel.onmessage({ data: {
       type: "recovery-state",
-      state: { project: { folderName: "fallback-show" }, components: [], metrics: { clients: 0, outputs: {} } },
+      state: {
+        project: { folderName: "fallback-show" },
+        components: [],
+        metrics: { clients: 0, outputs: {} },
+        ui: { live: { sceneMappingInLive: false, sceneMappingVisible: true } },
+      },
       files: [{ id: "media/a.png", file: { name: "a.png" } }],
     } });
     bridge.finishProjectRestore(false);
     assert.equal(state.project.folderName, "fallback-show");
+    assert.equal(
+      Object.hasOwn(state.ui.live, "sceneMappingVisible"),
+      false,
+      "Output recovery clears the old session override before app-state normalization",
+    );
     await new Promise((resolve) => setTimeout(resolve, 5));
     assert.equal(imports, 1);
   } finally {

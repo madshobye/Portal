@@ -32,7 +32,7 @@ export function formatRangeValue(value, step = 0.01) {
 
 export function rangeTemplate(label, path, value, min = 0, max = 1, step = 0.01, defaultValue = value) {
   return `
-    <label class="field range-field param-context-target" data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(defaultValue))}">
+    <label class="field range-field param-context-target" ${paramContextAttributes(path, defaultValue)}>
       <span>${esc(label)}</span>
       <output class="range-value" data-range-value>${formatRangeValue(value, step)}</output>
       <input type="range" min="${min}" max="${max}" step="${step}" data-update="${path}" value="${value}" />
@@ -51,12 +51,8 @@ export function paramRangePairTemplate({ minParam, maxParam, minPath, maxPath, m
   const display = minParam.rangeDisplay || "number";
   const label = minParam.label || minParam.rangePair || minParam.id;
   const kind = minParam.rangeKind || "plain";
-  const minContext = attrs === "data-update"
-    ? `data-param-context-path="${esc(minPath)}" data-param-default="${esc(JSON.stringify(minParam.defaultValue))}"`
-    : "";
-  const maxContext = attrs === "data-update"
-    ? `data-param-context-path="${esc(maxPath)}" data-param-default="${esc(JSON.stringify(maxParam.defaultValue))}"`
-    : "";
+  const minContext = paramContextAttributes(minPath, minParam.defaultValue, attrs);
+  const maxContext = paramContextAttributes(maxPath, maxParam.defaultValue, attrs);
   return `
     <div
       class="param-range-pair chain-param"
@@ -78,9 +74,21 @@ export function paramRangePairTemplate({ minParam, maxParam, minPath, maxPath, m
   `;
 }
 
+export function paramContextAttributes(path, defaultValue, attrs = "data-update", context = true) {
+  if (!context) return "";
+  const live = attrs.includes("data-live-update");
+  const liveComponentId = live ? /data-live-component-id="([^"]*)"/.exec(attrs)?.[1] || "" : "";
+  return [
+    `data-param-context-path="${esc(path)}"`,
+    `data-param-default="${esc(JSON.stringify(defaultValue))}"`,
+    `data-param-context-mode="${live ? "live" : "state"}"`,
+    liveComponentId ? `data-param-context-component-id="${esc(liveComponentId)}"` : "",
+  ].filter(Boolean).join(" ");
+}
+
 export function selectValuesTemplate(path, values, value) {
   return `
-    <select data-update="${path}">
+    <select class="param-select" data-update="${path}">
       ${values.map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
     </select>
   `;

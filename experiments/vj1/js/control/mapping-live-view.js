@@ -1,17 +1,18 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1-scene-mapping-default-selection-1";
 import { liveProgramComponentIds } from "../domain/scene-routing.js?v=live-program-component-catalog-1";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
+import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=project-group-authoring-public-group-ports-1";
-import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js?v=explicit-surface-visibility-1";
-import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=param-reset-contract-1";
+import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=derived-media-element-names-1";
+import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js?v=explicit-surface-visibility-direct-output-independence-1";
+import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlTemplate, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=remove-boundary-note-1";
 import { mediaSourceParams } from "./source-control-schema.js?v=source-param-schema-1";
-import { effectIcon, emptyNote, esc, formatRangeValue, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
+import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=param-select-1";
 import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { componentCardBarTemplate, deepEditButtonTemplate, editableSectionTitleTemplate, emptyStateTemplate, enableToggleButton, panelTemplate, scrollRegionTemplate, selectablePillTemplate, textListItemTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
+import { componentCardBarTemplate, deepEditButtonTemplate, elementListTemplate, emptyStateTemplate, enableToggleButton, panelTemplate, railListSectionTemplate, scrollRegionTemplate, selectablePillTemplate, textListItemTemplate, titleInputTemplate } from "./view-primitives.js?v=shared-live-element-row-1";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+import { UI_ICONS } from "./ui-icons.js";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
@@ -39,12 +40,11 @@ export function sceneMappingOutputPillTemplate(state) {
   const included = state.ui?.live?.sceneMappingInLive !== false;
   return textListItemTemplate({
     rowClass: "mapping-scene-output-row compact-list-row",
-    leadingHtml: enableToggleButton({
-      path: "ui.live.sceneMappingInLive",
-      value: included,
-      iconName: "crop_free",
-      label: "Scene Mapping",
-    }),
+    leadingHtml: `
+      <button type="button" class="enable-toggle ${included ? "is-enabled" : ""}" data-scene-mapping-in-live="${included ? "true" : "false"}" title="${included ? "Disable" : "Enable"} Scene Mapping" aria-label="${included ? "Disable" : "Enable"} Scene Mapping">
+        ${icon(included ? "crop_free" : "hide_source")}
+      </button>
+    `,
     label: "Scene Mapping",
   });
 }
@@ -67,32 +67,48 @@ export function mappingSurfaceTemplate(surface, state, catalog = {}) {
       ${rangeTemplate("Feather", `${surfaceBase}.feather`, surface.feather ?? 0, 0, 0.5, 0.005, 0)}
       ${hasMappingSurface ? `
         ${rangeTemplate("Presence", `${mappingBase}.opacity`, mappingSurface.opacity, 0, 1, 0.01, 1)}
-        <label class="field">${direct ? "Fit" : "Projection fit"} ${selectValuesTemplate(`${mappingBase}.projectionFit`, PROJECTION_FIT_MODES, mappingSurface.projectionFit || (direct ? "contain" : "cover"))}</label>
+        <label class="field"><span>${direct ? "Fit" : "Projection fit"}</span>${selectValuesTemplate(`${mappingBase}.projectionFit`, PROJECTION_FIT_MODES, mappingSurface.projectionFit || (direct ? "contain" : "cover"))}</label>
       ` : `<div class="soft-note">This surface is not part of the selected Mapping.</div>`}
     </article>
   `;
 }
 
-export function mappingRailConfigTemplate(state) {
+export function mappingSurfaceSectionTemplate(state) {
   const mapping = getSelectedMapping(state);
   if (!mapping) {
-    return `
-      <div class="ui-section rail-section">
-        <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome_motion</span><span>Mapping</span></div>
-        ${emptyNote("Create a mapping to edit surface routing.")}
-      </div>
-    `;
+    return railListSectionTemplate({
+      iconName: UI_ICONS.surface,
+      title: "Mapping",
+      emptyText: "Create a mapping to edit its Surfaces.",
+      className: "mapping-surface-rail-section",
+      scrollKey: "mapping-surfaces",
+    });
   }
   const base = pathForMapping(state, mapping);
-  return `
-    <div class="ui-section rail-section">
-      ${editableSectionTitleTemplate("auto_awesome_motion", `${base}.name`, mapping.name)}
-      <label class="field inline-param mapping-test-pattern-toggle">
-        <span>Test pattern</span>
-        <input type="checkbox" data-update="ui.mappingTestPattern" ${state.ui?.mappingTestPattern === false ? "" : "checked"} />
-      </label>
-    </div>
-  `;
+  return railListSectionTemplate({
+    headerHtml: `<div class="ui-section-header rail-title">
+      <span class="material-symbols-rounded">select_all</span>
+      ${titleInputTemplate(`${base}.name`, mapping.name)}
+      <button class="rail-title-add" type="button" data-add-surface title="Add surface" aria-label="Add surface">${icon("add")}</button>
+    </div>`,
+    beforeListHtml: `<div class="mapping-test-pattern-toggle">
+      ${enableToggleButton({
+        path: "ui.mappingTestPattern",
+        value: state.ui?.mappingTestPattern !== false,
+        iconName: "grid_on",
+        disabledIconName: "grid_on",
+        label: "Test pattern",
+        showLabel: true,
+        className: "mapping-test-pattern-button",
+      })}
+    </div>`,
+    content: `${sceneMappingOutputPillTemplate(state)}${state.surfaces.map((surface) => mappingSurfacePillTemplate(surface, state)).join("")}`,
+    emptyText: "Add a surface",
+    className: "mapping-surface-rail-section",
+    listClassName: "surface-pills",
+    scrollKey: "mapping-surfaces",
+    listAttributes: 'data-surface-reorder-list data-paste-scope="surface-list"',
+  });
 }
 
 export function mappingPillTemplate(mapping, state) {
@@ -100,7 +116,7 @@ export function mappingPillTemplate(mapping, state) {
   return `<div data-component-filter-card="${esc(mapping.name.toLowerCase())}">${textListItemTemplate({
     rowClass: "mapping-text-row compact-list-row",
     selected,
-    leadingHtml: `<span class="text-list-static-icon" aria-hidden="true">${icon("display_settings")}</span>`,
+    leadingHtml: `<span class="text-list-static-icon" aria-hidden="true">${icon(UI_ICONS.mapping)}</span>`,
     label: mapping.name,
     mainClass: "list-select",
     mainAction: "data-select-mapping",
@@ -123,8 +139,8 @@ export function liveScenePillTemplate(scene, state) {
   return `
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(scene.name.toLowerCase())}">
       <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
-        ${thumbnailTemplate(scene.thumbnail, "dashboard_customize", scene.id)}
-        ${componentCardBarTemplate(scene.name)}
+        ${thumbnailTemplate(scene.thumbnail, UI_ICONS.scene, scene.id)}
+        ${componentCardBarTemplate(scene.name, UI_ICONS.scene)}
       </button>
       ${catalogMarkerButtonTemplate(scene, "scene")}
       ${hasOverrides ? `<button type="button" class="component-card-remove" data-reset-live-scene="${esc(scene.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(scene.name)}">${icon("restart_alt")}</button>` : ""}
@@ -141,8 +157,8 @@ export function liveTargetComponentPillTemplate(component, state) {
   return `
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(component.name.toLowerCase())}">
       <button type="button" class="component-card live-component-picker ${selected ? "is-selected" : ""}" data-live-target-component="${esc(component.id)}">
-        ${thumbnailTemplate(component.thumbnail, "account_tree", component.id)}
-        ${componentCardBarTemplate(component.name)}
+        ${thumbnailTemplate(component.thumbnail, UI_ICONS.component, component.id)}
+        ${componentCardBarTemplate(component.name, UI_ICONS.component)}
       </button>
       ${catalogMarkerButtonTemplate(component, "component")}
     </div>
@@ -163,8 +179,8 @@ export function liveComponentPillTemplate(component, state) {
   const selected = (state.ui?.live?.inspectedComponentId || "") === component.id;
   return `
     <button type="button" class="component-card live-component-picker ${selected ? "is-selected" : ""}" data-live-component="${esc(component.id)}">
-      ${thumbnailTemplate(component.thumbnail, "account_tree", component.id)}
-      ${componentCardBarTemplate(component.name)}
+      ${thumbnailTemplate(component.thumbnail, UI_ICONS.component, component.id)}
+      ${componentCardBarTemplate(component.name, UI_ICONS.component)}
     </button>
   `;
 }
@@ -271,7 +287,12 @@ function significantChainControls(chain, options) {
       attrs,
       isSignificant: () => attrs === "data-update",
     }) : "";
-    return `<div class="live-significant-group"><span>${esc(item.name || item.componentId || sourceChainItemDisplayName(item, null, null, state))}</span>${contentControls}${compositeControls}${transformControls}</div>`;
+    const mediaItem = media.find((entry) => entry.id === item.source?.mediaId) || null;
+    const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
+    const label = item.kind === "source"
+      ? sourceChainItemDisplayName(item, mediaItem, referencedComponent, state)
+      : item.name || item.componentId || "Effect";
+    return `<div class="live-significant-group"><span>${esc(label)}</span>${contentControls}${compositeControls}${transformControls}</div>`;
   }).join("");
 }
 
@@ -298,13 +319,13 @@ function liveComponentTemplate(component, view, selectedElement, state, componen
   return `
     <article class="ui-section focus-panel live-component-card">
       <header class="ui-section-header panel-title live-component-head">
-        ${thumbnailTemplate(component.thumbnail, "account_tree", component.id)}
+        ${thumbnailTemplate(component.thumbnail, UI_ICONS.component, component.id)}
         <strong>${esc(component.name)}</strong>
         ${deepEditButtonTemplate(component.id, { className: "header-edit-button", label: `Edit ${component.name}` })}
       </header>
       <div class="live-component-view-tabs" role="group" aria-label="Live Component view">
         <button type="button" class="live-component-view-tab ${componentView === "controls" ? "is-selected" : ""}" data-live-component-view="controls" aria-pressed="${componentView === "controls"}">${icon("tune")} Controls${publishedControlCount ? ` (${publishedControlCount})` : ""}</button>
-        <button type="button" class="live-component-view-tab ${componentView === "elements" ? "is-selected" : ""}" data-live-component-view="elements" aria-pressed="${componentView === "elements"}">${icon("account_tree")} Elements</button>
+        <button type="button" class="live-component-view-tab ${componentView === "elements" ? "is-selected" : ""}" data-live-component-view="elements" aria-pressed="${componentView === "elements"}">${icon(UI_ICONS.group)} Elements</button>
       </div>
       ${componentView === "controls"
         ? liveComponentControlsTemplate(component, view, state)
@@ -323,13 +344,17 @@ function liveComponentControlsTemplate(component, view, state = {}) {
     attrs: liveParamAttrs(component.id),
     media: state.media || [],
   }) : "";
+  // A Scene is the composition root. Placement belongs to each element inside
+  // that Scene; only an ordinary Component can itself be placed as content.
+  const placementControls = component.type === "scene" ? "" : `
+      <div class="live-component-transform-controls">
+        <span class="live-control-group-label">Component placement</span>
+        ${liveComponentPlacementControlsTemplate(view?.transform, component.id)}
+      </div>`;
   return `
     <div class="live-component-controls inspector-control-surface" data-scroll-region data-scroll-key="live-controls:${esc(component.id)}">
       ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
-      ${component.type === "scene" ? "" : `<div class="live-component-transform-controls">
-        <span class="live-control-group-label">Component placement</span>
-        ${liveComponentPlacementControlsTemplate(view?.transform, component.id)}
-      </div>`}
+      ${placementControls}
       ${liveRangeTemplate("Opacity", component.id, "opacity", view?.opacity ?? 1)}
       ${liveRangeTemplate("Speed", component.id, "speed", view?.speed ?? 1, 0, 4, 0.01)}
       <label class="field chain-param"><span>Blend</span>${liveSelectValuesTemplate(component.id, "blend", BLEND_MODES, view?.blend || "normal")}</label>
@@ -339,25 +364,42 @@ function liveComponentControlsTemplate(component, view, state = {}) {
 
 function liveChainOutlineTemplate(chain, componentId, selectedItemId = "", pathBase = "chain", state = {}) {
   if (!chain?.length) return emptyNote("No elements");
-  return `
-    <div class="live-chain-outline" data-scroll-region data-scroll-key="live-elements:${esc(componentId)}" role="tree">
-      ${chain.map((item, index) => liveChainOutlineItemTemplate(item, componentId, selectedItemId, `${pathBase}.${index}`, state)).join("")}
-    </div>
-  `;
+  return elementListTemplate(
+    `live-elements:${componentId}`,
+    chain.map((item, index) => liveChainOutlineItemTemplate(item, componentId, selectedItemId, `${pathBase}.${index}`, state)).join(""),
+    {
+      className: "live-element-list-surface",
+      listClassName: "live-chain-outline",
+      listAttributes: 'role="tree"',
+      tagName: "div",
+    }
+  );
 }
 
 function liveChainOutlineItemTemplate(item, componentId, selectedItemId, path, state) {
   const label = liveChainItemLabel(item, state);
-  const iconName = item.kind === "effect" ? effectIcon(item.componentId) : item.kind === "group" ? "account_tree" : sourceIcon(item.source || {});
+  const iconName = item.kind === "effect" ? effectIcon(item.componentId) : item.kind === "group" ? UI_ICONS.group : sourceIcon(item.source || {});
   const type = item.kind === "effect" ? "effect" : item.kind === "group" ? "group" : item.source?.type === "generator" ? "generator" : "source";
+  const row = textListItemTemplate({
+    rowClass: "live-chain-outline-row compact-list-row",
+    selected: item.id === selectedItemId,
+    leadingHtml: enableToggleButton({
+      livePath: `${path}.enabled`,
+      componentId,
+      value: item.enabled !== false,
+      iconName,
+      label,
+    }),
+    label,
+    meta: type,
+    mainClass: "live-chain-outline-select",
+    mainAction: "data-live-chain-item",
+    mainActionId: item.id,
+    mainAttributes: `data-live-component-id="${esc(componentId)}"`,
+  });
   return `
     <div class="live-chain-outline-branch" role="treeitem" aria-expanded="${item.kind === "group" ? "true" : "false"}">
-      <div class="live-chain-outline-row ${item.id === selectedItemId ? "is-selected" : ""}">
-        <button type="button" class="live-chain-outline-select" data-live-chain-item="${esc(item.id)}" data-live-component-id="${esc(componentId)}">
-          ${icon(iconName)}<span>${esc(label)}</span><small>${esc(type)}</small>
-        </button>
-        ${enableToggleButton({ livePath: `${path}.enabled`, componentId, value: item.enabled !== false, iconName: item.enabled === false ? "visibility_off" : "visibility", label })}
-      </div>
+      ${row}
       ${item.kind === "group" && item.chain?.length ? `<div class="live-chain-outline-children">${item.chain.map((child, index) => liveChainOutlineItemTemplate(child, componentId, selectedItemId, `${path}.chain.${index}`, state)).join("")}</div>` : ""}
     </div>
   `;
@@ -366,7 +408,7 @@ function liveChainOutlineItemTemplate(item, componentId, selectedItemId, path, s
 function liveSelectedChainSettingsTemplate(selected, componentId, state) {
   const { item, path } = selected;
   const label = liveChainItemLabel(item, state);
-  const iconName = item.kind === "effect" ? effectIcon(item.componentId) : item.kind === "group" ? "account_tree" : sourceIcon(item.source || {});
+  const iconName = item.kind === "effect" ? effectIcon(item.componentId) : item.kind === "group" ? UI_ICONS.group : sourceIcon(item.source || {});
   const tabName = `live-chain-param-view-${String(componentId).replace(/[^a-z0-9_-]/gi, "-")}-${String(item.id).replace(/[^a-z0-9_-]/gi, "-")}`;
   const primary = liveChainItemContentTemplate(item, componentId, path, "primary", state);
   const details = liveChainItemContentTemplate(item, componentId, path, "details", state);
@@ -494,18 +536,17 @@ function liveParamAttrs(componentId) {
 }
 
 function liveRangeTemplate(label, componentId, path, value, min = 0, max = 1, step = 0.01) {
-  return `
-    <label class="field range-field chain-param">
-      <span>${esc(label)}</span>
-      <output class="range-value" data-range-value>${formatRangeValue(value, step)}</output>
-      <input type="range" min="${min}" max="${max}" step="${step}" data-live-component-id="${esc(componentId)}" data-live-update="${path}" value="${value}" />
-    </label>
-  `;
+  return paramControlTemplate(
+    { id: path, label, type: "number", min, max, step, defaultValue: 1 },
+    path,
+    value,
+    liveParamAttrs(componentId)
+  );
 }
 
 function liveSelectValuesTemplate(componentId, path, values, value) {
   return `
-    <select data-live-component-id="${esc(componentId)}" data-live-update="${path}">
+    <select class="param-select" data-live-component-id="${esc(componentId)}" data-live-update="${path}">
       ${values.map((option) => `<option value="${option}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
     </select>
   `;

@@ -1,5 +1,5 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../node-engine/node-definition.js";
-import { createMaterial3d, Material3dType } from "../scene-types.js";
+import { createMaterial3d, Material3dType } from "../scene-types.js?v=editable-inlet-literals-1";
 
 export const Material3dNode = defineNode({
   id: "core.scene3d.material",
@@ -9,10 +9,19 @@ export const Material3dNode = defineNode({
   implementation: NODE_IMPLEMENTATION_KINDS.SHADER,
   inlets: {
     id: { type: "string", defaultValue: "material" },
-    surfaceColor: { type: "color", defaultValue: [220, 225, 220, 255] },
-    wireColor: { type: "color", defaultValue: [20, 20, 20, 220] },
-    shaderSource: { type: "string", optional: true, defaultValue: "" },
+    surfaceColor: { type: "color", defaultValue: "#dce1dcff" },
+    wireColor: { type: "color", defaultValue: "#141414dc" },
+    shaderSource: {
+      type: "string",
+      optional: true,
+      defaultValue: "",
+      editor: { type: "code", language: "glsl" },
+    },
     uniforms: { type: "record", optional: true, defaultValue: {} },
+    edgeAngle: { type: "number", defaultValue: 35, allowedRange: [0, 180], clamp: true },
+    edgeBudget: { type: "number", defaultValue: 20000, allowedRange: [1000, 50000], clamp: true },
+    wireDetail: { type: "number", defaultValue: 0.25, allowedRange: [0, 1], clamp: true },
+    renderQuality: { type: "number", defaultValue: 0.5, allowedRange: [0, 1], clamp: true },
   },
   parameters: {
     renderMode: {

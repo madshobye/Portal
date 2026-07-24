@@ -1,4 +1,4 @@
-import { migrateProjectData } from "../domain/project-migrations.js?v=surface-identity-2";
+import { migrateProjectData } from "../domain/project-migrations.js?v=model-media-scene-group-1";
 import {
   canPersistDirectoryHandles,
   loadProjectDirectoryHandle,

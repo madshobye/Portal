@@ -4,6 +4,7 @@ export function createSurfaceCompositionEngine({
   surfaceTextureCeiling,
   componentRenderInstanceKey,
   componentSourceView,
+  componentRootTransformRegion,
   sharedComponentRenderRequests,
   createRenderRequest,
   sourceRenderDemand,
@@ -26,7 +27,13 @@ export function createSurfaceCompositionEngine({
     isComponentFrameFanoutSafe = componentFrameFanoutSafe,
   } = {}) {
     const routes = [];
-    const metrics = { candidates: 0, culled: 0, visible: 0, componentRasterPixels: 0 };
+    const metrics = {
+      candidates: 0,
+      culled: 0,
+      visible: 0,
+      componentRasterPixels: 0,
+      rootTransformDetailLimited: [],
+    };
     const textureCeiling = surfaceTextureCeiling(state.render || {});
     const storedSurfaces = Array.isArray(surfaceProgram) ? surfaceProgram : (state.surfaces || []);
     for (const storedSurface of storedSurfaces) {
@@ -43,6 +50,11 @@ export function createSurfaceCompositionEngine({
       const component = componentById.get(surface.componentId);
       if (!mapped?.mapperSurface || !component) continue;
       const sourceView = componentSourceView(state.render, component, surface);
+      const regionSafe = isComponentRegionSafe(component);
+      const authoredRootScale = Math.max(0.01, Math.abs(Number(component.transform?.scale) || 1));
+      if (!regionSafe && authoredRootScale > 1.001 && !metrics.rootTransformDetailLimited.includes(component.id)) {
+        metrics.rootTransformDetailLimited.push(component.id);
+      }
       const maxSurfaceSize = textureCeiling || { width: 8192, height: 8192 };
       const demandCorners = transformDemandCorners(mapped.mapperSurface.corners, mapped, surface);
       const demand = sourceRenderDemand({
@@ -62,21 +74,36 @@ export function createSurfaceCompositionEngine({
         metrics.culled++;
         continue;
       }
-      routes.push({ surface, mapped, component, sourceView, demand });
+      const transformRegion = regionSafe
+        ? componentRootTransformRegion({
+            logicalSize: sourceView.logicalSize,
+            sampleRect: demand.sampleRect,
+            targetSize: demand.surfaceSize,
+            transform: component.transform,
+            fit: surface.sourceFitActive ? surface.sourceFit : "stretch",
+          })
+        : null;
+      routes.push({ surface, mapped, component, sourceView, demand, transformRegion, regionSafe });
     }
 
-    const initialRequests = sharedComponentRenderRequests(routes, renderIdentityPrefix);
+    const requestableRoutes = routes.filter((route) => route.transformRegion?.empty !== true);
+    const initialRequests = sharedComponentRenderRequests(requestableRoutes, renderIdentityPrefix);
     const regionalRouteIds = new Set();
     const candidatesByComponent = new Map();
     for (const route of routes) {
-      if (route.component?.type !== "scene" || route.surface?.sceneCrop !== true || !isComponentRegionSafe(route.component)) continue;
+      const transformedRoot = route.transformRegion && route.transformRegion.empty !== true;
+      const sceneCrop = route.component?.type === "scene" && route.surface?.sceneCrop === true;
+      if ((!transformedRoot && !sceneCrop) || !route.regionSafe) continue;
       const key = componentRenderInstanceKey(route.component, route.surface.id);
       const list = candidatesByComponent.get(key) || [];
       list.push(route);
       candidatesByComponent.set(key, list);
     }
     for (const [key, candidates] of candidatesByComponent) {
-      if (routes.some((route) => componentRenderInstanceKey(route.component, route.surface.id) === key && route.surface?.sceneCrop !== true)) continue;
+      if (
+        candidates.every((route) => !route.transformRegion) &&
+        routes.some((route) => componentRenderInstanceKey(route.component, route.surface.id) === key && route.surface?.sceneCrop !== true)
+      ) continue;
       // A regional request executes the Scene graph once for every consuming
       // frame. That is cheap for synchronized graph branches, but it multiplies
       // independent component instances: the same placement would be rendered
@@ -88,6 +115,7 @@ export function createSurfaceCompositionEngine({
       const regionalPixels = candidates.reduce((sum, route) => sum + route.demand.surfaceSize.width * route.demand.surfaceSize.height, 0);
       if (!full) continue;
       const needsRegionalDetail = candidates.some((route) => {
+        if (route.transformRegion && route.transformRegion.empty !== true) return true;
         const logical = route.sourceView.logicalSize;
         const rect = route.demand.sampleRect;
         const sampledWidth = full.width * rect.width / Math.max(1, logical.width);
@@ -103,25 +131,43 @@ export function createSurfaceCompositionEngine({
       for (const route of candidates) regionalRouteIds.add(route.surface.id);
     }
     const componentRequests = sharedComponentRenderRequests(
-      routes.filter((route) => !regionalRouteIds.has(route.surface.id)),
+      requestableRoutes.filter((route) => !regionalRouteIds.has(route.surface.id)),
       renderIdentityPrefix
     );
     for (const route of routes) {
       const renderInstanceKey = componentRenderInstanceKey(route.component, route.surface.id);
+      if (route.transformRegion?.empty === true) {
+        route.componentRequest = null;
+        route.rootTransformRegion = route.transformRegion;
+        route.surfaceRequest = createRenderRequest("surface", route.demand.surfaceSize, {
+          surfaceId: route.surface.id,
+          timingId: route.surface.id,
+          logicalWidth: route.demand.sampleRect.width,
+          logicalHeight: route.demand.sampleRect.height,
+          demandScale: route.demand.rasterScale,
+        });
+        continue;
+      }
       const regional = regionalRouteIds.has(route.surface.id);
       if (regional) {
         const logical = route.sourceView.logicalSize;
         const rect = route.demand.sampleRect;
-        const uvRect = [rect.x / logical.width, rect.y / logical.height, rect.width / logical.width, rect.height / logical.height];
+        const uvRect = route.transformRegion?.uvRect || [
+          rect.x / logical.width,
+          rect.y / logical.height,
+          rect.width / logical.width,
+          rect.height / logical.height,
+        ];
         route.componentRequest = createRenderRequest("scene-region", route.demand.surfaceSize, {
           timingId: renderInstanceKey,
           renderIdentity: `${renderIdentityPrefix}${renderInstanceKey}:surface:${route.surface.id}`,
-          logicalWidth: route.demand.surfaceSize.width / Math.max(0.000001, uvRect[2]),
-          logicalHeight: route.demand.surfaceSize.height / Math.max(0.000001, uvRect[3]),
+          logicalWidth: logical.width,
+          logicalHeight: logical.height,
           demandScale: route.demand.rasterScale,
           uvRect,
           regionView: true,
         });
+        route.rootTransformRegion = route.transformRegion || null;
       } else {
         route.componentRequest = componentRequests.get(renderInstanceKey);
       }

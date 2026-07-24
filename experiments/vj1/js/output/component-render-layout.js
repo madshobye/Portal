@@ -3,6 +3,7 @@ import { relativeRectToLogical } from "../libraries/render-engine/relative-geome
 import { componentFrameMetrics } from "../domain/component-frame.js";
 import { sceneFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { createRenderRequest, RECORDING_FRAME_DEMAND_SCALE } from "./render-geometry.js?v=adaptive-component-demand-29";
+import { isIdentityTransform, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 
 export function directFitRects(sourceWidth, sourceHeight, target = {}, fit = "stretch") {
   const sw = Math.max(1, Number(sourceWidth) || 1);
@@ -325,7 +326,6 @@ export function scenePreviewRenderRequest(render = {}, component = {}, viewportW
 }
 
 export function componentSourceView(render = {}, component = {}, surface = {}) {
-  const placementScale = Math.max(0.0001, Number(component?.transform?.scale) || 1);
   if (component.type === "scene") {
     const logicalSize = sceneFrameSize(render);
     // A materialized Scene route marks its owning Surface as the crop source.
@@ -341,7 +341,7 @@ export function componentSourceView(render = {}, component = {}, surface = {}) {
       maxRasterSize: sceneMaxRasterSize(render, logicalSize, component.resolutionScale),
       samplingScale: Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1)) * (cropsScene
         ? Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE))
-        : 1) * placementScale,
+        : 1),
     };
   }
   const metrics = componentFrameMetrics(render, component);
@@ -353,7 +353,48 @@ export function componentSourceView(render = {}, component = {}, surface = {}) {
       ? componentCoverSceneSampleRect(render, logicalSize, surface)
       : { x: 0, y: 0, width: logicalSize.width, height: logicalSize.height },
     maxRasterSize: componentAdaptiveRasterLimit(logicalSize),
-    samplingScale: Math.max(0.05, Number(metrics.resolutionScale) || 1) * placementScale,
+    samplingScale: Math.max(0.05, Number(metrics.resolutionScale) || 1),
+  };
+}
+
+// Root Component transforms are consumer-owned, but their inverse view still
+// belongs in render demand. Express the visible source window through the same
+// uvRect contract used by nested Components and Scene crops; allocation stays
+// bounded to the physical Surface footprint.
+export function componentRootTransformRegion({
+  logicalSize = {},
+  sampleRect = {},
+  targetSize = {},
+  transform = {},
+  fit = "stretch",
+} = {}) {
+  if (isIdentityTransform(transform)) return null;
+  const target = {
+    x: 0,
+    y: 0,
+    width: Math.max(1, Number(targetSize.width) || 1),
+    height: Math.max(1, Number(targetSize.height) || 1),
+  };
+  const fitted = fittedSampleRect(sampleRect, target.width, target.height, fit);
+  const visible = transformedRectVisibleRegion(target, {
+    x: fitted.x,
+    y: fitted.y,
+    width: fitted.width,
+    height: fitted.height,
+  }, transform, target);
+  if (!visible) return { empty: true };
+  const logicalWidth = Math.max(1, Number(logicalSize.width) || 1);
+  const logicalHeight = Math.max(1, Number(logicalSize.height) || 1);
+  const source = fitted.source;
+  return {
+    empty: false,
+    uvRect: [
+      (source.x + visible.uvRect[0] * source.width) / logicalWidth,
+      (source.y + visible.uvRect[1] * source.height) / logicalHeight,
+      visible.uvRect[2] * source.width / logicalWidth,
+      visible.uvRect[3] * source.height / logicalHeight,
+    ],
+    destinationRect: visible.destinationRect,
   };
 }
 
@@ -465,6 +506,30 @@ export function componentRenderInstanceKey(component = {}, instanceId = "") {
   if (!componentId || component?.syncInstances !== false) return componentId;
   const placementId = String(instanceId || "default");
   return `${componentId}:instance:${placementId}`;
+}
+
+export function fittedSampleRect(source = {}, targetWidth = 1, targetHeight = 1, fit = "stretch") {
+  const tw = Math.max(1, Number(targetWidth) || 1);
+  const th = Math.max(1, Number(targetHeight) || 1);
+  const sw = Math.max(1, Number(source.width) || 1);
+  const sh = Math.max(1, Number(source.height) || 1);
+  if (fit === "contain") {
+    const scale = Math.min(tw / sw, th / sh);
+    const width = sw * scale;
+    const height = sh * scale;
+    return { source, x: (tw - width) * 0.5, y: (th - height) * 0.5, width, height };
+  }
+  if (fit === "cover") {
+    const targetAspect = tw / th;
+    const sourceAspect = sw / sh;
+    if (sourceAspect > targetAspect) {
+      const width = sh * targetAspect;
+      return { source: { ...source, x: source.x + (sw - width) * 0.5, width }, x: 0, y: 0, width: tw, height: th };
+    }
+    const height = sw / targetAspect;
+    return { source: { ...source, y: source.y + (sh - height) * 0.5, height }, x: 0, y: 0, width: tw, height: th };
+  }
+  return { source, x: 0, y: 0, width: tw, height: th };
 }
 
 function containedRect(containerWidth, containerHeight, contentWidth, contentHeight) {

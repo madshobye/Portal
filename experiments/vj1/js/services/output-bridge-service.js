@@ -2,6 +2,7 @@ import { VJ1 } from "../constants.js";
 import { createOutputTransportProfiler, transportTimestampMs } from "./output-transport-profiler.js?v=output-transport-profile-1";
 import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
 import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js?v=render-patch-coalescing-1";
+import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
 
 export function createControlBridge({ store, mediaLibrary, diagnostics = null, subscribeStore = true, deferAnnouncement = false }) {
   const channel = new BroadcastChannel(VJ1.channelName);
@@ -43,7 +44,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     const msg = event.data || {};
     try {
       if (msg.type === "recovery-state" && !store.getState().project.folderName && msg.state?.project?.folderName) {
-        const recoveredState = stateWithoutThumbnailUrls(msg.state);
+        const recoveredState = resetRecoveredLiveSession(stateWithoutThumbnailUrls(msg.state));
         activeRecovery = {
           id: String(msg.recoveryId || "legacy"),
           folderName: String(recoveredState.project.folderName || ""),
@@ -312,6 +313,17 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
       unsubscribeLiveState?.();
       clearInterval(clientWatchdog);
       channel.close();
+    },
+  };
+}
+
+function resetRecoveredLiveSession(state = {}) {
+  if (!state.ui?.live) return state;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      live: resetSceneMappingSession(state.ui.live),
     },
   };
 }

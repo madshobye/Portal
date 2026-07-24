@@ -2,9 +2,23 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { featureMorphMediaControlsTemplate } from "../js/control/feature-morph-view.js";
-import { createGeneratorSource, createProjectVisualNodeResolver, getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
+import {
+  compileSpecializedCompoundProgram,
+  createGeneratorSource,
+  evaluateSpecializedCompoundGraph,
+  FeatureMorphToImageNode,
+  getGeneratorNodeComponent as getGeneratorComponent,
+  MediaImageResourceNode,
+  MobileNetMorphAnalysisNode,
+  SpecializedCompoundStageNodeDefinitions,
+} from "../js/libraries/visual-nodes/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
-import { compileJavaScriptNodeModule, createProjectNodeFork, NODE_PART_KINDS } from "../js/libraries/node-engine/index.js";
+import {
+  compileJavaScriptNodeModule,
+  createProjectNodeFork,
+  materializeProjectNodeFork,
+  NODE_PART_KINDS,
+} from "../js/libraries/node-engine/index.js";
 import {
   buildMobileNetMorphField,
   buildRigidMlsMorphField,
@@ -35,23 +49,41 @@ test("Feature Morph V2 exposes MobileNet semantic analysis controls", () => {
   assert.equal(component.runtime.timeDependent({ autoSpeed: 0.5 }), true);
   assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
   assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeProcess, false);
-  assert.deepEqual(component.nodeDefinition.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => part.id), [
+  assert.deepEqual(FeatureMorphToImageNode.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => part.id), [
     "feature-morph-vertex",
     "feature-morph-fragment",
   ]);
-  const compiled = compileJavaScriptNodeModule(component.nodeDefinition.parts, component.nodeDefinition);
+  assert.equal(component.nodeDefinition.parts.some((part) => part.kind === NODE_PART_KINDS.SHADER), false);
+  const compiled = compileJavaScriptNodeModule(MobileNetMorphAnalysisNode.parts, MobileNetMorphAnalysisNode);
   assert.equal(typeof compiled.process, "function");
-  assert.equal(typeof compiled.exports.imageFitUniform, "function");
   assert.equal(compiled.exports.matchSuperPointFeatures, undefined);
-  assert.ok(!component.nodeDefinition.parts.some((part) => part.id === "feature-morph-analysis-module"));
   assert.equal(typeof compiled.exports.matchMobileNetFeatures, "function");
   assert.equal(typeof compiled.exports.buildMobileNetMorphField, "function");
   assert.equal(typeof compiled.exports.buildRigidMlsMorphField, "function");
-  assert.ok(component.nodeDefinition.parts.some((part) => part.id === "feature-morph-v2-analysis-module"));
+  assert.ok(MobileNetMorphAnalysisNode.parts.some((part) => part.id === "feature-morph-v2-analysis-module"));
+  const definitions = new Map(SpecializedCompoundStageNodeDefinitions.map((definition) => [definition.id, definition]));
+  const program = compileSpecializedCompoundProgram(component.nodeDefinition, {
+    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  });
+  assert.deepEqual(program.stages.map((stage) => stage.nodeId), [
+    MediaImageResourceNode.id,
+    MediaImageResourceNode.id,
+    MobileNetMorphAnalysisNode.id,
+    FeatureMorphToImageNode.id,
+  ]);
+  const graph = evaluateSpecializedCompoundGraph(
+    { nativeCompoundProgram: program },
+    { imageAId: "a", imageBId: "b", featureGrid: 12, morphStrategy: "rigid" },
+    { instanceId: "feature-morph-v2-test" },
+  );
+  assert.equal(graph.stageInput("render", "analysis").providerId, "mobilenet");
+  assert.equal(graph.stageInput("render", "analysis").settings.featureGrid, 12);
+  assert.equal(graph.stageInputs("render").settings.morphStrategy, "rigid");
+  program.dispose();
 });
 
 test("Feature Morph V2 project forks supply its real analysis algorithms", () => {
-  const base = getGeneratorComponent("featureMorphV2").nodeDefinition;
+  const base = MobileNetMorphAnalysisNode;
   const fork = createProjectNodeFork(base, {
     forkId: "feature-morph-v2-project",
     overrides: {
@@ -66,8 +98,7 @@ test("Feature Morph V2 project forks supply its real analysis algorithms", () =>
       } : part),
     },
   });
-  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
-  const module = mobileNetAnalysisModule(resolver.definition(base.id).moduleExports);
+  const module = mobileNetAnalysisModule(materializeProjectNodeFork(base, fork).moduleExports);
 
   assert.deepEqual(module.matchMobileNetFeatures(), ["v2-project-fork"]);
   assert.deepEqual(module.buildMobileNetMorphField(), { width: 9 });
@@ -272,6 +303,7 @@ test("Feature Morph V2 uses CDN MobileNet without SuperPoint and exposes two ima
   const rendererSource = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
   ].join("\n");
   const controls = featureMorphMediaControlsTemplate("components.0.source", { params: {} }, { media: [] }, {
     note: "MobileNet regions",
@@ -284,7 +316,7 @@ test("Feature Morph V2 uses CDN MobileNet without SuperPoint and exposes two ima
   assert.ok(serviceSource.includes("imageFeatureCache"));
   assert.ok(!serviceSource.includes("superpoint"));
   assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:featureMorphV2");
-  assert.ok(rendererSource.includes('"output/specialized:featureMorphV2": "drawFeatureMorphGenerator"'));
+  assert.match(rendererSource, /registerNativeRenderer\(\s*"output\/specialized:featureMorphV2"/);
   assert.match(controls, /Image A/);
   assert.match(controls, /Image B/);
   assert.match(controls, /MobileNet input/);

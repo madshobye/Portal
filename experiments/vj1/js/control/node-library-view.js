@@ -1,7 +1,7 @@
 import { materializeProjectNodeDefinition, nodeDefinitionEditorTemplate } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
-import { nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=public-control-node-configuration-1";
+import { NODE_GRAPH_AUTHORING_TARGETS, nodeDefinitionPlaceableInGraph, nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=public-control-node-configuration-editable-inlets-placement-contract-2";
 import { emptyNote, esc, icon } from "./template-utils.js";
-import { railListSectionTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
+import { railListSectionTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-card-type-icons-1";
 
 export function selectedLibraryNode(state, nodePackage) {
   const definitions = nodeDefinitions(nodePackage);
@@ -20,6 +20,8 @@ export function selectedNodeWorkspaceTarget(state, nodePackage) {
 export function nodeLibraryRailTemplate(state, nodePackage) {
   const definitions = nodeDefinitions(nodePackage);
   const selected = selectedLibraryNode(state, nodePackage);
+  const target = selectedNodeWorkspaceTarget(state, nodePackage);
+  const authoringTarget = nodeGraphAuthoringTarget(target);
   const sections = groupByLibraryRole(definitions, nodePackage);
   const content = `${projectProgramSection(state)}
         ${installedPackageSection(state, nodePackage)}
@@ -30,6 +32,10 @@ export function nodeLibraryRailTemplate(state, nodePackage) {
               definition,
               definition.id === selected?.id,
               nodePackage,
+              {
+                authoringTarget,
+                targetId: target?.id || "",
+              },
             )).join("")}
           </section>
         `).join("")}`;
@@ -59,6 +65,13 @@ export function nodeLibraryStudioTemplate(state, nodePackage) {
     target.group.mappingId !== undefined || target.group.id === "vj1.output.main"
   );
   const applicationProjectProgram = target.kind === "project-group" && target.group.id === "vj1.application.program";
+  const authoringTarget = nodeGraphAuthoringTarget(target);
+  const specializedVisualProgram = target.kind === "definition" &&
+    definition.metadata?.visualCompilerHook?.id === "vj1.visual.specialized-compound";
+  const nodesEditable = definitionGraphEditable && !!authoringTarget;
+  const connectionsEditable = definitionGraphEditable && (
+    nodesEditable || routeProjectProgram || applicationProjectProgram
+  );
   const installedPackage = target.kind === "definition"
     ? nodePackage.packageForDefinition?.(target.baseDefinition)
     : null;
@@ -84,13 +97,18 @@ export function nodeLibraryStudioTemplate(state, nodePackage) {
         ${portColumn("Outlets", definition.outlets, "outlet")}
       </div>
       ${graph ? nodeGraphCanvasTemplate(definition, nodePackage.registry, {
-        topologyEditable: definitionGraphEditable && (target.kind !== "project-group" || visualProjectProgram),
-        connectionsEditable: definitionGraphEditable && (target.kind !== "project-group" || visualProjectProgram || routeProjectProgram || applicationProjectProgram),
+        topologyEditable: nodesEditable || connectionsEditable,
+        connectionsEditable,
         editableConnectionTypes: applicationProjectProgram ? ["service", "state"] : null,
-        nodesEditable: definitionGraphEditable && (target.kind !== "project-group" || visualProjectProgram),
+        nodesEditable,
+        parametersEditable: definitionGraphEditable && (
+          target.kind === "definition" || visualProjectProgram
+        ),
+        providersEditable: nodesEditable || specializedVisualProgram,
         publicInterfaceEditable: target.kind === "definition" && definition.metadata?.projectOwned === true,
         layoutEditable: true,
-        visualProgram: visualProjectProgram,
+        visualProgram: authoringTarget === NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
+        authoringTarget,
       }) : ""}
       <div class="node-library-parts">
         <h2>Editable parts</h2>
@@ -127,6 +145,10 @@ export function bindNodeLibraryFilter(scope) {
   });
   for (const item of scope.querySelectorAll("[data-node-library-definition]")) {
     item.addEventListener("dragstart", (event) => {
+      if (item.dataset.nodePlaceable !== "true") {
+        event.preventDefault();
+        return;
+      }
       event.dataTransfer?.setData("application/x-vj1-node-definition", item.dataset.nodeLibraryDefinition);
       if (event.dataTransfer) event.dataTransfer.effectAllowed = "copy";
     });
@@ -340,13 +362,43 @@ function libraryRole(definition, nodePackage = null) {
   return "Core systems";
 }
 
-function nodeListItem(definition, selected, nodePackage) {
+function nodeListItem(definition, selected, nodePackage, {
+  authoringTarget = "",
+  targetId = "",
+} = {}) {
   const search = `${definition.name} ${definition.id} ${libraryRole(definition, nodePackage)} ${(definition.capabilities || []).join(" ")}`.toLowerCase();
-  return `<button type="button" draggable="true" class="node-library-item ${selected ? "is-selected" : ""}" data-select-node-definition="${esc(definition.id)}" data-node-library-definition="${esc(definition.id)}" data-node-library-item="${esc(search)}">
+  const placeable = !!authoringTarget &&
+    definition.id !== targetId &&
+    nodeDefinitionPlaceableInGraph(definition, authoringTarget);
+  const placementTitle = authoringTarget
+    ? placeable
+      ? `Drag ${definition.name} into the selected graph`
+      : `${definition.name} is inspectable but not executable in the selected graph`
+    : `Inspect ${definition.name}`;
+  return `<button type="button" draggable="${placeable}" class="node-library-item ${selected ? "is-selected" : ""}${authoringTarget && !placeable ? " is-not-placeable" : ""}" data-select-node-definition="${esc(definition.id)}" data-node-library-definition="${esc(definition.id)}" data-node-placeable="${placeable}" data-node-library-item="${esc(search)}" title="${esc(placementTitle)}">
     <span class="material-symbols-rounded">${nodeIcon(definition)}</span>
     <span><strong>${esc(definition.name)}</strong><small>${esc(definition.id)}</small></span>
     <em>${esc(definition.implementation.kind)}</em>
   </button>`;
+}
+
+export function nodeGraphAuthoringTarget(target) {
+  const definition = target?.definition;
+  const graph = definition?.parts?.find((part) => part.kind === "graph");
+  if (!graph || graph.editable === false) return "";
+  if (target.kind === "project-group") {
+    return target.group?.componentId || target.group?.kind === "visual-group"
+      ? NODE_GRAPH_AUTHORING_TARGETS.VISUAL
+      : "";
+  }
+  if (definition.implementation?.executionModel === "native-composite") return "";
+  const hookId = definition.metadata?.visualCompilerHook?.id;
+  if (hookId === "vj1.visual.specialized-compound") return "";
+  if (definition.compiler?.target === "scene-3d") return NODE_GRAPH_AUTHORING_TARGETS.SCENE_3D;
+  if (hookId === "vj1.visual.compound") return NODE_GRAPH_AUTHORING_TARGETS.VISUAL;
+  return definition.implementation?.executionModel === "graph"
+    ? NODE_GRAPH_AUTHORING_TARGETS.GENERIC
+    : "";
 }
 
 function portColumn(label, ports, role) {

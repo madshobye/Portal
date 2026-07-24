@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { getEffectNodeComponent as getShaderComponent, listEffectNodeComponents as listShaderComponents, getGeneratorNodeComponent as getGeneratorComponent, getGeneratorNodeShader, listGeneratorNodeComponents } from "../js/libraries/visual-nodes/index.js";
 import { getGeneratorShaderComponent } from "../js/libraries/visual-nodes/index.js";
+import { EyeballToImageNode } from "../js/libraries/visual-nodes/index.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 
 function generatorShaderCatalogSource() {
@@ -227,17 +228,21 @@ test("smear effect exposes fast stable print texture modes", () => {
 test("shared procedural hashes avoid shader trig", () => {
   const shaderBuilderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
   const generatorShaderSource = generatorShaderCatalogSource();
-  const fallbackGeneratorSource = readFileSync(new URL("../js/output/generators.js", import.meta.url), "utf8");
+  const diagnosticGeneratorSource = readFileSync(new URL("../js/output/generators.js", import.meta.url), "utf8");
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
 
   assert.ok(shaderBuilderSource.includes("p3 += dot(p3, p3.yzx + 33.33);"));
   assert.ok(generatorShaderSource.includes("p3 += dot(p3, p3.yzx + 33.33);"));
-  assert.ok(fallbackGeneratorSource.includes("expectedRuntime: \"shader-or-specialized-webgl\""));
-  assert.ok(!fallbackGeneratorSource.includes("function drawNoise"));
+  assert.ok(sourceRuntime.includes("VJ1_GENERATOR_IMPLEMENTATION_MISSING"));
+  assert.ok(!diagnosticGeneratorSource.includes("function drawGenerator"));
+  assert.ok(!diagnosticGeneratorSource.includes("function drawNoise"));
   assert.ok(!shaderBuilderSource.includes("fract(sin"));
-  for (const id of ["waves", "noise", "plasma", "gradient", "bezierStrokes", "fireflies", "eyeball", "swayingTrees"]) {
+  for (const id of ["waves", "noise", "plasma", "gradient", "bezierStrokes", "fireflies", "swayingTrees"]) {
     assert.ok(!getGeneratorShaderComponent(id).code.includes("fract(sin"), `${id} regressed to a trig hash`);
   }
-  assert.ok(!fallbackGeneratorSource.includes("Math.sin(x * 127.1"));
+  const eyeballCode = EyeballToImageNode.parts.find((part) => part.stage === "fragment")?.source || "";
+  assert.ok(!eyeballCode.includes("fract(sin"), "eyeball regressed to a trig hash");
+  assert.ok(!diagnosticGeneratorSource.includes("Math.sin(x * 127.1"));
 });
 
 test("Plasma generator and effect expose controllable motion with a true steady mode", () => {
@@ -258,7 +263,7 @@ test("Plasma generator and effect expose controllable motion with a true steady 
 });
 
 test("eyeball keeps frame-constant animation out of per-pixel work", () => {
-  const code = getGeneratorShaderComponent("eyeball").code;
+  const code = EyeballToImageNode.parts.find((part) => part.stage === "fragment")?.source || "";
 
   assert.ok(code.includes("uniform vec3 eyeGazeDir;"));
   assert.ok(code.includes("uniform float eyeBlink;"));

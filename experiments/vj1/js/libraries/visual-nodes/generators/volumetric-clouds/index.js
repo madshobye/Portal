@@ -14,8 +14,14 @@ const manifest = Object.freeze({
       createNumberParam("density", "Density", { min: 0, max: 3, step: 0.01, defaultValue: 1.15 }),
       createNumberParam("coverage", "Coverage", { min: 0, max: 1, step: 0.01, defaultValue: 0.52 }),
       createNumberParam("scale", "Scale", { min: 0.2, max: 8, step: 0.01, defaultValue: 1.4, scale: "log" }),
-      createNumberParam("detail", "Detail", { min: 1, max: 4, step: 1, defaultValue: 3 }),
-      createNumberParam("raySteps", "Volume steps", { min: 8, max: 48, step: 1, defaultValue: 28 }),
+      createNumberParam("detail", "Detail", {
+        min: 1, max: 4, step: 1, defaultValue: 3,
+        renderQualityScaling: { minimum: 0.5, maximum: 1.2 },
+      }),
+      createNumberParam("raySteps", "Volume steps", {
+        min: 8, max: 48, step: 1, defaultValue: 28,
+        renderQualityScaling: { minimum: 0.35, maximum: 1.5 },
+      }),
       createNumberParam("softness", "Edge softness", { min: 0.005, max: 0.3, step: 0.005, defaultValue: 0.08, scale: "log" }),
       createNumberParam("thickness", "Layer thickness", { min: 0.1, max: 2.5, step: 0.01, defaultValue: 0.9, scale: "log" }),
       createNumberParam("altitude", "Layer altitude", { min: 0.05, max: 2, step: 0.01, defaultValue: 0.35, scale: "log" }),

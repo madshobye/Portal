@@ -1,5 +1,6 @@
 import { isDrawableMedia } from "./media-utils.js?v=runtime-diagnostics-1";
 import { mediaRenderInvalidation } from "../libraries/render-engine/invalidation/index.js?v=gapless-video-loop-1";
+import { visitVisualParameterReferences } from "../libraries/visual-nodes/shared/parameter-references.js";
 
 export function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
@@ -155,13 +156,7 @@ export function componentRuntimeTimeKey(component, params = {}, context = {}) {
 
 export function collectMediaIdsFromSource(source = {}, ids = new Set()) {
   if (source?.type === "media" && source.mediaId) ids.add(source.mediaId);
-  if (source?.type === "generator" && (source.generatorId === "featureMorph" || source.generatorId === "featureMorphV2")) {
-    if (source.params?.imageAId) ids.add(source.params.imageAId);
-    if (source.params?.imageBId) ids.add(source.params.imageBId);
-  }
-  if (source?.type === "generator" && source.generatorId === "tileTexture" && source.params?.imageId) {
-    ids.add(source.params.imageId);
-  }
+  collectMediaParameterIds(source?.params, ids);
   return ids;
 }
 
@@ -342,5 +337,12 @@ function collectComponentIdsFromChain(chain = [], ids = new Set()) {
 
 function collectComponentIdsFromSource(source = {}, ids = new Set()) {
   if (source?.type === "component" && source.componentId) ids.add(source.componentId);
+  return ids;
+}
+
+function collectMediaParameterIds(params, ids) {
+  visitVisualParameterReferences(params, ({ kind, id }) => {
+    if (kind === "media") ids.add(id);
+  });
   return ids;
 }

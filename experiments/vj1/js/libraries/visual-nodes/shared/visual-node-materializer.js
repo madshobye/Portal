@@ -36,7 +36,6 @@ export function materializeVisualNodeDefinition(component = {}, { shader = null,
       },
     });
   }
-  if (!nativeRenderer) return base;
   if (typeof nativeModule?.process === "function") {
     return defineNode({
       ...base,
@@ -47,7 +46,7 @@ export function materializeVisualNodeDefinition(component = {}, { shader = null,
       metadata: {
         ...base.metadata,
         ...visualExecutionMetadata(component),
-        nativeRenderer,
+        ...(nativeRenderer ? { nativeRenderer } : {}),
         nodeOwnedNativeModule: true,
         nodeOwnedNativeProcess: nativeModule.direct !== false,
         allocationStableDirectPath: true,
@@ -55,6 +54,7 @@ export function materializeVisualNodeDefinition(component = {}, { shader = null,
       parts: nativeModule.parts || [],
     });
   }
+  if (!nativeRenderer) return base;
   return defineNode({
     ...base,
     process: executeVisualNode,

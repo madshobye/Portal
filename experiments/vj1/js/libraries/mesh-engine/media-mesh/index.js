@@ -14,7 +14,10 @@ export const MediaMeshNode = defineNode({
       editor: { type: "media", category: "model" },
     },
   },
-  outlets: { mesh: { type: MeshType } },
+  outlets: {
+    mesh: { type: MeshType },
+    importRotation: { type: "vector3" },
+  },
   execution: {
     trigger: "input-change",
     domain: "main",
@@ -47,5 +50,10 @@ export function mediaMeshNodeProcess({ mediaId = "" } = {}, { resolveMesh = null
   const mesh = id && typeof resolveMesh === "function" ? resolveMesh(id) : null;
   if (!id) throw new Error("MEDIA_MESH_ID_REQUIRED");
   if (!isMesh(mesh)) throw new Error(`MEDIA_MESH_UNAVAILABLE:${id}`);
-  return { mesh };
+  return {
+    mesh,
+    // STL has no axis metadata. Keep its documented import basis beside the
+    // resolved resource so graphs can inspect, replace, or disconnect it.
+    importRotation: /\.stl$/i.test(id) ? [0, 0, Math.PI] : [0, 0, 0],
+  };
 }

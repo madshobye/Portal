@@ -4,7 +4,7 @@ import { resolutionScaledStrokeWidth } from "../../render-engine/render-metrics.
 import { buildParsedModelSurfaceVertices } from "../mesh-geometry.js";
 import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "../mesh-render-cache.js";
 import { modelCameraFov, modelDepthCutoff, modelDepthSliceEnabled, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js?v=resolution-relative-model-clip-1";
-import { MeshType, modelTriangleCount } from "../mesh-types.js";
+import { MeshType, meshResourceCacheKey, modelTriangleCount } from "../mesh-types.js";
 import {
   Camera3dType,
   createCamera3d,
@@ -28,6 +28,40 @@ const MeshRenderResultType = recordType("mesh-render-result", {
   backend: valueType("string"),
   image: optionalType("image"),
 });
+const RAW_MODEL_PROGRAM_POOLS = new WeakMap();
+const RETAINED_MESH_CACHE_OWNERS = new WeakMap();
+const RETAINED_MESH_CACHE_ENTRIES = new WeakMap();
+
+export function retainMeshRenderCacheOwner(mesh) {
+  if (!mesh || typeof mesh !== "object") return { modelData: mesh };
+  let entry = RETAINED_MESH_CACHE_OWNERS.get(mesh);
+  if (!entry) {
+    entry = {
+      mesh,
+      references: 0,
+      owner: { modelData: mesh },
+    };
+    RETAINED_MESH_CACHE_OWNERS.set(mesh, entry);
+    RETAINED_MESH_CACHE_ENTRIES.set(entry.owner, entry);
+  }
+  entry.references += 1;
+  return entry.owner;
+}
+
+export function releaseMeshRenderCacheOwner(owner) {
+  const entry = owner && typeof owner === "object"
+    ? RETAINED_MESH_CACHE_ENTRIES.get(owner)
+    : null;
+  if (!entry) {
+    disposeRawModelItemResources(owner);
+    return;
+  }
+  entry.references = Math.max(0, entry.references - 1);
+  if (entry.references > 0) return;
+  disposeRawModelItemResources(entry.owner);
+  RETAINED_MESH_CACHE_OWNERS.delete(entry.mesh);
+  RETAINED_MESH_CACHE_ENTRIES.delete(entry.owner);
+}
 
 export const MeshRenderNode = defineNode({
   id: "core.mesh.render",
@@ -163,6 +197,10 @@ export function renderMeshNodeProcess(inputs = {}, { state = {}, output = null }
   params.pointBudget = boundedBudget(material?.pointBudget ?? inputs.pointBudget);
   params.visibleDepth = material?.visibleDepth ?? inputs.visibleDepth;
   params.wireThickness = material?.wireThickness ?? inputs.wireThickness;
+  params.edgeAngle = material?.edgeAngle ?? inputs.edgeAngle;
+  params.edgeBudget = material?.edgeBudget ?? inputs.edgeBudget;
+  params.wireDetail = material?.wireDetail ?? inputs.wireDetail;
+  params.renderQuality = material?.renderQuality ?? inputs.renderQuality;
   params.__sceneTransform = inputs.transform?.kind === "transform3d"
     ? inputs.transform
     : state.defaultTransform || (state.defaultTransform = createTransform3d());
@@ -229,6 +267,13 @@ export function drawRawParsedModelMode(target, item, params = {}, componentTime 
 export function disposeRawModelContextResources(gl, resources) {
   for (const buffer of resources?.buffers?.values?.() || []) disposeRawModelBuffer(gl, buffer);
   resources?.buffers?.clear?.();
+  if (resources?.programPool) {
+    releaseRawModelProgramPool(gl, resources.programPool);
+    resources.programPool = null;
+    return;
+  }
+  // Serialized/legacy cache owners may still contain the former per-mesh
+  // program fields. Dispose those only at this migration boundary.
   disposeRawModelProgram(gl, resources?.program);
   disposeRawModelProgram(gl, resources?.surfaceProgram);
   for (const program of resources?.surfacePrograms?.values?.() || []) disposeRawModelProgram(gl, program);
@@ -457,13 +502,14 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
 
 function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000, mesh = item?.modelData) {
   const contextResources = ensureRawModelContextResources(gl, item);
-  if (!rawModelProgramValid(gl, contextResources.program)) {
-    disposeRawModelProgram(gl, contextResources.program);
-    contextResources.program = createRawModelProgram(gl);
+  const programs = contextResources.programPool;
+  if (!rawModelProgramValid(gl, programs.program)) {
+    disposeRawModelProgram(gl, programs.program);
+    programs.program = createRawModelProgram(gl);
   }
-  if (!contextResources.program) return null;
+  if (!programs.program) return null;
   const budget = boundedBudget(pointBudget);
-  const meshKey = `${modelTriangleCount(mesh)}`;
+  const meshKey = meshResourceCacheKey(mesh);
   const key = mode === "wireframe" ? `wire:${meshKey}` : `points:${meshKey}:${budget}`;
   let buffer = validCachedBuffer(gl, contextResources, key);
   if (!buffer) {
@@ -471,40 +517,43 @@ function ensureRawModelResources(gl, item, mode = "points", pointBudget = 4000, 
       ? ensureParsedModelWireLines(item, budget, mesh)
       : ensureParsedModelPointCloud(item, budget, mesh);
     if (!data?.length) return null;
-    pruneRawModelBufferVariants(gl, contextResources, mode === "wireframe" ? `wire:${meshKey}` : `points:${meshKey}:`, key);
+    pruneRawModelBufferVariants(gl, contextResources, mode === "wireframe" ? "wire:" : "points:", key);
     buffer = createArrayBuffer(gl, data, 3);
     contextResources.buffers.set(key, buffer);
   }
   return {
     ...buffer,
     vertexArrayOwner: buffer,
-    ...contextResources.program,
-    program: contextResources.program.program,
+    ...programs.program,
+    program: programs.program.program,
   };
 }
 
 function ensureRawSurfaceResources(gl, item, mesh = item?.modelData, material = null) {
   const contextResources = ensureRawModelContextResources(gl, item);
-  if (!(contextResources.surfacePrograms instanceof Map)) contextResources.surfacePrograms = new Map();
+  const programs = contextResources.programPool;
+  if (!(programs.surfacePrograms instanceof Map)) programs.surfacePrograms = new Map();
   const materialKey = material?.shader?.source
     ? `${material.id}@${material.version}:${sourceHash(material.shader.source)}`
     : "builtin";
   let surfaceProgram = materialKey === "builtin"
-    ? contextResources.surfaceProgram
-    : contextResources.surfacePrograms.get(materialKey);
+    ? programs.surfaceProgram
+    : programs.surfacePrograms.get(materialKey);
   if (!rawModelProgramValid(gl, surfaceProgram)) {
     disposeRawModelProgram(gl, surfaceProgram);
     surfaceProgram = createRawSurfaceProgram(gl, material);
-    if (materialKey === "builtin") contextResources.surfaceProgram = surfaceProgram;
-    else if (surfaceProgram) contextResources.surfacePrograms.set(materialKey, surfaceProgram);
+    if (materialKey === "builtin") programs.surfaceProgram = surfaceProgram;
+    else if (surfaceProgram) programs.surfacePrograms.set(materialKey, surfaceProgram);
+    else programs.surfacePrograms.delete(materialKey);
   }
   if (!surfaceProgram) return null;
-  const meshKey = `${modelTriangleCount(mesh)}`;
+  const meshKey = meshResourceCacheKey(mesh);
   const key = `surface:${meshKey}`;
   let buffer = validCachedBuffer(gl, contextResources, key);
   if (!buffer) {
     const data = buildParsedModelSurfaceVertices(mesh);
     if (!data?.length) return null;
+    pruneRawModelBufferVariants(gl, contextResources, "surface:", key);
     buffer = createArrayBuffer(gl, data, 6);
     contextResources.buffers.set(key, buffer);
   }
@@ -518,53 +567,55 @@ function ensureRawSurfaceResources(gl, item, mesh = item?.modelData, material = 
 
 function ensureRawWireResources(gl, item, pointBudget = 4000, mesh = item?.modelData) {
   const contextResources = ensureRawModelContextResources(gl, item);
-  if (!rawModelProgramValid(gl, contextResources.wireProgram)) {
-    disposeRawModelProgram(gl, contextResources.wireProgram);
-    contextResources.wireProgram = createRawWireProgram(gl);
+  const programs = contextResources.programPool;
+  if (!rawModelProgramValid(gl, programs.wireProgram)) {
+    disposeRawModelProgram(gl, programs.wireProgram);
+    programs.wireProgram = createRawWireProgram(gl);
   }
-  if (!contextResources.wireProgram) return null;
+  if (!programs.wireProgram) return null;
   const budget = boundedBudget(pointBudget);
-  const meshKey = `${modelTriangleCount(mesh)}`;
+  const meshKey = meshResourceCacheKey(mesh);
   const key = `thickWire:${meshKey}:${budget}`;
   let buffer = validCachedBuffer(gl, contextResources, key);
   if (!buffer) {
     const data = ensureParsedModelThickWireVertices(item, budget, mesh);
     if (!data?.length) return null;
-    pruneRawModelBufferVariants(gl, contextResources, `thickWire:${meshKey}:`, key);
+    pruneRawModelBufferVariants(gl, contextResources, "thickWire:", key);
     buffer = createArrayBuffer(gl, data, 8);
     contextResources.buffers.set(key, buffer);
   }
   return {
     ...buffer,
     vertexArrayOwner: buffer,
-    ...contextResources.wireProgram,
-    program: contextResources.wireProgram.program,
+    ...programs.wireProgram,
+    program: programs.wireProgram.program,
   };
 }
 
 function ensureRawPerceptualWireResources(gl, item, pointBudget = 4000, mesh = item?.modelData) {
   const contextResources = ensureRawModelContextResources(gl, item);
-  if (!rawModelProgramValid(gl, contextResources.perceptualWireProgram)) {
-    disposeRawModelProgram(gl, contextResources.perceptualWireProgram);
-    contextResources.perceptualWireProgram = createRawPerceptualWireProgram(gl);
+  const programs = contextResources.programPool;
+  if (!rawModelProgramValid(gl, programs.perceptualWireProgram)) {
+    disposeRawModelProgram(gl, programs.perceptualWireProgram);
+    programs.perceptualWireProgram = createRawPerceptualWireProgram(gl);
   }
-  if (!contextResources.perceptualWireProgram) return null;
+  if (!programs.perceptualWireProgram) return null;
   const budget = boundedBudget(pointBudget);
-  const meshKey = `${modelTriangleCount(mesh)}`;
+  const meshKey = meshResourceCacheKey(mesh);
   const key = `perceptualWire:${meshKey}:${budget}`;
   let buffer = validCachedBuffer(gl, contextResources, key);
   if (!buffer) {
     const data = ensureParsedModelPerceptualWireVertices(item, budget, mesh);
     if (!data?.length) return null;
-    pruneRawModelBufferVariants(gl, contextResources, `perceptualWire:${meshKey}:`, key);
+    pruneRawModelBufferVariants(gl, contextResources, "perceptualWire:", key);
     buffer = createArrayBuffer(gl, data, 15);
     contextResources.buffers.set(key, buffer);
   }
   return {
     ...buffer,
     vertexArrayOwner: buffer,
-    ...contextResources.perceptualWireProgram,
-    program: contextResources.perceptualWireProgram.program,
+    ...programs.perceptualWireProgram,
+    program: programs.perceptualWireProgram.program,
   };
 }
 
@@ -573,16 +624,44 @@ function ensureRawModelContextResources(gl, item) {
   let resources = item.modelRawRenderers.get(gl);
   if (!resources) {
     resources = {
-      program: null,
-      surfaceProgram: null,
-      surfacePrograms: new Map(),
-      wireProgram: null,
-      perceptualWireProgram: null,
+      programPool: acquireRawModelProgramPool(gl),
       buffers: new Map(),
     };
     item.modelRawRenderers.set(gl, resources);
   }
   return resources;
+}
+
+// Programs are context-wide because compilation depends on WebGL context and
+// material source. Vertex buffers remain owned by each canonical Mesh cache.
+export function acquireRawModelProgramPool(gl) {
+  let pool = RAW_MODEL_PROGRAM_POOLS.get(gl);
+  if (!pool) {
+    pool = {
+      references: 0,
+      program: null,
+      surfaceProgram: null,
+      surfacePrograms: new Map(),
+      wireProgram: null,
+      perceptualWireProgram: null,
+    };
+    RAW_MODEL_PROGRAM_POOLS.set(gl, pool);
+  }
+  pool.references += 1;
+  return pool;
+}
+
+export function releaseRawModelProgramPool(gl, pool) {
+  if (!pool) return;
+  pool.references = Math.max(0, Number(pool.references) - 1);
+  if (pool.references > 0) return;
+  disposeRawModelProgram(gl, pool.program);
+  disposeRawModelProgram(gl, pool.surfaceProgram);
+  for (const program of pool.surfacePrograms.values()) disposeRawModelProgram(gl, program);
+  pool.surfacePrograms.clear();
+  disposeRawModelProgram(gl, pool.wireProgram);
+  disposeRawModelProgram(gl, pool.perceptualWireProgram);
+  if (RAW_MODEL_PROGRAM_POOLS.get(gl) === pool) RAW_MODEL_PROGRAM_POOLS.delete(gl);
 }
 
 function validCachedBuffer(gl, resources, key) {

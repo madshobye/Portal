@@ -23,7 +23,12 @@ export function defineGeneratorNode(manifest = {}, shader = null, nativeModule =
     outlets: manifest.outlets || generatorOutlets,
     params: manifest.params || [],
   });
-  return materializedComponent(component, shader, shader ? "" : `output/specialized:${manifest.id}`, nativeModule);
+  const nativeRenderer = shader
+    ? ""
+    : typeof nativeModule?.process === "function"
+      ? String(nativeModule.renderer || "")
+      : `output/specialized:${manifest.id}`;
+  return materializedComponent(component, shader, nativeRenderer, nativeModule);
 }
 
 export function defineEffectNode(manifest = {}) {

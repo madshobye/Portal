@@ -1,30 +1,31 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-navigation-reachability-2";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-navigation-reachability-projector-resolution-ceilings-direct-output-independence-1-scene-mapping-default-selection-1";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js?v=component-transport-patch-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=public-control-node-configuration-media-url-retirement-named-image-inputs-isf-texture-shader-composite-source-backends-2";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=compiled-artifact-authority-1";
 import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=cursor-anchored-zoom-1";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=workspace-icons-1";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=workspace-icons-1-unified-playback-surface-mapping-icon-shared-ui-icons-topbar-order-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=project-group-authoring-public-group-ports-1";
-import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=explicit-surface-visibility-1";
-import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=scene-mapping-controls-separated-explicit-surface-visibility-derived-thumbnail-projection-public-group-ports-1";
-import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
+import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=derived-media-element-names-1";
+import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=explicit-surface-visibility-direct-output-independence-1";
+import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=root-content-transform-roi-3";
+import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-card-type-icons-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
 import { createClipboardController } from "./clipboard-controller.js?v=scene-live-audit-1";
-import { createModalController } from "./modal-controller.js?v=picker-filter-tabs-derived-thumbnail-projection-graph-parameter-authoring-1";
-import { createInputController } from "./input-controller.js?v=video-duration-metadata-public-group-ports-1";
+import { createModalController } from "./modal-controller.js?v=parameter-field-layout-1";
+import { createInputController } from "./input-controller.js?v=derived-media-element-names-1";
 import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
-import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-controller-1";
+import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-counter-1";
 import { createControlRenderDiagnostics } from "./control-render-diagnostics.js?v=control-ui-long-render-1";
-import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js?v=scene-mapping-controls-separated-explicit-surface-visibility-disabled-row-derived-thumbnail-projection-1";
-import { selectedNodeEditorTemplate, withProjectGroupGraph, withProjectNodeFork, withProjectNodeGraph, withProjectNodeParameterExposure, withProjectNodePortExposure, withoutProjectNodeFork } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
-import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=public-control-node-configuration-1";
-import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=public-control-node-configuration-1";
+import { componentTypeIcon, UI_ICONS } from "./ui-icons.js";
+import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js?v=root-content-transform-roi-3";
+import { prepareProjectNodeDefinitionEdit, prepareProjectNodeGraphEdit, selectedNodeEditorTemplate, withProjectNodeFork, withProjectNodeParameterExposure, withProjectNodePortExposure, withoutProjectNodeFork } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-atomic-preflight-2";
+import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=public-control-node-configuration-editable-inlets-placement-contract-2";
+import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=public-control-node-configuration-editable-inlets-placement-contract-2";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -37,6 +38,12 @@ const liveProgramRenderReasons = new Set([
   "live:surface-patch-clear",
   "live:overall-component-clear",
   "live:surface-visibility",
+]);
+const previewViewportReasons = new Set([
+  "preview-zoom",
+  "preview-pan",
+  "preview-fit-world",
+  "preview-fit-frame",
 ]);
 
 export function rememberParamViewSelections(scope, selections = new Map()) {
@@ -67,7 +74,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   const performanceHotspotSmoother = createRuntimeHotspotSmoother();
   let performanceHotspotComponentScope = "";
   const previewLayoutQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
-    ? window.matchMedia("(max-width: 1100px)")
+    ? window.matchMedia("(max-width: 860px)")
     : null;
   const catalogOrderSnapshots = { component: [], scene: [], mapping: [], live: [], source: [] };
   const activeParamViews = new Map();
@@ -187,6 +194,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }
       if (change.scope === "derived" && change.projection?.kind === "component-thumbnails") {
         patchComponentThumbnails(change.projection.entries);
+        return;
+      }
+      if (change.scope === "ui" && previewViewportReasons.has(reason)) {
+        // Navigation changes only the retained p5 presentation transform.
+        // A full state replacement would rebuild the render graph and, in
+        // Live, discard its temporary parameter overlay.
+        embeddedPreview.setViewport(state.ui);
         return;
       }
       const patchedLivePreview = currentWorkspace(state) === "live" &&
@@ -448,7 +462,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     });
 
     refs.toggleOutputPlayback.addEventListener("click", () => {
-      if (latestState.metrics.clients <= 0) return;
+      if (!hasOpenProject(latestState)) return;
       store.update((draft) => {
         draft.global.playing = draft.global.playing === false;
       }, "toggle-output-playback");
@@ -817,12 +831,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setClass(refs.togglePreview, "is-active", state.ui.debugPreview);
     setClass(refs.toggleOutputHud, "is-active", state.global.showHud !== false);
     const outputPlaying = state.global.playing !== false;
-    refs.toggleOutputPlayback.disabled = !outputConnected;
-    refs.toggleOutputPlayback.title = outputPlaying ? "Pause output" : "Play output";
+    refs.toggleOutputPlayback.disabled = !hasProject;
+    refs.toggleOutputPlayback.title = outputPlaying ? "Pause playback" : "Play playback";
     refs.toggleOutputPlayback.setAttribute("aria-label", refs.toggleOutputPlayback.title);
     setText(refs.toggleOutputPlayback.querySelector(".material-symbols-rounded"), outputPlaying ? "pause" : "play_arrow");
-    setClass(refs.toggleOutputPlayback, "is-active", outputConnected && !outputPlaying);
+    setClass(refs.toggleOutputPlayback, "is-active", hasProject && !outputPlaying);
     setClass(refs.blackout, "is-active", state.global.blackout);
+    setClass(refs.blackout, "is-output-enabled", !state.global.blackout);
     renderOutputMenu(state);
     refs.undo.disabled = !state.ui.canUndo;
     refs.redo.disabled = !state.ui.canRedo;
@@ -1143,7 +1158,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     if (currentWorkspace(state) === "component") {
       const selectedComponent = state.components.find((component) => component.id === state.ui.selectedComponentId) || state.components[0];
       html = `${panelTemplate(
-        "account_tree",
+        UI_ICONS.component,
         selectedComponent?.name || "Component",
         selectedComponent ? componentTemplate(selectedComponent, state) : emptyNote("No component"),
         selectedComponent ? {
@@ -1162,7 +1177,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         ? state.surfaces?.find((surface) => surface.id === state.ui.selectedSurfaceId) || null
         : null;
       html = `${panelTemplate(
-        "dashboard_customize",
+        UI_ICONS.scene,
         selectedScene?.name || "Scene",
         selectedScene ? sceneInspectorTemplate(selectedScene, state) : emptyNote("Create a scene"),
         selectedScene ? {
@@ -1170,7 +1185,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           headerActionHtml: componentHeaderAddButtonTemplate(selectedScene),
         } : {}
       )}${selectedScene && selectedSceneSurface
-        ? panelTemplate("select_all", selectedSceneSurface.name || "Surface", sceneSurfaceInspectorTemplate(selectedSceneSurface, state), selectedSceneSurface.destination?.type !== "direct" ? {
+        ? panelTemplate(UI_ICONS.surface, selectedSceneSurface.name || "Surface", sceneSurfaceInspectorTemplate(selectedSceneSurface, state), selectedSceneSurface.destination?.type !== "direct" ? {
           titlePath: `${pathForSurface(state, selectedSceneSurface)}.name`,
           className: "scene-surface-panel",
         } : { className: "scene-surface-panel" })
@@ -1186,7 +1201,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       return;
     }
     html = `
-      ${panelTemplate("select_all", selectedSurface?.name || "Surface", selectedSurface ? mappingSurfaceTemplate(selectedSurface, state, {
+      ${panelTemplate(UI_ICONS.surface, selectedSurface?.name || "Surface", selectedSurface ? mappingSurfaceTemplate(selectedSurface, state, {
         sources: catalogItemsInSnapshot("source", sceneSourceNodes(state)),
         sortMode: catalogSortMode(state, "source"),
       }) : emptyNote("No surface"), selectedSurface && selectedSurface.destination?.type !== "direct"
@@ -1208,6 +1223,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   function bindRailEvents() {
     inputs.bind(refs.projectRail);
     bindNodeLibraryFilter(refs.projectRail);
+    refs.projectRail.querySelector("[data-scene-mapping-in-live]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      store.setSceneMappingInLive?.(event.currentTarget.dataset.sceneMappingInLive !== "true");
+    });
     refs.projectRail.querySelectorAll("[data-create-project-group]").forEach((button) => {
       button.addEventListener("click", () => {
         const scene3d = button.dataset.createProjectGroup === "scene3d";
@@ -1506,9 +1525,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
             child?.version || child?.nodeVersion || "",
           );
         } catch {}
-        const parameter = childDefinition?.parameters?.[parameterId];
+        const parameter = childDefinition?.parameters?.[parameterId] ||
+          childDefinition?.inlets?.[parameterId];
         if (!parameter) {
-          setStatus(`Public control was not updated: parameter ${nodeId}.${parameterId} is unavailable`);
+          setStatus(`Public control was not updated: configurable value ${nodeId}.${parameterId} is unavailable`);
           return;
         }
         const response = globalThis.prompt?.(
@@ -1519,15 +1539,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         const nextPublicId = response.trim();
         const exposed = !!nextPublicId;
         try {
-          store.update((draft) => {
-            draft.nodes = withProjectNodeParameterExposure(draft.nodes, target.baseDefinition, {
+          const nextNodes = prepareProjectNodeDefinitionEdit(
+            withProjectNodeParameterExposure(latestState.nodes, target.baseDefinition, {
               nodeId,
               parameterId,
               publicParameterId: nextPublicId,
               parameter,
               sectionLabel: childDefinition.name,
               exposed,
-            });
+            }),
+            target.baseDefinition,
+            { preflight: editorNodePackage?.preflightGraphEdit },
+          );
+          store.update((draft) => {
+            draft.nodes = nextNodes;
           }, `update:${exposed ? "publish" : "unpublish"}-node-parameter`);
           setStatus(exposed
             ? `${parameter.label || parameterId} is now public as ${nextPublicId}`
@@ -1567,15 +1592,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         const nextPublicId = response.trim();
         const exposed = !!nextPublicId;
         try {
-          store.update((draft) => {
-            draft.nodes = withProjectNodePortExposure(draft.nodes, target.baseDefinition, {
+          const nextNodes = prepareProjectNodeDefinitionEdit(
+            withProjectNodePortExposure(latestState.nodes, target.baseDefinition, {
               nodeId,
               portId,
               publicPortId: nextPublicId,
               port,
               direction: role,
               exposed,
-            });
+            }),
+            target.baseDefinition,
+            { preflight: editorNodePackage?.preflightGraphEdit },
+          );
+          store.update((draft) => {
+            draft.nodes = nextNodes;
           }, `update:${exposed ? "publish" : "unpublish"}-node-port`);
           setStatus(exposed
             ? `${port.label || portId} is now public as ${nextPublicId}`
@@ -1588,10 +1618,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         const target = selectedNodeWorkspaceTarget(latestState, editorNodePackage);
         if (!target) return;
         try {
+          const nextNodes = prepareProjectNodeGraphEdit(latestState.nodes, target, graph, {
+            validate: action !== "move-node",
+            preflight: editorNodePackage?.preflightGraphEdit,
+          });
           store.update((draft) => {
-            draft.nodes = target.kind === "project-group"
-              ? withProjectGroupGraph(draft.nodes, target.id, graph)
-              : withProjectNodeGraph(draft.nodes, target.baseDefinition, graph);
+            draft.nodes = nextNodes;
           }, `update:node-graph-${action}`);
           if (target.id === "vj1.application.program") {
             const activation = editorNodePackage?.applicationProgramStatus?.(store.getState());
@@ -1647,8 +1679,13 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           if (!input.readOnly) sources[input.dataset.nodePartSource] = input.value;
         }
         try {
+          const nextNodes = prepareProjectNodeDefinitionEdit(
+            withProjectNodeFork(latestState.nodes, definition, sources),
+            definition,
+            { preflight: editorNodePackage?.preflightGraphEdit },
+          );
           store.update((draft) => {
-            draft.nodes = withProjectNodeFork(draft.nodes, definition, sources);
+            draft.nodes = nextNodes;
           }, "update:node-fork");
           setStatus(`${definition.name} project version saved`);
         } catch (error) {
@@ -1730,7 +1767,7 @@ function currentWorkspace(state) {
 function performanceComponentThumbnail(state, componentId, className) {
   const component = state.components?.find((item) => item.id === componentId);
   if (!component) return "";
-  const fallbackIcon = component.type === "scene" ? "dashboard_customize" : "account_tree";
+  const fallbackIcon = componentTypeIcon(component);
   return `<span class="performance-component-thumbnail ${esc(className)}">${thumbnailTemplate(component.thumbnail, fallbackIcon)}</span>`;
 }
 

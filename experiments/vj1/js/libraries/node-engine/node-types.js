@@ -169,10 +169,23 @@ export const CORE_VALUE_TYPES = Object.freeze([
     validate: (value) => !!value && typeof value === "object",
   },
   {
+    id: "mesh-collection",
+    name: "Mesh Collection",
+    description: "A retained collection of named meshes in one collection-local coordinate space.",
+    validate: (value) => value?.kind === "mesh-collection" && Array.isArray(value.parts),
+  },
+  {
     id: "material3d",
     name: "3D Material",
     description: "A backend-independent surface, wire, or point material contract.",
     validate: (value) => value?.kind === "material3d" && typeof value.id === "string",
+  },
+  {
+    id: "material-binding3d",
+    name: "3D Material Binding",
+    description: "Binds one canonical 3D material to a named mesh-collection slot.",
+    validate: (value) => value?.kind === "material-binding3d" &&
+      typeof value.slot === "string" && value.material?.kind === "material3d",
   },
   {
     id: "object3d",

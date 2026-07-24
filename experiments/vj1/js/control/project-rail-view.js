@@ -1,11 +1,12 @@
 import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { getLiveSourceTarget, sceneComponents, ordinaryComponents } from "./control-selectors.js?v=explicit-surface-visibility-1";
-import { liveComponentPillTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingRailConfigTemplate, mappingSurfacePillTemplate, sceneMappingOutputPillTemplate } from "./mapping-live-view.js?v=scene-mapping-controls-separated-explicit-surface-visibility-derived-thumbnail-projection-1";
-import { componentCardBarTemplate, railListSectionTemplate, textListItemTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
+import { getLiveSourceTarget, sceneComponents, ordinaryComponents } from "./control-selectors.js?v=explicit-surface-visibility-direct-output-independence-1";
+import { liveComponentPillTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate } from "./mapping-live-view.js?v=root-content-transform-roi-3";
+import { componentCardBarTemplate, railListSectionTemplate, textListItemTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-card-type-icons-1";
 import { esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
-import { compileLiveProjectionProgram } from "../domain/live-projection-program.js?v=explicit-surface-visibility-1";
+import { compileLiveProjectionProgram } from "../domain/live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
 import { listProjectIsfTransitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
 import { DissolveTransitionKernel } from "../libraries/transition-engine/index.js";
+import { componentTypeIcon, UI_ICONS } from "./ui-icons.js";
 
 export function projectRailTemplate(state, {
   workspace = "mapping",
@@ -23,13 +24,10 @@ export function liveProjectionRailTemplate(state) {
   const mapping = state.mappings?.find((item) => String(item.id) === String(state.ui?.selectedMappingId || ""))
     || state.mappings?.[0]
     || null;
-  const sceneMappingInLive = state.ui?.live?.sceneMappingInLive !== false;
   const sceneMappingVisible = state.ui?.live?.sceneMappingVisible !== false;
   const surfaces = mapping?.surfaces || [];
   const requestedSelectedId = String(state.ui?.live?.previewSurfaceId || "__mapping__");
-  const selectedId = requestedSelectedId === "__mapping__" && !sceneMappingInLive
-    ? String(surfaces[0]?.id || "__mapping__")
-    : requestedSelectedId;
+  const selectedId = requestedSelectedId;
   const sourceTarget = getLiveSourceTarget(state);
   const overallTarget = state.components?.find((component) =>
     !component.systemRole && String(component.id) === String(state.ui?.live?.selectedComponentId || "")
@@ -56,12 +54,9 @@ export function liveProjectionRailTemplate(state) {
           id: "__mapping__",
           iconName: "crop_free",
           label: "Scene Mapping",
-          leadingHtml: sceneMappingInLive
-            ? `<button type="button" class="enable-toggle ${sceneMappingVisible ? "is-enabled" : ""}" data-live-surface-visibility="__mapping__" title="${sceneMappingVisible ? "Hide" : "Show"} Scene Mapping" aria-label="${sceneMappingVisible ? "Hide" : "Show"} Scene Mapping">${icon(sceneMappingVisible ? "crop_free" : "hide_source")}</button>`
-            : `<button type="button" class="enable-toggle" title="Scene Mapping is disabled in Mapping" aria-label="Scene Mapping is disabled in Mapping" disabled>${icon("hide_source")}</button>`,
-          removeAction: sceneMappingInLive && overallHasSource ? "data-clear-live-overall-component" : "",
+          leadingHtml: `<button type="button" class="enable-toggle ${sceneMappingVisible ? "is-enabled" : ""}" data-live-surface-visibility="__mapping__" title="${sceneMappingVisible ? "Hide" : "Show"} Scene Mapping" aria-label="${sceneMappingVisible ? "Hide" : "Show"} Scene Mapping">${icon(sceneMappingVisible ? "crop_free" : "hide_source")}</button>`,
+          removeAction: sceneMappingVisible && overallHasSource ? "data-clear-live-overall-component" : "",
           removeTitle: "Clear Overall source",
-          selectable: sceneMappingInLive,
         })}${surfaces.map((surface) => {
           const direct = surface.destination?.type === "direct";
           const liveRoute = routeBySurfaceId.get(String(surface.id));
@@ -85,7 +80,7 @@ export function liveProjectionRailTemplate(state) {
     listClassName: "live-projection-list",
     scrollKey: "live-projection-targets",
   })}${railListSectionTemplate({
-    iconName: "account_tree",
+    iconName: UI_ICONS.component,
     title: "Components",
     content: components.map((component) => liveComponentPillTemplate(component, state)).join(""),
     emptyText: "No Components",
@@ -102,7 +97,7 @@ function addableRailTitleTemplate(iconName, title, actionAttribute, actionLabel)
 function componentToolsTemplate(state, catalogItems, catalogSortMode) {
   const components = catalogItems("component", ordinaryComponents(state));
   return railListSectionTemplate({
-    headerHtml: addableRailTitleTemplate("account_tree", "Components", "data-add-component", "Add component"),
+    headerHtml: addableRailTitleTemplate(UI_ICONS.component, "Components", "data-add-component", "Add component"),
     beforeListHtml: componentCatalogToolsTemplate("component", catalogSortMode("component"), "Filter components"),
     content: components.map((component) => componentPillTemplate(component, state)).join(""),
     emptyText: "Create visual recipes",
@@ -116,7 +111,7 @@ function componentToolsTemplate(state, catalogItems, catalogSortMode) {
 function sceneToolsTemplate(state, catalogItems, catalogSortMode) {
   const scenes = catalogItems("scene", sceneComponents(state));
   return `${railListSectionTemplate({
-    headerHtml: addableRailTitleTemplate("dashboard_customize", "Scenes", "data-add-scene", "Add scene"),
+    headerHtml: addableRailTitleTemplate(UI_ICONS.scene, "Scenes", "data-add-scene", "Add scene"),
     beforeListHtml: componentCatalogToolsTemplate("scene", catalogSortMode("scene"), "Filter scenes"),
     content: scenes.map((component) => componentPillTemplate(component, state)).join(""),
     emptyText: "Create a scene",
@@ -125,7 +120,7 @@ function sceneToolsTemplate(state, catalogItems, catalogSortMode) {
     sectionAttributes: "data-component-filter-scope",
     listAttributes: 'data-paste-scope="scene-list"',
   })}${railListSectionTemplate({
-    headerHtml: addableRailTitleTemplate("select_all", "Surfaces", "data-add-surface", "Add surface"),
+    headerHtml: addableRailTitleTemplate(UI_ICONS.surface, "Surfaces", "data-add-surface", "Add surface"),
     content: (state.surfaces || []).map((surface) => mappingSurfacePillTemplate(surface, state)).join(""),
     emptyText: "Add a surface",
     className: "mapping-surface-rail-section",
@@ -138,7 +133,7 @@ function sceneToolsTemplate(state, catalogItems, catalogSortMode) {
 function mappingToolsTemplate(state, catalogItems, catalogSortMode) {
   const mappings = catalogItems("mapping", state.mappings || []);
   return `${railListSectionTemplate({
-    headerHtml: addableRailTitleTemplate("auto_awesome_motion", "Mappings", "data-add-mapping", "Add mapping"),
+    headerHtml: addableRailTitleTemplate(UI_ICONS.mapping, "Mappings", "data-add-mapping", "Add mapping"),
     beforeListHtml: componentCatalogToolsTemplate("mapping", catalogSortMode("mapping"), "Filter mappings"),
     content: mappings.map((mapping) => mappingPillTemplate(mapping, state)).join(""),
     emptyText: "Add a mapping",
@@ -146,15 +141,7 @@ function mappingToolsTemplate(state, catalogItems, catalogSortMode) {
     scrollKey: "mapping-catalog",
     sectionAttributes: "data-component-filter-scope",
     listAttributes: 'data-paste-scope="mapping-list"',
-  })}${mappingRailConfigTemplate(state)}${railListSectionTemplate({
-    headerHtml: addableRailTitleTemplate("select_all", "Surfaces", "data-add-surface", "Add surface"),
-    content: `${sceneMappingOutputPillTemplate(state)}${state.surfaces.map((surface) => mappingSurfacePillTemplate(surface, state)).join("")}`,
-    emptyText: "Add a surface",
-    className: "mapping-surface-rail-section",
-    listClassName: "surface-pills",
-    scrollKey: "mapping-surfaces",
-    listAttributes: 'data-surface-reorder-list data-paste-scope="surface-list"',
-  })}`;
+  })}${mappingSurfaceSectionTemplate(state)}`;
 }
 
 function liveToolsTemplate(state, catalogItems, catalogSortMode) {
@@ -181,11 +168,11 @@ function liveToolsTemplate(state, catalogItems, catalogSortMode) {
     : liveTargetComponentPillTemplate(source, state)
   ).join("");
   return `${railListSectionTemplate({
-    iconName: "play_circle",
+    iconName: UI_ICONS.live,
     title: "Sources",
     beforeListHtml: `<div class="ui-list-tools"><div class="live-component-view-tabs live-source-kind-tabs" role="group" aria-label="Live source type">
-        <button type="button" class="live-component-view-tab ${showScenes ? "is-selected" : ""}" data-live-source-filter="scenes" aria-pressed="${showScenes}">${icon("dashboard_customize")} Scenes</button>
-        <button type="button" class="live-component-view-tab ${showComponents ? "is-selected" : ""}" data-live-source-filter="components" aria-pressed="${showComponents}">${icon("account_tree")} Parts</button>
+        <button type="button" class="live-component-view-tab ${showScenes ? "is-selected" : ""}" data-live-source-filter="scenes" aria-pressed="${showScenes}">${icon(UI_ICONS.scene)} Scenes</button>
+        <button type="button" class="live-component-view-tab ${showComponents ? "is-selected" : ""}" data-live-source-filter="components" aria-pressed="${showComponents}">${icon(UI_ICONS.component)} Parts</button>
       </div>
       ${componentCatalogToolsTemplate("live", catalogSortMode("live"), "Filter sources")}</div>`,
     content: cards,
@@ -195,10 +182,10 @@ function liveToolsTemplate(state, catalogItems, catalogSortMode) {
     sectionAttributes: "data-component-filter-scope",
   })}<div class="ui-section rail-section">
       <div class="ui-section-header rail-title"><span class="material-symbols-rounded">tune</span><span>Timing</span></div>
-      <div class="sculpt-card live-timing-params">
+      <div class="sculpt-card parameter-surface live-timing-params">
       <label class="field">
         <span>Transition style</span>
-        <select data-update="ui.live.transitionId">
+        <select class="param-select" data-update="ui.live.transitionId">
           ${transitions.map((item) => `<option value="${esc(item.id)}" ${item.id === selectedTransition.id ? "selected" : ""}>${esc(item.name)}</option>`).join("")}
         </select>
       </label>
@@ -230,7 +217,7 @@ function transitionParameterControls(transition, values) {
       return `<label class="field inline-param"><span>${esc(param.label || param.id)}</span><input type="checkbox" data-update="${esc(path)}" ${value ? "checked" : ""} /></label>`;
     }
     if (param.type === "enum") {
-      return `<label class="field"><span>${esc(param.label || param.id)}</span><select data-update="${esc(path)}">${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}</select></label>`;
+      return `<label class="field"><span>${esc(param.label || param.id)}</span><select class="param-select" data-update="${esc(path)}">${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}</select></label>`;
     }
     if (param.type === "color") {
       return `<label class="field"><span>${esc(param.label || param.id)}</span><input type="color" data-update="${esc(path)}" value="${esc(value || "#ffffffff").slice(0, 7)}" /></label>`;
@@ -241,7 +228,7 @@ function transitionParameterControls(transition, values) {
 
 function componentPillTemplate(component, state) {
   const selected = state.ui.selectedComponentId === component.id;
-  const fallbackIcon = component.type === "scene" ? "dashboard_customize" : "account_tree";
+  const fallbackIcon = componentTypeIcon(component);
   const removeDisabled = component.type !== "scene"
     ? ordinaryComponents(state).length <= 1
     : state.components.length <= 1;
@@ -249,7 +236,7 @@ function componentPillTemplate(component, state) {
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(component.name.toLowerCase())}">
       <button type="button" class="component-card ${selected ? "is-selected" : ""}" data-select-component="${esc(component.id)}">
         ${thumbnailTemplate(component.thumbnail, fallbackIcon, component.id)}
-        ${componentCardBarTemplate(component.name)}
+        ${componentCardBarTemplate(component.name, fallbackIcon)}
       </button>
       ${catalogMarkerButtonTemplate(component, "component")}
       <button type="button" class="component-card-remove" data-remove-component="${esc(component.id)}" title="Remove" aria-label="Remove ${esc(component.name)}" ${removeDisabled ? "disabled" : ""}>${icon("close")}</button>

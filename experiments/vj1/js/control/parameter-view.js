@@ -1,6 +1,6 @@
 import { BLEND_MODES } from "../constants.js";
 import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { esc, formatRangeValue, paramRangePairTemplate } from "./template-utils.js?v=param-reset-contract-1";
+import { esc, formatRangeValue, paramContextAttributes, paramRangePairTemplate } from "./template-utils.js?v=param-select-1";
 import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
 import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
 import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
@@ -113,7 +113,7 @@ export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) 
       extraInputAttrs: `data-boundary-width="${normalizedBoundary.width}" data-boundary-height="${normalizedBoundary.height}"`,
     }
   );
-  return `<div class="chain-param-list chain-general-param-list">${general}<div class="soft-note">Boundary limits rendering and effects; Content changes the visual math inside it.</div>${boundaryPosition}${boundaryScale}</div>`;
+  return `<div class="chain-param-list chain-general-param-list">${general}${boundaryPosition}${boundaryScale}</div>`;
 }
 
 export function chainRenderQualityTarget(item = {}, basePath = "") {
@@ -170,9 +170,7 @@ export function paramControlsTemplate(params = [], {
 }
 
 export function paramControlTemplate(param, path, value, attrs = "data-update", { significant = false, relatedControls = new Map(), context = true, extraInputAttrs = "" } = {}) {
-  const contextAttrs = attrs === "data-update" && context
-    ? `data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}"`
-    : "";
+  const contextAttrs = paramContextAttributes(path, param.defaultValue, attrs, context);
   const significantClass = significant ? " is-significant" : "";
   if (param.type === "boolean") {
     return `
@@ -186,16 +184,16 @@ export function paramControlTemplate(param, path, value, attrs = "data-update", 
     return `
       <label class="field chain-param param-context-target${significantClass}" ${contextAttrs}>
         <span>${esc(param.label || param.id)}</span>
-        <select ${attrs}="${esc(path)}">
+        <select class="param-select" ${attrs}="${esc(path)}">
           ${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
         </select>
       </label>
     `;
   }
-  if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs, { significant });
+  if (param.type === "color") return colorParamControlTemplate(param, path, value, attrs, { significant, context });
   if (param.type === "text") {
-    if (param.ui === "markdown") return markdownParamControlTemplate(param, path, value, attrs, { significant, relatedControls });
-    if (param.ui === "screen-input") return screenInputParamControlTemplate(param, path, value, attrs, { significant });
+    if (param.ui === "markdown") return markdownParamControlTemplate(param, path, value, attrs, { significant, relatedControls, context });
+    if (param.ui === "screen-input") return screenInputParamControlTemplate(param, path, value, attrs, { significant, context });
     return `
       <label class="field chain-param param-context-target${significantClass}" ${contextAttrs}>
         <span>${esc(param.label || param.id)}</span>
@@ -223,15 +221,13 @@ export function paramControlTemplate(param, path, value, attrs = "data-update", 
   `;
 }
 
-export function screenInputParamControlTemplate(param, path, value, attrs = "data-update", { significant = false, inputs = screenCaptureStatus().inputs } = {}) {
+export function screenInputParamControlTemplate(param, path, value, attrs = "data-update", { significant = false, inputs = screenCaptureStatus().inputs, context = true } = {}) {
   const selectedId = String(value || "");
-  const contextAttrs = attrs === "data-update"
-    ? `data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}"`
-    : "";
+  const contextAttrs = paramContextAttributes(path, param.defaultValue, attrs, context);
   return `
     <label class="field chain-param param-context-target${significant ? " is-significant" : ""}" ${contextAttrs}>
       <span>${esc(param.label || param.id)}</span>
-      <select ${attrs}="${esc(path)}" data-screen-input-select>
+      <select class="param-select" ${attrs}="${esc(path)}" data-screen-input-select>
         ${screenInputOptionsTemplate(inputs, selectedId)}
       </select>
     </label>
@@ -251,7 +247,7 @@ export function screenInputOptionsTemplate(inputs = [], selectedId = "") {
   `;
 }
 
-function markdownParamControlTemplate(param, path, value, attrs, { significant = false, relatedControls = new Map() } = {}) {
+function markdownParamControlTemplate(param, path, value, attrs, { significant = false, relatedControls = new Map(), context = true } = {}) {
   const styleButtons = (param.styleControls || []).map((id) => {
     const control = relatedControls.get(id);
     if (!control) return "";
@@ -264,7 +260,7 @@ function markdownParamControlTemplate(param, path, value, attrs, { significant =
     return `<button type="button" class="text-style-toggle${active ? " is-enabled" : ""}" ${toggleAttrs} data-toggle-value="${active}" aria-pressed="${active}" title="${esc(control.param.label)}">${textStyleButtonLabel(id)}</button>`;
   }).join("");
   return `
-    <div class="field chain-param markdown-param param-context-target${significant ? " is-significant" : ""}" data-markdown-control data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}">
+    <div class="field chain-param markdown-param param-context-target${significant ? " is-significant" : ""}" data-markdown-control ${paramContextAttributes(path, param.defaultValue, attrs, context)}>
       <span>${esc(param.label || param.id)}</span>
       <div class="markdown-toolbar" role="toolbar" aria-label="Text style">
         <button type="button" data-markdown-command="h1" title="Heading">H</button>
@@ -285,7 +281,7 @@ function textStyleButtonLabel(id) {
   return esc(id);
 }
 
-export function colorParamControlTemplate(param, path, value, attrs = "data-update", { significant = false } = {}) {
+export function colorParamControlTemplate(param, path, value, attrs = "data-update", { significant = false, context = true } = {}) {
   const mode = attrs.includes("data-live-update") ? "live" : "state";
   const liveComponentMatch = /data-live-component-id="([^"]*)"/.exec(attrs);
   const liveComponentId = liveComponentMatch?.[1] || "";
@@ -293,9 +289,9 @@ export function colorParamControlTemplate(param, path, value, attrs = "data-upda
   const rgb = rgba.slice(0, 7);
   const alpha = colorAlphaFromHex(rgba);
   return `
-    <div class="field color-param chain-param param-context-target${significant ? " is-significant" : ""}" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${mode === "state" ? `data-param-context-path="${esc(path)}" data-param-default="${esc(JSON.stringify(param.defaultValue))}"` : ""} ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""}>
+    <div class="field range-field color-param chain-param param-context-target${significant ? " is-significant" : ""}" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${paramContextAttributes(path, param.defaultValue, attrs, context)} ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""}>
       <span>${esc(param.label || param.id)}</span>
-      <div class="color-param-row">
+      <div class="param-control-track color-param-row">
         <input type="range" min="0" max="1" step="0.01" data-color-alpha value="${alpha}" aria-label="${esc(param.label || param.id)} alpha" />
         <input type="color" data-color-rgb value="${esc(rgb)}" aria-label="${esc(param.label || param.id)} color" />
       </div>

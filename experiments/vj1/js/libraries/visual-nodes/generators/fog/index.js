@@ -8,6 +8,7 @@ const manifest = Object.freeze({
     category: "atmosphere",
     runtime: {
       timeDependent: (params = {}) => params.motionMode !== "steady" && Math.abs(Number(params.speed) || 0) > 0.0001,
+      rateParam: "speed",
     },
     primaryParamIds: ["density", "coverage", "noisiness", "scale", "detail", "fromBelow", "fromAbove", "fogColor"],
     detailParamIds: ["motionMode", "speed", "billow", "variation", "falloff", "softness", "driftAngle", "seed", "amount"],

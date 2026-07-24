@@ -1,4 +1,4 @@
-import { NODE_PART_KINDS } from "./node-definition.js";
+import { NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "./node-definition.js";
 import { defineNode } from "./node-definition.js";
 import { NODE_GROUP_EXECUTION_MODELS } from "./node-group.js";
 
@@ -232,7 +232,10 @@ export function validateProjectNodeFork(baseDefinition, fork) {
   }
   if (changedJavaScript.length) {
     const moduleParts = parts.filter((part) => part.kind === NODE_PART_KINDS.JAVASCRIPT);
-    if (moduleEntryPart(moduleParts, baseDefinition)) compileJavaScriptNodeModule(moduleParts, baseDefinition);
+    if (
+      moduleEntryPart(moduleParts, baseDefinition) ||
+      moduleParts.some((part) => partExports(part).length)
+    ) compileJavaScriptNodeModule(moduleParts, baseDefinition);
     else for (const part of changedJavaScript) compileJavaScriptNodeProcess(part.source, baseDefinition);
   }
   return true;
@@ -241,10 +244,16 @@ export function validateProjectNodeFork(baseDefinition, fork) {
 function compiledForkModule(baseDefinition, parts) {
   const nativeModuleGroup = baseDefinition.implementation?.kind === "group"
     && baseDefinition.metadata?.nodeOwnedNativeModule === true;
+  const nativeExportModule = baseDefinition.implementation?.kind === NODE_IMPLEMENTATION_KINDS.NATIVE
+    && (parts || []).some((part) =>
+      part.kind === NODE_PART_KINDS.JAVASCRIPT && partExports(part).length
+    );
   if (
     baseDefinition.implementation?.kind !== "code"
     && baseDefinition.implementation?.kind !== "data"
+    && baseDefinition.implementation?.kind !== NODE_IMPLEMENTATION_KINDS.SHADER
     && !nativeModuleGroup
+    && !nativeExportModule
   ) {
     return { process: baseDefinition.process, exports: baseDefinition.moduleExports || {} };
   }
@@ -256,6 +265,13 @@ function compiledForkModule(baseDefinition, parts) {
     const compiled = compileJavaScriptNodeModule(moduleParts, baseDefinition);
     return {
       process: nativeModuleGroup ? baseDefinition.process : compiled.process,
+      exports: compiled.exports,
+    };
+  }
+  if (moduleParts.some((part) => partExports(part).length)) {
+    const compiled = compileJavaScriptNodeModule(moduleParts, baseDefinition);
+    return {
+      process: baseDefinition.process,
       exports: compiled.exports,
     };
   }

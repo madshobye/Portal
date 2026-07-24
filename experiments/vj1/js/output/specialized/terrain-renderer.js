@@ -11,7 +11,7 @@ import {
 } from "../../libraries/render-engine/raw-webgl-state.js";
 import {
   TerrainNodeModuleExports,
-} from "./terrain-mesh.js?v=node-program-hooks-15";
+} from "./terrain-mesh.js?v=shared-terrain-grid-math-16";
 import {
   TERRAIN_SURFACE_FRAGMENT_SHADER,
   TERRAIN_SURFACE_VERTEX_SHADER,

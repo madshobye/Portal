@@ -1,7 +1,9 @@
 import { renderQualityScale, renderQualityValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { contentTransformUvMatrices } from "./content-coordinate-space.js?v=render-coordinate-scope-3";
+import { gazeBlinkUniforms } from "../libraries/visual-nodes/providers/gaze-blink-controller/index.js";
 export { advanceRateClock, componentInstanceTime, globalVisualTimeScale, instanceTime } from "../libraries/timing-engine/index.js";
 export { advanceSpatialScale } from "../libraries/timing-engine/index.js";
+export { gazeBlinkUniforms as eyeballFrameUniforms };
 
 export function qualityScaledRenderRequest(request = {}, params = {}, minimum = 0.35) {
   const scale = renderQualityScale(params, { minimum });
@@ -20,87 +22,42 @@ export function qualityScaledRenderRequest(request = {}, params = {}, minimum = 
   };
 }
 
-export function qualityAdjustedGeneratorParams(generatorId, params = {}) {
-  if (!QUALITY_ADJUSTED_GENERATORS.has(generatorId)) return params;
-  const multiplier = qualityComputeMultiplier(params, { minimum: 0.35, maximum: 1.5 });
+export function qualityAdjustedGeneratorParams(component = {}, params = {}) {
+  const qualityParameters = (component?.params || [])
+    .filter((parameter) => parameter?.renderQualityScaling);
+  if (!qualityParameters.length) return params;
   const adjusted = { ...params };
-  if (["seascape", "cloudyTunnel", "cherenkovVolume", "biomineLite", "volumetricClouds"].includes(generatorId)) {
-    adjusted.raySteps = Math.max(1, Math.round((Number(params.raySteps) || 1) * multiplier));
-  }
-  if (generatorId === "seascape") {
-    adjusted.seaDetail = Math.max(1, Math.round((Number(params.seaDetail) || 1) * qualityComputeMultiplier(params, {
-      minimum: 0.5,
-      maximum: 1.2,
-    })));
-  }
-  if (generatorId === "cloudyTunnel") {
-    adjusted.cloudDetail = Math.max(1, Math.round((Number(params.cloudDetail) || 1) * qualityComputeMultiplier(params, {
-      minimum: 0.5,
-      maximum: 1.25,
-    })));
-  }
-  if (generatorId === "volumetricClouds") {
-    adjusted.raySteps = Math.max(8, Math.min(48, adjusted.raySteps));
-    adjusted.detail = Math.max(1, Math.min(4, Math.round((Number(params.detail) || 1) * qualityComputeMultiplier(params, {
-      minimum: 0.5,
-      maximum: 1.2,
-    }))));
-  }
-  if (generatorId === "biomineLite") {
-    adjusted.surfaceDetail = Math.max(0, Math.round((Number(params.surfaceDetail) || 0) * qualityComputeMultiplier(params, {
-      minimum: 0.5,
-      maximum: 1.25,
-    })));
-  }
-  if (generatorId === "cellularCircles") {
-    adjusted.searchRadius = Math.max(1, Math.min(5, Math.round((Number(params.searchRadius) || 1) * multiplier)));
+  for (const parameter of qualityParameters) {
+    const policy = parameter.renderQualityScaling;
+    const authored = Number(params[parameter.id]);
+    const fallback = Number(parameter.defaultValue);
+    const base = Number.isFinite(authored)
+      ? authored
+      : Number.isFinite(fallback) ? fallback : 0;
+    const multiplier = qualityComputeMultiplier(params, {
+      minimum: policy.minimum,
+      maximum: policy.maximum,
+    });
+    const scaled = Number(parameter.step) >= 1
+      ? Math.round(base * multiplier)
+      : base * multiplier;
+    adjusted[parameter.id] = Math.min(
+      Number.isFinite(Number(parameter.max)) ? Number(parameter.max) : Number.POSITIVE_INFINITY,
+      Math.max(
+        Number.isFinite(Number(parameter.min)) ? Number(parameter.min) : Number.NEGATIVE_INFINITY,
+        scaled,
+      ),
+    );
   }
   return adjusted;
 }
 
-export function eyeballFrameUniforms(timeSeconds = 0, params = {}, output = null) {
-  const frame = reusableEyeballFrame(output);
-  const time = Number(timeSeconds) || 0;
-  const speed = Math.max(0.05, boundedNumber(params.motionSpeed, 1, 0, 3));
-  const range = boundedNumber(params.gazeRange, 1, 0, 1.5);
-  const pause = boundedNumber(params.pauseAmount, 0.82, 0, 1);
-  const jitter = boundedNumber(params.jitter, 0.35, 0, 1);
-  const gazeClock = time * speed * 0.85;
-  const gazeSegment = Math.floor(gazeClock);
-  const gazePhase = gazeClock - gazeSegment;
-  const movePortion = mixNumber(0.98, 0.08, pause);
-  const eased = smoothstepNumber(Math.min(1, gazePhase / Math.max(0.00001, movePortion)));
-  const gazeAx = shaderRandomGazeX(gazeSegment);
-  const gazeAy = shaderRandomGazeY(gazeSegment);
-  const gazeBx = shaderRandomGazeX(gazeSegment + 1);
-  const gazeBy = shaderRandomGazeY(gazeSegment + 1);
-  const gazeX = (mixNumber(gazeAx, gazeBx, eased) + Math.sin(time * 18.7 + shaderHash2(gazeSegment, 1.2) * Math.PI * 2) * 0.018 * jitter) * range;
-  const gazeY = (mixNumber(gazeAy, gazeBy, eased) + Math.sin(time * 23.1 + shaderHash2(gazeSegment, 8.2) * Math.PI * 2) * 0.018 * jitter) * range;
-  normalizeVector3Into(frame.gazeDir, gazeX, gazeY, 1);
-  normalizeVector3Into(frame.irisRight, frame.gazeDir[2], 0, -frame.gazeDir[0]);
-  crossNormalizedVector3Into(frame.irisUp, frame.irisRight, frame.gazeDir);
-
-  const blinkRate = boundedNumber(params.blinkRate, 1, 0, 3);
-  let blink = 0;
-  if (blinkRate > 0.001) {
-    const blinkClock = time * blinkRate * 0.55;
-    const blinkSegment = Math.floor(blinkClock);
-    const blinkPhase = blinkClock - blinkSegment;
-    const blinkChance = shaderHash2(blinkSegment, 11.1) >= 0.34 ? 1 : 0;
-    const doubleChance = shaderHash2(blinkSegment, 19.4) >= 0.78 ? 1 : 0;
-    blink = Math.max(
-      shutterBlinkNumber(blinkPhase),
-      shutterBlinkNumber(blinkPhase - 0.2) * doubleChance
-    ) * blinkChance;
-  }
-
-  frame.blink = blink;
-  return frame;
-}
-
-export function generatorRateParam(generatorId) {
-  if (generatorId === "fireflies" || generatorId === "bezierStrokes" || generatorId === "shadertoyBaseWarp" || generatorId === "cellularCircles" || generatorId === "galaxy" || generatorId === "lightning" || generatorId === "fog" || generatorId === "volumetricClouds" || generatorId === "sunRays" || generatorId === "seascape" || generatorId === "paintDrips" || generatorId === "cloudyTunnel" || generatorId === "cherenkovVolume" || generatorId === "biomineLite") return "speed";
-  return "";
+export function generatorRateParam(component = {}) {
+  return String(
+    component?.runtime?.rateParam
+    || component?.nodeDefinition?.metadata?.runtimePolicy?.rateParam
+    || "",
+  );
 }
 
 export function usesShadertoyInterface(component = {}) {
@@ -123,85 +80,3 @@ export function qualityComputeMultiplier(params = {}, { minimum = 0.35, maximum 
   if (quality <= 0.5) return minimum + (1 - minimum) * (quality / 0.5);
   return 1 + (maximum - 1) * ((quality - 0.5) / 0.5);
 }
-
-function boundedNumber(value, fallback, min, max) {
-  const number = Number(value);
-  return Math.min(max, Math.max(min, Number.isFinite(number) ? number : fallback));
-}
-
-function mixNumber(a, b, amount) {
-  return a + (b - a) * amount;
-}
-
-function smoothstepNumber(value) {
-  const amount = Math.min(1, Math.max(0, Number(value) || 0));
-  return amount * amount * (3 - 2 * amount);
-}
-
-function shaderHash2(x, y) {
-  let px = fractNumber((Number(x) || 0) * 0.1031);
-  let py = fractNumber((Number(y) || 0) * 0.1031);
-  let pz = px;
-  const dot = px * (py + 33.33) + py * (pz + 33.33) + pz * (px + 33.33);
-  px += dot;
-  py += dot;
-  pz += dot;
-  return fractNumber((px + py) * pz);
-}
-
-function shaderRandomGazeX(seed) {
-  return (shaderHash2(seed, 2.31) * 2 - 1) * 0.72;
-}
-
-function shaderRandomGazeY(seed) {
-  return (shaderHash2(seed, 7.77) * 2 - 1) * 0.38;
-}
-
-function shutterBlinkNumber(phase) {
-  const close = smoothstepRange(phase, 0.015, 0.045);
-  const open = 1 - smoothstepRange(phase, 0.078, 0.125);
-  return close * open;
-}
-
-function smoothstepRange(value, start, end) {
-  return smoothstepNumber(((Number(value) || 0) - start) / Math.max(0.00001, end - start));
-}
-
-function fractNumber(value) {
-  return value - Math.floor(value);
-}
-
-function reusableEyeballFrame(output) {
-  if (output?.gazeDir?.length >= 3 && output?.irisRight?.length >= 3 && output?.irisUp?.length >= 3) return output;
-  return {
-    gazeDir: [0, 0, 1],
-    irisRight: [1, 0, 0],
-    irisUp: [0, 1, 0],
-    blink: 0,
-  };
-}
-
-function normalizeVector3Into(output, x, y, z) {
-  const length = Math.hypot(x, y, z) || 1;
-  output[0] = x / length;
-  output[1] = y / length;
-  output[2] = z / length;
-}
-
-function crossNormalizedVector3Into(output, a, b) {
-  normalizeVector3Into(
-    output,
-    a[1] * b[2] - a[2] * b[1],
-    a[2] * b[0] - a[0] * b[2],
-    a[0] * b[1] - a[1] * b[0]
-  );
-}
-
-const QUALITY_ADJUSTED_GENERATORS = new Set([
-  "seascape",
-  "cloudyTunnel",
-  "cherenkovVolume",
-  "biomineLite",
-  "volumetricClouds",
-  "cellularCircles",
-]);

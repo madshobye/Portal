@@ -1,5 +1,5 @@
-import { OutputProgramNode } from "../output-program/index.js";
-import { MappingProgramNode } from "../mapping-program/index.js";
+import { OutputProgramNode } from "../output-program/index.js?v=compiler-template-authority-1";
+import { MappingProgramNode } from "../mapping-program/index.js?v=compiler-template-authority-1";
 import { SurfaceRouteNode } from "../surface-route/index.js";
 import { compileReachableProgramGraph } from "./program-graph-compiler.js";
 

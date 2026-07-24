@@ -17,7 +17,17 @@ import {
   rawModelMatrices,
   transformedModelDepthRange,
 } from "../js/libraries/mesh-engine/mesh-render-math.js";
-import { buildParsedModelPerceptualEdges, buildParsedModelPointCloud, buildParsedModelWireLines } from "../js/libraries/mesh-engine/mesh-render-cache.js";
+import {
+  buildParsedModelPerceptualEdges,
+  buildParsedModelPointCloud,
+  buildParsedModelWireLines,
+  ensureParsedModelPointCloud,
+} from "../js/libraries/mesh-engine/mesh-render-cache.js";
+import {
+  acquireRawModelProgramPool,
+  releaseRawModelProgramPool,
+} from "../js/libraries/mesh-engine/mesh-render/index.js";
+import { meshResourceCacheKey } from "../js/libraries/mesh-engine/mesh-types.js";
 
 test("specialized model math owns viewport rotation depth and matrix calculations", () => {
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
@@ -123,7 +133,7 @@ function projectNdc(matrix, point) {
   return clip.slice(0, 3).map((value) => value / clip[3]);
 }
 
-test("specialized model mesh cache owns bounded point and wire extraction", () => {
+test("shared mesh render operation owns bounded point and wire extraction", () => {
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const meshCache = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render-cache.js", import.meta.url), "utf8");
   const rawRenderer = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
@@ -131,7 +141,9 @@ test("specialized model mesh cache owns bounded point and wire extraction", () =
 
   assert.match(meshCache, /strokeWeight\(wireThickness\)/);
   assert.match(rawRenderer, /uniform1f\(resources\.pointSize, resolutionScaledStrokeWidth\(/);
-  assert.match(specializedRuntime, /drawPointCloud\(target, ensureParsedModelPointCloud\(item, pointBudget, modelMesh\), wireColor, wireThickness\)/);
+  assert.match(rawRenderer, /ensureParsedModelPointCloud\(item, budget, mesh\)/);
+  assert.match(rawRenderer, /ensureParsedModelWireLines\(item, budget, mesh\)/);
+  assert.match(specializedRuntime, /renderMeshNodeProcess\(/);
   const mesh = {
     triangles: [{
       normal: [0, 0, 1],
@@ -146,7 +158,11 @@ test("specialized model mesh cache owns bounded point and wire extraction", () =
     0, 1, 0, 0, 0, 0,
   ]);
   assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
-  assert.match(specializedRuntime, /from "\.\.\/\.\.\/libraries\/mesh-engine\/mesh-render-cache\.js"/);
+  assert.doesNotMatch(
+    specializedRuntime,
+    /from "\.\.\/\.\.\/libraries\/mesh-engine\/mesh-render-cache\.js"/,
+    "the compatibility host cannot retain a second p5 model renderer",
+  );
   assert.doesNotMatch(renderer, /function ensureParsedModelPointCloud\(/);
   assert.doesNotMatch(renderer, /function buildParsedModelWireLines\(/);
 });
@@ -192,4 +208,75 @@ test("raw model WebGL programs and context resources live outside the output orc
   assert.doesNotMatch(rawModelRenderer, /gl\.useProgram\(null\)|gl\.bindBuffer\(gl\.ARRAY_BUFFER, null\)/);
   assert.doesNotMatch(renderer, /function createRawModelProgram\(/);
   assert.doesNotMatch(renderer, /function ensureRawModelContextResources\(/);
+});
+
+test("canonical mesh cache identity changes with replacement values and explicit retained revisions", () => {
+  const first = { triangleCount: 1 };
+  const replacement = { triangleCount: 1 };
+  const firstKey = meshResourceCacheKey(first);
+
+  assert.equal(meshResourceCacheKey(first), firstKey);
+  assert.notEqual(meshResourceCacheKey(replacement), firstKey);
+  first.resourceRevision = 1;
+  assert.notEqual(meshResourceCacheKey(first), firstKey);
+
+  const rawModelRenderer = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
+  assert.match(rawModelRenderer, /const meshKey = meshResourceCacheKey\(mesh\)/);
+  assert.match(rawModelRenderer, /pruneRawModelBufferVariants\(gl, contextResources, "surface:", key\)/);
+  assert.doesNotMatch(rawModelRenderer, /const meshKey = `\$\{modelTriangleCount\(mesh\)\}`/);
+});
+
+test("derived mesh data cannot survive a same-topology mesh replacement or retained revision", () => {
+  const owner = {};
+  const mesh = {
+    resourceRevision: 0,
+    triangleCount: 1,
+    triangles: [{
+      normal: [0, 0, 1],
+      vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]],
+    }],
+  };
+  const first = ensureParsedModelPointCloud(owner, 128, mesh);
+  mesh.triangles[0].vertices[0][0] = 4;
+  mesh.resourceRevision += 1;
+  const revised = ensureParsedModelPointCloud(owner, 128, mesh);
+  assert.notEqual(revised, first);
+  assert.equal(revised[0], 4);
+
+  const replacement = {
+    triangleCount: 1,
+    triangles: [{
+      normal: [0, 0, 1],
+      vertices: [[8, 0, 0], [1, 0, 0], [0, 1, 0]],
+    }],
+  };
+  const replaced = ensureParsedModelPointCloud(owner, 128, replacement);
+  assert.notEqual(replaced, revised);
+  assert.equal(replaced[0], 8);
+});
+
+test("raw model shader programs are reference-counted per WebGL context", () => {
+  const deleted = [];
+  const gl = { deleteProgram: (program) => deleted.push(program) };
+  const first = acquireRawModelProgramPool(gl);
+  const second = acquireRawModelProgramPool(gl);
+  assert.equal(first, second);
+  assert.equal(first.references, 2);
+
+  first.program = { program: "points" };
+  first.surfaceProgram = { program: "surface" };
+  first.surfacePrograms.set("custom", { program: "custom-surface" });
+  first.wireProgram = { program: "wire" };
+  first.perceptualWireProgram = { program: "outline" };
+
+  releaseRawModelProgramPool(gl, first);
+  assert.deepEqual(deleted, [], "one mesh owner cannot dispose programs retained by another");
+  assert.equal(second.references, 1);
+
+  releaseRawModelProgramPool(gl, second);
+  assert.deepEqual(deleted, ["points", "surface", "custom-surface", "wire", "outline"]);
+
+  const replacement = acquireRawModelProgramPool(gl);
+  assert.notEqual(replacement, first, "the context receives a fresh pool after its final owner releases");
+  releaseRawModelProgramPool(gl, replacement);
 });

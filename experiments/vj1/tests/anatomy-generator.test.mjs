@@ -1,41 +1,67 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { compileJavaScriptNodeModule, createProjectNodeFork } from "../js/libraries/node-engine/index.js";
-import { createProjectVisualNodeResolver, getGeneratorNodeComponent } from "../js/libraries/visual-nodes/index.js";
-import { anatomyNodeRuntimeModule } from "../js/output/specialized/specialized-source-runtime.js";
+import {
+  createProjectNodeFork,
+  materializeProjectNodeFork,
+} from "../js/libraries/node-engine/index.js";
+import {
+  AnatomyMaterialPaletteNode,
+  AnatomyMotionTransform3dNode,
+  getGeneratorNodeComponent,
+} from "../js/libraries/visual-nodes/index.js";
 
-test("Low Poly Anatomy compiles its complete procedural geometry module", () => {
+test("Low Poly Anatomy is an editable Scene3D compound rather than a parent-owned renderer", () => {
   const definition = getGeneratorNodeComponent("anatomy").nodeDefinition;
-  const compiled = compileJavaScriptNodeModule(definition.parts, definition);
+  const graph = definition.parts.find((part) => part.kind === "graph");
 
-  assert.deepEqual(
-    definition.parts.map((part) => part.id),
-    ["graph", "anatomy-geometry-module", "anatomy-process"],
+  assert.equal(definition.metadata.visualCompilerHook.id, "vj1.visual.scene-3d-program");
+  assert.equal(definition.metadata.nativeCompound, undefined);
+  assert.deepEqual(definition.parts.map((part) => part.id), ["graph"]);
+  assert.equal(graph.editable, true);
+  assert.deepEqual(graph.nodes.map((node) => node.id), [
+    "geometry",
+    "motion",
+    "materials",
+    "objects",
+    "camera",
+    "scene",
+    "render",
+  ]);
+  assert.equal(
+    graph.connections.some((edge) =>
+      edge.from === "geometry.collection" && edge.to === "objects.collection"
+    ),
+    true,
   );
-  assert.equal(definition.parts[0].editable, true);
-  assert.equal(typeof compiled.exports.anatomyPartFitScale, "function");
-  assert.equal(typeof compiled.exports.drawProceduralAnatomy, "function");
-  assert.equal(compiled.exports.anatomyPartFitScale("heart"), 0.64);
+  assert.equal(
+    graph.connections.some((edge) =>
+      edge.from === "scene.scene" && edge.to === "render.scene"
+    ),
+    true,
+  );
+  assert.equal(graph.nodes.find((node) => node.id === "motion").type, AnatomyMotionTransform3dNode.id);
+  assert.equal(graph.nodes.find((node) => node.id === "materials").type, AnatomyMaterialPaletteNode.id);
 });
 
-test("Low Poly Anatomy project forks supply geometry directly to the retained target host", () => {
-  const base = getGeneratorNodeComponent("anatomy").nodeDefinition;
+test("Anatomy motion is an independently forkable child node used by the compiled Scene", () => {
+  const base = AnatomyMotionTransform3dNode;
   const fork = createProjectNodeFork(base, {
-    forkId: "anatomy-project",
+    forkId: "anatomy-motion-project",
     overrides: {
-      parts: base.parts.map((part) => part.id === "anatomy-geometry-module" ? {
+      parts: base.parts.map((part) => ({
         ...part,
         source: [
-          "function anatomyPartFitScale() { return 2.5; }",
-          "function drawProceduralAnatomy(_target, params) { return `forked-${params.part}`; }",
+          "function anatomyMotionTransform3dProcess() {",
+          "  return { transform: createRetainedTransform3d({ scale: [2.5, 2.5, 2.5] }) };",
+          "}",
         ].join("\n"),
-      } : part),
+      })),
     },
   });
-  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
-  const module = anatomyNodeRuntimeModule({ nodeModule: resolver.definition(base.id).moduleExports });
+  const definition = materializeProjectNodeFork(base, fork);
+  const result = definition.process({});
 
-  assert.equal(module.anatomyPartFitScale("face"), 2.5);
-  assert.equal(module.drawProceduralAnatomy(null, { part: "heart" }), "forked-heart");
+  assert.deepEqual(result.transform.scale, [2.5, 2.5, 2.5]);
+  assert.equal(definition.id, `${base.id}/fork/anatomy-motion-project`);
 });

@@ -24,6 +24,7 @@ import {
   mappingWorldRender,
   outputFrameForId,
   outputFrames,
+  outputFramesForIds,
   outputSpanRect,
   renderRequestKey,
   renderRequestStateKey,
@@ -306,6 +307,11 @@ test("direct output spans use the union of their configured output frames", () =
   };
   const left = outputFrameForId(render, "left");
   const right = outputFrameForId(render, "right");
+  assert.deepEqual(
+    outputFramesForIds(render, ["left", "right"]),
+    [left, right],
+    "editor guides preserve the two physical output boundaries"
+  );
   assert.deepEqual(outputSpanRect(render, ["left", "right"]), {
     x: left.x,
     y: Math.min(left.y, right.y),
@@ -357,6 +363,19 @@ test("component dimensions remain independent from the surface sampling policy",
     ...render,
     surfaceTextureCeiling: { width: 640, height: 360 },
   }), { width: 1778, height: 1000 });
+});
+
+test("projector resolution ceilings cap adaptive component textures", () => {
+  assert.deepEqual(componentTextureSize({
+    componentAspectRatio: 4 / 3,
+    hostViewport: { width: 1920, height: 1080 },
+    resolutionCeiling: "vga",
+  }), { width: 640, height: 480 });
+  assert.deepEqual(componentTextureSize({
+    componentAspectRatio: 4 / 3,
+    hostViewport: { width: 1920, height: 1080 },
+    resolutionCeiling: "xga",
+  }), { width: 1024, height: 768 });
 });
 
 test("default project surface mapping uses world-centered frame coordinates", () => {

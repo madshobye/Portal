@@ -11,6 +11,7 @@ const manifest = Object.freeze({
         Math.abs(Number(params.rotationSpeed) || 0) > 0.0001 ||
         ((Number(params.shimmer) || 0) > 0.0001 && (Number(params.shimmerSpeed) || 0) > 0.0001)
       ),
+      rateParam: "speed",
     },
     primaryParamIds: ["rayCount", "rayWidth", "rayLength", "shimmer", "rotationSpeed", "rayColorA", "rayColorB", "coreColor"],
     detailParamIds: ["speed", "rotation", "centerX", "centerY", "coreSize", "lengthVariation", "edgeSoftness", "shimmerScale", "shimmerSpeed", "brightness", "seed", "backgroundColor", "amount"],

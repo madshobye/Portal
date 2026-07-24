@@ -1,4 +1,4 @@
-import { clamp01 } from "../../domain/models.js?v=chain-only-authority-1";
+import { clamp01 } from "../../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-1";
 import { createSharedFramebufferTarget, isSharedFramebufferTarget, unwrapRenderTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
 import { drawStandby } from "../generators.js?v=standby-grace-1";
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=canvas-global-resolution-1";
@@ -12,22 +12,24 @@ import {
   lowerTerrainGeometryProvider,
   terrainCameraView,
   terrainFlightControllerProcess,
-} from "../../libraries/terrain-engine/index.js?v=provider-substitution-1";
+} from "../../libraries/terrain-engine/index.js?v=semantic-terrain-contract-4";
 import {
-  specializedCompoundRuntimeParameters,
+  evaluateSpecializedCompoundGraph,
+  executeSpecializedCompoundProvider,
+  executeSpecializedCompoundStage,
+  specializedCompoundNativeKernel,
   specializedCompoundStageEnabled,
-  specializedCompoundStageParameters,
+  specializedCompoundStageParameterView,
   specializedCompoundStageProvider,
-} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=specialized-stage-authority-1";
+} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
 import { anatomyPartFitScale, drawProceduralAnatomy } from "./anatomy-renderer.js?v=node-program-hooks-15";
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
 import { applyModelViewportProjection, modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js?v=resolution-relative-model-clip-1";
-import { drawGeometryModel, drawParsedModel, drawPointCloud, drawWithPolygonOffset, ensureP5ModelPointCloud, ensureParsedModelGeometry, ensureParsedModelPointCloud } from "../../libraries/mesh-engine/mesh-render-cache.js";
 import { disposeRawModelItemResources, renderMeshNodeProcess } from "../../libraries/mesh-engine/mesh-render/index.js?v=resolution-relative-model-clip-1";
 import { updateMediaMeshRenderValues } from "../../libraries/mesh-engine/media-mesh-render-adapter.js";
 import { modelLodTargetTriangles, selectModelLod } from "../../libraries/mesh-engine/mesh-resolution/index.js";
-import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=source-roi-view-3";
-import { TerrainNodeModuleExports as FALLBACK_TERRAIN_NODE_MODULE } from "./terrain-mesh.js?v=node-program-hooks-15";
+import { disposeTerrainSurfaceResources, disposeTerrainWireResources, drawTerrainSurface, drawTerrainWireframe } from "./terrain-renderer.js?v=semantic-terrain-providers-4";
+import { TerrainNodeModuleExports as FALLBACK_TERRAIN_NODE_MODULE } from "./terrain-mesh.js?v=shared-terrain-grid-math-16";
 import {
   FEATURE_MORPH_FRAGMENT_SHADER,
   FEATURE_MORPH_VERTEX_SHADER,
@@ -52,8 +54,8 @@ import {
   TEXT_GENERATOR_VERTEX_SHADER as FALLBACK_TEXT_VERTEX_SHADER,
   textMaskDimensions as fallbackTextMaskDimensions,
   textMaskSignature as fallbackTextMaskSignature,
-} from "./text-generator-renderer.js?v=source-roi-view-3";
-import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=specialized-stage-authority-1";
+} from "./text-generator-renderer.js?v=text-mask-readback-1";
+import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=compiled-artifact-authority-1";
 import { disposeRenderTarget } from "../../libraries/render-engine/render-target-lifetime.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
 
@@ -68,27 +70,56 @@ const FALLBACK_ANATOMY_NODE_MODULE = Object.freeze({
   drawProceduralAnatomy,
 });
 
-export function anatomyNodeRuntimeModule(operation = {}) {
+function compiledSpecializedOperation(operation = {}) {
+  return !!operation?.nativeCompoundProgram;
+}
+
+function requireCompiledModuleFunctions(operation, functions, errorCode) {
   const module = operation?.nodeModule;
-  return typeof module?.anatomyPartFitScale === "function" && typeof module?.drawProceduralAnatomy === "function"
-    ? module
-    : FALLBACK_ANATOMY_NODE_MODULE;
+  const missing = functions.filter((name) => typeof module?.[name] !== "function");
+  if (compiledSpecializedOperation(operation) && missing.length) {
+    throw new Error(`${errorCode}:${missing.join(",")}`);
+  }
+  return { module, missing };
+}
+
+function compiledShaderSource(operation, id, fallback, errorCode) {
+  const source = operation?.nodeShaders?.[id];
+  if (typeof source === "string" && source.trim()) return source;
+  if (compiledSpecializedOperation(operation)) {
+    throw new Error(`${errorCode}:${id}`);
+  }
+  return fallback;
+}
+
+export function anatomyNodeRuntimeModule(operation = {}) {
+  const { module, missing } = requireCompiledModuleFunctions(
+    operation,
+    ["anatomyPartFitScale", "drawProceduralAnatomy"],
+    "ANATOMY_COMPILED_MODULE_MISSING",
+  );
+  return missing.length ? FALLBACK_ANATOMY_NODE_MODULE : module;
 }
 
 // This is the narrow host boundary for the Text node. The compiler supplies
 // editable algorithm exports and shader sources; the specialized runtime owns
 // only context-bound targets, mask images, and their bounded caches.
 export function textNodeRuntimeModule(operation = {}) {
-  const module = operation?.nodeModule;
-  return typeof module?.createTextMask === "function" && typeof module?.textMaskSignature === "function"
-    ? module
-    : FALLBACK_TEXT_NODE_MODULE;
+  const { module, missing } = requireCompiledModuleFunctions(
+    operation,
+    ["createTextMask", "textMaskSignature"],
+    "TEXT_COMPILED_MODULE_MISSING",
+  );
+  return missing.length ? FALLBACK_TEXT_NODE_MODULE : module;
 }
 
 export function textNodeShaderSource(operation = {}, stage = "fragment") {
-  return operation?.nodeShaders?.[stage] || (stage === "vertex"
-    ? FALLBACK_TEXT_VERTEX_SHADER
-    : FALLBACK_TEXT_FRAGMENT_SHADER);
+  return compiledShaderSource(
+    operation,
+    stage,
+    stage === "vertex" ? FALLBACK_TEXT_VERTEX_SHADER : FALLBACK_TEXT_FRAGMENT_SHADER,
+    "TEXT_COMPILED_SHADER_MISSING",
+  );
 }
 
 // Terrain's node owns the pure topology/math module. The host keeps the
@@ -96,24 +127,51 @@ export function textNodeShaderSource(operation = {}, stage = "fragment") {
 // modules are validated before compilation, so the hot path needs only this
 // single capability check rather than revalidating every helper each frame.
 export function terrainNodeRuntimeModule(operation = {}) {
-  const module = operation?.nodeModule;
-  return typeof module?.terrainSurfaceGridVertices === "function"
-    ? module
-    : FALLBACK_TERRAIN_NODE_MODULE;
+  const { module, missing } = requireCompiledModuleFunctions(
+    operation,
+    [
+      "normalizedTerrainIrregularity",
+      "terrainExpandedGridWireVertices",
+      "terrainGridSize",
+      "terrainRowMetrics",
+      "terrainSafeNearDistance",
+      "terrainSurfaceGridVertices",
+      "terrainSurfaceTriangleIndices",
+      "terrainTessellationSize",
+    ],
+    "TERRAIN_COMPILED_MODULE_MISSING",
+  );
+  return missing.length ? FALLBACK_TERRAIN_NODE_MODULE : module;
+}
+
+export function terrainNodeShaderSource(operation = {}, id = "") {
+  return compiledShaderSource(
+    operation,
+    id,
+    null,
+    "TERRAIN_COMPILED_SHADER_MISSING",
+  );
 }
 
 const FALLBACK_TILE_TEXTURE_NODE_MODULE = Object.freeze({ tileRepeatAmount: fallbackTileRepeatAmount });
 
 export function tileTextureNodeRuntimeModule(operation = {}) {
-  const module = operation?.nodeModule;
-  return typeof module?.tileRepeatAmount === "function" ? module : FALLBACK_TILE_TEXTURE_NODE_MODULE;
+  const { module, missing } = requireCompiledModuleFunctions(
+    operation,
+    ["tileRepeatAmount"],
+    "TILE_TEXTURE_COMPILED_MODULE_MISSING",
+  );
+  return missing.length ? FALLBACK_TILE_TEXTURE_NODE_MODULE : module;
 }
 
 export function tileTextureNodeShaderSource(operation = {}, stage = "fragment") {
   const id = stage === "vertex" ? "tile-texture-vertex" : "tile-texture-fragment";
-  return operation?.nodeShaders?.[id] || (stage === "vertex"
-    ? TILE_TEXTURE_VERTEX_SHADER
-    : TILE_TEXTURE_FRAGMENT_SHADER);
+  return compiledShaderSource(
+    operation,
+    id,
+    stage === "vertex" ? TILE_TEXTURE_VERTEX_SHADER : TILE_TEXTURE_FRAGMENT_SHADER,
+    "TILE_TEXTURE_COMPILED_SHADER_MISSING",
+  );
 }
 
 const FALLBACK_FEATURE_MORPH_NODE_MODULE = Object.freeze({
@@ -124,20 +182,24 @@ const FALLBACK_FEATURE_MORPH_NODE_MODULE = Object.freeze({
 });
 
 export function featureMorphNodeRuntimeModule(operation = {}, { requireAnalysis = true } = {}) {
-  const module = operation?.nodeModule;
-  return typeof module?.imageFitUniform === "function" && (!requireAnalysis || (
-    typeof module?.buildFeatureMorphField === "function" &&
-    typeof module?.matchSuperPointFeatures === "function"
-  ))
-    ? module
-    : FALLBACK_FEATURE_MORPH_NODE_MODULE;
+  const functions = ["imageFitUniform"];
+  if (requireAnalysis) functions.push("buildFeatureMorphField", "matchSuperPointFeatures");
+  const { module, missing } = requireCompiledModuleFunctions(
+    operation,
+    functions,
+    "FEATURE_MORPH_COMPILED_MODULE_MISSING",
+  );
+  return missing.length ? FALLBACK_FEATURE_MORPH_NODE_MODULE : module;
 }
 
 export function featureMorphNodeShaderSource(operation = {}, stage = "fragment") {
   const id = stage === "vertex" ? "feature-morph-vertex" : "feature-morph-fragment";
-  return operation?.nodeShaders?.[id] || (stage === "vertex"
-    ? FEATURE_MORPH_VERTEX_SHADER
-    : FEATURE_MORPH_FRAGMENT_SHADER);
+  return compiledShaderSource(
+    operation,
+    id,
+    stage === "vertex" ? FEATURE_MORPH_VERTEX_SHADER : FEATURE_MORPH_FRAGMENT_SHADER,
+    "FEATURE_MORPH_COMPILED_SHADER_MISSING",
+  );
 }
 
 export class SpecializedSourceRuntime {
@@ -151,6 +213,7 @@ export class SpecializedSourceRuntime {
     gpuTimer,
     frameIndex,
     showDiagnostics,
+    requestPixelDensity,
   } = {}) {
     this.media = media || (() => new Map());
     this.acquireMedia = acquireMedia || ((id) => this.media().get(id));
@@ -161,49 +224,290 @@ export class SpecializedSourceRuntime {
     this.gpuTimer = gpuTimer || { begin: () => null, end: () => {} };
     this.frameIndex = frameIndex || (() => 0);
     this.showDiagnostics = showDiagnostics || (() => true);
+    this.requestPixelDensity = requestPixelDensity || ((request = {}) => request.pixelDensity);
+    this.nativeRenderers = new Map();
+    this.registerNativeRenderer(
+      "output/specialized:anatomy",
+      (target, source, time, request, operation) => this.drawAnatomy(
+        target, source, time, this.nativeRenderRequest(request), operation,
+      ),
+    );
+    this.registerNativeRenderer(
+      "output/specialized:terrainFlyover",
+      (target, source, time, request, operation) => this.drawTerrain(
+        target, source, time, this.nativeRenderRequest(request), operation,
+      ),
+    );
+    this.registerNativeRenderer(
+      "output/specialized:featureMorph",
+      (target, source, time, request, operation) => this.drawFeatureMorph(
+        target, source, time, this.nativeRenderRequest(request), operation,
+      ),
+    );
+    this.registerNativeRenderer(
+      "output/specialized:featureMorphV2",
+      (target, source, time, request, operation) => this.drawFeatureMorph(
+        target, source, time, this.nativeRenderRequest(request), operation,
+      ),
+    );
+    this.registerNativeRenderer(
+      "output/specialized:controlledShader",
+      (target, source, time, request, operation) => this.drawControlledShader(
+        target, source, time, this.nativeRenderRequest(request), operation,
+      ),
+    );
+    this.registerNativeRenderer(
+      "output/specialized:tileTexture",
+      (target, source, time, request, operation) => this.drawTileTexture(
+        target, source, time, this.nativeRenderRequest(request), operation,
+      ),
+    );
+    this.registerNativeRenderer(
+      "output/specialized:text",
+      (target, source, time, request, operation) => this.drawText(
+        target, source, time, this.nativeRenderRequest(request), operation,
+      ),
+    );
+    this.registerNativeRenderer(
+      "output/specialized:meshPatterns",
+      (target, source, time, request, operation) => this.drawMeshPatterns(
+        target, source, time, this.nativeRenderRequest(request), operation,
+      ),
+    );
     this.targets = new Map();
     this.terrainSurfaceResources = new Map();
     this.terrainWireResources = new Map();
     this.rateClocks = new Map();
+    this.anatomyGraphExternalInputs = new Map();
     this.terrainFlightStates = new Map();
+    this.terrainGraphExternalInputs = new Map();
     this.superPointPairs = new SuperPointPairService();
     this.mobileNetMorphPairs = new MobileNetMorphPairService();
+    this.featureMorphAnalysisProviders = new Map();
+    this.registerFeatureMorphAnalysisProvider("superpoint", {
+      service: () => this.superPointPairs,
+      targetKey: "featureMorph",
+      shaderKey: "featureMorphShader",
+      shaderRevisionKey: "featureMorphShaderRevision",
+      requireAnalysisModule: true,
+      loadingLabel: "finding SuperPoint landmarks",
+      errorLabel: "feature matching failed",
+      morphStrategy: () => "flow",
+      morphField: (entry) => entry.result.field,
+      featureInfluence: () => 1,
+    });
+    this.registerFeatureMorphAnalysisProvider("mobilenet", {
+      service: () => this.mobileNetMorphPairs,
+      targetKey: "featureMorphV2",
+      shaderKey: "featureMorphV2Shader",
+      shaderRevisionKey: "featureMorphV2ShaderRevision",
+      requireAnalysisModule: false,
+      loadingLabel: "matching MobileNet regions",
+      errorLabel: "semantic matching failed",
+      morphStrategy: (params) => params.morphStrategy || "elastic",
+      morphField: (entry, nodeModule, strategy) =>
+        mobileNetAnalysisModule(nodeModule).mobileNetMorphFieldForStrategy(entry.result, strategy),
+      featureInfluence: (params) => Math.max(0, Number(params.influence) || 0) / 0.2,
+    });
     this.featureMorphShader = null;
     this.featureMorphShaderRevision = "";
     this.featureMorphV2Shader = null;
     this.featureMorphV2ShaderRevision = "";
+    this.controlledShaderPrograms = new Map();
+    this.controlledShaderGraphExternalInputs = new Map();
     this.tileTextureShader = null;
     this.tileTextureShaderRevision = "";
     this.textGeneratorShader = null;
     this.textGeneratorShaderRevision = "";
     this.textMasks = new Map();
+    this.textGraphExternalInputs = new Map();
     this.meshPatterns = new MeshPatternRenderer({ frameIndex: this.frameIndex });
     this.presentationShaders = new Map();
     this.presentationShaderFailures = new Set();
   }
 
-  featureMorphPairService(generatorId = "") {
-    if (generatorId === "featureMorph") return this.superPointPairs;
-    if (generatorId === "featureMorphV2") return this.mobileNetMorphPairs;
-    return null;
+  registerNativeRenderer(rendererId, renderer, { replace = false } = {}) {
+    const id = String(rendererId || "");
+    if (!id || typeof renderer !== "function") {
+      throw new TypeError("VJ1_NATIVE_SOURCE_RENDERER_INVALID");
+    }
+    if (!replace && this.nativeRenderers.has(id)) {
+      throw new Error(`VJ1_NATIVE_SOURCE_RENDERER_DUPLICATE:${id}`);
+    }
+    this.nativeRenderers.set(id, renderer);
+    return renderer;
+  }
+
+  registerFeatureMorphAnalysisProvider(providerId, adapter, { replace = false } = {}) {
+    const id = String(providerId || "");
+    if (!id || !adapter || typeof adapter.service !== "function") {
+      throw new TypeError("VJ1_FEATURE_MORPH_ANALYSIS_PROVIDER_INVALID");
+    }
+    if (!replace && this.featureMorphAnalysisProviders.has(id)) {
+      throw new Error(`VJ1_FEATURE_MORPH_ANALYSIS_PROVIDER_DUPLICATE:${id}`);
+    }
+    this.featureMorphAnalysisProviders.set(id, Object.freeze({ ...adapter, providerId: id }));
+    return this.featureMorphAnalysisProviders.get(id);
+  }
+
+  featureMorphAnalysisProvider(providerId) {
+    return this.featureMorphAnalysisProviders.get(String(providerId || "")) || null;
+  }
+
+  featureMorphAnalysisService(providerId) {
+    return this.featureMorphAnalysisProvider(providerId)?.service() || null;
+  }
+
+  hasNativeRenderer(rendererId) {
+    return this.nativeRenderers.has(String(rendererId || ""));
+  }
+
+  drawNativeRenderer(rendererId, target, source, time, renderRequest, operation = null) {
+    const renderer = this.nativeRenderers.get(String(rendererId || ""));
+    if (!renderer) return false;
+    renderer(target, source, time, renderRequest, operation);
+    return true;
+  }
+
+  nativeRenderRequest(renderRequest = {}) {
+    return {
+      ...renderRequest,
+      pixelDensity: this.requestPixelDensity(renderRequest),
+    };
+  }
+
+  drawControlledShader(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
+    const kernel = specializedCompoundNativeKernel(operation, "controlled-shader");
+    if (!operation?.nativeCompoundProgram || !kernel) {
+      throw new Error("CONTROLLED_SHADER_COMPILED_KERNEL_MISSING");
+    }
+    const renderStageId = kernel.id;
+    const controllerStageId = kernel.inputBindings?.uniforms?.stageId || "";
+    if (
+      !controllerStageId ||
+      !specializedCompoundStageEnabled(operation, controllerStageId) ||
+      !specializedCompoundStageEnabled(operation, renderStageId)
+    ) {
+      this.drawStandby(pg, "Controlled shader stage disabled");
+      return;
+    }
+
+    const authoredParams = source.params || {};
+    const instanceId = source.instanceId || renderRequest.renderIdentity || operation.id || "controlled-shader";
+    let external = this.controlledShaderGraphExternalInputs.get(instanceId);
+    if (!external || external.stageId !== controllerStageId) {
+      const stageInputs = { componentTime: 0 };
+      external = {
+        stageId: controllerStageId,
+        stageInputs,
+        inputs: { [controllerStageId]: stageInputs },
+      };
+      this.controlledShaderGraphExternalInputs.set(instanceId, external);
+    }
+    external.stageInputs.componentTime = componentTime;
+    const graph = evaluateSpecializedCompoundGraph(
+      operation,
+      authoredParams,
+      { instanceId },
+      external.inputs,
+    );
+    const uniforms = graph?.stageInput(renderStageId, "uniforms");
+    const params = graph?.stageInputs(renderStageId)?.settings;
+    if (!uniforms || !params) {
+      this.drawStandby(pg, "Controlled shader graph input unavailable");
+      return;
+    }
+    const applyUniforms = operation?.nodeModule?.applyControlledShaderUniforms;
+    if (typeof applyUniforms !== "function") {
+      throw new Error("CONTROLLED_SHADER_UNIFORM_BINDING_MISSING");
+    }
+
+    const targetKind = `controlledShader:${operation.nodeId || kernel.nodeId || "visual"}`;
+    const shaderRevision = String(
+      operation.nodeShaderProgramRevisions?.["controlled-shader"] ||
+      operation.nodeShaderRevision ||
+      operation.nodeModuleRevision ||
+      "",
+    );
+    const target = this.getTarget(targetKind, pg.width, pg.height, renderRequest.pixelDensity, {
+      preferSharedFramebuffer: true,
+      onContextDiscard: () => this.controlledShaderPrograms.delete(targetKind),
+    });
+    let shaderState = this.controlledShaderPrograms.get(targetKind);
+    if (
+      !shaderState ||
+      shaderState.target !== target ||
+      shaderState.revision !== shaderRevision
+    ) {
+      shaderState = {
+        target,
+        revision: shaderRevision,
+        shader: target.createShader(
+          operation.nodeShaders?.vertex || "",
+          operation.nodeShaders?.fragment || "",
+        ),
+      };
+      this.controlledShaderPrograms.set(targetKind, shaderState);
+    }
+    const view = renderView(pg, renderRequest);
+    drawShaderTarget(target, () => {
+      clearShaderTarget(target);
+      applyShaderTarget(target, shaderState.shader);
+      shaderState.shader.setUniform("resolution", [view.width, view.height]);
+      shaderState.shader.setUniform("renderUvRect", view.uvRect);
+      shaderState.shader.setUniform(
+        "contentUvMatrix",
+        contentTransformUvMatrices(source.contentTransform).sampling,
+      );
+      applyUniforms(shaderState.shader, uniforms, params);
+      drawShaderTargetRect(target, pg.width, pg.height);
+      resetShaderTarget(target);
+    });
+    this.presentGeneratedTarget(pg, target);
   }
 
   drawFeatureMorph(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
-    const params = source.params || {};
-    const isMobileNet = source.generatorId === "featureMorphV2";
-    const nodeModule = featureMorphNodeRuntimeModule(operation, { requireAnalysis: !isMobileNet });
-    const pairService = isMobileNet ? this.mobileNetMorphPairs : this.superPointPairs;
-    const targetKey = isMobileNet ? "featureMorphV2" : "featureMorph";
-    const shaderKey = isMobileNet ? "featureMorphV2Shader" : "featureMorphShader";
-    const shaderRevisionKey = isMobileNet ? "featureMorphV2ShaderRevision" : "featureMorphShaderRevision";
+    const authoredParams = source.params || {};
+    const kernel = specializedCompoundNativeKernel(operation, "feature-morph");
+    if (operation?.nativeCompoundProgram && !kernel) {
+      throw new Error("FEATURE_MORPH_NATIVE_KERNEL_MISSING");
+    }
+    const renderStageId = kernel?.id || "render";
+    const imageAStageId = kernel?.inputBindings?.imageA?.stageId || "image-a";
+    const imageBStageId = kernel?.inputBindings?.imageB?.stageId || "image-b";
+    const analysisStageId = kernel?.inputBindings?.analysis?.stageId || "analysis";
+    const instanceId = source.instanceId || renderRequest.renderIdentity || source.generatorId || "feature-morph";
+    const graph = operation?.nativeCompoundProgram
+      ? evaluateSpecializedCompoundGraph(operation, authoredParams, { instanceId })
+      : null;
+    const imageAValue = graph?.stageInput(renderStageId, "imageA") || null;
+    const imageBValue = graph?.stageInput(renderStageId, "imageB") || null;
+    const analysisValue = graph?.stageInput(renderStageId, "analysis") || null;
+    if (operation?.nativeCompoundProgram && (!imageAValue || !imageBValue || !analysisValue)) {
+      throw new Error(`FEATURE_MORPH_GRAPH_VALUE_MISSING:${imageAStageId}:${imageBStageId}:${analysisStageId}`);
+    }
+    const params = graph?.stageInputs(renderStageId)?.settings ||
+      specializedCompoundStageParameterView(operation, renderStageId, authoredParams, instanceId) ||
+      authoredParams;
+    const analysisParams = analysisValue?.settings || authoredParams;
+    const providerId = String(analysisValue?.providerId || "");
+    const analysisProvider = this.featureMorphAnalysisProvider(providerId);
+    if (!analysisProvider) {
+      throw new Error(`FEATURE_MORPH_ANALYSIS_PROVIDER_UNAVAILABLE:${providerId || "missing"}`);
+    }
+    const nodeModule = featureMorphNodeRuntimeModule(operation, {
+      requireAnalysis: analysisProvider.requireAnalysisModule === true,
+    });
+    const pairService = analysisProvider.service();
+    const { targetKey, shaderKey, shaderRevisionKey } = analysisProvider;
     const shaderRevision = String(
       operation?.nodeShaderProgramRevisions?.["feature-morph"] ||
       operation?.nodeShaderRevision ||
       operation?.nodeModuleRevision ||
       "legacy"
     );
-    const imageAId = params.imageAId || "";
-    const imageBId = params.imageBId || "";
+    const imageAId = imageAValue?.mediaId || authoredParams.imageAId || "";
+    const imageBId = imageBValue?.mediaId || authoredParams.imageBId || "";
     if (!imageAId || !imageBId) {
       this.drawStandby(pg, "choose two images");
       return;
@@ -218,18 +522,18 @@ export class SpecializedSourceRuntime {
       this.drawStandby(pg, itemA?.imageError || itemB?.imageError || "loading morph images");
       return;
     }
-    const entry = pairService.request(params, itemA.image, itemB.image, {
+    const entry = pairService.request(analysisParams, itemA.image, itemB.image, {
       imageAFile: itemA.file,
       imageBFile: itemB.file,
       nodeModule,
       algorithmRevision: String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy"),
     });
     if (entry.status === "loading") {
-      this.drawStandby(pg, entry.detail || (isMobileNet ? "matching MobileNet regions" : "finding SuperPoint landmarks"));
+      this.drawStandby(pg, entry.detail || analysisProvider.loadingLabel);
       return;
     }
     if (entry.status === "error" || !entry.result?.field) {
-      this.drawStandby(pg, entry.error || (isMobileNet ? "semantic matching failed" : "feature matching failed"));
+      this.drawStandby(pg, entry.error || analysisProvider.errorLabel);
       return;
     }
 
@@ -248,10 +552,8 @@ export class SpecializedSourceRuntime {
       this[shaderRevisionKey] = shaderRevision;
     }
     const shaderProgram = this[shaderKey];
-    const morphStrategy = isMobileNet ? (params.morphStrategy || "elastic") : "flow";
-    const morphField = isMobileNet
-      ? mobileNetAnalysisModule(nodeModule).mobileNetMorphFieldForStrategy(entry.result, morphStrategy)
-      : entry.result.field;
+    const morphStrategy = analysisProvider.morphStrategy(params);
+    const morphField = analysisProvider.morphField(entry, nodeModule, morphStrategy);
     const flowImage = featureMorphFlowImage(morphField);
     const autoSpeed = Math.max(0, Number(params.autoSpeed) || 0);
     const morph = autoSpeed > 0.0001
@@ -265,7 +567,7 @@ export class SpecializedSourceRuntime {
       shaderProgram.setUniform("imageB", itemB.image);
       shaderProgram.setUniform("flowField", flowImage);
       shaderProgram.setUniform("morph", morph);
-      const featureInfluence = isMobileNet ? Math.max(0, Number(params.influence) || 0) / 0.2 : 1;
+      const featureInfluence = analysisProvider.featureInfluence(params);
       shaderProgram.setUniform("warpStrength", Math.max(0, Number(params.warpStrength) || 0) * featureInfluence);
       shaderProgram.setUniform("maxFlow", morphField.maxFlow);
       shaderProgram.setUniform("flowSize", [morphField.width, morphField.height]);
@@ -283,7 +585,24 @@ export class SpecializedSourceRuntime {
   }
 
   drawTileTexture(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
-    const params = source.params || {};
+    const authoredParams = source.params || {};
+    const kernel = specializedCompoundNativeKernel(operation, "tile-texture");
+    if (operation?.nativeCompoundProgram && !kernel) {
+      throw new Error("TILE_TEXTURE_NATIVE_KERNEL_MISSING");
+    }
+    const renderStageId = kernel?.id || "render";
+    const imageStageId = kernel?.inputBindings?.image?.stageId || "image";
+    const instanceId = source.instanceId || renderRequest.renderIdentity || source.generatorId || "tile-texture";
+    const graph = operation?.nativeCompoundProgram
+      ? evaluateSpecializedCompoundGraph(operation, authoredParams, { instanceId })
+      : null;
+    const imageValue = graph?.stageInput(renderStageId, "image") || null;
+    if (operation?.nativeCompoundProgram && !imageValue) {
+      throw new Error(`TILE_TEXTURE_GRAPH_VALUE_MISSING:${imageStageId}`);
+    }
+    const params = graph?.stageInputs(renderStageId)?.settings ||
+      specializedCompoundStageParameterView(operation, renderStageId, authoredParams, instanceId) ||
+      authoredParams;
     const nodeModule = tileTextureNodeRuntimeModule(operation);
     const shaderRevision = String(
       operation?.nodeShaderProgramRevisions?.["tile-texture"] ||
@@ -291,7 +610,7 @@ export class SpecializedSourceRuntime {
       operation?.nodeModuleRevision ||
       "legacy"
     );
-    const imageId = params.imageId || "";
+    const imageId = imageValue?.mediaId || authoredParams.imageId || "";
     if (!imageId) {
       this.drawStandby(pg, "choose a tileable texture");
       return;
@@ -333,13 +652,52 @@ export class SpecializedSourceRuntime {
   }
 
   drawText(pg, source = {}, _componentTime = 0, renderRequest = {}, operation = null) {
-    const params = source.params || {};
-    const nodeModule = textNodeRuntimeModule(operation);
-    const createTextMask = nodeModule.createTextMask;
-    const textMaskDimensions = typeof nodeModule.textMaskDimensions === "function"
-      ? nodeModule.textMaskDimensions
-      : fallbackTextMaskDimensions;
-    const textMaskSignature = nodeModule.textMaskSignature;
+    const authoredParams = source.params || {};
+    const kernel = specializedCompoundNativeKernel(operation, "text-mask");
+    if (operation?.nativeCompoundProgram && !kernel) {
+      this.drawStandby(pg, "Text render kernel unavailable");
+      return;
+    }
+    const renderStageId = kernel?.id || "render";
+    const maskStageId = kernel?.inputBindings?.mask?.stageId || "mask";
+    if (
+      !specializedCompoundStageEnabled(operation, renderStageId) ||
+      !specializedCompoundStageEnabled(operation, maskStageId)
+    ) {
+      this.drawStandby(pg, "Text compound stage disabled");
+      return;
+    }
+    const instanceId = source.instanceId || renderRequest.renderIdentity || source.generatorId || "text";
+    const view = renderView(pg, renderRequest);
+    let maskValue = null;
+    let params = authoredParams;
+    if (operation?.nativeCompoundProgram) {
+      let external = this.textGraphExternalInputs.get(instanceId);
+      if (!external || external.stageId !== maskStageId) {
+        const stageInputs = { width: 1, height: 1 };
+        external = {
+          stageId: maskStageId,
+          stageInputs,
+          inputs: { [maskStageId]: stageInputs },
+        };
+        this.textGraphExternalInputs.set(instanceId, external);
+      }
+      external.stageInputs.width = view.width;
+      external.stageInputs.height = view.height;
+      const graph = evaluateSpecializedCompoundGraph(
+        operation,
+        authoredParams,
+        { instanceId },
+        external.inputs,
+      );
+      maskValue = graph?.stageInput(renderStageId, "mask") || null;
+      params = graph?.stageInputs(renderStageId)?.settings ||
+        specializedCompoundStageParameterView(operation, renderStageId, authoredParams, instanceId);
+      if (!maskValue?.canvas) {
+        this.drawStandby(pg, "Text mask graph input unavailable");
+        return;
+      }
+    }
     const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
     const shaderRevision = String(operation?.nodeShaderRevision || operation?.nodeModuleRevision || "legacy");
     const vertexShader = textNodeShaderSource(operation, "vertex");
@@ -355,15 +713,49 @@ export class SpecializedSourceRuntime {
       this.textGeneratorShader = target.createShader(vertexShader, fragmentShader);
       this.textGeneratorShaderRevision = shaderRevision;
     }
-    const instanceId = source.instanceId || source.generatorId || "text";
-    const view = renderView(pg, renderRequest);
-    const maskSize = textMaskDimensions(view.width, view.height);
-    const signature = `${codeRevision}:${textMaskSignature(params, maskSize.width, maskSize.height)}`;
+    let canvas;
+    let maskSize;
+    let providerRevision = 0;
+    let signature;
+    let legacyNodeModule = null;
+    if (maskValue) {
+      canvas = maskValue.canvas;
+      maskSize = {
+        width: Math.max(1, Number(maskValue.width) || canvas.width || 1),
+        height: Math.max(1, Number(maskValue.height) || canvas.height || 1),
+      };
+      providerRevision = Math.max(0, Number(maskValue.revision) || 0);
+      signature = `${codeRevision}:${String(maskValue.signature || "")}`;
+    } else {
+      // Compatibility-only direct host calls have no compiled Group. Current
+      // production plans always receive the connected Text Mask provider.
+      legacyNodeModule = textNodeRuntimeModule(operation);
+      const textMaskDimensions = typeof legacyNodeModule.textMaskDimensions === "function"
+        ? legacyNodeModule.textMaskDimensions
+        : fallbackTextMaskDimensions;
+      maskSize = textMaskDimensions(view.width, view.height);
+      signature = `${codeRevision}:${legacyNodeModule.textMaskSignature(params, maskSize.width, maskSize.height)}`;
+      canvas = null;
+    }
     let mask = this.textMasks.get(instanceId);
-    if (!mask || mask.signature !== signature) {
-      const canvas = createTextMask(params, maskSize.width, maskSize.height, mask?.canvas || null);
+    const changed = maskValue
+      ? !mask ||
+        mask.signature !== signature ||
+        mask.providerRevision !== providerRevision ||
+        mask.canvas !== canvas
+      : !mask || mask.signature !== signature;
+    if (changed) {
+      if (!maskValue) {
+        canvas = legacyNodeModule.createTextMask(
+          params,
+          maskSize.width,
+          maskSize.height,
+          mask?.canvas || null,
+        );
+      }
       mask = {
         signature,
+        providerRevision,
         canvas,
         image: textMaskImage(canvas, mask?.image || null),
         lastUsedFrame: this.frameIndex(),
@@ -416,39 +808,112 @@ export class SpecializedSourceRuntime {
   }
 
   drawAnatomy(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
+    const kernel = specializedCompoundNativeKernel(operation, "anatomy-retained-webgl");
+    if (operation?.nativeCompoundProgram && !kernel) {
+      this.drawStandby(pg, "Anatomy kernel schedule unavailable");
+      return;
+    }
+    const renderStageId = kernel?.id || "render";
+    const geometryStageId = kernel?.inputBindings?.geometry?.stageId || "geometry";
+    const transformStageId = kernel?.inputBindings?.transform?.stageId || "transform";
+    const materialStageId = kernel?.inputBindings?.material?.stageId || "material";
+    const cameraStageId = kernel?.inputBindings?.camera?.stageId || "camera";
     if (
-      !specializedCompoundStageEnabled(operation, "geometry") ||
-      !specializedCompoundStageEnabled(operation, "transform") ||
-      !specializedCompoundStageEnabled(operation, "material") ||
-      !specializedCompoundStageEnabled(operation, "camera") ||
-      !specializedCompoundStageEnabled(operation, "render")
+      !specializedCompoundStageEnabled(operation, geometryStageId) ||
+      !specializedCompoundStageEnabled(operation, transformStageId) ||
+      !specializedCompoundStageEnabled(operation, materialStageId) ||
+      !specializedCompoundStageEnabled(operation, cameraStageId) ||
+      !specializedCompoundStageEnabled(operation, renderStageId)
     ) {
       this.drawStandby(pg, "Anatomy compound stage disabled");
       return;
     }
     const authoredParams = source.params || {};
-    const geometryParams = specializedCompoundStageParameters(operation, "geometry", authoredParams);
-    const transformParams = specializedCompoundStageParameters(operation, "transform", authoredParams);
-    const materialParams = specializedCompoundStageParameters(operation, "material", authoredParams);
-    const cameraParams = specializedCompoundStageParameters(operation, "camera", authoredParams);
-    const renderParams = specializedCompoundStageParameters(operation, "render", authoredParams);
+    const anatomyInstanceId = source.instanceId || renderRequest.renderIdentity || source.generatorId || "anatomy";
+    let external = this.anatomyGraphExternalInputs.get(anatomyInstanceId);
+    if (!external || external.stageId !== transformStageId) {
+      const stageInputs = { componentTime: 0 };
+      external = {
+        stageId: transformStageId,
+        stageInputs,
+        inputs: { [transformStageId]: stageInputs },
+      };
+      this.anatomyGraphExternalInputs.set(anatomyInstanceId, external);
+    }
+    external.stageInputs.componentTime = componentTime;
+    const graph = evaluateSpecializedCompoundGraph(
+      operation,
+      authoredParams,
+      { instanceId: anatomyInstanceId },
+      external.inputs,
+    );
+    let transformParams = graph?.stageInputs(transformStageId)?.settings ||
+      specializedCompoundStageParameterView(operation, transformStageId, authoredParams, anatomyInstanceId);
+    const renderParams = graph?.stageInputs(renderStageId)?.settings ||
+      specializedCompoundStageParameterView(operation, renderStageId, authoredParams, anatomyInstanceId);
+    let geometryValue = graph?.stageInput(renderStageId, "geometry");
+    let transformValue = graph?.stageInput(renderStageId, "transform");
+    let materialValue = graph?.stageInput(renderStageId, "material");
+    let cameraValue = graph?.stageInput(renderStageId, "camera");
+    if (operation?.nativeCompoundProgram && (
+      !geometryValue ||
+      !transformValue ||
+      !materialValue ||
+      !cameraValue
+    )) {
+      this.drawStandby(pg, "Anatomy graph input unavailable");
+      return;
+    }
+    if (!operation?.nativeCompoundProgram) {
+      geometryValue = executeSpecializedCompoundProvider(
+        operation, geometryStageId, authoredParams, anatomyInstanceId,
+      );
+      materialValue = executeSpecializedCompoundProvider(
+        operation, materialStageId, authoredParams, anatomyInstanceId,
+      );
+      cameraValue = executeSpecializedCompoundProvider(
+        operation, cameraStageId, authoredParams, anatomyInstanceId,
+      );
+      transformParams.componentTime = componentTime;
+      transformValue = executeSpecializedCompoundStage(
+        operation,
+        transformStageId,
+        transformParams,
+        anatomyInstanceId,
+      )?.transform;
+    }
+    const resolvedGeometryParams = geometryValue?.settings ||
+      specializedCompoundStageParameterView(operation, geometryStageId, authoredParams, anatomyInstanceId);
+    const resolvedMaterialParams = materialValue?.settings ||
+      specializedCompoundStageParameterView(operation, materialStageId, authoredParams, anatomyInstanceId);
+    const resolvedCameraParams = specializedCompoundStageParameterView(
+      operation, cameraStageId, authoredParams, anatomyInstanceId,
+    );
     const nodeModule = anatomyNodeRuntimeModule(operation);
     const target = this.getModelTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
     const viewport = modelViewportMetrics(target, renderRequest);
-    const renderMode = materialParams.renderMode || "surface";
-    const surfaceColor = modelColor(materialParams.surfaceColor, [217, 212, 201, 255]);
-    const wireColor = modelColor(materialParams.wireColor, [75, 73, 68, 204]);
-    const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(materialParams), renderRequest);
-    const rotation = modelRotation(transformParams, componentTime);
+    const renderMode = resolvedMaterialParams.renderMode || "surface";
+    const surfaceColor = modelColor(resolvedMaterialParams.surfaceColor, [217, 212, 201, 255]);
+    const wireColor = modelColor(resolvedMaterialParams.wireColor, [75, 73, 68, 204]);
+    const wireThickness = resolutionScaledStrokeWidth(modelWireThickness(resolvedMaterialParams), renderRequest);
+    const rotation = transformValue?.rotation || modelRotation(transformParams, componentTime);
     const detail = Math.max(4, Math.min(14, Math.round(
-      (Number(geometryParams.detail) || 8) * qualityComputeMultiplier(renderParams, { minimum: 0.55, maximum: 1.35 })
+      (Number(resolvedGeometryParams.detail) || 8) * qualityComputeMultiplier(renderParams, { minimum: 0.55, maximum: 1.35 })
     )));
-    const modelScale = Math.max(0.01, Number(transformParams.modelScale) || 1);
-    const depth = Math.max(0.05, Number(geometryParams.depth) || 1);
-    const requestedFov = Number(cameraParams.fieldOfView);
-    const cameraFov = Number.isFinite(requestedFov)
-      ? Math.max(20, Math.min(120, requestedFov)) * Math.PI / 180
-      : modelCameraFov(cameraParams);
+    const modelScale = Math.max(
+      0.01,
+      Number(transformValue?.scale?.[0] ?? transformParams.modelScale) || 1,
+    );
+    const depth = Math.max(0.05, Number(resolvedGeometryParams.depth) || 1);
+    const canonicalCameraFov = cameraValue?.kind === "camera3d"
+      ? Number(cameraValue.fieldOfView)
+      : NaN;
+    const requestedFov = Number(resolvedCameraParams.fieldOfView);
+    const cameraFov = Number.isFinite(canonicalCameraFov)
+      ? Math.max(20 * Math.PI / 180, Math.min(120 * Math.PI / 180, canonicalCameraFov))
+      : Number.isFinite(requestedFov)
+        ? Math.max(20, Math.min(120, requestedFov)) * Math.PI / 180
+        : modelCameraFov(resolvedCameraParams);
     this.measureGpu(target, () => {
       target.push();
       target.clear();
@@ -461,9 +926,9 @@ export class SpecializedSourceRuntime {
       target.rotateX(rotation[0]);
       target.rotateY(rotation[1]);
       target.rotateZ(rotation[2]);
-      const scale = viewport.unitScale * modelScale * nodeModule.anatomyPartFitScale(geometryParams.part);
+      const scale = viewport.unitScale * modelScale * nodeModule.anatomyPartFitScale(resolvedGeometryParams.part);
       target.scale(scale, -scale, scale * depth);
-      nodeModule.drawProceduralAnatomy(target, geometryParams, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
+      nodeModule.drawProceduralAnatomy(target, resolvedGeometryParams, componentTime, renderMode, surfaceColor, wireColor, wireThickness, detail);
       target.pop();
     });
     markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft);
@@ -471,44 +936,130 @@ export class SpecializedSourceRuntime {
   }
 
   drawTerrain(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
+    const surfaceKernel = specializedCompoundNativeKernel(operation, "terrain-surface");
+    const wireKernel = specializedCompoundNativeKernel(operation, "terrain-wire");
+    if (operation?.nativeCompoundProgram && (!surfaceKernel || !wireKernel)) {
+      this.drawStandby(pg, "Terrain kernel schedule unavailable");
+      return;
+    }
+    const surfaceStageId = surfaceKernel?.id || "surface-render";
+    const wireStageId = wireKernel?.id || "wire-render";
+    const flightStageId = surfaceKernel?.inputBindings?.controller?.stageId || "flight";
+    const geometryStageId = surfaceKernel?.inputBindings?.geometry?.stageId || "geometry";
+    const cameraStageId = surfaceKernel?.inputBindings?.camera?.stageId || "camera";
+    const surfaceMaterialStageId = surfaceKernel?.inputBindings?.material?.stageId || "surface-material";
+    const wireMaterialStageId = wireKernel?.inputBindings?.material?.stageId || "wire-material";
     if (
-      !specializedCompoundStageEnabled(operation, "flight") ||
-      !specializedCompoundStageEnabled(operation, "geometry") ||
-      !specializedCompoundStageEnabled(operation, "camera")
+      !specializedCompoundStageEnabled(operation, flightStageId) ||
+      !specializedCompoundStageEnabled(operation, geometryStageId) ||
+      !specializedCompoundStageEnabled(operation, cameraStageId)
     ) {
       this.drawStandby(pg, "Terrain compound stage disabled");
       return;
     }
-    const params = specializedCompoundRuntimeParameters(operation, source.params || {});
+    const authoredParams = source.params || {};
+    const flightKey = source.instanceId || renderRequest.renderIdentity || source.generatorId || "terrain";
+    let external = this.terrainGraphExternalInputs.get(flightKey);
+    if (!external || external.stageId !== flightStageId) {
+      const stageInputs = { componentTime: 0 };
+      external = {
+        stageId: flightStageId,
+        stageInputs,
+        inputs: { [flightStageId]: stageInputs },
+      };
+      this.terrainGraphExternalInputs.set(flightKey, external);
+    }
+    external.stageInputs.componentTime = componentTime;
+    const graph = evaluateSpecializedCompoundGraph(
+      operation,
+      authoredParams,
+      { instanceId: flightKey },
+      external.inputs,
+    );
+    const surfaceRenderSettings = graph?.stageInputs(surfaceStageId)?.settings ||
+      specializedCompoundStageParameterView(operation, surfaceStageId, authoredParams, flightKey);
+    const wireRenderSettings = graph?.stageInputs(wireStageId)?.settings ||
+      specializedCompoundStageParameterView(operation, wireStageId, authoredParams, flightKey);
     const renderViewport = renderView(pg, renderRequest);
     const target = this.getTerrainTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
-    const authoredStyle = params.style === "wire" ? 1 : params.style === "hybrid" ? 2 : 0;
+    const authoredStyleValue = surfaceRenderSettings.style ?? wireRenderSettings.style;
+    const authoredStyle = authoredStyleValue === "wire" ? 1 : authoredStyleValue === "hybrid" ? 2 : 0;
     const drawSurface = authoredStyle !== 1 &&
-      specializedCompoundStageEnabled(operation, "surface-material") &&
-      specializedCompoundStageEnabled(operation, "surface-render");
+      specializedCompoundStageEnabled(operation, surfaceMaterialStageId) &&
+      specializedCompoundStageEnabled(operation, surfaceStageId);
     const drawWire = authoredStyle >= 1 &&
-      specializedCompoundStageEnabled(operation, "wire-material") &&
-      specializedCompoundStageEnabled(operation, "wire-render");
+      specializedCompoundStageEnabled(operation, wireMaterialStageId) &&
+      specializedCompoundStageEnabled(operation, wireStageId);
     const style = drawSurface && drawWire ? 2 : drawWire ? 1 : 0;
-    const flightSpeed = Math.max(0, Number(params.flightSpeed) || 0);
-    const flightKey = source.instanceId || source.generatorId || "terrain";
-    const flightState = this.terrainFlightStates.get(flightKey) || {};
-    const flight = terrainFlightControllerProcess({
-      componentTime,
-      flightSpeed,
-      turn: params.turn,
-      altitude: params.altitude,
-      terrainScale: params.terrainScale,
-    }, { state: flightState }).flight;
-    this.terrainFlightStates.set(flightKey, flightState);
+    let flight = graph?.stageInput(surfaceStageId, "controller");
+    let geometryValue = graph?.stageInput(surfaceStageId, "geometry");
+    let cameraValue = graph?.stageInput(surfaceStageId, "camera");
+    let surfaceMaterialValue = graph?.stageInput(surfaceStageId, "material");
+    let wireMaterialValue = graph?.stageInput(wireStageId, "material");
+    if (operation?.nativeCompoundProgram && (
+      !flight ||
+      !geometryValue ||
+      !cameraValue ||
+      !surfaceMaterialValue ||
+      !wireMaterialValue
+    )) {
+      this.drawStandby(pg, "Terrain graph input unavailable");
+      return;
+    }
+    if (!operation?.nativeCompoundProgram) {
+      // Direct legacy host invocations do not carry a compiled Group. Keep
+      // their controller state isolated while production compiled compounds
+      // execute the displayed Terrain Flight Controller node itself.
+      const flightSettings = specializedCompoundStageParameterView(
+        operation, flightStageId, authoredParams, flightKey,
+      );
+      const flightSpeed = Math.max(0, Number(flightSettings.flightSpeed) || 0);
+      const flightInputs = flightSettings;
+      flightInputs.componentTime = componentTime;
+      flightInputs.flightSpeed = flightSpeed;
+      const flightState = this.terrainFlightStates.get(flightKey) || {};
+      flight = terrainFlightControllerProcess(flightInputs, { state: flightState }).flight;
+      this.terrainFlightStates.set(flightKey, flightState);
+      geometryValue = executeSpecializedCompoundProvider(
+        operation, geometryStageId, authoredParams, flightKey,
+      );
+      cameraValue = executeSpecializedCompoundProvider(
+        operation, cameraStageId, authoredParams, flightKey,
+      );
+      surfaceMaterialValue = executeSpecializedCompoundProvider(
+        operation, surfaceMaterialStageId, authoredParams, flightKey,
+      );
+      wireMaterialValue = executeSpecializedCompoundProvider(
+        operation, wireMaterialStageId, authoredParams, flightKey,
+      );
+    }
     const flightTime = flight.flightTime;
-    const geometryProvider = specializedCompoundStageProvider(
-      operation,
-      "geometry",
-      "terrain-height-field",
+    const geometryProvider = String(
+      geometryValue?.providerId ||
+      specializedCompoundStageProvider(operation, geometryStageId, "terrain-height-field"),
     );
+    const geometrySettings = geometryValue?.settings || specializedCompoundStageParameterView(
+      operation, geometryStageId, authoredParams, flightKey,
+    );
+    const cameraSettings = cameraValue?.settings || specializedCompoundStageParameterView(
+      operation, cameraStageId, authoredParams, flightKey,
+    );
+    const surfaceMaterialSettings = surfaceMaterialValue?.settings || specializedCompoundStageParameterView(
+      operation, surfaceMaterialStageId, authoredParams, flightKey,
+    );
+    const wireMaterialSettings = wireMaterialValue?.settings || specializedCompoundStageParameterView(
+      operation, wireMaterialStageId, authoredParams, flightKey,
+    );
+    const terrainParams = {
+      ...geometrySettings,
+      ...cameraSettings,
+      ...surfaceMaterialSettings,
+      ...wireMaterialSettings,
+      ...surfaceRenderSettings,
+      ...wireRenderSettings,
+    };
     const flightParams = lowerTerrainGeometryProvider({
-      ...params,
+      ...terrainParams,
       turn: flight.turn,
       altitude: flight.altitude,
       flightSpeed: 1,
@@ -517,16 +1068,26 @@ export class SpecializedSourceRuntime {
       renderUvRect: renderViewport.uvRect,
       contentPlacementMatrix: contentTransformUvMatrices(source.contentTransform).placement,
       gridDensity: Math.max(0.25, Math.min(4,
-        (Number(params.gridDensity) || 1) * qualityComputeMultiplier(params, { minimum: 0.4, maximum: 1.5 })
+        (Number(geometrySettings.gridDensity) || 1) * qualityComputeMultiplier(terrainParams, { minimum: 0.4, maximum: 1.5 })
       )),
     }, geometryProvider);
-    const sky = normalizedModelColor(params.skyColor, [108, 165, 212, 255]);
+    const sky = normalizedModelColor(surfaceMaterialSettings.skyColor, [108, 165, 212, 255]);
     const terrainModule = terrainNodeRuntimeModule(operation);
     const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
     const shaderRevision = String(operation?.nodeShaderRevision || operation?.nodeModuleRevision || "legacy");
     const surfaceShaderRevision = String(operation?.nodeShaderProgramRevisions?.surface || shaderRevision);
     const wireShaderRevision = String(operation?.nodeShaderProgramRevisions?.wire || shaderRevision);
     const nodeShaders = operation?.nodeShaders || null;
+    if (compiledSpecializedOperation(operation)) {
+      if (drawSurface) {
+        terrainNodeShaderSource(operation, "terrain-surface-vertex");
+        terrainNodeShaderSource(operation, "terrain-surface-fragment");
+      }
+      if (drawWire) {
+        terrainNodeShaderSource(operation, "terrain-wire-vertex");
+        terrainNodeShaderSource(operation, "terrain-wire-fragment");
+      }
+    }
     this.measureGpu(target, () => {
       target.push();
       target.clear();
@@ -545,13 +1106,14 @@ export class SpecializedSourceRuntime {
 
   drawModel(pg, item, source = {}, componentTime = 0, renderRequest = {}) {
     const params = source.params || {};
-    // Parsed STL/OBJ meshes already use the raw WebGL renderer. Keep that
-    // renderer in the compositor's shared context so presenting the result is
-    // a texture bind rather than a per-frame cross-context canvas upload.
-    // Imported p5.Geometry assets retain the established p5.Graphics target.
-    const target = item.modelData
-      ? this.getRawModelTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity)
-      : this.getModelTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity);
+    // This is compatibility-only for pre-v31 runtime packets. Canonical
+    // projects compile model media as an editable Scene3d Group. Both paths
+    // invoke the same retained raw-WebGL mesh operation.
+    const target = this.getRawModelTarget(
+      renderRequest.width,
+      renderRequest.height,
+      renderRequest.pixelDensity,
+    );
     const viewport = modelViewportMetrics(target, renderRequest);
     const renderMode = params.renderMode || "surface";
     const modelScale = Math.max(0.01, Number(params.modelScale) || 1);
@@ -576,7 +1138,6 @@ export class SpecializedSourceRuntime {
     try {
       target.push();
       target.clear();
-      const scale = viewport.unitScale * modelScale;
       // Intentional allocation-stable fast path: the live loop invokes the node-owned
       // render implementation directly, avoiding packet, scheduler, and instance
       // allocation overhead while keeping the exact established p5/WebGL UX.
@@ -622,75 +1183,16 @@ export class SpecializedSourceRuntime {
         // framebuffer clear inside the generalized node process.
         clear: false,
       }, { state: modelRenderNodeState }).result.rendered;
-      if (!rawParsedDrawn && isSharedFramebufferTarget(target)) {
+      if (!rawParsedDrawn) {
         if (!item.modelSharedRenderFailureLogged) {
           item.modelSharedRenderFailureLogged = true;
           console.error("[VJ1_MODEL_SHARED_RENDER_FAILED]", {
             mediaId: item.id,
-            message: "parsed mesh could not render in the shared GPU context",
+            message: "canonical mesh could not render in the shared GPU context",
           });
-        }
-      } else if (!rawParsedDrawn) {
-        const fallbackRenderMode = renderMode === "outline"
-          ? "wireframe"
-          : renderMode === "surfaceOutline" ? "surfaceWire"
-            : renderMode === "xrayOutline" ? "wireframe" : renderMode;
-        if (fallbackRenderMode !== renderMode && !item.modelOutlineFallbackLogged) {
-          item.modelOutlineFallbackLogged = true;
-          console.warn("[VJ1_MODEL_OUTLINE_FALLBACK]", {
-            mediaId: item.id,
-            requestedMode: renderMode,
-            fallbackMode: fallbackRenderMode,
-          });
-        }
-        applyModelViewportProjection(target, modelCameraFov(params), viewport);
-        target.camera?.(0, 0, viewport.cameraZ, 0, 0, 0, 0, 1, 0);
-        target.ambientLight?.(95);
-        target.directionalLight?.(220, 220, 220, -0.35, -0.45, -0.75);
-        applyModelContentTransform(target, source.contentTransform, viewport);
-        target.rotateX(rotation[0]);
-        target.rotateY(rotation[1]);
-        target.rotateZ(rotation[2]);
-        target.scale(scale, scale, scale * depth);
-        if (item.modelData && fallbackRenderMode === "points") {
-          drawPointCloud(target, ensureParsedModelPointCloud(item, pointBudget, modelMesh), wireColor, wireThickness);
-        } else if (item.modelData) {
-          const geometry = ensureParsedModelGeometry(item, modelMesh);
-          if (geometry) {
-            try {
-              drawGeometryModel(target, geometry, fallbackRenderMode, surfaceColor, wireColor, wireThickness);
-            } catch (error) {
-              item.modelGeometryFailed = true;
-              item.modelGeometry = null;
-              item.modelGeometryError = error?.message || String(error || "geometry render failed");
-              drawParsedModel(target, modelMesh, fallbackRenderMode, surfaceColor, wireColor, wireThickness);
-            }
-          } else {
-            drawParsedModel(target, modelMesh, fallbackRenderMode, surfaceColor, wireColor, wireThickness);
-          }
-        } else if (fallbackRenderMode === "points") {
-          drawPointCloud(target, ensureP5ModelPointCloud(item, pointBudget), wireColor, wireThickness);
-        } else if (fallbackRenderMode === "wireframe") {
-          target.noFill();
-          target.stroke(...wireColor);
-          target.strokeWeight(wireThickness);
-          target.model(item.model);
-        } else {
-          target.noStroke();
-          target.ambientMaterial?.(...surfaceColor);
-          target.fill?.(...surfaceColor);
-          drawWithPolygonOffset(target, fallbackRenderMode === "surfaceWire", () => target.model(item.model));
-          if (fallbackRenderMode === "surfaceWire") {
-            target.noFill();
-            target.stroke(...wireColor);
-            target.strokeWeight(wireThickness);
-            target.model(item.model);
-          }
         }
       }
-      markRenderTargetOrientation(target, rawParsedDrawn
-        ? RENDER_TEXTURE_ORIENTATION.bottomLeft
-        : RENDER_TEXTURE_ORIENTATION.topLeft);
+      markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.bottomLeft);
       target.pop();
     } finally {
       this.gpuTimer.end(gpuToken);
@@ -822,16 +1324,21 @@ export class SpecializedSourceRuntime {
     this.resetTerrainResources();
     disposeGraphicsMap(this.targets);
     this.rateClocks.clear();
+    this.anatomyGraphExternalInputs.clear();
     this.terrainFlightStates.clear();
+    this.terrainGraphExternalInputs.clear();
     this.featureMorphShader = null;
     this.featureMorphShaderRevision = "";
     this.featureMorphV2Shader = null;
     this.featureMorphV2ShaderRevision = "";
+    this.controlledShaderPrograms.clear();
+    this.controlledShaderGraphExternalInputs.clear();
     this.tileTextureShader = null;
     this.tileTextureShaderRevision = "";
     this.textGeneratorShader = null;
     this.textGeneratorShaderRevision = "";
     this.textMasks.clear();
+    this.textGraphExternalInputs.clear();
     this.meshPatterns.dispose();
     this.presentationShaders.clear();
     this.presentationShaderFailures.clear();
@@ -942,7 +1449,9 @@ function textMaskImage(canvas, existing = null) {
   const image = existing?.width === width && existing?.height === height
     ? existing
     : createImage(width, height);
-  const pixels = canvas.getContext("2d", { alpha: true }).getImageData(0, 0, width, height).data;
+  const pixels = canvas
+    .getContext("2d", { alpha: true, willReadFrequently: true })
+    .getImageData(0, 0, width, height).data;
   image.loadPixels();
   image.pixels.set(pixels);
   image.updatePixels();

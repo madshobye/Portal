@@ -21,6 +21,13 @@ export class CompiledScene3dProgram {
       type: valueTypeId(inlet.type || inlet),
       required: inlet.required === true,
     })));
+    this.publicInputDefaults = Object.freeze(Object.fromEntries(
+      this.publicInputs.flatMap(({ id }) => {
+        const value = group.inlets?.[id]?.defaultValue ??
+          group.parameters?.[id]?.defaultValue;
+        return value === undefined ? [] : [[id, value]];
+      }),
+    ));
     this.outputs = new Map();
     this.result = {};
     const graph = graphPart(group);
@@ -52,7 +59,7 @@ export class CompiledScene3dProgram {
       for (const id of step.parameterIds) values[id] = step.parameters[id];
       for (const edge of step.inputs) {
         const value = edge.sourceNodeId === "$in"
-          ? inputs[edge.sourcePortId]
+          ? publicInputValue(inputs, this.publicInputDefaults, edge.sourcePortId)
           : this.outputs.get(edge.sourceNodeId)?.[edge.sourcePortId];
         values[edge.targetPortId] = value;
       }
@@ -72,7 +79,7 @@ export class CompiledScene3dProgram {
     for (const output of this.publicOutputs) this.result[output.publicId] = undefined;
     for (const output of this.publicOutputs) {
       this.result[output.publicId] = output.sourceNodeId === "$in"
-        ? inputs[output.sourcePortId]
+        ? publicInputValue(inputs, this.publicInputDefaults, output.sourcePortId)
         : this.outputs.get(output.sourceNodeId)?.[output.sourcePortId];
     }
     return this.result;
@@ -85,6 +92,10 @@ export class CompiledScene3dProgram {
     }
     this.outputs.clear();
   }
+}
+
+function publicInputValue(inputs, defaults, id) {
+  return inputs[id] === undefined ? defaults[id] : inputs[id];
 }
 
 export const Scene3dDirectCompiler = defineNodeCompiler({
@@ -114,14 +125,23 @@ function compileStep(node, graph, registry, group) {
   const inputs = incomingEdges(node.id, graph, group);
   const parameters = Object.fromEntries(Object.entries(definition.parameters || {}).flatMap(([id, parameter]) =>
     parameter.defaultValue === undefined ? [] : [[id, parameter.defaultValue]]));
-  Object.assign(parameters, node.parameters || {});
-  const inputValues = { ...parameters };
+  const inputValues = {};
   for (const [id, inlet] of Object.entries(definition.inlets || {})) {
     if (inlet.defaultValue !== undefined) inputValues[id] = inlet.defaultValue;
-    if (inlet.required && inlet.defaultValue === undefined && !inputs.some((edge) => edge.targetPortId === id)) {
+    if (
+      inlet.required &&
+      inlet.defaultValue === undefined &&
+      node.parameters?.[id] === undefined &&
+      !inputs.some((edge) => edge.targetPortId === id)
+    ) {
       throw new Error(`SCENE_3D_INLET_REQUIRED:${node.id}.${id}`);
     }
   }
+  // Node-authored values may target either declared parameters or literal
+  // inlets. They are applied after defaults and before graph edges, so a wire
+  // supersedes the literal without the compiler silently discarding it.
+  Object.assign(parameters, node.parameters || {});
+  Object.assign(inputValues, parameters);
   const state = {};
   const outputValues = {};
   return {
@@ -297,6 +317,18 @@ function resourcePublicInputId(group, graph, nodeId, parameterId) {
     if (source.nodeId === "$in") return source.portId;
     throw new Error(`SCENE_3D_RESOURCE_DYNAMIC_SOURCE_UNSUPPORTED:${group.id}:${nodeId}.${parameterId}`);
   }
+  for (const section of group.metadata?.controlProjection?.sections || []) {
+    for (const control of section.controls || []) {
+      for (const binding of control.bindings || []) {
+        if (
+          String(binding.nodeId || "") === nodeId &&
+          String(binding.parameterId || "") === parameterId
+        ) {
+          return String(control.parameterId || "");
+        }
+      }
+    }
+  }
   return "";
 }
 
@@ -408,9 +440,13 @@ function validateGraphConnections(group, graph, registry) {
   for (const section of group.metadata?.controlProjection?.sections || []) {
     for (const control of section.controls || []) {
       for (const binding of control.bindings || []) {
+        const childDefinition = definitions.get(String(binding.nodeId || ""));
+        const target = childDefinition?.parameters?.[binding.parameterId]
+          ? `${binding.nodeId}.$parameter.${binding.parameterId}`
+          : `${binding.nodeId}.${binding.parameterId}`;
         validate(
           `$in.${control.parameterId}`,
-          `${binding.nodeId}.$parameter.${binding.parameterId}`,
+          target,
         );
       }
     }

@@ -1,4 +1,4 @@
-import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js?v=render-coordinate-scope-3";
+import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js?v=render-coordinate-scope-3-scene-mapping-default-selection-1";
 import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
 import { sceneFrameSize } from "./render-settings.js?v=canvas-global-resolution-1";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
@@ -158,7 +158,9 @@ function pasteMedia(draft, source, target) {
     opacity: 1,
     blend: "normal",
     transform: { x: 0, y: 0, scale: 1, rotation: 0 },
-    source: { type: "media", mediaId: source.id },
+    source: /\.(?:stl|obj)$/i.test(String(source.id || ""))
+      ? { type: "generator", generatorId: "modelMedia", params: { mediaId: source.id } }
+      : { type: "media", mediaId: source.id },
   }));
 }
 

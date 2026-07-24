@@ -2,20 +2,20 @@ import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
 import { sceneFrameSize, renderMaxFrameRate, renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
-import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1";
+import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-projector-resolution-ceilings-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-1-scene-mapping-default-selection-1";
 import { normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { advancePresentationClock, createPresentationClock } from "../libraries/timing-engine/presentation-clock/index.js?v=presentation-clock-1";
 import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/render-node-contract.js";
-import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, TextureOperatorNodeDefinitions } from "../libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
-import { ComposableScene3dGroup, Transform3dNode } from "../libraries/mesh-engine/index.js?v=scene3d-media-resource-project-group-authoring-1";
+import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, TextureOperatorNodeDefinitions } from "../libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
+import { ComposableScene3dGroup, Transform3dNode } from "../libraries/mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
 import { createPlacedRenderResult, directPlacementKind } from "../graph/placed-render-result.js?v=atomic-video-seek-1";
 import { compileShaderSchedule, flattenComponentChain, isFusibleShaderJob } from "../graph/render-scheduler.js?v=pending-project-node-1";
 import {
   createProjectVisualNodeResolver,
   SpecializedCompoundStageNodeDefinitions,
-} from "../libraries/visual-nodes/index.js?v=specialized-stage-authority-1";
+} from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import { TerrainFlightControllerNode } from "../libraries/terrain-engine/index.js";
 import { listProjectIsfTransitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
 import { createTransitionCatalog, transitionKernelCacheKey, transitionParameterValues } from "../libraries/transition-engine/index.js";
@@ -34,7 +34,7 @@ import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runti
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=media-url-retirement-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=webgl-direct-blend-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=root-content-transform-roi-3";
 import { IsfRenderRuntime } from "./isf-render-runtime.js?v=isf-backend-1";
 import { TextureOperatorRuntime } from "./texture-operator-runtime.js?v=texture-operator-backend-1";
 import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=shader-effect-backend-1";
@@ -42,8 +42,8 @@ import { CompositeRenderRuntime } from "./composite-render-runtime.js?v=composit
 import {
   mediaSourceDemandWidth,
   SourceRenderRuntime,
-} from "./source-render-runtime.js?v=source-backend-1";
-import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=transition-demand-stability-1";
+} from "./source-render-runtime.js?v=source-backend-4-source-detail-diagnostics";
+import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=root-content-transform-roi-3";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=direct-scene-surface-edit-1";
@@ -52,8 +52,8 @@ import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=o
 import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
 import { FULL_NODE_BOUNDARY, isFullNodeBoundary, nodeBoundaryPixelRect, nodeRoiRequest, sameNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import { renderSourceDetail, renderView } from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
-import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, effectNeedsComposite, effectParamNumber, resetShaderTarget, setDynamicShaderUniformIfPresent, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=source-roi-view-3";
-import { effectTransformUniforms, eyeballFrameUniforms, generatorRateParam, globalVisualTimeScale, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=volumetric-clouds-1";
+import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, effectNeedsComposite, effectParamNumber, resetShaderTarget, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=source-roi-view-3";
+import { effectTransformUniforms, generatorRateParam, globalVisualTimeScale, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=declarative-render-policy-1";
 import {
   createRenderRequest,
   defaultProjectSurfaceMapping,
@@ -61,6 +61,7 @@ import {
   frameSize,
   outputFrameForId,
   outputFrames,
+  outputFramesForIds,
   outputFrameOffset,
   instanceInvariantRenderRequest,
   mappingWorldRender,
@@ -69,9 +70,9 @@ import {
   RECORDING_FRAME_DEMAND_SCALE,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=output-one-1";
-import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=transition-view-contract-1";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=specialized-stage-authority-1";
+} from "./render-geometry.js?v=root-content-transform-roi-3";
+import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=compiled-artifact-authority-1";
 import {
   sceneMaxRasterSize,
   scenePreviewRenderRequest,
@@ -83,7 +84,7 @@ import {
   rectToCorners,
   resolutionScaledStrokeWidth,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=transition-demand-stability-compiled-reference-count-1";
+} from "./component-render-layout.js?v=root-content-transform-roi-1";
 
 const COMPILED_VISUAL_CORE_DEFINITIONS = new Map([
   ...TextureOperatorNodeDefinitions,
@@ -105,7 +106,7 @@ export {
   compiledVisualSourceRenderer,
   mediaSourceDemandSize,
   mediaSourceDemandWidth,
-} from "./source-render-runtime.js?v=source-backend-1";
+} from "./source-render-runtime.js?v=source-backend-4-source-detail-diagnostics";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {
@@ -116,7 +117,7 @@ export {
   terrainSurfaceGridVertices,
   terrainSurfaceTriangleIndices,
   terrainTriangleEdgeUvs,
-} from "./specialized/terrain-mesh.js?v=node-program-hooks-15";
+} from "./specialized/terrain-mesh.js?v=shared-terrain-grid-math-16";
 export {
   sceneComponentPlacementRect,
   sceneFrameBorderHit,
@@ -138,7 +139,7 @@ export {
   resizeSceneFrameRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=transition-demand-stability-compiled-reference-count-1";
+} from "./component-render-layout.js?v=root-content-transform-roi-1";
 
 export function visualOperationRenderItem(operation = {}, item = {}, inheritedTransform = {}, effectComponent = null) {
   const opcode = operation?.opcode || item?.kind;
@@ -233,6 +234,7 @@ export class OutputRenderer {
     this.installedNodePackages = Object.freeze([...(installedNodePackages || [])]);
     this.installedNodePackageSignature = installedNodePackageSignature(this.installedNodePackages);
     this.state = null;
+    this.previewViewport = { zoom: 1, x: 0, y: 0 };
     this.mapper = null;
     this.renderCache = new OutputRenderCache();
     this.componentSource = this.renderCache.sources;
@@ -242,11 +244,14 @@ export class OutputRenderer {
     this.stableComponentSignatures = new Map();
     this.chainNodeRuntimes = new Map();
     this.sourceNodeRuntimes = new Map();
-    this.eyeballUniformFrames = new Map();
-    this.eyeballUniformFrameUse = new Map();
+    this.renderResolutionTraces = new Map();
+    this.renderResolutionTraceStack = [];
+    this.activeRenderResolutionTrace = [];
+    this.lastRenderResolutionTrace = [];
     this.generatorUniformStates = new Map();
     this.generatorUniformStateUse = new Map();
     this.visualNodes = createProjectVisualNodeResolver({}, {
+      coreDefinitions: COMPILED_VISUAL_CORE_DEFINITIONS.values(),
       installedPackages: this.installedNodePackages,
     });
     this.transitionCatalog = createTransitionCatalog();
@@ -321,6 +326,7 @@ export class OutputRenderer {
       gpuTimer: this.gpuTimer,
       frameIndex: () => this.frameIndex,
       showDiagnostics: () => this.state?.ui?.debugPreview !== false,
+      requestPixelDensity: (request) => this.requestPixelDensity(request),
     });
     this.lastPixelDensity = 0;
     this.frameStart = 0;
@@ -441,8 +447,10 @@ export class OutputRenderer {
     this.stableComponentSignatures?.clear?.();
     this.chainNodeRuntimes?.clear?.();
     this.sourceNodeRuntimes?.clear?.();
-    this.eyeballUniformFrames?.clear?.();
-    this.eyeballUniformFrameUse?.clear?.();
+    this.renderResolutionTraces?.clear?.();
+    this.renderResolutionTraceStack.length = 0;
+    this.activeRenderResolutionTrace.length = 0;
+    this.lastRenderResolutionTrace.length = 0;
     this.generatorUniformStates?.clear?.();
     this.generatorUniformStateUse?.clear?.();
     this.sourcePg = null;
@@ -677,6 +685,7 @@ export class OutputRenderer {
     const preparedState = normalized ? nextState : sanitizeState(nextState);
     this.clearLiveParamFades();
     this.state = this.previewInteraction?.reconcileIncomingState(preparedState) || preparedState;
+    this.assignPreviewViewport(this.state?.render);
     this.componentVideoPresence = new WeakMap();
     this.pruneComponentTimes();
     this.rebuildVisualNodeResolver();
@@ -854,10 +863,22 @@ export class OutputRenderer {
       {
         rootComponentIds: renderStateComponentProgramRoots(this.state, this.mode),
         resolveNodeDefinition: (node) =>
-          COMPILED_VISUAL_CORE_DEFINITIONS.get(String(node?.nodeId || "")) ||
-          this.visualNodes.definition(node?.nodeId),
+          this.visualNodes.definition(node?.nodeId) ||
+          COMPILED_VISUAL_CORE_DEFINITIONS.get(String(node?.nodeId || "")),
       }
     );
+    for (const program of this.componentPrograms.values()) {
+      program.forEachOperation((operation) => {
+        if (operation?.backend !== "native-specialized") return;
+        const rendererId = String(operation.renderer || operation.compilerHook?.renderer || "");
+        if (!rendererId || this.sourceRuntime.hasNativeRenderer(rendererId)) return;
+        this.sourceRuntime.reportMissingNativeRenderer(
+          rendererId,
+          operation.configuration?.source?.generatorId,
+          operation,
+        );
+      });
+    }
   }
 
   rebuildVisualNodeResolver() {
@@ -882,6 +903,7 @@ export class OutputRenderer {
     if (signature === this.visualForkSignature) return;
     this.visualForkSignature = signature;
     this.visualNodes = createProjectVisualNodeResolver(this.state || {}, {
+      coreDefinitions: COMPILED_VISUAL_CORE_DEFINITIONS.values(),
       installedPackages: this.installedNodePackages,
     });
     this.componentRegionSafety = new WeakMap();
@@ -1054,15 +1076,13 @@ export class OutputRenderer {
   }
 
   previewViewportZoomLabel(render = this.state?.render || {}) {
-    const zoom = Math.max(0.1, Math.min(6, Number(render.previewViewportZoom) || 1));
+    const zoom = this.previewViewport.zoom;
     return `${zoom.toFixed(2)}x view`;
   }
 
   previewViewportTransform(render = this.state?.render || {}) {
     if (this.mode === "output") return { zoom: 1, x: 0, y: 0 };
-    const userZoom = Math.max(0.1, Math.min(6, Number(render.previewViewportZoom) || 1));
-    const userX = Number(render.previewViewportX) || 0;
-    const userY = Number(render.previewViewportY) || 0;
+    const { zoom: userZoom, x: userX, y: userY } = this.previewViewport;
     // Component/Scene editing already uses the fixed p5 canvas as its logical
     // world. Mapping and Live instead own an aspect-stable project world that
     // must first be contained in that canvas, then receive the same user zoom.
@@ -1079,6 +1099,29 @@ export class OutputRenderer {
       x: userX + (host.width * 0.5 - project.width * 0.5) * zoom,
       y: userY + (host.height * 0.5 - project.height * 0.5) * zoom,
     };
+  }
+
+  setPreviewViewport(viewport = {}) {
+    if (this.mode === "output") return false;
+    const changed = this.assignPreviewViewport({
+      previewViewportZoom: viewport.zoom,
+      previewViewportX: viewport.x,
+      previewViewportY: viewport.y,
+    });
+    if (changed) this.invalidatePresentation("preview-viewport");
+    return changed;
+  }
+
+  assignPreviewViewport(render = {}) {
+    const next = {
+      zoom: Math.max(0.1, Math.min(6, Number(render?.previewViewportZoom) || 1)),
+      x: Number(render?.previewViewportX) || 0,
+      y: Number(render?.previewViewportY) || 0,
+    };
+    const current = this.previewViewport || {};
+    if (next.zoom === current.zoom && next.x === current.x && next.y === current.y) return false;
+    this.previewViewport = next;
+    return true;
   }
 
   withPreviewViewportTransform(draw) {
@@ -1106,6 +1149,7 @@ export class OutputRenderer {
   }
 
   previewDiagnosticHudMarkup(fps, render = this.state?.render || {}) {
+    const viewport = this.previewViewport;
     const logical = this.displayCanvasSize(render);
     const context = typeof drawingContext !== "undefined" ? drawingContext : null;
     const backingWidth = Math.max(1, Math.round(Number(context?.drawingBufferWidth) || logical.width));
@@ -1129,11 +1173,45 @@ export class OutputRenderer {
       }
     }
     return [
-      `<span>${Math.round(this.smoothedFps || fps)} fps</span><span class="output-resolution">render ${this.renderResolutionLabel(render)}</span><span>${this.previewViewportZoomLabel(render)}</span><span>pan ${Number(render.previewViewportX) || 0},${Number(render.previewViewportY) || 0}</span>`,
+      `<span>${Math.round(this.smoothedFps || fps)} fps</span><span class="output-resolution">render ${this.renderResolutionLabel(render)}</span><span>${this.previewViewportZoomLabel(render)}</span><span>pan ${viewport.x},${viewport.y}</span>`,
       `<span>p5 canvas ${logical.width}x${logical.height}</span><span>backing ${backingWidth}x${backingHeight}</span>`,
       `<span>windowWidth ${p5WindowWidth}</span><span>windowHeight ${p5WindowHeight}</span><span>browser ${browserWidth}x${browserHeight}</span><span>host ${hostWidth}x${hostHeight}</span>`,
       `<span>density param ${formatDensity(configuredDensity)}x</span><span>preview scale ${formatDensity(previewScale)}x</span><span>effective ${formatDensity(effectiveDensity)}x</span><span>p5 ${formatDensity(actualP5Density)}x</span>`,
     ].map((line) => `<span class="preview-debug-line">${line}</span>`).join("");
+  }
+
+  outputRenderChainHudMarkup(fps, render = this.state?.render || {}) {
+    const summary = [
+      `<span>${Math.round(this.smoothedFps || fps)} fps</span>`,
+      `<span class="output-resolution">${this.renderResolutionLabel(render)}</span>`,
+    ].join("");
+    const seen = new Set();
+    const rows = [];
+    for (const entry of this.lastRenderResolutionTrace || []) {
+      const signature = [
+        entry.componentId,
+        entry.itemId,
+        entry.kind,
+        entry.width,
+        entry.height,
+      ].join(":");
+      if (seen.has(signature)) continue;
+      seen.add(signature);
+      const depth = Math.max(0, Math.min(8, Number(entry.depth) || 0));
+      rows.push(
+        `<span class="output-chain-row" style="--output-chain-depth:${depth}">` +
+          `<span class="output-chain-kind">${escapeHudText(entry.kind)}</span>` +
+          `<span class="output-chain-name">${escapeHudText(entry.name)}</span>` +
+          `<span class="output-chain-resolution">${entry.width}x${entry.height}</span>` +
+        `</span>`
+      );
+    }
+    return [
+      `<span class="output-hud-summary">${summary}</span>`,
+      rows.length
+        ? `<span class="output-chain-list">${rows.join("")}</span>`
+        : "",
+    ].join("");
   }
 
   recordPresentedRenderRequest(request = {}) {
@@ -1365,6 +1443,7 @@ export class OutputRenderer {
       this.updateHudAndMetrics();
       return;
     }
+    if (this.collectDetailedProfile) this.activeRenderResolutionTrace.length = 0;
     this.presentedRenderResolution = null;
     this.scheduledEvents = this.state.scheduler?.manualLane === false
       ? []
@@ -1447,9 +1526,9 @@ export class OutputRenderer {
   }
 
   isPlaybackActive() {
-    // Playback is an output transport command. The editor preview remains a
-    // live monitor even while connected output windows are intentionally held.
-    return this.mode !== "output" || this.state?.global?.playing !== false;
+    // Playback is a shared transport contract. Preview and Output renderers
+    // must hold the same clock, media, and time-dependent node state.
+    return this.state?.global?.playing !== false;
   }
 
   renderSelectedSurfaceOverlay() {
@@ -1465,10 +1544,13 @@ export class OutputRenderer {
       this.state?.global?.mappingHandleMode !== "near" || this.shouldRevealSurfaceOverlay(surfaceId)
     );
     const mapped = this.mapperSurfaces.get(surfaceId);
-    // Direct routes are not editable Mapping geometry, but in Live they are
-    // still selectable projection destinations and need the same navigation
-    // outline as authored Surfaces. Never expose calibration handles there.
-    if (mapped?.direct && !liveSelection) return;
+    // A direct route may span several physical Outputs. Its union rectangle is
+    // valid for rendering and cropping, but is not an editor boundary. Reuse
+    // the individual Mapping output frames so Live shows one border per screen.
+    if (mapped?.direct) {
+      if (liveSelection) this.renderSelectedDirectOutputFrameOverlay(surfaceId);
+      return;
+    }
     const corners = mapped?.mapperSurface?.corners;
     if (!Array.isArray(corners) || corners.length !== 4) return;
 
@@ -1504,6 +1586,26 @@ export class OutputRenderer {
     // The guide is authored geometry, so it must use the same canonical world
     // as Surface corners. The surrounding p5 transform presents both together.
     const frames = outputFrames(this.mappingProjectRender());
+    this.drawOutputFrameBoundaries(frames, {
+      color: [101, 224, 211, 190],
+      weight: 2,
+    });
+  }
+
+  renderSelectedDirectOutputFrameOverlay(surfaceId) {
+    const surface = this.state?.surfaces?.find((item) => String(item.id) === String(surfaceId));
+    if (surface?.destination?.type !== "direct") return;
+    const frames = outputFramesForIds(
+      this.mappingProjectRender(),
+      surface.destination.outputIds || []
+    );
+    this.drawOutputFrameBoundaries(frames, {
+      color: [255, 232, 92],
+      weight: 3,
+    });
+  }
+
+  drawOutputFrameBoundaries(frames = [], { color = [255], weight = 2 } = {}) {
     if (!frames.length) return;
     const gl = drawingContext;
     if (gl?.disable) gl.disable(gl.DEPTH_TEST);
@@ -1511,8 +1613,8 @@ export class OutputRenderer {
     push();
     noFill();
     rectMode(CORNER);
-    stroke(101, 224, 211, 190);
-    strokeWeight(2);
+    stroke(...color);
+    strokeWeight(weight);
     for (const frame of frames) {
       rect(
         Number(frame.x || 0) - width * 0.5,
@@ -1605,8 +1707,29 @@ export class OutputRenderer {
       ? outputRequest
       : componentPipelineSourceRequest(outputRequest, pipeline);
     const outputKey = renderBufferKey(component.id, renderRequestStateKey(outputRequest));
+    return this.withRenderResolutionTrace(component, outputKey, outputRequest, () =>
+      this.renderComponentForResolvedRequest(
+        component,
+        componentTime,
+        outputRequest,
+        renderRequest,
+        outputKey,
+        pipeline,
+      )
+    );
+  }
+
+  renderComponentForResolvedRequest(
+    component,
+    componentTime,
+    outputRequest,
+    renderRequest,
+    outputKey,
+    pipeline,
+  ) {
     const cached = this.componentOutput.get(outputKey);
     if (cached) {
+      this.useCachedRenderResolutionTrace(outputKey);
       this.claimRetainedComponentMedia(component);
       this.frameProfile.componentCacheHits++;
       return cached;
@@ -1625,6 +1748,8 @@ export class OutputRenderer {
         stableCached.width === outputRequest.width &&
         stableCached.height === outputRequest.height &&
         this.stableComponentSignatures.get(stableKey) === stableSignature) {
+      this.useCachedRenderResolutionTrace(stableKey);
+      this.aliasCurrentRenderResolutionTrace(stableKey);
       // A retained frame still owns its live media. Without renewing this
       // lease, endFrame() pauses a cached video after its first decoded frame.
       this.claimRetainedComponentMedia(component);
@@ -1643,7 +1768,10 @@ export class OutputRenderer {
         height: outputRequest.height,
       }, () => this.renderCompiledComponent(component, componentTime, renderRequest));
       this.cacheComponentOutput(component, outputKey, output, outputRequest);
-      if (stableSignature) this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
+      if (stableSignature) {
+        this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
+        this.aliasCurrentRenderResolutionTrace(stableKey);
+      }
       return output;
     }
     const output = this.measureComponentProfile({
@@ -1667,8 +1795,87 @@ export class OutputRenderer {
       return pipelined;
     });
     this.cacheComponentOutput(component, outputKey, output, outputRequest);
-    if (stableSignature) this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
+    if (stableSignature) {
+      this.storeStableComponentOutput(stableKey, stableSignature, output, outputRequest);
+      this.aliasCurrentRenderResolutionTrace(stableKey);
+    }
     return output;
+  }
+
+  withRenderResolutionTrace(component, key, request, render) {
+    const parent = this.renderResolutionTraceStack.at(-1) || null;
+    const collect = !!parent || this.collectDetailedProfile || !this.renderResolutionTraces.has(key);
+    if (!collect) {
+      const cached = this.renderResolutionTraces.get(key) || [];
+      if (parent) parent.entries.push(...cached);
+      else if (this.collectDetailedProfile) this.activeRenderResolutionTrace.push(...cached);
+      return render();
+    }
+    const context = { key, aliases: new Set(), entries: [], component };
+    this.renderResolutionTraceStack.push(context);
+    context.entries.push({
+      componentId: String(component?.id || ""),
+      itemId: String(component?.id || ""),
+      kind: component?.type === "scene" ? "scene" : "component",
+      name: component?.name || component?.id || (component?.type === "scene" ? "Scene" : "Component"),
+      width: Math.max(1, Math.round(Number(request?.width) || 1)),
+      height: Math.max(1, Math.round(Number(request?.height) || 1)),
+      depth: this.renderResolutionTraceStack.length - 1,
+    });
+    let result;
+    try {
+      result = render();
+    } finally {
+      this.renderResolutionTraceStack.pop();
+      const entries = context.entries.map((entry) => ({ ...entry }));
+      this.renderResolutionTraces.set(key, entries);
+      for (const alias of context.aliases) this.renderResolutionTraces.set(alias, entries);
+      if (parent) parent.entries.push(...entries);
+      else if (this.collectDetailedProfile) this.activeRenderResolutionTrace.push(...entries);
+    }
+    return result;
+  }
+
+  useCachedRenderResolutionTrace(key) {
+    const context = this.renderResolutionTraceStack.at(-1);
+    const cached = this.renderResolutionTraces.get(key);
+    if (!context || !cached?.length) return false;
+    context.entries.length = 0;
+    context.entries.push(...cached);
+    return true;
+  }
+
+  aliasCurrentRenderResolutionTrace(key) {
+    const context = this.renderResolutionTraceStack.at(-1);
+    if (!context || !key) return false;
+    context.aliases.add(key);
+    return true;
+  }
+
+  recordRenderChainResolution(component, item, kind, request) {
+    const context = this.renderResolutionTraceStack.at(-1);
+    if (!context) return;
+    component ||= context.component;
+    const source = item?.source || {};
+    const implementation = kind === "effect"
+      ? this.effectNodeComponent(item?.componentId)
+      : null;
+    context.entries.push({
+      componentId: String(component?.id || ""),
+      itemId: String(item?.id || source.instanceId || item?.componentId || kind),
+      kind: String(kind || "element"),
+      name: item?.name
+        || implementation?.name
+        || source.generatorId
+        || hudResourceName(source.mediaId)
+        || source.componentId
+        || source.type
+        || kind
+        || "Element",
+      width: Math.max(1, Math.round(Number(request?.width) || 1)),
+      height: Math.max(1, Math.round(Number(request?.height) || 1)),
+      depth: this.renderResolutionTraceStack.length,
+    });
   }
 
   renderComponentOutputPipeline(component, source, sourceRequest, outputRequest, componentTime, pipeline) {
@@ -1947,6 +2154,7 @@ export class OutputRenderer {
   ) {
     const item = operation.configuration || operation;
     const params = item.params || {};
+    this.recordRenderChainResolution(component, item, operation.opcode || "operator", renderRequest);
     const aPort = operation.opcode === "transition"
       ? "startImage"
       : operation.opcode === "mask" ? "texture" : "a";
@@ -2222,6 +2430,7 @@ export class OutputRenderer {
             })
           : renderRequest;
         if (groupRequest.empty) continue;
+        this.recordRenderChainResolution(component, renderedItem, "group", groupRequest);
         const restoreGroupControls = operation?.controlProgram?.apply({
           componentTime,
           timestamp: componentTime,
@@ -2328,6 +2537,7 @@ export class OutputRenderer {
 
   measureCompiledSourceOperation(component, item, renderRequest, render) {
     const source = item?.source || {};
+    this.recordRenderChainResolution(component, item, "source", renderRequest);
     return this.measureProfile("sourceMs", {
       type: "source",
       componentId: component.id,
@@ -2871,6 +3081,8 @@ export class OutputRenderer {
     const evaluationRequest = instanceInvariant
       ? instanceInvariantRenderRequest(renderRequest)
       : renderRequest;
+    const qualityRequest = qualityScaledRenderRequest(evaluationRequest, params);
+    this.recordRenderChainResolution(null, item, "effect", qualityRequest);
     const signature = stableStringify({
       input: textureStateKey(inputState),
       inputs: namedTextureStateKey(inputStates),
@@ -2884,7 +3096,6 @@ export class OutputRenderer {
     const needsComposite = effectNeedsComposite(item);
     const effectState = this.evaluateChainNode(needsComposite ? renderBufferKey(nodeId, "effect") : nodeId, signature, renderRequest, (output) => {
       const pass = chainItemToShaderPass({ ...item, params, amount });
-      const qualityRequest = qualityScaledRenderRequest(evaluationRequest, params);
       if (isSharedFramebufferTarget(output) &&
           output.width === qualityRequest.width &&
           output.height === qualityRequest.height) {
@@ -2913,6 +3124,9 @@ export class OutputRenderer {
 
   renderEffectRunNodeState(nodeId, inputState, items, componentTime, renderRequest) {
     const passes = items.map((item) => chainItemToShaderPass(item));
+    for (const item of items) {
+      this.recordRenderChainResolution(null, item, "effect", renderRequest);
+    }
     const instanceInvariant = inputState.instanceInvariant === true &&
       passes.every((pass) => !this.effectPassIsFrameDynamic(pass));
     const evaluationRequest = instanceInvariant
@@ -3070,10 +3284,83 @@ export class OutputRenderer {
     return dynamic;
   }
 
-  featureMorphPairService(generatorId = "") {
-    if (generatorId === "featureMorph") return this.superPointPairs;
-    if (generatorId === "featureMorphV2") return this.mobileNetMorphPairs;
-    return null;
+  specializedVisualStageContract(
+    generatorId = "",
+    stageId = "",
+    authoredParameters = {},
+    normalizedParameters = null,
+  ) {
+    const component = this.generatorNodeComponent(generatorId);
+    const definition = component?.nodeDefinition;
+    const graph = definition?.parts?.find((part) => part.kind === "graph");
+    const stage = graph?.nodes?.find((node) => node.id === String(stageId || ""));
+    if (!component || !definition || !stage) return null;
+    const normalized = normalizedParameters || (component
+      ? normalizeParamValues(component, authoredParameters || {})
+      : { ...(authoredParameters || {}) });
+    const stageDefinition = this.visualNodes.definition(stage.type)
+      || COMPILED_VISUAL_CORE_DEFINITIONS.get(String(stage.type || ""));
+    const params = {};
+    for (const [id, parameter] of Object.entries(stageDefinition?.parameters || {})) {
+      if (parameter.defaultValue !== undefined) params[id] = parameter.defaultValue;
+    }
+    Object.assign(params, stage.parameters || {});
+    const bindings = definition.metadata?.nativeCompound?.parameterBindings?.[stage.id] || [];
+    for (const binding of bindings) {
+      const publicParameterId = String(
+        typeof binding === "string"
+          ? binding
+          : binding?.publicParameterId || binding?.parameterId || ""
+      );
+      const targetParameterId = String(
+        typeof binding === "string"
+          ? binding
+          : binding?.targetParameterId || binding?.parameterId || publicParameterId
+      );
+      if (publicParameterId && targetParameterId && normalized[publicParameterId] !== undefined) {
+        params[targetParameterId] = normalized[publicParameterId];
+      }
+    }
+    return { component, definition, stage, stageDefinition, normalized, params };
+  }
+
+  visualMediaResourceIds(generatorId = "", authoredParameters = {}, normalizedParameters = null) {
+    const component = this.generatorNodeComponent(generatorId);
+    const graph = component?.nodeDefinition?.parts?.find((part) => part.kind === "graph");
+    const normalized = normalizedParameters || (component
+      ? normalizeParamValues(component, authoredParameters || {})
+      : { ...(authoredParameters || {}) });
+    const ids = [];
+    for (const node of graph?.nodes || []) {
+      const nodeDefinition = this.visualNodes.definition(node.type)
+        || COMPILED_VISUAL_CORE_DEFINITIONS.get(String(node.type || ""));
+      if (!nodeDefinition?.capabilities?.includes("media-resource")) continue;
+      const stage = this.specializedVisualStageContract(
+        generatorId,
+        node.id,
+        authoredParameters,
+        normalized,
+      );
+      const mediaId = String(stage?.params?.mediaId || "");
+      if (mediaId) ids.push(mediaId);
+    }
+    return ids;
+  }
+
+  featureMorphAnalysisContract(generatorId = "", authoredParameters = {}) {
+    const stage = this.specializedVisualStageContract(generatorId, "analysis", authoredParameters);
+    const providerId = String(stage?.params?.providerId || "");
+    const service = this.specializedSources.featureMorphAnalysisService(providerId);
+    if (!service) return null;
+    const params = stage.params;
+    const normalized = stage.normalized;
+    params.imageAId = String(normalized.imageAId || "");
+    params.imageBId = String(normalized.imageBId || "");
+    return { providerId, service, params };
+  }
+
+  featureMorphPairService(providerId = "") {
+    return this.specializedSources.featureMorphAnalysisService(providerId);
   }
 
   sourceIsFrameDynamic(source = {}, owner = {}, seen = new Set()) {
@@ -3086,18 +3373,20 @@ export class OutputRenderer {
       // result cannot enter the stable Component cache.
       if (!component) return true;
       const params = normalizeParamValues(component, source.params || {});
-      const featureMorphPairs = this.featureMorphPairService(source.generatorId);
-      if (featureMorphPairs && params.imageAId && params.imageBId) {
+      const featureMorph = this.featureMorphAnalysisContract(source.generatorId, params);
+      if (featureMorph && params.imageAId && params.imageBId) {
         const imageA = this.media.get(params.imageAId);
         const imageB = this.media.get(params.imageBId);
         if (!isReadyMediaItem(imageA) || !isReadyMediaItem(imageB)) return true;
-        const analysisStatus = featureMorphPairs.status(params, {
+        const analysisStatus = featureMorph.service.status(featureMorph.params, {
           imageAFile: imageA.file,
           imageBFile: imageB.file,
         });
         if (analysisStatus === "idle" || analysisStatus === "loading") return true;
       }
-      if (source.generatorId === "tileTexture" && params.imageId && !isReadyMediaItem(this.media.get(params.imageId))) return true;
+      for (const mediaId of this.visualMediaResourceIds(source.generatorId, params, params)) {
+        if (!isReadyMediaItem(this.media.get(mediaId))) return true;
+      }
       return component.runtime?.cacheable === false || component.runtime?.timeDependent?.(params) === true;
     }
     if (source.type === "component") {
@@ -3296,12 +3585,15 @@ export class OutputRenderer {
 
   sourceRuntimeExternalKey(source = {}, owner = {}, runtimeContext = {}) {
     if (source?.type !== "generator") return null;
-    const featureMorphPairs = this.featureMorphPairService(source.generatorId);
-    if (featureMorphPairs) {
+    const featureMorph = this.featureMorphAnalysisContract(source.generatorId, {
+      ...(source.params || {}),
+      ...(owner.params || {}),
+    });
+    if (featureMorph) {
       const params = { ...(source.params || {}), ...(owner.params || {}) };
       const imageA = this.media.get(params.imageAId);
       const imageB = this.media.get(params.imageBId);
-      return featureMorphPairs.externalKey(params, {
+      return featureMorph.service.externalKey(featureMorph.params, {
         imageAFile: imageA?.file,
         imageBFile: imageB?.file,
       });
@@ -3441,6 +3733,10 @@ export class OutputRenderer {
     );
   }
 
+  registerNativeSourceRenderer(rendererId, renderer, options) {
+    return this.sourceRuntime.registerNativeRenderer(rendererId, renderer, options);
+  }
+
   drawScreenShareGenerator(pg, source = {}, _componentTime, renderRequest) {
     return this.sourceRuntime.drawScreenShareGenerator(
       pg,
@@ -3478,16 +3774,16 @@ export class OutputRenderer {
       if (pending || operation.configuration?.enabled === false || operation.opcode !== "source") return;
       const source = operation.configuration?.source || {};
       if (source.type !== "generator") return;
-      const pairs = this.featureMorphPairService(source.generatorId);
-      if (!pairs) return;
-      const params = source.params || {};
+      const featureMorph = this.featureMorphAnalysisContract(source.generatorId, source.params || {});
+      if (!featureMorph) return;
+      const params = featureMorph.params;
       const imageA = this.acquireMedia(params.imageAId);
       const imageB = this.acquireMedia(params.imageBId);
       if (!isReadyMediaItem(imageA) || !isReadyMediaItem(imageB)) {
         pending = true;
         return;
       }
-      const status = pairs.status(params, { imageAFile: imageA.file, imageBFile: imageB.file });
+      const status = featureMorph.service.status(params, { imageAFile: imageA.file, imageBFile: imageB.file });
       pending = status === "idle" || status === "loading";
     });
     seen.delete(component.id);
@@ -3626,8 +3922,8 @@ export class OutputRenderer {
       : this.getFxPingPongTarget(renderRequest, 0);
     const shader = this.shaderEffectRuntime.getShader({ id: component.id, component }, target);
     if (!shader) return null;
-    const qualityParams = qualityAdjustedGeneratorParams(generatorId, params);
-    const rateParam = generatorRateParam(generatorId);
+    const qualityParams = qualityAdjustedGeneratorParams(generatorComponent, params);
+    const rateParam = generatorRateParam(generatorComponent);
     const rate = rateParam ? Math.max(0, Number(qualityParams[rateParam]) || 0) : 1;
     const shaderTime = rateParam
       ? this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`, componentTime, rate)
@@ -3717,18 +4013,8 @@ export class OutputRenderer {
       }
       this.setShaderParamUniforms(shader, component, shaderParams, {
         setDefaultAmount: false,
-        onlyPresent: shadertoyInterface || isfInterface || generatorId === "eyeball",
+        onlyPresent: shadertoyInterface || isfInterface,
       });
-      if (generatorId === "eyeball") {
-        const eyeKey = instanceId || generatorId;
-        const eye = eyeballFrameUniforms(shaderTime, shaderParams, this.eyeballUniformFrames.get(eyeKey));
-        this.eyeballUniformFrames.set(eyeKey, eye);
-        this.eyeballUniformFrameUse.set(eyeKey, this.frameIndex);
-        setDynamicShaderUniformIfPresent(shader, "eyeGazeDir", eye.gazeDir);
-        setDynamicShaderUniformIfPresent(shader, "eyeIrisRight", eye.irisRight);
-        setDynamicShaderUniformIfPresent(shader, "eyeIrisUp", eye.irisUp);
-        setShaderUniformIfPresent(shader, "eyeBlink", eye.blink);
-      }
       drawShaderTargetRect(target, renderRequest.width, renderRequest.height);
       resetShaderTarget(target);
       });
@@ -3879,11 +4165,6 @@ export class OutputRenderer {
     for (const key of Array.from(this.sourceNodeRuntimes.keys())) {
       if (!this.componentSource.has(key)) this.sourceNodeRuntimes.delete(key);
     }
-    for (const [key, lastUsed] of this.eyeballUniformFrameUse) {
-      if (this.frameIndex - lastUsed <= RENDER_CACHE_IDLE_FRAMES) continue;
-      this.eyeballUniformFrameUse.delete(key);
-      this.eyeballUniformFrames.delete(key);
-    }
     for (const [key, lastUsed] of this.generatorUniformStateUse) {
       if (this.frameIndex - lastUsed <= RENDER_CACHE_IDLE_FRAMES) continue;
       this.generatorUniformStateUse.delete(key);
@@ -4006,7 +4287,11 @@ export class OutputRenderer {
   }
 
   finishFrameProfile() {
-    return this.profileRuntime.finishFrame(this.frameStart);
+    const profile = this.profileRuntime.finishFrame(this.frameStart);
+    if (this.collectDetailedProfile) {
+      this.lastRenderResolutionTrace = this.activeRenderResolutionTrace.map((entry) => ({ ...entry }));
+    }
+    return profile;
   }
 
   setShaderParamUniforms(shader, component, params = {}, options = {}) {
@@ -4374,7 +4659,12 @@ export class OutputRenderer {
   }
 
   presentationFrameMode() {
-    if (!this.state || this.shouldUseThumbnailPreview()) return "continuous";
+    if (!this.state) return "continuous";
+    // A held transport has no presentation-time work. Both hosts render the
+    // newly paused frame once, then use their existing on-change suspension
+    // path until state or an interaction wakes them.
+    if (!this.isPlaybackActive()) return "on-change";
+    if (this.shouldUseThumbnailPreview()) return "continuous";
     if (this.liveParamFades.size || this.chainTransformDrag || this.sceneFrameDrag) return "continuous";
     if (this.manualScheduler.size || this.mapper?.isActive?.() || this.currentLiveTransition()) return "continuous";
     const ids = this.neededComponentIds();
@@ -4411,7 +4701,11 @@ export class OutputRenderer {
       this.hud.classList.toggle("is-hidden", !this.state.global.showHud);
       this.hud.classList.toggle("is-loading", mediaLoading);
       this.hud.classList.toggle("is-diagnostic", diagnostic);
-      const markup = diagnostic
+      const outputChainDiagnostic = this.mode === "output";
+      this.hud.classList.toggle("is-chain-diagnostic", outputChainDiagnostic);
+      const markup = outputChainDiagnostic
+        ? this.outputRenderChainHudMarkup(fps)
+        : diagnostic
         ? this.previewDiagnosticHudMarkup(fps)
         : `${mediaLoading ? `<span class="output-loading-dot" aria-hidden="true"></span>` : ""}<span>${Math.round(this.smoothedFps || fps)} fps</span>${resolution}`;
       if (this.hud.innerHTML !== markup) this.hud.innerHTML = markup;
@@ -4493,6 +4787,19 @@ function mappingStatusForReason(reason = "") {
 function formatDensity(value = 1) {
   const rounded = Math.round(Number(value) * 100) / 100;
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function escapeHudText(value = "") {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function hudResourceName(value = "") {
+  return String(value || "").split(/[\\/]/).filter(Boolean).at(-1) || "";
 }
 
 function mappingSignature(mapping) {

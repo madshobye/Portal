@@ -9,7 +9,10 @@ const manifest = Object.freeze({
     runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
-      createNumberParam("raySteps", "Ray steps", { min: 12, max: 72, step: 1, defaultValue: 36 }),
+      createNumberParam("raySteps", "Ray steps", {
+        min: 12, max: 72, step: 1, defaultValue: 36,
+        renderQualityScaling: { minimum: 0.35, maximum: 1.5 },
+      }),
       createNumberParam("viewDistance", "View distance", { min: 12, max: 60, step: 0.5, defaultValue: 40 }),
       createNumberParam("fieldOfView", "Field of view", { min: 0.5, max: 3, step: 0.01, defaultValue: 1.57 }),
       createNumberParam("pathAmount", "Path bend", { min: 0, max: 2.5, step: 0.01, defaultValue: 1 }),
@@ -17,7 +20,10 @@ const manifest = Object.freeze({
       createNumberParam("gyroidScale", "Gyroid scale", { min: 0.5, max: 3, step: 0.01, defaultValue: 1, scale: "log" }),
       createNumberParam("tubeThickness", "Tube thickness", { min: -0.5, max: 1.5, step: 0.01, defaultValue: 0.25 }),
       createNumberParam("tunnelRadius", "Tunnel radius", { min: 1.5, max: 6, step: 0.01, defaultValue: 3.25 }),
-      createNumberParam("surfaceDetail", "Surface detail", { min: 0, max: 2, step: 1, defaultValue: 1 }),
+      createNumberParam("surfaceDetail", "Surface detail", {
+        min: 0, max: 2, step: 1, defaultValue: 1,
+        renderQualityScaling: { minimum: 0.5, maximum: 1.25 },
+      }),
       createNumberParam("specularStrength", "Highlights", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createNumberParam("fogStrength", "Fog", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createColorParam("tubeColor", "Tube color", "#5a4033ff"),

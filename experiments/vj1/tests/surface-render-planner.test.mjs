@@ -56,6 +56,28 @@ test("surface planner resolves visible routes and their shared component demand"
   assert.ok(routes[0].componentRequest.width > 0);
   assert.ok(routes[0].surfaceRequest.width > 0);
   assert.ok(metrics.componentRasterPixels > 0);
+
+  const baselineRequest = {
+    width: routes[0].componentRequest.width,
+    height: routes[0].componentRequest.height,
+  };
+  component.transform = { ...(component.transform || {}), scale: 8 };
+  const scaled = planSurfaceRoutes({
+    state,
+    mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
+    componentById: new Map([[component.id, component]]),
+    viewport: { width: 960, height: 540 },
+    pixelScale: 1,
+    resolveRouteSourceNode: () => ({ id: `component:${component.id}`, componentId: component.id, outputFrameId: "" }),
+  });
+  assert.deepEqual(
+    {
+      width: scaled.routes[0].componentRequest.width,
+      height: scaled.routes[0].componentRequest.height,
+    },
+    baselineRequest,
+    "root Content scale changes placement, not the routed output texture demand",
+  );
 });
 
 test("a Surface route renders its source at mapped demand without a parallel Frame model", () => {
@@ -89,6 +111,97 @@ test("a Surface route renders its source at mapped demand without a parallel Fra
   assert.ok(routes[0].componentRequest.width > 0);
   assert.ok(routes[0].componentRequest.height > 0);
   assert.equal(metrics.componentRasterPixels, routes[0].componentRequest.width * routes[0].componentRequest.height);
+});
+
+test("root Content scale uses transformed ROI detail without enlarging Surface allocation", () => {
+  const state = createInitialState();
+  const component = {
+    ...state.components[0],
+    id: "component-scaled",
+    transform: { x: 0, y: 0, scale: 8, rotation: 0 },
+  };
+  const surface = {
+    ...state.surfaces[0],
+    id: "surface-scaled",
+    enabled: true,
+    componentId: component.id,
+  };
+  state.components = [component];
+  state.surfaces = [surface];
+  const mapperSurface = {
+    name: surface.id,
+    corners: [{ x: 0, y: 0 }, { x: 960, y: 0 }, { x: 960, y: 540 }, { x: 0, y: 540 }],
+  };
+  const plan = (regionSafe) => planSurfaceRoutes({
+    state,
+    mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
+    componentById: new Map([[component.id, component]]),
+    viewport: { width: 960, height: 540 },
+    pixelScale: 1,
+    resolveRouteSourceNode: () => ({ id: `component:${component.id}`, componentId: component.id }),
+    isComponentRegionSafe: () => regionSafe,
+  });
+
+  const safe = plan(true);
+  const route = safe.routes[0];
+  assert.equal(route.componentRequest.regionView, true);
+  assert.equal(route.componentRequest.role, "scene-region");
+  assert.deepEqual(route.componentRequest.uvRect, [0.4375, 0.4375, 0.125, 0.125]);
+  assert.equal(route.componentRequest.width, 960);
+  assert.equal(route.componentRequest.height, 544);
+  assert.equal(route.surfaceRequest.width, 960);
+  assert.equal(route.surfaceRequest.height, 544);
+  assert.equal(route.componentRequest.width / route.componentRequest.uvRect[2], 7680);
+  assert.deepEqual(safe.metrics.rootTransformDetailLimited, []);
+
+  const unsafe = plan(false);
+  assert.equal(unsafe.routes[0].componentRequest.regionView, undefined);
+  assert.deepEqual(unsafe.metrics.rootTransformDetailLimited, [component.id]);
+
+  const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
+  assert.match(runtimeSource, /\[VJ1_ROOT_CONTENT_DETAIL_LIMITED\]/);
+});
+
+test("Scene root Content scale uses a physical regional request beyond the full-Scene cap", () => {
+  const state = createInitialState();
+  const scene = {
+    ...state.components[0],
+    id: "scene-scaled",
+    type: "scene",
+    transform: { x: 0, y: 0, scale: 8, rotation: 0 },
+    canvas: { frameThumbnails: {} },
+  };
+  const surface = {
+    ...state.surfaces[0],
+    id: "scene-surface-scaled",
+    enabled: true,
+    componentId: scene.id,
+  };
+  state.components = [scene];
+  state.surfaces = [surface];
+  const mapperSurface = {
+    name: surface.id,
+    corners: [{ x: 0, y: 0 }, { x: 960, y: 0 }, { x: 960, y: 540 }, { x: 0, y: 540 }],
+  };
+  const { routes } = planSurfaceRoutes({
+    state,
+    mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
+    componentById: new Map([[scene.id, scene]]),
+    viewport: { width: 960, height: 540 },
+    pixelScale: 1,
+    resolveRouteSourceNode: () => ({ id: `component:${scene.id}`, componentId: scene.id }),
+    isComponentRegionSafe: () => true,
+  });
+
+  const route = routes[0];
+  assert.equal(route.componentRequest.regionView, true);
+  assert.deepEqual(route.componentRequest.uvRect, [0.4375, 0.4375, 0.125, 0.125]);
+  assert.equal(route.componentRequest.width, route.surfaceRequest.width);
+  assert.ok(
+    route.componentRequest.width / route.componentRequest.uvRect[2] > route.sourceView.maxRasterSize.width,
+    "the logical detail represented by the ROI can exceed the capped full Scene without allocating a full-size target",
+  );
+  assert.ok(route.componentRequest.width <= 960);
 });
 
 test("independent Canvas children do not multiply across multiple recording-frame routes", () => {
@@ -172,7 +285,9 @@ test("embedded Live outlines the selected projection without exposing Mapping ha
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   assert.ok(rendererSource.includes('const liveSelection = workspace === "live"'));
   assert.ok(rendererSource.includes("const revealHandles = mappingSelection && calibrating"));
-  assert.ok(rendererSource.includes("if (mapped?.direct && !liveSelection) return"));
+  assert.ok(rendererSource.includes("if (mapped?.direct)"));
+  assert.ok(rendererSource.includes("if (liveSelection) this.renderSelectedDirectOutputFrameOverlay(surfaceId)"));
+  assert.ok(rendererSource.includes("outputFramesForIds("));
 });
 
 test("output renderer delegates surface demand planning", () => {
@@ -186,6 +301,8 @@ test("output renderer delegates surface demand planning", () => {
   assert.ok(runtimeSource.includes("surfaceProgram: orderedSurfaceProgram(surfaceProgram || renderer.mappingProgramSurfaces(renderer.state))"));
   assert.ok(runtimeSource.includes("transformDemandCorners,"));
   assert.ok(runtimeSource.includes('preserveDirectFootprint: renderer.mode === "output"'));
+  assert.ok(runtimeSource.includes("renderer.componentRegionSafe?.(component) === true"));
+  assert.ok(!runtimeSource.includes("renderer.sceneComponentRegionSafe?.(component) === true"));
   assert.doesNotMatch(runtimeSource, /outputSpanFitScale/);
   assert.doesNotMatch(rendererSource, /sourceRenderDemand\(\{/);
   assert.doesNotMatch(rendererSource, /manualSurfaceTextureLimit\(/);

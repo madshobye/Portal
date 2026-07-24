@@ -3,18 +3,19 @@ import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-compo
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   defineSpecializedVisualCompound,
-  NativeRenderToTextureNode,
   PlanarGridGeometryProviderNode,
-  ProceduralGeometryProviderNode,
-  ShaderMaterialProviderNode,
-  VisualCameraProviderNode,
-} from "../../shared/specialized-compound.js?v=specialized-stage-authority-1";
+  TerrainBiomeMaterialProviderNode,
+  TerrainFlightCameraProviderNode,
+  TerrainHeightFieldGeometryProviderNode,
+  TerrainSurfaceToImageNode,
+  TerrainWireMaterialProviderNode,
+  TerrainWireToImageNode,
+} from "../../shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
 import { TerrainFlightControllerNode } from "../../../terrain-engine/flight-controller/index.js";
 import {
   terrainNodeModuleParts,
   terrainNodeProcess,
-  TerrainNodeModuleExports,
-} from "./runtime.js?v=source-roi-view-3";
+} from "./runtime.js?v=semantic-terrain-node-ownership-1";
 
 const manifest = Object.freeze({
     id: "terrainFlyover",
@@ -61,29 +62,31 @@ const manifest = Object.freeze({
 const NativeVisualComponent = defineGeneratorNode(manifest, null, {
   direct: false,
   process: terrainNodeProcess,
-  exports: TerrainNodeModuleExports,
+  exports: {},
   parts: terrainNodeModuleParts(),
 });
 
 export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
   compoundKind: "terrain-flyover",
+  nativeRenderer: "output/specialized:terrainFlyover",
   nodes: [
     { id: "flight", type: TerrainFlightControllerNode.id },
-    { id: "geometry", type: ProceduralGeometryProviderNode.id, parameters: { providerId: "terrain-height-field" } },
-    { id: "surface-material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "terrain-biome" } },
-    { id: "wire-material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "terrain-wire" } },
+    { id: "geometry", type: TerrainHeightFieldGeometryProviderNode.id, parameters: { providerId: "terrain-height-field" } },
+    { id: "surface-material", type: TerrainBiomeMaterialProviderNode.id, parameters: { providerId: "terrain-biome" } },
+    { id: "wire-material", type: TerrainWireMaterialProviderNode.id, parameters: { providerId: "terrain-wire" } },
     {
       id: "camera",
-      type: VisualCameraProviderNode.id,
+      type: TerrainFlightCameraProviderNode.id,
       parameters: {
         providerId: "terrain-flight-camera",
         settings: { projection: "perspective" },
       },
     },
-    { id: "surface-render", type: NativeRenderToTextureNode.id, parameters: { providerId: "terrain-surface-pass" } },
-    { id: "wire-render", type: NativeRenderToTextureNode.id, parameters: { providerId: "terrain-wire-pass" } },
+    { id: "surface-render", type: TerrainSurfaceToImageNode.id, parameters: { providerId: "terrain-surface-pass" } },
+    { id: "wire-render", type: TerrainWireToImageNode.id, parameters: { providerId: "terrain-wire-pass" } },
   ],
   connections: [
+    { from: "flight.flight", to: "camera.flight", type: "terrain-flight-state" },
     { from: "flight.flight", to: "surface-render.controller", type: "terrain-flight-state" },
     { from: "flight.flight", to: "wire-render.controller", type: "terrain-flight-state" },
     { from: "geometry.geometry", to: "surface-render.geometry", type: "geometry-provider" },

@@ -1,29 +1,95 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../node-engine/node-definition.js";
 import { defineNodeGroup } from "../../node-engine/node-group.js?v=explicit-group-compiler-public-group-ports-1";
-import { valueType } from "../../node-engine/node-types.js";
+import {
+  FeatureMorphAnalysisType,
+  DrawableMediaResourceType,
+  GazeBlinkUniformsType,
+  GeometryProviderType,
+  MediaImageResourceType,
+  TextMaskProviderType,
+  TopologyProviderType,
+  VisualCameraProviderType,
+  VisualMaterialProviderType,
+} from "./specialized-compound-types.js";
+import { PlanarGridGeometryProviderNode } from "../providers/planar-grid/index.js?v=retained-resource-2";
+import { LitMeshMaterialProviderNode } from "../providers/lit-mesh-material/index.js?v=canonical-material-1";
+import { AnatomyGeometryProviderNode } from "../providers/anatomy-geometry/index.js?v=canonical-anatomy-face-4";
+import { AnatomyMotionTransform3dNode } from "../providers/anatomy-motion-transform/index.js?v=anatomy-scene3d-1";
+import { AnatomyMaterialPaletteNode } from "../providers/anatomy-material-palette/index.js?v=anatomy-scene3d-1";
+import { TerrainHeightFieldGeometryProviderNode } from "../providers/terrain-height-field/index.js?v=semantic-terrain-node-ownership-1";
+import { TerrainBiomeMaterialProviderNode } from "../providers/terrain-biome-material/index.js?v=semantic-terrain-node-ownership-1";
+import { TerrainWireMaterialProviderNode } from "../providers/terrain-wire-material/index.js?v=semantic-terrain-node-ownership-1";
+import { TerrainFlightCameraProviderNode } from "../providers/terrain-flight-camera/index.js?v=semantic-terrain-render-nodes-1";
+import { ModelFitCameraNode } from "../providers/model-fit-camera/index.js?v=semantic-anatomy-render-node-1";
+import { MeshPatternTopologyProviderNode } from "../providers/mesh-pattern-topology/index.js?v=semantic-mesh-pattern-nodes-1";
+import { MeshPatternFillMaterialProviderNode } from "../providers/mesh-pattern-fill-material/index.js?v=semantic-mesh-pattern-nodes-1";
+import { MeshPatternWireMaterialProviderNode } from "../providers/mesh-pattern-wire-material/index.js?v=semantic-mesh-pattern-nodes-1";
+import {
+  TerrainSurfaceToImageNode,
+  TerrainWireToImageNode,
+} from "../renderers/terrain-passes/index.js?v=semantic-terrain-render-nodes-1";
+import { AnatomyToImageNode } from "../renderers/anatomy-to-image/index.js?v=semantic-anatomy-render-node-1";
+import {
+  MeshPatternFillToImageNode,
+  MeshPatternWireToImageNode,
+} from "../renderers/mesh-pattern-passes/index.js?v=semantic-mesh-pattern-nodes-1";
+import { MediaImageResourceNode } from "../providers/media-image-resource/index.js?v=feature-morph-semantic-1";
+import {
+  MobileNetMorphAnalysisNode,
+  SuperPointMorphAnalysisNode,
+} from "../providers/feature-morph-analysis/index.js?v=feature-morph-semantic-1";
+import { FeatureMorphToImageNode } from "../renderers/feature-morph-to-image/index.js?v=feature-morph-semantic-1";
+import { TileTextureToImageNode } from "../renderers/tile-texture-to-image/index.js?v=tile-texture-semantic-1";
+import { TextMaskProviderNode } from "../providers/text-mask/index.js?v=text-mask-semantic-1";
+import { TextMaskToImageNode } from "../renderers/text-mask-to-image/index.js?v=text-mask-semantic-1";
+import { ScreenInputResourceNode } from "../providers/screen-input-resource/index.js?v=screen-input-semantic-1";
+import { MediaResourceToImageNode } from "../renderers/media-resource-to-image/index.js?v=screen-input-semantic-1";
+import { GazeBlinkControllerNode } from "../providers/gaze-blink-controller/index.js?v=gaze-blink-semantic-1";
+import { EyeballToImageNode } from "../renderers/eyeball-to-image/index.js?v=gaze-blink-semantic-1";
 import { componentFromNodeDefinition } from "./visual-node-factory.js";
 
 export const SPECIALIZED_COMPOUND_VISUAL_COMPILER_HOOK = "vj1.visual.specialized-compound";
-
-export const GeometryProviderType = valueType("geometry-provider", {
-  contractVersion: 1,
-  description: "A declarative geometry-producing stage lowered by a specialized visual compiler.",
-});
-
-export const TopologyProviderType = valueType("topology-provider", {
-  contractVersion: 1,
-  description: "A declarative 2D topology-producing stage lowered by a specialized visual compiler.",
-});
-
-export const VisualMaterialProviderType = valueType("visual-material-provider", {
-  contractVersion: 1,
-  description: "A reusable material and shader-program selection for a compiled visual stage.",
-});
-
-export const VisualCameraProviderType = valueType("visual-camera-provider", {
-  contractVersion: 1,
-  description: "A reusable camera contract for a compiled visual stage.",
-});
+const EMPTY_COMPOUND_CONTEXT = Object.freeze({});
+export {
+  GeometryProviderType,
+  AnatomyGeometryProviderNode,
+  AnatomyMotionTransform3dNode,
+  AnatomyMaterialPaletteNode,
+  LitMeshMaterialProviderNode,
+  PlanarGridGeometryProviderNode,
+  TerrainHeightFieldGeometryProviderNode,
+  TerrainBiomeMaterialProviderNode,
+  TerrainWireMaterialProviderNode,
+  TerrainFlightCameraProviderNode,
+  ModelFitCameraNode,
+  AnatomyToImageNode,
+  FeatureMorphAnalysisType,
+  DrawableMediaResourceType,
+  GazeBlinkUniformsType,
+  FeatureMorphToImageNode,
+  MediaImageResourceNode,
+  MediaImageResourceType,
+  MediaResourceToImageNode,
+  MobileNetMorphAnalysisNode,
+  MeshPatternTopologyProviderNode,
+  MeshPatternFillMaterialProviderNode,
+  MeshPatternWireMaterialProviderNode,
+  MeshPatternFillToImageNode,
+  MeshPatternWireToImageNode,
+  TerrainSurfaceToImageNode,
+  TerrainWireToImageNode,
+  TextMaskProviderNode,
+  TextMaskProviderType,
+  TextMaskToImageNode,
+  TileTextureToImageNode,
+  TopologyProviderType,
+  SuperPointMorphAnalysisNode,
+  ScreenInputResourceNode,
+  GazeBlinkControllerNode,
+  EyeballToImageNode,
+  VisualCameraProviderType,
+  VisualMaterialProviderType,
+};
 
 export const ProceduralGeometryProviderNode = descriptorNode({
   id: "core.visual.procedural-geometry-provider",
@@ -32,16 +98,6 @@ export const ProceduralGeometryProviderNode = descriptorNode({
   kind: "geometry",
   outlets: { geometry: { type: GeometryProviderType } },
   capabilities: ["geometry-provider", "scene-3d", "specialized-visual-stage"],
-});
-
-export const PlanarGridGeometryProviderNode = descriptorNode({
-  id: "core.visual.planar-grid-geometry-provider",
-  name: "Planar Grid Geometry",
-  description: "Produces a reusable flat grid geometry contract for retained 3D renderers.",
-  kind: "geometry",
-  providerId: "planar-grid",
-  outlets: { geometry: { type: GeometryProviderType } },
-  capabilities: ["geometry-provider", "scene-3d", "specialized-visual-stage", "planar-grid"],
 });
 
 export const ProceduralTopologyProviderNode = descriptorNode({
@@ -91,10 +147,38 @@ export const NativeRenderToTextureNode = descriptorNode({
 
 export const SpecializedCompoundStageNodeDefinitions = Object.freeze([
   ProceduralGeometryProviderNode,
+  AnatomyGeometryProviderNode,
+  AnatomyMotionTransform3dNode,
+  AnatomyMaterialPaletteNode,
   PlanarGridGeometryProviderNode,
+  TerrainHeightFieldGeometryProviderNode,
   ProceduralTopologyProviderNode,
   ShaderMaterialProviderNode,
+  LitMeshMaterialProviderNode,
+  TerrainBiomeMaterialProviderNode,
+  TerrainWireMaterialProviderNode,
+  TerrainFlightCameraProviderNode,
+  ModelFitCameraNode,
   VisualCameraProviderNode,
+  AnatomyToImageNode,
+  MediaImageResourceNode,
+  ScreenInputResourceNode,
+  GazeBlinkControllerNode,
+  EyeballToImageNode,
+  SuperPointMorphAnalysisNode,
+  MobileNetMorphAnalysisNode,
+  FeatureMorphToImageNode,
+  MediaResourceToImageNode,
+  TileTextureToImageNode,
+  MeshPatternTopologyProviderNode,
+  MeshPatternFillMaterialProviderNode,
+  MeshPatternWireMaterialProviderNode,
+  MeshPatternFillToImageNode,
+  MeshPatternWireToImageNode,
+  TerrainSurfaceToImageNode,
+  TerrainWireToImageNode,
+  TextMaskProviderNode,
+  TextMaskToImageNode,
   NativeRenderToTextureNode,
 ]);
 
@@ -106,10 +190,12 @@ export function defineSpecializedVisualCompound(component, {
   parameterBindings = {},
   parameterPresentation = {},
   providerAlternatives = {},
+  nativeRenderer = "",
   parts = component?.nodeDefinition?.parts || [],
 } = {}) {
   const base = component?.nodeDefinition;
   if (!base) throw new Error(`SPECIALIZED_VISUAL_COMPOUND_BASE_MISSING:${compoundKind || "unknown"}`);
+  const compiledRenderer = String(nativeRenderer || base.metadata?.nativeRenderer || "");
   const nativeStageContract = Object.freeze(Object.fromEntries((nodes || []).map((node) => [
     String(node.id || ""),
     Object.freeze({
@@ -148,9 +234,10 @@ export function defineSpecializedVisualCompound(component, {
     },
     metadata: {
       ...base.metadata,
+      nativeRenderer: compiledRenderer,
       visualCompilerHook: {
         id: SPECIALIZED_COMPOUND_VISUAL_COMPILER_HOOK,
-        renderer: base.metadata?.nativeRenderer,
+        renderer: compiledRenderer,
         contract: base.metadata?.visualContract,
       },
       nativeCompound: {
@@ -211,21 +298,240 @@ export function compileSpecializedCompoundProgram(definition, { resolveDefinitio
   if (!outputEndpoint || !byId.has(outputNode)) {
     throw new Error(`SPECIALIZED_VISUAL_COMPOUND_OUTPUT_INVALID:${definition.id}:${outputEndpoint || "missing"}`);
   }
+  const executableStages = new Map();
+  const resolvedDefinitions = new Map();
+  for (const id of ordered) {
+    const node = byId.get(id);
+    const resolvedDefinition = typeof resolveDefinition === "function"
+      ? resolveDefinition({
+          nodeId: node?.type || node?.nodeType,
+          nodeVersion: node?.version || node?.nodeVersion,
+        })
+      : null;
+    if (resolvedDefinition) resolvedDefinitions.set(id, resolvedDefinition);
+    const executable = compileExecutableCompoundStage(node, resolveDefinition);
+    if (executable) executableStages.set(id, executable);
+  }
+  const stages = Object.freeze(ordered.map((id) => {
+    const node = byId.get(id);
+    const resolvedDefinition = resolvedDefinitions.get(id);
+    return Object.freeze({
+      id,
+      nodeId: node.type,
+      nativeKernel: String(
+        resolvedDefinition?.metadata?.nativeKernel ||
+        resolvedDefinition?.implementation?.kernel ||
+        "",
+      ),
+      parameters: Object.freeze({ ...(node.parameters || {}) }),
+    });
+  }));
+  const parameterBindings = Object.freeze({ ...(definition.metadata?.nativeCompound?.parameterBindings || {}) });
+  const stageDescriptors = new Map(stages.map((stage) => [
+    stage.id,
+    Object.freeze({
+      id: stage.id,
+      nodeId: stage.nodeId,
+      nativeKernel: stage.nativeKernel,
+      providerId: String(stage.parameters?.providerId || ""),
+      enabled: stage.parameters?.enabled !== false,
+      settings: Object.freeze(compoundStageAuthoredSettings(stage.parameters)),
+    }),
+  ]));
+  const parameterProjectors = new Map(stages.map((stage) => [
+    stage.id,
+    compileStageParameterProjector(
+      stageDescriptors.get(stage.id),
+      parameterBindings[stage.id] || [],
+    ),
+  ]));
+  const connectionPlans = new Map(ordered.map((id) => [id, []]));
+  for (const connection of graph.connections || []) {
+    connectionPlans.get(endpointNode(connection.to)).push(Object.freeze({
+      sourceStageId: endpointNode(connection.from),
+      sourcePortId: endpointPort(connection.from),
+      targetPortId: endpointPort(connection.to),
+    }));
+  }
+  for (const [id, plans] of connectionPlans) {
+    connectionPlans.set(id, Object.freeze(plans));
+  }
+  const nativeKernels = Object.freeze(stages
+    .filter((stage) => stage.nativeKernel)
+    .map((stage) => Object.freeze({
+      id: stage.id,
+      nodeId: stage.nodeId,
+      kernel: stage.nativeKernel,
+      enabled: stage.parameters?.enabled !== false,
+      inputBindings: Object.freeze(Object.fromEntries(
+        (connectionPlans.get(stage.id) || []).map((connection) => [
+          connection.targetPortId,
+          Object.freeze({
+            stageId: connection.sourceStageId,
+            portId: connection.sourcePortId,
+          }),
+        ]),
+      )),
+      outputPorts: Object.freeze(Object.keys(
+        resolvedDefinitions.get(stage.id)?.outlets || {},
+      )),
+    })));
+  const nativeKernelById = new Map(nativeKernels.map((kernel) => [kernel.kernel, kernel]));
+  const providerInputs = new Map();
+  const graphEvaluations = new Map();
   return Object.freeze({
-    format: "vj1.specialized-compound-program@1",
+    format: "vj1.specialized-compound-program@2",
     kind: String(definition.metadata?.nativeCompound?.kind || ""),
     output: String(outputEndpoint),
-    stages: Object.freeze(ordered.map((id) => {
-      const node = byId.get(id);
-      return Object.freeze({
-        id,
-        nodeId: node.type,
-        parameters: Object.freeze({ ...(node.parameters || {}) }),
-      });
-    })),
+    stages,
     connections: Object.freeze((graph.connections || []).map((connection) => Object.freeze({ ...connection }))),
-    parameterBindings: Object.freeze({ ...(definition.metadata?.nativeCompound?.parameterBindings || {}) }),
+    parameterBindings,
+    executableStages: Object.freeze([...executableStages.keys()]),
+    nativeKernels,
+    nativeModuleDefinitions: Object.freeze(ordered.flatMap((id) => {
+      const resolvedDefinition = resolvedDefinitions.get(id);
+      return resolvedDefinition && (
+        resolvedDefinition.parts?.length ||
+        Object.keys(resolvedDefinition.moduleExports || {}).length
+      )
+        ? [resolvedDefinition]
+        : [];
+    })),
+    stageDescriptor(stageId) {
+      return stageDescriptors.get(String(stageId || "")) || null;
+    },
+    nativeKernel(kernelId) {
+      return nativeKernelById.get(String(kernelId || "")) || null;
+    },
+    stageParameterView(stageId, authoredParameters = {}, context = {}) {
+      const projector = parameterProjectors.get(String(stageId || ""));
+      return projector
+        ? projectStageParameterView(projector, authoredParameters, compoundInstanceId(context))
+        : null;
+    },
+    executeStage(stageId, inputs = {}, context = {}) {
+      const stage = executableStages.get(String(stageId || ""));
+      return stage ? executeCompoundStage(stage, inputs, context) : null;
+    },
+    executeProvider(stageId, authoredParameters = {}, context = {}) {
+      const id = String(stageId || "");
+      const descriptor = stageDescriptors.get(id);
+      const stage = executableStages.get(id);
+      const projector = parameterProjectors.get(id);
+      if (!descriptor || !stage || !projector) return null;
+      const instanceId = compoundInstanceId(context);
+      const settings = projectStageParameterView(projector, authoredParameters, instanceId);
+      let stageInputs = providerInputs.get(id);
+      if (!stageInputs) {
+        stageInputs = new Map();
+        providerInputs.set(id, stageInputs);
+      }
+      let inputs = stageInputs.get(instanceId);
+      if (!inputs) {
+        inputs = {
+          providerId: descriptor.providerId,
+          enabled: descriptor.enabled,
+          settings,
+        };
+        stageInputs.set(instanceId, inputs);
+      }
+      inputs.providerId = descriptor.providerId;
+      inputs.enabled = descriptor.enabled;
+      inputs.settings = settings;
+      const output = executeCompoundStage(stage, inputs, context);
+      return output && typeof output === "object" ? output[stage.outputId] || null : null;
+    },
+    evaluateGraph(authoredParameters = {}, context = {}, externalInputs = {}) {
+      const instanceId = compoundInstanceId(context);
+      let evaluation = graphEvaluations.get(instanceId);
+      if (!evaluation) {
+        evaluation = createCompoundGraphEvaluation(instanceId, ordered);
+        graphEvaluations.set(instanceId, evaluation);
+      }
+      for (const id of ordered) {
+        const descriptor = stageDescriptors.get(id);
+        const projector = parameterProjectors.get(id);
+        const stage = executableStages.get(id);
+        const settings = projector
+          ? projectStageParameterView(projector, authoredParameters, instanceId)
+          : EMPTY_COMPOUND_CONTEXT;
+        const inputs = evaluation.inputRecord(id);
+        resetCompoundGraphInputs(inputs, evaluation.inputKeys(id));
+        inputs.providerId = descriptor?.providerId || "";
+        inputs.enabled = descriptor?.enabled !== false;
+        inputs.settings = settings;
+        Object.assign(inputs, settings);
+        for (const connection of connectionPlans.get(id) || []) {
+          const value = evaluation.outputValue(
+            connection.sourceStageId,
+            connection.sourcePortId,
+          );
+          if (value === undefined) delete inputs[connection.targetPortId];
+          else inputs[connection.targetPortId] = value;
+        }
+        const stageExternalInputs = compoundStageExternalInputs(externalInputs, id);
+        Object.assign(inputs, stageExternalInputs);
+        evaluation.rememberInputKeys(id, inputs);
+        const output = stage
+          ? executeCompoundStage(stage, inputs, context)
+          : evaluation.nativeOutputRecord(id);
+        evaluation.setStageOutput(id, output);
+      }
+      return evaluation.publicView;
+    },
+    dispose() {
+      for (const stage of executableStages.values()) disposeExecutableCompoundStage(stage);
+      executableStages.clear();
+      for (const projector of parameterProjectors.values()) projector.instances.clear();
+      parameterProjectors.clear();
+      providerInputs.clear();
+      graphEvaluations.clear();
+    },
   });
+}
+
+export function executeSpecializedCompoundStage(
+  operation = {},
+  stageId = "",
+  inputs = {},
+  context = {},
+) {
+  const program = operation?.nativeCompoundProgram;
+  if (!program || typeof program.executeStage !== "function") return null;
+  return program.executeStage(stageId, inputs, context);
+}
+
+export function executeSpecializedCompoundProvider(
+  operation = {},
+  stageId = "",
+  authoredParameters = {},
+  context = {},
+) {
+  const program = operation?.nativeCompoundProgram;
+  if (program && typeof program.executeProvider === "function") {
+    return program.executeProvider(stageId, authoredParameters, context);
+  }
+  const descriptor = specializedCompoundStageDescriptor(operation, stageId);
+  if (!descriptor) return null;
+  const output = executeSpecializedCompoundStage(operation, stageId, {
+    providerId: descriptor.providerId,
+    enabled: descriptor.enabled,
+    settings: specializedCompoundStageParameters(operation, stageId, authoredParameters),
+  }, context);
+  if (!output || typeof output !== "object") return null;
+  return Object.values(output)[0] || null;
+}
+
+export function evaluateSpecializedCompoundGraph(
+  operation = {},
+  authoredParameters = {},
+  context = {},
+  externalInputs = {},
+) {
+  const program = operation?.nativeCompoundProgram;
+  return typeof program?.evaluateGraph === "function"
+    ? program.evaluateGraph(authoredParameters, context, externalInputs)
+    : null;
 }
 
 export function specializedCompoundStageEnabled(operation = {}, stageId = "") {
@@ -240,17 +546,28 @@ export function specializedCompoundStageEnabled(operation = {}, stageId = "") {
   return false;
 }
 
+export function specializedCompoundNativeKernel(operation = {}, kernelId = "") {
+  const program = operation?.nativeCompoundProgram;
+  if (typeof program?.nativeKernel === "function") return program.nativeKernel(kernelId);
+  return program?.nativeKernels?.find((kernel) => kernel.kernel === kernelId) || null;
+}
+
 export function specializedCompoundStageProvider(operation = {}, stageId = "", fallback = "") {
   const stage = operation?.nativeCompoundProgram?.stages?.find((item) => item.id === stageId);
   return String(stage?.parameters?.providerId || fallback || "");
 }
 
 export function specializedCompoundStageDescriptor(operation = {}, stageId = "") {
-  const stage = operation?.nativeCompoundProgram?.stages?.find((item) => item.id === stageId);
+  const program = operation?.nativeCompoundProgram;
+  if (typeof program?.stageDescriptor === "function") {
+    return program.stageDescriptor(stageId);
+  }
+  const stage = program?.stages?.find((item) => item.id === stageId);
   if (!stage) return null;
   return Object.freeze({
     id: stage.id,
     nodeId: stage.nodeId,
+    nativeKernel: String(stage.nativeKernel || ""),
     providerId: String(stage.parameters?.providerId || ""),
     enabled: stage.parameters?.enabled !== false,
     settings: Object.freeze(isRecord(stage.parameters?.settings)
@@ -270,13 +587,49 @@ export function specializedCompoundStageParameters(
   if (!descriptor) return {};
   const result = { ...descriptor.settings };
   for (const binding of program.parameterBindings?.[stageId] || []) {
-    const parameterId = String(
+    const publicParameterId = String(
       typeof binding === "string"
         ? binding
         : binding?.publicParameterId || binding?.parameterId || ""
     );
-    if (!parameterId || authoredParameters?.[parameterId] === undefined) continue;
-    result[parameterId] = authoredParameters[parameterId];
+    const targetParameterId = String(
+      typeof binding === "string"
+        ? binding
+        : binding?.targetParameterId || binding?.parameterId || publicParameterId
+    );
+    if (!publicParameterId || !targetParameterId || authoredParameters?.[publicParameterId] === undefined) continue;
+    result[targetParameterId] = authoredParameters[publicParameterId];
+  }
+  return result;
+}
+
+export function specializedCompoundStageParameterView(
+  operation = {},
+  stageId = "",
+  authoredParameters = {},
+  context = {},
+) {
+  const program = operation?.nativeCompoundProgram;
+  if (!program) return { ...(authoredParameters || {}) };
+  if (typeof program.stageParameterView === "function") {
+    return program.stageParameterView(stageId, authoredParameters, context);
+  }
+  const descriptor = specializedCompoundStageDescriptor(operation, stageId);
+  if (!descriptor) return null;
+  const result = { ...descriptor.settings };
+  for (const binding of program.parameterBindings?.[stageId] || []) {
+    const publicParameterId = String(
+      typeof binding === "string"
+        ? binding
+        : binding?.publicParameterId || binding?.parameterId || ""
+    );
+    const targetParameterId = String(
+      typeof binding === "string"
+        ? binding
+        : binding?.targetParameterId || binding?.parameterId || publicParameterId
+    );
+    if (!publicParameterId || !targetParameterId || authoredParameters?.[publicParameterId] === undefined) continue;
+    result[targetParameterId] = authoredParameters[publicParameterId];
   }
   return result;
 }
@@ -322,10 +675,11 @@ function descriptorNode({
     },
     outlets,
     execution: { trigger: "input-change", domain: "main", pure: true },
-    capabilities: [...capabilities, "graph-placeable", "compiled-only"],
+    capabilities: [...capabilities, "compiled-only", "compatibility-only"],
     presentation: {
-      catalogs: ["node-graph", "specialized-visual"],
-      placeableOn: ["native-visual-graph"],
+      catalogs: ["migration"],
+      placeableOn: [],
+      hiddenFrom: ["node-library", "node-graph", "specialized-visual"],
     },
     process: (inputs, { output = {} } = {}) => {
       const port = Object.keys(outlets)[0];
@@ -338,6 +692,249 @@ function descriptorNode({
       return output;
     },
   });
+}
+
+function compoundStageAuthoredSettings(parameters = {}) {
+  const settings = isRecord(parameters?.settings) ? { ...parameters.settings } : {};
+  for (const [id, value] of Object.entries(parameters || {})) {
+    if (id === "providerId" || id === "enabled" || id === "settings" || value === undefined) continue;
+    settings[id] = value;
+  }
+  return settings;
+}
+
+function compileExecutableCompoundStage(node, resolveDefinition) {
+  if (typeof resolveDefinition !== "function") return null;
+  const definition = resolveDefinition({
+    nodeId: node?.type || node?.nodeType,
+    nodeVersion: node?.version || node?.nodeVersion,
+  });
+  const capabilities = definition?.capabilities || [];
+  const executableProvider = [
+    "specialized-visual-provider",
+    "geometry-provider",
+    "topology-provider",
+    "material",
+    "camera",
+  ].some((capability) => capabilities.includes(capability));
+  if ((!capabilities.includes("controller") && !executableProvider) || typeof definition.process !== "function") {
+    return null;
+  }
+  if (
+    definition.execution?.asynchronous ||
+    definition.execution?.workload === "bounded" ||
+    definition.execution?.workload === "offline" ||
+    definition.process.constructor?.name === "AsyncFunction"
+  ) {
+    throw new Error(`SPECIALIZED_VISUAL_COMPOUND_STAGE_NOT_LIVE_SAFE:${node.id}`);
+  }
+  const defaults = {};
+  for (const [id, inlet] of Object.entries(definition.inlets || {})) {
+    if (inlet.defaultValue !== undefined) defaults[id] = inlet.defaultValue;
+  }
+  for (const [id, parameter] of Object.entries(definition.parameters || {})) {
+    if (parameter.defaultValue !== undefined) defaults[id] = parameter.defaultValue;
+  }
+  Object.assign(defaults, node.parameters || {});
+  return {
+    id: String(node.id || ""),
+    definition,
+    process: definition.process,
+    outputId: Object.keys(definition.outlets || {})[0] || "",
+    defaults,
+    inputIds: Object.freeze([...new Set([
+      ...Object.keys(definition.inlets || {}),
+      ...Object.keys(definition.parameters || {}),
+      ...Object.keys(node.parameters || {}),
+    ])]),
+    instances: new Map(),
+  };
+}
+
+function executeCompoundStage(stage, inputs = {}, context = {}) {
+  const instanceId = compoundInstanceId(context);
+  let instance = stage.instances.get(instanceId);
+  if (!instance) {
+    const state = {};
+    const output = {};
+    instance = {
+      state,
+      output,
+      inputs: { ...stage.defaults },
+      processContext: {
+        state,
+        output,
+        executionClass: "live-frame",
+      },
+      contextKeys: new Set(),
+    };
+    stage.instances.set(instanceId, instance);
+  }
+  for (const id of stage.inputIds) {
+    if (Object.prototype.hasOwnProperty.call(stage.defaults, id)) instance.inputs[id] = stage.defaults[id];
+    else delete instance.inputs[id];
+  }
+  Object.assign(instance.inputs, inputs || {});
+  const contextRecord = isRecord(context) ? context : EMPTY_COMPOUND_CONTEXT;
+  for (const key of instance.contextKeys) {
+    if (!(key in contextRecord)) {
+      delete instance.processContext[key];
+      instance.contextKeys.delete(key);
+    }
+  }
+  for (const key in contextRecord) {
+    if (key === "state" || key === "output" || key === "instanceId" || key === "renderIdentity") continue;
+    instance.processContext[key] = context[key];
+    instance.contextKeys.add(key);
+  }
+  const result = stage.process(instance.inputs, instance.processContext);
+  if (result && typeof result.then === "function") {
+    throw new Error(`SPECIALIZED_VISUAL_COMPOUND_STAGE_ASYNC_RESULT:${stage.id}`);
+  }
+  if (result !== instance.output) retainCompoundStageOutput(instance.output, result);
+  return instance.output;
+}
+
+function compileStageParameterProjector(descriptor, bindings = []) {
+  const normalizedBindings = Object.freeze((bindings || []).map((binding) => {
+    const publicParameterId = String(
+      typeof binding === "string"
+        ? binding
+        : binding?.publicParameterId || binding?.parameterId || ""
+    );
+    const targetParameterId = String(
+      typeof binding === "string"
+        ? binding
+        : binding?.targetParameterId || binding?.parameterId || publicParameterId
+    );
+    return Object.freeze({ publicParameterId, targetParameterId });
+  }).filter((binding) => binding.publicParameterId && binding.targetParameterId));
+  const template = { ...(descriptor?.settings || {}) };
+  return {
+    template: Object.freeze(template),
+    defaultEntries: Object.freeze(Object.entries(template).map((entry) => Object.freeze(entry))),
+    bindings: normalizedBindings,
+    instances: new Map(),
+  };
+}
+
+function projectStageParameterView(projector, authoredParameters, instanceId) {
+  let view = projector.instances.get(instanceId);
+  if (!view) {
+    view = { ...projector.template };
+    projector.instances.set(instanceId, view);
+  }
+  for (const [key, value] of projector.defaultEntries) view[key] = value;
+  for (const binding of projector.bindings) {
+    const value = authoredParameters?.[binding.publicParameterId];
+    if (value !== undefined) view[binding.targetParameterId] = value;
+    else if (!Object.prototype.hasOwnProperty.call(projector.template, binding.targetParameterId)) {
+      delete view[binding.targetParameterId];
+    }
+  }
+  return view;
+}
+
+function createCompoundGraphEvaluation(instanceId, orderedStageIds) {
+  const inputs = new Map();
+  const outputs = new Map();
+  const nativeOutputs = new Map();
+  const inputKeySets = new Map();
+  for (const id of orderedStageIds) {
+    inputs.set(id, {});
+    outputs.set(id, null);
+    nativeOutputs.set(id, {});
+    inputKeySets.set(id, new Set());
+  }
+  const evaluation = {
+    instanceId,
+    inputRecord(stageId) {
+      return inputs.get(String(stageId || "")) || EMPTY_COMPOUND_CONTEXT;
+    },
+    inputKeys(stageId) {
+      return inputKeySets.get(String(stageId || "")) || new Set();
+    },
+    rememberInputKeys(stageId, record) {
+      const keys = inputKeySets.get(String(stageId || ""));
+      if (!keys) return;
+      keys.clear();
+      for (const key in record) keys.add(key);
+    },
+    nativeOutputRecord(stageId) {
+      return nativeOutputs.get(String(stageId || "")) || EMPTY_COMPOUND_CONTEXT;
+    },
+    setStageOutput(stageId, output) {
+      outputs.set(String(stageId || ""), output || null);
+    },
+    outputValue(stageId, portId = "") {
+      const output = outputs.get(String(stageId || ""));
+      if (!portId) return output || null;
+      return output && typeof output === "object" ? output[portId] : undefined;
+    },
+  };
+  evaluation.publicView = Object.freeze({
+    format: "vj1.specialized-compound-evaluation@1",
+    instanceId,
+    stageInputs(stageId) {
+      return inputs.get(String(stageId || "")) || null;
+    },
+    stageInput(stageId, portId) {
+      return inputs.get(String(stageId || ""))?.[String(portId || "")];
+    },
+    stageOutputs(stageId) {
+      return outputs.get(String(stageId || "")) || null;
+    },
+    stageOutput(stageId, portId) {
+      return evaluation.outputValue(stageId, String(portId || ""));
+    },
+    publishNativeOutput(stageId, portId, value) {
+      const id = String(stageId || "");
+      const output = nativeOutputs.get(id);
+      if (!output) return false;
+      output[String(portId || "")] = value;
+      outputs.set(id, output);
+      return true;
+    },
+  });
+  return evaluation;
+}
+
+function resetCompoundGraphInputs(inputs, keys) {
+  for (const key of keys) delete inputs[key];
+}
+
+function compoundStageExternalInputs(externalInputs, stageId) {
+  if (!isRecord(externalInputs)) return EMPTY_COMPOUND_CONTEXT;
+  const direct = externalInputs[stageId];
+  return isRecord(direct) ? direct : EMPTY_COMPOUND_CONTEXT;
+}
+
+function compoundInstanceId(context) {
+  if (typeof context === "string" || typeof context === "number" || typeof context === "symbol") {
+    return context;
+  }
+  return String(context?.instanceId || context?.renderIdentity || "default");
+}
+
+function disposeExecutableCompoundStage(stage) {
+  for (const instance of stage.instances.values()) {
+    try {
+      stage.definition.execution?.dispose?.({
+        state: instance.state,
+        output: instance.output,
+      });
+    } catch {}
+  }
+  stage.instances.clear();
+}
+
+function retainCompoundStageOutput(target, source) {
+  for (const key in target) {
+    if (!source || typeof source !== "object" || !(key in source)) delete target[key];
+  }
+  if (!source || typeof source !== "object") return target;
+  for (const key in source) target[key] = source[key];
+  return target;
 }
 
 function isRecord(value) {

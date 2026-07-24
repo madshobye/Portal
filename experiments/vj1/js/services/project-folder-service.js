@@ -11,8 +11,9 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1";
-import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=surface-identity-2";
+import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-1-scene-mapping-default-selection-1";
+import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
+import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=model-media-scene-group-1";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
 import { isHistoryReason } from "./project-history-policy.js?v=project-storage-1";
 import { buildProjectPayload } from "./project-serializer.js?v=project-group-authoring-1";
@@ -44,6 +45,14 @@ import {
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
 export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=project-group-authoring-1";
 export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js?v=project-history-store-1";
+
+export function restoreProjectLiveUi(currentLive = {}, projectLive = {}) {
+  return resetSceneMappingSession({
+    ...currentLive,
+    ...(projectLive || {}),
+    componentOverrides: currentLive?.componentOverrides || {},
+  });
+}
 
 export function createProjectFolderService({ mediaLibrary, store, bridge, classifyChange = createChangeEvent }) {
   let dirHandle = null;
@@ -370,11 +379,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         previewViewports: projectUi?.previewViewports || currentUi.previewViewports,
         previewDiagnostics: projectUi?.previewDiagnostics ?? currentUi.previewDiagnostics,
         mappingTestPattern: projectUi?.mappingTestPattern ?? currentUi.mappingTestPattern,
-        live: {
-          ...currentUi.live,
-          ...(projectUi?.live || {}),
-          componentOverrides: currentUi.live?.componentOverrides || {},
-        },
+        live: restoreProjectLiveUi(currentUi.live, projectUi?.live),
       },
       project: {
         ...currentState.project,

@@ -5,12 +5,34 @@ import { readFileSync } from "node:fs";
 import { createVj1NodePackage, projectArtifactViews } from "../js/app-node-package.js";
 import {
   compileSpecializedCompoundProgram,
+  evaluateSpecializedCompoundGraph,
+  executeSpecializedCompoundProvider,
+  AnatomyGeometryProviderNode,
+  AnatomyMaterialPaletteNode,
+  AnatomyMotionTransform3dNode,
+  AnatomyToImageNode,
+  LitMeshMaterialProviderNode,
   listGeneratorNodeComponents as listGeneratorComponents,
   listEffectNodeComponents as listShaderComponents,
   PlanarGridGeometryProviderNode,
+  ModelFitCameraNode,
+  MeshPatternFillMaterialProviderNode,
+  MeshPatternFillToImageNode,
+  MeshPatternTopologyProviderNode,
+  MeshPatternWireMaterialProviderNode,
+  MeshPatternWireToImageNode,
+  TerrainBiomeMaterialProviderNode,
+  TerrainFlightCameraProviderNode,
+  TerrainHeightFieldGeometryProviderNode,
+  TerrainSurfaceToImageNode,
+  TerrainWireMaterialProviderNode,
+  TerrainWireToImageNode,
+  TextMaskProviderNode,
+  TextMaskToImageNode,
   specializedCompoundRuntimeParameters,
   specializedCompoundStageDescriptor,
   specializedCompoundStageEnabled,
+  specializedCompoundStageParameterView,
   specializedCompoundStageParameters,
   specializedCompoundStageProvider,
 } from "../js/libraries/visual-nodes/index.js";
@@ -28,10 +50,12 @@ import { createAppState } from "../js/app-state.js";
 import { createInitialState } from "../js/domain/models.js";
 import { migrateProjectData } from "../js/domain/project-migrations.js";
 import {
+  prepareProjectNodeDefinitionEdit,
   selectedNodeEditorTemplate,
   withProjectGroupGraph,
   withProjectNodeFork,
   withProjectNodeGraph,
+  withProjectNodePortExposure,
 } from "../js/control/node-editor-view.js";
 import { nodeGraphCanvasTemplate } from "../js/control/node-graph-canvas.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/index.js";
@@ -43,12 +67,58 @@ import {
   defineNodePackage,
   NODE_PART_KINDS,
 } from "../js/libraries/node-engine/index.js";
+import {
+  compileScene3dProgram,
+  EllipsoidMeshNode,
+  MeshDisplayLodNode,
+  PathTubeMeshNode,
+  PlanarGridMeshNode,
+  ProfileMeshNode,
+} from "../js/libraries/mesh-engine/index.js";
+
+function nodeLibraryItemTag(html, definitionId) {
+  const escapedId = String(definitionId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return html.match(new RegExp(`<button[^>]*data-node-library-definition="${escapedId}"[^>]*>`))?.[0] || "";
+}
 
 test("application composition root registers reusable visual node definitions", () => {
   const packageRoot = createVj1NodePackage();
   const expectedVisuals = listGeneratorComponents().length + listShaderComponents().length;
 
   assert.equal(packageRoot.registry.has("core.mesh.convert-3d-file-to-image"), true);
+  assert.equal(packageRoot.registry.has(PlanarGridMeshNode.id), true);
+  assert.equal(packageRoot.registry.has(ProfileMeshNode.id), true);
+  assert.equal(packageRoot.registry.has(PathTubeMeshNode.id), true);
+  assert.equal(packageRoot.registry.has(EllipsoidMeshNode.id), true);
+  assert.equal(packageRoot.registry.has(MeshDisplayLodNode.id), true);
+  assert.equal(packageRoot.registry.has(LitMeshMaterialProviderNode.id), true);
+  assert.equal(packageRoot.registry.has(AnatomyGeometryProviderNode.id), true);
+  assert.equal(packageRoot.registry.has(AnatomyMotionTransform3dNode.id), true);
+  assert.equal(packageRoot.registry.has(AnatomyMaterialPaletteNode.id), true);
+  assert.equal(packageRoot.registry.has(ModelFitCameraNode.id), true);
+  for (const id of [
+    "core.composition.component-program",
+    "core.composition.layer-group",
+    "core.composition.mapping-program",
+    "core.composition.output-program",
+    "core.composition.application-program",
+  ]) {
+    const template = packageRoot.registry.get(id);
+    assert.equal(template.parts.find((part) => part.kind === "graph")?.editable, false);
+    assert.equal(template.authoring.activation, "read-only");
+  }
+  assert.equal(packageRoot.registry.has(AnatomyToImageNode.id), true);
+  assert.equal(packageRoot.registry.has(MeshPatternTopologyProviderNode.id), true);
+  assert.equal(packageRoot.registry.has(MeshPatternFillMaterialProviderNode.id), true);
+  assert.equal(packageRoot.registry.has(MeshPatternWireMaterialProviderNode.id), true);
+  assert.equal(packageRoot.registry.has(MeshPatternFillToImageNode.id), true);
+  assert.equal(packageRoot.registry.has(MeshPatternWireToImageNode.id), true);
+  assert.equal(packageRoot.registry.has(TerrainHeightFieldGeometryProviderNode.id), true);
+  assert.equal(packageRoot.registry.has(TerrainBiomeMaterialProviderNode.id), true);
+  assert.equal(packageRoot.registry.has(TerrainWireMaterialProviderNode.id), true);
+  assert.equal(packageRoot.registry.has(TerrainFlightCameraProviderNode.id), true);
+  assert.equal(packageRoot.registry.has(TerrainSurfaceToImageNode.id), true);
+  assert.equal(packageRoot.registry.has(TerrainWireToImageNode.id), true);
   assert.equal(packageRoot.registry.has("core.image.resize"), true);
   assert.equal(packageRoot.registry.has("core.synchronization.live-patches"), true);
   assert.equal(packageRoot.registry.has("core.storage.serialized-writes"), true);
@@ -269,11 +339,31 @@ test("native visual nodes compile their specialized host renderer into the rende
   assert.equal(operation.backend, "native-specialized-compound");
   assert.equal(operation.renderer, "output/specialized:terrainFlyover");
   assert.equal(operation.allocationStable, true);
-  assert.equal(operation.nativeCompoundProgram.format, "vj1.specialized-compound-program@1");
+  assert.equal(operation.nativeCompoundProgram.format, "vj1.specialized-compound-program@2");
   assert.equal(operation.nativeCompoundProgram.kind, "terrain-flyover");
   assert.deepEqual(
     operation.nativeCompoundProgram.stages.map((stage) => stage.id),
     ["flight", "geometry", "surface-material", "wire-material", "camera", "surface-render", "wire-render"],
+  );
+  assert.equal(
+    operation.nativeCompoundProgram.stages.find((stage) => stage.id === "camera")?.nodeId,
+    TerrainFlightCameraProviderNode.id,
+  );
+  assert.equal(
+    operation.nativeCompoundProgram.stages.find((stage) => stage.id === "surface-render")?.nodeId,
+    TerrainSurfaceToImageNode.id,
+  );
+  assert.equal(
+    operation.nativeCompoundProgram.stages.find((stage) => stage.id === "surface-render")?.nativeKernel,
+    "terrain-surface",
+  );
+  assert.equal(
+    operation.nativeCompoundProgram.stages.find((stage) => stage.id === "wire-render")?.nodeId,
+    TerrainWireToImageNode.id,
+  );
+  assert.equal(
+    operation.nativeCompoundProgram.stages.find((stage) => stage.id === "wire-render")?.nativeKernel,
+    "terrain-wire",
   );
   assert.equal(
     operation.nativeCompoundProgram.connections.some((connection) =>
@@ -281,6 +371,168 @@ test("native visual nodes compile their specialized host renderer into the rende
     ),
     true,
   );
+  assert.deepEqual(operation.nativeCompoundProgram.executableStages, [
+    "flight",
+    "geometry",
+    "surface-material",
+    "wire-material",
+    "camera",
+  ]);
+  assert.deepEqual(
+    operation.nativeCompoundProgram.nativeKernels.map(({ id, kernel }) => ({ id, kernel })),
+    [
+      { id: "surface-render", kernel: "terrain-surface" },
+      { id: "wire-render", kernel: "terrain-wire" },
+    ],
+  );
+  assert.deepEqual(
+    operation.nativeCompoundProgram.nativeKernel("terrain-surface").inputBindings.controller,
+    { stageId: "flight", portId: "flight" },
+  );
+  const graphExternalInputs = { flight: { componentTime: 0 } };
+  const graphEvaluation = evaluateSpecializedCompoundGraph(
+    operation,
+    {
+      flightSpeed: 1,
+      turn: 0.3,
+      altitude: 5,
+      terrainScale: 0.7,
+      pitch: 0.4,
+      fieldOfView: 70,
+      mountainHeight: 3,
+      waterColor: "#123456ff",
+      wireColor: "#abcdefee",
+    },
+    { instanceId: "surface-connected" },
+    graphExternalInputs,
+  );
+  graphExternalInputs.flight.componentTime = 2;
+  const updatedGraphEvaluation = evaluateSpecializedCompoundGraph(
+    operation,
+    {
+      flightSpeed: 1,
+      turn: 0.3,
+      altitude: 5,
+      terrainScale: 0.7,
+      pitch: 0.4,
+      fieldOfView: 70,
+      mountainHeight: 3,
+      waterColor: "#123456ff",
+      wireColor: "#abcdefee",
+    },
+    { instanceId: "surface-connected" },
+    graphExternalInputs,
+  );
+  assert.strictEqual(updatedGraphEvaluation, graphEvaluation);
+  const surfaceFlight = graphEvaluation.stageInput("surface-render", "controller");
+  assert.strictEqual(
+    graphEvaluation.stageInput("wire-render", "controller"),
+    surfaceFlight,
+    "one retained controller value fans out through both authored render wires",
+  );
+  assert.equal(surfaceFlight.kind, "terrain-flight-state");
+  assert.equal(surfaceFlight.flightTime, 2);
+  assert.strictEqual(
+    graphEvaluation.stageInput("surface-render", "geometry"),
+    graphEvaluation.stageInput("wire-render", "geometry"),
+  );
+  const connectedCamera = graphEvaluation.stageInput("surface-render", "camera");
+  assert.equal(connectedCamera.providerId, "terrain-flight-camera");
+  assert.deepEqual(
+    connectedCamera.sceneCamera.position,
+    [surfaceFlight.cameraAnchor[0], surfaceFlight.altitude, surfaceFlight.cameraAnchor[1]],
+    "the displayed flight-to-camera wire owns the canonical camera position",
+  );
+  const flightA0 = operation.nativeCompoundProgram.executeStage("flight", {
+    componentTime: 0,
+    flightSpeed: 1,
+    turn: 0,
+    altitude: 2.5,
+    terrainScale: 0.62,
+  }, { instanceId: "surface-a" });
+  const flightA1 = operation.nativeCompoundProgram.executeStage("flight", {
+    componentTime: 1,
+    flightSpeed: 1,
+    turn: 0,
+    altitude: 2.5,
+    terrainScale: 0.62,
+  }, { instanceId: "surface-a" });
+  const flightB = operation.nativeCompoundProgram.executeStage("flight", {
+    componentTime: 1,
+    flightSpeed: 0.5,
+    turn: 0.25,
+    altitude: 4,
+    terrainScale: 0.8,
+  }, { instanceId: "surface-b" });
+  assert.strictEqual(flightA1, flightA0, "compiled controller output is retained per visual instance");
+  assert.notStrictEqual(flightB, flightA0, "separate visual instances do not share controller state");
+  assert.equal(flightA1.flight.flightTime, 1);
+  assert.equal(flightB.flight.turn, 0.25);
+  assert.equal(flightB.flight.altitude, 4);
+  const geometry = executeSpecializedCompoundProvider(operation, "geometry", {
+    mountainHeight: 3.5,
+    gridDensity: 1.25,
+    hiddenRendererCorrection: 99,
+  }, { instanceId: "surface-a" });
+  assert.equal(geometry.kind, "geometry");
+  assert.equal(geometry.providerId, "terrain-height-field");
+  assert.equal(geometry.mesh.kind, "mesh");
+  assert.equal(geometry.heightField.kind, "terrain-height-field");
+  assert.strictEqual(geometry.heightField.mesh, geometry.mesh);
+  assert.deepEqual(geometry.settings, {
+    mountainHeight: 3.5,
+    gridDensity: 1.25,
+  });
+  const retainedGeometry = executeSpecializedCompoundProvider(operation, "geometry", {
+    mountainHeight: 3.5,
+    gridDensity: 1.25,
+  }, { instanceId: "surface-a" });
+  assert.strictEqual(retainedGeometry, geometry);
+  assert.strictEqual(retainedGeometry.mesh, geometry.mesh);
+  assert.strictEqual(retainedGeometry.heightField, geometry.heightField);
+  const camera = executeSpecializedCompoundProvider(operation, "camera", {
+    pitch: 0.3,
+    fieldOfView: 72,
+    hiddenRendererCorrection: 99,
+  }, { instanceId: "surface-a" });
+  assert.equal(camera.kind, "camera");
+  assert.equal(camera.providerId, "terrain-flight-camera");
+  assert.equal(camera.sceneCamera.kind, "camera3d");
+  assert.equal(camera.sceneCamera.projection, "perspective");
+  assert.equal(camera.sceneCamera.fieldOfView, 72 * Math.PI / 180);
+  assert.equal(camera.sceneCamera.near, 0.1);
+  assert.equal(camera.sceneCamera.far, 20000);
+  assert.deepEqual(camera.settings, {
+    projection: "perspective",
+    pitch: 0.3,
+    fieldOfView: 72,
+  });
+  const material = executeSpecializedCompoundProvider(operation, "surface-material", {
+    waterColor: "#123456ff",
+    skyColor: "#abcdefee",
+    hiddenRendererCorrection: 99,
+  }, { instanceId: "surface-a" });
+  assert.equal(material.kind, "material");
+  assert.equal(material.providerId, "terrain-biome");
+  assert.equal(material.sceneMaterial.kind, "material3d");
+  assert.match(material.sceneMaterial.shader.source, /vj1Surface/);
+  assert.deepEqual(
+    material.sceneMaterial.shader.uniforms.terrainWaterColor.value.map((value) => Number(value.toFixed(6))),
+    [0.070588, 0.203922, 0.337255, 1],
+  );
+  assert.deepEqual(material.settings, {
+    waterColor: "#123456ff",
+    skyColor: "#abcdefee",
+  });
+  const wireMaterial = executeSpecializedCompoundProvider(operation, "wire-material", {
+    wireColor: "#fedcba98",
+    wireWidth: 2.25,
+  }, { instanceId: "surface-a" });
+  assert.equal(wireMaterial.providerId, "terrain-wire");
+  assert.equal(wireMaterial.sceneMaterial.kind, "material3d");
+  assert.equal(wireMaterial.sceneMaterial.renderMode, "wireframe");
+  assert.deepEqual(wireMaterial.sceneMaterial.wireColor, [254, 220, 186, 152]);
+  assert.equal(wireMaterial.sceneMaterial.wireThickness, 2.25);
   assert.equal(typeof operation.nodeModule.terrainSurfaceGridVertices, "function");
   assert.equal(typeof operation.nodeModule.terrainSafeNearDistance, "function");
   assert.match(operation.nodeShaders["terrain-surface-vertex"], /attribute vec2 aGridCoord/);
@@ -292,6 +544,186 @@ test("native visual nodes compile their specialized host renderer into the rende
   assert.match(operation.nodeShaderProgramRevisions.surface, /^[a-z0-9]+$/);
   assert.match(operation.nodeShaderProgramRevisions.wire, /^[a-z0-9]+$/);
   assert.equal(operation.nodeProcess, undefined, "the retained terrain WebGL host remains specialized");
+});
+
+test("code-owned visual primitives compile as direct node processes without visual-name host dispatch", () => {
+  const packageRoot = createVj1NodePackage();
+  const components = ["black", "checker"].map((generatorId) => ({
+    id: `${generatorId}-component`,
+    type: "component",
+    chain: [{
+      id: `${generatorId}-source`,
+      kind: "source",
+      source: { type: "generator", generatorId, params: {} },
+    }],
+  }));
+  const state = packageRoot.prepareProjectState({ components, nodes: {} });
+  const programs = compileComponentRenderPrograms(state.components, state.nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  });
+
+  for (const component of components) {
+    const operation = programs.get(component.id).plan.operations[0];
+    assert.equal(operation.backend, "source-runtime");
+    assert.equal(operation.renderer, "output/source:generator");
+    assert.equal(typeof operation.nodeProcess, "function");
+    assert.equal(operation.compilerHook.id, "vj1.visual.source");
+  }
+});
+
+test("model media compiles as an editable mesh-to-Scene node Group", () => {
+  const packageRoot = createVj1NodePackage();
+  const component = {
+    id: "model-component",
+    name: "Model",
+    type: "component",
+    chain: [{
+      id: "model-source",
+      kind: "source",
+      source: {
+        type: "generator",
+        generatorId: "modelMedia",
+        params: {
+          mediaId: "media/models/skull.stl",
+          renderMode: "surfaceOutline",
+          renderQuality: 0.75,
+          rotationY: 0.4,
+          spinY: 0.2,
+        },
+      },
+    }],
+  };
+  const state = packageRoot.prepareProjectState({ components: [component], nodes: {} });
+  const definition = listGeneratorComponents()
+    .find((entry) => entry.id === "modelMedia")
+    ?.nodeDefinition;
+  assert.ok(definition);
+  assert.equal(definition.metadata.visualCompilerHook.id, "vj1.visual.scene-3d-program");
+  assert.deepEqual(
+    definition.parts.find((part) => part.kind === "graph").nodes.map((node) => node.id),
+    ["media", "lod", "motion", "material", "object", "objects", "camera", "scene", "render"],
+  );
+  const program = compileComponentRenderPrograms(state.components, state.nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(component.id);
+  const operation = program.plan.operations[0];
+  assert.equal(operation.backend, "scene-3d-program");
+  assert.equal(operation.renderer, "output/specialized:scene3d-program");
+  assert.equal(operation.scene3dProgram.format, "vj1.scene-3d-program@1");
+  assert.deepEqual(
+    operation.scene3dProgram.steps.map((step) => step.id),
+    ["media", "material", "camera", "lod", "motion", "object", "objects", "scene", "render"],
+  );
+  assert.deepEqual(operation.scene3dProgram.resourceBindings, [{
+    nodeId: "media",
+    parameterId: "mediaId",
+    publicInputId: "mediaId",
+    kind: "media",
+    valueType: "mesh",
+    staticId: "",
+    required: true,
+  }]);
+  assert.equal(operation.configuration.source.params.mediaId, "media/models/skull.stl");
+  assert.equal(operation.scene3dProgram.steps.find((step) => step.id === "lod").trigger, "frame");
+  assert.deepEqual(program.inspect().mediaDemand.ids, ["media/models/skull.stl"]);
+  assert.equal(program.inspect().dynamics.frameDependent, true, "authored spin keeps the compiled Scene on the presentation clock");
+  assert.equal(program.inspect().dynamics.invalidation.mediaRevisionDependent, true);
+});
+
+test("Anatomy lowers its canonical mesh collection through the ordinary retained Scene3D program", () => {
+  const packageRoot = createVj1NodePackage();
+  const anatomy = listGeneratorComponents()
+    .find((component) => component.id === "anatomy")
+    ?.nodeDefinition;
+  assert.ok(anatomy);
+  assert.equal(anatomy.metadata.visualCompilerHook.id, "vj1.visual.scene-3d-program");
+  assert.equal(anatomy.metadata.nativeCompound, undefined);
+  assert.deepEqual(
+    anatomy.parts.find((part) => part.kind === "graph").nodes.map((node) => node.id),
+    ["geometry", "motion", "materials", "objects", "camera", "scene", "render"],
+  );
+  const program = compileScene3dProgram(anatomy, { registry: packageRoot.registry });
+  const authored = {
+    part: "heart",
+    detail: 11,
+    renderQuality: 0.5,
+    depth: 1.4,
+    modelScale: 1.75,
+    rotationX: -0.2,
+    rotationY: 0.4,
+    rotationZ: 0.1,
+    spinX: 0.3,
+    spinY: -0.1,
+    spinZ: 0.2,
+    renderMode: "surfaceWire",
+    surfaceColor: "#112233ff",
+    wireColor: "#ffeeddcc",
+    wireThickness: 2.5,
+  };
+  const target = { clearCalls: 0, clear() { this.clearCalls += 1; } };
+  const inputs = {
+    target,
+    componentTime: 2,
+    viewport: { width: 640, height: 360 },
+    contentTransform: {},
+    ...authored,
+  };
+  const result = program.execute(inputs);
+  const heartCollection = program.outputs.get("geometry").collection;
+  assert.equal(heartCollection.kind, "mesh-collection");
+  assert.equal(heartCollection.id, "anatomy-heart");
+  assert.deepEqual(
+    [...new Set(heartCollection.parts.map((part) => part.materialSlot))].sort(),
+    ["coronary", "surface", "vessel"],
+  );
+  assert.equal(heartCollection.parts.every((part) => part.mesh.kind === "mesh"), true);
+  assert.strictEqual(result.texture, target);
+  assert.equal(target.clearCalls, 1, "the shared Scene renderer clears once for all Anatomy parts");
+  assert.equal(program.outputs.get("objects").objects.length, heartCollection.parts.length);
+  assert.equal(
+    program.outputs.get("scene").scene.objects.every((object, index) =>
+      object === program.outputs.get("objects").objects[index]
+    ),
+    true,
+  );
+  assert.equal(program.outputs.get("camera").camera.kind, "camera3d");
+  assert.deepEqual(program.outputs.get("motion").transform.rotation, [0.39999999999999997, 0.2, 0.5]);
+  assert.ok(program.outputs.get("motion").transform.scale[0] > 1.75 * 0.64);
+  const palette = program.outputs.get("materials");
+  assert.equal(palette.defaultMaterial.kind, "material3d");
+  assert.equal(palette.defaultMaterial.renderMode, "surfaceWire");
+  assert.deepEqual(palette.defaultMaterial.surfaceColor, [17, 34, 51, 255]);
+  assert.deepEqual(palette.defaultMaterial.wireColor, [255, 238, 221, 204]);
+  assert.deepEqual(palette.bindings.map((binding) => binding.slot), [
+    "surface", "feature", "lip", "eye", "pupil", "vessel", "coronary",
+  ]);
+  const retainedCollection = heartCollection;
+  const retainedBindings = palette.bindings;
+  const retainedTransform = program.outputs.get("motion").transform;
+  const retainedObjects = program.outputs.get("objects").objects;
+  const previousRotation = [...retainedTransform.rotation];
+  program.execute({ ...inputs, componentTime: 3 });
+  assert.strictEqual(program.outputs.get("geometry").collection, retainedCollection);
+  assert.strictEqual(program.outputs.get("materials").bindings, retainedBindings);
+  assert.strictEqual(program.outputs.get("motion").transform, retainedTransform);
+  assert.strictEqual(program.outputs.get("objects").objects, retainedObjects);
+  assert.notDeepEqual(retainedTransform.rotation, previousRotation);
+
+  program.execute({ ...inputs, part: "hand", fingerBend: 0.35 });
+  const handGeometry = program.outputs.get("geometry");
+  assert.equal(handGeometry.collection.id, "anatomy-hand");
+  assert.deepEqual(
+    handGeometry.collection.parts.map((part) => part.id),
+    ["wrist", "palm", "finger-1", "finger-2", "finger-3", "finger-4", "thumb"],
+  );
+  assert.equal(handGeometry.collection.parts.every((part) =>
+    part.materialSlot === "surface" && part.mesh.kind === "mesh"
+  ), true);
+  const handCollection = handGeometry.collection;
+  program.execute({ ...inputs, part: "hand", fingerBend: 0.8 });
+  assert.notStrictEqual(program.outputs.get("geometry").collection, handCollection,
+    "authored deformation rebuilds canonical geometry only when its input changes");
+  program.dispose();
 });
 
 test("persisted compact specialized generators hydrate before graph-authoritative project recovery", () => {
@@ -378,10 +810,77 @@ test("specialized compound edits are either consumed by the backend or rejected 
   const planarProgram = compileSpecializedCompoundProgram({
     ...definition,
     parts: definition.parts.map((part) => part.kind === "graph" ? planarGraph : part),
+  }, {
+    resolveDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
   });
   assert.equal(
     specializedCompoundStageProvider({ nativeCompoundProgram: planarProgram }, "geometry"),
     "planar-grid",
+  );
+  const planarGeometry = executeSpecializedCompoundProvider(
+    { nativeCompoundProgram: planarProgram },
+    "geometry",
+    {
+      gridWidth: 8,
+      gridDepth: 6,
+      gridDensity: 1.5,
+      gridScale: 2,
+    },
+    { instanceId: "terrain-planar-grid" },
+  );
+  const retainedPlanarMesh = planarGeometry.mesh;
+  const planarGeometryAgain = executeSpecializedCompoundProvider(
+    { nativeCompoundProgram: planarProgram },
+    "geometry",
+    {
+      gridWidth: 8,
+      gridDepth: 6,
+      gridDensity: 1.5,
+      gridScale: 2,
+    },
+    { instanceId: "terrain-planar-grid" },
+  );
+  const planarMeshAgain = planarGeometryAgain.mesh;
+  const planarGeometryWithMaterialChange = executeSpecializedCompoundProvider(
+    { nativeCompoundProgram: planarProgram },
+    "geometry",
+    {
+      gridWidth: 8,
+      gridDepth: 6,
+      gridDensity: 1.5,
+      gridScale: 2,
+      mountainHeight: 80,
+    },
+    { instanceId: "terrain-planar-grid" },
+  );
+  const planarMeshWithMaterialChange = planarGeometryWithMaterialChange.mesh;
+  const planarGeometryWithTopologyChange = executeSpecializedCompoundProvider(
+    { nativeCompoundProgram: planarProgram },
+    "geometry",
+    {
+      gridWidth: 9,
+      gridDepth: 6,
+      gridDensity: 1.5,
+      gridScale: 2,
+      mountainHeight: 80,
+    },
+    { instanceId: "terrain-planar-grid" },
+  );
+  const planarMeshWithTopologyChange = planarGeometryWithTopologyChange.mesh;
+  assert.equal(planarGeometry.kind, "geometry");
+  assert.equal(planarGeometry.providerId, "planar-grid");
+  assert.equal(retainedPlanarMesh.kind, "mesh");
+  assert.equal(retainedPlanarMesh.triangleCount, 12 * 9 * 2);
+  assert.strictEqual(planarMeshAgain, retainedPlanarMesh);
+  assert.strictEqual(
+    planarMeshWithMaterialChange,
+    retainedPlanarMesh,
+    "non-geometric native settings do not replace the canonical mesh resource",
+  );
+  assert.notStrictEqual(
+    planarMeshWithTopologyChange,
+    retainedPlanarMesh,
+    "a geometric setting replaces the canonical mesh resource",
   );
   const canvas = nodeGraphCanvasTemplate(definition, packageRoot.registry);
   assert.match(canvas, /data-node-provider-select="geometry"/);
@@ -403,10 +902,49 @@ test("specialized compound edits are either consumed by the backend or rejected 
       ? { ...part, connections: part.connections.slice(1) }
       : part),
   }), /SPECIALIZED_VISUAL_COMPOUND_TOPOLOGY_UNSUPPORTED/);
+  const editor = packageRoot.editorContext();
+  assert.equal(editor.preflightGraphEdit({
+    kind: "definition",
+    definition: disabledWireDefinition,
+  }, disabledWireGraph), true);
+  assert.throws(
+    () => editor.preflightGraphEdit({
+      kind: "definition",
+      definition,
+    }, unsupportedProviderGraph),
+    /SPECIALIZED_VISUAL_COMPOUND_PROVIDER_UNSUPPORTED/,
+    "the editor invokes the specialized production compiler before saving provider changes",
+  );
+  assert.throws(
+    () => editor.preflightGraphEdit({
+      kind: "definition",
+      definition,
+    }, { ...graph, connections: graph.connections.slice(1) }),
+    /SPECIALIZED_VISUAL_COMPOUND_TOPOLOGY_UNSUPPORTED/,
+    "the editor cannot persist topology the retained specialized host would ignore",
+  );
+  const specializedState = packageRoot.prepareProjectState({
+    ...createInitialState(),
+    ui: {
+      ...createInitialState().ui,
+      selectedNodeDefinitionId: definition.id,
+      selectedNodeGroupId: "",
+    },
+  });
+  const specializedStudio = nodeLibraryStudioTemplate(specializedState, packageRoot);
+  assert.match(specializedStudio, /data-nodes-editable="false"/);
+  assert.match(specializedStudio, /data-connections-editable="false"/);
+  assert.match(specializedStudio, /data-parameters-editable="true"/);
+  assert.match(specializedStudio, /data-providers-editable="true"/);
+  assert.match(
+    specializedStudio,
+    /data-node-provider-select="geometry"(?![^>]*disabled)/,
+    "supported provider substitutions remain editable while compiler-owned topology stays locked",
+  );
 });
 
-test("specialized compound stages own every parameter consumed by retained native lowering", () => {
-  const specializedIds = ["terrainFlyover", "anatomy", "meshPatterns"];
+test("compiled visual compounds give every public parameter a semantic child owner", () => {
+  const specializedIds = ["terrainFlyover", "meshPatterns"];
   const definitions = new Map(listGeneratorComponents()
     .filter((entry) => specializedIds.includes(entry.id))
     .map((entry) => [entry.id, entry.nodeDefinition]));
@@ -427,6 +965,18 @@ test("specialized compound stages own every parameter consumed by retained nativ
       `${id} cannot expose a parameter with no semantic stage owner`,
     );
   }
+
+  const anatomy = listGeneratorComponents().find((entry) => entry.id === "anatomy").nodeDefinition;
+  const anatomyOwnedParameters = new Set(
+    (anatomy.metadata?.controlProjection?.sections || [])
+      .flatMap((section) => section.controls || [])
+      .map((control) => control.parameterId),
+  );
+  assert.deepEqual(
+    Object.keys(anatomy.parameters || {}).filter((parameterId) => !anatomyOwnedParameters.has(parameterId)),
+    [],
+    "the generalized Anatomy Scene graph cannot expose a parameter with no child-node owner",
+  );
 
   const terrain = definitions.get("terrainFlyover");
   const graph = terrain.parts.find((part) => part.kind === "graph");
@@ -524,7 +1074,7 @@ test("authored Terrain provider selection reaches the compiled retained render o
   assert.equal(operation.compilerHook.renderer, "output/specialized:terrainFlyover");
 });
 
-test("Terrain shader forks compile by part id without invalidating its CPU topology module", () => {
+test("Terrain child topology and shader forks compile into the retained native operation", () => {
   const packageRoot = createVj1NodePackage();
   const component = {
     id: "terrain-shader-fork-component",
@@ -537,7 +1087,8 @@ test("Terrain shader forks compile by part id without invalidating its CPU topol
     }],
   };
   const state = packageRoot.prepareProjectState({ components: [component], nodes: {} });
-  const base = packageRoot.registry.get("vj1.visual.generator.terrainFlyover");
+  const base = packageRoot.registry.get(TerrainWireMaterialProviderNode.id);
+  const geometryBase = packageRoot.registry.get(TerrainHeightFieldGeometryProviderNode.id);
   const baseOperation = compileComponentRenderPrograms(state.components, state.nodes.groups, {
     resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
   }).get(component.id).plan.operations[0];
@@ -549,17 +1100,36 @@ test("Terrain shader forks compile by part id without invalidating its CPU topol
         : part),
     },
   });
-  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
+  const geometryFork = createProjectNodeFork(geometryBase, {
+    forkId: "terrain-topology-project",
+    overrides: {
+      parts: geometryBase.parts.map((part) => part.id === "terrain-mesh-module"
+        ? {
+            ...part,
+            source: part.source.replace(
+              /function terrainGridSize\(value\) \{[\s\S]*?\n\}/,
+              "function terrainGridSize() { return 17; }",
+            ),
+          }
+        : part),
+    },
+  });
+  const resolver = createProjectVisualNodeResolver(
+    { nodes: { forks: [{ ...fork, active: true }, { ...geometryFork, active: true }] } },
+    { coreDefinitions: [base, geometryBase] },
+  );
   const forkOperation = compileComponentRenderPrograms(state.components, state.nodes.groups, {
     resolveNodeDefinition: (node) => resolver.definition(node.nodeId) || packageRoot.registry.get(node.nodeId, node.nodeVersion),
   }).get(component.id).plan.operations[0];
 
   assert.match(forkOperation.nodeShaders["terrain-wire-fragment"], /project wire shader/);
-  assert.equal(forkOperation.nodeCodeRevision, baseOperation.nodeCodeRevision);
+  assert.notEqual(forkOperation.nodeCodeRevision, baseOperation.nodeCodeRevision);
   assert.notEqual(forkOperation.nodeShaderRevision, baseOperation.nodeShaderRevision);
   assert.equal(forkOperation.nodeShaderProgramRevisions.surface, baseOperation.nodeShaderProgramRevisions.surface);
   assert.notEqual(forkOperation.nodeShaderProgramRevisions.wire, baseOperation.nodeShaderProgramRevisions.wire);
-  assert.strictEqual(forkOperation.nodeModule.terrainSurfaceGridVertices, baseOperation.nodeModule.terrainSurfaceGridVertices);
+  assert.equal(forkOperation.nodeModule.terrainGridSize(200), 17);
+  assert.equal(forkOperation.backend, "native-specialized-compound");
+  assert.equal(forkOperation.renderer, "output/specialized:terrainFlyover");
 });
 
 test("procedural calibration JavaScript compiles once into the shader render plan", () => {
@@ -618,6 +1188,12 @@ test("specialized Text compiles node-owned helpers and shaders while retaining t
   }).get(component.id).plan.operations[0];
 
   assert.equal(operation.renderer, "output/specialized:text");
+  assert.equal(operation.backend, "native-specialized-compound");
+  assert.deepEqual(operation.nativeCompoundProgram.stages.map((stage) => stage.id), ["mask", "render"]);
+  assert.deepEqual(
+    operation.nativeCompoundProgram.nativeKernel("text-mask").inputBindings.mask,
+    { stageId: "mask", portId: "mask" },
+  );
   assert.equal(typeof operation.nodeModule.createTextMask, "function");
   assert.equal(typeof operation.nodeModule.textMaskSignature, "function");
   assert.match(operation.nodeShaders.vertex, /attribute vec3 aPosition/);
@@ -1180,6 +1756,14 @@ test("project-owned visual Groups join the shared Nodes registry and expose an e
   assert.match(studio, /data-nodes-editable="true"/);
   assert.match(studio, /data-visual-program="true"/, "new visual Groups insert compiler-owned visual nodes");
   assert.match(studio, /data-public-interface-editable="true"/);
+  assert.match(studio, /data-authoring-target="visual-graph"/);
+  const rail = nodeLibraryRailTemplate({
+    ...state,
+    ui: { ...state.ui, selectedNodeDefinitionId: definition.id, selectedNodeGroupId: "" },
+  }, editor);
+  assert.match(nodeLibraryItemTag(rail, "vj1.visual.generator.gradient"), /draggable="true"/);
+  assert.match(nodeLibraryItemTag(rail, "core.composition.layer-group"), /draggable="true"/);
+  assert.match(nodeLibraryItemTag(rail, "core.scene3d.material"), /draggable="false"/);
 });
 
 test("project-owned 3D Groups retain the Scene compiler and expose editable reusable stages", () => {
@@ -1215,8 +1799,269 @@ test("project-owned 3D Groups retain the Scene compiler and expose editable reus
   assert.equal(graph.nodes.some((node) => node.type === "core.scene3d.render"), true);
   assert.match(studio, /data-nodes-editable="true"/);
   assert.match(studio, /data-visual-program="false"/, "3D Group internals accept typed mesh and Scene nodes");
+  assert.match(studio, /data-authoring-target="scene-3d-graph"/);
   assert.match(studio, /data-node-graph-publish-parameter="renderMode"/);
+  assert.match(studio, /data-node-graph-parameter="position"/, "unwired transform inlets expose editable literals");
+  assert.match(studio, /data-node-graph-parameter="surfaceColor"/, "material inlet colors are editable");
+  assert.match(studio, /data-node-graph-parameter="shaderSource"/, "material shader source is editable");
+  assert.match(studio, /data-node-graph-parameter="background"/, "Scene background inlet is editable");
+  const rail = nodeLibraryRailTemplate(state, editor);
+  assert.match(nodeLibraryItemTag(rail, "core.scene3d.material"), /draggable="true"/);
+  assert.match(nodeLibraryItemTag(rail, "vj1.visual.generator.gradient"), /draggable="false"/);
+  assert.equal(editor.preflightGraphEdit({
+    kind: "definition",
+    definition: registered,
+  }, graph), true);
+  const invalidGraph = {
+    ...graph,
+    connections: graph.connections.map((edge) => edge.to === "render.scene"
+      ? { from: "camera.camera", to: "render.scene", type: "camera3d" }
+      : edge),
+  };
+  assert.throws(
+    () => editor.preflightGraphEdit({
+      kind: "definition",
+      definition: registered,
+    }, invalidGraph),
+    /SCENE_3D_PORT_TYPE_MISMATCH/,
+    "the real Scene compiler rejects invalid wiring before it can become project state",
+  );
 });
+
+test("visual graph preflight uses the optimized render-plan compiler atomically", () => {
+  const packageRoot = createVj1NodePackage();
+  const editor = packageRoot.editorContext();
+  const sourceDefinition = listGeneratorComponents()
+    .find((component) => component.nodeDefinition.metadata?.visualKind === "generator")
+    .nodeDefinition;
+  const source = {
+    id: "source",
+    nodeId: sourceDefinition.id,
+    nodeVersion: sourceDefinition.version,
+    role: "source",
+    compilerHook: sourceDefinition.metadata.visualCompilerHook || {
+      id: "vj1.visual.shader-generator",
+    },
+    configuration: {
+      id: "source",
+      kind: "source",
+      enabled: true,
+      source: {
+        type: "generator",
+        generatorId: sourceDefinition.metadata.visualId,
+        instanceId: "source",
+        params: {},
+      },
+    },
+  };
+  const group = {
+    id: "vj1.component.preflight",
+    componentId: "preflight",
+    nodes: [source],
+    connections: [{ from: "source.texture", to: "$out.texture", type: "texture" }],
+  };
+  assert.equal(editor.preflightGraphEdit({
+    kind: "project-group",
+    group,
+  }, group), true);
+  assert.throws(
+    () => editor.preflightGraphEdit({
+      kind: "project-group",
+      group,
+    }, {
+      ...group,
+      connections: [
+        { from: "source.texture", to: "source.texture", type: "texture" },
+        { from: "source.texture", to: "$out.texture", type: "texture" },
+      ],
+    }),
+    /VISUAL_RENDER_TEXTURE_CYCLE/,
+    "an invalid reachable visual edit is rejected by the same compiler used by Output",
+  );
+});
+
+test("routing and Application graph edits preflight through their production compilers", () => {
+  const packageRoot = createVj1NodePackage();
+  const state = packageRoot.prepareProjectState(createInitialState());
+  const editor = packageRoot.editorContext();
+  const application = state.nodes.groups.find((group) => group.id === "vj1.application.program");
+  const mapping = state.nodes.groups.find((group) => group.mappingId !== undefined);
+
+  assert.equal(editor.preflightGraphEdit({
+    kind: "project-group",
+    group: application,
+  }, application), true);
+  const requiredSetup = application.connections.find((edge) =>
+    edge.phase === "setup" && String(edge.to || "").includes("$dependency.")
+  );
+  assert.ok(requiredSetup);
+  assert.throws(
+    () => editor.preflightGraphEdit({
+      kind: "project-group",
+      group: application,
+    }, {
+      ...application,
+      connections: application.connections.filter((edge) => edge !== requiredSetup),
+    }),
+    /APPLICATION_PROGRAM_DEPENDENCY_MISSING/,
+    "an invalid service graph never becomes the saved bootstrap authority",
+  );
+
+  assert.ok(mapping);
+  assert.equal(editor.preflightGraphEdit({
+    kind: "project-group",
+    group: mapping,
+  }, mapping), true);
+  assert.throws(
+    () => editor.preflightGraphEdit({
+      kind: "project-group",
+      group: mapping,
+    }, {
+      ...mapping,
+      connections: [
+        ...mapping.connections,
+        { from: "projection-mapping.config", to: "surface-composition.state", type: "routes" },
+      ],
+    }),
+    /PROGRAM_GRAPH_CYCLE/,
+    "an invalid Mapping route cycle is rejected by the same reachability compiler used by Output",
+  );
+});
+
+test("public Group interface edits preflight against the target compiler before activation", () => {
+  const packageRoot = createVj1NodePackage();
+  const serializedVisual = packageRoot.createProjectVisualGroupDefinition({
+    id: "org.vj1.project.public-interface-preflight",
+    name: "Public Interface Preflight",
+  });
+  const serializedScene = packageRoot.createProjectScene3dGroupDefinition({
+    id: "org.vj1.project.scene-interface-preflight",
+    name: "Scene Interface Preflight",
+  });
+  const editor = packageRoot.editorContext([], [], [serializedVisual, serializedScene]);
+  const visual = editor.registry.get(serializedVisual.id);
+  const value = editor.registry.get("core.control.value");
+  const visualGraph = {
+    ...visual.parts.find((part) => part.kind === "graph"),
+    nodes: [{
+      id: "value",
+      type: value.id,
+      version: value.version,
+      role: "control",
+    }],
+  };
+  const visualNodes = withProjectNodeGraph({}, visual, visualGraph);
+  const unsupported = withProjectNodePortExposure(visualNodes, visual, {
+    nodeId: "value",
+    portId: "value",
+    publicPortId: "dataOut",
+    port: value.outlets.value,
+    direction: "outlet",
+    exposed: true,
+  });
+  assert.throws(
+    () => prepareProjectNodeDefinitionEdit(unsupported, visual, {
+      preflight: editor.preflightGraphEdit,
+    }),
+    /VISUAL_COMPOUND_PUBLIC_OUTPUT_TYPE_UNSUPPORTED/,
+    "visual Groups cannot persist public data ports their texture compiler cannot execute",
+  );
+  assert.equal(
+    visualNodes.forks[0].definition.outlets.dataOut,
+    undefined,
+    "the previously valid project fork remains authoritative",
+  );
+
+  const scene = editor.registry.get(serializedScene.id);
+  const camera = editor.registry.get("core.scene3d.perspective-camera");
+  const sceneNodes = withProjectNodePortExposure({}, scene, {
+    nodeId: "camera",
+    portId: "camera",
+    publicPortId: "cameraOut",
+    port: camera.outlets.camera,
+    direction: "outlet",
+    exposed: true,
+  });
+  assert.equal(prepareProjectNodeDefinitionEdit(sceneNodes, scene, {
+    preflight: editor.preflightGraphEdit,
+  }), sceneNodes, "Scene3D keeps supported typed data ports");
+});
+
+test("authored 3D inlet literals compile into a reusable multi-mesh Scene and image operation", () => {
+  const packageRoot = createVj1NodePackage();
+  const base = packageRoot.createProjectScene3dGroupDefinition({
+    id: "org.vj1.project.authored-scene3d",
+    name: "Authored 3D Scene",
+  });
+  const graph = base.parts.find((part) => part.kind === "graph");
+  const nodeParameters = {
+    "transform-a": { position: [-0.35, 0.1, 0], rotation: [0, 0.2, 0], scale: [0.8, 0.8, 0.8] },
+    "transform-b": { position: [0.4, -0.1, 0], rotation: [0, -0.3, 0], scale: [1.2, 1.2, 1.2] },
+    "material-a": {
+      surfaceColor: "#ff4020cc",
+      wireColor: "#101010ff",
+      shaderSource: "vec4 vj1Surface(vec3 normal, vec3 position, vec2 uv, vec4 baseColor) { return vec4(baseColor.rgb * (normal.z * 0.5 + 0.5), baseColor.a); }",
+      uniforms: { gain: { type: "float", value: 0.75 } },
+    },
+    "material-b": { surfaceColor: "#2080ffff", wireColor: "#ffffffff" },
+    scene: { background: "#08101880" },
+  };
+  const editedGraph = {
+    ...graph,
+    nodes: graph.nodes.map((node) => nodeParameters[node.id]
+      ? { ...node, parameters: { ...(node.parameters || {}), ...nodeParameters[node.id] } }
+      : node),
+  };
+  const definition = {
+    ...base,
+    parts: base.parts.map((part) => part.kind === "graph" ? editedGraph : part),
+  };
+  const program = compileScene3dProgram(definition, { registry: packageRoot.registry });
+  const meshA = testTriangleMesh(-1);
+  const meshB = testTriangleMesh(1);
+  const target = {
+    clearCalls: 0,
+    clear() { this.clearCalls += 1; },
+    backgroundCalls: [],
+    background(...values) { this.backgroundCalls.push(values); },
+  };
+  const result = program.execute({
+    meshAId: "media/a.stl",
+    meshBId: "media/b.stl",
+    target,
+    componentTime: 1,
+  }, {
+    resolveMesh: (id) => id === "media/a.stl" ? meshA : id === "media/b.stl" ? meshB : null,
+  });
+  const scene = program.outputs.get("scene").scene;
+
+  assert.equal(scene.objects.length, 2);
+  assert.strictEqual(scene.objects[0].mesh, meshA);
+  assert.strictEqual(scene.objects[1].mesh, meshB);
+  assert.deepEqual(scene.objects[0].transform.position, [-0.35, 0.1, 0]);
+  assert.deepEqual(scene.objects[1].transform.position, [0.4, -0.1, 0]);
+  assert.deepEqual(scene.objects[0].material.surfaceColor, [255, 64, 32, 204]);
+  assert.deepEqual(scene.objects[1].material.surfaceColor, [32, 128, 255, 255]);
+  assert.match(scene.objects[0].material.shader.source, /vec4 vj1Surface/);
+  assert.deepEqual(scene.background, [8, 16, 24, 128]);
+  assert.strictEqual(result.texture, target);
+  assert.equal(target.clearCalls, 1, "the Scene render operation clears once for both mesh objects");
+  program.dispose();
+});
+
+function testTriangleMesh(offset = 0) {
+  return {
+    positions: new Float32Array([
+      -1 + offset, -1, 0,
+      1 + offset, -1, 0,
+      offset, 1, 0,
+    ]),
+    faceNormals: new Float32Array([0, 0, 1]),
+    triangleCount: 1,
+    bounds: { min: [-1 + offset, -1, 0], max: [1 + offset, 1, 0] },
+    sourceBounds: { min: [-1 + offset, -1, 0], max: [1 + offset, 1, 0] },
+  };
+}
 
 test("authored Scene routes survive topology refresh and control the compiled render program", () => {
   const packageRoot = createVj1NodePackage();
@@ -1378,6 +2223,7 @@ test("the Nodes workspace renders the registered library, group structure, and e
   assert.match(rail, /Node library/);
   assert.match(rail, /Test Pattern/);
   assert.match(rail, /Parse 3D Object/);
+  assert.match(rail, /Planar Grid Mesh/);
   assert.match(nodeLibraryStudioTemplate(groupState, packageRoot), /Graph canvas/);
   assert.match(nodeLibraryStudioTemplate(groupState, packageRoot), /data-node-graph-edge/);
   assert.match(nodeLibraryStudioTemplate(groupState, packageRoot), /STL Parser/);

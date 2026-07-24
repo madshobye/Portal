@@ -32,10 +32,14 @@ test("project rail renders each workspace through one view boundary", () => {
   assert.match(live, /data-scroll-key="live-sources:sc"/);
   assert.match(live, /data-live-source-filter="scenes" aria-pressed="true"/);
   assert.match(live, /data-live-source-filter="components" aria-pressed="true"/);
-  assert.match(live, /class="sculpt-card live-timing-params"/);
+  assert.match(live, /class="sculpt-card parameter-surface live-timing-params"/);
+  assert.match(live, /<select class="param-select" data-update="ui\.live\.transitionId">/);
   assert.match(live, /data-update="global\.timeStretch"/);
   assert.match(mapping, /data-scroll-key="mapping-catalog"/);
   assert.match(mapping, /data-scroll-key="mapping-surfaces"/);
+  assert.match(mapping, /mapping-surface-rail-section[\s\S]*?data-update="mappings\.0\.name"[\s\S]*?data-toggle-path="ui\.mappingTestPattern"[\s\S]*?data-scene-mapping-in-live/);
+  assert.doesNotMatch(mapping, /type="checkbox"[^>]*ui\.mappingTestPattern/);
+  assert.doesNotMatch(mapping, />Surfaces</);
   assert.deepEqual(catalogScopes, ["component", "scene", "live", "mapping"]);
   assert.deepEqual(sortScopes, ["component", "scene", "live", "mapping"]);
 });

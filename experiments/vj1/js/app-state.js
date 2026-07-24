@@ -16,8 +16,9 @@ import {
   sanitizeState,
   syncSurfaceProportionsFromMapping,
   uid,
-} from "./domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1";
-import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=explicit-surface-visibility-1";
+} from "./domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-live-scene-mapping-override-1-scene-mapping-default-selection-derived-media-element-names-1";
+import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
+import { firstEnabledLiveSurfaceId } from "./domain/live-ui-state.js?v=scene-mapping-default-selection-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";
@@ -512,6 +513,22 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         // accidentally reapply the previously selected Scene or Component.
         ui.live.patchSourceId = "";
       }, "live:preview-surface");
+    },
+    setSceneMappingInLive(included) {
+      const enabled = included !== false;
+      update((draft) => {
+        draft.ui.live ||= {};
+        draft.ui.live.sceneMappingInLive = enabled;
+        // Mapping owns the persisted default. Live visibility remains a
+        // separate runtime value and can be changed again from the Live rail.
+        draft.ui.live.sceneMappingVisible = enabled;
+        if (!enabled && String(draft.ui.live.previewSurfaceId || "__mapping__") === "__mapping__") {
+          const mapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || ""))
+            || draft.mappings[0];
+          draft.ui.live.previewSurfaceId = firstEnabledLiveSurfaceId(mapping, draft.ui.live) || "__mapping__";
+        }
+      }, "toggle:ui.live.sceneMappingInLive");
+      return true;
     },
     toggleLiveSurfaceVisibility(id) {
       const surfaceId = String(id || "");

@@ -1,21 +1,26 @@
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentFromNodeDefinition, getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=general-group-controls-1";
+import { componentFromNodeDefinition, getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import { materializeProjectNodeDefinition } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { generatorIcon } from "./picker-view.js?v=picker-filter-tabs-1";
-import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=param-reset-contract-1";
+import { generatorIcon } from "./picker-view.js?v=picker-filter-tabs-shared-ui-icons-1";
+import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=remove-boundary-note-1";
 import { isModelMediaSource, isVideoMediaSource, mediaSourceParams, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-param-schema-1";
-import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=param-reset-contract-1";
-import { deepEditButtonTemplate, editableSectionTitleTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-1";
+import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=param-select-1";
+import { deepEditButtonTemplate, editableSectionTitleTemplate, elementListTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js?v=shared-element-list-1";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
 import { mediaChoiceButtonTemplate, mediaDisplayName } from "./media-view.js?v=media-name-presentation-1";
+import { UI_ICONS } from "./ui-icons.js";
+import {
+  isAutomaticMediaSourceName,
+  sourceBackedMediaId,
+} from "../domain/models.js?v=model-media-scene-group-1";
 
 
 export function sceneInspectorTemplate(component, state) {
   const base = pathForComponent(state, component);
   return `
-    <article class="sculpt-card">
+    <article class="sculpt-card component-chain-card">
       ${sceneResolutionControlsTemplate(component, base)}
       ${componentUnifiedChainTemplate(component, state, base)}
     </article>
@@ -33,7 +38,7 @@ export function sceneSurfaceInspectorTemplate(surface, state) {
   return `<article class="sculpt-card scene-surface-inspector inspector-control-surface">
     <div class="soft-note">Surface · move and scale its 2D rectangle in the Scene preview; calibrate its projection in Mapping.</div>
     <label class="field inline-param"><span>Keep proportions</span><input type="checkbox" data-update="${base}.keepProportions" ${surface.keepProportions === false ? "" : "checked"} /></label>
-    <label class="field">Fit ${selectValuesTemplate(`${base}.projectionFit`, ["cover", "contain", "stretch"], surface.projectionFit || "cover")}</label>
+    <label class="field"><span>Fit</span>${selectValuesTemplate(`${base}.projectionFit`, ["cover", "contain", "stretch"], surface.projectionFit || "cover")}</label>
   </article>`;
 }
 
@@ -59,7 +64,7 @@ export function componentTemplate(component, state) {
     `;
   }
   return `
-    <article class="sculpt-card">
+    <article class="sculpt-card component-chain-card">
       ${componentFrameControlsTemplate(component, state, base)}
       ${componentUnifiedChainTemplate(component, state, base)}
     </article>
@@ -82,8 +87,10 @@ export function componentSelectedChainSettingsTemplate(component, state, { nodeE
 }
 
 export function sourceIcon(source = {}) {
-  if (source.type === "component") return "account_tree";
-  if (source.type === "generator") return generatorIcon(source.generatorId);
+  if (source.type === "component") return UI_ICONS.component;
+  if (source.type === "generator") return source.generatorId === "modelMedia"
+    ? "deployed_code"
+    : generatorIcon(source.generatorId);
   if (source.type === "media") return isModelMediaSource(source) ? "deployed_code" : "perm_media";
   if (source.type === "camera") return "photo_camera";
   if (source.type === "black") return "radio_button_unchecked";
@@ -92,6 +99,9 @@ export function sourceIcon(source = {}) {
 
 export function sourceChainItemDisplayName(item = {}, media = null, component = null, state = null) {
   if (item.source?.type === "component") return sourceTitle(item.source, media, component, state);
+  if (sourceBackedMediaId(item.source) && isAutomaticMediaSourceName(item.name, item.source)) {
+    return sourceTitle(item.source, media, component, state);
+  }
   if (!item.name || isGenericLayerName(item.name) || item.name === item.source?.componentId) {
     return sourceTitle(item.source || {}, media, component, state);
   }
@@ -160,12 +170,16 @@ function componentFrameControlsTemplate(component, state, base) {
 function componentUnifiedChainTemplate(component, state, ownerPath) {
   return `
     <div class="chain-column">
-      <section class="chain-list-section" aria-label="Elements">
-        ${scrollRegionTemplate(`component-chain:${component.id}`, chainItemsTemplate(component.chain || [], component, state, `${ownerPath}.chain`), {
-          className: "component-chain-list",
-          attributes: `data-chain-reorder-list data-component-id="${esc(component.id)}"`,
-        })}
-      </section>
+      ${elementListTemplate(
+        `component-chain:${component.id}`,
+        chainItemsTemplate(component.chain || [], component, state, `${ownerPath}.chain`),
+        {
+          className: "chain-list-section",
+          listClassName: "component-chain-list",
+          attributes: 'aria-label="Elements"',
+          listAttributes: `data-chain-reorder-list data-component-id="${esc(component.id)}"`,
+        }
+      )}
     </div>
   `;
 }
@@ -177,7 +191,7 @@ function chainItemsTemplate(chain, component, state, base, depth = 0) {
 
 function chainItemRowTemplate(item, component, state, index, base, depth = 0) {
   const selected = state.ui.selectedChainItemId === item.id;
-  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
+  const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(item.source)) || null;
   const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
   const label = chainItemLabel(item, media, referencedComponent, state);
   const iconName = chainItemIcon(item);
@@ -245,8 +259,8 @@ function selectedChainItemTitleTemplate(item, component, state, base) {
     const effectComponent = visualEffectComponent(state, item.componentId);
     return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(effectComponent?.name || item.componentId)}</span></div>`;
   }
-  if (item.kind === "group") return editableSectionTitleTemplate("account_tree", base + ".name", item.name || "Group");
-  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
+  if (item.kind === "group") return editableSectionTitleTemplate(UI_ICONS.group, base + ".name", item.name || "Group");
+  const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(item.source)) || null;
   const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
   const displayName = sourceChainItemDisplayName(item, media, referencedComponent, state);
   const staticTitle = component?.type === "scene" && item.source?.type === "component";
@@ -290,7 +304,7 @@ function groupChainItemTemplate(item, component, state, base) {
 
 function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = "primary") {
   const isSceneComponentPlacement = ownerComponent?.type === "scene" && item.source?.type === "component";
-  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
+  const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(item.source)) || null;
   if (paramView === "details") {
     if (item.source?.type === "generator") {
       const generator = visualGeneratorComponent(state, item.source.generatorId);
@@ -303,7 +317,7 @@ function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = 
   return `
     <section class="chain-item-editor">
       ${item.source?.type === "component"
-        ? (isSceneComponentPlacement ? "" : `<label class="field">Component ${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
+        ? (isSceneComponentPlacement ? "" : `<label class="field"><span>Component</span>${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
         : sourcePickerTemplate(item, state, base, paramView)}
       ${item.source?.type === "generator" && item.source.generatorId === "sdfSketch"
         ? sdfSketchContentEditorTemplate(state)
@@ -346,7 +360,7 @@ function effectDisplayParam(param) {
 function componentSelectTemplate(path, state, value, excludeId = "") {
   const options = state.components.filter((component) => component.id !== excludeId && component.type !== "scene");
   return `
-    <select data-update="${esc(path)}">
+    <select class="param-select" data-update="${esc(path)}">
       <option value="">None</option>
       ${options.map((component) => `<option value="${esc(component.id)}" ${component.id === value ? "selected" : ""}>${esc(component.name)}</option>`).join("")}
     </select>
@@ -361,7 +375,7 @@ function selectedChainItemSelection(component, state) {
 
 function sourcePickerTemplate(item, state, base, paramView = "primary") {
   const source = item.source;
-  const media = state.media.find((item) => item.id === source.mediaId);
+  const media = state.media.find((item) => item.id === sourceBackedMediaId(source));
   return `
     <div class="source-section">
       ${source.type === "generator" || paramView !== "primary" ? "" : `<div class="field">
@@ -400,6 +414,9 @@ function mediaSourceControlsTemplate(base, source = {}, media = null, paramView 
 function sourceTitle(source = {}, media = null, component = null, state = null) {
   if (source.type === "component") return component?.name || source.componentId || "Component";
   if (source.type === "generator") {
+    if (source.generatorId === "modelMedia") {
+      return mediaDisplayName(media || { id: sourceBackedMediaId(source) });
+    }
     const generator = visualGeneratorComponent(state, source.generatorId);
     return generator?.label || generator?.name || source.generatorId;
   }
@@ -411,7 +428,7 @@ function sourceTitle(source = {}, media = null, component = null, state = null) 
 
 function sourceSubtitle(source = {}, media = null) {
   if (source.type === "component") return "Component reference";
-  if (source.type === "generator") return "Generator";
+  if (source.type === "generator") return source.generatorId === "modelMedia" ? "3D model" : "Generator";
   if (source.type === "media") return media?.type === "model" || isModelMediaSource(source) ? "3D model" : media?.type ? `Media ${media.type}` : "Media";
   if (source.type === "camera") return "Portal camera feed";
   if (source.type === "black") return "Empty black source";
@@ -426,7 +443,7 @@ function chainItemLabel(item = {}, media = null, component = null, state = null)
 
 function chainItemIcon(item = {}) {
   if (item.kind === "source") return sourceIcon(item.source || {});
-  if (item.kind === "group") return "account_tree";
+  if (item.kind === "group") return UI_ICONS.group;
   return effectIcon(item.componentId);
 }
 

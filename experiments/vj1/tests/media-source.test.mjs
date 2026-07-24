@@ -211,9 +211,10 @@ test("render quality preserves current work at midpoint and scales expensive wor
     qualityScale: 0.35,
   });
 
-  assert.equal(qualityAdjustedGeneratorParams("cloudyTunnel", { renderQuality: 0.5, raySteps: 72 }).raySteps, 72);
-  assert.equal(qualityAdjustedGeneratorParams("cloudyTunnel", { renderQuality: 0, raySteps: 72 }).raySteps, 25);
-  assert.equal(qualityAdjustedGeneratorParams("cloudyTunnel", { renderQuality: 1, raySteps: 72 }).raySteps, 108);
+  const cloudyTunnel = getGeneratorComponent("cloudyTunnel");
+  assert.equal(qualityAdjustedGeneratorParams(cloudyTunnel, { renderQuality: 0.5, raySteps: 72 }).raySteps, 72);
+  assert.equal(qualityAdjustedGeneratorParams(cloudyTunnel, { renderQuality: 0, raySteps: 72 }).raySteps, 25);
+  assert.equal(qualityAdjustedGeneratorParams(cloudyTunnel, { renderQuality: 1, raySteps: 72 }).raySteps, 108);
   assert.ok(rendererSource.includes("this.getFxPingPongTarget(renderRequest, 0)"));
   assert.ok(effectRuntimeSource.includes('shader.setUniform("resolution", [logicalWidth, logicalHeight])'));
   assert.ok(effectRuntimeSource.includes('shader.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight])'));
@@ -251,7 +252,6 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const targetRuntimeSource = readFileSync(new URL("../js/output/shader-target-runtime.js", import.meta.url), "utf8");
-  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Base Warp");
   assert.equal(component.category, "shadertoy");
@@ -270,13 +270,12 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.ok(rendererSource.includes('setShaderUniformIfPresent(shader, "iTime", shaderTime)'));
   assert.ok(rendererSource.includes("shaderDrawingBufferSize(target"));
   assert.ok(targetRuntimeSource.includes("gl?.drawingBufferWidth"));
-  assert.ok(runtimeSource.includes('generatorId === "shadertoyBaseWarp"'));
+  assert.equal(component.runtime.rateParam, "speed");
 });
 
 test("Cellular Circles exposes bounded animated Shadertoy controls", () => {
   const component = getGeneratorComponent("cellularCircles");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Cellular Circles");
   assert.equal(component.category, "shadertoy");
@@ -288,13 +287,13 @@ test("Cellular Circles exposes bounded animated Shadertoy controls", () => {
   for (const id of ["cellColor", "backgroundColor"]) {
     assert.equal(params[id].type, "color", `missing Cellular Circles color ${id}`);
   }
-  assert.ok(runtimeSource.includes('generatorId === "cellularCircles"'));
+  assert.equal(component.runtime.rateParam, "speed");
+  assert.deepEqual(params.searchRadius.renderQualityScaling, { minimum: 0.35, maximum: 1.5 });
 });
 
 test("Lightning exposes transparent strike and brightness controls", () => {
   const component = getGeneratorComponent("lightning");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Lightning");
   assert.equal(component.category, "shadertoy");
@@ -302,7 +301,7 @@ test("Lightning exposes transparent strike and brightness controls", () => {
     assert.equal(params[id].type, "number", `missing numeric Lightning control ${id}`);
   }
   assert.equal(params.strikeColor.type, "color");
-  assert.ok(runtimeSource.includes('generatorId === "lightning"'));
+  assert.equal(component.runtime.rateParam, "speed");
 });
 
 test("Sun Rays exposes compact animated light controls", () => {
@@ -345,7 +344,6 @@ test("Fog exposes transparent quality-aware atmosphere controls and a steady mod
 test("Volumetric Clouds exposes a bounded quality-aware transparent volume", () => {
   const component = getGeneratorComponent("volumetricClouds");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Volumetric Clouds");
   assert.equal(component.category, "atmosphere");
@@ -360,16 +358,15 @@ test("Volumetric Clouds exposes a bounded quality-aware transparent volume", () 
   assert.equal(component.runtime.timeDependent({ speed: 0 }), false);
   assert.equal(component.runtime.timeDependent({ speed: 0.2 }), true);
   assert.equal(generatorIcon("volumetricClouds"), "filter_drama");
-  assert.ok(runtimeSource.includes('generatorId === "volumetricClouds"'));
-  assert.equal(qualityAdjustedGeneratorParams("volumetricClouds", { renderQuality: 0.5, raySteps: 28, detail: 3 }).raySteps, 28);
-  assert.equal(qualityAdjustedGeneratorParams("volumetricClouds", { renderQuality: 0, raySteps: 28, detail: 3 }).raySteps, 10);
-  assert.equal(qualityAdjustedGeneratorParams("volumetricClouds", { renderQuality: 1, raySteps: 28, detail: 3 }).raySteps, 42);
+  assert.equal(component.runtime.rateParam, "speed");
+  assert.equal(qualityAdjustedGeneratorParams(component, { renderQuality: 0.5, raySteps: 28, detail: 3 }).raySteps, 28);
+  assert.equal(qualityAdjustedGeneratorParams(component, { renderQuality: 0, raySteps: 28, detail: 3 }).raySteps, 10);
+  assert.equal(qualityAdjustedGeneratorParams(component, { renderQuality: 1, raySteps: 28, detail: 3 }).raySteps, 42);
 });
 
 test("Seascape exposes bounded artistic controls", () => {
   const component = getGeneratorComponent("seascape");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Seascape");
   assert.equal(component.category, "shadertoy");
@@ -381,13 +378,13 @@ test("Seascape exposes bounded artistic controls", () => {
   }
   assert.equal(params.seaDetail.max, 5);
   assert.equal(params.raySteps.defaultValue, 18);
-  assert.ok(runtimeSource.includes('generatorId === "seascape"'));
+  assert.equal(component.runtime.rateParam, "speed");
+  assert.deepEqual(params.seaDetail.renderQualityScaling, { minimum: 0.5, maximum: 1.2 });
 });
 
 test("Paint Drips exposes self-contained artistic controls", () => {
   const component = getGeneratorComponent("paintDrips");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Paint Drips");
   assert.equal(component.category, "shadertoy");
@@ -397,13 +394,12 @@ test("Paint Drips exposes self-contained artistic controls", () => {
   for (const id of ["paintColor", "backgroundColor"]) {
     assert.equal(params[id].type, "color", `missing Paint Drips color ${id}`);
   }
-  assert.ok(runtimeSource.includes('generatorId === "paintDrips"'));
+  assert.equal(component.runtime.rateParam, "speed");
 });
 
 test("Cloudy Tunnel exposes bounded self-contained controls", () => {
   const component = getGeneratorComponent("cloudyTunnel");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Cloudy Tunnel");
   assert.equal(component.category, "shadertoy");
@@ -414,13 +410,13 @@ test("Cloudy Tunnel exposes bounded self-contained controls", () => {
     assert.equal(params[id].type, "color", `missing Cloudy Tunnel color ${id}`);
   }
   assert.equal(params.raySteps.defaultValue, 72);
-  assert.ok(runtimeSource.includes('generatorId === "cloudyTunnel"'));
+  assert.equal(component.runtime.rateParam, "speed");
+  assert.deepEqual(params.cloudDetail.renderQualityScaling, { minimum: 0.5, maximum: 1.25 });
 });
 
 test("Cherenkov Volume exposes bounded volumetric controls", () => {
   const component = getGeneratorComponent("cherenkovVolume");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Cherenkov Volume");
   assert.equal(component.category, "shadertoy");
@@ -431,13 +427,12 @@ test("Cherenkov Volume exposes bounded volumetric controls", () => {
     assert.equal(params[id].type, "color", `missing Cherenkov Volume color ${id}`);
   }
   assert.equal(params.raySteps.defaultValue, 96);
-  assert.ok(runtimeSource.includes('generatorId === "cherenkovVolume"'));
+  assert.equal(component.runtime.rateParam, "speed");
 });
 
 test("Biomine Lite exposes performance and material controls", () => {
   const component = getGeneratorComponent("biomineLite");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
-  const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Biomine Lite");
   assert.equal(component.category, "shadertoy");
@@ -449,17 +444,19 @@ test("Biomine Lite exposes performance and material controls", () => {
   }
   assert.equal(params.raySteps.defaultValue, 36);
   assert.equal(params.surfaceDetail.defaultValue, 1);
-  assert.ok(runtimeSource.includes('generatorId === "biomineLite"'));
+  assert.equal(component.runtime.rateParam, "speed");
+  assert.deepEqual(params.surfaceDetail.renderQualityScaling, { minimum: 0.5, maximum: 1.25 });
 });
 
 test("low poly anatomy generator exposes body part and stl-style 3d controls", () => {
   const component = getGeneratorComponent("anatomy");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
   const rendererSource = [
-    readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/libraries/visual-nodes/generators/anatomy/runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/mesh-engine/scene-render/index.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/providers/anatomy-geometry/index.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/providers/anatomy-motion-transform/index.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/providers/anatomy-material-palette/index.js", import.meta.url), "utf8"),
   ].join("\n");
 
   assert.equal(component.name, "Low Poly Anatomy");
@@ -474,19 +471,18 @@ test("low poly anatomy generator exposes body part and stl-style 3d controls", (
   for (const id of ["expression", "mouthOpen", "brow", "eyeSquint", "fingerBend", "limbBend", "heartPulse"]) {
     assert.ok(params[id], `missing anatomy behavior param ${id}`);
   }
-  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:anatomy");
-  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
-  assert.ok(rendererSource.includes('"output/specialized:anatomy": "drawAnatomyGenerator"'));
-  assert.ok(rendererSource.includes("drawProceduralAnatomy("));
-  assert.ok(rendererSource.includes("anatomyTaperedSegment("));
-  assert.ok(rendererSource.includes("anatomyProfileVolume("));
-  assert.ok(rendererSource.includes("anatomyPathVolume("));
-  assert.ok(rendererSource.includes("anatomyPartFitScale("));
-  assert.ok(rendererSource.includes("target.scale(scale, -scale, scale * depth);"));
-  assert.ok(rendererSource.includes("drawAnatomyFinger("));
-  assert.ok(rendererSource.includes("drawAnatomyArmChain("));
-  assert.ok(rendererSource.includes("drawAnatomyLegChain("));
-  assert.ok(rendererSource.includes("drawLowPolyHeart("));
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:scene3d-program");
+  assert.equal(component.nodeDefinition.metadata.visualCompilerHook.id, "vj1.visual.scene-3d-program");
+  assert.equal(component.nodeDefinition.parts.some((part) => part.kind === "javascript"), false);
+  const graph = component.nodeDefinition.parts.find((part) => part.kind === "graph");
+  assert.deepEqual(graph.nodes.map((node) => node.id), [
+    "geometry", "motion", "materials", "objects", "camera", "scene", "render",
+  ]);
+  assert.ok(rendererSource.includes("drawCompiledScene3dProgram("));
+  assert.ok(rendererSource.includes("renderMeshNodeProcess("));
+  assert.ok(rendererSource.includes("createAnatomyMeshCollection("));
+  assert.ok(rendererSource.includes("anatomyMotionTransform3dProcess("));
+  assert.ok(rendererSource.includes("anatomyMaterialPaletteProcess("));
   assert.equal(generatorIcon("anatomy"), "accessibility_new");
 });
 
@@ -504,6 +500,10 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
     readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/shaders.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/terrain-engine/flight-controller/index.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/terrain-engine/kernel-topology/index.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/providers/terrain-height-field/index.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/providers/terrain-biome-material/index.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/visual-nodes/providers/terrain-wire-material/index.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/render-engine/raw-webgl-state.js", import.meta.url), "utf8"),
   ].join("\n");
   const profileSource = readFileSync(new URL("../js/output/output-render-profile.js", import.meta.url), "utf8");
@@ -522,7 +522,7 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.equal(generatorIcon("terrainFlyover"), "landscape");
   assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:terrainFlyover");
   assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
-  assert.ok(rendererSource.includes('"output/specialized:terrainFlyover": "drawTerrainGenerator"'));
+  assert.match(rendererSource, /registerNativeRenderer\(\s*"output\/specialized:terrainFlyover"/);
   assert.ok(rendererSource.includes("this.targets = new Map()"));
   assert.ok(rendererSource.includes("this.getTerrainTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity)"));
   assert.ok(rendererSource.includes("disposeGraphicsMap(this.targets)"));
@@ -533,14 +533,21 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("terrainSurfaceGridVertices(widthCells, depthCells)"));
   assert.ok(rendererSource.includes("terrainSurfaceTriangleIndices(widthCells, depthCells, baseRow)"));
   assert.ok(!rendererSource.includes("function drawTerrainSurfaceMesh("));
-  assert.ok(rendererSource.includes("terrainFlightControllerProcess({"));
+  assert.ok(rendererSource.includes('specializedCompoundNativeKernel(operation, "terrain-surface")'));
+  assert.ok(rendererSource.includes('specializedCompoundNativeKernel(operation, "terrain-wire")'));
+  assert.ok(rendererSource.includes("evaluateSpecializedCompoundGraph("));
+  assert.ok(rendererSource.includes('graph?.stageInput(surfaceStageId, "controller")'));
+  assert.ok(rendererSource.includes('graph?.stageInput(surfaceStageId, "geometry")'));
+  assert.ok(rendererSource.includes('graph?.stageInput(surfaceStageId, "camera")'));
+  assert.ok(rendererSource.includes('graph?.stageInput(surfaceStageId, "material")'));
+  assert.ok(rendererSource.includes('graph?.stageInput(wireStageId, "material")'));
   assert.ok(rendererSource.includes('id: "core.terrain.flight-controller"'));
   assert.ok(rendererSource.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count)"));
   assert.ok(rendererSource.includes("if (style === 2)"));
   assert.ok(rendererSource.includes("gl.polygonOffset(1, 2)"));
   assert.ok(rendererSource.includes("if (drawSurface) target.background"));
-  assert.ok(rendererSource.includes('specializedCompoundStageEnabled(operation, "surface-render")'));
-  assert.ok(rendererSource.includes('specializedCompoundStageEnabled(operation, "wire-render")'));
+  assert.ok(rendererSource.includes("specializedCompoundStageEnabled(operation, surfaceStageId)"));
+  assert.ok(rendererSource.includes("specializedCompoundStageEnabled(operation, wireStageId)"));
   assert.ok(rendererSource.includes("markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft)"));
   assert.ok(rendererSource.includes("program: gl.getParameter(gl.CURRENT_PROGRAM)"));
   assert.ok(rendererSource.includes("gl.useProgram(state.program)"));
@@ -652,7 +659,8 @@ test("terrain camera space is independent from generic chain transforms", () => 
   assert.equal(view.altitude, 6);
   assert.equal(view.turn, 0.25);
   assert.equal(view.cameraAnchor.length, 2);
-  assert.match(drawTerrainSource, /terrainFlightControllerProcess\(\{/);
+  assert.match(drawTerrainSource, /evaluateSpecializedCompoundGraph\(/);
+  assert.match(drawTerrainSource, /graph\?\.stageInput\(surfaceStageId, "controller"\)/);
   const cameraRenderSource = drawTerrainSource.slice(0, drawTerrainSource.indexOf("const flightParams"));
   assert.doesNotMatch(cameraRenderSource, /source\.contentTransform/);
   assert.match(drawTerrainSource, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.bottomLeft\)/);
@@ -665,7 +673,8 @@ test("parsed mesh rendering stays in a shared depth framebuffer", () => {
   const drawModelSource = runtimeSource.slice(runtimeSource.indexOf("  drawModel("), runtimeSource.indexOf("  presentGeneratedTarget("));
   const rawTargetSource = runtimeSource.slice(runtimeSource.indexOf("  getRawModelTarget("), runtimeSource.indexOf("  getTerrainTarget("));
 
-  assert.match(drawModelSource, /item\.modelData\s*\? this\.getRawModelTarget/);
+  assert.match(drawModelSource, /const target = this\.getRawModelTarget/);
+  assert.match(drawModelSource, /renderMeshNodeProcess\(/);
   assert.match(drawModelSource, /\[VJ1_MODEL_SHARED_RENDER_FAILED\]/);
   assert.match(rawTargetSource, /preferSharedFramebuffer: true/);
   assert.match(rawTargetSource, /depth: true/);
@@ -675,7 +684,9 @@ test("random generator speed controls use phase-continuous clocks", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
-  assert.ok(runtimeSource.includes('generatorId === "fireflies" || generatorId === "bezierStrokes"'));
+  assert.equal(getGeneratorComponent("fireflies").runtime.rateParam, "speed");
+  assert.equal(getGeneratorComponent("bezierStrokes").runtime.rateParam, "speed");
+  assert.doesNotMatch(runtimeSource, /generatorId ===/);
   assert.ok(rendererSource.includes("this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`"));
   assert.ok(rendererSource.includes("const shaderParams = rateParam ? { ...qualityParams, [rateParam]: 1 } : qualityParams"));
 });
@@ -894,21 +905,29 @@ test("3d model visible depth follows transformed normalized model bounds", () =>
 });
 
 test("3d model point mode uses cached bounded point clouds", () => {
+  const compatibilityRuntime = readFileSync(
+    new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url),
+    "utf8",
+  );
+  const drawModelSource = compatibilityRuntime.slice(
+    compatibilityRuntime.indexOf("  drawModel("),
+    compatibilityRuntime.indexOf("  presentGeneratedTarget("),
+  );
   const source = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
+    compatibilityRuntime,
     readFileSync(new URL("../js/libraries/mesh-engine/mesh-render-cache.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8"),
   ].join("\n");
 
   assert.ok(source.includes("drawRawParsedModelMode(target, item"));
   assert.ok(source.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count);"));
-  assert.ok(source.includes("ensureParsedModelPointCloud(item, pointBudget, modelMesh)"));
+  assert.ok(source.includes("ensureParsedModelPointCloud(item, budget, mesh)"));
   assert.ok(source.includes("ensureParsedModelWireLines(item, budget, mesh)"));
   assert.ok(source.includes("ensureParsedModelThickWireVertices(item, budget, mesh)"));
   assert.ok(source.includes("ensureParsedModelPerceptualWireVertices(item, budget, mesh)"));
-  assert.ok(source.includes("ensureP5ModelPointCloud(item, pointBudget)"));
+  assert.ok(!drawModelSource.includes("ensureP5ModelPointCloud("), "model media has no duplicate p5 rendering fallback");
   assert.ok(source.includes("uniform float uThickness;"));
   assert.ok(source.includes("resolutionScaledStrokeWidth("));
   assert.ok(source.includes("Math.min(50000"));
@@ -946,12 +965,11 @@ test("3d model scale uses logical render viewport instead of backing pixels", ()
 
   assert.ok(source.includes("const viewport = modelViewportMetrics(target, renderRequest);"));
   assert.ok(source.includes("target.camera?.(0, 0, viewport.cameraZ"));
-  assert.ok(source.includes("const scale = viewport.unitScale * modelScale;"));
+  assert.ok(source.includes("const scale = metrics.unitScale * modelScale;"));
   assert.ok(source.includes("const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);"));
   assert.ok(source.includes("(Number(target?.width) || 1) * density"));
   assert.ok(source.includes("gl.viewport(0, 0, drawingWidth, drawingHeight);"));
   assert.ok(source.includes("rawModelMatrices(metrics.width, metrics.height, scale, depth, rotation, contentTransform, modelCameraFov(params), metrics.uvRect, params.__sceneTransform, params.__sceneCamera)"));
-  assert.ok(source.includes("applyModelViewportProjection(target, modelCameraFov(params), viewport)"));
   assert.ok(source.includes(": [0, 0, verticalUnit * 0.92];"));
   assert.ok(!source.includes("Math.max(width, height) * 0.92"));
 });
@@ -1359,7 +1377,7 @@ test("Component Scene and Live previews follow the shared thumbnail toggle", () 
   assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(component)"));
 });
 
-test("output playback control pauses output clocks while the editor preview remains live", () => {
+test("playback control pauses the shared preview and output transport", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
@@ -1370,12 +1388,15 @@ test("output playback control pauses output clocks while the editor preview rema
 
   assert.equal(sanitizeState(paused).global.playing, false);
   assert.ok(shellSource.includes('id="toggle-output-playback"'));
-  assert.ok(controllerSource.includes("refs.toggleOutputPlayback.disabled = !outputConnected"));
+  assert.ok(controllerSource.includes("refs.toggleOutputPlayback.disabled = !hasProject"));
+  assert.ok(controllerSource.includes("if (!hasOpenProject(latestState)) return"));
+  assert.doesNotMatch(controllerSource, /if \(latestState\.metrics\.clients <= 0\) return/);
   assert.ok(controllerSource.includes('outputPlaying ? "pause" : "play_arrow"'));
   assert.ok(rendererSource.includes("this.presentationClock = advancePresentationClock("));
   assert.ok(rendererSource.includes("this.visualDeltaSeconds = this.presentationClock.presentationDeltaSeconds * timeScale"));
   assert.ok(rendererSource.includes("if (!playing) return"));
-  assert.ok(rendererSource.includes('return this.mode !== "output" || this.state?.global?.playing !== false'));
+  assert.ok(rendererSource.includes("return this.state?.global?.playing !== false"));
+  assert.doesNotMatch(rendererSource, /this\.mode !== "output" \|\| this\.state\?\.global\?\.playing/);
   assert.ok(rendererSource.includes("this.isPlaybackActive() ? 1 : 0"));
   const playbackOptions = rendererSource.slice(
     rendererSource.indexOf("  videoPlaybackOptions("),

@@ -1,10 +1,13 @@
 import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
-  textNodeModuleParts,
   textNodeProcess,
-  TextNodeModuleExports,
-} from "./runtime.js?v=source-roi-view-3";
+} from "./runtime.js?v=text-mask-readback-1";
+import {
+  defineSpecializedVisualCompound,
+  TextMaskProviderNode,
+  TextMaskToImageNode,
+} from "../../shared/specialized-compound.js?v=text-mask-semantic-1";
 
 const manifest = Object.freeze({
     id: "text",
@@ -38,10 +41,53 @@ const manifest = Object.freeze({
     ],
   });
 
-export const VisualComponent = defineGeneratorNode(manifest, null, {
+const NativeVisualComponent = defineGeneratorNode(manifest, null, {
   direct: false,
   process: textNodeProcess,
-  exports: TextNodeModuleExports,
-  parts: textNodeModuleParts(),
+  exports: {},
+  parts: [],
+});
+
+export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
+  compoundKind: "text",
+  nativeRenderer: "output/specialized:text",
+  nodes: [
+    { id: "mask", type: TextMaskProviderNode.id, parameters: { providerId: "text-mask" } },
+    { id: "render", type: TextMaskToImageNode.id, parameters: { providerId: "text-mask-pass" } },
+  ],
+  connections: [
+    { from: "mask.mask", to: "render.mask", type: "text-mask-provider" },
+  ],
+  output: "render.texture",
+  parameterBindings: {
+    mask: [
+      "text",
+      "bold",
+      "italic",
+      "underline",
+      "layout",
+      "fontFamily",
+      "fontSize",
+      "textScale",
+      "align",
+      "verticalAlign",
+      "lineHeight",
+      "letterSpacing",
+      "padding",
+    ],
+    render: [
+      "fillEnabled",
+      "outlineEnabled",
+      "fillColor",
+      "outlineColor",
+      "outlineWidth",
+      "backgroundColor",
+      "renderQuality",
+    ],
+  },
+  parameterPresentation: {
+    mask: { label: "Text layout", order: 10 },
+    render: { label: "Text style", order: 20 },
+  },
 });
 export default VisualComponent;

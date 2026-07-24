@@ -1,4 +1,4 @@
-import GeneratorAnatomy from "./generators/anatomy/index.js?v=specialized-stage-authority-1";
+import GeneratorAnatomy from "./generators/anatomy/index.js?v=anatomy-scene3d-2";
 import GeneratorAdditiveLightOrbs from "./generators/additive-light-orbs/index.js";
 import GeneratorAnimatedDazzleStripes from "./generators/animated-dazzle-stripes/index.js";
 import GeneratorBezierStrokes from "./generators/bezier-strokes/index.js";
@@ -18,7 +18,8 @@ import GeneratorGalaxy from "./generators/galaxy/index.js";
 import GeneratorGradient from "./generators/gradient/index.js";
 import GeneratorGestureReticle from "./generators/gesture-reticle/index.js";
 import GeneratorLightning from "./generators/lightning/index.js";
-import GeneratorMeshPatterns from "./generators/mesh-patterns/index.js?v=specialized-stage-authority-1";
+import GeneratorMeshPatterns from "./generators/mesh-patterns/index.js?v=compiled-connected-specialized-graph-2";
+import GeneratorModelMedia from "./generators/model-media/index.js?v=model-media-scene-group-1";
 import GeneratorNoise from "./generators/noise/index.js";
 import GeneratorNestedOrbitMotion from "./generators/nested-orbit-motion/index.js";
 import GeneratorPaintDrips from "./generators/paint-drips/index.js";
@@ -29,10 +30,10 @@ import GeneratorSeascape from "./generators/seascape/index.js";
 import GeneratorShadertoyBaseWarp from "./generators/shadertoy-base-warp/index.js";
 import GeneratorSunRays from "./generators/sun-rays/index.js";
 import GeneratorSwayingTrees from "./generators/swaying-trees/index.js";
-import GeneratorTerrainFlyover from "./generators/terrain-flyover/index.js?v=specialized-stage-authority-1";
+import GeneratorTerrainFlyover from "./generators/terrain-flyover/index.js?v=semantic-terrain-node-ownership-1";
 import GeneratorExpressiveRibbonBrush from "./generators/expressive-ribbon-brush/index.js";
 import GeneratorTestPattern from "./generators/test-pattern/index.js?v=procedural-2d-1";
-import GeneratorText from "./generators/text/index.js";
+import GeneratorText from "./generators/text/index.js?v=text-mask-readback-1";
 import GeneratorTileTexture from "./generators/tile-texture/index.js?v=source-roi-view-3";
 import GeneratorVolumetricClouds from "./generators/volumetric-clouds/index.js";
 import GeneratorWaves from "./generators/waves/index.js";
@@ -80,7 +81,7 @@ import {
 import { DissolveTransitionKernel } from "../transition-engine/index.js";
 export { componentFromNodeDefinition } from "./shared/visual-node-factory.js";
 
-const generators = Object.freeze([GeneratorAnatomy, GeneratorAdditiveLightOrbs, GeneratorAnimatedDazzleStripes, GeneratorBezierStrokes, GeneratorBiomineLite, GeneratorBlack, GeneratorCellularCircles, GeneratorChainFollowerTrails, GeneratorChecker, GeneratorCherenkovVolume, GeneratorCloudyTunnel, GeneratorEyeball, GeneratorExpressiveRibbonBrush, GeneratorFeatureMorphV2, GeneratorFeatureMorph, GeneratorFireflies, GeneratorFog, GeneratorGalaxy, GeneratorGestureReticle, GeneratorGradient, GeneratorLightning, GeneratorMeshPatterns, GeneratorNestedOrbitMotion, GeneratorNoise, GeneratorPaintDrips, GeneratorPlasma, GeneratorScreenShare, GeneratorSdfSketch, GeneratorSeascape, GeneratorShadertoyBaseWarp, GeneratorSunRays, GeneratorSwayingTrees, GeneratorTerrainFlyover, GeneratorTestPattern, GeneratorText, GeneratorTileTexture, GeneratorVolumetricClouds, GeneratorWaves]);
+const generators = Object.freeze([GeneratorAnatomy, GeneratorAdditiveLightOrbs, GeneratorAnimatedDazzleStripes, GeneratorBezierStrokes, GeneratorBiomineLite, GeneratorBlack, GeneratorCellularCircles, GeneratorChainFollowerTrails, GeneratorChecker, GeneratorCherenkovVolume, GeneratorCloudyTunnel, GeneratorEyeball, GeneratorExpressiveRibbonBrush, GeneratorFeatureMorphV2, GeneratorFeatureMorph, GeneratorFireflies, GeneratorFog, GeneratorGalaxy, GeneratorGestureReticle, GeneratorGradient, GeneratorLightning, GeneratorMeshPatterns, GeneratorModelMedia, GeneratorNestedOrbitMotion, GeneratorNoise, GeneratorPaintDrips, GeneratorPlasma, GeneratorScreenShare, GeneratorSdfSketch, GeneratorSeascape, GeneratorShadertoyBaseWarp, GeneratorSunRays, GeneratorSwayingTrees, GeneratorTerrainFlyover, GeneratorTestPattern, GeneratorText, GeneratorTileTexture, GeneratorVolumetricClouds, GeneratorWaves]);
 const effects = Object.freeze([EffectAlphaFeather, EffectAlphaVignette, EffectBlur, EffectBrokenFluorescent, EffectCrayonStroke, EffectCustom, EffectDilate, EffectEchoFade, EffectErode, EffectFlip, EffectGlitchDistort, EffectGray, EffectHardBlack, EffectHeartbeatPulse, EffectHeatShimmer, EffectHsvAlphaKey, EffectInvert, EffectKaleido, EffectLabelChromatic, EffectLabelGrain, EffectLabelThresholdGrain, EffectLumaKey, EffectMirrorFold, EffectPhotoGrade, EffectPixelArtUpscale, EffectPixelate, EffectPlasma, EffectPowerFlicker, EffectRgbSplit, EffectRipple, EffectSmear, EffectSpinRotate, EffectThreshold]);
 const generatorById = new Map(generators.map((component) => [component.id, component]));
 const effectById = new Map(effects.map((component) => [component.id, component]));

@@ -69,4 +69,4 @@ export function mappingSurface(mapping, surfaceId) {
 export function getMappingSurfaceView(surface, state) {
   return mappingSurface(getSelectedMapping(state), surface.id) || surface;
 }
-import { compileLiveProjectionProgram } from "../domain/live-projection-program.js?v=explicit-surface-visibility-1";
+import { compileLiveProjectionProgram } from "../domain/live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";

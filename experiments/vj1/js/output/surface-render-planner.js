@@ -1,16 +1,17 @@
-import { surfaceTextureCeiling } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
+import { surfaceTextureCeiling } from "../domain/render-resolution.js?v=adaptive-component-demand-projector-resolution-ceilings-1";
 import {
   componentRenderInstanceKey,
+  componentRootTransformRegion,
   componentSourceView,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=transition-demand-stability-1";
+} from "./component-render-layout.js?v=root-content-transform-roi-1";
 import {
   createRenderRequest,
   frameSize,
   sourceRenderDemand,
   SURFACE_DEMAND_OVERSCAN,
-} from "./render-geometry.js?v=live-transition-geometry-1";
-import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=surface-fit-demand-1";
+} from "./render-geometry.js?v=root-content-transform-roi-3";
+import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=root-content-transform-roi-3";
 
 // Direct render-host bridge: the node owns the route algorithm while the
 // renderer supplies its established geometry policies directly. This closure
@@ -19,6 +20,7 @@ export const planSurfaceRoutes = createSurfaceCompositionEngine({
   surfaceTextureCeiling,
   componentRenderInstanceKey,
   componentSourceView,
+  componentRootTransformRegion,
   sharedComponentRenderRequests,
   createRenderRequest,
   sourceRenderDemand,

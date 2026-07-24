@@ -8,6 +8,7 @@ import {
   normalizePreviewViewports,
   normalizeRenderSettings,
   normalizeScreenCaptureSettings,
+  resolutionCeilingLongEdge,
   renderMaxFrameRate,
 } from "../js/domain/render-settings.js";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../js/domain/render-phase-policy.js";
@@ -59,6 +60,17 @@ test("screen capture settings preserve native dimensions and normalize browser h
   });
 });
 
+test("resolution ceilings include standard projector classes", () => {
+  assert.equal(normalizeRenderSettings({ resolutionCeiling: "vga" }).resolutionCeiling, "vga");
+  assert.equal(normalizeRenderSettings({ resolutionCeiling: "xga" }).resolutionCeiling, "xga");
+  assert.equal(normalizeRenderSettings({ resolutionCeiling: "uxga" }).resolutionCeiling, "uxga");
+  assert.equal(normalizeRenderSettings({ resolutionCeiling: "wuxga" }).resolutionCeiling, "wuxga");
+  assert.equal(resolutionCeilingLongEdge("vga"), 640);
+  assert.equal(resolutionCeilingLongEdge("xga"), 1024);
+  assert.equal(resolutionCeilingLongEdge("uxga"), 1600);
+  assert.equal(resolutionCeilingLongEdge("wuxga"), 1920);
+});
+
 test("preview viewport normalization accepts only the canonical per-workspace map", () => {
   const viewports = normalizePreviewViewports({
     canvas: { fit: "manual", zoom: 3, x: 99, y: 99 },
@@ -82,7 +94,7 @@ test("the duplicate embedded preview can occupy the opposite output render phase
 
 test("models remains a compatibility facade for render settings", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
-  assert.ok(source.includes('from "./render-settings.js?v=output-one-1"'));
+  assert.ok(source.includes('from "./render-settings.js?v=projector-resolution-ceilings-1"'));
   assert.doesNotMatch(source, /export function normalizeRenderSettings\(/);
   assert.doesNotMatch(source, /export function normalizeCameraSettings\(/);
 });

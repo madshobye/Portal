@@ -5,14 +5,15 @@ import { readFileSync } from "node:fs";
 import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, sceneComponentPlacementRect, sceneFrameBorderHit, sceneMaxRasterSize, scenePreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveSceneFrameRect, namedTextureStateKey, OutputRenderer, pointInTransformedRect, primaryTextureInputPort, qualityScaledRenderRequest, renderStateComponentProgramRoots, resizeSceneFrameRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { defaultProjectSurfaceMapping, outputFrameForId, outputFrames, renderRequestKey, worldSize } from "../js/output/render-geometry.js";
-import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
+import { disposeP5Shader, mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 import { ComponentPreviewInteraction, stateWithSceneFrameRect, stateWithChainItemBoundary, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
 import { compileOutputGroupTopology, compileMappingGroupTopology } from "../js/libraries/composition-engine/index.js";
 import { IsfRenderRuntime } from "../js/output/isf-render-runtime.js";
 import { TextureOperatorRuntime } from "../js/output/texture-operator-runtime.js";
 import { ShaderEffectRuntime } from "../js/output/shader-effect-runtime.js";
 import { CompositeRenderRuntime } from "../js/output/composite-render-runtime.js";
-import { SourceRenderRuntime } from "../js/output/source-render-runtime.js";
+import { mediaSourceDemandSize, SourceRenderRuntime } from "../js/output/source-render-runtime.js";
+import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-source-runtime.js";
 
 test("effect opacity and blend request a separate generic composite", () => {
   assert.equal(effectNeedsComposite({}), false);
@@ -388,10 +389,108 @@ test("native source dispatch follows the compiled node hook instead of generator
 
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const backendSource = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
   assert.doesNotMatch(backendSource, /source\.generatorId === "terrainFlyover"/);
   assert.doesNotMatch(backendSource, /source\.generatorId === "text"/);
-  assert.match(backendSource, /NATIVE_SOURCE_HOST_METHODS\[rendererId\]/);
+  assert.doesNotMatch(backendSource, /NATIVE_SOURCE_HOST_METHODS/);
+  assert.match(backendSource, /this\.nativeRenderers\.get\(String\(rendererId \|\| ""\)\)/);
+  assert.match(specializedSource, /registerNativeRenderer\(\s*"output\/specialized:terrainFlyover"/);
   assert.match(rendererSource, /new SourceRenderRuntime\(this\)/);
+});
+
+test("source backend imports every shared render-view contract it executes", () => {
+  const source = readFileSync(
+    new URL("../js/output/source-render-runtime.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /import \{\s*renderSourceDetail,\s*renderView,\s*withRenderView,\s*\} from "\.\.\/libraries\/render-engine\/render-view\/index\.js/,
+  );
+  assert.match(source, /return renderSourceDetail\(descriptor, descriptor,/);
+});
+
+test("native source renderer capabilities are retained, collision checked, and backend owned", () => {
+  const calls = [];
+  const runtime = new SourceRenderRuntime({
+    state: { render: {}, ui: {} },
+    mode: "output",
+    frameIndex: 0,
+  });
+  runtime.registerNativeRenderer(
+    "test/native:custom",
+    (...args) => calls.push(args),
+  );
+  assert.equal(runtime.hasNativeRenderer("test/native:custom"), true);
+  assert.equal(runtime.drawCompiledNativeSource(
+    "test/native:custom",
+    { id: "target" },
+    { type: "generator", generatorId: "custom" },
+    2.5,
+    { width: 640, height: 360 },
+    { id: "compiled-operation" },
+  ), true);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][2], 2.5);
+  assert.throws(
+    () => runtime.registerNativeRenderer("test/native:custom", () => {}),
+    /VJ1_NATIVE_SOURCE_RENDERER_DUPLICATE:test\/native:custom/,
+  );
+
+  const specialized = new SpecializedSourceRuntime();
+  for (const rendererId of [
+    "output/specialized:anatomy",
+    "output/specialized:terrainFlyover",
+    "output/specialized:featureMorph",
+    "output/specialized:featureMorphV2",
+    "output/specialized:tileTexture",
+    "output/specialized:text",
+    "output/specialized:meshPatterns",
+  ]) {
+    assert.equal(specialized.hasNativeRenderer(rendererId), true, `${rendererId} capability`);
+  }
+  assert.throws(
+    () => specialized.registerNativeRenderer("output/specialized:text", () => {}),
+    /VJ1_NATIVE_SOURCE_RENDERER_DUPLICATE:output\/specialized:text/,
+  );
+  specialized.dispose();
+});
+
+test("shader disposal ignores non-native p5 wrapper handles during context teardown", () => {
+  const deleted = [];
+  const nativeProgram = { kind: "program" };
+  const nativeFragment = { kind: "shader" };
+  const gl = {
+    isProgram(value) {
+      if (value !== nativeProgram) throw new TypeError("not a WebGLProgram");
+      return true;
+    },
+    deleteProgram(value) {
+      deleted.push(["program", value]);
+    },
+    isShader(value) {
+      if (value !== nativeFragment) throw new TypeError("not a WebGLShader");
+      return true;
+    },
+    deleteShader(value) {
+      deleted.push(["shader", value]);
+    },
+  };
+  const shader = {
+    _renderer: { GL: gl },
+    _glProgram: nativeProgram,
+    _vertShader: { p5Wrapper: true },
+    _fragShader: nativeFragment,
+  };
+
+  assert.doesNotThrow(() => disposeP5Shader(shader));
+  assert.deepEqual(deleted, [
+    ["program", nativeProgram],
+    ["shader", nativeFragment],
+  ]);
+  assert.equal(shader._glProgram, 0);
+  assert.equal(shader._vertShader, 0);
+  assert.equal(shader._fragShader, 0);
 });
 
 test("ordinary source dispatch follows the compiled node hook with a legacy source fallback", () => {
@@ -409,6 +508,48 @@ test("ordinary source dispatch follows the compiled node hook with a legacy sour
   assert.match(rendererSource, /return this\.sourceRuntime\.resolvePlacedSourceResult\(/);
   assert.doesNotMatch(rendererSource, /SOURCE_RUNTIME_METHODS\[rendererId\]/);
   assert.equal(typeof new SourceRenderRuntime({}).drawSourceToGraphics, "function");
+});
+
+test("extracted source backend owns source detail and suppresses only repeated identical crashes", () => {
+  assert.deepEqual(mediaSourceDemandSize({
+    width: 160,
+    height: 90,
+    uvRect: [0, 0, 0.5, 0.5],
+  }, {
+    contentTransform: { scale: 2 },
+  }), {
+    width: 640,
+    height: 360,
+    physicalWidth: 320,
+    physicalHeight: 180,
+    contentScale: 2,
+  });
+
+  const runtime = new SourceRenderRuntime({ state: { render: {} } });
+  const target = { width: 160, height: 90, background() {} };
+  const component = { id: "owner", name: "Owner" };
+  const source = { type: "media", mediaId: "media/clip.mov" };
+  const originalError = console.error;
+  const errors = [];
+  console.error = (...args) => errors.push(args);
+  try {
+    runtime.drawSourceToGraphics = () => {
+      throw new ReferenceError("missing source dependency");
+    };
+    runtime.safeDrawSourceToGraphics(target, source, component, 0, { width: 160, height: 90 });
+    runtime.safeDrawSourceToGraphics(target, source, component, 0, { width: 160, height: 90 });
+    assert.equal(errors.length, 1, "the same persistent source failure is reported once");
+
+    runtime.drawSourceToGraphics = () => {};
+    runtime.safeDrawSourceToGraphics(target, source, component, 0, { width: 160, height: 90 });
+    runtime.drawSourceToGraphics = () => {
+      throw new ReferenceError("missing source dependency");
+    };
+    runtime.safeDrawSourceToGraphics(target, source, component, 0, { width: 160, height: 90 });
+    assert.equal(errors.length, 2, "a failure is reportable again after the source recovers");
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test("source backend executes the compiled renderer capability without source-kind branching", () => {
@@ -1480,6 +1621,75 @@ test("hud render resolution reports GPU render pixels, not window size", () => {
   }
 });
 
+test("Output HUD presents every authored render-chain allocation on its own line", () => {
+  const renderer = new OutputRenderer({ mode: "output" });
+  renderer.state = {
+    render: { outputs: [{ id: "output-main", aspectRatio: 16 / 9 }] },
+  };
+  renderer.lastRenderResolutionTrace = [
+    {
+      componentId: "scene",
+      itemId: "scene",
+      kind: "scene",
+      name: "Main Scene",
+      width: 1920,
+      height: 1080,
+      depth: 0,
+    },
+    {
+      componentId: "scene",
+      itemId: "source",
+      kind: "source",
+      name: "Camera <A>",
+      width: 960,
+      height: 540,
+      depth: 1,
+    },
+  ];
+
+  const markup = renderer.outputRenderChainHudMarkup(60);
+
+  assert.match(markup, /60 fps/);
+  assert.match(markup, /Main Scene/);
+  assert.match(markup, /Camera &lt;A&gt;/);
+  assert.match(markup, /1920x1080/);
+  assert.match(markup, /960x540/);
+  assert.equal((markup.match(/output-chain-row/g) || []).length, 2);
+});
+
+test("cached Components replay their retained resolution trace without rerendering it", () => {
+  const renderer = new OutputRenderer({ mode: "output" });
+  const component = { id: "component", name: "Component", type: "component" };
+  const request = { width: 640, height: 360 };
+
+  renderer.withRenderResolutionTrace(component, "component-request", request, () => {
+    renderer.recordRenderChainResolution(component, {
+      id: "source",
+      name: "Source",
+      source: { type: "generator" },
+    }, "source", request);
+  });
+
+  renderer.profileRuntime.collectDetailed = true;
+  renderer.activeRenderResolutionTrace.length = 0;
+  let rendered = 0;
+  renderer.withRenderResolutionTrace(component, "component-request", request, () => {
+    renderer.useCachedRenderResolutionTrace("component-request");
+    rendered++;
+  });
+
+  assert.equal(rendered, 1);
+  assert.deepEqual(
+    renderer.activeRenderResolutionTrace.map(({ kind, name, width, height }) => ({
+      kind, name, width, height,
+    })),
+    [
+      { kind: "component", name: "Component", width: 640, height: 360 },
+      { kind: "source", name: "Source", width: 640, height: 360 },
+    ],
+  );
+});
+
 test("Good embedded preview reports its final render-chain request at 2x", () => {
   const renderer = new OutputRenderer({ mode: "live" });
   const render = {
@@ -1488,10 +1698,11 @@ test("Good embedded preview reports its final render-chain request at 2x", () =>
     previewRasterScale: 2,
   };
   renderer.state = { render };
+  renderer.setPreviewViewport({ zoom: 1.25, x: 0, y: 0 });
   renderer.recordPresentedRenderRequest({ width: 2000, height: 1000 });
   assert.deepEqual(renderer.renderResolutionSize(render), { width: 2000, height: 1000, density: 2 });
   assert.equal(renderer.renderResolutionLabel(render), "2000x1000 @2x");
-  assert.equal(renderer.previewViewportZoomLabel({ previewViewportZoom: 1.234 }), "1.23x view");
+  assert.equal(renderer.previewViewportZoomLabel(), "1.25x view");
   const diagnostic = renderer.previewDiagnosticHudMarkup(60, {
     ...render,
     previewViewportZoom: 1.25,
@@ -1503,6 +1714,25 @@ test("Good embedded preview reports its final render-chain request at 2x", () =>
   assert.match(diagnostic, /windowWidth/);
   assert.match(diagnostic, /density param 1x/);
   assert.match(diagnostic, /p5 2x/);
+});
+
+test("preview viewport changes only retained p5 presentation state", () => {
+  const renderer = new OutputRenderer({ mode: "live" });
+  const state = {
+    render: { previewViewportZoom: 1, previewViewportX: 0, previewViewportY: 0 },
+    components: [{ id: "component", params: { opacity: 0.42 } }],
+  };
+  renderer.state = state;
+  let invalidation = "";
+  renderer.requestPresentationFrame = (reason) => {
+    invalidation = reason;
+  };
+
+  assert.equal(renderer.setPreviewViewport({ zoom: 2, x: 15, y: -8 }), true);
+  assert.strictEqual(renderer.state, state);
+  assert.deepEqual(renderer.state.components[0].params, { opacity: 0.42 });
+  assert.deepEqual(renderer.previewViewport, { zoom: 2, x: 15, y: -8 });
+  assert.equal(invalidation, "preview-viewport");
 });
 
 test("terrain and parsed STL stay in the shared WebGL context while imported p5 models reuse a scratch target", () => {
@@ -1621,6 +1851,88 @@ test("compiled 3D visual hosting resolves declared resources without a fixed obj
   assert.ok(method.includes("params[`${inlet.id}Id`]"));
   assert.ok(!method.includes("params.meshAId"));
   assert.ok(!method.includes("params.meshBId"));
+});
+
+test("compiled 3D visual hosting feeds retained multi-mesh programs into the component target", () => {
+  const meshA = { id: "mesh-a" };
+  const meshB = { id: "mesh-b" };
+  const acquired = [];
+  const executions = [];
+  const runtime = new SourceRenderRuntime({
+    acquireMedia(mediaId) {
+      acquired.push(mediaId);
+      if (mediaId === "media/a.stl") return { modelData: meshA };
+      if (mediaId === "media/b.stl") return { modelData: meshB };
+      return null;
+    },
+    requestMissingMedia() {
+      throw new Error("all declared meshes should already be available");
+    },
+  });
+  const operation = {
+    scene3dProgram: {
+      publicInputs: [
+        { id: "meshAId", type: "string", required: true },
+        { id: "meshBId", type: "string", required: true },
+        { id: "surface-color", type: "color", required: false },
+        { id: "target", type: "any", required: true },
+      ],
+      resourceBindings: [
+        {
+          nodeId: "mesh-a",
+          kind: "media",
+          valueType: "mesh",
+          parameterId: "mediaId",
+          publicInputId: "meshAId",
+          required: true,
+        },
+        {
+          nodeId: "mesh-b",
+          kind: "media",
+          valueType: "mesh",
+          parameterId: "mediaId",
+          publicInputId: "meshBId",
+          required: true,
+        },
+      ],
+      execute(inputs, context) {
+        executions.push({
+          inputs,
+          target: inputs.target,
+          meshA: context.resolveMesh(inputs.meshAId),
+          meshB: context.resolveMesh(inputs.meshBId),
+          surfaceColor: inputs["surface-color"],
+        });
+      },
+    },
+  };
+  const source = {
+    type: "generator",
+    params: {
+      meshAId: "media/a.stl",
+      meshBId: "media/b.stl",
+      "surface-color": "#123456ff",
+    },
+  };
+  const target = { width: 1280, height: 720 };
+  const request = { width: 1280, height: 720, logicalWidth: 1280, logicalHeight: 720 };
+
+  runtime.drawCompiledScene3dProgram(target, source, 1.5, request, operation);
+  delete source.params["surface-color"];
+  runtime.drawCompiledScene3dProgram(target, source, 2.5, request, operation);
+
+  assert.deepEqual(acquired, [
+    "media/a.stl", "media/b.stl",
+    "media/a.stl", "media/b.stl",
+  ]);
+  assert.equal(executions.length, 2);
+  assert.strictEqual(executions[0].inputs, executions[1].inputs, "the compiled host retains one invocation packet");
+  assert.strictEqual(executions[0].target, target);
+  assert.strictEqual(executions[0].meshA, meshA);
+  assert.strictEqual(executions[0].meshB, meshB);
+  assert.equal(executions[0].surfaceColor, "#123456ff");
+  assert.equal(executions[1].surfaceColor, undefined, "removed public values cannot leak from a retained invocation packet");
+  assert.equal(executions[1].inputs.componentTime, 2.5);
 });
 
 test("Terrain node helper and shader forks invalidate only their retained GPU resources", () => {
@@ -1745,6 +2057,27 @@ test("Scene rendering evaluates ordinary sources, Groups, effects, and compiled 
   assert.doesNotMatch(source, /\blegacyChainItemsAreFrameDynamic\b/);
 });
 
+test("effect quality requests remain owned by the effect path", () => {
+  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const directSourcePath = source.slice(
+    source.indexOf("  renderDirectSourceNodeState("),
+    source.indexOf("  renderLayerNodeState("),
+  );
+  const effectPath = source.slice(
+    source.indexOf("  renderEffectNodeState("),
+    source.indexOf("  renderEffectRunNodeState("),
+  );
+
+  assert.doesNotMatch(directSourcePath, /\bqualityRequest\b/);
+  assert.doesNotMatch(directSourcePath, /qualityScaledRenderRequest\(evaluationRequest,\s*params\)/);
+  assert.match(effectPath, /const qualityRequest = qualityScaledRenderRequest\(evaluationRequest,\s*params\);/);
+  assert.match(effectPath, /recordRenderChainResolution\(null,\s*item,\s*"effect",\s*qualityRequest\)/);
+  assert.ok(
+    effectPath.indexOf("const qualityRequest =") < effectPath.indexOf("this.evaluateChainNode("),
+    "the quality request must exist before the effect evaluation callback closes over it",
+  );
+});
+
 test("stable compiled presentations suspend until a graph or media invalidation wakes them", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
@@ -1762,6 +2095,10 @@ test("stable compiled presentations suspend until a graph or media invalidation 
   assert.equal(renderer.presentationFrameMode(), "on-change");
   renderer.componentContainsVideo = () => true;
   assert.equal(renderer.presentationFrameMode(), "continuous", "active video graphs use the presentation clock rather than decoder callbacks");
+  renderer.state.global = { playing: false };
+  assert.equal(renderer.isPlaybackActive(), false);
+  assert.equal(renderer.presentationFrameMode(), "on-change", "paused Preview graphs suspend even when they contain video");
+  renderer.state.global.playing = true;
   renderer.componentContainsVideo = () => false;
   renderer.componentIsFrameDynamic = () => true;
   assert.equal(renderer.presentationFrameMode(), "continuous");
@@ -1769,6 +2106,8 @@ test("stable compiled presentations suspend until a graph or media invalidation 
   renderer.mode = "output";
   renderer.state.surfaces = [{ enabled: true, componentId: component.id }];
   assert.equal(renderer.presentationFrameMode(), "on-change", "stable mapped Outputs use the same policy");
+  renderer.state.global.playing = false;
+  assert.equal(renderer.isPlaybackActive(), false, "Output and Preview modes consume the same playback state");
   assert.ok(rendererSource.includes("presentationFrameMode()"));
   assert.ok(rendererSource.includes("this.componentContainsVideo(component)"));
   assert.ok(rendererSource.includes("Decoder callbacks identify new media revisions, but they are not a"));
@@ -1788,6 +2127,11 @@ test("Scene Surface routes declare crop demand without changing uncropped Scene 
   const surfaceView = componentSourceView(render, scene, surface);
   const wholeView = componentSourceView(render, scene, {});
   assert.equal(surfaceView.samplingScale, 1);
+  assert.equal(
+    componentSourceView(render, { ...scene, transform: { scale: 8 } }, surface).samplingScale,
+    surfaceView.samplingScale,
+    "Scene root Content scale does not multiply routed texture demand",
+  );
   assertClose(surfaceView.sampleRect.x, surfaceView.logicalSize.width * 0.1);
   assertClose(surfaceView.sampleRect.y, surfaceView.logicalSize.height * 0.2);
   assertClose(surfaceView.sampleRect.width, surfaceView.logicalSize.width * 0.25);
@@ -1926,6 +2270,11 @@ test("Component initial dimensions define geometry without capping adaptive rend
   assert.deepEqual(view.logicalSize, { width: 2000, height: 1000 });
   assert.deepEqual(view.maxRasterSize, { width: 8192, height: 4096 });
   assert.deepEqual(componentAdaptiveRasterLimit(view.logicalSize), view.maxRasterSize);
+  assert.equal(
+    componentSourceView(render, { ...component, transform: { scale: 8 } }).samplingScale,
+    view.samplingScale,
+    "root Content scale is not a component texture-resolution multiplier",
+  );
   assert.deepEqual(
     pickRequestSize(componentReferenceRenderRequest(render, component, { width: 3000, height: 1500 })),
     { width: 3008, height: 1504 }
@@ -2473,7 +2822,7 @@ test("scene surfaces render components at their configured shape and relative re
   assert.ok(surfaceRenderPlan.includes("componentById.get(surface.componentId)"));
   assert.ok(surfaceRenderPlan.includes("resolveRouteSourceNode(storedSurface)"));
   assert.ok(surfaceRenderPlan.includes("state.render?.sampling?.surfaceOverscan"));
-  assert.ok(surfaceRenderPlan.includes("sharedComponentRenderRequests(routes"));
+  assert.ok(surfaceRenderPlan.includes("sharedComponentRenderRequests(requestableRoutes"));
   assert.ok(surfaceRenderPlan.includes("route.componentRequest = componentRequests.get(renderInstanceKey)"));
   assert.ok(!drawSurfaceRoute.includes("stableFrameRenderRequest(this.state.render"));
   assert.ok(drawSurfaceRoute.includes("scaledComponentSampleRect("));
@@ -2594,10 +2943,11 @@ test("every compiled generator backend remains tied to the component source targ
   assert.ok(drawSource.includes("target,"));
   assert.ok(drawSource.includes('typeof operation?.nodeProcess === "function"'));
   assert.ok(drawSource.includes("this.executeCompiledVisualNodeProcess("));
-  assert.ok(source.includes("const method = NATIVE_SOURCE_HOST_METHODS[rendererId]"));
+  assert.ok(source.includes('this.nativeRenderers.get(String(rendererId || ""))'));
+  assert.ok(source.includes("this.host.specializedSources?.drawNativeRenderer?.("));
   assert.ok(drawSource.includes("host.drawShaderGenerator("));
-  assert.ok(drawSource.includes("drawGenerator("));
-  assert.ok(drawSource.includes("source.generatorId,"));
+  assert.ok(drawSource.includes("VJ1_GENERATOR_IMPLEMENTATION_MISSING"));
+  assert.ok(!drawSource.includes("drawGenerator("));
   assert.ok(drawShader.includes("width: pg.width"));
   assert.ok(drawShader.includes("height: pg.height"));
 });

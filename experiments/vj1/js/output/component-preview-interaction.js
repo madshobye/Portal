@@ -1,6 +1,6 @@
 import { sceneFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
 import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=surface-identity-1";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
   sceneFrameBorderHit,

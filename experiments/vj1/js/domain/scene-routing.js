@@ -213,14 +213,16 @@ export function materializeLiveProgramSurfaceRoutes(state = {}, target = null, m
     const index = routeState.surfaces.findIndex((surface) => String(surface.id) === String(surfaceId));
     if (index >= 0) routeState.surfaces[index] = { ...routeState.surfaces[index], enabled: visible !== false };
   }
-  // Scene Mapping supplies the default Overall route, but it is not a master
-  // switch for the projection matrix. A patched Surface or an explicitly
-  // visible Surface remains independently routable while Overall is hidden.
+  // Scene Mapping controls the mapped projection path, not the direct-output
+  // destinations. Direct Surfaces retain their own authored/Live visibility
+  // and may continue presenting the Overall source while mapped Surfaces are
+  // hidden. Explicit patches and visibility overrides remain independent too.
   // This route-level rule is shared by the embedded monitor and Output windows.
   if (live.sceneMappingVisible === false) {
     routeState.surfaces = routeState.surfaces.map((surface) => {
       const surfaceId = String(surface.id || "");
-      const independentlyVisible = patchedSurfaceIds.has(surfaceId) ||
+      const independentlyVisible = surface.destination?.type === "direct" ||
+        patchedSurfaceIds.has(surfaceId) ||
         live.surfaceVisibility?.[surfaceId] === true;
       return independentlyVisible ? surface : { ...surface, enabled: false };
     });

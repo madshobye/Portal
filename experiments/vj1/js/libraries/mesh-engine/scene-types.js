@@ -28,6 +28,31 @@ export function createTransform3d(value = {}) {
   });
 }
 
+// Frame-driven controllers use a stable Transform3d identity so compiled
+// object and Scene topology does not rebuild merely because motion advanced.
+// Any node deriving a new value from this signal must itself be frame-driven.
+export function createRetainedTransform3d(value = {}) {
+  const transform = {
+    kind: "transform3d",
+    contractVersion: 1,
+    retainedSignal: true,
+    position: [0, 0, 0],
+    rotation: [0, 0, 0],
+    scale: [1, 1, 1],
+  };
+  return updateRetainedTransform3d(transform, value);
+}
+
+export function updateRetainedTransform3d(transform, value = {}) {
+  if (transform?.kind !== "transform3d" || transform?.retainedSignal !== true) {
+    throw new Error("TRANSFORM_3D_RETAINED_SIGNAL_INVALID");
+  }
+  writeVector(transform.position, value.position, 3, [0, 0, 0]);
+  writeVector(transform.rotation, value.rotation, 3, [0, 0, 0]);
+  writeVector(transform.scale, value.scale, 3, [1, 1, 1], 0.0001);
+  return transform;
+}
+
 export function createMaterial3d(value = {}) {
   const id = String(value.id || "material");
   const renderMode = MATERIAL_3D_MODES.includes(value.renderMode) ? value.renderMode : "surface";
@@ -50,6 +75,10 @@ export function createMaterial3d(value = {}) {
     wireThickness: finite(value.wireThickness, 1),
     pointBudget: Math.max(128, Math.round(finite(value.pointBudget, 4000))),
     visibleDepth: clamp(finite(value.visibleDepth, 1), 0.02, 1),
+    edgeAngle: clamp(finite(value.edgeAngle, 35), 0, 180),
+    edgeBudget: Math.max(1000, Math.round(finite(value.edgeBudget, 20000))),
+    wireDetail: clamp(finite(value.wireDetail, 0.25), 0, 1),
+    renderQuality: clamp(finite(value.renderQuality, 0.5), 0, 1),
     shader: Object.freeze({
       source: shaderSource,
       uniforms,
@@ -119,9 +148,32 @@ function vector(value, length, fallback, minMagnitude = -Infinity) {
   }));
 }
 
+function writeVector(target, value, length, fallback, minMagnitude = -Infinity) {
+  const source = Array.isArray(value) || ArrayBuffer.isView(value) ? value : fallback;
+  for (let index = 0; index < length; index += 1) {
+    const result = finite(source[index], fallback[index]);
+    target[index] = minMagnitude === -Infinity || Math.abs(result) >= minMagnitude
+      ? result
+      : Math.sign(result || 1) * minMagnitude;
+  }
+  return target;
+}
+
 function color(value, fallback) {
-  const source = Array.isArray(value) || ArrayBuffer.isView(value) ? Array.from(value) : fallback;
+  const source = parseHexColor(value) ||
+    (Array.isArray(value) || ArrayBuffer.isView(value) ? Array.from(value) : fallback);
   return Object.freeze([0, 1, 2, 3].map((index) => clamp(finite(source[index], fallback[index]), 0, 255)));
+}
+
+function parseHexColor(value) {
+  const text = typeof value === "string" ? value.trim() : "";
+  const match = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(text);
+  if (!match) return null;
+  const hex = match[1].length <= 4
+    ? [...match[1]].map((digit) => `${digit}${digit}`).join("")
+    : match[1];
+  const withAlpha = hex.length === 6 ? `${hex}ff` : hex;
+  return [0, 2, 4, 6].map((offset) => Number.parseInt(withAlpha.slice(offset, offset + 2), 16));
 }
 
 function finite(value, fallback) {

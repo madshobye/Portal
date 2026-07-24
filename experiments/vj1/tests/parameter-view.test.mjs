@@ -41,17 +41,42 @@ test("color params place the shared slider label above an alpha track with the s
   const alphaIndex = control.indexOf("data-color-alpha");
   const swatchIndex = control.indexOf("data-color-rgb");
 
-  assert.match(control, /<span>Sky<\/span>[\s\S]*?class="color-param-row"/);
+  assert.match(control, /class="field range-field color-param chain-param/);
+  assert.match(control, /<span>Sky<\/span>[\s\S]*?class="param-control-track color-param-row"/);
   assert.ok(alphaIndex > 0);
   assert.ok(swatchIndex > alphaIndex);
 });
 
-test("persistent params expose reset and significant metadata while Live overrides do not", () => {
+test("persistent and Live params expose reset metadata with explicit ownership modes", () => {
   const persistent = paramControlTemplate({ id: "gain", label: "Gain", type: "number", min: 0, max: 2, defaultValue: 0.75 }, "components.0.chain.0.params.gain", 1, "data-update", { significant: true });
-  const live = paramControlTemplate({ id: "gain", label: "Gain", type: "number", min: 0, max: 2, defaultValue: 0.75 }, "chain.0.params.gain", 1, "data-live-update");
+  const live = paramControlTemplate({ id: "gain", label: "Gain", type: "number", min: 0, max: 2, defaultValue: 0.75 }, "chain.0.params.gain", 1, 'data-live-component-id="component-7" data-live-update');
   assert.match(persistent, /is-significant/);
   assert.match(persistent, /data-param-default="0\.75"/);
-  assert.doesNotMatch(live, /data-param-context-path/);
+  assert.match(persistent, /data-param-context-mode="state"/);
+  assert.match(live, /data-param-context-path="chain\.0\.params\.gain"/);
+  assert.match(live, /data-param-default="0\.75"/);
+  assert.match(live, /data-param-context-mode="live"/);
+  assert.match(live, /data-param-context-component-id="component-7"/);
+});
+
+test("parameter controls retain an explicit context opt-out", () => {
+  const html = paramControlTemplate(
+    { id: "local", label: "Local", type: "number", min: 0, max: 1, defaultValue: 0.5 },
+    "local",
+    0.5,
+    "data-update",
+    { context: false }
+  );
+  assert.doesNotMatch(html, /data-param-context-path/);
+});
+
+test("parameter dropdowns use the shared compact select component", () => {
+  const html = paramControlTemplate(
+    { id: "mode", label: "Mode", type: "enum", values: ["one", "two"], defaultValue: "one" },
+    "params.mode",
+    "two"
+  );
+  assert.match(html, /<select class="param-select" data-update="params\.mode">/);
 });
 
 test("screen input params keep stable IDs while presenting session names and dimensions", () => {

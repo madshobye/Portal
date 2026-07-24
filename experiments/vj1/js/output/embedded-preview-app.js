@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
-import { OutputRenderer } from "./output-renderer.js?v=public-control-node-configuration-media-url-retirement-named-image-inputs-isf-texture-shader-composite-source-backends-2";
+import { OutputRenderer } from "./output-renderer.js?v=compiled-artifact-authority-1";
 import { renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
@@ -114,6 +114,26 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   function applyRenderPatches(patches = []) {
     wakePreviewPresentation();
     return renderer?.applyRenderPatches(patches);
+  }
+
+  function setViewport(ui = {}) {
+    const currentUi = pendingState?.ui || {};
+    pendingState = {
+      ...(pendingState || {}),
+      ui: {
+        ...currentUi,
+        previewViewports: ui.previewViewports || currentUi.previewViewports,
+      },
+    };
+    const resolvedViewport = resolveViewportForFit({
+      mode: pendingMode,
+      workspace: pendingState.ui?.workspace,
+      stageSize: stageSize(),
+      viewport: previewViewportForUi(pendingState.ui),
+      render: pendingState.render || {},
+    });
+    wakePreviewPresentation();
+    return renderer?.setPreviewViewport(resolvedViewport) || false;
   }
 
   function setInstalledNodePackages(packages = []) {
@@ -326,8 +346,8 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       renderer?.mousePressed?.(position.x, position.y);
     };
     const onPointerMove = (event) => {
-      wakePreviewPresentation();
       if (!pointerActive || event.pointerId !== activePointerId) return;
+      wakePreviewPresentation();
       event.preventDefault();
       const position = point(event);
       renderer?.mouseDragged?.(position.x, position.y);
@@ -900,6 +920,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     setInstalledNodePackages,
     applyLivePatches,
     applyRenderPatches,
+    setViewport,
     command,
     pause,
   };

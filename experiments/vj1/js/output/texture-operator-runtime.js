@@ -3,7 +3,7 @@ import {
   transitionKernelCacheKey,
   transitionKernelUniformValues,
 } from "../libraries/transition-engine/index.js";
-import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js?v=transition-view-contract-1";
+import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
 import { renderBufferKey } from "./component-render-state.js?v=gapless-video-loop-1";
 import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import {

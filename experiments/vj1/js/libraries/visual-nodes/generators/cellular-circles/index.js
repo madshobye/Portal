@@ -10,7 +10,10 @@ const manifest = Object.freeze({
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createNumberParam("scale", "Scale", { min: 1, max: 30, step: 0.01, defaultValue: 10, scale: "log" }),
-      createNumberParam("searchRadius", "Search radius", { min: 1, max: 5, step: 1, defaultValue: 5 }),
+      createNumberParam("searchRadius", "Search radius", {
+        min: 1, max: 5, step: 1, defaultValue: 5,
+        renderQualityScaling: { minimum: 0.35, maximum: 1.5 },
+      }),
       createNumberParam("orbitRadius", "Cell movement", { min: 0, max: 4, step: 0.01, defaultValue: 4 }),
       createNumberParam("cellMotion", "Motion variation", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
       createNumberParam("rotationSpeed", "Rotation", { min: -1, max: 1, step: 0.01, defaultValue: 0.1 }),

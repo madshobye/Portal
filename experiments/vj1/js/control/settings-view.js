@@ -1,8 +1,9 @@
-import { normalizeRenderSettings } from "../domain/render-settings.js?v=output-one-1";
+import { normalizeRenderSettings, RESOLUTION_CEILING_PRESETS } from "../domain/render-settings.js?v=projector-resolution-ceilings-1";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
 import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
 
 export function settingsModalTemplate(state, activeTab = "outputs") {
+  activeTab = normalizeSettingsTab(activeTab);
   const render = normalizeRenderSettings(state.render || {});
   const camera = render.camera;
   const screen = render.screenCapture;
@@ -19,12 +20,11 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
       </header>
       <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
         ${settingsTab("outputs", "Outputs", activeTab)}
-        ${settingsTab("camera", "Camera", activeTab)}
-        ${settingsTab("screen", "Screen share", activeTab)}
+        ${settingsTab("inputs", "Inputs", activeTab)}
         ${settingsTab("rendering", "Rendering", activeTab)}
       </nav>
       <div class="settings-modal-body" data-scroll-region data-scroll-key="settings:${activeTab}">
-        <section class="ui-section element-section" data-settings-panel="outputs" ${visiblePanel("outputs", activeTab)}>
+        <section class="ui-section element-section parameter-surface settings-view-surface" data-settings-panel="outputs" ${visiblePanel("outputs", activeTab)}>
           <div class="settings-preset-row">
             <button type="button" data-render-preset="16:9">16:9</button>
             <button type="button" data-render-preset="4:3">4:3</button>
@@ -38,18 +38,19 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           <button type="button" class="chain-add-button" data-add-output>${icon("add")} Add output</button>
           <div class="soft-note">The active output window supplies the pixels. Outputs keep only their proportions and are arranged side by side in Mapping.</div>
         </section>
-        <section class="ui-section element-section" data-settings-panel="camera" ${visiblePanel("camera", activeTab)}>
-          <label class="field">Camera direction
-            <select data-settings-update="render.camera.facingMode">
-              <option value="user" ${camera.facingMode === "user" ? "selected" : ""}>Front</option>
-              <option value="environment" ${camera.facingMode === "environment" ? "selected" : ""}>Rear / external</option>
-            </select>
-          </label>
-          ${settingsToggle("Mirror camera image", "render.camera.mirrored", camera.mirrored)}
-          ${settingsToggle("Use maximum supported resolution", "render.camera.maxResolution", camera.maxResolution)}
-          <div class="soft-note">The browser chooses a capture size suitable for the current render demand. Changing Camera settings restarts an active capture.</div>
-        </section>
-        <section class="ui-section element-section" data-settings-panel="screen" ${visiblePanel("screen", activeTab)}>
+        <section class="ui-section element-section parameter-surface settings-view-surface settings-inputs-panel" data-settings-panel="inputs" ${visiblePanel("inputs", activeTab)}>
+          <div class="settings-group">
+            <div class="settings-group-title"><span class="material-symbols-rounded">videocam</span><span>Camera</span></div>
+            <label class="field">Camera direction
+              <select data-settings-update="render.camera.facingMode">
+                <option value="user" ${camera.facingMode === "user" ? "selected" : ""}>Front</option>
+                <option value="environment" ${camera.facingMode === "environment" ? "selected" : ""}>Rear / external</option>
+              </select>
+            </label>
+            ${settingsToggle("Mirror camera image", "render.camera.mirrored", camera.mirrored)}
+            ${settingsToggle("Use maximum supported resolution", "render.camera.maxResolution", camera.maxResolution)}
+            <div class="soft-note">The browser chooses a capture size suitable for the current render demand. Changing Camera settings restarts an active capture.</div>
+          </div>
           <div class="settings-group">
             <div class="settings-group-title"><span class="material-symbols-rounded">present_to_all</span><span>Shared screen inputs</span></div>
             <label class="field">Maximum frame rate <input type="number" min="1" max="60" step="1" data-settings-update="render.screenCapture.frameRate" value="${screen.frameRate}" /></label>
@@ -74,7 +75,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
             <div class="soft-note">Each browser-approved input stays open for this session. Screen Share generators select an input by its stable session ID; Preview and same-origin Output windows share the same streams.</div>
           </div>
         </section>
-        <section class="ui-section element-section settings-rendering-panel" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
+        <section class="ui-section element-section parameter-surface settings-view-surface settings-rendering-panel" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">grid_4x4</span><span>Scene proportion</span></div>
           ${aspectRatioField("Scene aspect ratio", "render.sceneAspectRatio", render.sceneAspectRatio)}
@@ -89,10 +90,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="settings-group-title"><span class="material-symbols-rounded">texture</span><span>Resolution ceiling</span></div>
           <label class="field">Maximum class
             <select data-settings-update="render.resolutionCeiling">
-              <option value="auto" ${render.resolutionCeiling === "auto" ? "selected" : ""}>Auto · current window</option>
-              <option value="2k" ${render.resolutionCeiling === "2k" ? "selected" : ""}>2K</option>
-              <option value="4k" ${render.resolutionCeiling === "4k" ? "selected" : ""}>4K</option>
-              <option value="8k" ${render.resolutionCeiling === "8k" ? "selected" : ""}>8K</option>
+              ${RESOLUTION_CEILING_PRESETS.map((preset) => `<option value="${preset.id}" ${render.resolutionCeiling === preset.id ? "selected" : ""}>${preset.label}</option>`).join("")}
             </select>
           </label>
           <div class="soft-note">A safety ceiling for adaptive buffers, expressed without authoring a width and height. Auto follows the current window.</div>
@@ -175,6 +173,11 @@ function aspectRatioField(label, path, value) {
 function settingsTab(id, label, activeTab) {
   const active = activeTab === id;
   return `<button type="button" role="tab" data-settings-tab="${id}" class="${active ? "is-active" : ""}" aria-selected="${active ? "true" : "false"}">${label}</button>`;
+}
+
+export function normalizeSettingsTab(value) {
+  if (value === "camera" || value === "screen") return "inputs";
+  return ["outputs", "inputs", "rendering"].includes(value) ? value : "outputs";
 }
 
 function visiblePanel(id, activeTab) {

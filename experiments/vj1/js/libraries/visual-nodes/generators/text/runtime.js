@@ -91,7 +91,11 @@ export function createTextMask(params = {}, width = 1, height = 1, existing = nu
   const canvas = existing || document.createElement("canvas");
   canvas.width = Math.max(1, Math.round(width));
   canvas.height = Math.max(1, Math.round(height));
-  const context = canvas.getContext("2d", { alpha: true });
+  // The mask is transferred into a p5 image through getImageData after every
+  // layout rebuild. This option must be present on the first context request;
+  // asking for it only at readback time is too late for Chromium to select
+  // the read-optimized canvas implementation.
+  const context = canvas.getContext("2d", { alpha: true, willReadFrequently: true });
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = "#ffffff";
   context.textBaseline = "alphabetic";

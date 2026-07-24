@@ -196,7 +196,7 @@ export function sourceRenderDemand({
   const scaleToPixels = Math.max(0.05, Number(pixelScale) || 1) *
     Math.max(0.5, Number(overscan) || 1) *
     Math.max(0.05, Number(samplingScale) || 1);
-  const desiredScale = Math.max(
+  const surfaceScale = Math.max(
     demandFootprint.width * scaleToPixels / (rect.width * sampledFractions.x),
     demandFootprint.height * scaleToPixels / (rect.height * sampledFractions.y)
   );
@@ -204,7 +204,7 @@ export function sourceRenderDemand({
     Math.max(1, Number(maxRasterSize.width) || logicalWidth) / logicalWidth,
     Math.max(1, Number(maxRasterSize.height) || logicalHeight) / logicalHeight
   );
-  const rasterScale = Math.max(1 / Math.max(logicalWidth, logicalHeight), Math.min(rasterLimit, desiredScale));
+  const rasterScale = Math.max(1 / Math.max(logicalWidth, logicalHeight), Math.min(rasterLimit, surfaceScale));
   const rasterSize = {
     width: quantizedDemandInt(logicalWidth * rasterScale, Math.max(1, Number(maxRasterSize.width) || logicalWidth)),
     height: quantizedDemandInt(logicalHeight * rasterScale, Math.max(1, Number(maxRasterSize.height) || logicalHeight)),
@@ -225,7 +225,7 @@ export function sourceRenderDemand({
   const regionalScale = Math.max(
     1 / Math.max(intermediateSize.width, intermediateSize.height),
     Math.min(
-      desiredScale,
+      surfaceScale,
       maxSurfaceWidth / intermediateSize.width,
       maxSurfaceHeight / intermediateSize.height
     )
@@ -326,9 +326,13 @@ export function outputFrameForId(render = {}, outputId = "") {
   return frames.find((frame) => frame.id === outputId) || frames[0];
 }
 
-export function outputSpanRect(render = {}, outputIds = []) {
+export function outputFramesForIds(render = {}, outputIds = []) {
   const wanted = new Set((outputIds || []).map(String));
-  const frames = outputFrames(render).filter((frame) => wanted.has(String(frame.id)));
+  return outputFrames(render).filter((frame) => wanted.has(String(frame.id)));
+}
+
+export function outputSpanRect(render = {}, outputIds = []) {
+  const frames = outputFramesForIds(render, outputIds);
   if (!frames.length) return null;
   const left = Math.min(...frames.map((frame) => frame.x));
   const top = Math.min(...frames.map((frame) => frame.y));

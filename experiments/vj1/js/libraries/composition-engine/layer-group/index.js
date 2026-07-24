@@ -6,7 +6,11 @@ export const LayerGroupNode = defineNodeGroup({
   version: "0.1.0",
   description: "An isolated, expandable visual subprogram with transform, opacity, and blend at its parent boundary.",
   executionModel: "compiled-graph",
-  authoring: { activation: "recompile" },
+  graphEditable: false,
+  authoring: {
+    activation: "read-only",
+    reason: "Edit the owning project visual graph rather than this compiler template.",
+  },
   inlets: { texture: { type: "texture", optional: true } },
   outlets: { texture: { type: "texture" } },
   parameters: {

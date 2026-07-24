@@ -1,7 +1,11 @@
-import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
-import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
+import { createBooleanParam, createEnumParam, createTextParam } from "../../shared/component-schema.js";
+import { ALWAYS_TIME_RUNTIME } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
-import { NODE_PART_KINDS } from "../../../node-engine/node-definition.js";
+import {
+  defineSpecializedVisualCompound,
+  MediaResourceToImageNode,
+  ScreenInputResourceNode,
+} from "../../shared/specialized-compound.js?v=screen-input-semantic-1";
 
 const manifest = Object.freeze({
     id: "screenShare",
@@ -16,56 +20,31 @@ const manifest = Object.freeze({
     ],
   });
 
-export function drawScreenShareNode(target, screen, params = {}, drawMediaFit, view = target) {
-  const fit = ["contain", "cover", "stretch"].includes(params.fit) ? params.fit : "contain";
-  target.push();
-  if (params.mirrored === true) {
-    target.translate(view.width, 0);
-    target.scale(-1, 1);
-  }
-  drawMediaFit(target, screen, 0, 0, view.width, view.height, fit);
-  target.pop();
-}
+const NativeVisualComponent = defineGeneratorNode(manifest);
 
-export function screenShareNodeProcess(inputs = {}, context = {}) {
-  const target = context.target;
-  const source = inputs.source || context.source || {};
-  if (!target || typeof context.acquireScreenInput !== "function") throw new Error("SCREEN_SHARE_RENDER_HOST_MISSING");
-  const inputId = String(source.params?.inputId || "");
-  const screen = context.acquireScreenInput(inputId);
-  if (!screen || !context.isDrawableMedia(screen)) {
-    context.drawStandby(target, context.screenInputError(inputId) || "screen share unavailable", { forceVisible: true });
-    return target;
-  }
-  drawScreenShareNode(target, screen, source.params || {}, context.drawMediaFit, context.renderView || target);
-  return target;
-}
-
-export const VisualComponent = defineGeneratorNode(manifest, null, {
-  process: screenShareNodeProcess,
-  parts: [
+export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
+  compoundKind: "screen-share",
+  nativeRenderer: "output/specialized:screenShare",
+  nodes: [
+    { id: "input", type: ScreenInputResourceNode.id },
     {
-      id: "screen-share-draw-algorithm",
-      name: "Screen Share sampling and fit algorithm",
-      kind: NODE_PART_KINDS.JAVASCRIPT,
-      language: "javascript",
-      editable: true,
-      module: import.meta.url,
-      export: "drawScreenShareNode",
-      source: drawScreenShareNode.toString(),
-    },
-    {
-      id: "screen-share-process",
-      name: "Screen Share process entry",
-      kind: NODE_PART_KINDS.JAVASCRIPT,
-      language: "javascript",
-      editable: true,
-      module: import.meta.url,
-      export: "screenShareNodeProcess",
-      entry: "process",
-      dependsOn: ["screen-share-draw-algorithm"],
-      source: screenShareNodeProcess.toString(),
+      id: "render",
+      type: MediaResourceToImageNode.id,
+      parameters: { providerId: "screen-input-fit-pass" },
     },
   ],
+  connections: [
+    { from: "input.resource", to: "render.resource", type: "drawable-media-resource" },
+  ],
+  output: "render.texture",
+  parameterBindings: {
+    input: ["inputId"],
+    render: ["fit", "mirrored", "renderQuality"],
+  },
+  parameterPresentation: {
+    input: { label: "Screen input", order: 10 },
+    render: { label: "Presentation", order: 20 },
+  },
+  parts: [],
 });
 export default VisualComponent;

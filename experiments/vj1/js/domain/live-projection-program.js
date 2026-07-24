@@ -1,7 +1,7 @@
 import {
   materializeLiveProgramSurfaceRoutes,
   rebaseSurfaceRouteProgram,
-} from "./scene-routing.js?v=explicit-surface-visibility-1";
+} from "./scene-routing.js?v=explicit-surface-visibility-direct-output-independence-1";
 
 const EMPTY_ROUTES = Object.freeze({ surfaces: Object.freeze([]) });
 

@@ -1,9 +1,9 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
+import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import { componentFrameMetrics, normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=surface-identity-2";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=model-media-scene-group-1";
 import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
 import { normalizeRelativeRect, projectedQuadAspect, projectedRelativeQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=surface-relative-aspect-1";
 import { FULL_NODE_BOUNDARY, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
@@ -15,7 +15,7 @@ import {
   normalizeRenderSettings,
   normalizeOutputName,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=output-one-1";
+} from "./render-settings.js?v=projector-resolution-ceilings-1";
 import {
   applySceneSourceNode,
   authoredSurfaceFields,
@@ -28,7 +28,8 @@ import {
   sceneSourceNodeId,
   sceneSourceNodes,
 } from "./scene-routing.js?v=explicit-surface-visibility-1";
-import { compileLiveProjectionProgram } from "./live-projection-program.js?v=explicit-surface-visibility-1";
+import { compileLiveProjectionProgram } from "./live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
+import { firstEnabledLiveSurfaceId } from "./live-ui-state.js?v=scene-mapping-default-selection-1";
 
 export {
   createOutputDefinition,
@@ -123,7 +124,10 @@ export function createComponentLayer(index = 0, source = { type: "generator", me
     id: uid("chain"),
     kind: "source",
     componentId: sourceComponentId(normalizedSource),
-    name: sourceLabel(normalizedSource),
+    // Media labels follow the current catalog entry until the user gives the
+    // element an explicit name. Do not copy a repository path into project
+    // state as though it were an authored label.
+    name: sourceBackedMediaId(normalizedSource) ? "" : sourceLabel(normalizedSource),
     enabled: true,
     source: normalizedSource,
     opacity: 1,
@@ -864,8 +868,11 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   }));
   const performanceScenes = state.components?.filter((component) => component.type === "scene") || [];
   const overallSourceCleared = live.overallSourceCleared === true;
+  const sceneMappingVisibilityIsSessionAuthored = typeof live.sceneMappingVisible === "boolean";
   const sceneMappingInLive = live.sceneMappingInLive !== false;
-  const sceneMappingVisible = live.sceneMappingVisible !== false;
+  const sceneMappingVisible = sceneMappingVisibilityIsSessionAuthored
+    ? live.sceneMappingVisible
+    : sceneMappingInLive;
   const selectedSceneId = !overallSourceCleared && live.selectedSceneId && performanceScenes.some((scene) => String(scene.id) === String(live.selectedSceneId))
     ? String(live.selectedSceneId)
     : !overallSourceCleared ? performanceScenes[0]?.id || "" : "";
@@ -880,12 +887,15 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   const selectedMapping = state.mappings?.find((mapping) => String(mapping.id) === String(state.ui?.selectedMappingId || "")) || state.mappings?.[0];
   const previewSurfaceIds = new Set((selectedMapping?.surfaces || []).map((surface) => String(surface.id || "")));
   const requestedPreviewSurfaceId = String(live.previewSurfaceId || "");
-  const firstPreviewSurfaceId = String(selectedMapping?.surfaces?.[0]?.id || "");
+  const firstPreviewSurfaceId = firstEnabledLiveSurfaceId(selectedMapping, {
+    ...live,
+    sceneMappingVisible,
+  }) || String(selectedMapping?.surfaces?.[0]?.id || "");
   const defaultPreviewSurfaceId = sceneMappingInLive
     ? "__mapping__"
     : firstPreviewSurfaceId || "__mapping__";
   const previewSurfaceId = requestedPreviewSurfaceId === "__mapping__"
-    ? (sceneMappingInLive ? "__mapping__" : defaultPreviewSurfaceId)
+    ? (!sceneMappingVisibilityIsSessionAuthored && !sceneMappingInLive ? defaultPreviewSurfaceId : "__mapping__")
     : previewSurfaceIds.has(requestedPreviewSurfaceId)
       ? requestedPreviewSurfaceId
       : defaultPreviewSurfaceId;
@@ -1141,11 +1151,14 @@ export function normalizeComponentChainItem(item = {}) {
   }
   const source = normalizeSource(item.source);
   const fallbackName = sourceLabel(source);
+  const name = sourceBackedMediaId(source) && isAutomaticMediaSourceName(item.name, source)
+    ? ""
+    : isGenericLayerName(item.name) ? fallbackName : item.name || fallbackName;
   return {
     id: item.id || uid("chain"),
     kind: "source",
     componentId: sourceComponentId(source),
-    name: isGenericLayerName(item.name) ? fallbackName : item.name || fallbackName,
+    name,
     enabled: item.enabled !== false,
     source,
     opacity: clamp01(item.opacity ?? 1),
@@ -1153,6 +1166,23 @@ export function normalizeComponentChainItem(item = {}) {
     transform: normalizeTransform(item.transform),
     boundary: normalizeNodeBoundary(item.boundary),
   };
+}
+
+export function isAutomaticMediaSourceName(name = "", source = {}) {
+  const identity = sourceBackedMediaId(source);
+  if (!identity) return false;
+  const candidate = String(name || "").trim();
+  if (!candidate) return true;
+  const basename = identity.split(/[\\/]/).filter(Boolean).at(-1) || identity;
+  return candidate === identity || candidate === basename;
+}
+
+export function sourceBackedMediaId(source = {}) {
+  if (source?.type === "media") return String(source.mediaId || "").trim();
+  if (source?.type === "generator" && source.generatorId === "modelMedia") {
+    return String(source.params?.mediaId || "").trim();
+  }
+  return "";
 }
 
 export function normalizeSurfaceRoute(surface = {}) {
@@ -1283,6 +1313,9 @@ function sourceComponentId(source = {}) {
 function sourceLabel(source = {}) {
   if (source.type === "component") return source.componentId || "Component";
   if (source.type === "media") return source.mediaId || "Media";
+  if (source.type === "generator" && source.generatorId === "modelMedia") {
+    return source.params?.mediaId || "Model Media";
+  }
   if (source.type === "camera") return "Camera";
   if (source.type === "black") return "Black";
   return formatSourceLabel(source.generatorId || "Generator");

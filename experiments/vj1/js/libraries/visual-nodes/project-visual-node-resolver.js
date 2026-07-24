@@ -4,7 +4,7 @@ import {
   componentFromNodeDefinition,
   listEffectNodeComponents,
   listGeneratorNodeComponents,
-} from "./catalog.js?v=procedural-2d-1";
+} from "./catalog.js?v=semantic-visual-catalog-8";
 import {
   isIsfNodeDefinition,
   listProjectIsfVisualComponents,
@@ -14,6 +14,7 @@ import {
 import { resolveProjectVisualLibrary } from "./project-visual-library.js?v=installed-package-layers-compiler-transport-1";
 
 export function createProjectVisualNodeResolver(state = {}, {
+  coreDefinitions = [],
   installedLayers = [],
   installedPackages = [],
 } = {}) {
@@ -38,6 +39,9 @@ export function createProjectVisualNodeResolver(state = {}, {
   const componentByNodeId = new Map(allComponents.map((component) => [component.nodeDefinition.id, component]));
   const projectDefinitionByNodeId = new Map((state?.nodes?.definitions || [])
     .filter((definition) => definition?.persistence !== "package" && definition?.id)
+    .map((definition) => [String(definition.id), definition]));
+  const coreDefinitionByNodeId = new Map(Array.from(coreDefinitions || [])
+    .filter((definition) => definition?.id)
     .map((definition) => [String(definition.id), definition]));
   const artifactByVisualKey = new Map(visualLibrary.list()
     .filter((artifact) => artifact.artifactType === "generator" || artifact.artifactType === "effect")
@@ -84,7 +88,7 @@ export function createProjectVisualNodeResolver(state = {}, {
     const id = String(nodeId || "");
     const component = resolve(componentByNodeId.get(id));
     if (component?.nodeDefinition) return component.nodeDefinition;
-    const definition = projectDefinitionByNodeId.get(id);
+    const definition = projectDefinitionByNodeId.get(id) || coreDefinitionByNodeId.get(id);
     if (!definition) return null;
     const fork = activeForks.get(id);
     if (!fork) return definition;

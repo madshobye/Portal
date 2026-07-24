@@ -1,18 +1,18 @@
-import { defineNode, NODE_IMPLEMENTATION_KINDS, NodeRegistry } from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
-import { defineNodeArtifact, NodeArtifactCatalog } from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
-import { nodeEditorProjection } from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
-import { createProjectGroupDefinitionFromTemplate, createProjectVisualGroupDefinition, normalizeNodeProjectData, serializeNodeArtifact, serializeNodeDefinition } from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
+import { defineNode, NODE_IMPLEMENTATION_KINDS, NodeRegistry, validateNodeGraphProgramDefinition } from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
+import { defineNodeArtifact, NodeArtifactCatalog } from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
+import { nodeEditorProjection } from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
+import { createProjectGroupDefinitionFromTemplate, createProjectVisualGroupDefinition, normalizeNodeProjectData, serializeNodeArtifact, serializeNodeDefinition } from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
 import {
   createNodePackageFromProject,
   exportNodePackage,
   importNodePackage,
   installNodePackageIntoProject,
-} from "./libraries/node-engine/index.js?v=project-group-export-boundary-1";
+} from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
 import {
   listEffectNodeComponents,
   listGeneratorNodeComponents,
   SpecializedCompoundStageNodeDefinitions,
-} from "./libraries/visual-nodes/index.js?v=specialized-stage-authority-1";
+} from "./libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import {
   AudioControlInputNode,
   ComponentTimeControlNode,
@@ -39,9 +39,9 @@ import { DiagnosticsEngineNode } from "./libraries/diagnostics-engine/index.js";
 import { ImageResizeNode } from "./libraries/image-engine/index.js";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./libraries/timing-engine/index.js";
 import { NestedNoiseMotionNode, OrbitMotionNode } from "./libraries/motion-engine/index.js";
-import { TerrainFlightControllerNode } from "./libraries/terrain-engine/index.js?v=provider-substitution-1";
+import { TerrainFlightControllerNode } from "./libraries/terrain-engine/index.js?v=semantic-terrain-contract-4";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
-import { SceneFrameGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
+import { SceneFrameGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
 import {
   COMPONENT_PROGRAM_GENERATOR,
   ComponentProgramNode,
@@ -49,9 +49,10 @@ import {
   TextureOperatorNodeDefinitions,
   VisualSourceNode,
   compileComponentGroupTopology,
+  compileVisualRenderPlan,
   componentProgramInstances,
   reconcileComponentGroupTopology,
-} from "./libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
+} from "./libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
 import {
   MAPPING_PROGRAM_GENERATOR,
   OutputProgramNode,
@@ -59,8 +60,9 @@ import {
   SurfaceRouteNode,
   compileOutputGroupTopology,
   compileMappingGroupTopology,
+  compileReachableProgramGraph,
   mappingProgramInstances,
-} from "./libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
+} from "./libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
 import {
   APPLICATION_PROGRAM_GENERATOR,
   ApplicationProgramRuntime,
@@ -68,12 +70,12 @@ import {
   applicationProgramInstances,
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
-} from "./libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
+} from "./libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
-import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=temporal-invalidation-1";
+import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import {
   Convert3dFileToImageGroup,
   ComposableScene3dGroup,
@@ -85,7 +87,8 @@ import {
   Prepare3dAssetGroup,
   Scene3dNodeDefinitions,
   StlParserNode,
-} from "./libraries/mesh-engine/index.js?v=scene3d-media-resource-project-group-authoring-1";
+  compileScene3dProgram,
+} from "./libraries/mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
 import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js?v=named-image-inputs-1";
 
 const ProjectComponentNode = semanticProjectNode("vj1.project.component", "Component", "A task-oriented visual program composed from reusable nodes.", "texture");
@@ -254,6 +257,8 @@ export function createVj1NodePackage() {
         packageByDefinition.get(`${definition.id}@${definition.version}`) || null,
       editorProjection: (definition, options = {}) =>
         nodeEditorProjection(definition, { nodeRegistry: editorRegistry, ...options }),
+      preflightGraphEdit: (target, graph) =>
+        preflightGraphEdit(target, graph, editorRegistry),
     });
     return cachedEditorContext;
   };
@@ -614,6 +619,131 @@ function mergeByKey(existing = [], required = [], keyOf) {
     result.push(item);
   }
   return result;
+}
+
+function preflightGraphEdit(target = {}, graph = {}, registry) {
+  if (!registry) throw new Error("NODE_GRAPH_PREFLIGHT_REGISTRY_MISSING");
+  const candidateGraph = {
+    nodes: Array.isArray(graph.nodes) ? graph.nodes : [],
+    connections: Array.isArray(graph.connections) ? graph.connections : [],
+    publicInlets: graph.publicInlets && typeof graph.publicInlets === "object"
+      ? graph.publicInlets
+      : {},
+    publicOutlets: graph.publicOutlets && typeof graph.publicOutlets === "object"
+      ? graph.publicOutlets
+      : {},
+  };
+  if (target.kind === "project-group") {
+    const candidate = { ...target.group, ...candidateGraph };
+    if (candidate.componentId || candidate.kind === "visual-group") {
+      const program = compileVisualRenderPlan(candidate, {}, {
+        resolveDefinition: (reference) => resolveGraphDefinition(registry, null, reference),
+      });
+      program.dispose();
+      return true;
+    }
+    if (candidate.id === "vj1.application.program" || candidate.nodeId === ApplicationProgramNode.id) {
+      compileApplicationProgramPlan(candidate);
+      return true;
+    }
+    if (candidate.id === "vj1.output.main" || candidate.nodeId === OutputProgramNode.id) {
+      compileReachableProgramGraph(candidate, { outputs: ["$out.output"] });
+      return true;
+    }
+    if (
+      candidate.mappingId !== undefined
+      || candidate.nodeId === MappingProgramNode.id
+      || candidate.compiler?.target === "routing"
+    ) {
+      compileReachableProgramGraph(candidate, { outputs: ["$out.routes"] });
+      return true;
+    }
+    throw new Error(`NODE_GRAPH_PREFLIGHT_COMPILER_UNAVAILABLE:${candidate.id || "missing"}`);
+  }
+
+  const definition = target.definition;
+  if (!definition) throw new Error("NODE_GRAPH_PREFLIGHT_DEFINITION_MISSING");
+  const materializedGraph = (definition.parts || []).find((part) => part.kind === "graph");
+  const definitionGraph = {
+    ...candidateGraph,
+    publicInlets: materializedGraph?.publicInlets || candidateGraph.publicInlets,
+    publicOutlets: materializedGraph?.publicOutlets || candidateGraph.publicOutlets,
+  };
+  const candidate = {
+    ...definition,
+    parts: (definition.parts || []).map((part) => part.kind === "graph"
+      ? { ...part, ...definitionGraph }
+      : part),
+  };
+  if (candidate.compiler?.target === "scene-3d") {
+    const program = compileScene3dProgram(candidate, { registry });
+    program.dispose();
+    return true;
+  }
+  const visualCompilerHook = candidate.metadata?.visualCompilerHook;
+  const textureOutput = Object.values(candidate.outlets || {})
+    .find((port) => String(port?.type?.type || port?.type || "") === "texture");
+  if (visualCompilerHook?.id && textureOutput) {
+    const outputId = textureOutput.id || "texture";
+    const node = {
+      id: "$candidate",
+      nodeId: candidate.id,
+      nodeVersion: candidate.version,
+      role: "group",
+      compilerHook: visualCompilerHook,
+      configuration: {
+        id: "$candidate",
+        kind: "source",
+        enabled: true,
+        opacity: 1,
+        blend: "normal",
+        source: {
+          type: "generator",
+          generatorId: candidate.metadata?.visualId || candidate.id,
+          instanceId: "$candidate",
+          params: {},
+        },
+      },
+    };
+    const program = compileVisualRenderPlan({
+      id: `${candidate.id}.preflight`,
+      nodes: [node],
+      connections: [{
+        from: `$candidate.${outputId}`,
+        to: "$out.texture",
+        type: "texture",
+      }],
+    }, {}, {
+      resolveDefinition: (reference) => resolveGraphDefinition(registry, candidate, reference),
+    });
+    program.dispose();
+    return true;
+  }
+  if (candidate.implementation?.executionModel === "graph") {
+    validateNodeGraphProgramDefinition(candidate, { registry });
+    return true;
+  }
+  if (candidate.implementation?.executionModel === "compiled-graph") {
+    throw new Error(`NODE_GRAPH_PREFLIGHT_COMPILER_UNAVAILABLE:${candidate.id}`);
+  }
+  return true;
+}
+
+function resolveGraphDefinition(registry, candidate, reference = {}) {
+  const id = String(
+    typeof reference === "string"
+      ? reference
+      : reference.nodeId || reference.type || reference.id || ""
+  );
+  const version = typeof reference === "string"
+    ? ""
+    : String(reference.nodeVersion || reference.version || "");
+  if (candidate && (id === candidate.id || id === candidate.metadata?.baseNode?.id)) return candidate;
+  try {
+    return registry.get(id, version);
+  } catch {
+    return null;
+  }
 }
 
 export function createProjectArtifactCatalog(state = {}) {

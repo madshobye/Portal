@@ -10,18 +10,19 @@
   --panel-soft: #303030;
   --section-header: #232323;
   --control: #252525;
-  --control-hover: #3c2a1d;
-  --accent: #954500;
-  --accent-rgb: 149, 69, 0;
+  --control-hover: #452919;
+  --accent: #b85200;
+  --accent-rgb: 184, 82, 0;
   --accent-soft: rgba(var(--accent-rgb), 0.24);
-  --accent-strong: #6f3300;
+  --accent-strong: #8a3d00;
   --slider-track: #454545;
   --slider-range: #707070;
-  --slider-thumb: #9a9997;
+  --slider-thumb: #555555;
   --slider-text: #777674;
-  --slider-thumb-hover: #555555;
+  --slider-thumb-hover: #9a9997;
   --slider-height: 18px;
   --cyan: var(--accent);
+  --orange: var(--accent);
   --pink: var(--accent-strong);
   --line: rgba(243, 241, 237, 0.07);
   --line-strong: rgba(243, 241, 237, 0.16);
@@ -41,7 +42,12 @@
   --control-font-size: 12px;
   --control-font-weight: 650;
   --label-font-size: 11px;
-  --range-stack-gap: 7px;
+  --param-label-control-gap: 0px;
+  --param-stack-gap: 7px;
+  --param-section-bottom-inset: 10px;
+  --thumbnail-remove-hover-delay: 2s;
+  --workspace-content-gap: 6px;
+  --workspace-column-gap: 4px;
   --param-slider-width: 176px;
   --param-color-control-width: 222px;
 }
@@ -461,6 +467,31 @@ small {
   color: #ef7777;
 }
 
+.diagnostics-toggle {
+  position: relative;
+}
+
+.diagnostics-count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  display: grid;
+  min-width: 15px;
+  height: 11px;
+  place-items: center;
+  padding: 0 2px;
+  border-radius: 6px;
+  background: #171717;
+  color: currentColor;
+  font: 700 8px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.diagnostics-count.is-hidden {
+  display: none;
+}
+
 .diagnostics-summary {
   position: absolute;
   z-index: 46;
@@ -842,6 +873,11 @@ small {
   padding: 0;
 }
 
+.icon-buttonish.is-output-enabled {
+  background: var(--panel-soft);
+  color: var(--ink);
+}
+
 .icon-buttonish.close-project-button {
   position: static;
   width: 26px;
@@ -896,13 +932,17 @@ small {
   border: 0;
   border-radius: var(--radius-control);
   color: var(--muted);
-  background: var(--control);
+  background: #171717;
   cursor: pointer;
 }
 
-.performance-health-button:hover,
-.performance-health-button.is-active {
+.performance-health-button:hover {
   background: var(--control-hover);
+}
+
+.performance-health-button.is-active {
+  background: var(--accent-strong);
+  color: #fff8f0;
 }
 
 .performance-health-dots {
@@ -954,9 +994,9 @@ small {
   display: grid;
   min-height: 0;
   grid-template-columns: var(--project-rail-width) var(--inspector-width) minmax(0, 1fr);
-  column-gap: 4px;
+  column-gap: var(--workspace-column-gap);
   row-gap: 12px;
-  padding: 12px;
+  padding: var(--workspace-content-gap) 12px 12px;
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior: contain;
@@ -986,7 +1026,6 @@ small {
 
 .studio-main {
   display: grid;
-  margin-left: 8px;
 }
 
 .project-rail,
@@ -1015,6 +1054,15 @@ small {
   gap: 6px;
 }
 
+.mapping-text-list,
+.surface-pills,
+.live-projection-list {
+  padding: var(--section-inset);
+  padding-bottom: calc(var(--section-inset) + 4px);
+  border-radius: var(--radius-section-inner);
+  background: var(--control);
+}
+
 .project-rail:is([data-workspace="component"], [data-workspace="scene"], [data-workspace="mapping"], [data-workspace="nodes"], [data-workspace="live"]) {
   display: flex;
   flex-direction: column;
@@ -1031,6 +1079,10 @@ small {
 
 .rail-list-section {
   grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.rail-list-section > :is(.component-catalog-tools, .ui-list-tools) + .rail-scroll-list {
+  margin-top: -3px;
 }
 
 .ui-list-tools {
@@ -1472,6 +1524,7 @@ button.text-list-main:hover {
 }
 
 .component-card {
+  position: relative;
   display: grid;
   gap: 0;
   justify-content: stretch;
@@ -1483,6 +1536,23 @@ button.text-list-main:hover {
   border-radius: var(--radius-section-inner);
   background: transparent;
   text-align: left;
+}
+
+/* The top-left action zone is intentionally guarded while a pointer first
+   enters a thumbnail. Hovering the actual card content elsewhere reveals the
+   remove action; once revealed, the action sits above this guard and remains
+   reachable. This prevents a card appearing beneath a stationary pointer from
+   turning that pointer into an accidental delete target. */
+@media (hover: hover) {
+  .component-card::before {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    top: 3px;
+    left: 3px;
+    width: 22px;
+    height: 22px;
+  }
 }
 
 .component-card:hover .component-card-bar {
@@ -1556,12 +1626,13 @@ button.text-list-main:hover {
   min-width: 0;
   min-height: 26px;
   align-items: center;
+  gap: 5px;
   padding: 4px 8px;
   border-radius: 0 0 var(--radius-section-inner) var(--radius-section-inner);
   background: #000;
 }
 
-.component-card-bar span,
+.component-card-bar .component-card-name,
 .component-card-bar small {
   min-width: 0;
   overflow: hidden;
@@ -1569,13 +1640,23 @@ button.text-list-main:hover {
   white-space: nowrap;
 }
 
-.component-card-bar span {
+.component-card-bar .component-card-name {
+  flex: 1 1 auto;
   color: var(--muted);
   font-size: 11px;
   font-weight: 700;
 }
 
-.component-card.is-selected .component-card-bar span {
+.component-card-bar .component-card-type-icon {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.component-card.is-selected .component-card-bar .component-card-name,
+.component-card.is-selected .component-card-bar .component-card-type-icon {
   color: var(--ink);
 }
 
@@ -1586,6 +1667,7 @@ button.text-list-main:hover {
 
 .component-card-remove {
   position: absolute;
+  z-index: 4;
   top: 3px;
   left: 3px;
   width: 22px;
@@ -1597,23 +1679,36 @@ button.text-list-main:hover {
   background: rgba(0, 0, 0, 0.5);
   color: rgba(255, 255, 255, 0.78);
   opacity: 0;
-  visibility: hidden;
   pointer-events: none;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease, visibility 0s linear 120ms;
+  transition: background 120ms ease, color 120ms ease;
 }
 
-.component-card-row:hover .component-card-remove {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transition-delay: 600ms, 0s, 0s, 600ms;
+.component-card-row:has(
+  .component-thumbnail:hover,
+  .component-card-empty:hover,
+  .scene-fingerprint:hover,
+  .component-card-bar:hover
+) > .component-card-remove:not(:disabled) {
+  animation: reveal-thumbnail-remove 120ms ease var(--thumbnail-remove-hover-delay) forwards;
 }
 
-.component-card-row:focus-within .component-card-remove {
+.component-card-remove:hover:not(:disabled),
+.component-card-remove:focus-visible {
+  animation: none;
   opacity: 1;
-  visibility: visible;
   pointer-events: auto;
-  transition-delay: 0s;
+}
+
+@keyframes reveal-thumbnail-remove {
+  from {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  to {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .component-card-remove .material-symbols-rounded {
@@ -1623,6 +1718,18 @@ button.text-list-main:hover {
 .component-card-remove:hover:not(:disabled) {
   border-color: rgba(248, 99, 99, 0.62);
   color: var(--danger);
+}
+
+.component-card-remove:disabled {
+  pointer-events: none;
+}
+
+@media (hover: none) {
+  .component-card-remove:not(:disabled) {
+    animation: none;
+    opacity: 1;
+    pointer-events: auto;
+  }
 }
 
 .component-assignment-field {
@@ -1788,13 +1895,18 @@ button.text-list-main:hover {
 
 .live-chain-outline {
   display: grid;
-  gap: 5px;
+  gap: 3px;
+}
+
+.live-element-list-surface {
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .live-chain-outline-branch,
 .live-chain-outline-children {
   display: grid;
-  gap: 5px;
+  gap: 3px;
 }
 
 .live-chain-outline-children {
@@ -1803,54 +1915,8 @@ button.text-list-main:hover {
   border-left: 1px solid var(--line-strong);
 }
 
-.live-chain-outline-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  min-width: 0;
-  overflow: hidden;
-  align-items: center;
-  border-radius: var(--radius-card);
-  background: var(--panel-soft);
-}
-
-.live-chain-outline-row.is-selected {
-  background: var(--accent-strong);
-}
-
 .live-chain-outline-select {
-  display: grid;
-  box-sizing: border-box;
-  width: 100%;
-  max-width: 100%;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  min-width: 0;
-  overflow: hidden;
-  align-items: center;
-  gap: 7px;
-  justify-items: start;
-  padding: 7px 8px;
-  border: 0;
-  background: transparent;
-  text-align: left;
-}
-
-.live-chain-outline-select > span:not(.material-symbols-rounded) {
-  width: 100%;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.live-chain-outline-select small {
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.live-chain-outline-row > .enable-toggle {
-  --enable-toggle-size: 28px;
-  margin-right: 5px;
+  cursor: grab;
 }
 
 .live-chain-settings .chain-param-view-content,
@@ -1861,7 +1927,7 @@ button.text-list-main:hover {
 
 .live-chain-settings .field:not(.range-field) {
   display: grid;
-  gap: 5px;
+  gap: var(--param-label-control-gap);
 }
 
 .param-context-target.is-significant input[type="range"]::-webkit-slider-thumb {
@@ -1942,6 +2008,23 @@ button.text-list-main:hover {
   color: var(--muted);
 }
 
+.enable-toggle-labeled {
+  display: inline-flex;
+  gap: 8px;
+  width: auto;
+  padding: 0 12px;
+  font-weight: 700;
+}
+
+.mapping-test-pattern-toggle {
+  min-width: 0;
+}
+
+.mapping-test-pattern-button {
+  width: 100%;
+  min-width: 0;
+}
+
 .enable-toggle:hover {
   border-color: rgba(var(--accent-rgb), 0.45);
   color: var(--ink);
@@ -1952,12 +2035,14 @@ button.text-list-main:hover {
   color: #ffd4ac;
 }
 
-.chain-item-row .enable-toggle.is-enabled {
+.chain-item-row .enable-toggle.is-enabled,
+.live-chain-outline-row .enable-toggle.is-enabled {
   background: rgba(255, 255, 255, 0.055);
   color: var(--muted);
 }
 
-.chain-item-row.is-selected .enable-toggle.is-enabled {
+.chain-item-row.is-selected .enable-toggle.is-enabled,
+.live-chain-outline-row.is-selected .enable-toggle.is-enabled {
   color: var(--ink);
 }
 
@@ -2483,6 +2568,10 @@ button.text-list-main:hover {
   gap: 10px;
 }
 
+.component-chain-card {
+  gap: 3px;
+}
+
 .source-section {
   display: grid;
   gap: 10px;
@@ -2492,12 +2581,18 @@ button.text-list-main:hover {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  min-height: 54px;
+  gap: 7px;
+  min-height: var(--control-height);
   justify-content: stretch;
-  padding: 8px 10px;
-  background: var(--panel-soft);
+  padding: 4px 8px;
+  background: var(--slider-track);
+  color: var(--muted);
   text-align: left;
+}
+
+.source-choice-button:hover {
+  background: var(--slider-range);
+  color: var(--ink);
 }
 
 .source-choice-button > span {
@@ -2510,6 +2605,7 @@ button.text-list-main:hover {
 .source-choice-button small {
   min-width: 0;
   overflow: hidden;
+  font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2685,27 +2781,44 @@ button.text-list-main:hover {
 
 .field {
   display: grid;
-  gap: 5px;
+  gap: var(--param-label-control-gap);
   color: var(--muted);
   font-size: var(--label-font-size);
 }
 
-/* Inspector dropdowns are parameter controls, so they share the visual scale
-   of sliders. Full-size selects in settings and picker dialogs stay untouched. */
-.studio-inspector select {
+/* Parameter dropdowns share one explicit component class instead of inheriting
+   their appearance from whichever rail or inspector happens to contain them.
+   Full-size selects in settings and picker dialogs stay untouched. */
+.param-select {
   height: var(--slider-height);
   min-height: var(--slider-height);
-  padding: 1px 8px;
+  padding: 1px 30px 1px 5px;
   border: 0;
   border-radius: var(--radius-section-inner);
   outline: 0;
   background: var(--slider-track);
-  color: var(--slider-thumb);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='7' viewBox='0 0 12 7'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23f3f1ed' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 12px 7px;
+  color: var(--ink);
   font-size: var(--label-font-size);
   font-weight: 400;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
-.studio-inspector select:focus-visible {
+.param-select:disabled {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.param-select option {
+  background: var(--control);
+  color: var(--ink);
+}
+
+.param-select:focus-visible {
   outline: 1px solid var(--slider-thumb);
   outline-offset: 0;
 }
@@ -2713,10 +2826,11 @@ button.text-list-main:hover {
 .range-field {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 0 4px;
+  gap: var(--param-label-control-gap) 4px;
 }
 
-.range-field > span {
+.range-field > span,
+.field:has(> .param-select) > span {
   min-width: 0;
   overflow: hidden;
   color: var(--slider-text);
@@ -2744,7 +2858,8 @@ button.text-list-main:hover {
   content: ")";
 }
 
-.range-field input[type="range"] {
+.range-field > input[type="range"],
+.range-field > .param-control-track {
   grid-column: 1 / -1;
   width: 100%;
   min-width: 0;
@@ -3036,25 +3151,11 @@ button.text-list-main:hover {
   min-width: 0;
   align-self: start;
   align-content: start;
-  gap: var(--range-stack-gap);
+  gap: var(--param-stack-gap);
 }
 
 .chain-param {
   min-width: 0;
-}
-
-.color-param {
-  grid-template-columns: minmax(0, 1fr);
-  align-items: stretch;
-}
-
-.color-param > span {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--slider-text);
-  font-weight: 400;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .color-param-row {
@@ -3082,16 +3183,27 @@ button.text-list-main:hover {
 
 .chain-column {
   display: grid;
-  gap: 9px;
+  gap: 3px;
 }
 
-.chain-list-section,
-.inspector-control-surface {
+.element-list-surface,
+.inspector-control-surface,
+.parameter-surface {
   display: grid;
   gap: 6px;
   padding: var(--section-inset);
+  padding-bottom: calc(var(--section-inset) + 4px);
   border-radius: var(--radius-section-inner);
   background: var(--panel-2);
+}
+
+.parameter-surface {
+  padding-bottom: var(--param-section-bottom-inset);
+}
+
+.chain-list-section {
+  display: grid;
+  gap: 6px;
 }
 
 .component-chain-list {
@@ -3432,6 +3544,11 @@ button.text-list-main:hover {
 .node-library-item.is-selected {
   outline: 1px solid var(--cyan);
   background: color-mix(in srgb, var(--cyan) 11%, var(--control-bg));
+}
+
+.node-library-item.is-not-placeable:not(.is-selected) {
+  opacity: 0.52;
+  cursor: default;
 }
 
 .node-library-item > span:nth-child(2) {
@@ -3908,7 +4025,8 @@ button.text-list-main:hover {
 .node-graph-parameters label > span,
 .node-graph-parameters input,
 .node-graph-parameters select,
-.node-graph-parameters button {
+.node-graph-parameters button,
+.node-graph-parameters textarea {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3917,7 +4035,8 @@ button.text-list-main:hover {
 
 .node-graph-parameters input,
 .node-graph-parameters select,
-.node-graph-parameters button {
+.node-graph-parameters button,
+.node-graph-parameters textarea {
   height: 24px;
   padding: 2px 5px;
   border: 1px solid #34413f;
@@ -3925,6 +4044,35 @@ button.text-list-main:hover {
   background: #0c1110;
   color: var(--text);
   font-size: 8px;
+}
+
+.node-graph-parameters label.is-code {
+  align-items: start;
+}
+
+.node-graph-parameters .node-graph-color-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.node-graph-parameters .node-graph-color-control input {
+  width: 100%;
+  padding: 1px;
+}
+
+.node-graph-parameters .node-graph-color-control input[type="color"] {
+  min-width: 30px;
+}
+
+.node-graph-parameters textarea {
+  min-height: 74px;
+  padding: 5px;
+  resize: vertical;
+  white-space: pre;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .node-graph-parameters input[type="checkbox"] {
@@ -4072,6 +4220,7 @@ button.text-list-main:hover {
   align-content: start;
   margin-top: 6px;
   padding: var(--section-inset);
+  padding-bottom: var(--param-section-bottom-inset);
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -4312,7 +4461,7 @@ button.text-list-main:hover {
 
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 3px;
   padding: 3px;
   border: 0;
@@ -4566,7 +4715,7 @@ button.text-list-main:hover {
   grid-template-columns: minmax(0, 1fr) 30px;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 0;
 }
 
 .component-catalog-tools .component-filter-field {
@@ -4863,6 +5012,61 @@ button.text-list-main:hover {
   font-size: 14px;
 }
 
+.output-client .output-fps.is-chain-diagnostic {
+  display: grid;
+  width: min(430px, calc(100vw - 28px));
+  max-height: calc(100vh - 28px);
+  align-items: stretch;
+  gap: 7px;
+  overflow: hidden;
+  line-height: 1.2;
+  white-space: normal;
+}
+
+.output-hud-summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 9px;
+  white-space: nowrap;
+}
+
+.output-chain-list {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.output-chain-row {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr) max-content;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding-left: calc(var(--output-chain-depth, 0) * 9px);
+}
+
+.output-chain-kind {
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 0.78em;
+  text-transform: uppercase;
+}
+
+.output-chain-name {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.78);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-chain-resolution {
+  color: rgba(255, 255, 255, 0.58);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .output-loading-dot {
   width: 7px;
   height: 7px;
@@ -4892,7 +5096,7 @@ button.text-list-main:hover {
   }
 }
 
-@media (max-width: 1100px) {
+@media (max-width: 860px) {
   .studio-layout {
     grid-template-columns: var(--project-rail-width) var(--inspector-width);
   }
@@ -4913,10 +5117,6 @@ button.text-list-main:hover {
 
   .studio-topbar {
     grid-template-columns: 1fr;
-  }
-
-  .studio-main {
-    margin-left: 0;
   }
 
   .top-actions {

@@ -52,6 +52,7 @@ export function createNumberParam(id, label, {
   rangeRole = "",
   rangeKind = "",
   rangeDisplay = "number",
+  renderQualityScaling = null,
 } = {}) {
   return {
     id,
@@ -67,6 +68,12 @@ export function createNumberParam(id, label, {
     ...(rangeRole ? { rangeRole } : {}),
     ...(rangeKind ? { rangeKind } : {}),
     ...(rangeDisplay !== "number" ? { rangeDisplay } : {}),
+    ...(renderQualityScaling ? {
+      renderQualityScaling: Object.freeze({
+        minimum: Math.max(0, Number(renderQualityScaling.minimum) || 0),
+        maximum: Math.max(0, Number(renderQualityScaling.maximum) || 0),
+      }),
+    } : {}),
   };
 }
 
@@ -266,6 +273,7 @@ function normalizeRuntimePolicy(runtime = {}) {
     externalKey: typeof runtime?.externalKey === "function"
       ? runtime.externalKey
       : () => null,
+    rateParam: String(runtime?.rateParam || ""),
     roi: Object.freeze({
       mode: ["local", "neighborhood", "full-frame"].includes(runtime?.roi?.mode)
         ? runtime.roi.mode

@@ -7,4 +7,4 @@ export {
   TEXT_GENERATOR_VERTEX_SHADER,
   textMaskDimensions,
   textMaskSignature,
-} from "../../libraries/visual-nodes/generators/text/runtime.js?v=source-roi-view-3";
+} from "../../libraries/visual-nodes/generators/text/runtime.js?v=text-mask-readback-1";

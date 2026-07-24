@@ -1,4 +1,4 @@
-import { createProjectNodeFork, materializeProjectNodeFork, validateProjectNodeFork } from "../libraries/node-engine/node-editor.js?v=explicit-group-compiler-public-group-ports-1";
+import { createProjectNodeFork, materializeProjectNodeFork, validateProjectNodeFork } from "../libraries/node-engine/node-editor.js?v=shader-javascript-forks-2";
 import { compileSdf2dSketchSource } from "../libraries/procedural-2d/compiler.js?v=procedural-2d-3";
 import { esc, icon } from "./template-utils.js";
 
@@ -290,6 +290,44 @@ export function withProjectGroupGraph(nodes, groupId, graph) {
   });
   if (!found) throw new Error(`NODE_PROJECT_GROUP_MISSING:${id || "missing"}`);
   return { ...current, groups };
+}
+
+export function prepareProjectNodeGraphEdit(nodes, target, graph, {
+  preflight = null,
+  validate = true,
+} = {}) {
+  if (!target) throw new Error("NODE_GRAPH_EDIT_TARGET_MISSING");
+  const nextNodes = target.kind === "project-group"
+    ? withProjectGroupGraph(nodes, target.id, graph)
+    : withProjectNodeGraph(nodes, target.baseDefinition, graph);
+  if (!validate || typeof preflight !== "function") return nextNodes;
+  if (target.kind !== "project-group") {
+    return prepareProjectNodeDefinitionEdit(nextNodes, target.baseDefinition, {
+      preflight,
+    });
+  }
+  preflight({
+    ...target,
+    group: nextNodes.groups.find((group) => group.id === target.id),
+  }, graph);
+  return nextNodes;
+}
+
+export function prepareProjectNodeDefinitionEdit(nodes, baseDefinition, {
+  preflight = null,
+} = {}) {
+  if (!baseDefinition) throw new Error("NODE_DEFINITION_EDIT_TARGET_MISSING");
+  if (typeof preflight !== "function") return nodes;
+  const definition = materializeProjectNodeDefinition(baseDefinition, { nodes });
+  const graph = (definition.parts || []).find((part) => part.kind === "graph");
+  if (!graph) return nodes;
+  preflight({
+    kind: "definition",
+    id: baseDefinition.id,
+    baseDefinition,
+    definition,
+  }, graph);
+  return nodes;
 }
 
 export function withProjectNodeFork(nodes, baseDefinition, partSources = {}) {

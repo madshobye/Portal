@@ -3,16 +3,12 @@ import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-compo
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   defineSpecializedVisualCompound,
-  NativeRenderToTextureNode,
-  ProceduralTopologyProviderNode,
-  ShaderMaterialProviderNode,
-} from "../../shared/specialized-compound.js?v=specialized-stage-authority-1";
-import {
-  meshPatternNodeModuleParts,
-  MeshPatternNodeModuleExports,
-  meshPatternNodeProcess,
-} from "./node-module.js?v=source-roi-view-3";
-
+  MeshPatternFillMaterialProviderNode,
+  MeshPatternFillToImageNode,
+  MeshPatternTopologyProviderNode,
+  MeshPatternWireMaterialProviderNode,
+  MeshPatternWireToImageNode,
+} from "../../shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
 const manifest = Object.freeze({
     id: "meshPatterns",
     name: "2D Mesh Patterns",
@@ -50,21 +46,17 @@ const manifest = Object.freeze({
     ],
   });
 
-const NativeVisualComponent = defineGeneratorNode(manifest, null, {
-  direct: false,
-  process: meshPatternNodeProcess,
-  exports: MeshPatternNodeModuleExports,
-  parts: meshPatternNodeModuleParts(),
-});
+const NativeVisualComponent = defineGeneratorNode(manifest);
 
 export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
   compoundKind: "mesh-patterns",
+  nativeRenderer: "output/specialized:meshPatterns",
   nodes: [
-    { id: "topology", type: ProceduralTopologyProviderNode.id, parameters: { providerId: "mesh-pattern-topology" } },
-    { id: "fill-material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "mesh-pattern-fill" } },
-    { id: "wire-material", type: ShaderMaterialProviderNode.id, parameters: { providerId: "mesh-pattern-wire" } },
-    { id: "fill-render", type: NativeRenderToTextureNode.id, parameters: { providerId: "mesh-pattern-fill-pass" } },
-    { id: "wire-render", type: NativeRenderToTextureNode.id, parameters: { providerId: "mesh-pattern-wire-pass" } },
+    { id: "topology", type: MeshPatternTopologyProviderNode.id, parameters: { providerId: "mesh-pattern-topology" } },
+    { id: "fill-material", type: MeshPatternFillMaterialProviderNode.id, parameters: { providerId: "mesh-pattern-fill" } },
+    { id: "wire-material", type: MeshPatternWireMaterialProviderNode.id, parameters: { providerId: "mesh-pattern-wire" } },
+    { id: "fill-render", type: MeshPatternFillToImageNode.id, parameters: { providerId: "mesh-pattern-fill-pass" } },
+    { id: "wire-render", type: MeshPatternWireToImageNode.id, parameters: { providerId: "mesh-pattern-wire-pass" } },
   ],
   connections: [
     { from: "topology.topology", to: "fill-render.topology", type: "topology-provider" },
@@ -74,6 +66,7 @@ export const VisualComponent = defineSpecializedVisualCompound(NativeVisualCompo
     { from: "fill-render.texture", to: "wire-render.target", type: "texture" },
   ],
   output: "wire-render.texture",
+  parts: [],
   parameterBindings: {
     topology: ["pattern", "scale", "density", "irregularity", "rotation", "offsetX", "offsetY", "speed", "motion", "seed"],
     "fill-material": ["palette", "colorCount", "baseColor", "colorB", "colorC", "colorD", "fillOpacity", "backgroundColor"],

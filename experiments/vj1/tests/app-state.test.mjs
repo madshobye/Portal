@@ -167,9 +167,18 @@ test("Scene Mapping visibility hides Overall routes in preview and Output but pr
     "an explicitly patched Surface stays independently visible"
   );
   assert.equal(
-    hiddenOutput.surfaces.filter((item) => item.id !== patchedSurface.id).every((item) => item.enabled === false),
+    hiddenOutput.surfaces
+      .filter((item) => item.id !== patchedSurface.id && item.destination?.type !== "direct")
+      .every((item) => item.enabled === false),
     true,
-    "unpatched Overall routes are hidden in the Output program"
+    "unpatched mapped Overall routes are hidden in the Output program"
+  );
+  assert.equal(
+    hiddenOutput.surfaces
+      .filter((item) => item.destination?.type === "direct")
+      .every((item) => item.enabled === routesBefore.surfaces.find((before) => before.id === item.id)?.enabled),
+    true,
+    "direct outputs retain their independent visibility state"
   );
 
   assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
@@ -181,13 +190,17 @@ test("Scene Mapping visibility hides Overall routes in preview and Output but pr
   assert.equal(createLiveRenderState(after).surfaces.some((item) => item.enabled !== false), true);
 });
 
-test("a direct output can be toggled independently while Scene Mapping is hidden", () => {
+test("hiding Scene Mapping leaves direct outputs active and independently toggleable", () => {
   const state = createInitialState();
   const scene = createSceneComponent(0, state.components[0].id);
   state.components.push(scene);
   state.ui.live.selectedSceneId = scene.id;
   state.ui.live.selectedComponentId = scene.id;
   const store = createAppState(state);
+  store.update((draft) => {
+    const direct = draft.mappings[0].surfaces.find((surface) => surface.destination?.type === "direct");
+    direct.enabled = true;
+  }, "test:enable-direct-output");
   const mapping = store.getState().mappings[0];
   const directOutput = mapping.surfaces.find((surface) => surface.destination?.type === "direct");
 
@@ -195,35 +208,70 @@ test("a direct output can be toggled independently while Scene Mapping is hidden
   assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
   assert.equal(
     compileLiveProjectionProgram(store.getState()).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).enabled,
-    false,
+    true,
+    "Scene Mapping is not a master switch for direct outputs",
   );
 
   assert.equal(store.toggleLiveSurfaceVisibility(directOutput.id), true);
   let after = store.getState();
   assert.equal(after.ui.live.sceneMappingVisible, false);
-  assert.equal(after.ui.live.surfaceVisibility[directOutput.id], true);
+  assert.equal(after.ui.live.surfaceVisibility[directOutput.id], false);
   assert.equal(
     compileLiveProjectionProgram(after).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).enabled,
-    true,
+    false,
   );
   assert.equal(
     createLiveRenderState(after).surfaces.find((surface) => surface.id === directOutput.id).enabled,
-    true,
+    false,
   );
 
   assert.equal(store.toggleLiveSurfaceVisibility(directOutput.id), true);
   after = store.getState();
   assert.equal(after.ui.live.sceneMappingVisible, false);
-  assert.equal(after.ui.live.surfaceVisibility[directOutput.id], false);
+  assert.equal(after.ui.live.surfaceVisibility[directOutput.id], true);
+  assert.equal(
+    createLiveRenderState(after).surfaces.find((surface) => surface.id === directOutput.id).enabled,
+    true,
+  );
 });
 
-test("state normalization chooses the first Surface when Scene Mapping is not included in Live", () => {
-  const state = createInitialState();
+test("Scene Mapping defaults to the first Surface when excluded but remains explicitly selectable in Live", () => {
+  const state = createAppState(createInitialState()).getState();
+  const firstEnabledSurface = state.mappings[0].surfaces.find((surface) => surface.destination?.type === "direct");
+  for (const surface of state.mappings[0].surfaces) surface.enabled = false;
+  firstEnabledSurface.enabled = true;
   state.ui.live.sceneMappingInLive = false;
-  state.ui.live.previewSurfaceId = "__mapping__";
+  delete state.ui.live.sceneMappingVisible;
+  state.ui.live.previewSurfaceId = "";
 
-  const normalized = createAppState(state).getState();
-  assert.equal(normalized.ui.live.previewSurfaceId, normalized.mappings[0].surfaces[0].id);
+  const store = createAppState(state);
+  let normalized = store.getState();
+  assert.equal(normalized.ui.live.previewSurfaceId, firstEnabledSurface.id);
+  assert.equal(normalized.ui.live.sceneMappingVisible, false, "the absent session override follows Mapping's persisted default");
+
+  store.selectLivePreviewSurface("__mapping__");
+  normalized = store.getState();
+  assert.equal(normalized.ui.live.previewSurfaceId, "__mapping__");
+  assert.equal(normalized.ui.live.sceneMappingInLive, false);
+});
+
+test("Mapping sets the Scene Mapping default while Live can override its current visibility", () => {
+  const store = createAppState(createInitialState());
+  const directSurface = store.getState().mappings[0].surfaces.find((surface) => surface.destination?.type === "direct");
+  store.update((draft) => {
+    draft.mappings[0].surfaces.find((surface) => surface.id === directSurface.id).enabled = true;
+  }, "test:enable-direct-output");
+
+  assert.equal(store.setSceneMappingInLive(false), true);
+  let state = store.getState();
+  assert.equal(state.ui.live.sceneMappingInLive, false);
+  assert.equal(state.ui.live.sceneMappingVisible, false);
+  assert.equal(state.ui.live.previewSurfaceId, directSurface.id);
+
+  assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
+  state = store.getState();
+  assert.equal(state.ui.live.sceneMappingInLive, false, "Live does not rewrite the persisted Mapping default");
+  assert.equal(state.ui.live.sceneMappingVisible, true);
 });
 
 test("Live Surface patch assignment and removal use the configured transition", () => {
@@ -596,6 +644,22 @@ test("an empty newly created Component accepts its first element immediately", (
   assert.equal(store.getState().ui.selectedChainItemId, added.chain[0].id);
   const patch = compileComponentPatch(added);
   assert.equal(patch.nodes.filter((node) => node.role === "source").length, 1);
+});
+
+test("new media elements keep their catalog-derived name out of project properties", () => {
+  const initial = createInitialState();
+  const component = initial.components.find((item) => item.type !== "scene");
+  const store = createAppState(initial);
+
+  store.addChainSource(component.id, {
+    type: "media",
+    mediaId: "media/collections/projector/plate.png",
+  });
+
+  const added = store.getState().components
+    .find((item) => item.id === component.id)
+    .chain.find((item) => item.source?.mediaId === "media/collections/projector/plate.png");
+  assert.equal(added.name, "");
 });
 
 test("runtime metrics update without passing through project state normalization", () => {

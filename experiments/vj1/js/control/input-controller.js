@@ -1,5 +1,5 @@
 import { bindReorderList } from "./reorder-list.js";
-import { formatTrimTime, roundTrimTime } from "./component-view.js?v=project-group-authoring-public-group-ports-1";
+import { formatTrimTime, roundTrimTime } from "./component-view.js?v=derived-media-element-names-1";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { createLiveRenderPatch } from "../domain/live-render-patch.js?v=live-param-patch-1";
 import { bindMarkdownEditors } from "./markdown-editor.js?v=text-style-controls-1";
@@ -241,10 +241,15 @@ export function createInputController({
     document.querySelector("[data-param-context-menu]")?.remove();
     const path = control.dataset.paramContextPath;
     if (!path) return;
+    const live = control.dataset.paramContextMode === "live";
+    const liveComponentId = control.dataset.paramContextComponentId || control.dataset.liveComponentId || "";
     const componentMatch = /^components\.(\d+)\.(.+)$/.exec(path);
     const state = getState();
-    const component = componentMatch ? state.components?.[Number(componentMatch[1])] : null;
-    const relativePath = componentMatch?.[2] || "";
+    const componentIndex = live
+      ? state.components?.findIndex((item) => String(item.id) === String(liveComponentId)) ?? -1
+      : componentMatch ? Number(componentMatch[1]) : -1;
+    const component = componentIndex >= 0 ? state.components?.[componentIndex] : null;
+    const relativePath = live ? path : componentMatch?.[2] || "";
     const significant = !!component && (component.significantParams || []).includes(relativePath);
     const boundaryScaleInput = control.querySelector?.("input[type='range']");
     const canMarkSignificant = !!component && !!relativePath && !isBoundaryScaleInput(boundaryScaleInput, path);
@@ -269,23 +274,42 @@ export function createInputController({
         menu.remove();
         return;
       }
-      store.update((draft) => {
-        if (isBoundaryScaleInput(boundaryScaleInput, path)) {
-          const boundary = boundaryFromScaleInput(boundaryScaleInput, value);
-          setByPath(draft, path.replace(/\.scale$/, ".width"), boundary.width);
-          setByPath(draft, path.replace(/\.scale$/, ".height"), boundary.height);
-          syncMappingEdits(draft, path.replace(/\.scale$/, ".width"));
+      const boundaryReset = isBoundaryScaleInput(boundaryScaleInput, path)
+        ? boundaryFromScaleInput(boundaryScaleInput, value)
+        : null;
+      const reset = (draft) => {
+        if (boundaryReset) {
+          const widthPath = path.replace(/\.scale$/, ".width");
+          const heightPath = path.replace(/\.scale$/, ".height");
+          if (live) {
+            setLiveOverride(draft, liveComponentId, widthPath, boundaryReset.width);
+            setLiveOverride(draft, liveComponentId, heightPath, boundaryReset.height);
+          } else {
+            setByPath(draft, widthPath, boundaryReset.width);
+            setByPath(draft, heightPath, boundaryReset.height);
+            syncMappingEdits(draft, widthPath);
+          }
           return;
         }
-        setByPathCreate(draft, path, value);
-        syncMappingEdits(draft, path);
-      }, `update:${path}`);
+        if (live) setLiveOverride(draft, liveComponentId, path, value);
+        else {
+          setByPathCreate(draft, path, value);
+          syncMappingEdits(draft, path);
+        }
+      };
+      const livePatches = boundaryReset
+        ? [
+            createLiveRenderPatch(liveComponentId, path.replace(/\.scale$/, ".width"), boundaryReset.width),
+            createLiveRenderPatch(liveComponentId, path.replace(/\.scale$/, ".height"), boundaryReset.height),
+          ]
+        : [createLiveRenderPatch(liveComponentId, path, value)];
+      updateLiveAware(live, reset, live ? "live:reset-default" : `update:${path}`, live ? livePatches : []);
       menu.remove();
     });
     menu.querySelector("[data-param-significant]")?.addEventListener("click", () => {
       if (!component || !relativePath) return menu.remove();
       store.update((draft) => {
-        const target = draft.components?.[Number(componentMatch[1])];
+        const target = draft.components?.[componentIndex];
         if (!target) return;
         const paths = new Set(target.significantParams || []);
         if (paths.has(relativePath)) paths.delete(relativePath);

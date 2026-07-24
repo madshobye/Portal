@@ -9,7 +9,10 @@ const manifest = Object.freeze({
     runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
-      createNumberParam("raySteps", "Ray steps", { min: 24, max: 199, step: 1, defaultValue: 96 }),
+      createNumberParam("raySteps", "Ray steps", {
+        min: 24, max: 199, step: 1, defaultValue: 96,
+        renderQualityScaling: { minimum: 0.35, maximum: 1.5 },
+      }),
       createNumberParam("zoom", "Zoom", { min: 0.1, max: 1.5, step: 0.01, defaultValue: 0.4, scale: "log" }),
       createNumberParam("rotationSpeed", "Rotation", { min: -0.5, max: 0.5, step: 0.001, defaultValue: 0.111 }),
       createNumberParam("verticalOffset", "Vertical offset", { min: -4, max: 6, step: 0.01, defaultValue: 2 }),

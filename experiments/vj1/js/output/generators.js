@@ -1,12 +1,8 @@
-import { getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js?v=procedural-2d-1";
-import { drawBlackNode } from "../libraries/visual-nodes/generators/black/index.js";
-import { drawCheckerNode } from "../libraries/visual-nodes/generators/checker/index.js";
-
 const standbyStateByTarget = new WeakMap();
 
-// p5 is intentionally limited to import/diagnostic utilities and the two
-// calibration primitives below. Production visual generators live in the
-// shader registry or an explicit specialized raw-WebGL runtime.
+// p5 is intentionally limited to the diagnostic surface below. Visual
+// generators execute from their compiled node process, shader program, or an
+// explicit retained renderer capability.
 export function drawStandby(pg, label, { visible = true, frame = null, graceMs = 0, now = null } = {}) {
   pg.clear();
   if (!visible) return;
@@ -37,18 +33,4 @@ export function drawStandby(pg, label, { visible = true, frame = null, graceMs =
   pg.textAlign(CENTER, CENTER);
   pg.textSize(28);
   pg.text(label, pg.width / 2, pg.height / 2);
-}
-
-export function drawGenerator(pg, id, time, _params, renderRequest = {}, view = null) {
-  const generatorId = getGeneratorComponent(id).id;
-  // Minimal native-host adapter for the two calibration primitives. Their
-  // algorithms remain node-owned; compiled node processes are the primary
-  // path, while native renderer metadata may enter through this same adapter.
-  if (generatorId === "checker") return drawCheckerNode(pg, view);
-  if (generatorId === "black") return drawBlackNode(pg);
-  console.error("[VJ1_GENERATOR_RUNTIME_MISSING]", {
-    generatorId,
-    expectedRuntime: "shader-or-specialized-webgl",
-  });
-  return drawStandby(pg, `generator unavailable: ${generatorId}`);
 }

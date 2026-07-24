@@ -7,6 +7,7 @@ export const ALWAYS_TIME_RUNTIME = Object.freeze({ timeDependent: () => true });
 export function timeParamRuntime(paramId) {
   return Object.freeze({
     timeDependent: (params = {}) => Math.abs(Number(params[paramId]) || 0) > 0.0001,
+    rateParam: String(paramId || ""),
   });
 }
 

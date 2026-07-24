@@ -12,8 +12,14 @@ const manifest = Object.freeze({
       createNumberParam("waveHeight", "Wave height", { min: 0.05, max: 2.5, step: 0.01, defaultValue: 0.6, scale: "log" }),
       createNumberParam("choppiness", "Choppiness", { min: 0.5, max: 8, step: 0.01, defaultValue: 4 }),
       createNumberParam("waveScale", "Wave scale", { min: 0.03, max: 0.8, step: 0.01, defaultValue: 0.16, scale: "log" }),
-      createNumberParam("seaDetail", "Sea detail", { min: 1, max: 5, step: 1, defaultValue: 5 }),
-      createNumberParam("raySteps", "Ray steps", { min: 6, max: 32, step: 1, defaultValue: 18 }),
+      createNumberParam("seaDetail", "Sea detail", {
+        min: 1, max: 5, step: 1, defaultValue: 5,
+        renderQualityScaling: { minimum: 0.5, maximum: 1.2 },
+      }),
+      createNumberParam("raySteps", "Ray steps", {
+        min: 6, max: 32, step: 1, defaultValue: 18,
+        renderQualityScaling: { minimum: 0.35, maximum: 1.5 },
+      }),
       createNumberParam("cameraHeight", "Camera height", { min: 0.5, max: 10, step: 0.01, defaultValue: 3.5, scale: "log" }),
       createNumberParam("cameraPitch", "Camera pitch", { min: -0.5, max: 1.2, step: 0.01, defaultValue: 0.3 }),
       createNumberParam("cameraMotion", "Camera motion", { min: 0, max: 2, step: 0.01, defaultValue: 1 }),

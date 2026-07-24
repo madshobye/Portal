@@ -31,11 +31,12 @@ import {
   migrateProjectV27ToV28,
   migrateProjectV28ToV29,
   migrateProjectV29ToV30,
+  migrateProjectV30ToV31,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 30);
+  assert.equal(CURRENT_PROJECT_VERSION, 31);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -578,6 +579,56 @@ test("v29 to v30 seals authored Surfaces and discards intermediate runtime route
   assert.equal(Object.hasOwn(migrated, "surfaces"), false);
   assert.equal(Object.hasOwn(migrated.ui, "selectedFrameId"), false);
   assert.deepEqual(migrated.ui.live, { showScenes: true, showComponents: false });
+});
+
+test("v30 to v31 migrates model media into an editable Scene3d visual Group", () => {
+  const migrated = migrateProjectV30ToV31({
+    version: 30,
+    components: [{
+      id: "component-a",
+      chain: [{
+        id: "model",
+        kind: "source",
+        name: "",
+        source: {
+          type: "media",
+          mediaId: "media/models/skull.stl",
+          speed: 1,
+          params: {
+            renderMode: "surfaceOutline",
+            rotationY: 0.4,
+            renderQuality: 0.8,
+          },
+        },
+      }, {
+        id: "image",
+        kind: "source",
+        source: { type: "media", mediaId: "media/still.png" },
+      }, {
+        id: "nested",
+        kind: "group",
+        chain: [{
+          id: "obj",
+          kind: "source",
+          source: { type: "media", mediaId: "media/models/shape.obj", params: { wireDetail: 0.7 } },
+        }],
+      }],
+    }],
+  });
+  const [model, image, nested] = migrated.components[0].chain;
+  assert.deepEqual(model.source, {
+    type: "generator",
+    generatorId: "modelMedia",
+    params: {
+      renderMode: "surfaceOutline",
+      rotationY: 0.4,
+      renderQuality: 0.8,
+      mediaId: "media/models/skull.stl",
+    },
+  });
+  assert.deepEqual(image.source, { type: "media", mediaId: "media/still.png" });
+  assert.equal(nested.chain[0].source.generatorId, "modelMedia");
+  assert.equal(nested.chain[0].source.params.mediaId, "media/models/shape.obj");
 });
 
 test("migration runner applies every adjacent step in order", () => {

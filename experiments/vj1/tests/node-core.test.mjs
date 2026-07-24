@@ -29,6 +29,7 @@ import {
   serializeNodeDefinition,
   serializeNodeProjectData,
   defineNodeCompiler,
+  validateNodeGraphProgramDefinition,
   validateProjectNodeFork,
 } from "../js/libraries/node-engine/index.js";
 import { ImageResizeNode } from "../js/libraries/image-engine/image-resize/index.js";
@@ -37,6 +38,12 @@ import { SliderArtifact, SliderNode } from "../js/libraries/control-engine/slide
 import { getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/index.js";
 import { getEffectNodeComponent } from "../js/libraries/visual-nodes/index.js";
+import {
+  TerrainBiomeMaterialProviderNode,
+  TerrainHeightFieldGeometryProviderNode,
+  TerrainWireMaterialProviderNode,
+  TextMaskProviderNode,
+} from "../js/libraries/visual-nodes/index.js";
 import {
   compileRenderProgram,
   createRenderContext,
@@ -445,7 +452,11 @@ test("project-local native JavaScript forks become the compiled node process", (
 });
 
 test("project-local helper edits become runtime module exports", () => {
-  const base = getGeneratorComponent("text").nodeDefinition;
+  const outer = getGeneratorComponent("text").nodeDefinition;
+  const base = TextMaskProviderNode;
+  assert.deepEqual(outer.parts.filter((part) =>
+    part.kind === NODE_PART_KINDS.JAVASCRIPT || part.kind === NODE_PART_KINDS.SHADER
+  ), [], "the outer Text Group has no hidden editable implementation");
   const fork = createProjectNodeFork(base, {
     forkId: "text-layout-project",
     overrides: {
@@ -462,7 +473,10 @@ test("project-local helper edits become runtime module exports", () => {
         : part),
     },
   });
-  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
+  const resolver = createProjectVisualNodeResolver(
+    { nodes: { forks: [{ ...fork, active: true }] } },
+    { coreDefinitions: [base] },
+  );
   const resolved = resolver.definition(base.id);
 
   assert.equal(resolved.moduleExports.textMaskSignature({}, 1, 1), "forked-layout");
@@ -470,16 +484,55 @@ test("project-local helper edits become runtime module exports", () => {
   assert.deepEqual(resolved.moduleExports.createTextMask({}, 1, 1), { forked: true });
 });
 
-test("Terrain owns editable mesh topology helpers used by its retained GPU host", () => {
-  const base = getGeneratorComponent("terrainFlyover").nodeDefinition;
+test("export-only native helper modules remain honestly forkable without a process entry", () => {
+  const base = defineNode({
+    id: "test.native-export-module",
+    name: "Native export module",
+    version: "1.0.0",
+    description: "Tests editable helper exports owned by a native compiler boundary.",
+    implementation: { kind: "native", compiler: "test.compiler", kernel: "test-kernel" },
+    moduleExports: { nativeScale: () => 1 },
+    parts: [{
+      id: "native-helper",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      exports: ["nativeScale"],
+      source: "function nativeScale() { return 1; }",
+    }],
+  });
+  const fork = createProjectNodeFork(base, {
+    forkId: "native-export-project",
+    overrides: {
+      parts: base.parts.map((part) => ({
+        ...part,
+        source: "function nativeScale() { return 4; }",
+      })),
+    },
+  });
+
+  assert.equal(validateProjectNodeFork(base, fork), true);
+  const materialized = materializeProjectNodeFork(base, fork);
+  assert.equal(materialized.process, null);
+  assert.equal(materialized.moduleExports.nativeScale(), 4);
+});
+
+test("Terrain child nodes own the editable topology and shaders used by retained GPU kernels", () => {
+  const outer = getGeneratorComponent("terrainFlyover").nodeDefinition;
+  const base = TerrainHeightFieldGeometryProviderNode;
   const meshPart = base.parts.find((part) => part.id === "terrain-mesh-module");
-  assert.equal(base.metadata.nodeOwnedNativeModule, true);
-  assert.equal(base.metadata.nodeOwnedNativeProcess, false);
+  assert.equal(outer.metadata.nodeOwnedNativeModule, true);
+  assert.equal(outer.metadata.nodeOwnedNativeProcess, false);
+  assert.deepEqual(outer.parts.filter((part) =>
+    part.kind === NODE_PART_KINDS.JAVASCRIPT || part.kind === NODE_PART_KINDS.SHADER
+  ), [], "the outer Terrain Group has no hidden editable implementation");
   assert.equal(meshPart.kind, NODE_PART_KINDS.JAVASCRIPT);
   assert.match(meshPart.source, /function terrainSurfaceTriangleIndices/);
-  assert.deepEqual(base.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => part.id), [
+  assert.deepEqual(TerrainBiomeMaterialProviderNode.parts.map((part) => part.id), [
     "terrain-surface-vertex",
     "terrain-surface-fragment",
+  ]);
+  assert.deepEqual(TerrainWireMaterialProviderNode.parts.map((part) => part.id), [
     "terrain-wire-vertex",
     "terrain-wire-fragment",
   ]);
@@ -499,7 +552,10 @@ test("Terrain owns editable mesh topology helpers used by its retained GPU host"
         : part),
     },
   });
-  const resolver = createProjectVisualNodeResolver({ nodes: { forks: [{ ...fork, active: true }] } });
+  const resolver = createProjectVisualNodeResolver(
+    { nodes: { forks: [{ ...fork, active: true }] } },
+    { coreDefinitions: [base] },
+  );
   const resolved = resolver.definition(base.id);
 
   assert.equal(resolved.moduleExports.terrainGridSize(200), 17);
@@ -687,6 +743,73 @@ test("editable groups execute their graph directly without a scheduler", async (
   assert.equal("scheduler" in instance.graphProgram, false);
 });
 
+test("generic Group compilation rejects invalid topology before constructing child instances", () => {
+  const requiredNumber = defineNode({
+    id: "test.graph-required-number",
+    name: "Required number",
+    description: "Requires one numeric input.",
+    inlets: { value: { type: "number", required: true } },
+    outlets: { value: "number" },
+    process: ({ value }) => ({ value }),
+  });
+  const stringSource = defineNode({
+    id: "test.graph-string-source",
+    name: "String source",
+    description: "Produces text for type-validation coverage.",
+    outlets: { value: "string" },
+    process: () => ({ value: "text" }),
+  });
+  const group = defineNodeGroup({
+    id: "test.graph-validation",
+    name: "Validated graph",
+    description: "Uses the generic call-driven compiler contract.",
+    inlets: { value: "number" },
+    outlets: { value: "number" },
+    nodes: [
+      { id: "first", type: requiredNumber.id },
+      { id: "second", type: requiredNumber.id },
+      { id: "text", type: stringSource.id },
+    ],
+    connections: [
+      { from: "$in.value", to: "first.value" },
+      { from: "first.value", to: "second.value" },
+      { from: "second.value", to: "$out.value" },
+    ],
+  });
+  const registry = new NodeRegistry([requiredNumber, stringSource, group]);
+  const withGraph = (connections) => ({
+    ...group,
+    parts: group.parts.map((part) => part.kind === NODE_PART_KINDS.GRAPH
+      ? { ...part, connections }
+      : part),
+  });
+
+  assert.equal(validateNodeGraphProgramDefinition(group, { registry }), true);
+  assert.throws(
+    () => validateNodeGraphProgramDefinition(withGraph([
+      { from: "first.value", to: "second.value" },
+      { from: "second.value", to: "first.value" },
+      { from: "second.value", to: "$out.value" },
+    ]), { registry }),
+    /NODE_GRAPH_CYCLE/,
+  );
+  assert.throws(
+    () => validateNodeGraphProgramDefinition(withGraph([
+      { from: "text.value", to: "first.value" },
+      { from: "first.value", to: "second.value" },
+      { from: "second.value", to: "$out.value" },
+    ]), { registry }),
+    /NODE_GRAPH_PORT_TYPE_MISMATCH/,
+  );
+  assert.throws(
+    () => validateNodeGraphProgramDefinition(withGraph([
+      { from: "first.value", to: "second.value" },
+      { from: "second.value", to: "$out.value" },
+    ]), { registry }),
+    /NODE_GRAPH_INLET_REQUIRED/,
+  );
+});
+
 test("Group public controls execute through their declared child parameter bindings", async () => {
   const scale = defineNode({
     id: "test.group-control-scale",
@@ -718,6 +841,44 @@ test("Group public controls execute through their declared child parameter bindi
 
   assert.deepEqual(await instance.run({ value: 4 }), { value: 12 });
   assert.deepEqual(await instance.run({ value: 4 }, { parameters: { amount: 5 } }), { value: 20 });
+});
+
+test("Group inlet literals and public controls execute through the same typed child inlet", async () => {
+  const offset = defineNode({
+    id: "test.group-inlet-offset",
+    name: "Offset",
+    description: "Adds a configurable inlet literal.",
+    inlets: {
+      value: { type: "number", required: true },
+      amount: { type: "number", defaultValue: 1 },
+    },
+    outlets: { value: "number" },
+    process: ({ value, amount }) => ({ value: value + amount }),
+  });
+  const group = defineNodeGroup({
+    id: "test.group-inlet-control-execution",
+    name: "Inlet-controlled group",
+    description: "Routes stored and public values into a child inlet.",
+    inlets: { value: "number" },
+    parameters: { offset: { type: "number" } },
+    outlets: { value: "number" },
+    nodes: [{ id: "offset", type: offset.id, parameters: { amount: 2 } }],
+    connections: [
+      { from: "$in.value", to: "offset.value" },
+      { from: "offset.value", to: "$out.value" },
+    ],
+    controlBindings: {
+      offset: [{ publicParameterId: "offset", targetParameterId: "amount" }],
+    },
+  });
+  const registry = new NodeRegistry([offset, group]);
+  const instance = createNodeInstance(group, { registry });
+
+  assert.deepEqual(await instance.run({ value: 3 }), { value: 5 });
+  assert.deepEqual(
+    await instance.run({ value: 3 }, { parameters: { offset: 6 } }),
+    { value: 9 },
+  );
 });
 
 test("smart ports map declared numeric ranges automatically", async () => {

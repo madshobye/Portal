@@ -1,4 +1,4 @@
-import { compileVisualControlProgram, setCompiledVisualParameter } from "./visual-control-program.js?v=public-control-node-configuration-1";
+import { compileVisualControlProgram, setCompiledVisualParameter } from "./visual-control-program.js?v=public-control-node-configuration-editable-inlets-3";
 import {
   defineVisualNodeContract,
   VISUAL_ALLOCATION_MODES,
@@ -13,15 +13,16 @@ import {
   runtimePolicyRenderInvalidation,
   stableRenderInvalidation,
 } from "../../render-engine/invalidation/index.js";
+import { visitVisualParameterReferences } from "../../visual-nodes/shared/parameter-references.js";
 import {
   compileScene3dProgram,
   MeshRenderNode,
   Scene3dNodeDefinitions,
-} from "../../mesh-engine/index.js?v=scene3d-media-resource-project-group-authoring-1";
+} from "../../mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
 import {
   compileSpecializedCompoundProgram,
   SPECIALIZED_COMPOUND_VISUAL_COMPILER_HOOK,
-} from "../../visual-nodes/shared/specialized-compound.js?v=specialized-stage-authority-1";
+} from "../../visual-nodes/shared/specialized-compound.js?v=compiled-semantic-specialized-compounds-26";
 
 export const VISUAL_RENDER_OPCODES = Object.freeze({
   SOURCE: "source",
@@ -223,6 +224,8 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
         ...(hook.contract ? { contract: hook.contract } : {}),
         allocationStable: true,
         scene3dProgram: compileScene3dProgram(definition, { registry }),
+        runtimePolicy: definition.metadata?.runtimePolicy || null,
+        renderInvalidation: definition.metadata?.renderInvalidation || null,
       });
     },
   }),
@@ -230,16 +233,17 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
     id: VISUAL_COMPILER_HOOKS.SPECIALIZED_COMPOUND,
     compile: (node, { configuration, definition, path, hook, resolveDefinition }) => {
       if (!definition) throw new Error(`VISUAL_SPECIALIZED_COMPOUND_DEFINITION_MISSING:${path}`);
+      const nativeCompoundProgram = compileSpecializedCompoundProgram(definition, { resolveDefinition });
       return operation(VISUAL_RENDER_OPCODES.SOURCE, node, configuration, path, {
         backend: "native-specialized-compound",
         renderer: hook.renderer || definition.metadata?.nativeRenderer,
         compilerHook: hook,
         ...(hook.contract ? { contract: hook.contract } : {}),
         allocationStable: true,
-        nativeCompoundProgram: compileSpecializedCompoundProgram(definition, { resolveDefinition }),
+        nativeCompoundProgram,
         runtimePolicy: definition.metadata?.runtimePolicy || null,
         renderInvalidation: definition.metadata?.renderInvalidation || null,
-        ...visualNativeModuleFields(definition),
+        ...visualNativeModuleFields(definition, nativeCompoundProgram.nativeModuleDefinitions),
       });
     },
   }),
@@ -765,6 +769,7 @@ function synchronizeCompoundPublicParameters(operation, definition = null) {
 function disposeVisualOperations(operations) {
   for (const operation of operations || []) {
     operation.scene3dProgram?.dispose?.();
+    operation.nativeCompoundProgram?.dispose?.();
     operation.runtimeStates?.clear?.();
     operation.runtimeInputStates?.clear?.();
     operation.runtimeOutputStates?.clear?.();
@@ -851,23 +856,15 @@ function controlStepIsFrameDynamic(step) {
 }
 
 function collectParameterReferences(params, operationId, media, components, references, path = "source.params") {
-  if (!params || typeof params !== "object") return;
-  for (const [key, value] of Object.entries(params)) {
-    const nextPath = `${path}.${key}`;
-    if (value && typeof value === "object") {
-      collectParameterReferences(value, operationId, media, components, references, nextPath);
-      continue;
-    }
-    const id = String(value || "");
-    if (!id) continue;
-    if (/^componentId$/i.test(key)) {
+  visitVisualParameterReferences(params, ({ kind, id, path: referencePath }) => {
+    if (kind === "component") {
       components.add(id);
-      references.push(reference("component", id, operationId, nextPath));
-    } else if (/(?:media|image|mesh|texture|font)[A-Za-z0-9_]*Id$/i.test(key)) {
+      references.push(reference("component", id, operationId, referencePath));
+    } else if (kind === "media") {
       media.add(id);
-      references.push(reference("media", id, operationId, nextPath));
+      references.push(reference("media", id, operationId, referencePath));
     }
-  }
+  }, path);
 }
 
 function collectScene3dResourceReferences(operation, params, operationId, media, references) {
@@ -1099,15 +1096,20 @@ function isTextureOperatorOpcode(opcode) {
   ].includes(opcode);
 }
 
-function visualNativeModuleFields(definition = {}) {
+function visualNativeModuleFields(definition = {}, nativeModuleDefinitions = []) {
   // nodeOwnedNativeProcess predates the richer native-module contract. Keep
   // accepting it so custom/project nodes do not need a package migration just
   // to retain their allocation-stable direct render path.
-  if (!definition?.metadata?.nodeOwnedNativeModule && !definition?.metadata?.nodeOwnedNativeProcess) return {};
-  const revision = visualNodeModuleRevision(definition);
+  if (
+    !definition?.metadata?.nodeOwnedNativeModule &&
+    !definition?.metadata?.nodeOwnedNativeProcess &&
+    !nativeModuleDefinitions?.length
+  ) return {};
+  const effectiveDefinition = combinedNativeModuleDefinition(definition, nativeModuleDefinitions);
+  const revision = visualNodeModuleRevision(effectiveDefinition);
   const shaders = {};
   const shaderPrograms = new Map();
-  for (const part of (definition.parts || []).filter((item) => item.kind === "shader" && item.stage)) {
+  for (const part of (effectiveDefinition.parts || []).filter((item) => item.kind === "shader" && item.stage)) {
     // Part ids remain unambiguous for nodes with multiple programs (for
     // example Terrain surface + wire). The first shader for a stage also keeps
     // the compact vertex/fragment compatibility used by single-program nodes.
@@ -1119,13 +1121,19 @@ function visualNativeModuleFields(definition = {}) {
       shaderPrograms.set(part.program, sources);
     }
   }
+  validateVisualNativeArtifactRequirements(
+    definition,
+    nativeModuleDefinitions,
+    effectiveDefinition.moduleExports || {},
+    shaders,
+  );
   return {
-    nodeModule: definition.moduleExports || {},
+    nodeModule: effectiveDefinition.moduleExports || {},
     nodeShaders: Object.freeze(shaders),
     nodeModuleId: `${definition.id}@${definition.version}`,
     nodeModuleRevision: revision,
-    nodeCodeRevision: visualNodePartRevision(definition, new Set(["javascript"])),
-    nodeShaderRevision: visualNodePartRevision(definition, new Set(["shader"])),
+    nodeCodeRevision: visualNodePartRevision(effectiveDefinition, new Set(["javascript"])),
+    nodeShaderRevision: visualNodePartRevision(effectiveDefinition, new Set(["shader"])),
     nodeShaderProgramRevisions: Object.freeze(Object.fromEntries(
       [...shaderPrograms].map(([program, sources]) => [program, visualSourceRevision(sources.join("\u0001"))])
     )),
@@ -1136,6 +1144,46 @@ function visualNativeModuleFields(definition = {}) {
           nodeProcessRevision: revision,
         }
       : {}),
+  };
+}
+
+function validateVisualNativeArtifactRequirements(
+  ownerDefinition,
+  nativeModuleDefinitions,
+  moduleExports,
+  shaders,
+) {
+  const definitions = [ownerDefinition, ...(nativeModuleDefinitions || [])];
+  for (const definition of definitions) {
+    const requirements = definition?.metadata?.nativeArtifactRequirements;
+    if (!requirements) continue;
+    for (const id of requirements.moduleExports || []) {
+      if (typeof moduleExports[id] === "function") continue;
+      throw new Error(
+        `VISUAL_NATIVE_MODULE_EXPORT_REQUIRED:${ownerDefinition?.id || "unknown"}:${definition.id}:${id}`,
+      );
+    }
+    for (const id of requirements.shaders || []) {
+      if (typeof shaders[id] === "string" && shaders[id].trim()) continue;
+      throw new Error(
+        `VISUAL_NATIVE_SHADER_REQUIRED:${ownerDefinition?.id || "unknown"}:${definition.id}:${id}`,
+      );
+    }
+  }
+}
+
+function combinedNativeModuleDefinition(definition, nativeModuleDefinitions) {
+  if (!nativeModuleDefinitions?.length) return definition;
+  const parts = new Map((definition.parts || []).map((part) => [part.id, part]));
+  const moduleExports = { ...(definition.moduleExports || {}) };
+  for (const contribution of nativeModuleDefinitions) {
+    for (const part of contribution?.parts || []) parts.set(part.id, part);
+    Object.assign(moduleExports, contribution?.moduleExports || {});
+  }
+  return {
+    ...definition,
+    parts: [...parts.values()],
+    moduleExports,
   };
 }
 

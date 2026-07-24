@@ -31,9 +31,10 @@ export const ApplicationProgramNode = defineNodeGroup({
   version: "0.1.0",
   description: "Configures state, control, media, Live synchronization, storage, cache, output, timing, and diagnostics nodes.",
   executionModel: "compiled-graph",
+  graphEditable: false,
   authoring: {
-    activation: "restart",
-    reason: "The Application graph constructs services during bootstrap.",
+    activation: "read-only",
+    reason: "Edit the project-owned Application graph; accepted wiring activates after restart.",
   },
   inlets: { command: { type: "command", optional: true } },
   outlets: { output: { type: "texture", optional: true }, diagnostics: { type: "any", optional: true } },

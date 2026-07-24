@@ -1,4 +1,4 @@
-import { setClass } from "./dom-utils.js?v=scroll-region-1";
+import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { esc, icon } from "./template-utils.js?v=power-flicker-1";
 
 export function createControlDiagnosticsController({
@@ -35,7 +35,12 @@ export function createControlDiagnosticsController({
     const level = current.level || "ok";
     const iconName = level === "error" ? "error" : level === "warning" ? "warning" : level === "info" ? "info" : "check_circle";
     const count = (current.counts?.info || 0) + (current.counts?.warning || 0) + (current.counts?.error || 0);
-    refs.diagnosticsToggle.innerHTML = icon(iconName);
+    const errorCount = Math.max(0, Number(current.counts?.error) || 0);
+    const warningCount = Math.max(0, Number(current.counts?.warning) || 0);
+    const displayedCount = errorCount > 0 ? errorCount : warningCount;
+    setText(refs.diagnosticsIcon, iconName);
+    setText(refs.diagnosticsCount, String(Math.min(999, displayedCount)));
+    setClass(refs.diagnosticsCount, "is-hidden", displayedCount === 0);
     refs.diagnosticsToggle.classList.remove("is-ok", "is-info", "is-warning", "is-error");
     refs.diagnosticsToggle.classList.add(`is-${level}`);
     refs.diagnosticsToggle.title = level === "ok" ? "Diagnostics: OK" : `Diagnostics: ${count} entr${count === 1 ? "y" : "ies"}`;

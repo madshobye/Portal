@@ -1,5 +1,5 @@
 import { modelTriangleNormal, normalizeModelVector } from "./mesh-geometry.js";
-import { forEachModelTriangle, modelTriangleCount } from "./mesh-types.js";
+import { forEachModelTriangle, meshResourceCacheKey, modelTriangleCount } from "./mesh-types.js";
 
 export function drawPointCloud(target, points, wireColor = [245, 245, 245, 255], wireThickness = 1) {
   if (!points?.length) return;
@@ -65,7 +65,7 @@ export function drawWithPolygonOffset(target, enabled, draw) {
 
 export function ensureParsedModelGeometry(item, mesh = item?.modelData) {
   if (item.modelGeometryFailed) return null;
-  const geometryKey = `geometry:${modelTriangleCount(mesh)}`;
+  const geometryKey = `geometry:${meshResourceCacheKey(mesh)}`;
   if (item.modelGeometry && item.modelGeometryKey === geometryKey) return item.modelGeometry;
   item.modelGeometry = null;
   const Geometry = globalThis.p5?.Geometry;
@@ -91,7 +91,7 @@ export function ensureParsedModelGeometry(item, mesh = item?.modelData) {
 
 export function ensureParsedModelPointCloud(item, pointBudget = 4000, mesh = item?.modelData) {
   const budget = boundedBudget(pointBudget);
-  const key = `stl:${modelTriangleCount(mesh)}:${budget}`;
+  const key = `stl:${meshResourceCacheKey(mesh)}:${budget}`;
   if (item?.modelPointCloud && item.modelPointCloudKey === key) return item.modelPointCloud;
   const points = buildParsedModelPointCloud(mesh, budget);
   if (item) {
@@ -103,7 +103,7 @@ export function ensureParsedModelPointCloud(item, pointBudget = 4000, mesh = ite
 
 export function ensureParsedModelWireLines(item, lineBudget = 4000, mesh = item?.modelData) {
   const budget = boundedBudget(lineBudget);
-  const key = `wire:${modelTriangleCount(mesh)}:${budget}`;
+  const key = `wire:${meshResourceCacheKey(mesh)}:${budget}`;
   if (item?.modelWireLines && item.modelWireLinesKey === key) return item.modelWireLines;
   const lines = buildParsedModelWireLines(mesh, budget);
   if (item) {
@@ -115,7 +115,7 @@ export function ensureParsedModelWireLines(item, lineBudget = 4000, mesh = item?
 
 export function ensureParsedModelThickWireVertices(item, lineBudget = 4000, mesh = item?.modelData) {
   const budget = boundedBudget(lineBudget);
-  const key = `thickWire:${modelTriangleCount(mesh)}:${budget}`;
+  const key = `thickWire:${meshResourceCacheKey(mesh)}:${budget}`;
   if (item?.modelThickWireVertices && item.modelThickWireVerticesKey === key) return item.modelThickWireVertices;
   const vertices = buildParsedModelThickWireVertices(ensureParsedModelWireLines(item, budget, mesh));
   if (item) {
@@ -128,7 +128,7 @@ export function ensureParsedModelThickWireVertices(item, lineBudget = 4000, mesh
 export function ensureParsedModelPerceptualWireVertices(item, lineBudget = 4000, mesh = item?.modelData) {
   const budget = boundedBudget(lineBudget);
   if (!item) return buildParsedModelPerceptualWireVertices(buildParsedModelPerceptualEdges(mesh), budget);
-  const meshKey = `perceptual:${modelTriangleCount(mesh)}`;
+  const meshKey = `perceptual:${meshResourceCacheKey(mesh)}`;
   if (!item?.modelPerceptualEdges || item.modelPerceptualEdgesKey !== meshKey) {
     item.modelPerceptualEdges = buildParsedModelPerceptualEdges(mesh);
     item.modelPerceptualEdgesKey = meshKey;

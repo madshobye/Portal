@@ -1,8 +1,9 @@
-import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=node-catalog-14";
+import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
 import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
 import { mediaCategory, mediaPickerCardTemplate, mediaRefreshButtonTemplate } from "./media-view.js?v=media-name-presentation-1";
+import { UI_ICONS } from "./ui-icons.js";
 
 function getByPath(target, path) {
   return String(path || "").split(".").filter(Boolean).reduce((value, segment) => value?.[segment], target);
@@ -188,14 +189,14 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
       <div class="element-modal-body" data-scroll-region data-scroll-key="element-picker-results">
         ${components.length ? `<section class="ui-section element-section" data-element-section>
           <div class="element-section-heading">
-            <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Components</span></div>
+            <div class="ui-section-header rail-title"><span class="material-symbols-rounded">${UI_ICONS.component}</span><span>Components</span></div>
             ${componentPickerSortTemplate(componentCatalog.sortMode || "recent")}
           </div>
           <div class="element-grid media-element-grid">
             ${components.map((component) => `
               <div class="element-card-shell" data-element-category="component" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
                 <button type="button" class="element-card media-element-card" data-add-element-component="${esc(component.id)}">
-                  ${thumbnailTemplate(component.thumbnail, "account_tree", component.id)}
+                  ${thumbnailTemplate(component.thumbnail, UI_ICONS.component, component.id)}
                   <strong>${esc(component.name)}</strong>
                   <small>component</small>
                 </button>
@@ -224,10 +225,10 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
         </section>
 
         <section class="ui-section element-section" data-element-section>
-          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">account_tree</span><span>Structure</span></div>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">${UI_ICONS.group}</span><span>Structure</span></div>
           <div class="element-grid compact-element-grid">
             <button type="button" class="element-card" data-element-category="group" data-add-element-group data-element-search-card="group folder chain nested structure">
-              ${icon("account_tree")}
+              ${icon(UI_ICONS.group)}
               <strong>Group</strong>
               <small>nested chain</small>
             </button>
@@ -276,7 +277,7 @@ function elementFilterBarTemplate({ active = "all", mediaItems = [], hasComponen
     ...(availableMedia.has("model") ? [["model", "3D", "deployed_code"]] : []),
     ["generator", "Generators", "auto_awesome"],
     ["effect", "Effects", "blur_on"],
-    ...(hasComponents ? [["component", "Components", "account_tree"]] : []),
+    ...(hasComponents ? [["component", "Components", UI_ICONS.component]] : []),
     ["live", "Live", "photo_camera"],
     ["group", "Groups", "folder"],
   ];

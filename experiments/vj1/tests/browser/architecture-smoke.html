@@ -20,9 +20,31 @@
   <body>
     <pre id="architecture-smoke-results">running...</pre>
     <script type="module">
-      import Anatomy from "../../js/libraries/visual-nodes/generators/anatomy/index.js";
       import MeshPatterns from "../../js/libraries/visual-nodes/generators/mesh-patterns/index.js";
+      import ModelMedia from "../../js/libraries/visual-nodes/generators/model-media/index.js?v=model-media-scene-group-1";
       import TerrainFlyover from "../../js/libraries/visual-nodes/generators/terrain-flyover/index.js";
+      import FeatureMorph from "../../js/libraries/visual-nodes/generators/feature-morph/index.js?v=feature-morph-semantic-1";
+      import FeatureMorphV2 from "../../js/libraries/visual-nodes/generators/feature-morph-v2/index.js?v=feature-morph-semantic-1";
+      import TileTexture from "../../js/libraries/visual-nodes/generators/tile-texture/index.js?v=tile-texture-semantic-1";
+      import Text from "../../js/libraries/visual-nodes/generators/text/index.js?v=text-mask-semantic-1";
+      import ScreenShare from "../../js/libraries/visual-nodes/generators/screen-share/index.js?v=screen-input-semantic-1";
+      import Eyeball from "../../js/libraries/visual-nodes/generators/eyeball/index.js?v=gaze-blink-semantic-1";
+      import {
+        FEATURE_MORPH_FRAGMENT_SHADER,
+        FEATURE_MORPH_VERTEX_SHADER,
+      } from "../../js/libraries/visual-nodes/generators/feature-morph/runtime.js?v=feature-morph-semantic-1";
+      import {
+        TILE_TEXTURE_FRAGMENT_SHADER,
+        TILE_TEXTURE_VERTEX_SHADER,
+      } from "../../js/libraries/visual-nodes/generators/tile-texture/runtime.js?v=tile-texture-semantic-1";
+      import { TerrainBiomeMaterialProviderNode } from "../../js/libraries/visual-nodes/providers/terrain-biome-material/index.js?v=semantic-terrain-node-ownership-1";
+      import { TerrainWireMaterialProviderNode } from "../../js/libraries/visual-nodes/providers/terrain-wire-material/index.js?v=semantic-terrain-node-ownership-1";
+      import { TextMaskProviderNode } from "../../js/libraries/visual-nodes/providers/text-mask/index.js?v=text-mask-semantic-1";
+      import { TextMaskToImageNode } from "../../js/libraries/visual-nodes/renderers/text-mask-to-image/index.js?v=text-mask-semantic-1";
+      import { ScreenInputResourceNode } from "../../js/libraries/visual-nodes/providers/screen-input-resource/index.js?v=screen-input-semantic-1";
+      import { MediaResourceToImageNode } from "../../js/libraries/visual-nodes/renderers/media-resource-to-image/index.js?v=screen-input-semantic-1";
+      import { GazeBlinkControllerNode } from "../../js/libraries/visual-nodes/providers/gaze-blink-controller/index.js?v=gaze-blink-semantic-1";
+      import { EyeballToImageNode } from "../../js/libraries/visual-nodes/renderers/eyeball-to-image/index.js?v=gaze-blink-semantic-1";
       import {
         compileSpecializedCompoundProgram,
       } from "../../js/libraries/visual-nodes/shared/specialized-compound.js";
@@ -41,13 +63,7 @@
         MESH_PATTERN_WIRE_FRAGMENT_SHADER,
         MESH_PATTERN_WIRE_VERTEX_SHADER,
       } from "../../js/libraries/visual-nodes/generators/mesh-patterns/shaders.js";
-      import {
-        TERRAIN_SURFACE_FRAGMENT_SHADER,
-        TERRAIN_SURFACE_VERTEX_SHADER,
-        TERRAIN_WIRE_FRAGMENT_SHADER,
-        TERRAIN_WIRE_VERTEX_SHADER,
-      } from "../../js/libraries/visual-nodes/generators/terrain-flyover/shaders.js";
-
+      import { SpecializedSourceRuntime } from "../../js/output/specialized/specialized-source-runtime.js";
       const resultElement = document.querySelector("#architecture-smoke-results");
       const resourceCounts = {
         shadersCreated: 0,
@@ -78,14 +94,28 @@
         const nativeShaders = [
           compilePair(gl, "mesh-pattern-fill", MESH_PATTERN_FILL_VERTEX_SHADER, MESH_PATTERN_FILL_FRAGMENT_SHADER),
           compilePair(gl, "mesh-pattern-wire", MESH_PATTERN_WIRE_VERTEX_SHADER, MESH_PATTERN_WIRE_FRAGMENT_SHADER),
-          compilePair(gl, "terrain-surface", TERRAIN_SURFACE_VERTEX_SHADER, TERRAIN_SURFACE_FRAGMENT_SHADER),
-          compilePair(gl, "terrain-wire", TERRAIN_WIRE_VERTEX_SHADER, TERRAIN_WIRE_FRAGMENT_SHADER),
+          compilePair(gl, "feature-morph", FEATURE_MORPH_VERTEX_SHADER, FEATURE_MORPH_FRAGMENT_SHADER),
+          compilePair(gl, "tile-texture", TILE_TEXTURE_VERTEX_SHADER, TILE_TEXTURE_FRAGMENT_SHADER),
+          compileNodeShaderProgram(gl, "terrain-surface", TerrainBiomeMaterialProviderNode, "surface"),
+          compileNodeShaderProgram(gl, "terrain-wire", TerrainWireMaterialProviderNode, "wire"),
+          compileNodeShaderProgram(gl, "text-mask", TextMaskToImageNode, "text-mask"),
+          compileNodeShaderProgram(gl, "eyeball", EyeballToImageNode, "controlled-shader"),
         ];
         const compounds = [
-          compileCompound("anatomy", Anatomy),
           compileCompound("mesh-patterns", MeshPatterns),
           compileCompound("terrain-flyover", TerrainFlyover),
+          compileCompound("feature-morph", FeatureMorph),
+          compileCompound("feature-morph-v2", FeatureMorphV2),
+          compileCompound("tile-texture", TileTexture),
+          compileCompound("text", Text),
+          compileCompound("screen-share", ScreenShare),
+          compileCompound("eyeball", Eyeball),
         ];
+        const textMask = verifyTextMaskGroup();
+        const screenShare = verifyScreenShareGroup();
+        const eyeball = verifyEyeballGroup();
+        const featureMorphProviders = verifyFeatureMorphProviders();
+        const modelMedia = verifyModelMediaGroup(ModelMedia);
         const temporalInvalidation = verifyTemporalInvalidation();
         const resourcesBalanced =
           resourceCounts.shadersCreated === resourceCounts.shadersDeleted &&
@@ -104,6 +134,22 @@
           namedIsfInputs.namedSamplerEquivalent &&
           nativeShaders.every((entry) => entry.compiled && entry.linked) &&
           compounds.every((entry) => entry.compiledFastPath && entry.graphEditable && entry.activation === "recompile") &&
+          textMask.connected &&
+          textMask.stableRevision &&
+          textMask.textInvalidatedOnce &&
+          textMask.resolutionInvalidatedOnce &&
+          textMask.visiblePixels &&
+          screenShare.connected &&
+          screenShare.resourceIdentity &&
+          screenShare.presentationOwned &&
+          eyeball.connected &&
+          eyeball.retainedUniforms &&
+          eyeball.finiteAnimation &&
+          featureMorphProviders.registered &&
+          featureMorphProviders.substitutable &&
+          modelMedia.compiledFastPath &&
+          modelMedia.graphEditable &&
+          modelMedia.meshToImage &&
           temporalInvalidation.cloneable &&
           temporalInvalidation.frameDependent &&
           resourcesBalanced &&
@@ -119,6 +165,11 @@
           namedIsfInputs,
           nativeShaders,
           compounds,
+          textMask,
+          screenShare,
+          eyeball,
+          featureMorphProviders,
+          modelMedia,
           temporalInvalidation,
           resources: {
             ...resourceCounts,
@@ -151,6 +202,197 @@
           compiledFastPath: definition.capabilities?.includes("compiled-fast-path") === true,
           renderer: definition.metadata?.visualCompilerHook?.renderer || "",
         };
+      }
+
+      function verifyModelMediaGroup(component) {
+        const definition = component?.nodeDefinition;
+        const graphPart = definition?.parts?.find((part) => part.kind === "graph");
+        const nodeIds = graphPart?.nodes?.map((node) => node.id) || [];
+        return {
+          executionModel: definition?.implementation?.executionModel || "",
+          graphEditable: graphPart?.editable === true,
+          activation: definition?.authoring?.activation || "",
+          compiledFastPath: definition?.capabilities?.includes("compiled-fast-path") === true,
+          compiler: definition?.metadata?.visualCompilerHook?.id || "",
+          nodes: nodeIds,
+          meshToImage:
+            nodeIds.includes("media") &&
+            nodeIds.includes("lod") &&
+            nodeIds.includes("material") &&
+            nodeIds.includes("scene") &&
+            nodeIds.includes("render"),
+        };
+      }
+
+      function verifyTextMaskGroup() {
+        const definitions = new Map([
+          [TextMaskProviderNode.id, TextMaskProviderNode],
+          [TextMaskToImageNode.id, TextMaskToImageNode],
+        ]);
+        const program = compileSpecializedCompoundProgram(Text.nodeDefinition, {
+          resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+        });
+        const context = { instanceId: "browser-text-mask" };
+        const external = { mask: { width: 320, height: 180 } };
+        const first = program.evaluateGraph({ text: "NODE" }, context, external)
+          .stageInput("render", "mask");
+        const firstRevision = first.revision;
+        const firstCanvas = first.canvas;
+        const second = program.evaluateGraph({ text: "NODE" }, context, external)
+          .stageInput("render", "mask");
+        const secondRevision = second.revision;
+        const third = program.evaluateGraph({ text: "GRAPH" }, context, external)
+          .stageInput("render", "mask");
+        const thirdRevision = third.revision;
+        external.mask.width = 200;
+        external.mask.height = 120;
+        const fourth = program.evaluateGraph({ text: "GRAPH" }, context, external)
+          .stageInput("render", "mask");
+        const fourthRevision = fourth.revision;
+        const pixels = fourth.canvas.getContext("2d", { willReadFrequently: true })
+          .getImageData(0, 0, fourth.width, fourth.height).data;
+        let visiblePixels = false;
+        for (let index = 3; index < pixels.length; index += 4) {
+          if (pixels[index] > 0) {
+            visiblePixels = true;
+            break;
+          }
+        }
+        const result = {
+          connected: program.nativeKernel("text-mask")?.inputBindings?.mask?.stageId === "mask",
+          stableRevision: secondRevision === firstRevision && second.canvas === firstCanvas,
+          textInvalidatedOnce: thirdRevision === secondRevision + 1,
+          resolutionInvalidatedOnce: fourthRevision === thirdRevision + 1,
+          visiblePixels,
+          size: [fourth.width, fourth.height],
+          revisions: [firstRevision, secondRevision, thirdRevision, fourthRevision],
+        };
+        program.dispose();
+        return result;
+      }
+
+      function verifyScreenShareGroup() {
+        const definitions = new Map([
+          [ScreenInputResourceNode.id, ScreenInputResourceNode],
+          [MediaResourceToImageNode.id, MediaResourceToImageNode],
+        ]);
+        const program = compileSpecializedCompoundProgram(ScreenShare.nodeDefinition, {
+          resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+        });
+        const graph = program.evaluateGraph({
+          inputId: "browser-display",
+          fit: "cover",
+          mirrored: true,
+        }, { instanceId: "browser-screen-share" });
+        const resource = graph.stageInput("render", "resource");
+        const settings = graph.stageInputs("render").settings;
+        const target = {
+          width: 320,
+          height: 180,
+          calls: [],
+          push() { this.calls.push(["push"]); },
+          pop() { this.calls.push(["pop"]); },
+          translate(...values) { this.calls.push(["translate", ...values]); },
+          scale(...values) { this.calls.push(["scale", ...values]); },
+        };
+        const draws = [];
+        MediaResourceToImageNode.moduleExports.drawMediaResourceToImage(
+          target,
+          { id: "resolved-browser-display" },
+          settings,
+          (...args) => draws.push(args),
+        );
+        const result = {
+          connected: program.nativeKernel("media-resource-fit")?.inputBindings?.resource?.stageId === "input",
+          resourceIdentity:
+            resource?.kind === "screen-input-resource" &&
+            resource?.inputId === "browser-display" &&
+            resource?.ready === true,
+          presentationOwned:
+            settings.fit === "cover" &&
+            settings.mirrored === true &&
+            target.calls.some((call) => call[0] === "translate" && call[1] === 320) &&
+            target.calls.some((call) => call[0] === "scale" && call[1] === -1) &&
+            draws[0]?.[6] === "cover",
+          stages: program.stages.map(({ id, nodeId }) => ({ id, nodeId })),
+        };
+        program.dispose();
+        return result;
+      }
+
+      function verifyEyeballGroup() {
+        const definitions = new Map([
+          [GazeBlinkControllerNode.id, GazeBlinkControllerNode],
+          [EyeballToImageNode.id, EyeballToImageNode],
+        ]);
+        const program = compileSpecializedCompoundProgram(Eyeball.nodeDefinition, {
+          resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+        });
+        const context = { instanceId: "browser-eyeball" };
+        const first = program.evaluateGraph({
+          gazeRange: 0.8,
+          blinkRate: 1,
+          irisSize: 1.2,
+        }, context, {
+          motion: { componentTime: 2 },
+        });
+        const firstUniforms = first.stageInput("render", "uniforms");
+        const second = program.evaluateGraph({
+          gazeRange: 0.8,
+          blinkRate: 1,
+          irisSize: 1.2,
+        }, context, {
+          motion: { componentTime: 3 },
+        });
+        const secondUniforms = second.stageInput("render", "uniforms");
+        const values = [
+          ...secondUniforms.gazeDir,
+          ...secondUniforms.irisRight,
+          ...secondUniforms.irisUp,
+          secondUniforms.blink,
+        ];
+        const result = {
+          connected:
+            program.nativeKernel("controlled-shader")?.inputBindings?.uniforms?.stageId === "motion",
+          retainedUniforms: firstUniforms === secondUniforms,
+          finiteAnimation:
+            values.every(Number.isFinite) &&
+            secondUniforms.blink >= 0 &&
+            secondUniforms.blink <= 1,
+          stages: program.stages.map(({ id, nodeId }) => ({ id, nodeId })),
+          renderer: Eyeball.nodeDefinition.metadata?.visualCompilerHook?.renderer || "",
+        };
+        program.dispose();
+        return result;
+      }
+
+      function verifyFeatureMorphProviders() {
+        const runtime = new SpecializedSourceRuntime();
+        const projectService = {};
+        runtime.registerFeatureMorphAnalysisProvider("project-analysis", {
+          service: () => projectService,
+        });
+        const result = {
+          registered:
+            runtime.featureMorphAnalysisService("superpoint") === runtime.superPointPairs &&
+            runtime.featureMorphAnalysisService("mobilenet") === runtime.mobileNetMorphPairs,
+          substitutable: runtime.featureMorphAnalysisService("project-analysis") === projectService,
+          providers: [...runtime.featureMorphAnalysisProviders.keys()],
+        };
+        runtime.dispose();
+        return result;
+      }
+
+      function compileNodeShaderProgram(gl, id, definition, programId) {
+        const parts = definition.parts?.filter((part) =>
+          part.kind === "shader" && part.program === programId
+        ) || [];
+        const vertex = parts.find((part) => part.stage === "vertex");
+        const fragment = parts.find((part) => part.stage === "fragment");
+        if (!vertex?.editable || !fragment?.editable) {
+          throw new Error(`EDITABLE_NODE_SHADER_MISSING:${definition.id}:${programId}`);
+        }
+        return compilePair(gl, id, vertex.source, fragment.source);
       }
 
       function verifyTemporalInvalidation() {

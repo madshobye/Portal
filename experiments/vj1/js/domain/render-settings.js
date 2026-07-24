@@ -5,7 +5,19 @@ import {
 } from "../libraries/render-engine/relative-geometry.js";
 
 export const DEFAULT_MAX_FRAME_RATE = 120;
-export const RESOLUTION_CEILING_CLASSES = ["auto", "2k", "4k", "8k"];
+export const RESOLUTION_CEILING_PRESETS = Object.freeze([
+  Object.freeze({ id: "auto", label: "Auto · current window", longEdge: Infinity }),
+  Object.freeze({ id: "vga", label: "VGA · 640 × 480", longEdge: 640 }),
+  Object.freeze({ id: "xga", label: "XGA · 1024 × 768", longEdge: 1024 }),
+  Object.freeze({ id: "uxga", label: "UXGA · 1600 × 1200", longEdge: 1600 }),
+  Object.freeze({ id: "wuxga", label: "WUXGA · 1920 × 1200", longEdge: 1920 }),
+  Object.freeze({ id: "2k", label: "2K", longEdge: 2048 }),
+  Object.freeze({ id: "4k", label: "4K", longEdge: 4096 }),
+  Object.freeze({ id: "8k", label: "8K", longEdge: 8192 }),
+]);
+export const RESOLUTION_CEILING_CLASSES = Object.freeze(
+  RESOLUTION_CEILING_PRESETS.map((preset) => preset.id)
+);
 
 export function renderMaxFrameRate(render = {}) {
   return positiveInt(render?.maxFrameRate, DEFAULT_MAX_FRAME_RATE, 1, 120);
@@ -80,10 +92,7 @@ export function normalizeResolutionCeiling(value) {
 }
 
 export function resolutionCeilingLongEdge(value = "auto") {
-  if (value === "2k") return 2048;
-  if (value === "4k") return 4096;
-  if (value === "8k") return 8192;
-  return Infinity;
+  return RESOLUTION_CEILING_PRESETS.find((preset) => preset.id === value)?.longEdge ?? Infinity;
 }
 
 export function normalizeHostViewport(viewport = {}) {

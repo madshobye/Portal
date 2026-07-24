@@ -9,10 +9,16 @@ const manifest = Object.freeze({
     runtime: timeParamRuntime("speed"),
     params: [
       createNumberParam("speed", "Speed", { min: 0, max: 3, step: 0.01, defaultValue: 1 }),
-      createNumberParam("raySteps", "Ray steps", { min: 24, max: 160, step: 1, defaultValue: 72 }),
+      createNumberParam("raySteps", "Ray steps", {
+        min: 24, max: 160, step: 1, defaultValue: 72,
+        renderQualityScaling: { minimum: 0.35, maximum: 1.5 },
+      }),
       createNumberParam("cloudDensity", "Cloud density", { min: 0.2, max: 2.5, step: 0.01, defaultValue: 0.8 }),
       createNumberParam("cloudScale", "Cloud scale", { min: 0.2, max: 3, step: 0.01, defaultValue: 1, scale: "log" }),
-      createNumberParam("cloudDetail", "Cloud detail", { min: 1, max: 3, step: 1, defaultValue: 2 }),
+      createNumberParam("cloudDetail", "Cloud detail", {
+        min: 1, max: 3, step: 1, defaultValue: 2,
+        renderQualityScaling: { minimum: 0.5, maximum: 1.25 },
+      }),
       createNumberParam("tunnelRadius", "Tunnel radius", { min: 1.5, max: 10, step: 0.01, defaultValue: 4.4 }),
       createNumberParam("tunnelSpread", "Tunnel spread", { min: 0.5, max: 6, step: 0.01, defaultValue: 3.7 }),
       createNumberParam("pathBend", "Path bend", { min: 0, max: 14, step: 0.01, defaultValue: 6.2 }),

@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js?v=project-group-authoring-1";
 
-export const CURRENT_PROJECT_VERSION = 30;
+export const CURRENT_PROJECT_VERSION = 31;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -55,6 +55,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   27: migrateProjectV27ToV28,
   28: migrateProjectV28ToV29,
   29: migrateProjectV29ToV30,
+  30: migrateProjectV30ToV31,
 });
 
 export function migrateProjectData(project = {}) {
@@ -706,7 +707,7 @@ function migrateRelativeProjectState(project = {}) {
       outputs,
       canvasAspectRatio: migratedAspectRatio(render.canvasAspectRatio, canvasWidth, canvasHeight, 16 / 9),
       componentAspectRatio: migratedAspectRatio(render.componentAspectRatio, componentWidth, componentHeight, outputs[0]?.aspectRatio || 16 / 9),
-      resolutionCeiling: ["auto", "2k", "4k", "8k"].includes(render.resolutionCeiling) ? render.resolutionCeiling : "auto",
+      resolutionCeiling: ["auto", "vga", "xga", "uxga", "wuxga", "2k", "4k", "8k"].includes(render.resolutionCeiling) ? render.resolutionCeiling : "auto",
       camera,
     },
     recordingFrames: migrateRelativeRecordingFrames(project.recordingFrames, canvasWidth, canvasHeight),
@@ -932,6 +933,44 @@ export function migrateProjectV29ToV30(project) {
   }
   const { frames: _frames, surfaces: _runtimeSurfaces, ...projectData } = project;
   return { ...projectData, components, mappings, ui };
+}
+
+// v31 makes file-backed 3D presentation an ordinary editable Scene3d Group.
+// The media identity becomes the Media Mesh child parameter; the former
+// media-specific renderer is no longer the semantic owner of model controls.
+export function migrateProjectV30ToV31(project) {
+  return {
+    ...project,
+    components: (Array.isArray(project.components) ? project.components : []).map((component) => ({
+      ...component,
+      chain: migrateModelMediaChain(component?.chain),
+    })),
+  };
+}
+
+function migrateModelMediaChain(chain) {
+  if (!Array.isArray(chain)) return chain;
+  return chain.map((item) => {
+    if (item?.kind === "group") {
+      return { ...item, chain: migrateModelMediaChain(item.chain) };
+    }
+    const source = item?.kind === "source" ? item.source : null;
+    const mediaId = String(source?.mediaId || "");
+    if (source?.type !== "media" || !/\.(?:stl|obj)$/i.test(mediaId)) return item;
+    const { mediaId: _mediaId, type: _type, start: _start, end: _end, speed: _speed, ...sourceData } = source;
+    return {
+      ...item,
+      source: {
+        ...sourceData,
+        type: "generator",
+        generatorId: "modelMedia",
+        params: {
+          ...(source?.params && typeof source.params === "object" ? source.params : {}),
+          mediaId,
+        },
+      },
+    };
+  });
 }
 
 function stripMigratedSurfaceRoute(surface = {}) {

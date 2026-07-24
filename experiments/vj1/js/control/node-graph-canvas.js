@@ -6,6 +6,35 @@ const BOUNDARY_WIDTH = 132;
 const PORT_ROW = 22;
 const PORT_TOP = 58;
 
+export const NODE_GRAPH_AUTHORING_TARGETS = Object.freeze({
+  VISUAL: "visual-graph",
+  SCENE_3D: "scene-3d-graph",
+  GENERIC: "node-graph",
+});
+
+export function nodeDefinitionPlaceableInGraph(definition = {}, target = "") {
+  const destination = String(target || "");
+  if (!destination) return false;
+  const placeableOn = new Set(definition.presentation?.placeableOn || []);
+  if (destination === NODE_GRAPH_AUTHORING_TARGETS.VISUAL) {
+    try {
+      graphNodeFromDefinition(definition, {
+        id: "$placement-check",
+        position: { x: 0, y: 0 },
+        visualProgram: true,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (destination === NODE_GRAPH_AUTHORING_TARGETS.SCENE_3D) {
+    return placeableOn.has("node-graph") && liveGraphProcess(definition);
+  }
+  return destination === NODE_GRAPH_AUTHORING_TARGETS.GENERIC
+    && placeableOn.has("node-graph");
+}
+
 export function nodeGraphCanvasTemplate(definition, registry, options = {}) {
   const topologyEditable = options.topologyEditable !== false;
   const connectionsEditable = options.connectionsEditable ?? topologyEditable;
@@ -14,9 +43,11 @@ export function nodeGraphCanvasTemplate(definition, registry, options = {}) {
     : null;
   const nodesEditable = options.nodesEditable ?? topologyEditable;
   const parametersEditable = options.parametersEditable ?? nodesEditable;
+  const providersEditable = options.providersEditable ?? nodesEditable;
   const publicInterfaceEditable = options.publicInterfaceEditable === true;
   const layoutEditable = options.layoutEditable !== false;
   const visualProgram = options.visualProgram === true;
+  const authoringTarget = String(options.authoringTarget || "");
   const graph = definition?.parts?.find((part) => part.kind === "graph");
   if (!graph) return "";
   const model = graphCanvasModel(definition, graph, registry);
@@ -28,15 +59,17 @@ export function nodeGraphCanvasTemplate(definition, registry, options = {}) {
           ? "Drag library nodes here · select an outlet, then an inlet"
           : connectionsEditable
             ? "Compiler-owned nodes · select an outlet, then an inlet"
-            : "Compiler-owned topology · node layout is editable"}</small>
+            : parametersEditable || providersEditable
+              ? "Compiler-owned topology · values and declared providers are editable"
+              : "Compiler-owned topology · node layout is editable"}</small>
       </header>
-      <div class="node-graph-canvas" data-node-graph-canvas data-node-graph-definition="${esc(definition.metadata?.baseNode?.id || definition.id)}" data-topology-editable="${nodesEditable || connectionsEditable}" data-connections-editable="${connectionsEditable}" data-nodes-editable="${nodesEditable}" data-parameters-editable="${parametersEditable}" data-public-interface-editable="${publicInterfaceEditable}" data-layout-editable="${layoutEditable}" data-visual-program="${visualProgram}" style="--node-graph-width:${model.width}px;--node-graph-height:${model.height}px">
+      <div class="node-graph-canvas" data-node-graph-canvas data-node-graph-definition="${esc(definition.metadata?.baseNode?.id || definition.id)}" data-topology-editable="${nodesEditable || connectionsEditable}" data-connections-editable="${connectionsEditable}" data-nodes-editable="${nodesEditable}" data-parameters-editable="${parametersEditable}" data-providers-editable="${providersEditable}" data-public-interface-editable="${publicInterfaceEditable}" data-layout-editable="${layoutEditable}" data-visual-program="${visualProgram}" data-authoring-target="${esc(authoringTarget)}" style="--node-graph-width:${model.width}px;--node-graph-height:${model.height}px">
         <svg class="node-graph-wires" viewBox="0 0 ${model.width} ${model.height}" aria-label="Node connections">
           ${(graph.connections || []).map((edge, index) => graphEdgeTemplate(edge, index, model, {
             editable: connectionsEditable && connectionTypeEditable(edge.type, editableConnectionTypes),
           })).join("")}
         </svg>
-        ${model.cards.map((card) => graphCardTemplate(card, { nodesEditable, parametersEditable, publicInterfaceEditable })).join("")}
+        ${model.cards.map((card) => graphCardTemplate(card, { nodesEditable, parametersEditable, providersEditable, publicInterfaceEditable })).join("")}
         <script type="application/json" data-node-graph-data>${safeJson(graph)}</script>
         <script type="application/json" data-node-graph-editable-connection-types>${safeJson(editableConnectionTypes ? [...editableConnectionTypes] : null)}</script>
       </div>
@@ -60,11 +93,12 @@ export function bindNodeGraphCanvas(scope, {
   const editableConnectionTypes = readEditableConnectionTypes(canvas);
   const nodesEditable = canvas.dataset.nodesEditable === "true";
   const parametersEditable = canvas.dataset.parametersEditable === "true";
+  const providersEditable = canvas.dataset.providersEditable === "true";
   const publicInterfaceEditable = canvas.dataset.publicInterfaceEditable === "true";
   const layoutEditable = canvas.dataset.layoutEditable === "true";
   const visualProgram = canvas.dataset.visualProgram === "true";
 
-  for (const input of parametersEditable ? canvas.querySelectorAll("[data-node-graph-parameter]") : []) {
+  for (const input of parametersEditable ? canvas.querySelectorAll("[data-node-graph-parameter]:not([data-node-graph-color-control])") : []) {
     input.addEventListener("change", () => {
       try {
         const value = readGraphParameterValue(input);
@@ -79,6 +113,23 @@ export function bindNodeGraphCanvas(scope, {
         onStatus(error?.message || "Node parameter was not updated");
       }
     });
+  }
+
+  for (const control of parametersEditable ? canvas.querySelectorAll("[data-node-graph-color-control]") : []) {
+    const update = () => {
+      const rgb = graphColorHex(control.querySelector("[data-node-graph-color-rgb]")?.value).slice(0, 7);
+      const alpha = Math.max(0, Math.min(1, Number(control.querySelector("[data-node-graph-color-alpha]")?.value) || 0));
+      const value = `${rgb}${Math.round(alpha * 255).toString(16).padStart(2, "0")}`;
+      graph = graphWithNodeParameter(
+        graph,
+        control.dataset.nodeGraphParameterNode,
+        control.dataset.nodeGraphParameter,
+        value,
+      );
+      onGraphChange(graph, "change-parameter");
+    };
+    control.querySelector("[data-node-graph-color-rgb]")?.addEventListener("change", update);
+    control.querySelector("[data-node-graph-color-alpha]")?.addEventListener("change", update);
   }
 
   for (const button of parametersEditable ? canvas.querySelectorAll("[data-node-graph-media-parameter]") : []) {
@@ -215,7 +266,7 @@ export function bindNodeGraphCanvas(scope, {
     });
   }
 
-  for (const select of nodesEditable ? canvas.querySelectorAll("[data-node-provider-select]") : []) {
+  for (const select of providersEditable ? canvas.querySelectorAll("[data-node-provider-select]") : []) {
     select.addEventListener("change", () => {
       const option = select.selectedOptions?.[0];
       if (!option) return;
@@ -244,6 +295,10 @@ export function bindNodeGraphCanvas(scope, {
       return;
     }
     const nodeDefinition = registry.get(nodeId);
+    if (!nodeDefinitionPlaceableInGraph(nodeDefinition, canvas.dataset.authoringTarget)) {
+      onStatus(`${nodeDefinition.name} is not executable in this graph`);
+      return;
+    }
     const rect = canvas.getBoundingClientRect();
     const id = uniqueGraphNodeId(graph, nodeDefinition.id);
     const position = { x: Math.max(8, event.clientX - rect.left), y: Math.max(8, event.clientY - rect.top) };
@@ -486,6 +541,14 @@ function isVisualControlDefinition(definition = {}) {
   ].some((capability) => capabilities.has(capability));
 }
 
+function liveGraphProcess(definition = {}) {
+  return typeof definition.process === "function"
+    && definition.execution?.asynchronous !== true
+    && definition.execution?.workload !== "bounded"
+    && definition.execution?.workload !== "offline"
+    && definition.process.constructor?.name !== "AsyncFunction";
+}
+
 export function graphWithoutNode(graph, nodeId) {
   const prefix = `${nodeId}.`;
   return cloneGraph(graph, {
@@ -530,9 +593,17 @@ function childCard(node, index, registry, unknownPorts, providerOptions = [], pu
   const id = String(node.id || `node-${index + 1}`);
   const inlets = mergedPorts(definition?.inlets, node.ports?.inlets).map((port) =>
     graphPort(id, port, "inlet", false, publicPorts.get(`inlet:${id}.${port.id}`) || ""));
-  const parameters = Object.values(definition?.parameters || {}).map((port) => graphPort(id, port, "inlet", true));
-  const parameterEditors = Object.values(definition?.parameters || {}).map((parameter) => {
-    const endpoint = `${id}.$parameter.${parameter.id}`;
+  const parameterDefinitions = Object.values(definition?.parameters || {});
+  const parameterIds = new Set(parameterDefinitions.map((parameter) => parameter.id));
+  const literalInletDefinitions = Object.values(definition?.inlets || {}).filter((inlet) =>
+    inlet.defaultValue !== undefined && !parameterIds.has(inlet.id));
+  const parameters = parameterDefinitions.map((port) => graphPort(id, port, "inlet", true));
+  const connectedEndpoints = new Set(graphConnectionsForNode(unknownPorts, id));
+  const parameterEditors = [
+    ...parameterDefinitions.map((parameter) => ({ parameter, endpoint: `${id}.$parameter.${parameter.id}` })),
+    ...literalInletDefinitions.map((parameter) => ({ parameter, endpoint: `${id}.${parameter.id}` })),
+  ].map(({ parameter, endpoint }) => {
+    const inletLiteral = !endpoint.includes(".$parameter.");
     return {
       id: parameter.id,
       label: parameter.label || parameter.id,
@@ -542,11 +613,11 @@ function childCard(node, index, registry, unknownPorts, providerOptions = [], pu
       value: node.parameters?.[parameter.id] ?? parameter.defaultValue,
       allowedRange: parameter.allowedRange,
       displayRange: parameter.displayRange,
-      connected: (graphConnectionsForNode(unknownPorts, id) || []).includes(endpoint),
+      connected: connectedEndpoints.has(endpoint),
       publicParameterId: publicParameters.get(`${id}.${parameter.id}`) || "",
-      // Declared parameters are authored configuration regardless of whether
-      // the child produces an image or a control signal. Signal inlets/outlets
-      // remain ports and are never projected into the Group inspector here.
+      inletLiteral,
+      // Declared parameters and unconnected inlets with defaults are authored
+      // configuration. A wire always supersedes the stored inlet literal.
       publishable: true,
     };
   });
@@ -559,7 +630,10 @@ function childCard(node, index, registry, unknownPorts, providerOptions = [], pu
     : { x: 246 + (index % 4) * 224, y: 48 + Math.floor(index / 4) * 230 };
   const rows = Math.max(inlets.length + parameters.length, outlets.length, 1);
   const parameterTop = PORT_TOP + rows * PORT_ROW + 8;
-  const parameterHeight = parameterEditors.length ? 22 + parameterEditors.length * 30 : 0;
+  const parameterHeight = parameterEditors.length
+    ? 22 + parameterEditors.reduce((height, parameter) =>
+      height + (parameter.editor?.type === "code" ? 82 : 30), 0)
+    : 0;
   const providerHeight = providerOptions.length ? 34 : 0;
   return {
     id,
@@ -624,6 +698,7 @@ function graphPort(nodeId, port, direction, parameter = false, publicPortId = ""
 function graphCardTemplate(card, {
   nodesEditable = true,
   parametersEditable = true,
+  providersEditable = nodesEditable,
   publicInterfaceEditable = false,
 } = {}) {
   return `<article class="node-graph-card ${card.id.startsWith("$") ? "is-boundary" : ""}" data-node-graph-node="${esc(card.id)}" data-x="${card.x}" data-y="${card.y}" style="left:${card.x}px;top:${card.y}px;width:${card.width}px;min-height:${card.height}px">
@@ -632,7 +707,7 @@ function graphCardTemplate(card, {
     <div class="node-graph-card-ports is-outlets">${card.outlets.map((port) => graphPortTemplate(port, publicInterfaceEditable && !card.id.startsWith("$"))).join("")}</div>
     ${card.parameterEditors?.length ? `<div class="node-graph-parameters" style="top:${card.parameterTop}px"><strong>Values</strong>${card.parameterEditors.map((parameter) =>
       graphParameterTemplate(card.id, parameter, parametersEditable, publicInterfaceEditable)).join("")}</div>` : ""}
-    ${card.providerOptions?.length ? `<label class="node-graph-provider"><span>Provider</span><select data-node-provider-select="${esc(card.id)}"${nodesEditable ? "" : " disabled"}>${card.providerOptions.map((option) =>
+    ${card.providerOptions?.length ? `<label class="node-graph-provider"><span>Provider</span><select data-node-provider-select="${esc(card.id)}"${providersEditable ? "" : " disabled"}>${card.providerOptions.map((option) =>
       `<option value="${esc(`${option.nodeId}:${option.providerId}`)}" data-node-id="${esc(option.nodeId)}" data-node-version="${esc(option.nodeVersion)}" data-provider-id="${esc(option.providerId)}"${option.selected ? " selected" : ""}>${esc(option.label)}</option>`).join("")}</select></label>` : ""}
   </article>`;
 }
@@ -664,8 +739,13 @@ function graphParameterTemplate(nodeId, parameter, editable, publicInterfaceEdit
     const step = Number(parameter.editor?.step);
     return `<label><span>${esc(parameter.label)}${publicAction}</span><input type="number" value="${esc(parameter.value ?? 0)}"${rangeAttributes}${Number.isFinite(step) && step > 0 ? ` step="${esc(step)}"` : ' step="any"'} ${common}${connectedTitle}></label>`;
   }
-  if (parameter.type === "color" && typeof parameter.value === "string") {
-    return `<label><span>${esc(parameter.label)}${publicAction}</span><input type="color" value="${esc(parameter.value)}" ${common}${connectedTitle}></label>`;
+  if (parameter.type === "color") {
+    const rgba = graphColorHex(parameter.value);
+    const alpha = Number.parseInt(rgba.slice(7, 9), 16) / 255;
+    return `<label><span>${esc(parameter.label)}${publicAction}</span><span class="node-graph-color-control" ${common} data-node-graph-color-control${connectedTitle}><input type="range" min="0" max="1" step="0.01" value="${esc(alpha)}" data-node-graph-color-alpha${disabled ? " disabled" : ""} aria-label="${esc(parameter.label)} alpha"><input type="color" value="${esc(rgba.slice(0, 7))}" data-node-graph-color-rgb${disabled ? " disabled" : ""} aria-label="${esc(parameter.label)} color"></span></label>`;
+  }
+  if (parameter.editor?.type === "code") {
+    return `<label class="is-code"><span>${esc(parameter.label)}${publicAction}</span><textarea rows="4" spellcheck="false" ${common}${connectedTitle}>${esc(parameter.value ?? "")}</textarea></label>`;
   }
   const structured = parameter.value != null && typeof parameter.value === "object";
   return `<label><span>${esc(parameter.label)}${publicAction}</span><input type="text" value="${esc(structured ? JSON.stringify(parameter.value) : parameter.value ?? "")}" ${common}${structured ? ' data-node-graph-parameter-json="true"' : ""}${connectedTitle}></label>`;
@@ -704,6 +784,27 @@ function readGraphParameterValue(input) {
     try { return JSON.parse(input.value); } catch { throw new Error(`NODE_GRAPH_PARAMETER_JSON_INVALID:${input.dataset.nodeGraphParameter}`); }
   }
   return input.value;
+}
+
+function graphColorHex(value) {
+  if (Array.isArray(value)) {
+    const channels = [0, 1, 2, 3].map((index) => {
+      const fallback = index === 3 ? 255 : 0;
+      const channel = Number(value[index] ?? fallback);
+      return Math.max(0, Math.min(255, Math.round(Number.isFinite(channel) ? channel : fallback)))
+        .toString(16)
+        .padStart(2, "0");
+    });
+    return `#${channels.join("")}`;
+  }
+  const clean = String(value || "").trim().replace(/^#/, "");
+  if (/^[0-9a-f]{3}$/i.test(clean) || /^[0-9a-f]{4}$/i.test(clean)) {
+    const expanded = [...clean].map((character) => character.repeat(2)).join("");
+    return `#${expanded}${expanded.length === 6 ? "ff" : ""}`.toLowerCase();
+  }
+  if (/^[0-9a-f]{6}$/i.test(clean)) return `#${clean.toLowerCase()}ff`;
+  if (/^[0-9a-f]{8}$/i.test(clean)) return `#${clean.toLowerCase()}`;
+  return "#000000ff";
 }
 
 function nodeWithParameter(node, parameterId, value) {

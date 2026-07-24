@@ -10,10 +10,63 @@
     <title>VJ1</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
-    <link rel="stylesheet" type="text/css" href="style.css?v=provider-substitution-graph-parameter-authoring-project-group-authoring-public-group-ports-card-delete-alignment-1" />
+    <link rel="stylesheet" type="text/css" href="style.css?v=render-chain-resolution-hud-1" />
   </head>
   <body data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
     <main id="app" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></main>
-    <script type="module" src="js/app.js?v=public-control-node-configuration-media-url-retirement-autosave-worker-2-named-image-inputs-isf-texture-shader-composite-source-backends-2"></script>
+    <script>
+      (async () => {
+        const sourceRevision = "source-coherence-11";
+        const workerUrl = new URL(`./module-source-worker.js?v=${sourceRevision}`, location.href).href;
+        const start = () => import(`./js/app.js?v=source-coherence-13`);
+        if (!("serviceWorker" in navigator) || !window.isSecureContext) {
+          await start();
+          return;
+        }
+        try {
+          const registration = await navigator.serviceWorker.register(
+            workerUrl,
+            { scope: "./", updateViaCache: "none" },
+          );
+          await registration.update();
+          await navigator.serviceWorker.ready;
+          const controllerMatches = () =>
+            navigator.serviceWorker.controller?.scriptURL === workerUrl;
+          if (!controllerMatches()) {
+            await Promise.race([
+              new Promise((resolve) => {
+                const changed = () => {
+                  if (!controllerMatches()) return;
+                  navigator.serviceWorker.removeEventListener("controllerchange", changed);
+                  resolve();
+                };
+                navigator.serviceWorker.addEventListener("controllerchange", changed);
+              }),
+              new Promise((resolve) => setTimeout(resolve, 4000)),
+            ]);
+          }
+          if (!controllerMatches()) {
+            const reloadKey = `vj1-source-worker:${sourceRevision}`;
+            if (sessionStorage.getItem(reloadKey) !== "ready") {
+              sessionStorage.setItem(reloadKey, "ready");
+              location.reload();
+              return;
+            }
+            throw new Error("VJ1_SOURCE_WORKER_REVISION_MISMATCH");
+          } else {
+            sessionStorage.removeItem(`vj1-source-worker:${sourceRevision}`);
+          }
+        } catch (error) {
+          if (error?.message === "VJ1_SOURCE_WORKER_REVISION_MISMATCH") {
+            console.error("[VJ1_SOURCE_COHERENCE_BLOCKED]", error);
+            document.getElementById("app").textContent =
+              "VJ1 could not activate a coherent source revision. Reload after the service worker update completes.";
+            return;
+          }
+          console.warn("[VJ1_SOURCE_COHERENCE_UNAVAILABLE]", error);
+        }
+        await start();
+      })();
+    </script>
   </body>
 </html>

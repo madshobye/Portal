@@ -2,12 +2,12 @@ import { normalizeParamValues } from "../libraries/visual-nodes/shared/component
 import {
   VISUAL_SOURCE_RENDERERS,
   visualSourceRenderer,
-} from "../libraries/composition-engine/index.js?v=public-control-node-configuration-named-image-inputs-1";
+} from "../libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
 import {
   createPlacedRenderResult,
   transformedPlacementDemandRect,
 } from "../graph/placed-render-result.js?v=atomic-video-seek-1";
-import { drawGenerator, drawStandby as drawStandbyDiagnostic } from "./generators.js?v=procedural-2d-1";
+import { drawStandby as drawStandbyDiagnostic } from "./generators.js?v=compiled-code-sources-1";
 import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=gapless-video-loop-1";
 import { mediaSourceFit } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import {
@@ -28,6 +28,15 @@ import {
   withRenderView,
 } from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
 import {
+  evaluateSpecializedCompoundGraph,
+  specializedCompoundNativeKernel,
+  specializedCompoundStageEnabled,
+  specializedCompoundStageParameterView,
+} from "../libraries/visual-nodes/shared/specialized-compound.js?v=screen-input-semantic-1";
+import {
+  drawMediaResourceToImage as fallbackDrawMediaResourceToImage,
+} from "../libraries/visual-nodes/renderers/media-resource-to-image/index.js?v=screen-input-semantic-1";
+import {
   componentReferenceCount,
   componentReferencePlacement,
   componentReferencePrefersSharedTexture,
@@ -36,22 +45,6 @@ import {
   componentRenderInstanceKey,
   fullTargetRect,
 } from "./component-render-layout.js?v=transition-demand-stability-compiled-reference-count-1";
-
-const NATIVE_SOURCE_HOST_METHODS = Object.freeze({
-  "output/specialized:screenShare": "drawScreenShareGenerator",
-  "output/specialized:anatomy": "drawAnatomyGenerator",
-  "output/specialized:terrainFlyover": "drawTerrainGenerator",
-  "output/specialized:featureMorph": "drawFeatureMorphGenerator",
-  "output/specialized:featureMorphV2": "drawFeatureMorphGenerator",
-  "output/specialized:tileTexture": "drawTileTextureGenerator",
-  "output/specialized:text": "drawTextGenerator",
-  "output/specialized:meshPatterns": "drawMeshPatternsGenerator",
-});
-
-const BASIC_NATIVE_SOURCE_RENDERERS = new Set([
-  "output/specialized:black",
-  "output/specialized:checker",
-]);
 
 const SOURCE_RUNTIME_METHODS = Object.freeze({
   [VISUAL_SOURCE_RENDERERS.COMPONENT]: "drawComponentReferenceSource",
@@ -94,11 +87,55 @@ export class SourceRenderRuntime {
     this.host = host;
     this.compiledNodeProcessContexts = new WeakMap();
     this.scene3dProgramContexts = new WeakMap();
+    this.nativeRenderers = new Map();
+    this.missingNativeRendererDiagnostics = new Set();
+    this.missingGeneratorImplementationDiagnostics = new Set();
+    this.sourceCrashDiagnostics = new Map();
+    this.registerNativeRenderer(
+      "output/specialized:screenShare",
+      (target, source, time, request, operation) => this.drawScreenShareGenerator(
+        target, source, time, request, operation,
+      ),
+    );
   }
 
   dispose() {
     this.compiledNodeProcessContexts = new WeakMap();
     this.scene3dProgramContexts = new WeakMap();
+    this.missingNativeRendererDiagnostics.clear();
+    this.missingGeneratorImplementationDiagnostics.clear();
+    this.sourceCrashDiagnostics.clear();
+  }
+
+  registerNativeRenderer(rendererId, renderer, { replace = false } = {}) {
+    const id = String(rendererId || "");
+    if (!id || typeof renderer !== "function") {
+      throw new TypeError("VJ1_NATIVE_SOURCE_RENDERER_INVALID");
+    }
+    if (!replace && this.nativeRenderers.has(id)) {
+      throw new Error(`VJ1_NATIVE_SOURCE_RENDERER_DUPLICATE:${id}`);
+    }
+    this.nativeRenderers.set(id, renderer);
+    this.missingNativeRendererDiagnostics.delete(id);
+    return renderer;
+  }
+
+  hasNativeRenderer(rendererId) {
+    const id = String(rendererId || "");
+    return this.nativeRenderers.has(id)
+      || this.host.specializedSources?.hasNativeRenderer?.(id) === true;
+  }
+
+  reportMissingNativeRenderer(rendererId, generatorId = "", operation = null) {
+    const id = String(rendererId || "");
+    if (this.missingNativeRendererDiagnostics.has(id)) return;
+    this.missingNativeRendererDiagnostics.add(id);
+    console.error("[VJ1_NATIVE_SOURCE_RENDERER_MISSING]", {
+      rendererId: id,
+      generatorId: String(generatorId || ""),
+      operationId: String(operation?.id || operation?.nodeId || ""),
+      message: "compiled visual plan requires a native renderer capability that is not installed",
+    });
   }
 
   safeDrawSourceToGraphics(
@@ -110,6 +147,7 @@ export class SourceRenderRuntime {
     operation = null,
     inputStates = null,
   ) {
+    const diagnosticKey = sourceDiagnosticKey(component, source, operation);
     try {
       this.drawSourceToGraphics(
         target,
@@ -120,17 +158,22 @@ export class SourceRenderRuntime {
         operation,
         inputStates,
       );
+      this.sourceCrashDiagnostics.delete(diagnosticKey);
     } catch (error) {
-      console.error(`[VJ1_SOURCE_CRASH] ${error?.name || "Error"}: ${error?.message || String(error || "unknown")}`, {
-        componentId: component.id,
-        componentName: component.name,
-        source,
-        width: target.width,
-        height: target.height,
-        name: error?.name,
-        message: error?.message,
-        stack: error?.stack,
-      });
+      const errorSignature = `${error?.name || "Error"}:${error?.message || String(error || "unknown")}`;
+      if (this.sourceCrashDiagnostics.get(diagnosticKey) !== errorSignature) {
+        this.sourceCrashDiagnostics.set(diagnosticKey, errorSignature);
+        console.error(`[VJ1_SOURCE_CRASH] ${errorSignature}`, {
+          componentId: component.id,
+          componentName: component.name,
+          source,
+          width: target.width,
+          height: target.height,
+          name: error?.name,
+          message: error?.message,
+          stack: error?.stack,
+        });
+      }
       target.background(0);
     }
   }
@@ -350,16 +393,16 @@ export class SourceRenderRuntime {
       this.drawStandby(target, `shader unavailable: ${source.generatorId}`);
       return;
     }
-    drawWithContentTransform(target, source.contentTransform, (view) => {
-      drawGenerator(
-        target,
-        source.generatorId,
-        generatorTime,
-        source.params || {},
-        renderRequest,
-        view,
-      );
-    }, renderRequest);
+    const generatorId = String(source.generatorId || "");
+    if (!this.missingGeneratorImplementationDiagnostics.has(generatorId)) {
+      this.missingGeneratorImplementationDiagnostics.add(generatorId);
+      console.error("[VJ1_GENERATOR_IMPLEMENTATION_MISSING]", {
+        generatorId,
+        operationId: String(operation?.id || operation?.nodeId || ""),
+        message: "compiled generator has no node process, shader program, or retained renderer capability",
+      });
+    }
+    this.drawStandby(target, `generator implementation unavailable: ${generatorId || "unknown"}`);
   }
 
   drawCompiledScene3dProgram(target, source, componentTime, renderRequest, operation) {
@@ -381,7 +424,10 @@ export class SourceRenderRuntime {
     const missingMeshIds = [];
     for (const inlet of operation.scene3dProgram.publicInputs || []) {
       if (inlet.type !== "mesh") {
-        if (params[inlet.id] !== undefined) inputs[inlet.id] = params[inlet.id];
+        // The invocation packet is retained, but its values are not. Clearing
+        // a public control must reveal the compiled Group default instead of
+        // leaking the value supplied on an earlier frame.
+        inputs[inlet.id] = params[inlet.id];
         continue;
       }
       const mediaId = String(params[`${inlet.id}Id`] || params[inlet.id] || "");
@@ -480,35 +526,55 @@ export class SourceRenderRuntime {
     renderRequest,
     operation = null,
   ) {
-    const method = NATIVE_SOURCE_HOST_METHODS[rendererId];
-    const owner = method === "drawScreenShareGenerator" ? this : this.host;
-    if (method && typeof owner[method] === "function") {
-      owner[method](target, source, generatorTime, renderRequest, operation);
+    const renderer = this.nativeRenderers.get(String(rendererId || ""));
+    if (renderer) {
+      renderer(target, source, generatorTime, renderRequest, operation);
       return true;
     }
-    if (BASIC_NATIVE_SOURCE_RENDERERS.has(rendererId)) {
-      drawWithContentTransform(target, source.contentTransform, (view) => {
-        drawGenerator(
-          target,
-          source.generatorId,
-          generatorTime,
-          source.params || {},
-          renderRequest,
-          view,
-        );
-      }, renderRequest);
-      return true;
-    }
-    console.error("[VJ1_NATIVE_SOURCE_RENDERER_MISSING]", {
+    if (this.host.specializedSources?.drawNativeRenderer?.(
       rendererId,
-      generatorId: source.generatorId,
-    });
+      target,
+      source,
+      generatorTime,
+      renderRequest,
+      operation,
+    )) {
+      return true;
+    }
+    this.reportMissingNativeRenderer(rendererId, source.generatorId, operation);
     this.drawStandby(target, `native renderer unavailable: ${source.generatorId}`);
     return true;
   }
 
-  drawScreenShareGenerator(target, source = {}, _componentTime, renderRequest) {
-    const inputId = String(source.params?.inputId || "");
+  drawScreenShareGenerator(target, source = {}, _componentTime, renderRequest, operation = null) {
+    const authoredParams = source.params || {};
+    const kernel = specializedCompoundNativeKernel(operation, "media-resource-fit");
+    if (operation?.nativeCompoundProgram && !kernel) {
+      this.drawStandby(target, "screen media render kernel unavailable", { forceVisible: true });
+      return;
+    }
+    const renderStageId = kernel?.id || "render";
+    const resourceStageId = kernel?.inputBindings?.resource?.stageId || "input";
+    if (
+      !specializedCompoundStageEnabled(operation, resourceStageId) ||
+      !specializedCompoundStageEnabled(operation, renderStageId)
+    ) {
+      this.drawStandby(target, "screen media compound stage disabled", { forceVisible: true });
+      return;
+    }
+    const instanceId = source.instanceId || renderRequest.renderIdentity || source.generatorId || "screen-share";
+    const graph = operation?.nativeCompoundProgram
+      ? evaluateSpecializedCompoundGraph(operation, authoredParams, { instanceId })
+      : null;
+    const resource = graph?.stageInput(renderStageId, "resource") || null;
+    const params = graph?.stageInputs(renderStageId)?.settings ||
+      specializedCompoundStageParameterView(operation, renderStageId, authoredParams, instanceId) ||
+      authoredParams;
+    if (operation?.nativeCompoundProgram && resource?.kind !== "screen-input-resource") {
+      this.drawStandby(target, "screen input graph value unavailable", { forceVisible: true });
+      return;
+    }
+    const inputId = String(resource?.inputId ?? authoredParams.inputId ?? "");
     const screen = this.host.acquireScreenInput(inputId);
     if (!screen || !isDrawableMedia(screen)) {
       this.drawStandby(
@@ -518,17 +584,14 @@ export class SourceRenderRuntime {
       );
       return;
     }
-    const fit = ["contain", "cover", "stretch"].includes(source.params?.fit)
-      ? source.params.fit
-      : "contain";
+    const drawMediaResourceToImage = operation?.nodeModule?.drawMediaResourceToImage;
+    if (operation?.nativeCompoundProgram && typeof drawMediaResourceToImage !== "function") {
+      throw new Error("MEDIA_RESOURCE_COMPILED_MODULE_MISSING:drawMediaResourceToImage");
+    }
     drawWithContentTransform(target, source.contentTransform, (view) => {
-      target.push();
-      if (source.params?.mirrored === true) {
-        target.translate(view.width, 0);
-        target.scale(-1, 1);
-      }
-      drawMediaFit(target, screen, 0, 0, view.width, view.height, fit);
-      target.pop();
+      (drawMediaResourceToImage || fallbackDrawMediaResourceToImage)(
+        target, screen, params, drawMediaFit, view,
+      );
     }, renderRequest);
   }
 
@@ -632,4 +695,12 @@ function rectsIntersect(left = {}, right = {}) {
     && leftX + Math.max(0, Number(left.width) || 0) > rightX
     && leftY < rightY + Math.max(0, Number(right.height) || 0)
     && leftY + Math.max(0, Number(left.height) || 0) > rightY;
+}
+
+function sourceDiagnosticKey(component = {}, source = {}, operation = null) {
+  return [
+    String(component.id || ""),
+    String(operation?.id || operation?.nodeId || ""),
+    String(source.instanceId || source.mediaId || source.componentId || source.generatorId || source.type || ""),
+  ].join(":");
 }

@@ -7,7 +7,7 @@ import {
   createShaderBuilder,
   fusedUniformName,
 } from "../shaders/shader-builder.js?v=shader-effect-backend-1";
-import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js?v=transition-view-contract-1";
+import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
 import {
   isSharedFramebufferTarget,
   unwrapRenderTarget,

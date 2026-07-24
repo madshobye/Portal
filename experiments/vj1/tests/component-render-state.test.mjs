@@ -65,15 +65,20 @@ test("canonical empty chains exclude legacy source state and media", () => {
   assert.deepEqual(staticComponentGraphMediaState([], component, [component]), []);
 });
 
-test("media signature helpers cover media-backed generators and runtime readiness", () => {
+test("media signature helpers discover typed media parameters without generator-name policy", () => {
   const ids = collectMediaIdsFromSource({
     type: "generator",
     generatorId: "featureMorph",
     params: { imageAId: "a", imageBId: "b" },
   });
   collectMediaIdsFromSource({ type: "generator", generatorId: "tileTexture", params: { imageId: "tile" } }, ids);
+  collectMediaIdsFromSource({
+    type: "generator",
+    generatorId: "project.visual.any",
+    params: { nested: { textureMaskId: "mask" }, unrelatedId: "ignore" },
+  }, ids);
 
-  assert.deepEqual(Array.from(ids), ["a", "b", "tile"]);
+  assert.deepEqual(Array.from(ids), ["a", "b", "tile", "mask"]);
   assert.deepEqual(runtimeMediaStateForSource(new Map([["tile", { ready: true }]]), {
     type: "generator",
     generatorId: "tileTexture",
