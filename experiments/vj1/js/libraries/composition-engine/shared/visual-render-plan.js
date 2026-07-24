@@ -23,7 +23,7 @@ import {
 import {
   compileSpecializedCompoundProgram,
   SPECIALIZED_COMPOUND_VISUAL_COMPILER_HOOK,
-} from "../../visual-nodes/shared/specialized-compound.js?v=compiled-graph-value-authority-1";
+} from "../../visual-nodes/shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
 
 export const VISUAL_RENDER_OPCODES = Object.freeze({
   SOURCE: "source",
@@ -161,14 +161,18 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
         nodes: graph.nodes || [],
         connections,
       }, operations, { resolveDefinition });
+      const placementLowering = compoundPlacementLowering(operations, selectedOutputs);
       const compiled = operation(VISUAL_RENDER_OPCODES.GROUP, node, configuration, path, {
         backend: "compiled-visual-group",
         compilerHook: hook,
         ...(hook.contract ? { contract: hook.contract } : {}),
+        runtimePolicy: definition.metadata?.runtimePolicy || null,
+        renderInvalidation: definition.metadata?.renderInvalidation || null,
         operations,
         executionModel: selectedOutputs.length > 1
           ? "texture-dag"
           : visualExecutionModel(operations),
+        placementLowering,
         runtimeStates: new Map(),
         retainedOperators: new Map(),
         runtimeOutputStates: new Map(),
@@ -266,6 +270,18 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
     },
   }),
 ]);
+
+function compoundPlacementLowering(operations = [], selectedOutputs = []) {
+  if (operations.length !== 1 || selectedOutputs.length !== 1) return "compound-output";
+  const terminal = operations[0];
+  const outputNodeId = endpointNode(selectedOutputs[0]?.endpoint);
+  const ordinaryProceduralShader = terminal.opcode === VISUAL_RENDER_OPCODES.SOURCE &&
+    terminal.backend === "shader-generator" &&
+    terminal.compilerHook?.shaderInterface === "fragment";
+  return ordinaryProceduralShader && outputNodeId === terminal.id
+    ? "terminal-coordinate"
+    : "compound-output";
+}
 
 export class VisualRenderPlan {
   constructor({ id, componentId, operations = [], controlProgram = null, diagnostics = [], compilerPasses = [] } = {}) {
@@ -392,6 +408,7 @@ export class VisualRenderPlanIntrospection {
     const records = flattenedOperationRecords(this.plan.operations);
     const media = new Set();
     const components = new Set();
+    const componentPrograms = new Set();
     const generators = new Set();
     const effects = new Set();
     const references = [];
@@ -403,6 +420,20 @@ export class VisualRenderPlanIntrospection {
     for (const record of records) {
       const configuration = record.operation.configuration || {};
       const source = configuration.source || {};
+      // Program reachability is structural, not a visibility state. Retaining
+      // the referenced program while an operation is disabled makes live
+      // visibility changes allocation-stable and prevents a visible operation
+      // from observing a pruned executable closure.
+      if (source.type === "component" && source.componentId) {
+        componentPrograms.add(String(source.componentId));
+      }
+      collectParameterReferences(
+        source.params,
+        record.id,
+        new Set(),
+        componentPrograms,
+        [],
+      );
       if (configuration.enabled === false) continue;
       if (record.operation.opcode === VISUAL_RENDER_OPCODES.EFFECT) {
         if (configuration.componentId) effects.add(String(configuration.componentId));
@@ -425,12 +456,28 @@ export class VisualRenderPlanIntrospection {
     }
     const invalidation = mergeRenderInvalidations(invalidations);
     const dynamic = invalidation.mode === "frame";
+    const valuePrograms = records.flatMap(({ operation, path }) => {
+      const inspection = operation.valueProgram?.inspect?.();
+      return inspection ? [Object.freeze({
+        operationId: operation.id,
+        path,
+        ...inspection,
+      })] : [];
+    });
+    const externalValueRequirements = valuePrograms.flatMap((program) =>
+      (program.externalResolvers || []).map((resolver) => Object.freeze({
+        kind: "capability",
+        id: resolver.capability,
+        lifecycle: resolver.lifecycle,
+        asynchronous: true,
+      })));
     return Object.freeze({
       format: this.format,
       executionModel: this.plan.executionModel,
       compilerPasses: this.plan.compilerPasses,
       dependencies: Object.freeze({
         components: Object.freeze([...components].sort()),
+        componentPrograms: Object.freeze([...componentPrograms].sort()),
       }),
       mediaDemand: Object.freeze({
         ids: Object.freeze([...media].sort()),
@@ -440,11 +487,13 @@ export class VisualRenderPlanIntrospection {
         requirements: Object.freeze([
           ...[...media].sort().map((id) => Object.freeze({ kind: "media", id })),
           ...(camera ? [Object.freeze({ kind: "camera", id: "default" })] : []),
+          ...externalValueRequirements,
         ]),
       }),
       dynamics: Object.freeze({
         frameDependent: dynamic,
         hasControlProgram: (this.plan.controlProgram?.steps || []).length > 0,
+        hasValueProgram: records.some(({ operation }) => (operation.valueProgram?.steps || []).length > 0),
         invalidation: Object.freeze({
           mode: invalidation.mode,
           reasons: invalidation.reasons,
@@ -453,6 +502,7 @@ export class VisualRenderPlanIntrospection {
         }),
       }),
       references: Object.freeze(references),
+      valuePrograms: Object.freeze(valuePrograms),
       editableItems: Object.freeze(records.map(({ operation, path }) => Object.freeze({
         id: operation.id,
         nodeId: operation.nodeId,
@@ -534,6 +584,7 @@ function compileOperations(nodes, connections, currentChain, path, hooks, diagno
       // texture-DAG executor. Graph topology never becomes per-frame packets.
       runtimeInputStates: new Map(),
       runtimeValueInputs: new Map(),
+      runtimeValueIdentityInputs: new Map(),
     });
   });
 }
@@ -757,6 +808,13 @@ function compileCompoundPublicParameterBindings(definition, operations, controlP
           throw new Error(`VISUAL_COMPOUND_PUBLIC_TARGET_MISSING:${path}:${binding.nodeId || "missing"}`);
         }
         if (controlStep && !Object.hasOwn(controlStep.parameters || {}, targetParameterId)) {
+          if (compoundProviderAlternativeAllowsDifferentParameters(
+            definition,
+            binding.nodeId,
+            controlStep.nodeId,
+          )) {
+            continue;
+          }
           throw new Error(
             `VISUAL_COMPOUND_PUBLIC_CONTROL_PARAMETER_MISSING:${path}:` +
             `${binding.nodeId || "missing"}.${targetParameterId || "missing"}`
@@ -779,6 +837,12 @@ function compileCompoundPublicParameterBindings(definition, operations, controlP
   return Object.freeze(result);
 }
 
+function compoundProviderAlternativeAllowsDifferentParameters(definition, instanceId, nodeId) {
+  return (definition?.metadata?.providerAlternatives?.[String(instanceId || "")]
+    || definition?.metadata?.nativeCompound?.providerAlternatives?.[String(instanceId || "")]
+    || []).some((alternative) => String(alternative?.nodeId || "") === String(nodeId || ""));
+}
+
 function synchronizeCompoundPublicParameters(operation, definition = null) {
   if (!operation?.publicParameterBindings?.length) return;
   const params = operation.configuration?.source?.params || operation.configuration?.params || {};
@@ -798,6 +862,7 @@ function disposeVisualOperations(operations) {
     operation.runtimeStates?.clear?.();
     operation.runtimeInputStates?.clear?.();
     operation.runtimeValueInputs?.clear?.();
+    operation.runtimeValueIdentityInputs?.clear?.();
     operation.runtimeOutputStates?.clear?.();
     operation.retainedOperators?.clear?.();
     if (operation.operations?.length) disposeVisualOperations(operation.operations);
@@ -1045,6 +1110,15 @@ function visualExecutionModel(operations = []) {
       return "texture-dag";
     }
     const inputs = Object.values(operation.textureInputs || {}).filter(Boolean);
+    // A source with an authored texture inlet is a render operation over that
+    // named input, not an ordinary source-over chain layer. Execute it through
+    // the compiled texture DAG so the exact input port is bound. This is what
+    // lets independently reusable retained kernels (for example fill -> wire)
+    // replace a former parent-owned native composite without changing their
+    // semantics or introducing generic frame-loop graph traversal.
+    if (operation.opcode === VISUAL_RENDER_OPCODES.SOURCE && inputs.length) {
+      return "texture-dag";
+    }
     if (inputs.length > 1) return "texture-dag";
     for (const sourceId of inputs) {
       if (isExternalTextureSource(sourceId)) externalInputs.add(sourceId);

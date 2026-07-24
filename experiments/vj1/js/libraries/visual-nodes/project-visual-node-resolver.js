@@ -4,7 +4,7 @@ import {
   componentFromNodeDefinition,
   listEffectNodeComponents,
   listGeneratorNodeComponents,
-} from "./catalog.js?v=compiled-graph-value-authority-1";
+} from "./catalog.js?v=mesh-pattern-node-authority-1";
 import {
   isIsfNodeDefinition,
   listProjectIsfVisualComponents,

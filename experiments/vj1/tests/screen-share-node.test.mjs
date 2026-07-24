@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import { createVj1NodePackage } from "../js/app-node-package.js";
-import { compileComponentRenderPrograms } from "../js/libraries/composition-engine/index.js";
+import { compileComponentRenderPrograms, compileVisualRenderPlan } from "../js/libraries/composition-engine/index.js";
 import {
-  compileSpecializedCompoundProgram,
   getGeneratorNodeComponent,
   MediaResourceToImageNode,
   ScreenInputResourceNode,
 } from "../js/libraries/visual-nodes/index.js";
+import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
 import {
   createProjectNodeFork,
   materializeProjectNodeFork,
@@ -35,37 +35,43 @@ test("Screen Share is a connected Screen Input to Media Resource Image Group", (
     [ScreenInputResourceNode.id, ScreenInputResourceNode],
     [MediaResourceToImageNode.id, MediaResourceToImageNode],
   ]);
-  const program = compileSpecializedCompoundProgram(definition, {
-    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  const outer = graphNodeFromDefinition(definition, {
+    id: "screen-share",
+    visualProgram: true,
   });
-  const graph = program.evaluateGraph({
-    inputId: "display-1",
-    fit: "cover",
-    mirrored: true,
-  }, { instanceId: "screen-share-test" });
-  const resource = graph.stageInput("render", "resource");
-  const renderSettings = graph.stageInputs("render").settings;
+  outer.configuration.source.params.inputId = "display-1";
+  outer.configuration.source.params.fit = "cover";
+  outer.configuration.source.params.mirrored = true;
+  const plan = compileVisualRenderPlan({
+    id: "screen-share-test",
+    nodes: [outer],
+    connections: [{ from: "screen-share.texture", to: "$out.texture", type: "texture" }],
+  }, {}, {
+    resolveDefinition: (node) =>
+      node.nodeId === definition.id ? definition : definitions.get(node.nodeId),
+  });
+  const operation = plan.operations[0];
+  const render = operation.operations[0];
+  operation.valueProgram.evaluate();
+  const resource = render.runtimeValueInputs.get("resource");
 
   assert.equal(definition.implementation.executionModel, "compiled-graph");
   assert.deepEqual(definition.parts.filter((part) =>
     part.kind === NODE_PART_KINDS.JAVASCRIPT || part.kind === NODE_PART_KINDS.SHADER
   ), [], "the outer Screen Share Group has no hidden implementation");
-  assert.deepEqual(program.stages.map(({ id, nodeId }) => ({ id, nodeId })), [
+  assert.deepEqual(operation.valueProgram.steps.map(({ instanceId, nodeId }) => ({ id: instanceId, nodeId })), [
     { id: "input", nodeId: ScreenInputResourceNode.id },
-    { id: "render", nodeId: MediaResourceToImageNode.id },
   ]);
-  assert.deepEqual(program.nativeKernel("media-resource-fit").inputBindings.resource, {
-    stageId: "input",
-    portId: "resource",
-  });
   assert.deepEqual(resource, {
     kind: "screen-input-resource",
     inputId: "display-1",
     ready: true,
   });
-  assert.equal(renderSettings.fit, "cover");
-  assert.equal(renderSettings.mirrored, true);
-  program.dispose();
+  assert.equal(render.configuration.source.params.fit, "cover");
+  assert.equal(render.configuration.source.params.mirrored, true);
+  assert.equal(render.runtimeValueIdentityInputs.get("resource"), "drawable-media-resource:screen-input-resource@0");
+  assert.equal(operation.valueProgram.inspect().bindings[0].targetOperationId, "render");
+  plan.dispose();
 });
 
 test("Media Resource to Image owns fit and mirroring independently from capture acquisition", () => {
@@ -132,15 +138,18 @@ test("compiled Screen Share host consumes child module values and keeps capture 
   const operation = compileComponentRenderPrograms(state.components, state.nodes.groups, {
     resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
   }).get(component.id).plan.operations[0];
+  const render = operation.operations[0];
   const [sourceRuntime, providerSource] = await Promise.all([
     readFile(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
     readFile(new URL("../js/libraries/visual-nodes/providers/screen-input-resource/index.js", import.meta.url), "utf8"),
   ]);
 
-  assert.equal(operation.backend, "native-specialized-compound");
-  assert.equal(operation.renderer, "output/specialized:screenShare");
-  assert.equal(typeof operation.nodeModule.drawMediaResourceToImage, "function");
-  assert.match(sourceRuntime, /graph\?\.stageInput\(renderStageId, "resource"\)/);
+  assert.equal(operation.backend, "compiled-visual-group");
+  assert.equal(operation.valueProgram.steps[0].nodeId, ScreenInputResourceNode.id);
+  assert.equal(render.backend, "native-specialized");
+  assert.equal(render.renderer, "output/specialized:screenShare");
+  assert.equal(typeof render.nodeModule.drawMediaResourceToImage, "function");
+  assert.match(sourceRuntime, /operation\?\.runtimeValueInputs\?\.get\?\.\("resource"\)/);
   assert.match(sourceRuntime, /operation\?\.nodeModule\?\.drawMediaResourceToImage/);
   assert.match(sourceRuntime, /this\.host\.acquireScreenInput\(inputId\)/);
   assert.match(sourceRuntime, /this\.host\.screenError\(inputId\)/);

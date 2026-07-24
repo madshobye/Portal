@@ -7,19 +7,15 @@ import {
   MESH_PATTERN_FAMILIES,
   meshPatternTopologySignature,
 } from "../js/output/specialized/mesh-pattern-algorithms.js";
-import { MeshPatternRenderer, meshPatternNodeRuntimeModule, meshPatternNodeShaderSource, meshPatternPalette } from "../js/output/specialized/mesh-pattern-renderer.js";
+import { MeshPatternRenderer, meshPatternNodeShaderSource, meshPatternPalette } from "../js/output/specialized/mesh-pattern-renderer.js";
 import {
-  compileSpecializedCompoundProgram,
   createGeneratorSource,
-  evaluateSpecializedCompoundGraph,
-  executeSpecializedCompoundProvider,
   getGeneratorNodeComponent,
   MeshPatternFillMaterialProviderNode,
   MeshPatternFillToImageNode,
   MeshPatternTopologyProviderNode,
   MeshPatternWireMaterialProviderNode,
   MeshPatternWireToImageNode,
-  SpecializedCompoundStageNodeDefinitions,
 } from "../js/libraries/visual-nodes/index.js";
 import {
   createProjectNodeFork,
@@ -34,7 +30,6 @@ import {
   NODE_GRAPH_AUTHORING_TARGETS,
   nodeDefinitionPlaceableInGraph,
 } from "../js/control/node-graph-canvas.js";
-import { MESH_PATTERN_FILL_FRAGMENT_SHADER } from "../js/libraries/visual-nodes/generators/mesh-patterns/shaders.js";
 
 const representative = {
   scale: 8,
@@ -123,167 +118,105 @@ test("Mesh Pattern providers are placeable in the Scene3D node editor", () => {
   }
 });
 
-test("mesh topology uses a cached specialized raw-WebGL render path", () => {
+test("Mesh Patterns compiles reusable providers and retained GPU passes without a parent renderer", () => {
   const component = getGeneratorNodeComponent("meshPatterns");
-  const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   const runtime = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
   const meshRenderer = readFileSync(new URL("../js/output/specialized/mesh-pattern-renderer.js", import.meta.url), "utf8");
   const algorithms = readFileSync(new URL("../js/libraries/visual-nodes/generators/mesh-patterns/runtime.js", import.meta.url), "utf8");
 
-  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:meshPatterns");
-  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, undefined);
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "");
+  assert.equal(component.nodeDefinition.metadata.renderAuthority, "compiled-graph");
   assert.equal(
     component.nodeDefinition.parts.some((part) => part.kind === "javascript"),
     false,
-    "the compiled Group cannot retain an unused parent process beside its executable child graph",
+    "the Group cannot retain a hidden parent process beside its executable child graph",
   );
   const operation = compiledMeshPatternOperation();
-  assert.equal(typeof operation.nodeModule.meshPatternTopologySignature, "function");
-  assert.equal(typeof operation.nodeModule.generateMeshPatternTopology, "function");
-  assert.equal(typeof operation.nodeModule.meshPatternPalette, "function");
-  assert.deepEqual(Object.keys(operation.nodeShaders).filter((id) => id.startsWith("mesh-pattern-") && !["vertex", "fragment"].includes(id)), [
-    "mesh-pattern-fill-vertex",
-    "mesh-pattern-fill-fragment",
-    "mesh-pattern-wire-vertex",
-    "mesh-pattern-wire-fragment",
+  assert.equal(operation.backend, "compiled-visual-group");
+  assert.equal(operation.executionModel, "texture-dag");
+  assert.equal(operation.placementLowering, "compound-output");
+  assert.deepEqual(operation.valueProgram.steps.map(({ nodeId }) => nodeId), [
+    MeshPatternTopologyProviderNode.id,
+    MeshPatternFillMaterialProviderNode.id,
+    MeshPatternWireMaterialProviderNode.id,
   ]);
-  assert.equal(operation.nativeCompoundProgram.stages.find((stage) => stage.id === "topology")?.nodeId, MeshPatternTopologyProviderNode.id);
-  assert.equal(operation.nativeCompoundProgram.stages.find((stage) => stage.id === "fill-material")?.nodeId, MeshPatternFillMaterialProviderNode.id);
-  assert.equal(operation.nativeCompoundProgram.stages.find((stage) => stage.id === "wire-material")?.nodeId, MeshPatternWireMaterialProviderNode.id);
-  assert.equal(operation.nativeCompoundProgram.stages.find((stage) => stage.id === "fill-render")?.nativeKernel, "mesh-pattern-fill");
-  assert.equal(operation.nativeCompoundProgram.stages.find((stage) => stage.id === "wire-render")?.nativeKernel, "mesh-pattern-wire");
+  assert.deepEqual(operation.operations.map(({ id, nodeId, renderer }) => ({ id, nodeId, renderer })), [
+    {
+      id: "fill-render",
+      nodeId: MeshPatternFillToImageNode.id,
+      renderer: "output/specialized:meshPatternFill",
+    },
+    {
+      id: "wire-render",
+      nodeId: MeshPatternWireToImageNode.id,
+      renderer: "output/specialized:meshPatternWire",
+    },
+  ]);
+  assert.deepEqual(operation.operations[1].textureInputs, { target: "fill-render" });
+  assert.equal(Object.keys(operation.operations[0].nodeShaders).includes("mesh-pattern-fill-fragment"), true);
+  assert.equal(Object.keys(operation.operations[1].nodeShaders).includes("mesh-pattern-wire-fragment"), true);
   assert.doesNotMatch(sourceRuntime, /NATIVE_SOURCE_HOST_METHODS/);
-  assert.match(runtime, /registerNativeRenderer\(\s*"output\/specialized:meshPatterns"/);
-  assert.match(runtime, /this\.meshPatterns\.draw\(target, source, componentTime, renderRequest, operation\)/);
-  assert.match(meshRenderer, /this\.cpuTopologies = new Map\(\)/);
+  assert.doesNotMatch(runtime, /registerNativeRenderer\(\s*"output\/specialized:meshPatterns"/);
+  assert.match(runtime, /registerNativeRenderer\(\s*"output\/specialized:meshPatternFill"/);
+  assert.match(runtime, /registerNativeRenderer\(\s*"output\/specialized:meshPatternWire"/);
+  assert.match(runtime, /this\.meshPatterns\.drawPass\(/);
+  assert.match(meshRenderer, /this\.contexts = new Map\(\)/);
   assert.match(meshRenderer, /gl\.bufferData\(gl\.ARRAY_BUFFER, topology\.fillVertices, gl\.STATIC_DRAW\)/);
   assert.match(meshRenderer, /gl\.drawArrays\(gl\.TRIANGLES/);
   assert.match(meshRenderer, /createTopologyResources\(gl, topology, currentFrame\);\s*context\.topologies\.set\(signature, resources\);\s*pruneGpuTopologies\(gl, context\.topologies, signature\)/);
   assert.match(meshRenderer, /\.filter\(\(\[key\]\) => key !== protectedKey\)/);
   assert.match(meshRenderer, /topologyResourcesValid\(gl, resources\)/);
-  assert.match(meshRenderer, /createContext\(gl, shaderConfiguration, context\?\.topologies\)/);
-  assert.match(meshRenderer, /if \(context\) disposePrograms\(gl, context\)/);
-  assert.doesNotMatch(meshRenderer, /specializedCompoundRuntimeParameters/);
-  assert.match(meshRenderer, /evaluateSpecializedCompoundGraph\(/);
-  assert.match(meshRenderer, /specializedCompoundNativeKernel\(operation, "mesh-pattern-fill"\)/);
-  assert.match(meshRenderer, /specializedCompoundNativeKernel\(operation, "mesh-pattern-wire"\)/);
-  assert.match(meshRenderer, /graph\?\.stageInput\(fillStageId, "topology"\)/);
-  assert.match(meshRenderer, /graph\?\.stageInput\(fillStageId, "material"\)/);
-  assert.match(meshRenderer, /graph\?\.stageInput\(wireStageId, "material"\)/);
-  assert.match(meshRenderer, /MESH_PATTERN_GRAPH_INPUT_MISSING/);
-  assert.match(meshRenderer, /let topology = topologyValue\?\.geometry \|\| null/);
+  assert.match(meshRenderer, /operation\?\.runtimeValueInputs\?\.get\?\.\("topology"\)/);
+  assert.match(meshRenderer, /operation\?\.runtimeValueInputs\?\.get\?\.\("material"\)/);
+  assert.match(meshRenderer, /MESH_PATTERN_VALUE_INPUT_MISSING/);
   assert.match(meshRenderer, /MESH_PATTERN_TOPOLOGY_VALUE_MISSING/);
-  assert.match(meshRenderer, /if \(!topology\) \{\s*const legacySignature = nodeModule\.meshPatternTopologySignature/);
-  assert.match(meshRenderer, /fillMaterialValue\?\.palette \|\| nodeModule\.meshPatternPalette\(fillMaterialParams\)/);
+  assert.match(meshRenderer, /MESH_PATTERN_MATERIAL_PALETTE_MISSING/);
+  assert.doesNotMatch(meshRenderer, /generateMeshPatternTopology/);
+  assert.doesNotMatch(meshRenderer, /meshPatternPalette\(materialParams\)/);
   assert.match(algorithms, /function voronoiCells/);
   assert.match(algorithms, /function marchingSquares/);
   assert.match(algorithms, /function rk4Step/);
   assert.match(algorithms, /function solveTruss/);
 });
 
-test("compiled Mesh Patterns never reconstruct missing graph providers in the retained host", () => {
-  const stages = [
-    { id: "topology", parameters: {} },
-    { id: "fill-material", parameters: {} },
-    { id: "wire-material", parameters: {} },
-    { id: "fill-render", parameters: {} },
-    { id: "wire-render", parameters: {} },
-  ];
-  const operation = {
-    nativeCompoundProgram: {
-      stages,
-      nativeKernel(kernel) {
-        if (kernel === "mesh-pattern-fill") {
-          return {
-            id: "fill-render",
-            inputBindings: {
-              topology: { stageId: "topology", portId: "topology" },
-              material: { stageId: "fill-material", portId: "material" },
-            },
-          };
-        }
-        return {
-          id: "wire-render",
-          inputBindings: {
-            material: { stageId: "wire-material", portId: "material" },
-          },
-        };
-      },
-      evaluateGraph() {
-        return {
-          stageInput() {
-            return null;
-          },
-          stageInputs() {
-            return { settings: {} };
-          },
-        };
-      },
-    },
-  };
+test("retained Mesh Pattern passes reject missing typed provider values", () => {
   const renderer = new MeshPatternRenderer();
-
   assert.throws(
-    () => renderer.draw(
+    () => renderer.drawPass(
       { drawingContext: {} },
+      "fill",
       { generatorId: "meshPatterns", params: {} },
       0,
       { width: 640, height: 360 },
-      operation,
+      { id: "fill", runtimeValueInputs: new Map() },
     ),
-    /MESH_PATTERN_GRAPH_INPUT_MISSING:fill-render\.topology,fill-render\.material,wire-render\.material/,
+    /MESH_PATTERN_VALUE_INPUT_MISSING:fill:topology,material/,
   );
 });
 
-test("Mesh Patterns topology and materials execute as isolated typed provider stages", () => {
-  const definition = getGeneratorNodeComponent("meshPatterns").nodeDefinition;
-  const definitions = new Map(SpecializedCompoundStageNodeDefinitions.map((item) => [item.id, item]));
-  const program = compileSpecializedCompoundProgram(definition, {
-    resolveDefinition: (node) => definitions.get(node.nodeId),
-  });
-  const operation = { nativeCompoundProgram: program };
-
-  assert.deepEqual(program.executableStages, ["topology", "fill-material", "wire-material"]);
-  const topology = executeSpecializedCompoundProvider(operation, "topology", {
+test("Mesh Patterns topology and materials execute as isolated typed value nodes", () => {
+  const operation = compiledMeshPatternOperation({
     pattern: "veins",
     density: 1.4,
-    wireColor: "#ffffffff",
-    hiddenRendererCorrection: 99,
-  }, { instanceId: "mesh-a" });
-  assert.equal(topology.kind, "topology");
+    palette: "triadic",
+    fillOpacity: 0.6,
+    wireColor: "#abcdefcc",
+    wireWidth: 2.5,
+  });
+  operation.valueProgram.evaluate({ renderRequest: { width: 1500, height: 1000 } });
+  const [fillRender, wireRender] = operation.operations;
+  const topology = fillRender.runtimeValueInputs.get("topology");
+  const fill = fillRender.runtimeValueInputs.get("material");
+  const wire = wireRender.runtimeValueInputs.get("material");
+
   assert.equal(topology.providerId, "mesh-pattern-topology");
-  assert.deepEqual(topology.settings, {
-    pattern: "veins",
-    density: 1.4,
-  });
-
-  const fill = executeSpecializedCompoundProvider(operation, "fill-material", {
-    palette: "triadic",
-    fillOpacity: 0.6,
-    speed: 2,
-    hiddenRendererCorrection: 99,
-  }, { instanceId: "mesh-a" });
-  assert.equal(fill.kind, "material");
+  assert.equal(topology.geometry.family, "veins");
+  assert.strictEqual(wireRender.runtimeValueInputs.get("topology"), topology);
   assert.equal(fill.providerId, "mesh-pattern-fill");
-  assert.deepEqual(fill.settings, {
-    palette: "triadic",
-    fillOpacity: 0.6,
-  });
-
-  const wire = executeSpecializedCompoundProvider(operation, "wire-material", {
-    wireColor: "#abcdefcc",
-    wireWidth: 2.5,
-    motion: 1,
-    hiddenRendererCorrection: 99,
-  }, { instanceId: "mesh-a" });
-  assert.equal(wire.kind, "material");
+  assert.equal(fill.palette.length, 4);
   assert.equal(wire.providerId, "mesh-pattern-wire");
-  assert.deepEqual(wire.settings, {
-    wireColor: "#abcdefcc",
-    wireWidth: 2.5,
-  });
-  program.dispose();
+  assert.equal(wire.sceneMaterial.wireThickness, 2.5);
 });
 
 test("Mesh Pattern providers publish canonical mesh and Material3D values", () => {
@@ -393,27 +326,8 @@ test("Mesh Pattern canonical outputs compile through the ordinary Scene3D graph"
   program.dispose();
 });
 
-test("Mesh Patterns retained kernels receive values through the displayed typed connections", () => {
-  const definition = getGeneratorNodeComponent("meshPatterns").nodeDefinition;
-  const definitions = new Map(SpecializedCompoundStageNodeDefinitions.map((item) => [item.id, item]));
-  const program = compileSpecializedCompoundProgram(definition, {
-    resolveDefinition: (node) => definitions.get(node.nodeId),
-  });
-  const operation = { nativeCompoundProgram: program };
-  assert.deepEqual(program.nativeKernels.map(({ id, kernel }) => ({ id, kernel })), [
-    { id: "fill-render", kernel: "mesh-pattern-fill" },
-    { id: "wire-render", kernel: "mesh-pattern-wire" },
-  ]);
-  assert.deepEqual(program.nativeKernel("mesh-pattern-fill").inputBindings, {
-    topology: { stageId: "topology", portId: "topology" },
-    material: { stageId: "fill-material", portId: "material" },
-  });
-  assert.deepEqual(program.nativeKernel("mesh-pattern-wire").inputBindings, {
-    topology: { stageId: "topology", portId: "topology" },
-    material: { stageId: "wire-material", portId: "material" },
-    target: { stageId: "fill-render", portId: "texture" },
-  });
-  const evaluation = evaluateSpecializedCompoundGraph(operation, {
+test("Mesh Patterns retained passes receive values through the displayed typed connections", () => {
+  const operation = compiledMeshPatternOperation({
     pattern: "coral",
     density: 1.75,
     palette: "analogous",
@@ -423,85 +337,74 @@ test("Mesh Patterns retained kernels receive values through the displayed typed 
     drawMode: "fill + wire",
     renderQuality: 0.8,
     hiddenRendererCorrection: 99,
-  }, { instanceId: "mesh-connected" }, {
-    topology: { aspect: 1.6 },
   });
-
-  assert.equal(evaluation.format, "vj1.specialized-compound-evaluation@1");
-  const fillTopology = evaluation.stageInput("fill-render", "topology");
-  const wireTopology = evaluation.stageInput("wire-render", "topology");
+  operation.valueProgram.evaluate({ renderRequest: { width: 1600, height: 1000 } });
+  const [fillRender, wireRender] = operation.operations;
+  const fillTopology = fillRender.runtimeValueInputs.get("topology");
+  const wireTopology = wireRender.runtimeValueInputs.get("topology");
   assert.equal(fillTopology.providerId, "mesh-pattern-topology");
   assert.strictEqual(wireTopology, fillTopology, "one executed topology value fans out through both authored graph wires");
-  assert.deepEqual(fillTopology.settings, { pattern: "coral", density: 1.75 });
   assert.equal(fillTopology.geometry.signature.includes(":1.6"), true);
   assert.equal(fillTopology.collection.kind, "mesh-collection");
-  assert.equal(evaluation.stageInput("fill-render", "material").providerId, "mesh-pattern-fill");
-  assert.equal(evaluation.stageInput("wire-render", "material").providerId, "mesh-pattern-wire");
-  assert.deepEqual(evaluation.stageInputs("fill-render").settings, {
-    drawMode: "fill + wire",
-    renderQuality: 0.8,
-  });
+  assert.equal(fillRender.runtimeValueInputs.get("material").providerId, "mesh-pattern-fill");
+  assert.equal(wireRender.runtimeValueInputs.get("material").providerId, "mesh-pattern-wire");
+  assert.deepEqual(wireRender.textureInputs, { target: "fill-render" });
+  assert.equal(fillRender.configuration.source.params.drawMode, "fill + wire");
+  assert.equal(fillRender.configuration.source.params.renderQuality, 0.8);
   assert.equal(
-    evaluation.stageInputs("fill-render").hiddenRendererCorrection,
+    fillRender.configuration.source.params.hiddenRendererCorrection,
     undefined,
     "undeclared host corrections cannot enter the compiled kernel input",
   );
-  program.dispose();
-
-  const graph = definition.parts.find((part) => part.kind === "graph");
-  const editedGraph = {
-    ...graph,
-    nodes: graph.nodes.map((node) => node.id === "fill-render"
-      ? { ...node, parameters: { ...node.parameters, amount: 0.35 } }
-      : node),
-  };
-  const editedProgram = compileSpecializedCompoundProgram({
-    ...definition,
-    parts: definition.parts.map((part) => part.kind === "graph" ? editedGraph : part),
-  }, {
-    resolveDefinition: (node) => definitions.get(node.nodeId),
-  });
-  const editedEvaluation = evaluateSpecializedCompoundGraph(
-    { nativeCompoundProgram: editedProgram },
-    {},
-    { instanceId: "mesh-connected-edited" },
-  );
-  assert.equal(
-    editedEvaluation.stageInputs("fill-render").settings.amount,
-    0.35,
-    "a child-owned native-kernel parameter reaches the retained host without a public outer binding",
-  );
-  editedProgram.dispose();
 });
 
-test("Mesh Patterns palette and shader forks reach the retained raw-WebGL host", () => {
-  const base = MeshPatternFillMaterialProviderNode;
-  const fork = createProjectNodeFork(base, {
+test("Mesh Patterns palette and render-shader forks reach their real execution owners", () => {
+  const materialBase = MeshPatternFillMaterialProviderNode;
+  const materialFork = createProjectNodeFork(materialBase, {
     forkId: "mesh-pattern-style-project",
     overrides: {
-      parts: base.parts.map((part) => {
+      parts: materialBase.parts.map((part) => {
         if (part.id === "mesh-pattern-palette-module") {
           return { ...part, source: "function meshPatternPalette() { return [[1, 0, 0, 1], [1, 0, 0, 1], [1, 0, 0, 1], [1, 0, 0, 1]]; }" };
-        }
-        if (part.id === "mesh-pattern-fill-fragment") {
-          return { ...part, source: "precision highp float; void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }" };
         }
         return part;
       }),
     },
   });
-  const resolved = materializeProjectNodeFork(base, fork);
+  const materialResolved = materializeProjectNodeFork(materialBase, materialFork);
+  const materialOutput = materialResolved.process({}, { state: {} });
+  assert.deepEqual(materialOutput.material.palette[0], [1, 0, 0, 1]);
+  assert.equal(
+    materialResolved.parts.some((part) => part.kind === NODE_PART_KINDS.SHADER),
+    false,
+    "material providers do not advertise shader ownership they do not execute",
+  );
+
+  const renderBase = MeshPatternFillToImageNode;
+  const renderFork = createProjectNodeFork(renderBase, {
+    forkId: "mesh-pattern-fill-render-project",
+    overrides: {
+      parts: renderBase.parts.map((part) => part.id === "mesh-pattern-fill-fragment"
+        ? { ...part, source: "precision highp float; void main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }" }
+        : part),
+    },
+  });
+  const renderResolved = materializeProjectNodeFork(renderBase, renderFork);
   const operation = {
-    nodeModule: resolved.moduleExports,
-    nodeShaders: Object.fromEntries(resolved.parts.filter((part) => part.kind === NODE_PART_KINDS.SHADER).map((part) => [part.id, part.source])),
+    renderer: "output/specialized:meshPatternFill",
+    nodeShaders: Object.fromEntries(renderResolved.parts
+      .filter((part) => part.kind === NODE_PART_KINDS.SHADER)
+      .map((part) => [part.id, part.source])),
   };
 
-  assert.deepEqual(meshPatternNodeRuntimeModule(operation).meshPatternPalette()[0], [1, 0, 0, 1]);
   assert.match(meshPatternNodeShaderSource(operation, "mesh-pattern-fill-fragment"), /gl_FragColor = vec4\(1\.0, 0\.0, 0\.0, 1\.0\)/);
-  assert.equal(meshPatternNodeShaderSource({}, "mesh-pattern-fill-fragment"), MESH_PATTERN_FILL_FRAGMENT_SHADER);
+  assert.throws(
+    () => meshPatternNodeShaderSource({}, "mesh-pattern-fill-fragment"),
+    /MESH_PATTERN_COMPILED_SHADER_MISSING:mesh-pattern-fill-fragment/,
+  );
 });
 
-test("Mesh Patterns project forks supply topology directly to the retained cache host", () => {
+test("Mesh Patterns project forks supply topology directly through the provider value", () => {
   const base = MeshPatternTopologyProviderNode;
   const fork = createProjectNodeFork(base, {
     forkId: "mesh-pattern-project",
@@ -517,7 +420,7 @@ test("Mesh Patterns project forks supply topology directly to the retained cache
     },
   });
   const resolved = materializeProjectNodeFork(base, fork);
-  const module = meshPatternNodeRuntimeModule({ nodeModule: resolved.moduleExports });
+  const module = resolved.moduleExports;
 
   assert.equal(module.meshPatternTopologySignature(), "forked-signature");
   assert.equal(module.generateMeshPatternTopology().family, "forked");
@@ -527,7 +430,7 @@ test("Mesh Patterns project forks supply topology directly to the retained cache
   assert.equal(output.collection.parts[0].mesh.triangleCount, 1);
 });
 
-function compiledMeshPatternOperation() {
+function compiledMeshPatternOperation(params = {}) {
   const packageRoot = createVj1NodePackage();
   const component = {
     id: "mesh-pattern-component",
@@ -536,7 +439,7 @@ function compiledMeshPatternOperation() {
     chain: [{
       id: "mesh-pattern-source",
       kind: "source",
-      source: { type: "generator", generatorId: "meshPatterns", params: {} },
+      source: { type: "generator", generatorId: "meshPatterns", params },
     }],
   };
   const state = packageRoot.prepareProjectState({ components: [component], nodes: {} });

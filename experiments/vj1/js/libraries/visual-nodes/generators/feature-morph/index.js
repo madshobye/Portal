@@ -1,16 +1,16 @@
 import { createBooleanParam, createColorParam, createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
-import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
+import { timeParamRuntime } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   featureMorphNodeProcess,
 } from "./runtime.js?v=source-roi-view-3";
 import {
-  defineSpecializedVisualCompound,
   FeatureMorphToImageNode,
   MediaImageResourceNode,
   MobileNetMorphAnalysisNode,
   SuperPointMorphAnalysisNode,
-} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
+} from "../../shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
 
 const manifest = Object.freeze({
     id: "featureMorph",
@@ -37,14 +37,22 @@ const NativeVisualComponent = defineGeneratorNode(manifest, null, {
   parts: [],
 });
 
-export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
-  compoundKind: "feature-morph",
-  nativeRenderer: "output/specialized:featureMorph",
+export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "image-a", type: MediaImageResourceNode.id },
-    { id: "image-b", type: MediaImageResourceNode.id },
-    { id: "analysis", type: SuperPointMorphAnalysisNode.id, parameters: { providerId: "superpoint" } },
-    { id: "render", type: FeatureMorphToImageNode.id, parameters: { providerId: "feature-morph-pass", morphStrategy: "flow" } },
+    { id: "image-a", definition: MediaImageResourceNode, role: "value" },
+    { id: "image-b", definition: MediaImageResourceNode, role: "value" },
+    {
+      id: "analysis",
+      definition: SuperPointMorphAnalysisNode,
+      role: "value",
+      parameters: { providerId: "superpoint" },
+    },
+    {
+      id: "render",
+      definition: FeatureMorphToImageNode,
+      role: "renderer",
+      parameters: { providerId: "feature-morph-pass", morphStrategy: "flow" },
+    },
   ],
   connections: [
     { from: "image-a.image", to: "analysis.imageA", type: "media-image-resource" },

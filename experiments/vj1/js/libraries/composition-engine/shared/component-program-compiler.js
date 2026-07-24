@@ -7,7 +7,7 @@ import {
   visualNodeContractFromMetadata,
   VISUAL_TRANSFORM_DOMAINS,
 } from "../../render-engine/visual-node-contract.js";
-import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=compiled-graph-value-authority-1";
+import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=mesh-pattern-node-authority-1";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";
@@ -200,7 +200,8 @@ export function compileComponentRenderPrograms(components = [], groups = [], {
     if (!component) continue;
     const [componentId, program] = compileComponent(component);
     programs.set(componentId, program);
-    for (const dependencyId of program.inspect()?.dependencies?.components || []) {
+    const dependencies = program.inspect()?.dependencies || {};
+    for (const dependencyId of dependencies.componentPrograms || dependencies.components || []) {
       if (!programs.has(String(dependencyId || ""))) pending.push(String(dependencyId || ""));
     }
   }

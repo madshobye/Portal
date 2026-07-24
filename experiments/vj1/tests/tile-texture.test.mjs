@@ -55,10 +55,60 @@ test("Tile Texture is an editable media-image plus shader-effect Group", () => {
     { from: "image.texture", to: "render.texture", type: "texture" },
     { from: "render.texture", to: "$out.texture", type: "texture" },
   ]);
+  assert.deepEqual(
+    component.nodeDefinition.metadata.controlProjection.sections.find((section) => section.id === "image"),
+    {
+      id: "image",
+      label: "Image",
+      hidden: true,
+      controls: [{
+        parameterId: "imageId",
+        bindings: [{ nodeId: "image", parameterId: "mediaId" }],
+      }],
+    },
+    "hiding a child inspector section preserves its executable public binding",
+  );
   assert.deepEqual(plan.operations[0].operations.map((operation) => operation.backend), [
     "source-runtime",
     "shader-effect",
   ]);
+  assert.equal(
+    plan.operations[0].placementLowering,
+    "compound-output",
+    "multi-stage texture compounds retain local intermediate targets before final placement",
+  );
+  const imageOperation = plan.operations[0].operations[0];
+  assert.equal(
+    imageOperation.configuration.source.params.mediaId,
+    "",
+    "the Group image binding targets the Media Image generator parameter",
+  );
+  assert.equal(
+    imageOperation.configuration.source.mediaId,
+    undefined,
+    "a generator parameter named mediaId is not mistaken for a direct media-source identity",
+  );
+  const configuredOuter = graphNodeFromDefinition(component.nodeDefinition, {
+    id: "configured-tile-texture",
+    visualProgram: true,
+  });
+  configuredOuter.configuration.source.params.imageId = "media/textures/tiles.png";
+  const configuredPlan = compileVisualRenderPlan({
+    id: "configured-tile-texture-test",
+    nodes: [configuredOuter],
+    connections: [{ from: "configured-tile-texture.texture", to: "$out.texture", type: "texture" }],
+  }, {}, {
+    resolveDefinition: (node) =>
+      node.nodeId === component.nodeDefinition.id
+        ? component.nodeDefinition
+        : definitions.get(node.nodeId),
+  });
+  assert.equal(
+    configuredPlan.operations[0].operations[0].configuration.source.params.mediaId,
+    "media/textures/tiles.png",
+    "the authored outer image selection reaches the retained Media Image process",
+  );
+  configuredPlan.dispose();
   assert.equal(
     plan.operations[0].operations[1].contract.transform.domain,
     "group-field",
@@ -75,6 +125,7 @@ test("Tile Texture is an editable media-image plus shader-effect Group", () => {
     new SpecializedSourceRuntime().hasNativeRenderer("output/specialized:tileTexture"),
     false,
   );
+  plan.dispose();
 });
 
 test("Tile Repeat is a reusable ordinary shader effect", () => {

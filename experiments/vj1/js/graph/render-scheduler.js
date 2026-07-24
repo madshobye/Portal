@@ -1,5 +1,5 @@
 import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "../libraries/visual-nodes/shared/component-schema.js";
-import { getEffectNodeComponent as getShaderComponent, getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
+import { getEffectNodeComponent as getShaderComponent, getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
 
 export function compileComponentPatch(component = {}, renderRequest = {}, resolvers = {}) {
   const request = normalizePatchRenderRequest(renderRequest);

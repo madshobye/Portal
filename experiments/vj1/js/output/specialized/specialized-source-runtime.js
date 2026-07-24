@@ -3,7 +3,7 @@ import { createSharedFramebufferTarget, isSharedFramebufferTarget, unwrapRenderT
 import { drawStandby } from "../generators.js?v=standby-grace-1";
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=surface-terminology-1";
 import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=render-core-contract-1";
-import { markRenderTargetOrientation, renderTargetDescriptor, renderTargetNeedsPresentationFlip, RENDER_TEXTURE_ORIENTATION } from "../render-target-contract.js?v=render-core-contract-1";
+import { markRenderTargetOrientation, renderTargetDescriptor, renderTargetNeedsPresentationFlip, RENDER_TEXTURE_ORIENTATION } from "../render-target-contract.js?v=source-target-ownership-1";
 import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
 import { GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER, RENDER_PASS_VERTEX_SHADER } from "../render-pass-shaders.js?v=render-coordinate-scope-3";
 import { qualityComputeMultiplier } from "../render-runtime-math.js?v=render-coordinate-scope-3";
@@ -21,7 +21,7 @@ import {
   specializedCompoundStageEnabled,
   specializedCompoundStageParameterView,
   specializedCompoundStageProvider,
-} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=compiled-graph-value-authority-1";
+} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
 import { modelColor, normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
 import { modelCameraFov, modelImportBasis, modelRotation, modelViewportMetrics, modelWireThickness } from "../../libraries/mesh-engine/mesh-render-math.js?v=resolution-relative-model-clip-1";
 import { disposeRawModelItemResources, renderMeshNodeProcess } from "../../libraries/mesh-engine/mesh-render/index.js?v=resolution-relative-model-clip-1";
@@ -39,7 +39,7 @@ import {
   buildFeatureMorphMesh as fallbackBuildFeatureMorphMesh,
   matchSuperPointFeatures as fallbackMatchSuperPointFeatures,
 } from "./feature-morph-field.js?v=node-program-hooks-15";
-import { mobileNetAnalysisModule, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=surface-media-contract-6";
+import { mobileNetAnalysisModule, MobileNetMorphPairService } from "./mobilenet-morph-service.js?v=spatial-endpoint-contract-1";
 import { SuperPointPairService } from "./superpoint-service.js?v=surface-media-contract-6";
 import {
   createTextMask as fallbackCreateTextMask,
@@ -48,7 +48,7 @@ import {
   textMaskDimensions as fallbackTextMaskDimensions,
   textMaskSignature as fallbackTextMaskSignature,
 } from "./text-generator-renderer.js?v=text-mask-readback-1";
-import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=connected-mesh-pattern-providers-1";
+import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=mesh-pattern-node-authority-1";
 import { disposeRenderTarget } from "../../libraries/render-engine/render-target-lifetime.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
 
@@ -254,9 +254,15 @@ export class SpecializedSourceRuntime {
       ),
     );
     this.registerNativeRenderer(
-      "output/specialized:meshPatterns",
-      (target, source, time, request, operation) => this.drawMeshPatterns(
-        target, source, time, this.nativeRenderRequest(request), operation,
+      "output/specialized:meshPatternFill",
+      (target, source, time, request, operation) => this.drawMeshPatternPass(
+        target, "fill", source, time, this.nativeRenderRequest(request), operation,
+      ),
+    );
+    this.registerNativeRenderer(
+      "output/specialized:meshPatternWire",
+      (target, source, time, request, operation) => this.drawMeshPatternPass(
+        target, "wire", source, time, this.nativeRenderRequest(request), operation,
       ),
     );
     this.targets = new Map();
@@ -268,6 +274,7 @@ export class SpecializedSourceRuntime {
     this.superPointPairs = new SuperPointPairService();
     this.mobileNetMorphPairs = new MobileNetMorphPairService();
     this.featureMorphAnalysisProviders = new Map();
+    this.featureMorphConnectedModules = new WeakMap();
     this.registerFeatureMorphAnalysisProvider("superpoint", {
       service: () => this.superPointPairs,
       targetKey: "featureMorph",
@@ -282,9 +289,9 @@ export class SpecializedSourceRuntime {
     });
     this.registerFeatureMorphAnalysisProvider("mobilenet", {
       service: () => this.mobileNetMorphPairs,
-      targetKey: "featureMorphV2",
-      shaderKey: "featureMorphV2Shader",
-      shaderRevisionKey: "featureMorphV2ShaderRevision",
+      targetKey: "featureMorph",
+      shaderKey: "featureMorphShader",
+      shaderRevisionKey: "featureMorphShaderRevision",
       requireAnalysisModule: false,
       loadingLabel: "matching MobileNet regions",
       errorLabel: "semantic matching failed",
@@ -295,8 +302,6 @@ export class SpecializedSourceRuntime {
     });
     this.featureMorphShader = null;
     this.featureMorphShaderRevision = "";
-    this.featureMorphV2Shader = null;
-    this.featureMorphV2ShaderRevision = "";
     this.textGeneratorShader = null;
     this.textGeneratorShaderRevision = "";
     this.textMasks = new Map();
@@ -338,6 +343,26 @@ export class SpecializedSourceRuntime {
     return this.featureMorphAnalysisProvider(providerId)?.service() || null;
   }
 
+  featureMorphConnectedRuntimeModule(operation, analysisValue, { requireAnalysis = true } = {}) {
+    if (operation?.nativeCompoundProgram || !analysisValue?.nodeModule) {
+      return featureMorphNodeRuntimeModule(operation, { requireAnalysis });
+    }
+    const analysisModule = analysisValue.nodeModule;
+    let cached = this.featureMorphConnectedModules.get(operation);
+    if (!cached || cached.analysisModule !== analysisModule || cached.renderModule !== operation.nodeModule) {
+      const nodeModule = Object.freeze({
+        ...(analysisModule || {}),
+        ...(operation?.nodeModule || {}),
+      });
+      cached = { analysisModule, renderModule: operation?.nodeModule, nodeModule };
+      this.featureMorphConnectedModules.set(operation, cached);
+    }
+    return featureMorphNodeRuntimeModule(
+      { nodeModule: cached.nodeModule },
+      { requireAnalysis },
+    );
+  }
+
   hasNativeRenderer(rendererId) {
     return this.nativeRenderers.has(String(rendererId || ""));
   }
@@ -370,15 +395,23 @@ export class SpecializedSourceRuntime {
     const graph = operation?.nativeCompoundProgram
       ? evaluateSpecializedCompoundGraph(operation, authoredParams, { instanceId })
       : null;
-    const imageAValue = graph?.stageInput(renderStageId, "imageA") || null;
-    const imageBValue = graph?.stageInput(renderStageId, "imageB") || null;
-    const analysisValue = graph?.stageInput(renderStageId, "analysis") || null;
+    const imageAValue = graph?.stageInput(renderStageId, "imageA")
+      || operation?.runtimeValueInputs?.get?.("imageA")
+      || null;
+    const imageBValue = graph?.stageInput(renderStageId, "imageB")
+      || operation?.runtimeValueInputs?.get?.("imageB")
+      || null;
+    const analysisValue = graph?.stageInput(renderStageId, "analysis")
+      || operation?.runtimeValueInputs?.get?.("analysis")
+      || null;
     if (operation?.nativeCompoundProgram && (!imageAValue || !imageBValue || !analysisValue)) {
       throw new Error(`FEATURE_MORPH_GRAPH_VALUE_MISSING:${imageAStageId}:${imageBStageId}:${analysisStageId}`);
     }
-    const params = specializedCompoundEvaluatedStageSettings(
-      operation, graph, renderStageId, authoredParams, instanceId,
-    );
+    const params = operation?.nativeCompoundProgram
+      ? specializedCompoundEvaluatedStageSettings(
+          operation, graph, renderStageId, authoredParams, instanceId,
+        )
+      : authoredParams;
     const analysisParams = compiledSpecializedOperation(operation)
       ? analysisValue?.settings
       : analysisValue?.settings || authoredParams;
@@ -393,7 +426,7 @@ export class SpecializedSourceRuntime {
     if (!analysisProvider) {
       throw new Error(`FEATURE_MORPH_ANALYSIS_PROVIDER_UNAVAILABLE:${providerId || "missing"}`);
     }
-    const nodeModule = featureMorphNodeRuntimeModule(operation, {
+    const nodeModule = this.featureMorphConnectedRuntimeModule(operation, analysisValue, {
       requireAnalysis: analysisProvider.requireAnalysisModule === true,
     });
     const pairService = analysisProvider.service();
@@ -624,17 +657,36 @@ export class SpecializedSourceRuntime {
     this.presentGeneratedTarget(pg, target);
   }
 
-  drawMeshPatterns(pg, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
-    const target = this.getTarget("meshPatterns", pg.width, pg.height, renderRequest.pixelDensity, {
-      preferSharedFramebuffer: true,
-    });
-    const drawn = this.meshPatterns.draw(target, source, componentTime, renderRequest, operation);
+  drawMeshPatternPass(
+    pg,
+    pass,
+    source = {},
+    componentTime = 0,
+    renderRequest = {},
+    operation = null,
+  ) {
+    const input = pass === "wire"
+      ? operation?.runtimeInputStates?.get?.("target")?.buffer || null
+      : null;
+    if (input) {
+      pg.push();
+      drawBuffer(pg, input, 0, 0, pg.width, pg.height);
+      pg.pop();
+    }
+    const drawn = this.meshPatterns.drawPass(
+      pg,
+      pass,
+      source,
+      componentTime,
+      renderRequest,
+      operation,
+      { preserveTarget: !!input },
+    );
     if (!drawn) {
-      this.drawStandby(pg, "mesh topology unavailable");
+      this.drawStandby(pg, `${pass} mesh topology unavailable`);
       return false;
     }
-    markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.bottomLeft);
-    this.presentGeneratedTarget(pg, target);
+    markRenderTargetOrientation(pg, RENDER_TEXTURE_ORIENTATION.bottomLeft);
     return true;
   }
 
@@ -1042,8 +1094,6 @@ export class SpecializedSourceRuntime {
     this.terrainGraphExternalInputs.clear();
     this.featureMorphShader = null;
     this.featureMorphShaderRevision = "";
-    this.featureMorphV2Shader = null;
-    this.featureMorphV2ShaderRevision = "";
     this.textGeneratorShader = null;
     this.textGeneratorShaderRevision = "";
     this.textMasks.clear();

@@ -8,10 +8,6 @@ import {
   meshPatternPaletteModuleSource,
 } from "../../generators/mesh-patterns/palette.js";
 import {
-  MESH_PATTERN_FILL_FRAGMENT_SHADER,
-  MESH_PATTERN_FILL_VERTEX_SHADER,
-} from "../../generators/mesh-patterns/shaders.js";
-import {
   MaterialBinding3dListType,
 } from "../../../mesh-engine/material-binding-3d/index.js?v=mesh-collection-2";
 import {
@@ -34,7 +30,7 @@ export const MeshPatternFillMaterialProviderNode = defineNode({
   id: "core.visual.mesh-pattern-fill-material",
   name: "Mesh Pattern Fill Material",
   version: "0.1.0",
-  description: "Owns Mesh Patterns' editable palette algorithm and fill shader program independently from topology and rendering.",
+  description: "Owns Mesh Patterns' editable palette algorithm and canonical fill-material values independently from topology and rendering.",
   implementation: NODE_IMPLEMENTATION_KINDS.SHADER,
   inlets: {
     providerId: { type: "string", defaultValue: "mesh-pattern-fill" },
@@ -77,7 +73,7 @@ export const MeshPatternFillMaterialProviderNode = defineNode({
   metadata: {
     nativeArtifactRequirements: {
       moduleExports: ["meshPatternPalette"],
-      shaders: ["mesh-pattern-fill-vertex", "mesh-pattern-fill-fragment"],
+      shaders: [],
     },
   },
   parts: [
@@ -110,8 +106,6 @@ export const MeshPatternFillMaterialProviderNode = defineNode({
         record,
       ].map(String).join("\n\n"),
     },
-    shaderPart("mesh-pattern-fill-vertex", "2D Mesh Patterns fill vertex shader", "vertex", MESH_PATTERN_FILL_VERTEX_SHADER),
-    shaderPart("mesh-pattern-fill-fragment", "2D Mesh Patterns fill fragment shader", "fragment", MESH_PATTERN_FILL_FRAGMENT_SHADER),
   ],
   moduleBindings: {
     FILL_SETTING_IDS,
@@ -140,6 +134,8 @@ export function meshPatternFillMaterialProcess(inputs = {}, { state = {}, output
   const material = result.material || (result.material = {});
   material.kind = "material";
   material.providerId = String(inputs.providerId || "mesh-pattern-fill");
+  material.resourceIdentity = material.providerId;
+  material.resourceRevision = JSON.stringify(effectiveSettings);
   material.settings = settings;
   material.enabled = inputs.enabled !== false;
   material.palette = state.palette;
@@ -186,19 +182,6 @@ function byteColor(color, opacity) {
     const normalized = Number.isFinite(channel) ? Math.max(0, Math.min(1, channel)) : index === 3 ? 1 : 0;
     return Math.round(normalized * (index === 3 ? opacity : 1) * 255);
   });
-}
-
-function shaderPart(id, name, stage, source) {
-  return {
-    id,
-    name,
-    kind: NODE_PART_KINDS.SHADER,
-    language: "glsl",
-    stage,
-    program: "mesh-pattern-fill",
-    editable: true,
-    source,
-  };
 }
 
 function sameSettings(previous, next) {

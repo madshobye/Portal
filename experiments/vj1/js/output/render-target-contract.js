@@ -69,6 +69,24 @@ export function isDirectP5ImageSourceSafe(target) {
   return renderTargetDescriptor(target).directP5ImageSafe === true;
 }
 
+/**
+ * Own a target for one immediate-mode 2D draw.
+ *
+ * Rendering dependencies and intermediate targets must happen before entering
+ * this scope. This keeps the active framebuffer and viewport aligned with the
+ * target receiving the actual draw, regardless of whether the target is a
+ * shared framebuffer or a p5.Graphics instance.
+ */
+export function withRenderTarget2D(target, draw) {
+  if (!target || typeof draw !== "function") return undefined;
+  target.push();
+  try {
+    return draw();
+  } finally {
+    target.pop();
+  }
+}
+
 export function normalizeRenderTextureOrientation(value) {
   return value === RENDER_TEXTURE_ORIENTATION.bottomLeft
     ? RENDER_TEXTURE_ORIENTATION.bottomLeft

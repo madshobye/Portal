@@ -2,10 +2,10 @@ import { createBooleanParam, createEnumParam, createTextParam } from "../../shar
 import { ALWAYS_TIME_RUNTIME } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
-  defineSpecializedVisualCompound,
   MediaResourceToImageNode,
   ScreenInputResourceNode,
-} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
+} from "../../shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
 
 const manifest = Object.freeze({
     id: "screenShare",
@@ -22,14 +22,13 @@ const manifest = Object.freeze({
 
 const NativeVisualComponent = defineGeneratorNode(manifest);
 
-export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
-  compoundKind: "screen-share",
-  nativeRenderer: "output/specialized:screenShare",
+export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "input", type: ScreenInputResourceNode.id },
+    { id: "input", definition: ScreenInputResourceNode, role: "value" },
     {
       id: "render",
-      type: MediaResourceToImageNode.id,
+      definition: MediaResourceToImageNode,
+      role: "renderer",
       parameters: { providerId: "screen-input-fit-pass" },
     },
   ],
@@ -45,6 +44,5 @@ export const VisualComponent = defineSpecializedVisualCompound(NativeVisualCompo
     input: { label: "Screen input", order: 10 },
     render: { label: "Presentation", order: 20 },
   },
-  parts: [],
 });
 export default VisualComponent;

@@ -365,7 +365,7 @@ function writeDirectVisualParameter(operation, parameterId, value, restorations,
   if (operation.opcode === "source" || configuration.kind === "source") {
     const source = configuration.source || (configuration.source = {});
     if (parameterId === "sourceType") return writeProperty(source, "type", value, restorations, index);
-    if (parameterId === "mediaId" || parameterId === "componentId") {
+    if (isDirectSourceIdentityParameter(source, parameterId)) {
       return writeProperty(source, parameterId, value, restorations, index);
     }
     return writeProperty(source.params || (source.params = {}), parameterId, value, restorations, index);
@@ -384,7 +384,9 @@ function readVisualParameter(operation, parameterId) {
   }
   if (operation.opcode === "source" || configuration.kind === "source") {
     if (parameterId === "sourceType") return configuration.source?.type;
-    if (parameterId === "mediaId" || parameterId === "componentId") return configuration.source?.[parameterId];
+    if (isDirectSourceIdentityParameter(configuration.source, parameterId)) {
+      return configuration.source?.[parameterId];
+    }
     return configuration.source?.params?.[parameterId];
   }
   if (configuration.kind === "texture-operator") return configuration.params?.[parameterId];
@@ -413,7 +415,7 @@ function setDirectVisualParameter(operation, parameterId, value) {
   if (operation.opcode === "source" || configuration.kind === "source") {
     const source = configuration.source || (configuration.source = {});
     if (parameterId === "sourceType") source.type = value;
-    else if (parameterId === "mediaId" || parameterId === "componentId") source[parameterId] = value;
+    else if (isDirectSourceIdentityParameter(source, parameterId)) source[parameterId] = value;
     else (source.params || (source.params = {}))[parameterId] = value;
     return;
   }
@@ -422,6 +424,11 @@ function setDirectVisualParameter(operation, parameterId, value) {
     return;
   }
   configuration[parameterId] = value;
+}
+
+function isDirectSourceIdentityParameter(source, parameterId) {
+  return (source?.type === "media" && parameterId === "mediaId")
+    || (source?.type === "component" && parameterId === "componentId");
 }
 
 function writeProperty(target, key, value, restorations, index) {

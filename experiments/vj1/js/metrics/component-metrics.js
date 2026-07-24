@@ -3,7 +3,7 @@ import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-
 import { sanitizeState } from "../domain/models.js?v=surface-terminology-1";
 import { compileComponentPatch } from "../graph/render-scheduler.js?v=canonical-effect-params-1";
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
 import { frameSize, worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { normalizePixelDensity } from "../domain/render-settings.js?v=surface-terminology-1";
 

@@ -3,7 +3,7 @@ import {
   unwrapRenderTarget,
 } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
 import { normalizedContentTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
-import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=render-core-contract-1";
+import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=source-target-ownership-1";
 import { boundedSampleRect } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import {
   componentThumbnailSignature,

@@ -145,6 +145,11 @@ test("compiled Eyeball lowers its controls into one ordinary shader operation", 
   );
 
   assert.equal(operation.backend, "compiled-visual-group");
+  assert.equal(
+    operation.placementLowering,
+    "terminal-coordinate",
+    "a single procedural terminal evaluates the transformed visible domain instead of scaling a pre-cropped texture",
+  );
   assert.deepEqual(operation.operations.map(({ backend, nodeId }) => ({ backend, nodeId })), [{
     backend: "shader-generator",
     nodeId: "vj1.visual.generator.eyeballRender",

@@ -53,6 +53,7 @@ function compileTransition(state, live, target, mapping, currentRoutes, now) {
   const startedAtMs = Number(authored?.startedAtMs) || 0;
   if (!mapping
     || !authored?.fromSurfaceRoutes
+    || (live.sceneMappingVisible === false && !authored?.surfaceId)
     || durationMs <= 0
     || startedAtMs <= 0
     || startedAtMs + durationMs <= now) return null;

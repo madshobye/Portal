@@ -11,10 +11,7 @@ import {
   textNodeRuntimeModule,
   textNodeShaderSource,
 } from "../js/output/specialized/specialized-source-runtime.js";
-import {
-  meshPatternNodeRuntimeModule,
-  meshPatternNodeShaderSource,
-} from "../js/output/specialized/mesh-pattern-renderer.js";
+import { meshPatternNodeShaderSource } from "../js/output/specialized/mesh-pattern-renderer.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
 import { compileComponentRenderPrograms } from "../js/libraries/composition-engine/index.js";
 import {
@@ -38,10 +35,6 @@ test("compiled specialized Groups never substitute host JavaScript for missing c
     () => terrainNodeRuntimeModule(compiled),
     /TERRAIN_COMPILED_MODULE_MISSING:/,
   );
-  assert.throws(
-    () => meshPatternNodeRuntimeModule(compiled),
-    /MESH_PATTERN_COMPILED_MODULE_MISSING:/,
-  );
 });
 
 test("compiled specialized Groups never substitute host GLSL for missing child shaders", () => {
@@ -58,7 +51,10 @@ test("compiled specialized Groups never substitute host GLSL for missing child s
     /TERRAIN_COMPILED_SHADER_MISSING:terrain-surface-fragment/,
   );
   assert.throws(
-    () => meshPatternNodeShaderSource(compiled, "mesh-pattern-wire-fragment"),
+    () => meshPatternNodeShaderSource(
+      { renderer: "output/specialized:meshPatternWire", nodeShaders: {} },
+      "mesh-pattern-wire-fragment",
+    ),
     /MESH_PATTERN_COMPILED_SHADER_MISSING:mesh-pattern-wire-fragment/,
   );
 });
@@ -67,10 +63,8 @@ test("legacy direct hosts retain their explicit compatibility artifacts", () => 
   assert.equal(typeof textNodeRuntimeModule({}).createTextMask, "function");
   assert.equal(typeof featureMorphNodeRuntimeModule({}).imageFitUniform, "function");
   assert.equal(typeof terrainNodeRuntimeModule({}).terrainGridSize, "function");
-  assert.equal(typeof meshPatternNodeRuntimeModule({}).generateMeshPatternTopology, "function");
   assert.match(textNodeShaderSource({}, "fragment"), /uniform sampler2D textMask/);
   assert.match(featureMorphNodeShaderSource({}, "fragment"), /uniform sampler2D imageA/);
-  assert.match(meshPatternNodeShaderSource({}, "mesh-pattern-fill-fragment"), /gl_FragColor/);
 });
 
 test("compiled resource providers remain authoritative over outer compatibility parameters", () => {

@@ -2,7 +2,7 @@ import { normalizeParamValues } from "../libraries/visual-nodes/shared/component
 import {
   VISUAL_SOURCE_RENDERERS,
   visualSourceRenderer,
-} from "../libraries/composition-engine/index.js?v=surface-terminology-1";
+} from "../libraries/composition-engine/index.js?v=mesh-pattern-node-authority-1";
 import {
   createPlacedRenderResult,
   transformedPlacementDemandRect,
@@ -33,7 +33,7 @@ import {
   specializedCompoundEvaluatedStageSettings,
   specializedCompoundStageEnabled,
   specializedCompoundStageParameterView,
-} from "../libraries/visual-nodes/shared/specialized-compound.js?v=compiled-graph-value-authority-1";
+} from "../libraries/visual-nodes/shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
 import {
   drawMediaResourceToImage as fallbackDrawMediaResourceToImage,
 } from "../libraries/visual-nodes/renderers/media-resource-to-image/index.js?v=screen-input-semantic-1";
@@ -46,6 +46,7 @@ import {
   componentRenderInstanceKey,
   fullTargetRect,
 } from "./component-render-layout.js?v=surface-terminology-1";
+import { withRenderTarget2D } from "./render-target-contract.js?v=source-target-ownership-1";
 
 const SOURCE_RUNTIME_METHODS = Object.freeze({
   [VISUAL_SOURCE_RENDERERS.COMPONENT]: "drawComponentReferenceSource",
@@ -175,7 +176,7 @@ export class SourceRenderRuntime {
           stack: error?.stack,
         });
       }
-      target.background(0);
+      withRenderTarget2D(target, () => target.background(0));
     }
   }
 
@@ -284,12 +285,14 @@ export class SourceRenderRuntime {
       componentInstanceTime(sourceComponent, sourceTime, source.instanceId),
       sourceRequest,
     );
-    withRenderView(target, renderRequest, () => {
-      host.drawPlacedResultGeometry(target, createPlacedRenderResult(sourceOutput, {
-        destinationRect: visibleRegion?.destinationRect || placement,
-        transform: placementTransform,
-        sourceIsWebGL: host.isShaderBuffer(sourceOutput),
-      }), view);
+    withRenderTarget2D(target, () => {
+      withRenderView(target, renderRequest, () => {
+        host.drawPlacedResultGeometry(target, createPlacedRenderResult(sourceOutput, {
+          destinationRect: visibleRegion?.destinationRect || placement,
+          transform: placementTransform,
+          sourceIsWebGL: host.isShaderBuffer(sourceOutput),
+        }), view);
+      });
     });
   }
 
@@ -306,26 +309,30 @@ export class SourceRenderRuntime {
       width: mediaSourceDemandWidth(qualityRequest, source),
     });
     if (item?.video && isDrawableMedia(item.video)) {
-      drawWithContentTransform(target, source.contentTransform, (contentView) => {
-        drawMediaFit(
-          target,
-          item.video,
-          0,
-          0,
-          contentView.width,
-          contentView.height,
-          mediaSourceFit(source),
-        );
-      }, renderRequest);
+      withRenderTarget2D(target, () => {
+        drawWithContentTransform(target, source.contentTransform, (contentView) => {
+          drawMediaFit(
+            target,
+            item.video,
+            0,
+            0,
+            contentView.width,
+            contentView.height,
+            mediaSourceFit(source),
+          );
+        }, renderRequest);
+      });
     } else if (item?.image && isDrawableMedia(item.image)) {
       const fit = mediaSourceFit(source);
       const renditionDemand = mediaSourceDemandSize(qualityRequest, source);
       const image = fit === "cover"
         ? host.getImageRendition(item, renditionDemand.width, renditionDemand.height) || item.image
         : item.image;
-      drawWithContentTransform(target, source.contentTransform, (contentView) => {
-        drawMediaFit(target, image, 0, 0, contentView.width, contentView.height, fit);
-      }, renderRequest);
+      withRenderTarget2D(target, () => {
+        drawWithContentTransform(target, source.contentTransform, (contentView) => {
+          drawMediaFit(target, image, 0, 0, contentView.width, contentView.height, fit);
+        }, renderRequest);
+      });
     } else if (item?.model || item?.modelData) {
       host.drawModelSource(target, item, source, componentTime, renderRequest);
     } else if (item?.modelError) {
@@ -343,16 +350,18 @@ export class SourceRenderRuntime {
   drawCameraSource(target, source, _component, _componentTime, renderRequest) {
     const camera = this.host.acquireCameraInput();
     if (camera && isDrawableMedia(camera)) {
-      drawWithContentTransform(target, source.contentTransform, (view) => {
-        drawCover(target, camera, 0, 0, view.width, view.height);
-      }, renderRequest);
+      withRenderTarget2D(target, () => {
+        drawWithContentTransform(target, source.contentTransform, (view) => {
+          drawCover(target, camera, 0, 0, view.width, view.height);
+        }, renderRequest);
+      });
     } else {
       this.drawStandby(target, this.host.cameraError || "camera");
     }
   }
 
   drawBlackSource(target) {
-    target.background(0);
+    withRenderTarget2D(target, () => target.background(0));
   }
 
   drawGeneratorSource(
@@ -371,16 +380,18 @@ export class SourceRenderRuntime {
       return;
     }
     if (typeof operation?.nodeProcess === "function") {
-      drawWithContentTransform(target, source.contentTransform, (view) => {
-        this.executeCompiledVisualNodeProcess(
-          operation,
-          target,
-          source,
-          generatorTime,
-          renderRequest,
-          view,
-        );
-      }, renderRequest);
+      withRenderTarget2D(target, () => {
+        drawWithContentTransform(target, source.contentTransform, (view) => {
+          this.executeCompiledVisualNodeProcess(
+            operation,
+            target,
+            source,
+            generatorTime,
+            renderRequest,
+            view,
+          );
+        }, renderRequest);
+      });
       return;
     }
     const generatorComponent = host.generatorNodeComponent(source.generatorId);
@@ -574,10 +585,10 @@ export class SourceRenderRuntime {
     }
     const renderStageId = kernel?.id || "render";
     const resourceStageId = kernel?.inputBindings?.resource?.stageId || "input";
-    if (
+    if (operation?.nativeCompoundProgram && (
       !specializedCompoundStageEnabled(operation, resourceStageId) ||
       !specializedCompoundStageEnabled(operation, renderStageId)
-    ) {
+    )) {
       this.drawStandby(target, "screen media compound stage disabled", { forceVisible: true });
       return;
     }
@@ -585,10 +596,14 @@ export class SourceRenderRuntime {
     const graph = operation?.nativeCompoundProgram
       ? evaluateSpecializedCompoundGraph(operation, authoredParams, { instanceId })
       : null;
-    const resource = graph?.stageInput(renderStageId, "resource") || null;
-    const params = specializedCompoundEvaluatedStageSettings(
-      operation, graph, renderStageId, authoredParams, instanceId,
-    );
+    const resource = operation?.runtimeValueInputs?.get?.("resource")
+      || graph?.stageInput(renderStageId, "resource")
+      || null;
+    const params = operation?.nativeCompoundProgram
+      ? specializedCompoundEvaluatedStageSettings(
+          operation, graph, renderStageId, authoredParams, instanceId,
+        )
+      : authoredParams;
     if (operation?.nativeCompoundProgram && resource?.kind !== "screen-input-resource") {
       this.drawStandby(target, "screen input graph value unavailable", { forceVisible: true });
       return;
@@ -604,24 +619,28 @@ export class SourceRenderRuntime {
       return;
     }
     const drawMediaResourceToImage = operation?.nodeModule?.drawMediaResourceToImage;
-    if (operation?.nativeCompoundProgram && typeof drawMediaResourceToImage !== "function") {
+    if (operation && typeof drawMediaResourceToImage !== "function") {
       throw new Error("MEDIA_RESOURCE_COMPILED_MODULE_MISSING:drawMediaResourceToImage");
     }
-    drawWithContentTransform(target, source.contentTransform, (view) => {
-      (drawMediaResourceToImage || fallbackDrawMediaResourceToImage)(
-        target, screen, params, drawMediaFit, view,
-      );
-    }, renderRequest);
+    withRenderTarget2D(target, () => {
+      drawWithContentTransform(target, source.contentTransform, (view) => {
+        (drawMediaResourceToImage || fallbackDrawMediaResourceToImage)(
+          target, screen, params, drawMediaFit, view,
+        );
+      }, renderRequest);
+    });
   }
 
   drawStandby(target, label, { forceVisible = false } = {}) {
     const transient = /loading|reading|processing|checking|preparing|matching|finding|not loaded/i
       .test(String(label || ""));
     const debugVisible = this.host.state?.ui?.debugPreview !== false;
-    drawStandbyDiagnostic(target, label, {
-      visible: debugVisible || (forceVisible && this.host.mode !== "output"),
-      frame: this.host.frameIndex,
-      graceMs: transient ? 1000 : 0,
+    withRenderTarget2D(target, () => {
+      drawStandbyDiagnostic(target, label, {
+        visible: debugVisible || (forceVisible && this.host.mode !== "output"),
+        frame: this.host.frameIndex,
+        graceMs: transient ? 1000 : 0,
+      });
     });
   }
 

@@ -828,7 +828,9 @@ function nodeWithParameter(node, parameterId, value) {
 
 function compoundProviderOptions(ownerDefinition, node, registry) {
   const contract = ownerDefinition?.metadata?.nativeCompound || {};
-  const alternatives = contract.providerAlternatives?.[node.id] || [];
+  const alternatives = ownerDefinition?.metadata?.providerAlternatives?.[node.id]
+    || contract.providerAlternatives?.[node.id]
+    || [];
   if (!alternatives.length) return [];
   const expected = contract.stageContract?.[node.id];
   const candidates = [expected, ...alternatives].filter((item) => item?.nodeId && item?.providerId);

@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { featureMorphMediaControlsTemplate } from "../js/control/feature-morph-view.js";
 import {
-  compileSpecializedCompoundProgram,
   createGeneratorSource,
-  evaluateSpecializedCompoundGraph,
   FeatureMorphToImageNode,
   getGeneratorNodeComponent as getGeneratorComponent,
   MediaImageResourceNode,
   MobileNetMorphAnalysisNode,
   SpecializedCompoundStageNodeDefinitions,
+  SuperPointMorphAnalysisNode,
 } from "../js/libraries/visual-nodes/index.js";
+import { compileVisualRenderPlan } from "../js/libraries/composition-engine/shared/visual-render-plan.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
 import {
   compileJavaScriptNodeModule,
@@ -24,10 +24,49 @@ import {
   buildRigidMlsMorphField,
   matchMobileNetFeatures,
   mobileNetAnalysisModule,
+  mobileNetGraphNodeNames,
   mobileNetMorphFieldForStrategy,
   MobileNetMorphPairService,
   mobileNetMorphPersistentKey,
+  mobileNetSpatialEndpointCandidates,
 } from "../js/output/specialized/mobilenet-morph-service.js";
+
+function compileFeatureMorphV2Plan(definition, parameters = {}) {
+  const definitions = new Map([
+    ...SpecializedCompoundStageNodeDefinitions,
+    definition,
+  ].map((item) => [item.id, item]));
+  const configuration = {
+    id: "feature-morph-v2",
+    kind: "source",
+    enabled: true,
+    source: {
+      type: "generator",
+      generatorId: "featureMorphV2",
+      instanceId: "feature-morph-v2",
+      params: { ...parameters },
+    },
+  };
+  const plan = compileVisualRenderPlan({
+    id: "feature-morph-v2-test",
+    nodes: [{
+      id: "feature-morph-v2",
+      nodeId: definition.id,
+      nodeVersion: definition.version,
+      role: "source",
+      parameters: { ...parameters },
+      configuration,
+      compilerHook: definition.metadata.visualCompilerHook,
+    }],
+    connections: [],
+  }, {
+    id: "component",
+    chain: [configuration],
+  }, {
+    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  });
+  return { plan, group: plan.operations[0], render: plan.operations[0].operations[0] };
+}
 
 test("Feature Morph V2 exposes MobileNet semantic analysis controls", () => {
   const component = getGeneratorComponent("featureMorphV2");
@@ -61,25 +100,52 @@ test("Feature Morph V2 exposes MobileNet semantic analysis controls", () => {
   assert.equal(typeof compiled.exports.buildMobileNetMorphField, "function");
   assert.equal(typeof compiled.exports.buildRigidMlsMorphField, "function");
   assert.ok(MobileNetMorphAnalysisNode.parts.some((part) => part.id === "feature-morph-v2-analysis-module"));
-  const definitions = new Map(SpecializedCompoundStageNodeDefinitions.map((definition) => [definition.id, definition]));
-  const program = compileSpecializedCompoundProgram(component.nodeDefinition, {
-    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  const { plan, group, render } = compileFeatureMorphV2Plan(component.nodeDefinition, {
+    imageAId: "a",
+    imageBId: "b",
+    featureGrid: 12,
+    morphStrategy: "rigid",
   });
-  assert.deepEqual(program.stages.map((stage) => stage.nodeId), [
+  assert.equal(group.backend, "compiled-visual-group");
+  assert.equal(render.backend, "native-specialized");
+  assert.equal(render.renderer, "output/specialized:featureMorph");
+  assert.deepEqual(group.valueProgram.steps.map((step) => step.nodeId), [
     MediaImageResourceNode.id,
     MediaImageResourceNode.id,
     MobileNetMorphAnalysisNode.id,
-    FeatureMorphToImageNode.id,
   ]);
-  const graph = evaluateSpecializedCompoundGraph(
-    { nativeCompoundProgram: program },
-    { imageAId: "a", imageBId: "b", featureGrid: 12, morphStrategy: "rigid" },
-    { instanceId: "feature-morph-v2-test" },
-  );
-  assert.equal(graph.stageInput("render", "analysis").providerId, "mobilenet");
-  assert.equal(graph.stageInput("render", "analysis").settings.featureGrid, 12);
-  assert.equal(graph.stageInputs("render").settings.morphStrategy, "rigid");
-  program.dispose();
+  group.valueProgram.evaluate();
+  assert.equal(render.runtimeValueInputs.get("analysis").providerId, "mobilenet");
+  assert.equal(render.runtimeValueInputs.get("analysis").settings.featureGrid, 12);
+  assert.equal(render.configuration.source.params.morphStrategy, "rigid");
+  assert.ok(plan.inspect().readiness.requirements.some((item) =>
+    item.kind === "capability" && item.id === "feature-morph-analysis"));
+  plan.dispose();
+
+  const substituted = {
+    ...component.nodeDefinition,
+    parts: component.nodeDefinition.parts.map((part) => part.kind === NODE_PART_KINDS.GRAPH
+      ? {
+          ...part,
+          nodes: part.nodes.map((node) => node.id === "analysis"
+            ? {
+                ...node,
+                type: SuperPointMorphAnalysisNode.id,
+                nodeId: SuperPointMorphAnalysisNode.id,
+                parameters: { providerId: "superpoint", landmarkCount: 72 },
+              }
+            : node),
+        }
+      : part),
+  };
+  const substitution = compileFeatureMorphV2Plan(substituted, {
+    imageAId: "a",
+    imageBId: "b",
+  });
+  substitution.group.valueProgram.evaluate();
+  assert.equal(substitution.render.runtimeValueInputs.get("analysis").providerId, "superpoint");
+  assert.equal(substitution.render.runtimeValueInputs.get("analysis").settings.landmarkCount, 72);
+  substitution.plan.dispose();
 });
 
 test("Feature Morph V2 project forks supply its real analysis algorithms", () => {
@@ -297,7 +363,7 @@ test("Feature Morph V2 remains dynamic only while media or MobileNet analysis is
   assert.equal(renderer.sourceIsFrameDynamic(source), true);
 });
 
-test("Feature Morph V2 uses CDN MobileNet without SuperPoint and exposes two image inputs", () => {
+test("Feature Morph V2 uses CDN MobileNet and the shared compiled morph renderer", () => {
   const component = getGeneratorComponent("featureMorphV2");
   const serviceSource = readFileSync(new URL("../js/output/specialized/mobilenet-morph-service.js", import.meta.url), "utf8");
   const rendererSource = [
@@ -315,9 +381,33 @@ test("Feature Morph V2 uses CDN MobileNet without SuperPoint and exposes two ima
   assert.ok(serviceSource.includes("extractMobileNetSpatialGrid"));
   assert.ok(serviceSource.includes("imageFeatureCache"));
   assert.ok(!serviceSource.includes("superpoint"));
-  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:featureMorphV2");
-  assert.match(rendererSource, /registerNativeRenderer\(\s*"output\/specialized:featureMorphV2"/);
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "");
+  const { plan, group, render } = compileFeatureMorphV2Plan(component.nodeDefinition);
+  assert.equal(group.backend, "compiled-visual-group");
+  assert.equal(render.renderer, "output/specialized:featureMorph");
+  assert.match(rendererSource, /registerNativeRenderer\(\s*"output\/specialized:featureMorph"/);
   assert.match(controls, /Image A/);
   assert.match(controls, /Image B/);
   assert.match(controls, /MobileNet input/);
+  plan.dispose();
+});
+
+test("MobileNet spatial endpoint discovery selects a layer that can serve the authored analysis grid", () => {
+  const prefix = "module_apply_default/MobilenetV2";
+  const nodes = new Map([
+    [`${prefix}/expanded_conv_2/project/BatchNorm/FusedBatchNorm`, {}],
+    [`${prefix}/expanded_conv_5/project/BatchNorm/FusedBatchNorm`, {}],
+    [`${prefix}/expanded_conv_12/project/BatchNorm/FusedBatchNorm`, {}],
+    [`${prefix}/Logits/AvgPool`, {}],
+  ]);
+  const names = mobileNetGraphNodeNames({ executor: { graph: { nodes } } });
+
+  assert.equal(names.length, 4);
+  assert.match(mobileNetSpatialEndpointCandidates(names, 8)[0], /expanded_conv_12\/project/);
+  assert.match(mobileNetSpatialEndpointCandidates(names, 24)[0], /expanded_conv_5\/project/);
+  assert.match(
+    mobileNetSpatialEndpointCandidates(names, 48)[0],
+    /expanded_conv_2\/project/,
+    "large analysis grids use an earlier spatial layer instead of rejecting the fixed block-12 probe set",
+  );
 });

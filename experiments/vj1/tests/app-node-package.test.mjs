@@ -952,13 +952,21 @@ test("compiled visual compounds give every public parameter a semantic child own
   for (const id of specializedIds) {
     const definition = definitions.get(id);
     assert.ok(definition, `${id} definition`);
-    const bindings = definition.metadata?.nativeCompound?.parameterBindings || {};
-    const ownedParameterIds = new Set(Object.values(bindings)
+    const nativeBindings = definition.metadata?.nativeCompound?.parameterBindings || {};
+    const nativeOwnedParameterIds = Object.values(nativeBindings)
       .flat()
       .map((binding) => typeof binding === "string"
         ? binding
         : binding?.publicParameterId || binding?.parameterId)
-      .filter(Boolean));
+      .filter(Boolean);
+    const projectedOwnedParameterIds = (definition.metadata?.controlProjection?.sections || [])
+      .flatMap((section) => section.controls || [])
+      .map((control) => control.parameterId)
+      .filter(Boolean);
+    const ownedParameterIds = new Set([
+      ...nativeOwnedParameterIds,
+      ...projectedOwnedParameterIds,
+    ]);
     assert.deepEqual(
       [...Object.keys(definition.parameters || {}).filter((parameterId) => !ownedParameterIds.has(parameterId))],
       [],

@@ -4,10 +4,6 @@ import {
   NODE_PART_KINDS,
 } from "../../../node-engine/node-definition.js";
 import {
-  MESH_PATTERN_WIRE_FRAGMENT_SHADER,
-  MESH_PATTERN_WIRE_VERTEX_SHADER,
-} from "../../generators/mesh-patterns/shaders.js";
-import {
   createMaterial3d,
   Material3dType,
 } from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
@@ -23,7 +19,7 @@ export const MeshPatternWireMaterialProviderNode = defineNode({
   id: "core.visual.mesh-pattern-wire-material",
   name: "Mesh Pattern Wire Material",
   version: "0.1.0",
-  description: "Owns Mesh Patterns' editable expanded-line shader and wire appearance independently from topology and rendering.",
+  description: "Owns Mesh Patterns' canonical wire-material values independently from topology and rendering.",
   implementation: NODE_IMPLEMENTATION_KINDS.SHADER,
   inlets: {
     providerId: { type: "string", defaultValue: "mesh-pattern-wire" },
@@ -58,7 +54,7 @@ export const MeshPatternWireMaterialProviderNode = defineNode({
   metadata: {
     nativeArtifactRequirements: {
       moduleExports: [],
-      shaders: ["mesh-pattern-wire-vertex", "mesh-pattern-wire-fragment"],
+      shaders: [],
     },
   },
   parts: [
@@ -78,8 +74,6 @@ export const MeshPatternWireMaterialProviderNode = defineNode({
         record,
       ].map(String).join("\n\n"),
     },
-    shaderPart("mesh-pattern-wire-vertex", "2D Mesh Patterns wire vertex shader", "vertex", MESH_PATTERN_WIRE_VERTEX_SHADER),
-    shaderPart("mesh-pattern-wire-fragment", "2D Mesh Patterns wire fragment shader", "fragment", MESH_PATTERN_WIRE_FRAGMENT_SHADER),
   ],
   moduleBindings: {
     WIRE_SETTING_IDS,
@@ -116,6 +110,8 @@ export function meshPatternWireMaterialProcess(inputs = {}, { output = null, sta
   const material = result.material || (result.material = {});
   material.kind = "material";
   material.providerId = String(inputs.providerId || "mesh-pattern-wire");
+  material.resourceIdentity = material.providerId;
+  material.resourceRevision = signature;
   material.settings = settings;
   material.enabled = inputs.enabled !== false;
   material.shaderProgram = "mesh-pattern-wire";
@@ -141,19 +137,6 @@ function opacityColor(value, opacity) {
   const alpha = Math.max(0, Math.min(1, Number(opacity) || 0));
   return [0, 2, 4].map((offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16))
     .concat(Math.round(Number.parseInt(normalized.slice(6, 8), 16) * alpha));
-}
-
-function shaderPart(id, name, stage, source) {
-  return {
-    id,
-    name,
-    kind: NODE_PART_KINDS.SHADER,
-    language: "glsl",
-    stage,
-    program: "mesh-pattern-wire",
-    editable: true,
-    source,
-  };
 }
 
 function record(value) {

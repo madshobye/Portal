@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  compileVisualValueProgram,
   compileVisualRenderPlan,
   mapControlValue,
   visualRenderPlanConfiguration,
@@ -995,6 +996,117 @@ test("compiled control DAGs map values into visual parameters and restore author
   assert.deepEqual(plan.controlProgram.steps.map((step) => step.outputValues), retainedOutputs);
   secondRestore();
   assert.equal(mapControlValue(0.5, [0, 1], [-2, 2]), 0);
+});
+
+test("retained value programs validate typed ports and expose stable resource identities", () => {
+  const Provider = defineNode({
+    id: "test.value.resource-provider",
+    name: "Resource Provider",
+    description: "Produces one retained revisioned resource.",
+    inlets: { amount: { type: "number", defaultValue: 1 } },
+    outlets: { resource: { type: "record" } },
+    execution: { trigger: "input-change", stateful: true, asynchronous: false },
+    process: ({ amount }, { state }) => {
+      if (state.amount !== amount) {
+        state.amount = amount;
+        state.revision = Math.max(0, Number(state.revision) || 0) + 1;
+      }
+      return {
+        resource: {
+          kind: "fixture-resource",
+          id: "fixture",
+          revision: state.revision,
+          amount,
+        },
+      };
+    },
+  });
+  const Renderer = defineNode({
+    id: "test.value.resource-renderer",
+    name: "Resource Renderer",
+    description: "Consumes the retained resource.",
+    inlets: { resource: { type: "record", required: true } },
+    outlets: { texture: { type: "texture" } },
+    process: ({ resource }) => ({ texture: resource }),
+  });
+  const provider = {
+    id: "provider",
+    nodeId: Provider.id,
+    role: "value",
+    parameters: { amount: 1 },
+  };
+  const render = {
+    id: "render",
+    nodeId: Renderer.id,
+    role: "source",
+  };
+  const operation = {
+    id: render.id,
+    runtimeValueInputs: new Map(),
+    runtimeValueIdentityInputs: new Map(),
+  };
+  const definitions = new Map([[Provider.id, Provider], [Renderer.id, Renderer]]);
+  const program = compileVisualValueProgram({
+    id: "typed-values",
+    nodes: [provider, render],
+    connections: [{ from: "provider.resource", to: "render.resource", type: "record" }],
+  }, [operation], {
+    resolveDefinition: (node) => definitions.get(node.nodeId),
+  });
+
+  program.evaluate();
+  const firstResource = operation.runtimeValueInputs.get("resource");
+  const firstIdentity = operation.runtimeValueIdentityInputs.get("resource");
+  assert.equal(firstResource.amount, 1);
+  assert.equal(firstIdentity, "record:fixture@1");
+  assert.deepEqual(program.inspect().dynamics, {
+    frameDependent: false,
+    invalidation: {
+      mode: "revision",
+      reasons: ["value-input-or-resource-revision"],
+    },
+  });
+  assert.deepEqual(program.inspect().bindings[0], {
+    sourceStepId: "typed-values/provider",
+    sourcePortId: "resource",
+    sourceType: "record",
+    targetOperationId: "render",
+    targetPortId: "resource",
+    targetType: "record",
+  });
+
+  program.evaluate();
+  assert.equal(operation.runtimeValueIdentityInputs.get("resource"), firstIdentity);
+  program.steps[0].parameters.amount = 2;
+  program.evaluate();
+  assert.equal(operation.runtimeValueInputs.get("resource").amount, 2);
+  assert.equal(operation.runtimeValueIdentityInputs.get("resource"), "record:fixture@2");
+  program.dispose();
+  assert.equal(operation.runtimeValueInputs.size, 0);
+  assert.equal(operation.runtimeValueIdentityInputs.size, 0);
+
+  const NumberRenderer = defineNode({
+    id: "test.value.number-renderer",
+    name: "Number Renderer",
+    description: "Rejects record resources.",
+    inlets: { resource: { type: "number", required: true } },
+    outlets: { texture: { type: "texture" } },
+    process: ({ resource }) => ({ texture: resource }),
+  });
+  assert.throws(() => compileVisualValueProgram({
+    id: "typed-value-mismatch",
+    nodes: [provider, { ...render, nodeId: NumberRenderer.id }],
+    connections: [{ from: "provider.resource", to: "render.resource", type: "record" }],
+  }, [operation], {
+    resolveDefinition: (node) => node.nodeId === Provider.id ? Provider : NumberRenderer,
+  }), /VISUAL_VALUE_PORT_TYPE_MISMATCH/);
+  assert.throws(() => compileVisualValueProgram({
+    id: "typed-value-missing-port",
+    nodes: [provider, render],
+    connections: [{ from: "provider.missing", to: "render.resource", type: "record" }],
+  }, [operation], {
+    resolveDefinition: (node) => definitions.get(node.nodeId),
+  }), /VISUAL_VALUE_SOURCE_PORT_MISSING/);
 });
 
 test("generated parameter controls track compatibility patches without taking authority from authored controls", () => {

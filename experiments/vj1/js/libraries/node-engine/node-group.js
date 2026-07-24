@@ -123,13 +123,13 @@ export function defineNodeGroupControlProjection({
   const presentedParameters = new Set();
   for (const [nodeId, controls] of Object.entries(bindings || {})) {
     const sectionPresentation = presentation?.[nodeId] || {};
-    if (sectionPresentation.hidden === true) continue;
     const omittedParameters = new Set(sectionPresentation.omitParameterIds || []);
     const sectionId = String(sectionPresentation.sectionId || nodeId);
     const section = sections.get(sectionId) || {
       id: sectionId,
       label: String(sectionPresentation.label || humanizeControlSection(sectionId)),
       order: Number.isFinite(Number(sectionPresentation.order)) ? Number(sectionPresentation.order) : sections.size,
+      ...(sectionPresentation.hidden === true ? { hidden: true } : {}),
       controls: new Map(),
     };
     const nodeBindings = normalizedBindings.filter((binding) => binding.nodeId === nodeId);
@@ -151,6 +151,7 @@ export function defineNodeGroupControlProjection({
       .map((section) => Object.freeze({
         id: section.id,
         label: section.label,
+        ...(section.hidden === true ? { hidden: true } : {}),
         controls: Object.freeze([...section.controls.values()].map((control) => Object.freeze({
           parameterId: control.parameterId,
           bindings: Object.freeze(control.bindings),

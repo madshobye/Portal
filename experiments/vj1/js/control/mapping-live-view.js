@@ -2,7 +2,7 @@ import { BLEND_MODES } from "../constants.js";
 import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=surface-terminology-1";
 import { liveProgramComponentIds } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
+import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=derived-media-element-names-1";
 import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js?v=explicit-surface-visibility-direct-output-independence-1";

@@ -19,12 +19,26 @@
   </head>
   <body>
     <pre id="architecture-smoke-results">running...</pre>
+    <script>
+      window.addEventListener("error", (event) => {
+        document.querySelector("#architecture-smoke-results").textContent = JSON.stringify({
+          ok: false,
+          error: event.error?.stack || event.message || "BROWSER_SMOKE_SCRIPT_ERROR",
+        }, null, 2);
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        document.querySelector("#architecture-smoke-results").textContent = JSON.stringify({
+          ok: false,
+          error: event.reason?.stack || event.reason?.message || String(event.reason || "BROWSER_SMOKE_REJECTION"),
+        }, null, 2);
+      });
+    </script>
     <script type="module">
       import MeshPatterns from "../../js/libraries/visual-nodes/generators/mesh-patterns/index.js";
       import ModelMedia from "../../js/libraries/visual-nodes/generators/model-media/index.js?v=model-media-scene-group-1";
       import TerrainFlyover from "../../js/libraries/visual-nodes/generators/terrain-flyover/index.js";
-      import FeatureMorph from "../../js/libraries/visual-nodes/generators/feature-morph/index.js?v=feature-morph-semantic-1";
-      import FeatureMorphV2 from "../../js/libraries/visual-nodes/generators/feature-morph-v2/index.js?v=feature-morph-semantic-1";
+      import FeatureMorph from "../../js/libraries/visual-nodes/generators/feature-morph/index.js?v=retained-feature-morph-1";
+      import FeatureMorphV2 from "../../js/libraries/visual-nodes/generators/feature-morph-v2/index.js?v=retained-feature-morph-v2-1";
       import TileTexture from "../../js/libraries/visual-nodes/generators/tile-texture/index.js?v=tile-texture-semantic-1";
       import Text from "../../js/libraries/visual-nodes/generators/text/index.js?v=text-mask-semantic-1";
       import ScreenShare from "../../js/libraries/visual-nodes/generators/screen-share/index.js?v=screen-input-semantic-1";
@@ -42,15 +56,19 @@
       import { TextMaskToImageNode } from "../../js/libraries/visual-nodes/renderers/text-mask-to-image/index.js?v=text-mask-semantic-1";
       import { ScreenInputResourceNode } from "../../js/libraries/visual-nodes/providers/screen-input-resource/index.js?v=screen-input-semantic-1";
       import { MediaResourceToImageNode } from "../../js/libraries/visual-nodes/renderers/media-resource-to-image/index.js?v=screen-input-semantic-1";
+      import { MediaImageResourceNode } from "../../js/libraries/visual-nodes/providers/media-image-resource/index.js";
+      import { MobileNetMorphAnalysisNode, SuperPointMorphAnalysisNode } from "../../js/libraries/visual-nodes/providers/feature-morph-analysis/index.js";
+      import { FeatureMorphToImageNode } from "../../js/libraries/visual-nodes/renderers/feature-morph-to-image/index.js";
       import { GazeBlinkControllerNode } from "../../js/libraries/visual-nodes/providers/gaze-blink-controller/index.js?v=gaze-blink-semantic-1";
       import { ComponentTimeControlNode } from "../../js/libraries/control-engine/index.js?v=architecture-r2-2";
+      import { RenderDemandNode } from "../../js/libraries/render-engine/index.js";
       import { CONTROLLED_IMAGE_VERTEX_SHADER } from "../../js/libraries/visual-nodes/renderers/eyeball-to-image/shader.js";
       import { standaloneFragmentSource } from "../../js/shaders/shader-builder.js";
       import { graphNodeFromDefinition } from "../../js/control/node-graph-canvas.js";
       import {
         compileSpecializedCompoundProgram,
       } from "../../js/libraries/visual-nodes/shared/specialized-compound.js";
-      import { compileVisualRenderPlan } from "../../js/libraries/composition-engine/index.js?v=temporal-invalidation-1";
+      import { compileVisualRenderPlan, setCompiledVisualParameter } from "../../js/libraries/composition-engine/index.js?v=retained-value-contract-1";
       import {
         createIsfNodeDefinition,
         createIsfVisualComponent,
@@ -110,14 +128,29 @@
         const compounds = [
           compileCompound("mesh-patterns", MeshPatterns),
           compileCompound("terrain-flyover", TerrainFlyover),
-          compileCompound("feature-morph", FeatureMorph),
-          compileCompound("feature-morph-v2", FeatureMorphV2),
+          compileOrdinaryCompound("feature-morph", FeatureMorph, [
+            MediaImageResourceNode,
+            SuperPointMorphAnalysisNode,
+            FeatureMorphToImageNode,
+          ]),
+          compileOrdinaryCompound("feature-morph-v2", FeatureMorphV2, [
+            MediaImageResourceNode,
+            MobileNetMorphAnalysisNode,
+            FeatureMorphToImageNode,
+          ]),
           compileOrdinaryCompound("tile-texture", TileTexture, [
             MediaImage.nodeDefinition,
             TileRepeat.nodeDefinition,
           ]),
-          compileCompound("text", Text),
-          compileCompound("screen-share", ScreenShare),
+          compileOrdinaryCompound("text", Text, [
+            RenderDemandNode,
+            TextMaskProviderNode,
+            TextMaskToImageNode,
+          ]),
+          compileOrdinaryCompound("screen-share", ScreenShare, [
+            ScreenInputResourceNode,
+            MediaResourceToImageNode,
+          ]),
           compileOrdinaryCompound("eyeball", Eyeball, [
             ComponentTimeControlNode,
             GazeBlinkControllerNode,
@@ -278,28 +311,33 @@
 
       function verifyTextMaskGroup() {
         const definitions = new Map([
+          [RenderDemandNode.id, RenderDemandNode],
           [TextMaskProviderNode.id, TextMaskProviderNode],
           [TextMaskToImageNode.id, TextMaskToImageNode],
         ]);
-        const program = compileSpecializedCompoundProgram(Text.nodeDefinition, {
-          resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
-        });
-        const context = { instanceId: "browser-text-mask" };
-        const external = { mask: { width: 320, height: 180 } };
-        const first = program.evaluateGraph({ text: "NODE" }, context, external)
-          .stageInput("render", "mask");
+        const { plan, operation, render } = compileOrdinaryVisualOperation(
+          Text,
+          definitions,
+          { text: "NODE" },
+          "browser-text-mask",
+        );
+        const first = (operation.valueProgram.evaluate({
+          renderRequest: { width: 320, height: 180 },
+        }), render.runtimeValueInputs.get("mask"));
         const firstRevision = first.revision;
         const firstCanvas = first.canvas;
-        const second = program.evaluateGraph({ text: "NODE" }, context, external)
-          .stageInput("render", "mask");
+        const second = (operation.valueProgram.evaluate({
+          renderRequest: { width: 320, height: 180 },
+        }), render.runtimeValueInputs.get("mask"));
         const secondRevision = second.revision;
-        const third = program.evaluateGraph({ text: "GRAPH" }, context, external)
-          .stageInput("render", "mask");
+        setCompiledVisualParameter(operation, "text", "GRAPH");
+        const third = (operation.valueProgram.evaluate({
+          renderRequest: { width: 320, height: 180 },
+        }), render.runtimeValueInputs.get("mask"));
         const thirdRevision = third.revision;
-        external.mask.width = 200;
-        external.mask.height = 120;
-        const fourth = program.evaluateGraph({ text: "GRAPH" }, context, external)
-          .stageInput("render", "mask");
+        const fourth = (operation.valueProgram.evaluate({
+          renderRequest: { width: 200, height: 120 },
+        }), render.runtimeValueInputs.get("mask"));
         const fourthRevision = fourth.revision;
         const pixels = fourth.canvas.getContext("2d", { willReadFrequently: true })
           .getImageData(0, 0, fourth.width, fourth.height).data;
@@ -311,7 +349,9 @@
           }
         }
         const result = {
-          connected: program.nativeKernel("text-mask")?.inputBindings?.mask?.stageId === "mask",
+          connected:
+            operation.backend === "compiled-visual-group" &&
+            operation.valueProgram.bindings[0]?.targetPortId === "mask",
           stableRevision: secondRevision === firstRevision && second.canvas === firstCanvas,
           textInvalidatedOnce: thirdRevision === secondRevision + 1,
           resolutionInvalidatedOnce: fourthRevision === thirdRevision + 1,
@@ -319,7 +359,7 @@
           size: [fourth.width, fourth.height],
           revisions: [firstRevision, secondRevision, thirdRevision, fourthRevision],
         };
-        program.dispose();
+        plan.dispose();
         return result;
       }
 
@@ -328,16 +368,19 @@
           [ScreenInputResourceNode.id, ScreenInputResourceNode],
           [MediaResourceToImageNode.id, MediaResourceToImageNode],
         ]);
-        const program = compileSpecializedCompoundProgram(ScreenShare.nodeDefinition, {
-          resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
-        });
-        const graph = program.evaluateGraph({
-          inputId: "browser-display",
-          fit: "cover",
-          mirrored: true,
-        }, { instanceId: "browser-screen-share" });
-        const resource = graph.stageInput("render", "resource");
-        const settings = graph.stageInputs("render").settings;
+        const { plan, operation, render } = compileOrdinaryVisualOperation(
+          ScreenShare,
+          definitions,
+          {
+            inputId: "browser-display",
+            fit: "cover",
+            mirrored: true,
+          },
+          "browser-screen-share",
+        );
+        operation.valueProgram.evaluate();
+        const resource = render.runtimeValueInputs.get("resource");
+        const settings = render.configuration.source.params;
         const target = {
           width: 320,
           height: 180,
@@ -355,7 +398,9 @@
           (...args) => draws.push(args),
         );
         const result = {
-          connected: program.nativeKernel("media-resource-fit")?.inputBindings?.resource?.stageId === "input",
+          connected:
+            operation.backend === "compiled-visual-group" &&
+            operation.valueProgram.bindings[0]?.targetPortId === "resource",
           resourceIdentity:
             resource?.kind === "screen-input-resource" &&
             resource?.inputId === "browser-display" &&
@@ -366,10 +411,39 @@
             target.calls.some((call) => call[0] === "translate" && call[1] === 320) &&
             target.calls.some((call) => call[0] === "scale" && call[1] === -1) &&
             draws[0]?.[6] === "cover",
-          stages: program.stages.map(({ id, nodeId }) => ({ id, nodeId })),
+          stages: [
+            ...operation.valueProgram.steps.map(({ instanceId, nodeId }) => ({ id: instanceId, nodeId })),
+            ...operation.operations.map(({ id, nodeId }) => ({ id, nodeId })),
+          ],
         };
-        program.dispose();
+        plan.dispose();
         return result;
+      }
+
+      function compileOrdinaryVisualOperation(component, definitions, params, id) {
+        const definition = component.nodeDefinition;
+        const outer = graphNodeFromDefinition(definition, {
+          id,
+          visualProgram: true,
+        });
+        Object.assign(outer.configuration.source.params, params || {});
+        const plan = compileVisualRenderPlan({
+          id: `${id}-plan`,
+          nodes: [outer],
+          connections: [{
+            from: `${outer.id}.texture`,
+            to: "$out.texture",
+            type: "texture",
+          }],
+        }, {}, {
+          resolveDefinition: (node) =>
+            node.nodeId === definition.id ? definition : definitions.get(node.nodeId),
+        });
+        return {
+          plan,
+          operation: plan.operations[0],
+          render: plan.operations[0].operations[0],
+        };
       }
 
       function verifyEyeballGroup() {

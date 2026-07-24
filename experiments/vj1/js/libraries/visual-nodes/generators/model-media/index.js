@@ -9,7 +9,7 @@ import { defineScene3dVisualCompound } from "../../shared/scene3d-visual-compoun
 import {
   LitMeshMaterialProviderNode,
   ModelFitCameraNode,
-} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
+} from "../../shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
 import {
   AnimatedTransform3dNode,
   CombineObjects3dNode,

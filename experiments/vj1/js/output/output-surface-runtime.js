@@ -1,7 +1,7 @@
 import { clamp01 } from "../domain/models.js?v=surface-terminology-1";
 import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
 import { BoundedRenderTargetPool } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
-import { SceneSurfaceGuideNode } from "../libraries/composition-engine/index.js?v=surface-terminology-1";
+import { SceneSurfaceGuideNode } from "../libraries/composition-engine/index.js?v=mesh-pattern-node-authority-1";
 import { projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=frame-projection-aspect-1";
 import { componentInstanceTime } from "../libraries/timing-engine/index.js";
 import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=gc-allocation-1";

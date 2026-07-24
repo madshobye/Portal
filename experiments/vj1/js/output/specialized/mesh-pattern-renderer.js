@@ -1,15 +1,7 @@
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=surface-terminology-1";
 import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=render-core-contract-1";
 import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
-import { generateMeshPatternTopology, meshPatternTopologySignature } from "./mesh-pattern-algorithms.js?v=mesh-topology-4";
-import { meshPatternPalette as fallbackMeshPatternPalette } from "../../libraries/visual-nodes/generators/mesh-patterns/palette.js?v=node-program-hooks-15";
 export { meshPatternPalette } from "../../libraries/visual-nodes/generators/mesh-patterns/palette.js?v=node-program-hooks-15";
-import {
-  MESH_PATTERN_FILL_FRAGMENT_SHADER,
-  MESH_PATTERN_FILL_VERTEX_SHADER,
-  MESH_PATTERN_WIRE_FRAGMENT_SHADER,
-  MESH_PATTERN_WIRE_VERTEX_SHADER,
-} from "../../libraries/visual-nodes/generators/mesh-patterns/shaders.js?v=source-roi-view-3";
 import { compileRawShader, linkSpecializedProgram } from "../../libraries/render-engine/raw-webgl-utils.js";
 import {
   beginRawWebGlState,
@@ -19,183 +11,65 @@ import {
   restoreRawWebGlState,
 } from "../../libraries/render-engine/raw-webgl-state.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
-import {
-  evaluateSpecializedCompoundGraph,
-  executeSpecializedCompoundProvider,
-  specializedCompoundEvaluatedStageSettings,
-  specializedCompoundStageEnabled,
-  specializedCompoundNativeKernel,
-  specializedCompoundStageParameterView,
-} from "../../libraries/visual-nodes/shared/specialized-compound.js?v=compiled-graph-value-authority-1";
 
-const MAX_CPU_TOPOLOGIES = 32;
 const MAX_GPU_TOPOLOGIES = 24;
-const FALLBACK_MESH_PATTERN_NODE_MODULE = Object.freeze({
-  generateMeshPatternTopology,
-  meshPatternTopologySignature,
-  meshPatternPalette: fallbackMeshPatternPalette,
-});
-const MESH_PATTERN_MODULE_ADAPTERS = new WeakMap();
-
-export function meshPatternNodeRuntimeModule(operation = {}) {
-  const module = operation?.nodeModule;
-  if (
-    typeof module?.generateMeshPatternTopology === "function" &&
-    typeof module?.meshPatternTopologySignature === "function" &&
-    typeof module?.meshPatternPalette === "function"
-  ) return module;
-  if (operation?.nativeCompoundProgram) {
-    const missing = [
-      ["generateMeshPatternTopology", module?.generateMeshPatternTopology],
-      ["meshPatternTopologySignature", module?.meshPatternTopologySignature],
-      ["meshPatternPalette", module?.meshPatternPalette],
-    ].filter(([, value]) => typeof value !== "function").map(([name]) => name);
-    throw new Error(`MESH_PATTERN_COMPILED_MODULE_MISSING:${missing.join(",")}`);
-  }
-  if (!module || typeof module !== "object") return FALLBACK_MESH_PATTERN_NODE_MODULE;
-  let adapted = MESH_PATTERN_MODULE_ADAPTERS.get(module);
-  if (!adapted) {
-    adapted = Object.freeze({
-      generateMeshPatternTopology: typeof module.generateMeshPatternTopology === "function"
-        ? module.generateMeshPatternTopology
-        : generateMeshPatternTopology,
-      meshPatternTopologySignature: typeof module.meshPatternTopologySignature === "function"
-        ? module.meshPatternTopologySignature
-        : meshPatternTopologySignature,
-      meshPatternPalette: typeof module.meshPatternPalette === "function"
-        ? module.meshPatternPalette
-        : fallbackMeshPatternPalette,
-    });
-    MESH_PATTERN_MODULE_ADAPTERS.set(module, adapted);
-  }
-  return adapted;
-}
-
-const FALLBACK_MESH_PATTERN_SHADERS = Object.freeze({
-  "mesh-pattern-fill-vertex": MESH_PATTERN_FILL_VERTEX_SHADER,
-  "mesh-pattern-fill-fragment": MESH_PATTERN_FILL_FRAGMENT_SHADER,
-  "mesh-pattern-wire-vertex": MESH_PATTERN_WIRE_VERTEX_SHADER,
-  "mesh-pattern-wire-fragment": MESH_PATTERN_WIRE_FRAGMENT_SHADER,
-});
-
 export function meshPatternNodeShaderSource(operation = {}, id = "") {
   const source = operation?.nodeShaders?.[id];
   if (typeof source === "string" && source.trim()) return source;
-  if (operation?.nativeCompoundProgram) {
-    throw new Error(`MESH_PATTERN_COMPILED_SHADER_MISSING:${id}`);
-  }
-  return FALLBACK_MESH_PATTERN_SHADERS[id] || "";
+  throw new Error(`MESH_PATTERN_COMPILED_SHADER_MISSING:${id}`);
 }
 
 
 export class MeshPatternRenderer {
   constructor({ frameIndex = () => 0 } = {}) {
     this.frameIndex = frameIndex;
-    this.cpuTopologies = new Map();
     this.contexts = new Map();
   }
 
-  draw(target, source = {}, componentTime = 0, renderRequest = {}, operation = null) {
+  drawPass(
+    target,
+    pass,
+    source = {},
+    componentTime = 0,
+    renderRequest = {},
+    operation = null,
+    { preserveTarget = false } = {},
+  ) {
     const gl = target?.drawingContext;
     if (!gl) return false;
-    const fillKernel = specializedCompoundNativeKernel(operation, "mesh-pattern-fill");
-    const wireKernel = specializedCompoundNativeKernel(operation, "mesh-pattern-wire");
-    if (operation?.nativeCompoundProgram && (!fillKernel || !wireKernel)) return false;
-    const fillStageId = fillKernel?.id || "fill-render";
-    const wireStageId = wireKernel?.id || "wire-render";
-    const topologyStageId = fillKernel?.inputBindings?.topology?.stageId || "topology";
-    const fillMaterialStageId = fillKernel?.inputBindings?.material?.stageId || "fill-material";
-    const wireMaterialStageId = wireKernel?.inputBindings?.material?.stageId || "wire-material";
-    if (!specializedCompoundStageEnabled(operation, topologyStageId)) return false;
-    const authoredParams = source.params || {};
-    const instanceId = source.instanceId || renderRequest.renderIdentity || source.generatorId || "mesh-patterns";
-    const viewport = renderTargetPixelSize(target);
-    const view = renderView(target, renderRequest);
-    const graph = evaluateSpecializedCompoundGraph(
-      operation,
-      authoredParams,
-      { instanceId },
-      { [topologyStageId]: { aspect: view.width / view.height } },
-    );
-    let topologyValue = graph?.stageInput(fillStageId, "topology") || null;
-    let fillMaterialValue = graph?.stageInput(fillStageId, "material") || null;
-    let wireMaterialValue = graph?.stageInput(wireStageId, "material") || null;
-    if (operation?.nativeCompoundProgram) {
-      const missingInputs = [
-        !topologyValue ? `${fillStageId}.topology` : "",
-        !fillMaterialValue ? `${fillStageId}.material` : "",
-        !wireMaterialValue ? `${wireStageId}.material` : "",
-      ].filter(Boolean);
-      if (missingInputs.length) {
-        throw new Error(`MESH_PATTERN_GRAPH_INPUT_MISSING:${missingInputs.join(",")}`);
-      }
-    } else {
-      // Only explicit uncompiled compatibility calls may reconstruct provider
-      // values. Production compiled Groups consume the displayed graph wires
-      // exclusively and fail closed when one is unavailable.
-      topologyValue = executeSpecializedCompoundProvider(
-        operation, topologyStageId, authoredParams, instanceId,
-      );
-      fillMaterialValue = executeSpecializedCompoundProvider(
-        operation, fillMaterialStageId, authoredParams, instanceId,
-      );
-      wireMaterialValue = executeSpecializedCompoundProvider(
-        operation, wireMaterialStageId, authoredParams, instanceId,
-      );
+    const topologyValue = operation?.runtimeValueInputs?.get?.("topology") || null;
+    const materialValue = operation?.runtimeValueInputs?.get?.("material") || null;
+    const missing = [
+      !topologyValue ? "topology" : "",
+      !materialValue ? "material" : "",
+    ].filter(Boolean);
+    if (missing.length) {
+      throw new Error(`MESH_PATTERN_VALUE_INPUT_MISSING:${operation?.id || pass}:${missing.join(",")}`);
     }
-    const topologyParams = topologyValue?.settings || specializedCompoundStageParameterView(
-      operation, topologyStageId, authoredParams, instanceId,
-    );
-    const fillMaterialParams = fillMaterialValue?.settings || specializedCompoundStageParameterView(
-      operation, fillMaterialStageId, authoredParams, instanceId,
-    );
-    const wireMaterialParams = wireMaterialValue?.settings || specializedCompoundStageParameterView(
-      operation, wireMaterialStageId, authoredParams, instanceId,
-    );
-    const fillRenderParams = specializedCompoundEvaluatedStageSettings(
-      operation, graph, fillStageId, authoredParams, instanceId,
-    );
-    const wireRenderParams = specializedCompoundEvaluatedStageSettings(
-      operation, graph, wireStageId, authoredParams, instanceId,
-    );
-    const nodeModule = operation?.nativeCompoundProgram
-      ? operation.nodeModule
-      : meshPatternNodeRuntimeModule(operation);
-    const codeRevision = String(operation?.nodeCodeRevision || operation?.nodeModuleRevision || "legacy");
-    let topology = topologyValue?.geometry || null;
-    if (!topology && operation?.nativeCompoundProgram) {
-      throw new Error(`MESH_PATTERN_TOPOLOGY_VALUE_MISSING:${topologyStageId}`);
-    }
-    if (!topology) {
-      const legacySignature = nodeModule.meshPatternTopologySignature(topologyParams, view.width / view.height);
-      let cached = this.cpuTopologies.get(legacySignature);
-      if (!cached) {
-        cached = {
-          topology: nodeModule.generateMeshPatternTopology(topologyParams, view.width / view.height),
-          lastUsedFrame: this.frameIndex(),
-        };
-        this.cpuTopologies.set(legacySignature, cached);
-        pruneCpuTopologies(this.cpuTopologies);
-      } else {
-        cached.lastUsedFrame = this.frameIndex();
-      }
-      topology = cached.topology;
-    }
-    if (operation?.nativeCompoundProgram && !Array.isArray(fillMaterialValue?.palette)) {
-      throw new Error(`MESH_PATTERN_MATERIAL_VALUE_MISSING:${fillMaterialStageId}`);
-    }
-    const signature = `${codeRevision}:${String(topology.signature || "unspecified")}`;
-    const fillShaderRevision = String(operation?.nodeShaderProgramRevisions?.["mesh-pattern-fill"] || operation?.nodeShaderRevision || "legacy");
-    const wireShaderRevision = String(operation?.nodeShaderProgramRevisions?.["mesh-pattern-wire"] || operation?.nodeShaderRevision || "legacy");
+    const topology = topologyValue.geometry;
+    if (!topology) throw new Error(`MESH_PATTERN_TOPOLOGY_VALUE_MISSING:${operation?.id || pass}`);
+    const topologyParams = topologyValue.settings || {};
+    const materialParams = materialValue.settings || {};
+    const renderParams = source.params || {};
+    const programId = pass === "fill" ? "mesh-pattern-fill" : "mesh-pattern-wire";
+    const vertexId = `${programId}-vertex`;
+    const fragmentId = `${programId}-fragment`;
     const shaderConfiguration = {
-      revision: `${fillShaderRevision}:${wireShaderRevision}`,
-      fillVertex: meshPatternNodeShaderSource(operation, "mesh-pattern-fill-vertex"),
-      fillFragment: meshPatternNodeShaderSource(operation, "mesh-pattern-fill-fragment"),
-      wireVertex: meshPatternNodeShaderSource(operation, "mesh-pattern-wire-vertex"),
-      wireFragment: meshPatternNodeShaderSource(operation, "mesh-pattern-wire-fragment"),
+      revision: String(
+        operation?.nodeShaderProgramRevisions?.[programId]
+        || operation?.nodeShaderRevision
+        || "legacy"
+      ),
+      vertex: meshPatternNodeShaderSource(operation, vertexId),
+      fragment: meshPatternNodeShaderSource(operation, fragmentId),
     };
-    const context = this.contextFor(gl, shaderConfiguration);
+    const context = this.contextForPass(gl, pass, shaderConfiguration);
     if (!context) return false;
+    const signature = String(
+      topologyValue.resourceRevision
+      || topology.signature
+      || "unspecified"
+    );
     let resources = context.topologies.get(signature);
     if (resources && !topologyResourcesValid(gl, resources)) {
       disposeTopologyResources(gl, resources);
@@ -208,42 +82,41 @@ export class MeshPatternRenderer {
     }
     if (!resources) {
       const currentFrame = this.frameIndex();
-      // Give ownership to the cache with a valid age. The protected key also
-      // makes it impossible for this frame's resource to be evicted before it
-      // is drawn, even if several entries share the same frame number.
       resources = createTopologyResources(gl, topology, currentFrame);
       context.topologies.set(signature, resources);
       pruneGpuTopologies(gl, context.topologies, signature);
     } else {
       resources.lastUsedFrame = this.frameIndex();
     }
-    const palette = fillMaterialValue?.palette || nodeModule.meshPatternPalette(fillMaterialParams);
-    const background = parseColor(fillMaterialParams.backgroundColor, "#08070c00");
+    const viewport = renderTargetPixelSize(target);
+    const view = renderView(target, renderRequest);
+    const drawMode = String(renderParams.drawMode || "fill + wire");
+    const drawFill = pass === "fill" && drawMode !== "wire" && resources.fillCount > 0;
+    const drawWire = pass === "wire" && drawMode !== "fill" && resources.wireCount > 0;
+    const palette = materialValue.palette;
+    if (!Array.isArray(palette) || palette.length !== 4) {
+      throw new Error(`MESH_PATTERN_MATERIAL_PALETTE_MISSING:${operation?.id || pass}`);
+    }
     const placement = contentTransformUvMatrices(source.contentTransform).placement;
-    const drawModeValue = fillRenderParams.drawMode ?? wireRenderParams.drawMode;
-    const drawMode = String(drawModeValue || "fill + wire");
-    const drawFill = drawMode !== "wire" && resources.fillCount > 0 &&
-      specializedCompoundStageEnabled(operation, fillMaterialStageId) &&
-      specializedCompoundStageEnabled(operation, fillStageId);
-    const drawWire = drawMode !== "fill" && resources.wireCount > 0 &&
-      specializedCompoundStageEnabled(operation, wireMaterialStageId) &&
-      specializedCompoundStageEnabled(operation, wireStageId);
     const render = () => drawMeshPasses(gl, context, resources, {
       topologyParams,
-      fillMaterialParams,
-      wireMaterialParams,
-      fillRenderParams,
-      wireRenderParams,
+      fillMaterialParams: pass === "fill" ? materialParams : {},
+      wireMaterialParams: pass === "wire" ? materialParams : {},
+      fillRenderParams: pass === "fill" ? renderParams : {},
+      wireRenderParams: pass === "wire" ? renderParams : {},
       palette,
-      background,
+      background: pass === "fill"
+        ? parseColor(materialParams.backgroundColor, "#08070c00")
+        : parseColor("#00000000", "#00000000"),
       placement,
       viewport,
       renderUvRect: view.uvRect,
       drawFill,
       drawWire,
+      clear: !preserveTarget,
       componentTime,
       wireThickness: resolutionScaledStrokeWidth(
-        Math.max(0.25, Number(wireMaterialParams.wireWidth) || 1.5),
+        Math.max(0.25, Number(materialParams.wireWidth) || 1.5),
         renderRequest,
         viewport,
       ),
@@ -253,20 +126,35 @@ export class MeshPatternRenderer {
     return true;
   }
 
-  contextFor(gl, shaderConfiguration) {
+  contextForPass(gl, pass, shaderConfiguration) {
     let context = this.contexts.get(gl);
-    if (context && context.shaderRevision === shaderConfiguration.revision && programsValid(gl, context)) return context;
-    const replacement = createContext(gl, shaderConfiguration, context?.topologies);
+    if (!context) {
+      context = {
+        topologies: new Map(),
+        fill: null,
+        wire: null,
+        fillRevision: "",
+        wireRevision: "",
+      };
+      this.contexts.set(gl, context);
+    }
+    const revisionKey = `${pass}Revision`;
+    if (
+      context[pass] &&
+      context[revisionKey] === shaderConfiguration.revision &&
+      programValid(gl, context[pass])
+    ) return context;
+    const replacement = createPassProgram(gl, pass, shaderConfiguration);
     if (!replacement) return null;
-    if (context) disposePrograms(gl, context);
-    this.contexts.set(gl, replacement);
-    return replacement;
+    disposePassProgram(gl, context[pass]);
+    context[pass] = replacement;
+    context[revisionKey] = shaderConfiguration.revision;
+    return context;
   }
 
   dispose() {
     for (const [gl, context] of this.contexts) disposeContext(gl, context);
     this.contexts.clear();
-    this.cpuTopologies.clear();
   }
 }
 
@@ -275,14 +163,16 @@ function drawMeshPasses(gl, context, resources, options) {
   const state = beginRawWebGlState(gl, "mesh-patterns");
   const previousClear = gl.getParameter(gl.COLOR_CLEAR_VALUE);
   const attributeStates = captureRawWebGlAttributes(gl, state, [
-    context.fill.position, context.fill.slot,
-    context.wire.start, context.wire.end, context.wire.side, context.wire.along, context.wire.slot,
+    context.fill?.position, context.fill?.slot,
+    context.wire?.start, context.wire?.end, context.wire?.side, context.wire?.along, context.wire?.slot,
   ].filter((location, index, values) => location >= 0 && values.indexOf(location) === index));
   try {
     const { background } = options;
     gl.viewport(0, 0, options.viewport.width, options.viewport.height);
-    gl.clearColor(background[0] * background[3], background[1] * background[3], background[2] * background[3], background[3]);
-    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (options.clear !== false) {
+      gl.clearColor(background[0] * background[3], background[1] * background[3], background[2] * background[3], background[3]);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    }
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
     gl.enable(gl.BLEND);
@@ -340,51 +230,40 @@ function setSharedUniforms(gl, program, options) {
   gl.uniform4fv(program.renderUvRect, options.renderUvRect);
 }
 
-function createContext(gl, shaderConfiguration, topologies = new Map()) {
-  const fillProgram = linkSpecializedProgram(
+function createPassProgram(gl, pass, shaderConfiguration) {
+  const program = linkSpecializedProgram(
     gl,
-    compileRawShader(gl, gl.VERTEX_SHADER, shaderConfiguration.fillVertex),
-    compileRawShader(gl, gl.FRAGMENT_SHADER, shaderConfiguration.fillFragment)
+    compileRawShader(gl, gl.VERTEX_SHADER, shaderConfiguration.vertex),
+    compileRawShader(gl, gl.FRAGMENT_SHADER, shaderConfiguration.fragment),
   );
-  const wireProgram = linkSpecializedProgram(
-    gl,
-    compileRawShader(gl, gl.VERTEX_SHADER, shaderConfiguration.wireVertex),
-    compileRawShader(gl, gl.FRAGMENT_SHADER, shaderConfiguration.wireFragment)
-  );
-  if (!fillProgram || !wireProgram) {
-    if (fillProgram) gl.deleteProgram(fillProgram);
-    if (wireProgram) gl.deleteProgram(wireProgram);
-    return null;
+  if (!program) return null;
+  if (pass === "fill") {
+    return {
+      program,
+      position: gl.getAttribLocation(program, "aPosition"),
+      slot: gl.getAttribLocation(program, "aColorSlot"),
+      ...sharedUniforms(gl, program),
+      palette0: gl.getUniformLocation(program, "palette0"),
+      palette1: gl.getUniformLocation(program, "palette1"),
+      palette2: gl.getUniformLocation(program, "palette2"),
+      palette3: gl.getUniformLocation(program, "palette3"),
+      opacity: gl.getUniformLocation(program, "fillOpacity"),
+      amount: gl.getUniformLocation(program, "amount"),
+    };
   }
   return {
-    shaderRevision: shaderConfiguration.revision,
-    fill: {
-      program: fillProgram,
-      position: gl.getAttribLocation(fillProgram, "aPosition"),
-      slot: gl.getAttribLocation(fillProgram, "aColorSlot"),
-      ...sharedUniforms(gl, fillProgram),
-      palette0: gl.getUniformLocation(fillProgram, "palette0"),
-      palette1: gl.getUniformLocation(fillProgram, "palette1"),
-      palette2: gl.getUniformLocation(fillProgram, "palette2"),
-      palette3: gl.getUniformLocation(fillProgram, "palette3"),
-      opacity: gl.getUniformLocation(fillProgram, "fillOpacity"),
-      amount: gl.getUniformLocation(fillProgram, "amount"),
-    },
-    wire: {
-      program: wireProgram,
-      start: gl.getAttribLocation(wireProgram, "aStart"),
-      end: gl.getAttribLocation(wireProgram, "aEnd"),
-      side: gl.getAttribLocation(wireProgram, "aSide"),
-      along: gl.getAttribLocation(wireProgram, "aAlong"),
-      slot: gl.getAttribLocation(wireProgram, "aColorSlot"),
-      ...sharedUniforms(gl, wireProgram),
-      resolution: gl.getUniformLocation(wireProgram, "resolution"),
-      thickness: gl.getUniformLocation(wireProgram, "thickness"),
-      color: gl.getUniformLocation(wireProgram, "wireColor"),
-      opacity: gl.getUniformLocation(wireProgram, "wireOpacity"),
-      amount: gl.getUniformLocation(wireProgram, "amount"),
-    },
-    topologies: topologies || new Map(),
+    program,
+    start: gl.getAttribLocation(program, "aStart"),
+    end: gl.getAttribLocation(program, "aEnd"),
+    side: gl.getAttribLocation(program, "aSide"),
+    along: gl.getAttribLocation(program, "aAlong"),
+    slot: gl.getAttribLocation(program, "aColorSlot"),
+    ...sharedUniforms(gl, program),
+    resolution: gl.getUniformLocation(program, "resolution"),
+    thickness: gl.getUniformLocation(program, "thickness"),
+    color: gl.getUniformLocation(program, "wireColor"),
+    opacity: gl.getUniformLocation(program, "wireOpacity"),
+    amount: gl.getUniformLocation(program, "amount"),
   };
 }
 
@@ -443,10 +322,10 @@ function expandedLineVertices(segments) {
   return result;
 }
 
-function programsValid(gl, context) {
+function programValid(gl, program) {
   try {
-    return gl.isProgram(context?.fill?.program) && gl.isProgram(context?.wire?.program) &&
-      gl.getProgramParameter(context.fill.program, gl.LINK_STATUS) && gl.getProgramParameter(context.wire.program, gl.LINK_STATUS);
+    return gl.isProgram(program?.program) &&
+      gl.getProgramParameter(program.program, gl.LINK_STATUS);
   } catch {
     return false;
   }
@@ -458,14 +337,6 @@ function topologyResourcesValid(gl, resources) {
       gl.isBuffer(resources.fillBuffer) && gl.isBuffer(resources.wireBuffer);
   } catch {
     return false;
-  }
-}
-
-function pruneCpuTopologies(cache) {
-  while (cache.size > MAX_CPU_TOPOLOGIES) {
-    const oldest = [...cache.entries()].sort((a, b) => a[1].lastUsedFrame - b[1].lastUsedFrame)[0];
-    if (!oldest) break;
-    cache.delete(oldest[0]);
   }
 }
 
@@ -487,9 +358,13 @@ function disposeContext(gl, context) {
 }
 
 function disposePrograms(gl, context) {
+  disposePassProgram(gl, context?.fill);
+  disposePassProgram(gl, context?.wire);
+}
+
+function disposePassProgram(gl, pass) {
   try {
-    if (context?.fill?.program && gl.isProgram(context.fill.program)) gl.deleteProgram(context.fill.program);
-    if (context?.wire?.program && gl.isProgram(context.wire.program)) gl.deleteProgram(context.wire.program);
+    if (pass?.program && gl.isProgram(pass.program)) gl.deleteProgram(pass.program);
   } catch {}
 }
 

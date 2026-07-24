@@ -3,17 +3,19 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import {
-  compileSpecializedCompoundProgram,
   createGeneratorSource,
   getGeneratorNodeComponent as getGeneratorComponent,
   TextMaskProviderNode,
   TextMaskToImageNode,
 } from "../js/libraries/visual-nodes/index.js";
+import { compileVisualRenderPlan } from "../js/libraries/composition-engine/index.js";
+import { RenderDemandNode, renderDemandProcess } from "../js/libraries/render-engine/index.js";
 import {
   createProjectNodeFork,
   materializeProjectNodeFork,
   NODE_PART_KINDS,
 } from "../js/libraries/node-engine/index.js";
+import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
 import { createTextMask, parseTextMarkdown, TEXT_GENERATOR_FRAGMENT_SHADER, textMaskDimensions, textMaskSignature } from "../js/output/specialized/text-generator-renderer.js";
 import { textNodeRuntimeModule, textNodeShaderSource } from "../js/output/specialized/specialized-source-runtime.js";
 
@@ -30,8 +32,7 @@ test("text generator exposes portable typography and persistent style parameters
   assert.ok(component.params.some((param) => param.id === "fillEnabled" && param.defaultValue === true));
   assert.ok(component.params.some((param) => param.id === "outlineEnabled" && param.defaultValue === false));
   assert.equal(createGeneratorSource("text", { text: 42 }).params.text, "42");
-  assert.equal(definition.metadata.nodeOwnedNativeModule, true);
-  assert.equal(definition.metadata.nodeOwnedNativeProcess, false);
+  assert.equal(definition.metadata.nativeRenderer, "");
   assert.equal(definition.implementation.executionModel, "compiled-graph");
   assert.equal(definition.presentation.expandable, true);
   assert.deepEqual(definition.parts.filter((part) =>
@@ -42,6 +43,7 @@ test("text generator exposes portable typography and persistent style parameters
   assert.equal(typeof TextMaskProviderNode.moduleExports.textMaskDimensions, "function");
   assert.equal(typeof TextMaskProviderNode.moduleExports.textMaskSignature, "function");
   assert.ok(TextMaskProviderNode.parts.some((part) => part.id === "text-layout-module" && part.kind === "javascript"));
+  assert.equal(TextMaskToImageNode.metadata.nodeOwnedNativeModule, true);
   assert.ok(TextMaskToImageNode.parts.some((part) => part.id === "vertex-shader" && part.stage === "vertex"));
   assert.ok(TextMaskToImageNode.parts.some((part) => part.id === "fragment-shader" && part.stage === "fragment"));
 });
@@ -49,22 +51,57 @@ test("text generator exposes portable typography and persistent style parameters
 test("Text compiles a connected reusable mask provider and retained image kernel", () => {
   const definition = getGeneratorComponent("text").nodeDefinition;
   const definitions = new Map([
+    [RenderDemandNode.id, RenderDemandNode],
     [TextMaskProviderNode.id, TextMaskProviderNode],
     [TextMaskToImageNode.id, TextMaskToImageNode],
   ]);
-  const program = compileSpecializedCompoundProgram(definition, {
-    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  const outer = graphNodeFromDefinition(definition, {
+    id: "text",
+    visualProgram: true,
   });
-  const kernel = program.nativeKernel("text-mask");
+  outer.configuration.source.params.text = "NODE";
+  outer.configuration.source.params.fillColor = "#ff0000ff";
+  const plan = compileVisualRenderPlan({
+    id: "text-test",
+    nodes: [outer],
+    connections: [{ from: "text.texture", to: "$out.texture", type: "texture" }],
+  }, {}, {
+    resolveDefinition: (node) =>
+      node.nodeId === definition.id ? definition : definitions.get(node.nodeId),
+  });
+  const operation = plan.operations[0];
+  const render = operation.operations[0];
+  const graph = definition.parts.find((part) => part.kind === NODE_PART_KINDS.GRAPH);
 
-  assert.deepEqual(program.stages.map((stage) => stage.id), ["mask", "render"]);
-  assert.deepEqual(program.executableStages, ["mask"]);
-  assert.equal(kernel.id, "render");
-  assert.deepEqual(kernel.inputBindings.mask, { stageId: "mask", portId: "mask" });
-  assert.equal(program.output, "render.texture");
-  assert.equal(program.stageParameterView("mask", { text: "NODE", fillColor: "#ff0000ff" }).text, "NODE");
-  assert.equal(program.stageParameterView("mask", { text: "NODE", fillColor: "#ff0000ff" }).fillColor, undefined);
-  assert.equal(program.stageParameterView("render", { text: "NODE", fillColor: "#ff0000ff" }).fillColor, "#ff0000ff");
+  assert.deepEqual(operation.valueProgram.steps.map((step) => step.instanceId), ["demand", "mask"]);
+  assert.ok(graph.connections.some((edge) =>
+    edge.from === "demand.domainWidth" && edge.to === "mask.width"));
+  assert.ok(graph.connections.some((edge) =>
+    edge.from === "demand.domainHeight" && edge.to === "mask.height"));
+  assert.equal(operation.valueProgram.bindings.length, 1);
+  assert.deepEqual(
+    {
+      source: `${operation.valueProgram.bindings[0].sourceStepId.split("/").at(-1)}.${operation.valueProgram.bindings[0].sourcePortId}`,
+      target: `${render.id}.${operation.valueProgram.bindings[0].targetPortId}`,
+    },
+    { source: "mask.mask", target: "render.mask" },
+  );
+  assert.equal(operation.valueProgram.steps[1].parameters.text, "NODE");
+  assert.equal(operation.valueProgram.steps[1].parameters.fillColor, undefined);
+  assert.equal(render.configuration.source.params.fillColor, "#ff0000ff");
+  assert.equal(render.renderer, "output/specialized:text");
+  assert.match(render.nodeShaders.fragment, /uniform sampler2D textMask/);
+  const inspection = plan.inspect();
+  assert.equal(inspection.dynamics.hasValueProgram, true);
+  assert.equal(inspection.valuePrograms.length, 1);
+  assert.equal(inspection.valuePrograms[0].executionModel, "retained-typed-values");
+  assert.deepEqual(
+    inspection.valuePrograms[0].steps.map((step) => step.nodeId),
+    [RenderDemandNode.id, TextMaskProviderNode.id],
+  );
+  assert.equal(inspection.valuePrograms[0].bindings[0].sourceType, "text-mask-provider");
+  assert.equal(inspection.valuePrograms[0].bindings[0].targetType, "text-mask-provider");
+  plan.dispose();
 });
 
 test("Text child layout and shader implementations are independently forkable", () => {
@@ -101,6 +138,38 @@ test("Text child layout and shader implementations are independently forkable", 
 });
 
 test("text mask uses a stable bounded full-boundary raster instead of ROI dimensions", () => {
+  const full = renderDemandProcess({}, {
+    renderRequest: {
+      width: 1920,
+      height: 1080,
+      logicalWidth: 1920,
+      logicalHeight: 1080,
+      uvRect: [0, 0, 1, 1],
+    },
+  });
+  const clipped = renderDemandProcess({}, {
+    renderRequest: {
+      width: 480,
+      height: 1080,
+      logicalWidth: 1920,
+      logicalHeight: 1080,
+      uvRect: [0.75, 0, 0.25, 1],
+    },
+  });
+  assert.deepEqual(
+    { width: clipped.width, height: clipped.height },
+    { width: 480, height: 1080 },
+    "ROI allocation retains only visible pixels",
+  );
+  assert.deepEqual(
+    { width: clipped.domainWidth, height: clipped.domainHeight },
+    { width: full.domainWidth, height: full.domainHeight },
+    "partial visibility cannot become a new Text layout domain",
+  );
+  assert.deepEqual(
+    textMaskDimensions(clipped.domainWidth, clipped.domainHeight),
+    textMaskDimensions(full.domainWidth, full.domainHeight),
+  );
   assert.deepEqual(textMaskDimensions(1920, 1080), { width: 1920, height: 1080 });
   assert.deepEqual(textMaskDimensions(11760, 6615), { width: 4096, height: 2304 });
   assert.match(TEXT_GENERATOR_FRAGMENT_SHADER, /renderUvRect\.xy \+ vTexCoord \* renderUvRect\.zw/);
@@ -150,7 +219,7 @@ test("Text host adapter consumes the compiler-supplied node module and shaders",
   assert.match(textNodeShaderSource({}, "fragment"), /uniform sampler2D textMask/);
 });
 
-test("text generator is routed through specialized cached rendering and compact editor", async () => {
+test("text generator uses an ordinary retained-value graph and compact editor", async () => {
   const component = getGeneratorComponent("text");
   const [renderer, sourceRuntime, specialized, parameterView, inputController] = await Promise.all([
     readFile(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
@@ -159,23 +228,16 @@ test("text generator is routed through specialized cached rendering and compact 
     readFile(new URL("../js/control/parameter-view.js", import.meta.url), "utf8"),
     readFile(new URL("../js/control/input-controller.js", import.meta.url), "utf8"),
   ]);
-  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:text");
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "");
   assert.doesNotMatch(sourceRuntime, /NATIVE_SOURCE_HOST_METHODS/);
   assert.match(specialized, /registerNativeRenderer\(\s*"output\/specialized:text"/);
   assert.match(renderer, /this\.specializedSources\.drawText/);
-  assert.match(specialized, /specializedCompoundNativeKernel\(operation, "text-mask"\)/);
-  assert.match(specialized, /evaluateSpecializedCompoundGraph/);
-  assert.match(specialized, /graph\?\.stageInput\(renderStageId, "mask"\)/);
-  assert.match(specialized, /maskValue\?\.canvas/);
-  assert.match(specialized, /Compatibility-only direct host calls/);
+  assert.match(specialized, /operation\?\.runtimeValueInputs\?\.get\?\.\("mask"\)/);
+  assert.match(specialized, /!maskValue\?\.canvas/);
   assert.match(specialized, /operation\?\.nodeShaders\?\.\[id\]/);
   assert.match(specialized, /TEXT_COMPILED_SHADER_MISSING/);
-  assert.match(specialized, /nodeCodeRevision/);
   assert.match(specialized, /nodeShaderRevision/);
-  assert.match(specialized, /this\.textMasks\.get\(instanceId\)/);
-  assert.match(specialized, /mask\.providerRevision !== providerRevision/);
   assert.match(specialized, /textMaskImage\(canvas, mask\?\.image/);
-  assert.match(specialized, /willReadFrequently: true/);
   assert.match(specialized, /setUniform\("textMask", mask\.image\)/);
   assert.match(parameterView, /data-markdown-editor/);
   assert.match(inputController, /bindMarkdownEditors\(scope\)/);

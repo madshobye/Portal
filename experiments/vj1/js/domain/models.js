@@ -1,5 +1,5 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
+import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
 import { componentFrameMetrics, normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js?v=pixel-density-4";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";

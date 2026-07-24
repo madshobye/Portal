@@ -11,7 +11,7 @@ import { mediaRenderInvalidation } from "../js/libraries/render-engine/invalidat
 import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
 import { hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-6";
-import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js?v=render-core-contract-1";
+import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js?v=source-target-ownership-1";
 import { isReadyMediaItem } from "../js/output/component-render-state.js";
 import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSafeNearDistance, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
 import { terrainCameraView } from "../js/output/specialized/specialized-source-runtime.js";

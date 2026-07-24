@@ -216,18 +216,21 @@ export function materializeLiveProgramSurfaceRoutes(state = {}, target = null, m
     const index = routeState.surfaces.findIndex((surface) => String(surface.id) === String(surfaceId));
     if (index >= 0) routeState.surfaces[index] = { ...routeState.surfaces[index], enabled: visible !== false };
   }
-  // Scene Mapping controls the mapped projection path, not the direct-output
-  // destinations. Direct Surfaces retain their own authored/Live visibility
-  // and may continue presenting the Overall source while mapped Surfaces are
-  // hidden. Explicit patches and visibility overrides remain independent too.
-  // This route-level rule is shared by the embedded monitor and Output windows.
+  // Scene Mapping owns the Overall source binding. Hiding it must detach that
+  // binding from every unpatched Surface; otherwise an enabled direct output
+  // keeps rendering the hidden Scene after its explicit patch is removed.
+  // Surface visibility remains independent: direct outputs and explicit
+  // visibility overrides keep their enabled state, but stay transparent until
+  // they receive their own patch. Re-enabling Scene Mapping rematerializes the
+  // retained Overall selection through the normal compiler path.
   if (live.sceneMappingVisible === false) {
     routeState.surfaces = routeState.surfaces.map((surface) => {
       const surfaceId = String(surface.id || "");
+      if (patchedSurfaceIds.has(surfaceId)) return surface;
       const independentlyVisible = surface.destination?.type === "direct" ||
-        patchedSurfaceIds.has(surfaceId) ||
         live.surfaceVisibility?.[surfaceId] === true;
-      return independentlyVisible ? surface : { ...surface, enabled: false };
+      const detached = applySceneSourceNode(authoredSurfaceFields(surface), null);
+      return independentlyVisible ? detached : { ...detached, enabled: false };
     });
   }
   applyDirectOutputPatchPrecedence(routeState.surfaces, live.surfacePatches || {});

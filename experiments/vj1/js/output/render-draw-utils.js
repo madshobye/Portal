@@ -1,6 +1,6 @@
 import { drawWebGLBuffer } from "./component-render-layout.js?v=surface-terminology-1";
 import { isSharedFramebufferTarget, unwrapRenderTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
-import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=render-core-contract-1";
+import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=source-target-ownership-1";
 
 export function withShaderInstancePrefix(chain = [], prefix = "") {
   return (chain || []).map((pass, index) => ({

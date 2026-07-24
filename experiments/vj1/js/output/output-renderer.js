@@ -10,14 +10,14 @@ import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { advancePresentationClock, createPresentationClock } from "../libraries/timing-engine/presentation-clock/index.js?v=presentation-clock-1";
 import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/render-node-contract.js";
 import { RenderDemandNode } from "../libraries/render-engine/index.js";
-import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, TextureOperatorNodeDefinitions } from "../libraries/composition-engine/index.js?v=surface-terminology-1";
+import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, TextureOperatorNodeDefinitions } from "../libraries/composition-engine/index.js?v=mesh-pattern-node-authority-1";
 import { ComposableScene3dGroup, Transform3dNode } from "../libraries/mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
 import { createPlacedRenderResult, directPlacementKind } from "../graph/placed-render-result.js?v=atomic-video-seek-1";
 import { compileShaderSchedule, flattenComponentChain, isFusibleShaderJob } from "../graph/render-scheduler.js?v=canonical-effect-params-1";
 import {
   createProjectVisualNodeResolver,
   SpecializedCompoundStageNodeDefinitions,
-} from "../libraries/visual-nodes/index.js?v=eyeball-coordinate-contract-1";
+} from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
 import { visitVisualParameterReferences } from "../libraries/visual-nodes/shared/parameter-references.js";
 import { TerrainFlightControllerNode } from "../libraries/terrain-engine/index.js";
 import { listProjectIsfTransitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
@@ -37,7 +37,7 @@ import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=canon
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=decoded-frame-drawability-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=surface-terminology-1";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=compound-terminal-roi-1";
 import { IsfRenderRuntime } from "./isf-render-runtime.js?v=canonical-effect-params-1";
 import { TextureOperatorRuntime } from "./texture-operator-runtime.js?v=canonical-effect-params-1";
 import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=canonical-effect-params-1";
@@ -45,7 +45,7 @@ import { CompositeRenderRuntime } from "./composite-render-runtime.js?v=canonica
 import {
   mediaSourceDemandWidth,
   SourceRenderRuntime,
-} from "./source-render-runtime.js?v=compiled-graph-value-authority-1";
+} from "./source-render-runtime.js?v=mesh-pattern-node-authority-1";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=explicit-direct-surface-hierarchy-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
@@ -78,7 +78,7 @@ import {
   worldSize,
 } from "./render-geometry.js?v=fit-geometry-demand-1";
 import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=roi-composition-1";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=compiled-graph-value-authority-1";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=mesh-pattern-node-authority-1";
 import {
   sceneMaxRasterSize,
   scenePreviewRenderRequest,
@@ -113,7 +113,7 @@ export {
   compiledVisualSourceRenderer,
   mediaSourceDemandSize,
   mediaSourceDemandWidth,
-} from "./source-render-runtime.js?v=compiled-graph-value-authority-1";
+} from "./source-render-runtime.js?v=mesh-pattern-node-authority-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {
@@ -172,11 +172,50 @@ export function namedTextureStateKey(states = null) {
     .map(([name, state]) => [String(name), textureStateKey(state)]);
 }
 
+export function namedValueIdentityKey(identities = null) {
+  if (!identities?.size) return [];
+  return [...identities.entries()]
+    .sort(([left], [right]) => String(left).localeCompare(String(right)))
+    .map(([name, identity]) => [String(name), String(identity || "")]);
+}
+
 export function primaryTextureInputPort(operation = {}) {
   const ports = operation.textureInputPorts || Object.keys(operation.textureInputs || {});
   if (ports.includes("inputImage")) return "inputImage";
   if (ports.includes("texture")) return "texture";
   return ports[0] || "texture";
+}
+
+export function compiledSourceRenderRequest(operation = {}, source = {}, renderRequest = {}) {
+  return operation?.backend === "shader-generator"
+    ? qualityScaledRenderRequest(renderRequest, source.params || {})
+    : renderRequest;
+}
+
+export function renderPatchChangesProgramReachability(patch = {}) {
+  if (patch?.target === "state") return false;
+  const parts = String(patch?.path || "").split(".").filter(Boolean);
+  if (!parts.length) return false;
+  const leaf = parts.at(-1);
+  const sourceIndex = parts.lastIndexOf("source");
+  if (sourceIndex >= 0 && ["type", "componentId"].includes(String(parts[sourceIndex + 1] || ""))) {
+    return true;
+  }
+  return leaf === "componentId" && !parts.includes("params");
+}
+
+export function renderPatchChangesProgramTopology(patch = {}) {
+  if (patch?.target === "state") return false;
+  const parts = String(patch?.path || "").split(".").filter(Boolean);
+  const chainIndex = parts.lastIndexOf("chain");
+  if (chainIndex < 0) return false;
+  // Replacing a chain, or one complete item inside it, changes executable
+  // ordering and node identity rather than only authored runtime values.
+  if (parts.length <= chainIndex + 2) return true;
+  const itemField = String(parts[chainIndex + 2] || "");
+  if (["id", "kind", "componentId"].includes(itemField)) return true;
+  if (itemField !== "source") return false;
+  return ["type", "generatorId", "componentId"].includes(String(parts[chainIndex + 3] || ""));
 }
 
 const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
@@ -826,11 +865,50 @@ export class OutputRenderer {
       });
     }
     for (const componentId of result.componentIds) this.refreshComponentLookup(componentId);
-    for (const componentId of result.componentIds) {
-      this.componentPrograms.get(componentId)?.syncGeneratedControlsFromConfiguration?.();
+    const topologyChanged = patches.some(renderPatchChangesProgramTopology);
+    if (topologyChanged || this.componentProgramDependencyClosureIsIncomplete(result.componentIds)) {
+      this.rebuildComponentPrograms();
+    } else {
+      // The compiled topology stays retained, but its operation configuration
+      // must follow project truth. Parameters, visibility, transforms, blend,
+      // and boundaries are projected into the already compiled operations
+      // outside the frame loop.
+      for (const componentId of result.componentIds) {
+        this.syncComponentProgramConfiguration(componentId);
+      }
     }
     if (result.componentIds.length) this.thumbnailRuntime.invalidateSelectedComponent();
     return result;
+  }
+
+  componentProgramDependencyClosureIsIncomplete(componentIds = []) {
+    for (const componentId of componentIds || []) {
+      const program = this.componentPrograms.get(String(componentId || ""));
+      if (!program) return true;
+      const dependencies = program.inspect()?.dependencies || {};
+      for (const dependencyId of dependencies.componentPrograms || dependencies.components || []) {
+        if (!this.componentPrograms.has(String(dependencyId || ""))) return true;
+      }
+    }
+    return false;
+  }
+
+  syncComponentProgramConfiguration(componentId) {
+    const id = String(componentId || "");
+    const component = (this.state?.components || []).find((candidate) => String(candidate?.id || "") === id);
+    const program = this.componentPrograms.get(id);
+    if (!component || !program) return false;
+    let changed = false;
+    const visit = (chain = []) => {
+      for (const item of chain || []) {
+        if (!item?.id) continue;
+        changed = program.replaceChainItem(item.id, item) || changed;
+        if (item.kind === "group") visit(item.chain || []);
+      }
+    };
+    visit(component.chain || []);
+    if (changed) program.syncGeneratedControlsFromConfiguration?.();
+    return changed;
   }
 
   applyLiveParamFadeFrame(nowMs = performance.now()) {
@@ -1697,15 +1775,20 @@ export class OutputRenderer {
     this.componentOutput.clear();
     this.mainMix.push();
     this.mainMix.clear();
+    this.mainMix.pop();
     if (this.isOutputBlackout()) {
-      this.mainMix.pop();
       return;
     }
     if (this.mode !== "component") {
-      this.mainMix.pop();
       return;
     }
 
+    // Never retain a parent framebuffer binding while recursively evaluating
+    // a Component graph. Child sources, effects, and retained native kernels
+    // own their targets exclusively; only their completed result is presented
+    // into mainMix. Keeping mainMix open here allowed a nested shared
+    // framebuffer begin/end to contaminate source textures with earlier
+    // layers from the parent Scene.
     const neededComponentIds = this.neededComponentIds();
     for (const component of this.state.components || []) {
       if (neededComponentIds.size && !neededComponentIds.has(component.id)) continue;
@@ -1740,7 +1823,6 @@ export class OutputRenderer {
       this.mainMix.blendMode(BLEND);
       this.mainMix.pop();
     }
-    this.mainMix.pop();
   }
 
   renderComponentAtSize(component, componentTime, rw, rh) {
@@ -2497,7 +2579,21 @@ export class OutputRenderer {
           const groupInitialState = groupInputStates?.get("texture")
             || (groupInputStates?.size === 1 ? groupInputStates.values().next().value : null);
           const groupScopeId = renderBufferKey(scopeId, item.id || index);
-          const groupTransform = combineContentTransforms(inheritedTransform, item.transform || {});
+          const compoundPlacementTransform = combineContentTransforms(
+            inheritedTransform,
+            item.transform || {},
+          );
+          const lowersPlacementToTerminal = compiledGroup &&
+            operation.placementLowering === "terminal-coordinate";
+          // A compiled compound is a reusable local graph. Its children render
+          // in compound-local coordinates and the completed image is placed
+          // once at the public boundary. Precomposing the outer transform into
+          // every child destructively cropped intermediate textures (periodic
+          // sampling then stretched their lost edge pixels). Authored field
+          // Groups retain descendant transform semantics.
+          const groupTransform = compiledGroup && !lowersPlacementToTerminal
+            ? {}
+            : compoundPlacementTransform;
           groupState = compiledGroup && operation.executionModel === "texture-dag"
             ? this.executeVisualTextureDag(
                 operation,
@@ -2528,7 +2624,10 @@ export class OutputRenderer {
                     outputNodeId,
                     state,
                     rawOutputState,
-                    { ...item, transform: {} },
+                    {
+                      ...item,
+                      transform: lowersPlacementToTerminal ? {} : compoundPlacementTransform,
+                    },
                     renderRequest,
                     groupRequest.roi,
                   )
@@ -2536,7 +2635,10 @@ export class OutputRenderer {
                     outputNodeId,
                     state,
                     rawOutputState,
-                    { ...item, transform: {} },
+                    {
+                      ...item,
+                      transform: lowersPlacementToTerminal ? {} : compoundPlacementTransform,
+                    },
                     renderRequest,
                   );
               operation.runtimeOutputStates.set(publicId, outputState);
@@ -2548,8 +2650,9 @@ export class OutputRenderer {
         } finally {
           restoreGroupControls?.();
         }
-        // A Group is a transform scope: its transform is precomposed into all
-        // descendants above. Only its blend/opacity applies at this boundary.
+        // Authored Groups are transform scopes whose transforms are
+        // precomposed into descendants. Compiled compounds instead place their
+        // local rendered output at the public boundary above.
         state = operation?.backend === "compiled-visual-group"
           ? groupState
           : bounded
@@ -2567,9 +2670,6 @@ export class OutputRenderer {
       const value = provided?.get(publicId)
         || (publicId === "texture" || publicIds.length === 1 ? fallback : null);
       if (value) result.set(publicId, value);
-    }
-    if (!result.size && Object.values(operation?.textureInputs || {}).length) {
-      result.set("texture", fallback);
     }
     return result;
   }
@@ -2854,14 +2954,27 @@ export class OutputRenderer {
       transparent: true,
       request: renderRequestStateKey(evaluationRequest),
     });
-    return this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
+    const state = this.evaluateChainNode(nodeId, signature, renderRequest, (output) => {
       output.push();
       output.clear();
       output.pop();
     }, "initial", { instanceInvariant: true });
+    // Semantic marker used by allocation lowering. It allows an opaque,
+    // identity source to become the chain result directly instead of copying
+    // it through a redundant transparent composite target.
+    state.transparent = true;
+    return state;
   }
 
   renderLayerNodeState(nodeId, inputState, layerState, layer, renderRequest) {
+    if (
+      inputState?.transparent === true &&
+      isIdentityTransform(layer.transform || {}) &&
+      (layer.blend === undefined || layer.blend === "normal") &&
+      clamp01(layer.opacity ?? 1) >= 1
+    ) {
+      return layerState;
+    }
     const contentState = this.renderLayerContentTransformState(
       renderBufferKey(nodeId, "content-transform"),
       layerState,
@@ -3368,7 +3481,16 @@ export class OutputRenderer {
       if (parameter.defaultValue !== undefined) params[id] = parameter.defaultValue;
     }
     Object.assign(params, stage.parameters || {});
-    const bindings = definition.metadata?.nativeCompound?.parameterBindings?.[stage.id] || [];
+    const nativeBindings = definition.metadata?.nativeCompound?.parameterBindings?.[stage.id] || [];
+    const projectedBindings = (definition.metadata?.controlProjection?.sections || [])
+      .flatMap((section) => section.controls || [])
+      .flatMap((control) => (control.bindings || [])
+        .filter((binding) => String(binding?.nodeId || "") === String(stage.id || ""))
+        .map((binding) => ({
+          publicParameterId: control.parameterId,
+          targetParameterId: binding.parameterId,
+        })));
+    const bindings = nativeBindings.length ? nativeBindings : projectedBindings;
     for (const binding of bindings) {
       const publicParameterId = String(
         typeof binding === "string"
@@ -3524,11 +3646,15 @@ export class OutputRenderer {
     const evaluationRequest = instanceInvariant
       ? instanceInvariantRenderRequest(renderRequest)
       : renderRequest;
-    const key = renderBufferKey(nodeId, "source", renderRequestKey(evaluationRequest));
+    // Quality belongs to the compiled source allocation. A retained source
+    // result must never point at a global effect scratch target shared by
+    // another placement of the same generator.
+    const sourceRequest = compiledSourceRenderRequest(operation, source, evaluationRequest);
+    const key = renderBufferKey(nodeId, "source", renderRequestKey(sourceRequest));
     let pg = this.componentSource.get(key);
-    if (!pg || pg.width !== evaluationRequest.width || pg.height !== evaluationRequest.height) {
+    if (!pg || pg.width !== sourceRequest.width || pg.height !== sourceRequest.height) {
       disposeGraphics(pg);
-      pg = createSharedFramebufferTarget(evaluationRequest.width, evaluationRequest.height);
+      pg = createSharedFramebufferTarget(sourceRequest.width, sourceRequest.height);
       this.componentSource.set(key, pg);
     }
     this.renderCache.touch("source", key, this.frameIndex);
@@ -3555,7 +3681,8 @@ export class OutputRenderer {
       time: this.sourceRuntimeTimeKey(source, item, runtimeContext),
       external: this.sourceRuntimeExternalKey(source, item, runtimeContext),
       inputs: namedTextureStateKey(inputStates),
-      request: renderRequestStateKey(evaluationRequest),
+      values: namedValueIdentityKey(operation?.runtimeValueIdentityInputs),
+      request: renderRequestStateKey(sourceRequest),
     });
     let runtime = this.sourceNodeRuntimes.get(key);
     if (!runtime) {
@@ -3566,16 +3693,19 @@ export class OutputRenderer {
     const result = runtime.evaluate(sourceSignature, () => {
       pg.push();
       pg.clear();
-      this.safeDrawSourceToGraphics(
-        pg, source, component, componentTime, evaluationRequest, operation, inputStates,
-      );
       pg.pop();
+      // Source backends own their final target scope. Dependencies and
+      // retained intermediate kernels are prepared before that scope begins,
+      // so cross-target framebuffer nesting is impossible by construction.
+      this.safeDrawSourceToGraphics(
+        pg, source, component, componentTime, sourceRequest, operation, inputStates,
+      );
       return pg;
     }, { frame: this.frameIndex, dirtyReason: "source" });
     // A retained source texture still owns its live decoder. The source draw
     // callback renews that lease on dirty frames; cache hits must renew it
     // explicitly or OutputMediaRuntime.endFrame() correctly pauses the video.
-    if (!result.rendered) this.claimRetainedSourceMedia(source, component, evaluationRequest);
+    if (!result.rendered) this.claimRetainedSourceMedia(source, component, sourceRequest);
     if (!result.rendered) this.frameProfile.stageCacheHits++;
     else this.frameProfile.stageRenders++;
     const sourceState = {
@@ -3599,7 +3729,7 @@ export class OutputRenderer {
         transform: {},
       },
       componentTime,
-      evaluationRequest
+      sourceRequest
     );
   }
 
@@ -3886,13 +4016,6 @@ export class OutputRenderer {
     }, operation);
   }
 
-  drawMeshPatternsGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
-    return this.specializedSources.drawMeshPatterns(pg, source, componentTime, {
-      ...renderRequest,
-      pixelDensity: this.requestPixelDensity(renderRequest),
-    }, operation);
-  }
-
   drawTerrainGenerator(pg, source = {}, componentTime = this.visualTime, renderRequest = frameRenderRequest(this.state.render), operation = null) {
     return this.specializedSources.drawTerrain(pg, source, componentTime, {
       ...renderRequest,
@@ -3978,16 +4101,20 @@ export class OutputRenderer {
     const shaderComponent = this.generatorShaderComponent(generatorId);
     const component = shaderComponent ? { ...shaderComponent, params: generatorComponent.params || shaderComponent.params || [] } : null;
     if (!component) return null;
-    const renderRequest = qualityScaledRenderRequest(this.normalizeRenderRequest(request, "source"), params);
-    // The target must match the quality-scaled viewport. Drawing a smaller rect
-    // into a full-size target changes the apparent size of normalized generators
-    // (most visibly Eyeball and Gradient) instead of merely reducing pixel work.
-    // A chain source already owns a framebuffer at the requested size. Render
-    // straight into it so multiple animated shader generators do not contend
-    // for the global effect scratch target and then pay an immediate copy.
-    const target = outputTarget && outputTarget.width === renderRequest.width && outputTarget.height === renderRequest.height
-      ? outputTarget
-      : this.getFxPingPongTarget(renderRequest, 0);
+    // The compiled source operation already applied quality to its allocation.
+    // The shader host consumes that exact demand without scaling twice.
+    let renderRequest = this.normalizeRenderRequest(request, "source");
+    const target = outputTarget || this.getFxPingPongTarget(renderRequest, 0);
+    if (outputTarget && (
+      outputTarget.width !== renderRequest.width ||
+      outputTarget.height !== renderRequest.height
+    )) {
+      renderRequest = this.normalizeRenderRequest({
+        ...renderRequest,
+        width: outputTarget.width,
+        height: outputTarget.height,
+      }, "source");
+    }
     const shader = this.shaderEffectRuntime.getShader({ id: component.id, component }, target);
     if (!shader) return null;
     const qualityParams = qualityAdjustedGeneratorParams(generatorComponent, params);

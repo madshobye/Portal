@@ -1,253 +1,385 @@
-# VJ1 Handover Brief
+# VJ1 Architecture Handover
 
 Updated: 2026-07-24
 
-VJ1 is a build-free browser VJ and projection-mapping application in `experiments/vj1`. It targets current Chrome with a capable GPU. p5 remains the browser/media host, while frame-critical work uses retained WebGL targets and specialized renderers. The user-selected folder and its `project.json` are authoritative. Current project schema is **34**.
+VJ1 is a build-free browser VJ and projection-mapping application in
+`experiments/vj1`. It targets current Chrome with WebGL2. p5 is the browser and
+media host, while frame-critical rendering uses retained WebGL resources and
+compiled execution plans.
 
-## Product and Ownership Model
+This document describes the current architectural truth and the constraints that
+future work must preserve. It is not a changelog. Git history and tests contain
+the implementation history.
 
-- **Component**: reusable visual chain of media, generators, effects, nested Components, and Groups.
-- **Scene**: a spatial Component composition. It owns visual content, not projection geometry.
-- **Mapping**: an authored collection of Surfaces and calibration. Different Mappings may contain different Surfaces.
-- **Surface**: one identity represented as a relative 2D rectangle in Scene view and a projected quad/destination in Mapping view. There is no separate Frame model.
-- **Live**: a transient source program. It selects an Overall Scene/Component and may patch or hide individual Surfaces.
-- **Output**: the compiled Mapping program rendered in the embedded preview or a standalone output window.
+## Product Model and Ownership
 
-The central ownership rule is:
+- **Component**: reusable visual graph containing media, generators, effects,
+  nested Components, controls, and Groups.
+- **Scene**: spatial composition of Components. It owns visual content, not
+  projection calibration.
+- **Mapping**: authored collection of Surfaces and their calibration.
+- **Surface**: one identity represented by a relative Scene rectangle and a
+  projected destination quad. There is no separate Frame model.
+- **Live**: transient source routing. It selects an Overall Scene or Component
+  and may patch or hide individual Surfaces.
+- **Output**: the selected Mapping and Live routes compiled for Preview or a
+  standalone output window.
+
+The ownership rule is:
 
 ```text
 Component/Scene content + Mapping Surface geometry + Live route choices
                          -> compiled Surface routes -> Output
 ```
 
-`mapping.surfaces` contains authored geometry, calibration-facing properties, ordering, destination, fit, feather, visibility defaults, and identity. `state.surfaces` is the selected renderer projection: it may additionally contain derived source bindings such as `sourceNodeId`, `componentId`, crop, and source-fit data. `compileLiveProjectionProgram()` is the sole current Live-route authority. Only a transition's previous endpoint is retained as historical state. Never persist derived bindings into a Mapping or create a parallel per-Scene Surface table.
+`mapping.surfaces` is authored geometry and calibration state. It owns Surface
+identity, order, relative bounds, destination, fit, feather, visibility defaults,
+and direct-output hierarchy. Derived renderer bindings such as `sourceNodeId`,
+`componentId`, crop, and route state belong only to the compiled projection.
+`compileLiveProjectionProgram()` is the current Live-route authority.
 
-Old projects are migrated on load. Do not restore runtime compatibility branches for the removed Canvas/Frame models; migration code is their only proper home.
+Transitions may retain the previous source bindings, but current Surface geometry
+always remains authoritative for both transition endpoints. Never persist derived
+Live bindings into a Mapping or create a parallel per-Scene Surface model.
 
-## Libraries and Node Architecture
+Old projects are migrated on load. Removed Canvas/Frame-era concepts belong only
+in migrations; do not restore runtime compatibility branches for them. Current
+project schema is **34**.
 
-The application root configures libraries under `js/libraries`:
+## Node and Library Architecture
 
-- `node-engine`: typed/versioned nodes, ports, groups, packages, forks, and editable parts.
-- `composition-engine`: Component, Scene, Mapping, Surface-route, Output, and application compilers.
-- `render-engine`: relative geometry, render views, ROI contracts, and shared stable/revision/frame invalidation semantics.
-- `mapping-engine`: projection sampling, homography, fit, and feathering.
-- `cache-engine`: retained render-target and signature caches.
-- `media-engine`, `image-engine`, `mesh-engine`, `terrain-engine`, `isf-engine`, `transition-engine`, and `procedural-2d`: reusable media and visual algorithms.
-- `state-engine`, `storage-engine`, `synchronization-engine`, `timing-engine`, `diagnostics-engine`, `control-engine`, and `data-store`: infrastructure.
-- `visual-nodes`: one folder per generator/effect with its metadata, editable code/shaders, and runtime parts.
+The application root assembles reusable libraries under `js/libraries`:
 
-Nodes own real algorithms, not decorative wrappers. The graph is primarily an authored and inspectable program plus a compiler boundary. Optimized hosts may execute compiled node implementations directly; the renderer must not allocate generic packets or traverse a dynamic object graph every frame. Specialized shader fusion, retained targets, mesh renderers, media leases, and required ping-pong passes remain valid node host implementations.
+- `node-engine`: typed/versioned definitions, ports, Groups, packages, forks,
+  dependencies, and editable parts.
+- `composition-engine`: Component, Scene, Mapping, Surface-route, Output, control,
+  visual-value, and visual-render compilers.
+- `render-engine`: render demand, relative geometry, render views, ROI,
+  transforms, and stable/revision/frame invalidation.
+- `mapping-engine`: projection, homography, source fit, and feathering.
+- `cache-engine`: retained signatures, targets, and shared results.
+- `media-engine`, `image-engine`, `mesh-engine`, `terrain-engine`, `isf-engine`,
+  `transition-engine`, and `procedural-2d`: reusable visual algorithms.
+- Infrastructure libraries include state, storage, synchronization, timing,
+  diagnostics, control, and data-store engines.
+- `visual-nodes`: one folder per reusable visual node or compound, containing its
+  metadata, implementation, editable shaders/code, and native capability
+  declarations where required.
 
-The 3D rule is deliberately not “one unified renderer.” Meshes, materials, transforms, cameras, scene objects, object collections, and optional Scene3d bundles are typed graph values. `Scene to Image` consumes an arbitrary object collection plus target/time context, clears once, retains buffers per canonical Mesh resource, shares shader programs per WebGL context, and produces the texture consumed by the normal optimized output chain. Scene3d is only a convenient data bundle, never the rendering authority. The scene compiler prunes unreachable nodes and lowers the reachable typed DAG to direct synchronous calls; the output host resolves declared mesh ports rather than knowing `meshA`/`meshB`. Shared depth targets, caches, batching, and fusion remain backend optimizations. STL/OBJ and Terrain reuse these node operations while Terrain retains its specialized GPU kernels where they are beneficial.
+Nodes must own real algorithms and semantic values, not decorative wrappers
+around hidden host behavior. Saved graphs are the semantic and editable
+authority. Compilers may lower them to allocation-stable direct calls, fused
+shaders, retained targets, or native kernels.
 
-Control nodes follow the same split. Component time, oscillators, scalar math, and range mapping are ordinary reusable nodes. The visual compiler extracts only controls reachable from visual parameter edges and emits a synchronous control program that runs beside the optimized visual plan. It does not construct generic node packets in the frame loop.
+The optimized renderer is intentional and must remain. Do not traverse a generic
+object graph or allocate generic node packets in the frame loop. A node editor
+does not imply interpreted rendering; it edits semantic graphs that compile into
+optimized plans.
 
-## Render Pipeline and Invariants
+### Execution models
+
+Every executable graph must honestly declare one of these models:
+
+- **Graph**: ordinary typed nodes evaluated directly.
+- **Compiled graph**: editable semantic graph lowered into an optimized plan.
+- **Native composite**: a declared retained kernel used where ordinary lowering
+  cannot yet provide the same performance or resource lifecycle.
+
+Editor activation must also be honest: live, recompile, restart, read-only, or
+unsupported. Editing a displayed compound must never silently continue executing
+an unrelated hard-coded topology.
+
+### Ordinary visual compilation
+
+Ordinary visual Groups can contain:
+
+- texture/image DAG operations;
+- scalar, vector, time, and event control nodes;
+- retained synchronous typed-value providers;
+- declared native renderer operations at the terminal image boundary.
+
+The compiler prunes unreachable nodes and validates child identity, endpoints,
+port types, required inputs, ambiguous bindings, public controls, and cycles.
+Retained typed-value outputs carry stable resource identities into downstream
+render signatures and expose their steps, bindings, types, and invalidation
+through compiled-plan introspection. The compiler then produces:
+
+- a direct control program for parameter updates;
+- a retained typed-value program for reusable CPU/resource values;
+- an optimized visual render plan for texture and image operations.
+
+The control and value programs use retained state and output objects. They must
+not create generic packets every frame. Public Group controls bind to the actual
+child parameters that own the behavior.
+
+Text is the first ordinary compound using the general retained-value path:
 
 ```text
-canonical state
+Render Demand -> Text Mask Provider -> Text Mask to Image
+```
+
+The CPU mask is retained by the value program, while the final image operation
+uses a declared native renderer and editable shader. Screen Share similarly
+compiles `Screen Input Resource -> Media Resource to Image`; browser capture
+lifecycle stays host-owned while the selected resource and presentation are
+ordinary typed graph values. Tile Texture is an ordinary media-to-texture Group.
+Eyeball is an ordinary control-to-shader Group. These are reference patterns for
+removing larger hidden specialized compounds without weakening their fast path.
+Both Feature Morph variants now follow the same model: two media-resource
+values feed a replaceable retained SuperPoint or MobileNet analysis provider,
+then one shared compiled GPU morph renderer. The analysis nodes declare their
+host-owned asynchronous lifecycle, pending/error behavior, and
+external-revision invalidation.
+
+### 3D composition
+
+The goal is not one monolithic “unified 3D renderer.” The reusable architecture
+is a set of typed nodes that can be combined:
+
+```text
+Mesh Resource -> Transform / Material -> Scene Object
+Scene Objects -> Object Collection -> Scene Data
+Scene Data + Camera + Render Demand -> Scene to Image
+```
+
+Canonical values include Mesh resources, transforms, materials, cameras, scene
+objects, collections, and optional Scene3d bundles. `Scene to Image` consumes
+arbitrary object collections, retains canonical GPU buffers, shares programs per
+WebGL context, clears once, and produces an image for the normal optimized output
+chain. Scene3d is a data bundle, not another rendering authority.
+
+STL/OBJ and Terrain reuse these operations. Terrain and other demanding systems
+may retain small declared native kernels where they are beneficial, but geometry,
+materials, cameras, animation/controllers, and scene assembly should be reusable
+graph elements. The compiler, not a universal renderer object, decides how a
+supported graph is lowered.
+
+## Render Pipeline and Hard Invariants
+
+```text
+canonical authored state
   -> materialize selected Scene/Live routes over selected Mapping
   -> compile reachable Surface/source graph
   -> plan visible Component and media demand
-  -> render/reuse retained Component textures
-  -> optional effect/group/transition materialization
-  -> fit + Surface projection + feather + blend
-  -> preview or standalone Output
+  -> render or reuse retained Component results
+  -> optional effect/group/transition work
+  -> source fit + Surface projection + feather + blend
+  -> Preview or standalone Output
 ```
 
-Keep these contracts intact:
+Preserve these invariants:
 
-- Geometry is relative. Pixel sizes are derived from the actual host, quality, density, visible footprint, content scale, and source detail demand.
-- A Surface is the geometry authority at both transition endpoints. A transition snapshot owns previous source bindings only.
-- Boundary transform and content transform are separate. Boundary controls placement, rotation, clipping, and allocation; content transform moves/scales the visual domain inside it.
-- ROI reduces allocation and sampling only. It must not recenter or squeeze generator/effect math.
-- Buffer size follows the visible boundary footprint. Source detail follows physical backing demand and content scale. Offscreen boundary areas allocate nothing.
-- `cover`, `contain`, and `stretch` are explicit presentation choices. Do not silently substitute one to compensate for incorrect aspect math.
-- Premultiplied alpha is the render contract.
-- Avoid pixel readbacks, resizable cross-context canvas uploads, extra WebGL contexts, and new full-frame or ping-pong targets unless an algorithm genuinely requires them.
-- Static Components are signature-cached. Compiled invalidation has three shared modes: stable, revision-driven, and frame-driven. Shader time, control time, decoded media revisions, nested Components, feedback, and retained state must use that contract rather than host-specific redraw exceptions. Eligible synchronized clients should share results rather than rerendering the full chain.
-- Preview and standalone Output are separate renderer clients but consume the same compiled Surface contract.
+1. **Relative geometry is canonical.** Pixel sizes derive from the actual host,
+   quality, density, visible footprint, content scale, and source-detail demand.
+2. **Surface geometry is authoritative.** Transition snapshots retain previous
+   source bindings, not stale calibration geometry.
+3. **Boundary and content transforms are separate.** Boundary controls placement,
+   rotation, clipping, and allocation. Content transform changes the visual
+   domain inside that boundary.
+4. **ROI is semantic.** Every visual node should declare input-to-output ROI,
+   halo, and local/global dependency. ROI reduces allocation and sampling only;
+   it must not recenter, squeeze, or otherwise change visual math.
+5. **ROI must be pixel-equivalent.** Rendering a requested ROI must equal cropping
+   the same region from a full render.
+6. **Demand has two dimensions.** Buffer allocation follows visible boundary
+   footprint. Source detail follows physical backing demand and content scale.
+   Offscreen boundary areas allocate nothing.
+7. **Presentation fit is explicit.** `cover`, `contain`, and `stretch` may not be
+   substituted to hide aspect or transform errors.
+8. **Premultiplied alpha is the contract.**
+9. **Dirty state is compiled.** Stable graphs render once and sleep;
+   revision-driven graphs wake for authored/resource changes; frame-driven graphs
+   run continuously only while time, feedback, capture, camera, or another
+   declared dependency requires it.
+10. **Resources are retained and owned.** Avoid pixel readbacks, cross-context
+    canvas uploads, extra WebGL contexts, and new full-frame or ping-pong targets
+    unless the algorithm requires them.
+11. **Preview and Output share semantics.** They are separate renderer clients,
+    but consume the same compiled Surface, transition, ROI, and demand contracts.
 
-Mapping preview and its Test Pattern no longer rewrite Mapping data. Runtime source nodes are bound to the authored Mapping graph by `mapping-program-compiler.js`; authored reachability and Surface order remain intact. This compiler boundary is the intended way to combine stable topology with changing preview/Live source assignments.
+The renderer may specialize through typed render-plan passes: ROI propagation,
+transform normalization, shader fusion, target elimination, resource sharing, and
+native lowering. These optimizations should become smaller declared passes rather
+than accumulating as generator-name branches in `output-renderer.js`.
 
-## Live, Mapping, and Transitions
+## Live, Mapping, Output, and Transitions
 
-Overall Live selection materializes a Scene across the Mapping Surfaces. An ordinary Component selected Overall behaves as a virtual Scene and covers the shared Scene space before each Surface samples it. An individual Surface patch assigns the complete selected Scene/Component to only that Surface through the Surface's presentation fit. Clearing a patch restores Overall routing without changing the Mapping.
+Overall Live selection materializes a Scene across Mapping Surfaces. An ordinary
+Component selected Overall behaves as a virtual Scene covering shared Scene space
+before each Surface samples it. A per-Surface patch assigns the selected Scene or
+Component only to that Surface through its presentation fit. Clearing the patch
+restores Overall routing without mutating the Mapping.
 
-Direct outputs have a group route (`Full surface`) and per-output children. Their semantic hierarchy is an explicit persisted `destination.parentSurfaceId` edge; `outputIds` owns only physical output geometry. Precedence is materialized centrally in `scene-routing.js`: an explicit parent patch suppresses unpatched descendants, while explicitly patched descendants override their own output. The render planner uses the same edge to order parent backplanes before children. Missing parents, duplicate IDs, and cycles fail explicitly rather than restoring the former output-count inference.
+Direct outputs use an explicit persisted `destination.parentSurfaceId` hierarchy.
+`outputIds` owns physical output geometry only. Central route materialization
+applies precedence:
 
-Transitions use the current Surface geometry for both endpoints. `rebaseSurfaceRouteProgram()` combines current authored geometry with previous source bindings. Focused model tests confirm identical Overall monitor placement and identical per-Surface endpoint geometry.
+- an explicit parent patch suppresses unpatched descendants;
+- an explicit descendant patch overrides its own output;
+- parent backplanes render before children.
 
-### Transition presentation and shader contract
+Missing parents, duplicate IDs, self-parenting, and cycles fail explicitly.
 
-Ordinary Surface transitions now reuse the stable prepared view contract: source texture, normalized source rectangle, source fit, logical aspect, projection fit, and opacity. Each endpoint retains its own `contain`/`cover` mapping throughout the blend, so the transition no longer substitutes `stretch` and then snaps back to the stable presentation.
+Transitions separate lifecycle from appearance. Both endpoints use prepared views
+containing texture, normalized source rect, source fit, logical aspect, opacity,
+and current Surface projection. Each endpoint retains its own `contain`/`cover`
+mapping throughout the blend.
 
-Complex routes that require transforms, final shaders, or thumbnail fallback still use retained endpoint textures. Their source-fit stage is already flattened into those textures, while the Surface projection-fit stage remains in the mapper. Unchanged Surfaces stay on the exact stable path. This adds no full-frame pass, ping-pong pair, or new buffer; ordinary changing routes now avoid the former per-Surface transition-buffer allocation.
+Transitions are first-class catalog artifacts. Live state stores a stable
+`transitionId` and authored scalar/color parameters, never executable functions.
+Single-pass ISF transitions compile into the mapper transition-kernel contract and
+run inside the existing projection/feather draw. Multipass or persistent ISF
+transitions remain rejected until an explicit retained-target policy exists.
 
-Transitions are first-class catalog artifacts. Live state persists a stable `transitionId` and scalar/color parameters, never executable shader functions. The renderer resolves that identity when project node definitions change. A single-pass ISF transition is compiled into the mapper transition-kernel contract and embedded in the existing fit/projection/feather draw. Multipass or persistent ISF transitions remain explicitly rejected until a retained-target policy exists.
+## Visual Library and Packages
 
-The built-in, installed, and project visual-library layers use the same artifact model. ISF is one implementation format; native and node-package artifacts remain valid for work needing richer CPU/GPU behavior. IDs are stable and namespaced. Accidental collisions are diagnostics, while replacement requires explicit metadata.
+Built-in, installed, and project libraries are logical catalog layers using one
+artifact model. They are merged, not copied:
 
-## Persistence, Transport, and Derived Data
+```text
+built-in library + exact installed package closure + project assets
+                             -> resolved visual catalog
+```
 
-- `project.json` stores canonical authored state and compact project node diffs, not installed node libraries, generated instances, thumbnails, or runtime route bindings.
-- Component and per-Surface thumbnails are derived assets in the cache. Surface thumbnails use `surfaceId` and the `__surface__` cache suffix; obsolete `__frame__` files are ignored and regenerated. The last valid thumbnail stays visible until replacement succeeds.
-- `project-serializer.js` and model normalization use the same `authoredSurfaceFields()` contract, preventing preview/Live bindings from leaking into saved Mappings.
-- Output clients receive full recovery state plus revisioned live patches. High-frequency gestures are latest-value coalesced; do not add a second Mapping-specific protocol or an unbounded patch queue.
-- Autosave is quiet-period and lifecycle aware. Browser shutdown writes are best effort; committed autosave remains the crash-safety boundary.
-- Media, screen capture, video, parsed models, images, and GPU objects are lease-owned and must be disposed through bounded runtimes.
-- ISF source files remain file-backed node definitions. Scalar inputs are ordinary params. Named image inputs are typed texture ports and lower onto the compiled texture DAG; their retained revisions, ROI views, sampler names, image sizes, and multipass bindings stay explicit. Audio/audioFFT textures remain rejected until they have a typed resource and clock contract. ISF transitions remain first-class transition artifacts rather than ordinary Component effects.
+ISF is one portable implementation format, not the universal runtime. Pure
+fragment generators/effects and simple transitions are good ISF candidates.
+Text, capture, 3D, ML analysis, stateful CPU algorithms, and allocation-sensitive
+resources remain node packages or declared native operations.
 
-## Cleanup Completed in the Current Worktree
+Catalog items have stable namespaced IDs, kind, implementation type, version,
+origin, tags, attribution, and explicit override metadata. Matching IDs do not
+silently override one another.
 
-- Added a first-run startup project with three procedural Components, two example Scenes, one authored projection Surface, derived Output 1, and useful Live transition defaults. It is created only for a genuinely empty folder; loaded projects are not modified.
-- Removed the mutable `ui.live.surfaceRoutes` mirror. Control, monitor, transition setup, and output now compile the same current Live projection program; only the previous transition route snapshot remains stored.
-- Removed derived runtime source bindings from Mapping mutations in Mapping preview, Live, transition, and monitor-state construction.
-- Added one shared authored/derived Surface-field contract used by normalization and serialization.
-- Moved changing preview/Live source binding to the Mapping program compiler while preserving authored graph reachability.
-- Rebased transition snapshots onto current Surface geometry rather than letting old route geometry survive.
-- Removed the obsolete runtime `(outputIndex, width, height)` output-construction signature; pixel dimensions are now derived only at the host boundary.
-- Removed Scene-thumbnail reconstruction from nested Component thumbnails. Scene thumbnails now use only the last authoritative Scene snapshot, so a dirty thumbnail cannot invent a partial composition.
-- Updated focused Scene/Mapping/routing/storage tests to the Surface-only schema.
-- Updated visible node descriptions away from the removed Frame concept where it is safe to do so.
-- Removed dead renderer state for the deleted `frameById` and legacy route-key lookups. Surface route lookup is now the sole runtime authority.
-- Renamed the derived thumbnail identity from Frame to Surface throughout storage, parsing, and refresh services. This changes only regenerable cache data, not authored projects.
-- Removed a meaningless empty `frameId` field from Component thumbnail jobs.
-- Reconciled the broad regression suite with the current shared preview, Surface, Scene, Mapping, and Live contracts. Assertions now follow the owning module instead of preserving deleted UI or model structure.
-- Kept the checker/black native-host adapter because it is a valid allocation-stable node execution boundary; only its misleading legacy-compatibility description was removed.
-- Preserved the direct optimized renderer. This cleanup adds no framebuffer, readback, render pass, or ping-pong pair.
-- Added a shared visual-node contract for ROI, transform domains, alpha, allocation, and render views so compiler layers no longer perform ad hoc correction between nodes.
-- Added a layered visual-library resolver and node-package v3 resource/artifact transport. Built-ins and project ISF use identical logical records without copying built-ins into project folders.
-- Added real compiler targets for transition and Scene3d programs. Both validate topology and types before rendering, prune unreachable work, and call compiled implementations directly.
-- Split 3D composition into reusable mesh, material, transform, camera, object, collection, and image-render operations. The optional 3D Scene node is a data grouping convenience, not another renderer.
-- Lowered STL/OBJ rendering through the shared mesh render operation and extracted Terrain flight/controller state into a reusable node while preserving their retained optimized render paths.
-- Added reusable time, oscillator, map-range, and scalar-math control nodes, compiled only when they drive reachable visual parameters.
-- Made ISF transitions first-class project/library artifacts with stable header IDs, Live selection and parameter controls, persisted selection, renderer-boundary resolution, and direct mapper-kernel execution.
-- Projected Mesh Patterns and Terrain Flyover as typed compiled compounds whose controller/geometry/topology/material/camera/render stages are visible and forkable while the compiler lowers supported topology into retained custom kernels. Anatomy has since moved beyond that intermediate form and now executes as an ordinary compiled Scene3d graph.
-- Made specialized-compound editing honest: stage enablement is consumed by the retained backend, while provider or topology changes that backend cannot execute fail during recompile instead of silently rendering the previous hard-coded behavior.
-- Added compiled-plan introspection for dependencies, media demand, readiness, dynamics, references, operations, and editor activation; production output consumers now use it instead of inspecting compatibility chains.
-- Added a browser architecture smoke harness covering real WebGL transition compilation, endpoint/midpoint behavior, ROI crop equivalence, retained Terrain/Mesh shader programs, compiled compound contracts, and balanced test resources.
-- Made project loading fail closed: an unreadable or malformed existing `project.json` can no longer fall through to fresh-project creation and overwrite the folder. Empty-folder creation remains explicit.
-- Fixed large spinning STL invalidation without weakening the optimized renderer. Model spin is declared frame-dependent, Mesh-to-Image retains its renderer state, and Scene-to-Image avoids duplicate clears.
-- Added one serializable temporal-invalidation contract across compiled visual plans, ISF, media, nested Components, and node caches. File-backed ISF definitions no longer carry functions in project state; they declare invalidation data that the compiler lowers outside the structured-clone boundary.
-- Added shared video invalidation that stays decoded-frame-driven while `requestVideoFrameCallback` is healthy, then falls back to standards-level media time if callbacks stall, preventing both retained-output freezes and unnecessary output-cadence rerenders.
-- Replaced the fixed two-mesh 3D lowering with `mesh inputs -> transforms/materials -> objects -> collection -> Scene data -> Scene-to-Image`. The default compound still demonstrates two objects, but the renderer and host have no fixed object count.
-- Propagated browser module revisions through control, preview, Output, ISF, composition, and mesh entrypoints so a normal refresh activates the same compiler/runtime graph in every client.
-- Removed the legacy `compileComponentPatch` packet construction and raw-chain fallback from the Output frame path. Ordinary Components, Scenes, empty graphs, media ownership, dynamics, and stable signatures now consume compiled programs exclusively; offline metrics may still project compatibility packets.
-- Extended compiled stable/revision/frame invalidation to presentation scheduling. Stable previews and standalone Outputs present once and suspend their p5 loop; graph changes, parameter patches, media revisions, decoded video callbacks, scheduler events, and pointer work wake it, while time/camera/feedback/animated ISF plans remain continuous.
-- Removed the remaining raw-chain authority from Output media readiness and nested-reference sharing decisions. Both now consume compiled-plan introspection; an enabled Component without a compiled program fails explicitly.
-- Made graph-authoritative project persistence fail closed when a non-system Component has no generated graph. Legacy `component-import` projects may still carry a chain through migration, but a current graph project can no longer silently save that projection as replacement authority.
-- Added durable, exact-version node-package references to project node data. Installing a package now records the package dependency without embedding shader/media resource contents; dependency-first resolution projects only the declared package versions into installed visual-library layers, and missing or conflicting versions fail explicitly. Loaded package node definitions become ordinary executable generator/effect compiler inputs rather than catalog-only records.
-- Added a file-backed node-package repository under `libraries/`. Project startup resolves only the exact declared package/dependency closure, hydrates package ISF resources, publishes packages before render state, and fails closed when a referenced manifest or resource is unavailable.
-- Project-installed packages now appear as first-class Nodes-workspace library sections with their node definitions, visual artifacts, resources, dependencies, and exact origin. Direct package references can be enabled, disabled, or removed without mutating package files; the editor registry is rebuilt from the active exact package closure so removed definitions cannot remain stale.
-- The Nodes workspace now exposes every exact package version already present in the project repository, supports validated install/version changes, and can export the selected project-owned Group, fork, or definition as a new versioned manifest. Updates fail before state mutation when they remove a node version or visual ID still used by the authored project, and exports refuse to overwrite an existing version.
-- Package-folder import now validates the complete manifest, declared resources, integrity hashes, resource paths, and portable ISF compilation before copying. Resources are written first and the manifest last; failed copies are removed and remain undiscoverable, while exact-version collisions fail without overwrite. Executable node packages require an explicit trust confirmation.
-- Any exact repository package can now be exported as a complete portable folder. Export revalidates its identity and resources, preserves binary files byte-for-byte, writes the manifest last, cleans failed destinations, and refuses to merge with or overwrite an existing version.
-- Unified cached and live thumbnail object-URL ownership. Retired URLs remain leased while a lazy image still references them instead of producing revoked-blob request floods.
-- Corrected media-cache accounting for large video. Disk-backed compressed file bytes no longer masquerade as retained decoder memory, and inactive video decoders receive a short grace period so switching between rendered Preview and its thumbnail does not churn blob URLs or decoder state.
-- Made video object-URL retirement ordered and explicit. Cache eviction now stops decoded-frame ownership, detaches the underlying video and source elements, forces the browser media resource to release them, and only then revokes the blob URL; an unrelated graph reconciliation can no longer expose a revoked URL still owned by p5/Chrome.
-- Added a general compound control-projection contract. A Group can organize public parameters into ordinary inspector sections and bind one public control to one or several internal nodes. Those bindings are now also the execution boundary, so controls reach only their declared child parameters rather than leaking the Group context into every child. Terrain Flyover, Anatomy, and Mesh Patterns all use the shared projection without custom inspector code or any change to their retained render paths.
-- Added the first honest Terrain geometry-provider substitution. The semantic graph can switch its Geometry stage from the terrain height field to a reusable planar grid, and that authored selection reaches native lowering while preserving the same retained renderer and downstream optimized Surface/output chain.
-- Made specialized compound stages the configuration authority for their retained native lowering. Anatomy consumes separate geometry, transform, material, camera, and render parameter views; Terrain and Mesh Patterns receive only the union of parameters explicitly bound to their displayed stages. Structured stage-local settings such as camera projection/FOV survive compilation, every public parameter has at least one semantic owner, and undeclared raw values can no longer become hidden renderer controls. The compiler still lowers these Groups to the same allocation-stable native operations, with no graph traversal or generic packets in the frame loop.
-- Specialized compounds can now compile reusable controller and provider nodes into retained executable stages. Terrain’s displayed Flight Controller owns the real phase-continuous state update and retains independent state/output objects per visual instance. Geometry, Camera, Surface Material, and Wire Material now emit the typed values consumed by the existing native Terrain GPU backend; lowering merges only their explicit settings plus the two render-stage settings. Undeclared renderer corrections cannot leak across stages. The native host keeps only a legacy fallback for invocations that have no compiled Group, and disposing a visual plan also disposes its compiled compound stages.
-- Mesh Patterns now uses the same executable provider boundary. Topology owns the actual retained geometry and publishes a canonical `MeshCollection`; Fill Material publishes canonical palette-slot `Material3d` bindings; Wire Material publishes a canonical wireframe `Material3d`. These nodes are independently placeable in Scene3d graphs and compile through ordinary Collection → Objects → Scene → Image composition. The built-in Group still lowers its paired fill/wire image nodes to the existing raw-WebGL kernels, which now consume the topology node's geometry rather than regenerating it in the host. Equivalent topology instances share bounded CPU geometry identity, preserving GPU buffer sharing and allocation-stable rendering without permitting cross-stage parameter leakage.
-- Converted both Feature Morph implementations into explicit compiled Groups: Media Image A + Media Image B → SuperPoint or MobileNet Analysis → Feature Morph to Image. Media identity, analysis settings, analysis algorithm source, image fitting, shader source, and render controls now have typed child owners; the native host consumes their connected values and retains only media resolution, asynchronous ML/cache services, flow texture upload, and the retained shader target. SuperPoint, MobileNet, and registered project analysis adapters are interchangeable provider substitutions using the same image and render nodes. The connected provider identity—not the outer generator ID—selects the retained service, field adapter, target/shader cache, progress diagnostics, strategy, and influence mapping; dirty/readiness identity follows the same provider and its projected internal settings. Export-only JavaScript helpers on native kernel nodes now recompile in project forks even without a JavaScript process entry, closing a general editor-authority gap. The established morph shader, cached analysis services, ROI/content transform, and final Surface/window path are unchanged.
-- Converted Tile Texture into the ordinary compiled Group `Media Image → Tile Repeat`. Media Image owns project-media identity and dependency projection; Tile Repeat is a reusable spatial effect whose shader transforms the repeat field, then maps it back to the source image. Its periodic input mapping explicitly requests full-frame input ROI so transformed or scrolling tiles remain pixel-equivalent to a full render. The Tile-specific native host and duplicate shader were deleted; the ordinary shader fast path still performs one retained GPU pass and feeds the unchanged optimized Surface/window path.
-- Converted Text into `Text Mask → Text Mask to Image`. The reusable Text Mask node owns markdown parsing, font/layout settings, full-boundary raster demand, retained browser canvas, and its exact revision; the image node owns fill, outline, background, ROI halo, and editable GLSL. The compiled host consumes the connected mask and style-stage settings instead of reconstructing the displayed graph. Identical evaluations retain one mask revision, while text or resolution changes rerasterize exactly once. The existing p5 texture bridge, retained shader target, content transform, ROI sampling, and optimized Surface/window path are unchanged.
-- Converted Screen Share into `Screen Input → Media Resource to Image`. Screen Input publishes a reusable host-resolved drawable-resource identity without owning browser permission or capture lifetime; Media Resource to Image owns fit and mirroring as an independently forkable child implementation. The compiled host consumes that connected identity, resolves it through the existing capture service, and runs the child image algorithm inside the retained content-transform/ROI path. Child implementation modules now aggregate through a compiled Group even when the outer Group owns no hidden code. Capture diagnostics and lifecycle remain host capabilities, while the final optimized Surface/window path is unchanged.
-- Converted Eyeball into the ordinary compiled control/visual Group `Component Time → Gaze and Blink Controller → Eyeball Render`. The allocation-stable controller publishes ten typed scalar outputs, the ordinary shader generator owns appearance and GLSL, and direct compiled parameter bindings connect them without per-frame generic packets. The outer Group has no hidden JavaScript or shader authority. The dedicated `controlledShader` host and Eyeball renderer node were deleted; the standard shader fast path preserves one retained GPU pass and the optimized Surface/window path. Controller and renderer implementations can be forked independently.
-- Anatomy’s intermediate specialized compound first separated geometry, material, camera, and animated transform ownership. It has since been migrated to the ordinary Scene3d compiler, and the duplicate specialized Anatomy renderer/compiler node has been deleted rather than retained as a second 3D system.
-- Compiled specialized Groups project public parameters through retained per-stage, per-visual-instance views. Terrain and Mesh Patterns reuse those objects and their typed provider outputs across frames, including public-to-child ID remapping, rather than allocating generic settings/instance packets at the semantic/native boundary. Separate placements retain isolated views, program disposal releases them, legacy direct host calls keep an allocating compatibility path, and the specialized GPU kernels plus final Surface/window output path are unchanged.
-- Removed transition-wide control-shell rebuilding from both transition start and transition expiry. Those events now refresh only the Live source/projection, inspector, and embedded Preview surfaces that depend on the transition. Control renders exceeding 50 ms also create a bounded `VJ1_CONTROL_UI_LONG_RENDER` in the in-app diagnostics with the state cause and dominant phase, distinguishing control DOM/Preview activation from the optimized Surface/output renderer.
-- Made workspace navigation an explicit UI command rather than a project transaction. It structurally shares authored project collections, does not normalize or autosave `project.json`, and schedules the three-column DOM/Preview reconciliation after the input handler returns. Current-version project restore also skips the former no-op `project-restore-migration` autosave; only a missing or older project version requests that write.
-- Moved complete project-save preparation off the interaction thread. The Application graph now passes its already-detached emitted snapshot to storage; a module Worker projects canonical `project.json`, pretty-serializes it, and computes exact save/history signatures before the existing ordered write queue touches disk. Worker failure is explicit and falls back safely. A browser probe matching `mappertest` at roughly 868 KB/105 Groups completed in 21 ms end to end with no 50 ms main-thread task.
-- Live Preview/Output endpoint projection no longer deep-clones unrelated media, packages, Mappings, and editor state once for a cut and twice for a transition. It clones only renderer/patch-mutable branches while transport remains responsible for serialization.
-- Component render programs are now compiled from visible current and transition endpoint roots, recursively following dependencies declared by compiled Group introspection. Unrelated catalog Components are absent from the retained plan; incomplete states with no provable root deliberately retain the complete compiler contract. This pruning happens during state activation and adds no graph traversal to the optimized frame loop.
-- Made project-backed 3D meshes explicit graph nodes instead of invisible host-injected values. `Media Mesh` declares its resource dependency, resolves to the canonical typed mesh value, participates in arbitrary object/Scene composition, and is included in compiled-plan media demand/readiness. The Scene3d compiler lowers resource bindings once, while the retained output host reuses one mesh map and execution context; no file lookup, graph traversal, or generic packet allocation was added to the frame loop.
-- Added shared literal parameter authoring directly to the graph canvas. Boolean, enum, numeric/ranged, color, structured, and media-backed parameters now update the semantic node instance; visual configurations remain synchronized, connected parameter inputs explicitly supersede literals, and media values reuse the one project media picker rather than a 3D-specific selector.
-- Preserved Group compiler identity through normalization and project-fork materialization. A `compiled-graph` no longer reaches its backend through an incidental capability alone: its compiler ID/target remain explicit and inspectable, and edited child values are proven to enter the retained Scene3d program after persistence and recompilation.
-- Removed the legacy visual-category restriction from Component graph insertion. Any texture-producing definition with a declared visual compiler hook can now become a compiler-owned Component operation, including the composable Scene3d source and multi-input texture operators. The optimized Surface/window output path remains unchanged.
-- Connected file-backed multi-image ISF nodes to that graph host. Imported definitions now declare shader lowering, transform, ROI, and invalidation metadata; the compiler preserves each named texture edge; the retained renderer reuses per-operation input maps, includes every input revision in dirty identity, applies a shared ROI window to bounded inputs, and binds named samplers in single- and multipass shaders without changing Surface/window presentation.
-- Extracted ISF retained-target ownership and compiled single/multipass execution from `output-renderer.js` into `isf-render-runtime.js`. The backend owns persistent ping-pong targets, float-target validation, sizing, pruning/disposal, named external/pass samplers, and the ISF host uniforms. The Output orchestrator retains thin synchronous delegates, so compiled traversal and the optimized Surface/window presentation path are unchanged.
-- Extracted Mix, Mask, Transition, Feedback, and Delay execution from `output-renderer.js` into `texture-operator-runtime.js`. The backend owns operator/transition shader caches and the explicit Feedback/Delay ping-pong state, including deterministic context-bound shader disposal. The Output orchestrator still resolves compiled texture edges, signatures, ROI demand, and dirty evaluation before issuing one direct backend call; Surface/window presentation is unchanged.
-- Extracted ordinary effect scheduling, local shader fusion, program compilation/caching, uniform binding, and direct pass execution into `shader-effect-runtime.js`. The same backend supplies shader programs and parameter binding to generators, so built-in, project, and ISF shader implementations share one execution boundary. Shader-builder invalidation now deletes its context-bound GL programs before targets are released instead of only dropping JavaScript cache references. Graph compilation, ROI, dirty evaluation, target selection, profiling, and final Surface/window presentation remain on their existing optimized paths.
-- Extracted fixed Component upscale/post passes, layer content transforms, and overlay blending into `composite-render-runtime.js`. These reusable operations now cache programs per GL context and dispose every program when a context or renderer retires, replacing three orchestrator-owned caches that previously dropped references without deleting GL objects. Target allocation, compiled dirty evaluation, logical/physical resolution selection, and final Surface/window composition remain unchanged.
-- Extracted ordinary source execution into `source-render-runtime.js`. Media, camera, black, Component references, native/generic generators, compiled node processes, Scene3d programs, screen input, and diagnostics now dispatch from compiler-declared renderer capabilities in one backend. Retained rasterization and direct placed-source composition share the same media demand, transform, playback, and Component-reference contracts; the Output orchestrator keeps dirty signatures, target allocation, compiled traversal, profiling, and optimized Surface/window presentation. Specialized Terrain, Mesh Patterns, text, model-media, and ML hosts remain intact behind declared native renderer IDs.
-- Replaced the central native renderer ID-to-host-method table with retained capability registries. Generic source adapters and specialized retained GPU backends register their own stable IDs once; compiled plans invoke those functions directly without per-frame binding or packet allocation. Duplicate registrations fail explicitly, and unavailable package capabilities are diagnosed once while rebuilding the retained plan rather than spamming every frame. The optimized specialized implementations and final Surface/window path are unchanged.
-- Added first-class project-owned visual Group creation. A new empty typed Group is persisted as an editable semantic definition, appears in the shared node library, compiles its reachable child graph into nested optimized render operations, can be placed in Components, and exports with its fork plus explicit node dependencies.
-- Added project-owned Scene3d Group creation from the composable typed template. Visual and Scene3d Groups can expose internal literal parameters as ordinary public controls, reuse the shared Component inspector, compile internal control graphs into direct retained updates, and safely prune orphan controls when child nodes are removed. Visual Groups can also act as texture-input effect modules without changing the optimized Surface/window render path.
-- Made configurable typed inlets honest authoring values across ordinary and Scene3d Groups. Unconnected inlets with declared defaults now appear beside parameters in the shared graph canvas—including transform vectors, material colors/custom `vj1Surface` source and uniforms, camera values, object settings, and Scene background—while a connected wire visibly disables and supersedes the literal. Saved inlet literals execute in both the generic Group program and the direct Scene3d compiler; public Group controls may target either child parameters or child inlets, and compiled defaults reappear deterministically when an override is removed instead of leaking a retained prior-frame value.
-- Proved the editable Scene3d path as a reusable multi-mesh composition rather than a second unified renderer. Two Media Mesh nodes can independently feed transforms, materials, objects, one Scene, and one Scene-to-Image operation; custom material shader source and colors survive authoring and compilation, the Scene target clears once for the object collection, mesh resources resolve through declared bindings, and the output host retains one invocation packet while drawing into the existing Component target. Final ROI, dirty evaluation, Surface projection, feathering, and preview/window presentation remain on the existing optimized chain.
-- Added Planar Grid as the first dual-use specialized geometry provider. The ordinary graph node produces a retained indexed `MeshResource` that can feed Transform/Material/Object/Scene/Scene-to-Image like any imported mesh; Terrain's provider exposes that same canonical mesh while its compiler lowers the grid dimensions into Terrain's retained moving-row/displacement buffers. Both paths share one normalization, signature, and resource-identity owner, so camera/material/animation changes do not rebuild the mesh. This is deliberately one semantic node with an optional native specialization—not a second general 3D renderer—and the existing optimized Surface/window presentation path is unchanged.
-- Added Lit Mesh Material as a dual-use provider and used it to prove geometry/material reuse through ordinary Object/Scene graphs. Anatomy now uses its own typed palette node to publish a default `Material3d` plus named surface, feature, lip, eye, pupil, vessel, and coronary bindings into that same general Scene path.
-- Added canonical retained `MeshCollection` values for multipart geometry, with named parts, aggregate bounds, explicit material slots, typed Material Binding nodes, and a Collection-to-Objects node that expands directly into ordinary retained Scene objects. Anatomy Heart was the first multipart migration; pulse remains a transform/controller concern, so the general graph path does not rebuild CPU geometry per frame.
-- Extracted retained Profile Mesh, Path Tube Mesh, and Ellipsoid Mesh nodes as graph-placeable procedural geometry sources. Their serializable geometry inputs produce stable canonical mesh identities only when geometry changes. Heart and Hand consume these shared builders instead of owning duplicate mesh construction.
-- Completed canonical geometry for every Anatomy choice. Small limb-path controllers feed the general Path Tube Mesh source; Arm, Leg, Body, Face, Hand, and Heart all publish canonical collections with explicit material slots. Expression, mouth, brow, squint, finger bend, and limb bend are typed geometry inlets whose retained resources change only on authored input updates. The built-in Anatomy generator compiles these values through Collection-to-Objects, ordinary Scene data, and Scene-to-Image; no Anatomy-specific render host remains.
-- Replaced Terrain Flyover's generic geometry/material descriptor shells with dedicated dual-use Terrain Height Field, Terrain Biome Material, and Terrain Wire Material nodes. The height-field node publishes one retained canonical planar mesh plus an explicit displacement/attribute contract; the two material nodes publish canonical `Material3d` values while retaining the settings required by Terrain's specialized surface and expanded-wire kernels. Grid sizing, tessellation, and moving-row metrics now have one owner in `terrain-engine`. These values compose through the ordinary Object/Scene/Scene-to-Image graph, while the existing separate retained surface and wire kernels remain the optional optimized lowering and the final Surface/window fast path is unchanged.
-- Replaced Terrain's remaining generic camera and native-render descriptor shells with a dual-use Terrain Flight Camera plus explicit Terrain Surface-to-Image and Terrain Wire-to-Image nodes. The camera publishes both the specialized projection/follow descriptor and a canonical `Camera3d` that composes through ordinary Scene graphs. The two image nodes map one-to-one onto the existing retained surface and expanded-wire GPU kernels; specialized compilation records their `terrain-surface` and `terrain-wire` kernel identities in the render plan while still fusing the compound into the same allocation-stable native operation. Kernel internals are honestly read-only/context-bound, connected providers and controls remain editable, and the optimized Surface/window presentation path is unchanged.
-- Replaced Anatomy's generic camera shell with a reusable retained Model Fit Camera. The camera publishes the same canonical `Camera3d` used by ordinary Scene graphs and deliberately exposes only FOV. The obsolete Anatomy-to-Image native node has been removed; the generator uses the general Scene-to-Image node.
-- Replaced every generic Mesh Patterns stage with dedicated Mesh Pattern Topology, Fill Material, Wire Material, Fill-to-Image, and Wire-to-Image nodes. The editable topology algorithm, palette algorithm, and fill/wire shaders now belong to the child nodes displayed by the graph rather than the outer generator blob. Specialized compilation aggregates those child-owned modules once into the fused native operation, records the `mesh-pattern-fill` and `mesh-pattern-wire` kernel identities, and retains the existing bounded CPU/GPU topology caches. Fill palettes are retained by the material node instead of allocating four color arrays every frame. JavaScript helpers inside shader nodes now compile in project forks, making palette edits executable. The old generic descriptor definitions remain hidden compatibility-only migration targets for saved graphs and are not offered in node catalogs.
-- Added an allocation-stable connected-stage evaluator to specialized compounds. It executes typed provider/controller stages in compiled topological order, propagates their retained values through the displayed graph wires, and presents native kernels with their actual connected inlet values. The compiler also emits an ordered native-kernel schedule keyed by declared kernel capability rather than arbitrary child IDs. Mesh Patterns is the first migrated host: its existing fused fill/wire WebGL passes and bounded caches are unchanged, but topology, materials, render settings, and child-owned parameter edits now reach them through the semantic graph rather than host-side provider reconstruction.
-- Migrated Terrain Flyover onto the same connected-stage evaluator. One retained Flight Controller value now fans out through authored typed wires to the Terrain Flight Camera and both declared GPU kernels; geometry, camera, biome material, wire material, and render settings are read from those kernel inlet bindings. The former missing Flight-to-Camera wire is now explicit, so the canonical reusable Camera3d follows the same motion as the optimized renderer. Only direct legacy host invocation retains the compatibility controller/provider path; compiled production Terrain fails visibly if a required graph value is unavailable. The existing retained surface and expanded-wire kernels, resource caches, ROI request, and final Surface/window path are unchanged.
-- Removed Terrain's remaining hidden implementation authority from the outer generator. Terrain Height Field now owns the editable topology/module algorithm, and Terrain Biome/Wire Material own their editable shader programs. Project forks of these core child nodes resolve ahead of built-ins in both compiler and Output, so editor changes reach the same retained `terrain-surface` and `terrain-wire` kernels rather than being ignored or selecting a generic renderer. The outer Group now owns only semantic composition plus its explicit native compiler boundary.
-- Anatomy used connected-stage evaluation as an intermediate migration step. The current built-in no longer declares `anatomy-retained-webgl`: its geometry collection, retained motion transform, material palette, objects, Model Fit Camera, Scene, and Scene-to-Image nodes are the actual executable graph. Component time enters the retained motion/render steps directly, and the Scene compiler lowers the reachable graph outside the frame loop.
-- Made canonical mesh resource identity explicit across CPU-derived geometry and GPU buffer caches. Replacing a Mesh with identical topology cannot reuse stale vertices; a deliberately mutable retained Mesh must advance `resourceRevision`. Mesh buffers remain per resource, while identical raw-WebGL shader programs are reference-counted once per context and are deleted only after the final owner releases them.
-- Preserved explicit Group compiler identity through package construction, JSON export/import, repository loading, and project installation. Exported Scene3d Groups therefore remain editable semantic graphs and still select their retained Scene compiler after transport rather than degrading to generic graph execution.
-- Corrected nested Component reference accounting to consume compiled-program introspection end to end. Canvas rendering now supplies its compiled parent program, reads the canonical `reference.path`, and no longer emits `VJ1_COMPONENT_PROGRAM_REQUIRED` while drawing a valid nested Component; repeated synchronized references also regain their intended shared-resolution optimization.
-- Added typed public Group-port authoring to the shared graph canvas. Published inlets/outlets persist through project forks and package transport, compile directly into Scene3d interfaces, and are pruned with deleted children. Visual compounds preserve multiple named texture inputs through a retained nested DAG instead of collapsing them to one anonymous input; each placement can select one or several published image outlets while compiling only their reachable graph union. Their semantic graph is still compiled outside the frame loop and the optimized Surface/window path is unchanged.
-- Extended the compiled visual value model from node-only texture identities to `node`/`node.port` identities. One visual Group placement may now publish several image outputs to different downstream nodes simultaneously: the compiler builds the union of reachable internal roots once, the retained runtime evaluates the Group once, and downstream texture DAG operations read the exact named output state. Single-output Groups retain their existing compiled-chain path; no semantic graph traversal or generic node packets entered the frame loop.
-- Made every executable Group edit atomic at the compiler boundary. Adding, removing, configuring, connecting, or disconnecting nodes; publishing public controls or typed ports; and saving raw graph source in Components and project-owned visual/Scene3d Groups now preflight the canonical candidate with the same optimized visual-plan or direct Scene3d compiler used by Output before project state changes. Invalid reachable cycles, port types, public interfaces, required inputs, or unsupported lowering leave the previous saved graph authoritative and report the compiler error; layout-only edits avoid recompilation. Removing a child validates after orphan public controls and ports are pruned. Visual Groups reject public data ports their texture compiler cannot execute, while Scene3d and ordinary graph compilers retain supported typed data interfaces.
-- Made node-library placement follow the same compiler boundaries. Visual graphs offer portable generators/effects, declared texture compiler nodes, and synchronous control/motion nodes; Scene3d graphs offer only live synchronous nodes explicitly declared for graph placement. Incompatible definitions remain inspectable but cannot be dragged or dropped. Specialized compounds keep their exact compiler-owned topology while exposing supported values and provider substitutions, and every accepted mutation still passes production compiler preflight before state commit.
-- Extended atomic preflight to the remaining executable graph families. Generic call-driven Groups now validate child identity, endpoints, port types, ambiguous inputs, required inputs, public ports, control bindings, and cycles before constructing any child instances; Mapping, Output, and Application project graphs invoke their production reachability/service/dataflow compilers before state commit. Compiler template definitions are explicitly read-only—the corresponding project-owned graph is the editable authority—so no editor surface advertises unsupported generic execution for a compiled graph.
-- Added a scoped source-coherence worker for the build-free native ES-module graph. On ordinary navigation it bypasses both reads and writes of the HTTP cache for HTML, JavaScript, CSS, shader, and manifest sources while leaving media/runtime assets untouched; conditional validators therefore cannot retain an obsolete child module. The bootstrap waits for control before importing the application and has a tested fallback when service workers are unavailable. This removes the recurring class of stale-parent/fresh-child named-export failures without changing project persistence or the optimized render path.
-- Migrated ordinary STL/OBJ Component media into the expandable `Model Media` Scene3d Group: Media Mesh → display LOD → animated transform → material → object collection → Scene → image. The STL import basis is now an explicit graph signal, material/camera/LOD controls have semantic child owners, and project version 31 migrates saved model sources without altering image/video sources. Exact canonical Mesh resources share one reference-counted GPU cache owner across Scene programs; the duplicate p5 model fallback is removed, while the retained raw-WebGL mesh operation and final Surface/window fast path are unchanged. Scene3d compilation now also preserves declared runtime invalidation, so authored motion stays frame-driven and static models remain revision-driven.
-- Removed generator-name policy from the optimized shader host. Phase-continuous time now reads a `rateParam` declared by the visual runtime contract, and quality-derived ray/detail/search budgets read `renderQualityScaling` from the owning numeric parameters. New or project-forked shader nodes can therefore opt into the same direct fast path without adding renderer branches. Media/image/mesh/texture/font parameter references likewise use one shared recursive contract for compiled-plan introspection and retained source signatures rather than Feature Morph/Tile Texture name checks. The renderer still applies these policies directly outside graph traversal and preserves the same shader passes, target allocation, and Surface/window path.
-- Removed the last generator-name execution table from the source backend. Code-owned visual primitives such as Black and Checker now compile as direct node processes through the generic source runtime; only implementations that genuinely require a retained host kernel compile to a native renderer capability. An operation lacking a process, shader, or registered capability emits one explicit diagnostic instead of silently selecting a visual-name fallback. No generic packets or graph traversal were added to the frame loop.
-- Restored effect-quality request ownership after the render-chain resolution HUD work accidentally moved that request into an unrelated direct-source/layer path. Nested Component effects now derive and record their quality-scaled request before retained evaluation; direct sources no longer reference effect parameters. The regression contract checks both boundaries, and the optimized Surface/window presentation path is unchanged.
-- Made compiled specialized-Group artifacts fail closed. Child nodes now declare the JavaScript exports and shader parts required by their retained kernel; specialized lowering validates the aggregated artifacts once and rejects a missing/empty module or GLSL part before the render plan becomes active, disposing the rejected partial program. Runtime adapters retain allocation-stable, cached corruption checks, while host-bundled JavaScript/GLSL remains available only to explicit legacy non-graph calls. Terrain, Mesh Patterns, Feature Morph, Text, and Screen Share can therefore no longer display one editable graph while silently executing another host implementation. Tile Texture and Eyeball have moved beyond this compatibility boundary into ordinary compiled Groups. The remaining native kernels and optimized Surface/window path are unchanged.
-- Removed Mapping Test Pattern from authored project state. It is now a host-owned runtime visual source with a stable route identity, while its semantic Test Pattern Component shape is supplied only at renderer activation and compiled by the ordinary retained Component program compiler. Mapping preview, ROI/demand planning, transitions, and final Surface/window presentation therefore keep the same optimized path without normalization injecting a hidden Component or persistence filtering one back out. Runtime and project Components share one renderer lookup contract, and legacy in-memory system entries are discarded during normalization.
-- Audited the Live Overall monitor adapter and retained it as an intentional editor-host boundary. Overall is not authored visual content or an editable output graph; it projects the selected compiled source into one ordinary typed direct-Surface route in an immutable render-state view. That route uses the same demand, cache, transition, and optimized Surface/window renderer as authored outputs. Introducing a user-visible Monitor node would duplicate presentation ownership without making more of the visual system editable.
-- Migrated legacy top-level effect `amount` values into canonical `params.amount` at the project v31→v32 boundary, including nested Component Groups, final Surface shader chains, and project-node Group configurations. Current normalization, editor controls, compilers, metrics, cache signatures, and the retained renderer now have one authored parameter authority; compact shader jobs may still carry a derived scalar for direct execution.
-- Closed Mesh Patterns' remaining compiled-provider escape hatch. Its retained raw-WebGL renderer now accepts topology, fill material, and wire material only from the displayed typed graph connections and fails explicitly if any compiled input is absent. Provider reconstruction remains isolated to uncompiled compatibility calls; shader programs, topology/GPU caches, target reuse, and the optimized Surface/window path are unchanged.
-- Generalized compiled specialized-Group value authority. Feature Morph, Text, Screen Share, Terrain, and Mesh Patterns obtain render-stage settings from the actual graph evaluation; a missing compiled settings record fails explicitly instead of re-projecting outer generator parameters in the host. Connected image-resource identities are authoritative even when intentionally empty, and Feature Morph requires settings from its connected analysis provider. Tile Texture and Eyeball now use the ordinary visual/control compiler instead. Only explicit uncompiled compatibility calls may use outer parameter fallbacks.
-- Replaced direct-output hierarchy inference with explicit route edges. Project v32→v33 migrates existing direct Surfaces once by persisting the narrowest containing parent; new/reconciled output Surfaces author the edge directly. Live patch precedence and render-plan ordering now consume the same validated hierarchy, while `outputIds` remains geometry-only. Missing edges, missing parents, duplicate route IDs, self-parenting, and cycles fail with a structured hierarchy error. No framebuffer, render pass, or frame-loop graph work was added.
-- Completed the internal Frame→Surface terminology boundary in project v33→v34. The persisted sampling authority is now `surfaceDetailScale`, the zero-buffer guide node is `core.composition.scene-surface-guides`, and Scene preview drag/hit/commit APIs use Surface identities. The migration rewrites old node references and sampling data once; current code has no compatibility aliases. Generic render/presentation frame terminology remains where it accurately describes time or pixel geometry.
-- Versioned the Control↔Output transport explicitly. Every packet carries one protocol version; Control registers only a matching hello and then requires the registered client identity plus current controller session before accepting metrics, diagnostics, mapping changes, requests, or recovery. Output rejects unversioned/mismatched controller traffic and reloads once to acquire the current native-module graph before reporting a hard mismatch. Recovery state and media are separate packets bound to one client, session, folder, and recovery ID; the legacy combined payload and implicit `"legacy"` recovery identity are removed. This changes transport admission only—the compiled renderer and optimized Surface/window path are untouched.
-- Replaced scattered platform/render fallbacks with one explicit capability policy. Application startup now admits only the supported current-Chrome/WebGL2 host contract, and Preview/Output assert p5 framebuffer/image/font facilities before allocating a render target. Shared-framebuffer allocation, sampled/media draws, decoded-video callbacks, model processing, render-font application, and MobileNet spatial/WebGL execution now fail explicitly instead of switching to p5.Graphics, Canvas2D copies, renderer-frame invalidation, main-thread model parsing, default fonts, batched descriptors, or a non-WebGL ML backend. Legitimate adapters such as browser-media→p5 texture bridging remain first-class paths rather than being mislabeled as fallbacks. The fast path is stricter and unchanged, not replaced.
-- Added durable content approval for installed node packages without mislabeling hashes as publisher signatures. Repository loading hashes the canonical manifest—including embedded executable node code—plus every declared resource byte. `project.json` pins that integrity for the complete resolved dependency closure, legacy package references migrate once to their currently verified content, and reopening fails closed if any same-version package or transitive dependency changes. Installing another package cannot silently re-approve an altered existing package. The atomic Control→Output package message carries and validates the exact enabled-set lock before activation. Project-installed packages reject external URL resources; immutable built-in URL assets remain under the separate built-in origin boundary. This establishes durable project trust in exact content, not cryptographic publisher identity, and does not touch the render path.
-- Closed the compound-interface distinction explicitly. Project Groups publish typed graph-value inlets/outlets for data and textures, while runtime modulation targets published typed parameters; the latter compile into direct parent-control bindings and can configure internal render nodes or internal control-node parameters without exposing a second signal-port runtime. Terrain and other compounds use the same control-projection sections to add ordinary inspector UI, and one public control may bind several children. This is one intentional interface model rather than an editor limitation: literal configuration and per-frame modulation share the parameter contract, while values that participate in graph topology use ports.
+Node packages use exact dependency versions and content integrity. `project.json`
+pins the resolved dependency closure without embedding library resources.
+Startup resolves only that closure and fails closed for missing, conflicting, or
+modified content. Project-installed packages cannot reference arbitrary external
+URL resources. Integrity is exact-content approval, not publisher identity.
 
-## Unresolved Architecture Decisions
+## Persistence, Transport, Media, and Safety
 
-1. **Broader transition presentation verification.** The browser smoke verifies Dissolve start/midpoint/end behavior and ROI crop equivalence in real WebGL. An executable mode contract also proves that Preview and Output resolve the identical project-authored ISF kernel and authored parameter values through the shared renderer. Real-project `mappertest` verification covers Component → Scene → Live navigation and a timed Live Scene transition without crossing the 50 ms control-render threshold. Human confirmation is still useful for complex buffered routes, large-video endpoint changes, multiple output windows, and the complete presentation matrix.
+- The user-selected folder and `project.json` are authoritative.
+- Existing malformed or unreadable projects fail closed. They must never fall
+  through to fresh-project creation or overwrite existing data.
+- A fresh starter project is created only for a genuinely empty folder.
+- `project.json` stores authored state and compact project-node diffs, not
+  generated instances, runtime bindings, thumbnails, or installed resources.
+- Model normalization and serialization share the same authored Surface-field
+  contract so Live/Preview projections cannot leak into saved Mappings.
+- Thumbnails are derived cache assets. The last valid thumbnail remains until a
+  replacement succeeds.
+- Autosave is quiet-period and lifecycle aware. Serialization currently remains
+  a known main-thread cost; warnings such as `VJ1_AUTOSAVE_PREPARE_SLOW` are
+  diagnostic evidence, not permission to hide or suppress the work.
+- Control and Output use a versioned protocol. Packets are bound to client,
+  controller session, folder, and recovery identity. Recovery state and media are
+  separate atomic messages.
+- Media and GPU resources are lease-owned. Images, video decoders, capture,
+  parsed models, object URLs, buffers, programs, and targets must be released by
+  their bounded runtime.
+- Video decoder callbacks identify new media revisions; they do not replace the
+  application presentation clock. Loop seeks retain the last confirmed frame
+  until a frame for the current seek target is decoded.
+- Runtime/project state must remain structured-cloneable. Functions, DOM objects,
+  p5 objects, and live resources stay outside canonical state.
+- Supported runtime is current Chrome with required WebGL2 and p5 capabilities.
+  Missing required capabilities fail explicitly instead of silently selecting a
+  weaker renderer.
 
-2. **Specialized compound provider expansion.** Terrain, Mesh Patterns, both Feature Morph variants, Text, and Screen Share consume compiled connected-stage values and declared native-kernel schedules; their optimized hosts no longer reconstruct the displayed provider/controller/analysis/resource graph in production. Compiled resource identities and render-stage settings are graph-authoritative, including intentionally empty values; missing values fail rather than consulting the outer generator. Tile Texture now proves a media source can feed a reusable periodic spatial effect through the ordinary visual compiler, and Eyeball proves an ordinary control program can drive a standard shader generator without a dedicated host. Text proves retained CPU raster resources can feed an independently editable GPU image node; Screen Share proves a reusable host-resolved live resource can feed a general presentation node while permission/lifecycle remains a host capability. Anatomy remains the first former specialized generator fully migrated to an ordinary Scene3d graph. The next candidates should move reusable source/material/controller values into the general graph while retaining explicit native kernels only where the compiler can prove visual and performance equivalence.
+## Current Migration State
 
-3. **General retained-value lowering.** The ordinary visual compiler now handles texture DAGs, scalar/vector/event control programs, and Scene3d values, but arbitrary retained typed values still use the specialized-compound evaluator. That is the remaining architectural boundary behind Text's CPU mask, Screen Share's host resource, Feature Morph's asynchronous analysis, and parts of the Terrain/Mesh retained kernels. The next generalization should compile synchronous provider stages and typed value connections into one retained value program, then pass those values directly to declared image/native operations. It must preserve child resource identity, explicit invalidation, disposal, and fail-closed artifact checks without introducing generic per-frame packets or replacing the optimized kernels.
+Healthy and established:
+
+- Surface-only Mapping/Scene/Live ownership and explicit output hierarchy.
+- Compiled Component/Scene/Mapping/Output programs with fail-closed preflight.
+- Optimized retained renderer, shared invalidation, demand, ROI, and sleeping
+  stable presentation loops.
+- Ordinary texture DAGs, control programs, and the first general retained-value
+  program.
+- Typed 3D values and arbitrary object collections feeding Scene-to-Image.
+- First-class ISF generators, effects, named image inputs, and transitions.
+- Layered visual libraries and exact-version/integrity package loading.
+- Compiled-plan introspection for dependencies, readiness, dynamics, references,
+  operations, and editor activation.
+- Source-coherent build-free module loading through the scoped worker.
+- Project loading and executable graph compilation that fail closed.
+
+Still requiring generalization:
+
+1. **Retained typed values.** Port validation, required-input checks,
+   invalidation introspection, and reusable resource identity are established.
+   Text, Screen Share, and both Feature Morph variants now use this path.
+   Continue applying it to resource/provider compounds; browser permission
+   lifecycles beyond Screen Share still need explicit capability contracts.
+2. **Remaining native compounds.** Terrain and Mesh Patterns still have declared
+   retained kernels. Continue extracting reusable controllers, geometry,
+   materials, and cameras while retaining proven kernel schedules.
+3. **Texture graph breadth.** Expand multi-input image effects, Mix, Mask, Select,
+   and explicit Feedback/Delay without losing fusion or direct-target rendering.
+4. **Control graph breadth.** Add MIDI/OSC/audio, selection, smoothing, delay, and
+   sample-and-hold using direct compiled parameter updates.
+5. **Renderer modularity.** Continue moving source, effect, transition, 3D, and
+   projection responsibilities out of the large orchestration class into typed
+   plan operations and capability-owned runtimes.
+6. **Autosave preparation.** Move canonical snapshot/serialization work away from
+   interaction frames while preserving ordered, atomic folder writes and visible
+   diagnostics.
+7. **Real-world transition/media validation.** Continue testing buffered routes,
+   large video endpoint changes, multiple output windows, resizing, and long
+   sessions.
+
+Structural render patches that change visibility or Component-reference
+identity rebuild the compiler-derived reachable program closure atomically.
+Parameter, transform, and ROI patches remain on the compact retained path.
+
+The migration rule is: move reusable semantics into nodes now, keep small
+declared optimized kernels where necessary, and delete duplicate hosts only after
+visual and performance equivalence is proven.
 
 ## Important Files
 
-- `js/domain/models.js`, `render-settings.js`, `direct-surface-hierarchy.js`, `live-projection-program.js`, `scene-routing.js`, `project-migrations.js`: schema, Surface sampling, explicit direct-route hierarchy, current Live route compilation, route materialization, migrations.
-- `js/libraries/composition-engine/shared/mapping-program-compiler.js`: authored Mapping graph plus runtime source binding.
-- `js/libraries/mesh-engine`, especially `scene-program/index.js`, plus `terrain-engine`, `transition-engine`: composable 3D values/operations, direct retained Scene compilation, reusable terrain control, and transition kernels.
-- `js/libraries/composition-engine/shared/visual-control-program.js`, `visual-render-plan.js`, `js/libraries/render-engine/invalidation`: compiled controls, optimized visual operations, and shared temporal invalidation.
-- `js/libraries/visual-library`, `visual-nodes/project-visual-library.js`, `isf-engine`: layered artifacts and portable shader implementations.
-- `js/output/output-renderer.js`, `source-render-runtime.js`, `isf-render-runtime.js`, `texture-operator-runtime.js`, `shader-effect-runtime.js`, `composite-render-runtime.js`, `output-surface-runtime.js`, `surface-render-planner.js`: orchestration, retained source/portable-shader/texture/effect/compositing execution, transition composition, demand.
-- `js/output/component-render-*`, `component-preview-interaction.js`, `render-geometry.js`, `content-coordinate-space.js`, `js/libraries/composition-engine/scene-surface-guides`: Component detail, Surface interaction/guides, placement, ROI.
-- `js/services/project-serializer.js`, `project-folder-service.js`, `output-bridge-service.js`: persistence and transport.
-- `js/control/node-graph-canvas.js`, `mapping-live-view.js`, `control-shell-controller.js`, `style.css`: typed Group authoring, Mapping/Live UI, and shared preview host.
-- `tests/scene-routing.test.mjs`, `scene-mapping-model.test.mjs`, `app-node-package.test.mjs`: current architectural contracts.
+- Domain and routing: `js/domain/models.js`, `project-migrations.js`,
+  `direct-surface-hierarchy.js`, `live-projection-program.js`,
+  `scene-routing.js`, and `render-settings.js`.
+- Core compilers: `js/libraries/composition-engine/shared/`, especially
+  `visual-render-plan.js`, `visual-control-program.js`,
+  `visual-value-program.js`, and `mapping-program-compiler.js`.
+- Render contracts: `js/libraries/render-engine/`, including render demand,
+  invalidation, geometry, transforms, and ROI.
+- Visual definitions: `js/libraries/visual-nodes/`.
+- 3D: `js/libraries/mesh-engine/` and `terrain-engine/`.
+- Libraries and shaders: `js/libraries/visual-library/`, `isf-engine/`, and
+  `transition-engine/`.
+- Runtime: `js/output/output-renderer.js`, `source-render-runtime.js`,
+  `specialized-source-runtime.js`, `isf-render-runtime.js`,
+  `texture-operator-runtime.js`, `shader-effect-runtime.js`,
+  `output-surface-runtime.js`, and `surface-render-planner.js`.
+- Persistence and transport: `js/services/project-serializer.js`,
+  `project-folder-service.js`, and `output-bridge-service.js`.
+- UI/editor: `js/control/node-graph-canvas.js`, `mapping-live-view.js`,
+  `control-shell-controller.js`, and `style.css`.
+- Architectural tests: `tests/app-node-package.test.mjs`,
+  `visual-render-plan.test.mjs`, `scene-routing.test.mjs`, and
+  `scene-mapping-model.test.mjs`.
 
-## Verification Status
+## Verification
 
-The complete automated VJ1 suite is green: **1179/1179**.
+Run all four checks before declaring an architectural migration complete:
 
 ```sh
-npm test                       # 1179/1179
-npm run test:metrics           # 10/10
-npm run test:render            # 40/40
-git diff --check               # clean
+npm test
+npm run test:metrics
+npm run test:render
+git diff --check
 ```
 
-Browser/WebGL validation is green. The architecture smoke compiled and linked the transition, named two-image ISF, Mesh Patterns, both Feature Morph semantic Groups and their shared retained shader, ordinary Media Image → Tile Repeat, Text and its child-owned mask shader, Screen Share as a connected Screen Input/resource-to-image Group, ordinary Component Time → Gaze/Blink → Eyeball Render, and the Terrain shader programs owned by their semantic material child nodes; loaded the Model Media mesh/LOD/transform/material/Scene/image Group through the browser module graph; verified the two named ISF samplers against their expected pixel mix, Dissolve endpoints, midpoint, ROI pixel equivalence, cloneable animated ISF graph data, and frame invalidation; verified built-in and project-registered Feature Morph provider adapters in the browser runtime; executed the compiled Text graph against a real browser canvas and proved stable revision on identical inputs plus one revision for each text/resolution change; executed Screen Share without requesting capture and proved connected resource identity plus child-owned fit/mirroring; executed Eyeball's ordinary control/render graph and proved retained finite scalar animation bindings; and balanced every shader/program/texture/buffer created by the harness. A real-project enabled/disabled comparison verified presentation invalidation: animated GreatBallOfFire sustained approximately 60 fps with one Component render and three dirty-stage renders per sample, while the same stable graph produced one presentation/cache-hit sample across ten seconds and then slept with zero Component, stage, or shader renders. The four-Surface output fixture sustained approximately 60 fps with four visible direct routes, zero shader handoffs, roughly 2.75 million avoided Surface raster pixels per sampled frame, and no console warnings or errors. Manual verification should still prioritize project-authored ISF transitions, complex buffered transition routes, multiple output windows, interactive output resize, and large real-world STL visual equivalence.
+The browser architecture smoke must also pass with real WebGL. It covers compiled
+shader programs, transitions and endpoint equivalence, ROI crop equivalence,
+ordinary and retained-value Groups, semantic 3D compounds, stable resource
+revisions, and balanced GPU/browser resources.
+
+Performance validation must track render targets, allocated pixels, GPU buffers,
+programs, uploads, draw calls, per-frame allocations, dirty-stage renders, and
+presentation wakeups. Preserve or improve these measurements throughout
+migration. Never treat a green image alone as proof that the optimized output
+path remains healthy.

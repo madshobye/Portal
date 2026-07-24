@@ -4,7 +4,7 @@ import { RenderDemandNode } from "../../../render-engine/index.js";
 import {
   TextMaskProviderNode,
   TextMaskToImageNode,
-} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
+} from "../../shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
 import {
   defineCompiledVisualCompound,
 } from "../../shared/compiled-visual-compound.js";
@@ -50,8 +50,8 @@ export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponen
     { id: "render", definition: TextMaskToImageNode, role: "renderer", parameters: { providerId: "text-mask-pass" } },
   ],
   connections: [
-    { from: "demand.width", to: "mask.width", type: "number" },
-    { from: "demand.height", to: "mask.height", type: "number" },
+    { from: "demand.domainWidth", to: "mask.width", type: "number" },
+    { from: "demand.domainHeight", to: "mask.height", type: "number" },
     { from: "mask.mask", to: "render.mask", type: "text-mask-provider" },
   ],
   output: "render.texture",

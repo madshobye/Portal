@@ -1,5 +1,5 @@
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentFromNodeDefinition, getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
+import { componentFromNodeDefinition, getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
 import { materializeProjectNodeDefinition } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
@@ -572,6 +572,7 @@ function generatorControlProjectionTemplate(component, visibleParams, base, sour
   if (projection?.format !== "vj1.control-projection@1" || !projection.sections?.length) return "";
   const byId = new Map((visibleParams || []).map((parameter) => [parameter.id, parameter]));
   return projection.sections.map((section) => {
+    if (section.hidden === true) return "";
     const params = (section.controls || [])
       .map((control) => byId.get(control.parameterId))
       .filter(Boolean);

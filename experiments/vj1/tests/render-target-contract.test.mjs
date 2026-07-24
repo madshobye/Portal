@@ -9,6 +9,7 @@ import {
   renderTargetNeedsPresentationFlip,
   RENDER_TARGET_KIND,
   RENDER_TEXTURE_ORIENTATION,
+  withRenderTarget2D,
 } from "../js/output/render-target-contract.js";
 import { contentTransformRawWebglPlacement } from "../js/output/content-coordinate-space.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
@@ -36,6 +37,37 @@ test("render targets carry explicit logical size orientation and p5 safety", () 
   assert.equal(isDirectP5ImageSourceSafe(target), false);
   markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft);
   assert.equal(renderTargetNeedsPresentationFlip(target), false);
+});
+
+test("immediate 2D target ownership is balanced around the final draw", () => {
+  let depth = 0;
+  const events = [];
+  const target = {
+    push() {
+      events.push("begin");
+      depth++;
+    },
+    pop() {
+      events.push("end");
+      depth--;
+    },
+  };
+
+  const result = withRenderTarget2D(target, () => {
+    events.push(`draw:${depth}`);
+    return "complete";
+  });
+
+  assert.equal(result, "complete");
+  assert.equal(depth, 0);
+  assert.deepEqual(events, ["begin", "draw:1", "end"]);
+  assert.throws(
+    () => withRenderTarget2D(target, () => {
+      throw new Error("draw failed");
+    }),
+    /draw failed/,
+  );
+  assert.equal(depth, 0, "a failed backend cannot leave its framebuffer active");
 });
 
 test("screen-oriented transforms convert once at a raw WebGL model boundary", () => {

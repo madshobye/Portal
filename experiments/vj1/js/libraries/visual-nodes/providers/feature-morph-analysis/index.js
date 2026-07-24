@@ -125,10 +125,23 @@ function featureMorphAnalysisNode({
       domain: "main",
       pure: true,
       asynchronous: false,
+      // The node synchronously produces a retained request descriptor. The
+      // declared host capability owns bounded asynchronous analysis, result
+      // revision, cancellation, pending standby, and error diagnostics.
+      external: {
+        capability: "feature-morph-analysis",
+        asynchronous: true,
+        lifecycle: "retained-request",
+        invalidation: "external-revision",
+        pending: "standby",
+        error: "diagnostic",
+      },
     },
     capabilities: [
       "feature-analysis",
       "image-analysis",
+      "host-resolved-async-value",
+      "retained-resource-request",
       `${providerId}-analysis`,
       "specialized-visual-provider",
       "specialized-visual-stage",
@@ -173,7 +186,11 @@ function featureMorphAnalysisNode({
   });
 }
 
-export function featureMorphAnalysisProviderProcess(inputs = {}, { output = null, state = {} } = {}) {
+export function featureMorphAnalysisProviderProcess(inputs = {}, {
+  output = null,
+  state = {},
+  nodeModule = null,
+} = {}) {
   const sourceSettings = record(inputs.settings);
   const settings = state.settings || (state.settings = {});
   for (const id of Object.keys(inputs)) {
@@ -188,6 +205,7 @@ export function featureMorphAnalysisProviderProcess(inputs = {}, { output = null
   analysis.providerId = String(inputs.providerId || "");
   analysis.imageA = inputs.imageA || null;
   analysis.imageB = inputs.imageB || null;
+  analysis.nodeModule = nodeModule;
   settings.imageAId = String(inputs.imageA?.mediaId || "");
   settings.imageBId = String(inputs.imageB?.mediaId || "");
   analysis.settings = settings;

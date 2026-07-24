@@ -7,6 +7,7 @@ export function defineCompiledVisualCompound(component, {
   output = "",
   parameterBindings = {},
   parameterPresentation = {},
+  providerAlternatives = {},
 } = {}) {
   const base = component?.nodeDefinition;
   if (!base) throw new Error("COMPILED_VISUAL_COMPOUND_DEFINITION_MISSING");
@@ -51,11 +52,25 @@ export function defineCompiledVisualCompound(component, {
         contract: baseMetadata.visualContract,
       },
       renderAuthority: "compiled-graph",
+      providerAlternatives: normalizeProviderAlternatives(providerAlternatives),
     },
   });
   return componentFromNodeDefinition(component, definition, {
     renderAuthority: "compiled-graph",
   });
+}
+
+function normalizeProviderAlternatives(providerAlternatives = {}) {
+  return Object.freeze(Object.fromEntries(
+    Object.entries(providerAlternatives || {}).map(([nodeId, alternatives]) => [
+      String(nodeId || ""),
+      Object.freeze((alternatives || []).map((alternative) => Object.freeze({
+        nodeId: String(alternative?.nodeId || ""),
+        providerId: String(alternative?.providerId || ""),
+        label: String(alternative?.label || alternative?.providerId || alternative?.nodeId || ""),
+      }))),
+    ]),
+  ));
 }
 
 function compiledVisualChildNode(entry = {}) {

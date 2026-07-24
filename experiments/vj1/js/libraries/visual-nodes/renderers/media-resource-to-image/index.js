@@ -61,7 +61,12 @@ export const MediaResourceToImageNode = defineNode({
   metadata: {
     nativeKernel: "media-resource-fit",
     nativeRenderer: "output/specialized:screenShare",
+    nodeOwnedNativeModule: true,
     allocationStable: true,
+    renderInvalidation: {
+      mode: "frame",
+      reason: "screen-input-frame",
+    },
     nativeArtifactRequirements: {
       moduleExports: ["drawMediaResourceToImage"],
       shaders: [],

@@ -32,12 +32,12 @@ const INFERENCE_TIMEOUT_MS = 120000;
 
 let modelPromise = null;
 let modelReady = false;
-let spatialEndpoint = "";
 let inferenceQueue = Promise.resolve();
 let sharedRevision = 0;
 const sharedPairEntries = new Map();
 const pendingAnalyses = new Map();
 const imageFeatureCache = new WeakMap();
+const spatialEndpointCache = new WeakMap();
 const scriptPromises = new Map();
 
 export class MobileNetMorphPairService {
@@ -223,11 +223,8 @@ async function extractMobileNetGrid(model, image, { gridSize, patchScale, fit },
   const composition = createAnalysisCanvas();
   drawFittedImage(composition, image, fit);
   const spatialFeatures = await extractMobileNetSpatialGrid(model, composition, { gridSize, patchScale });
-  if (spatialFeatures) {
-    onProgress?.(spatialFeatures.length, spatialFeatures.length);
-    return spatialFeatures;
-  }
-  throw new Error("VJ1_MOBILENET_SPATIAL_ENDPOINT_REQUIRED");
+  onProgress?.(spatialFeatures.length, spatialFeatures.length);
+  return spatialFeatures;
 }
 
 function cachedMobileNetGrid(model, image, options, onProgress) {
@@ -255,45 +252,91 @@ function cachedMobileNetGrid(model, image, options, onProgress) {
 async function extractMobileNetSpatialGrid(model, composition, { gridSize, patchScale }) {
   const tf = globalThis.tf;
   const graphModel = model?.model;
-  const nodeNames = Object.keys(graphModel?.executor?.graph?.nodes || {});
-  const candidates = mobileNetSpatialEndpointCandidates(nodeNames);
-  if (spatialEndpoint && !candidates.includes(spatialEndpoint)) candidates.unshift(spatialEndpoint);
-  if (!graphModel?.execute || !candidates.length) return null;
+  const nodeNames = mobileNetGraphNodeNames(graphModel);
+  const candidates = mobileNetSpatialEndpointCandidates(nodeNames, gridSize);
+  const endpointCache = spatialEndpointCache.get(graphModel) || new Map();
+  if (graphModel && !spatialEndpointCache.has(graphModel)) spatialEndpointCache.set(graphModel, endpointCache);
+  const cachedEndpoint = endpointCache.get(gridSize);
+  if (cachedEndpoint && !candidates.includes(cachedEndpoint)) candidates.unshift(cachedEndpoint);
+  if (!graphModel?.execute || !candidates.length) {
+    throw mobileNetSpatialEndpointError({ gridSize, nodeNames, candidates });
+  }
   const input = tf.tidy(() => tf.browser.fromPixels(composition).toFloat().div(255).expandDims(0));
+  const rejectedShapes = [];
   try {
-    for (const endpoint of candidates.slice(0, 8)) {
-      let activation = null;
+    for (const endpoint of candidates) {
+      let result = null;
       try {
-        activation = graphModel.execute(input, endpoint);
-        if (Array.isArray(activation)) activation = activation[0];
+        result = graphModel.execute(input, endpoint);
+        const activation = firstTensor(result);
         const shape = activation?.shape || [];
         if (shape.length !== 4 || shape[0] !== 1 || shape[1] < gridSize || shape[2] < gridSize || shape[3] < 16) {
+          rejectedShapes.push(`${endpoint}:${shape.join("x") || "not-a-tensor"}`);
           continue;
         }
         const values = await activation.data();
-        spatialEndpoint = endpoint;
+        endpointCache.set(gridSize, endpoint);
         return sampleSpatialActivation(values, shape, gridSize, patchScale);
-      } catch {
+      } catch (error) {
+        rejectedShapes.push(`${endpoint}:error:${error?.message || String(error)}`);
       } finally {
-        activation?.dispose?.();
+        disposeTensorResult(result);
       }
     }
   } finally {
     input.dispose();
   }
-  return null;
+  throw mobileNetSpatialEndpointError({ gridSize, nodeNames, candidates, rejectedShapes });
 }
 
-function mobileNetSpatialEndpointCandidates(nodeNames = []) {
+export function mobileNetGraphNodeNames(graphModel = {}) {
+  const nodes = graphModel?.executor?.graph?.nodes;
+  if (nodes instanceof Map) return [...nodes.keys()];
+  if (Array.isArray(nodes)) return nodes.map((node) => node?.name).filter(Boolean);
+  return Object.keys(nodes || {});
+}
+
+export function mobileNetSpatialEndpointCandidates(nodeNames = [], gridSize = 8) {
+  const preferredBlock = gridSize > 28 ? 2 : gridSize > 14 ? 5 : 12;
   return nodeNames
     .filter((name) => /MobilenetV2\/expanded_conv_\d+\/(?:project\/BatchNorm\/FusedBatchNorm(?:V3)?|expand\/Relu6)$/.test(name))
     .map((name) => {
       const block = Number(name.match(/expanded_conv_(\d+)/)?.[1]) || 0;
       const project = name.includes("/project/BatchNorm") ? 1 : 0;
-      return { name, score: Math.abs(block - 12) * 10 - project };
+      return { name, score: Math.abs(block - preferredBlock) * 10 - project };
     })
     .sort((left, right) => left.score - right.score)
     .map((entry) => entry.name);
+}
+
+function firstTensor(result) {
+  if (Array.isArray(result)) return result.find((value) => Array.isArray(value?.shape));
+  if (result && !Array.isArray(result.shape) && typeof result === "object") {
+    return Object.values(result).find((value) => Array.isArray(value?.shape));
+  }
+  return result;
+}
+
+function disposeTensorResult(result) {
+  if (Array.isArray(result)) {
+    result.forEach((value) => value?.dispose?.());
+    return;
+  }
+  if (result && !Array.isArray(result.shape) && typeof result === "object") {
+    Object.values(result).forEach((value) => value?.dispose?.());
+    return;
+  }
+  result?.dispose?.();
+}
+
+function mobileNetSpatialEndpointError({ gridSize, nodeNames = [], candidates = [], rejectedShapes = [] }) {
+  const details = [
+    `grid=${gridSize}`,
+    `graphNodes=${nodeNames.length}`,
+    `candidates=${candidates.length}`,
+  ];
+  if (rejectedShapes.length) details.push(`rejected=${rejectedShapes.slice(0, 6).join(",")}`);
+  return new Error(`VJ1_MOBILENET_SPATIAL_ENDPOINT_REQUIRED:${details.join(":")}`);
 }
 
 function sampleSpatialActivation(values, shape, gridSize, patchScale) {

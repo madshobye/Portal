@@ -119,14 +119,19 @@ export const MeshPatternTopologyProviderNode = defineNode({
   process: meshPatternTopologyProviderProcess,
 });
 
-export function meshPatternTopologyProviderProcess(inputs = {}, { output = null, state = {} } = {}) {
+export function meshPatternTopologyProviderProcess(inputs = {}, { output = null, state = {}, renderRequest = null } = {}) {
   const settings = record(inputs.settings);
   const effectiveSettings = effectiveTopologySettings(
     inputs,
     settings,
     state.effectiveSettings || (state.effectiveSettings = {}),
   );
-  const aspect = Math.max(0.2, Math.min(5, Number(inputs.aspect) || 1));
+  const requestAspect = Number(renderRequest?.width) / Math.max(1, Number(renderRequest?.height) || 1);
+  const aspect = Math.max(0.2, Math.min(5,
+    Number.isFinite(requestAspect) && requestAspect > 0
+      ? requestAspect
+      : Number(inputs.aspect) || 1
+  ));
   const signature = meshPatternTopologySignature(effectiveSettings, aspect);
   if (state.geometrySignature !== signature || !state.geometry || !state.collection) {
     const retained = retainSharedMeshPatternTopology(
@@ -147,6 +152,8 @@ export function meshPatternTopologyProviderProcess(inputs = {}, { output = null,
   const topology = result.topology || (result.topology = {});
   topology.kind = "topology";
   topology.providerId = String(inputs.providerId || "mesh-pattern-topology");
+  topology.resourceIdentity = topology.providerId;
+  topology.resourceRevision = signature;
   topology.settings = settings;
   topology.enabled = inputs.enabled !== false;
   topology.geometry = state.geometry;

@@ -137,7 +137,7 @@ test("Live Surface visibility changes only the routed program and survives sourc
   assert.equal(createLiveRenderState(after).surfaces.find((item) => item.id === surface.id).enabled, false);
 });
 
-test("Scene Mapping visibility hides Overall routes in preview and Output but preserves patched Surfaces", () => {
+test("Scene Mapping visibility detaches Overall routes but preserves patched Surfaces and direct visibility", () => {
   const state = createInitialState();
   const scene = createSceneComponent(0, state.components[0].id);
   const patchComponent = createDefaultComponent(2);
@@ -180,6 +180,13 @@ test("Scene Mapping visibility hides Overall routes in preview and Output but pr
     true,
     "direct outputs retain their independent visibility state"
   );
+  assert.equal(
+    hiddenOutput.surfaces
+      .filter((item) => item.destination?.type === "direct")
+      .every((item) => item.componentId === "" && item.sourceNodeId === ""),
+    true,
+    "unpatched direct outputs do not inherit the disabled Scene Mapping source"
+  );
 
   assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
   after = store.getState();
@@ -190,10 +197,11 @@ test("Scene Mapping visibility hides Overall routes in preview and Output but pr
   assert.equal(createLiveRenderState(after).surfaces.some((item) => item.enabled !== false), true);
 });
 
-test("hiding Scene Mapping leaves direct outputs active and independently toggleable", () => {
+test("hiding Scene Mapping leaves direct outputs independently toggleable without leaking the Overall source", () => {
   const state = createInitialState();
   const scene = createSceneComponent(0, state.components[0].id);
-  state.components.push(scene);
+  const patchComponent = createDefaultComponent(2);
+  state.components.push(scene, patchComponent);
   state.ui.live.selectedSceneId = scene.id;
   state.ui.live.selectedComponentId = scene.id;
   const store = createAppState(state);
@@ -210,6 +218,11 @@ test("hiding Scene Mapping leaves direct outputs active and independently toggle
     compileLiveProjectionProgram(store.getState()).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).enabled,
     true,
     "Scene Mapping is not a master switch for direct outputs",
+  );
+  assert.equal(
+    compileLiveProjectionProgram(store.getState()).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).componentId,
+    "",
+    "the enabled direct output is transparent without an explicit source patch",
   );
 
   assert.equal(store.toggleLiveSurfaceVisibility(directOutput.id), true);
@@ -231,6 +244,60 @@ test("hiding Scene Mapping leaves direct outputs active and independently toggle
   assert.equal(after.ui.live.surfaceVisibility[directOutput.id], true);
   assert.equal(
     createLiveRenderState(after).surfaces.find((surface) => surface.id === directOutput.id).enabled,
+    true,
+  );
+  assert.equal(
+    createLiveRenderState(after).surfaces.find((surface) => surface.id === directOutput.id).componentId,
+    "",
+    "re-enabling the direct output does not restore the hidden Overall source",
+  );
+
+  store.selectLivePreviewSurface(directOutput.id);
+  store.selectLiveComponent(patchComponent.id);
+  after = store.getState();
+  assert.equal(
+    compileLiveProjectionProgram(after).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).componentId,
+    patchComponent.id,
+    "an explicit direct-output patch remains independent of Scene Mapping",
+  );
+
+  assert.equal(store.clearLiveSurfacePatch(directOutput.id), true);
+  after = store.getState();
+  assert.equal(
+    compileLiveProjectionProgram(after).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).componentId,
+    "",
+    "removing the explicit patch returns to transparent while Scene Mapping is hidden",
+  );
+
+  assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
+  after = store.getState();
+  assert.equal(
+    compileLiveProjectionProgram(after).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).componentId,
+    scene.id,
+    "re-enabling Scene Mapping rematerializes the retained Overall source",
+  );
+});
+
+test("hiding Scene Mapping suppresses an in-flight Overall transition endpoint", () => {
+  const state = createInitialState();
+  const firstScene = createSceneComponent(0, state.components[0].id);
+  const secondScene = createSceneComponent(1, state.components[0].id);
+  state.components.push(firstScene, secondScene);
+  state.ui.live.selectedSceneId = firstScene.id;
+  state.ui.live.selectedComponentId = firstScene.id;
+  state.ui.live.transitionDuration = 1;
+  const store = createAppState(state);
+
+  store.selectLiveScene(secondScene.id);
+  assert.ok(compileLiveProjectionProgram(store.getState()).transition);
+  assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
+
+  const program = compileLiveProjectionProgram(store.getState());
+  assert.equal(program.transition, null);
+  assert.equal(
+    program.currentRoutes.surfaces
+      .filter((surface) => !store.getState().ui.live.surfacePatches?.[surface.id])
+      .every((surface) => surface.componentId === "" && surface.sourceNodeId === ""),
     true,
   );
 });

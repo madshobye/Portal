@@ -6,7 +6,7 @@ import {
   createOutputBridge,
   OUTPUT_BRIDGE_PROTOCOL_VERSION,
 } from "../services/output-bridge-service.js?v=package-content-lock-1";
-import { OutputRenderer } from "./output-renderer.js?v=effect-quality-request-scope-1";
+import { OutputRenderer } from "./output-renderer.js?v=mesh-pattern-node-authority-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=output-one-1";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
@@ -639,7 +639,7 @@ async function prepareFixtureRuntimeState(fixtureState = {}) {
   // standalone fixture has no control process, so perform that one-time graph
   // materialization here. This dynamic import stays outside normal output
   // startup and cannot add node-catalog work to the render frame.
-  const { createVj1NodePackage } = await import("../app-node-package.js?v=surface-terminology-1");
+  const { createVj1NodePackage } = await import("../app-node-package.js?v=mesh-pattern-node-authority-1");
   return createVj1NodePackage().prepareProjectState(withBindings);
 }
 

@@ -4,9 +4,7 @@ import { readFileSync } from "node:fs";
 import { buildFeatureMorphField, buildFeatureMorphMesh, matchSuperPointFeatures } from "../js/output/specialized/feature-morph-field.js";
 import { featureMorphPersistentKey, superPointAnalysisModule, SuperPointPairService } from "../js/output/specialized/superpoint-service.js";
 import {
-  compileSpecializedCompoundProgram,
   createGeneratorSource,
-  evaluateSpecializedCompoundGraph,
   FeatureMorphToImageNode,
   getGeneratorNodeComponent as getGeneratorComponent,
   MediaImageResourceNode,
@@ -14,6 +12,7 @@ import {
   SpecializedCompoundStageNodeDefinitions,
   SuperPointMorphAnalysisNode,
 } from "../js/libraries/visual-nodes/index.js";
+import { compileVisualRenderPlan } from "../js/libraries/composition-engine/shared/visual-render-plan.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/index.js";
 import {
   compileJavaScriptNodeModule,
@@ -27,6 +26,43 @@ import { featureMorphNodeRuntimeModule, featureMorphNodeShaderSource } from "../
 
 function feature(x, y, descriptor) {
   return { x, y, descriptor: Float32Array.from(descriptor) };
+}
+
+function compileFeatureMorphPlan(definition, parameters = {}) {
+  const definitions = new Map([
+    ...SpecializedCompoundStageNodeDefinitions,
+    definition,
+  ].map((item) => [item.id, item]));
+  const configuration = {
+    id: "feature-morph",
+    kind: "source",
+    enabled: true,
+    source: {
+      type: "generator",
+      generatorId: "featureMorph",
+      instanceId: "feature-morph",
+      params: { ...parameters },
+    },
+  };
+  const plan = compileVisualRenderPlan({
+    id: "feature-morph-test",
+    nodes: [{
+      id: "feature-morph",
+      nodeId: definition.id,
+      nodeVersion: definition.version,
+      role: "source",
+      parameters: { ...parameters },
+      configuration,
+      compilerHook: definition.metadata.visualCompilerHook,
+    }],
+    connections: [],
+  }, {
+    id: "component",
+    chain: [configuration],
+  }, {
+    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  });
+  return { plan, group: plan.operations[0], render: plan.operations[0].operations[0] };
 }
 
 test("Feature Morph is a two-image generator with cached animation controls", () => {
@@ -54,32 +90,29 @@ test("Feature Morph is a two-image generator with cached animation controls", ()
   assert.equal(typeof analysisModule.exports.buildFeatureMorphField, "function");
   assert.equal(typeof renderModule.exports.imageFitUniform, "function");
 
-  const definitions = new Map(SpecializedCompoundStageNodeDefinitions.map((definition) => [definition.id, definition]));
-  const program = compileSpecializedCompoundProgram(component.nodeDefinition, {
-    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  const { plan, group, render } = compileFeatureMorphPlan(component.nodeDefinition, {
+    imageAId: "a.png",
+    imageBId: "b.png",
+    landmarkCount: 88,
+    morph: 0.4,
   });
-  assert.deepEqual(program.stages.map((stage) => stage.nodeId), [
+  assert.equal(group.backend, "compiled-visual-group");
+  assert.equal(render.backend, "native-specialized");
+  assert.equal(render.renderer, "output/specialized:featureMorph");
+  assert.deepEqual(group.valueProgram.steps.map((step) => step.nodeId), [
     MediaImageResourceNode.id,
     MediaImageResourceNode.id,
     SuperPointMorphAnalysisNode.id,
-    FeatureMorphToImageNode.id,
   ]);
-  assert.deepEqual(program.nativeKernel("feature-morph").inputBindings, {
-    imageA: { stageId: "image-a", portId: "image" },
-    imageB: { stageId: "image-b", portId: "image" },
-    analysis: { stageId: "analysis", portId: "analysis" },
-  });
-  const graph = evaluateSpecializedCompoundGraph(
-    { nativeCompoundProgram: program },
-    { imageAId: "a.png", imageBId: "b.png", landmarkCount: 88, morph: 0.4 },
-    { instanceId: "feature-morph-test" },
-  );
-  assert.equal(graph.stageInput("render", "imageA").mediaId, "a.png");
-  assert.equal(graph.stageInput("render", "imageB").mediaId, "b.png");
-  assert.equal(graph.stageInput("render", "analysis").providerId, "superpoint");
-  assert.equal(graph.stageInput("render", "analysis").settings.landmarkCount, 88);
-  assert.equal(graph.stageInputs("render").settings.morph, 0.4);
-  program.dispose();
+  group.valueProgram.evaluate();
+  assert.equal(render.runtimeValueInputs.get("imageA").mediaId, "a.png");
+  assert.equal(render.runtimeValueInputs.get("imageB").mediaId, "b.png");
+  assert.equal(render.runtimeValueInputs.get("analysis").providerId, "superpoint");
+  assert.equal(render.runtimeValueInputs.get("analysis").settings.landmarkCount, 88);
+  assert.equal(render.configuration.source.params.morph, 0.4);
+  assert.ok(plan.inspect().readiness.requirements.some((item) =>
+    item.kind === "capability" && item.id === "feature-morph-analysis"));
+  plan.dispose();
 
   const source = createGeneratorSource("featureMorph", { imageAId: "a.png", imageBId: "b.png" });
   assert.equal(source.params.imageAId, "a.png");
@@ -88,7 +121,6 @@ test("Feature Morph is a two-image generator with cached animation controls", ()
 
 test("Feature Morph analysis is a typed provider substitution rather than a second renderer", () => {
   const definition = getGeneratorComponent("featureMorph").nodeDefinition;
-  const definitions = new Map(SpecializedCompoundStageNodeDefinitions.map((item) => [item.id, item]));
   const edited = {
     ...definition,
     parts: definition.parts.map((part) => part.kind === NODE_PART_KINDS.GRAPH
@@ -98,25 +130,24 @@ test("Feature Morph analysis is a typed provider substitution rather than a seco
             ? {
                 ...node,
                 type: MobileNetMorphAnalysisNode.id,
+                nodeId: MobileNetMorphAnalysisNode.id,
                 parameters: { providerId: "mobilenet", featureGrid: 15 },
               }
             : node),
         }
       : part),
   };
-  const program = compileSpecializedCompoundProgram(edited, {
-    resolveDefinition: ({ nodeId }) => definitions.get(nodeId),
+  const { plan, group, render } = compileFeatureMorphPlan(edited, {
+    imageAId: "a",
+    imageBId: "b",
   });
-  const graph = evaluateSpecializedCompoundGraph(
-    { nativeCompoundProgram: program },
-    { imageAId: "a", imageBId: "b" },
-    { instanceId: "feature-morph-substitution" },
+  group.valueProgram.evaluate();
+  assert.equal(render.runtimeValueInputs.get("analysis").providerId, "mobilenet");
+  assert.equal(render.runtimeValueInputs.get("analysis").settings.featureGrid, 15);
+  assert.strictEqual(
+    render.runtimeValueInputs.get("analysis").nodeModule,
+    MobileNetMorphAnalysisNode.moduleExports,
   );
-
-  assert.equal(graph.stageInput("render", "analysis").providerId, "mobilenet");
-  assert.equal(graph.stageInput("render", "analysis").settings.featureGrid, 15);
-  assert.equal(program.nativeKernel("feature-morph").kernel, "feature-morph");
-  assert.ok(program.nativeModuleDefinitions.includes(MobileNetMorphAnalysisNode));
 
   const renderer = new OutputRenderer({ mode: "component" });
   const superPointService = renderer.superPointPairs;
@@ -151,7 +182,7 @@ test("Feature Morph analysis is a typed provider substitution rather than a seco
   assert.doesNotMatch(specializedSource, /source\.generatorId === "featureMorphV2"|isMobileNet/);
   assert.doesNotMatch(rendererSource, /generatorId === "featureMorph"|generatorId === "featureMorphV2"/);
   renderer.dispose();
-  program.dispose();
+  plan.dispose();
 });
 
 test("Feature Morph child forks supply analysis, image fitting, and GLSL to the retained host", () => {

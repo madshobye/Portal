@@ -1,4 +1,4 @@
-import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
+import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
 import { FULL_NODE_BOUNDARY } from "../libraries/render-engine/roi/index.js";
 
 export const MAPPING_TEST_PATTERN_COMPONENT_ID = "vj1-system-mapping-test-pattern";

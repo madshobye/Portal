@@ -1,4 +1,4 @@
-import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
+import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
 import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";

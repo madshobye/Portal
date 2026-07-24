@@ -22,8 +22,8 @@ import { TerrainWireMaterialProviderNode } from "../providers/terrain-wire-mater
 import { TerrainFlightCameraProviderNode } from "../providers/terrain-flight-camera/index.js?v=semantic-terrain-render-nodes-1";
 import { ModelFitCameraNode } from "../providers/model-fit-camera/index.js?v=semantic-anatomy-render-node-1";
 import { MeshPatternTopologyProviderNode } from "../providers/mesh-pattern-topology/index.js?v=semantic-mesh-pattern-nodes-1";
-import { MeshPatternFillMaterialProviderNode } from "../providers/mesh-pattern-fill-material/index.js?v=semantic-mesh-pattern-nodes-1";
-import { MeshPatternWireMaterialProviderNode } from "../providers/mesh-pattern-wire-material/index.js?v=semantic-mesh-pattern-nodes-1";
+import { MeshPatternFillMaterialProviderNode } from "../providers/mesh-pattern-fill-material/index.js?v=mesh-pattern-node-authority-1";
+import { MeshPatternWireMaterialProviderNode } from "../providers/mesh-pattern-wire-material/index.js?v=mesh-pattern-node-authority-1";
 import {
   TerrainSurfaceToImageNode,
   TerrainWireToImageNode,
@@ -31,7 +31,7 @@ import {
 import {
   MeshPatternFillToImageNode,
   MeshPatternWireToImageNode,
-} from "../renderers/mesh-pattern-passes/index.js?v=semantic-mesh-pattern-nodes-1";
+} from "../renderers/mesh-pattern-passes/index.js?v=mesh-pattern-node-authority-1";
 import { MediaImageResourceNode } from "../providers/media-image-resource/index.js?v=feature-morph-semantic-1";
 import {
   MobileNetMorphAnalysisNode,

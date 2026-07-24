@@ -1,4 +1,4 @@
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-graph-value-authority-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
 
 export function createShaderBuilder({
   getCustomCode,

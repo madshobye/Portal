@@ -3,7 +3,7 @@ import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
 import { ComponentTimeControlNode } from "../../../control-engine/index.js?v=architecture-r2-2";
 import { GazeBlinkControllerNode } from "../../providers/gaze-blink-controller/index.js?v=gaze-blink-semantic-1";
-import EyeballRender from "../eyeball-render/index.js";
+import EyeballRender from "../eyeball-render/index.js?v=compound-terminal-roi-1";
 
 const manifest = Object.freeze({
   id: "eyeball",

@@ -3,7 +3,7 @@ import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   AnatomyGeometryProviderNode,
   ModelFitCameraNode,
-} from "../../shared/specialized-compound.js?v=compiled-graph-value-authority-1";
+} from "../../shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
 import { defineScene3dVisualCompound } from "../../shared/scene3d-visual-compound.js?v=anatomy-scene3d-1";
 import { AnatomyMotionTransform3dNode } from "../../providers/anatomy-motion-transform/index.js?v=anatomy-scene3d-1";
 import { AnatomyMaterialPaletteNode } from "../../providers/anatomy-material-palette/index.js?v=anatomy-scene3d-1";

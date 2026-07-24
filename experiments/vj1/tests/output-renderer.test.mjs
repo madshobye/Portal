@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, sceneComponentPlacementRect, surfaceBorderHit, sceneMaxRasterSize, scenePreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentReferenceVisibleRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveSurfaceRect, namedTextureStateKey, OutputRenderer, pointInTransformedRect, primaryTextureInputPort, qualityScaledRenderRequest, renderStateComponentProgramRoots, resizeSurfaceRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, sceneComponentPlacementRect, surfaceBorderHit, sceneMaxRasterSize, scenePreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledSourceRenderRequest, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentReferenceVisibleRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveSurfaceRect, namedTextureStateKey, OutputRenderer, pointInTransformedRect, primaryTextureInputPort, qualityScaledRenderRequest, renderStateComponentProgramRoots, resizeSurfaceRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { defaultProjectSurfaceMapping, outputFrameForId, outputFrames, renderRequestKey, worldSize } from "../js/output/render-geometry.js";
 import { disposeP5Shader, mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
@@ -455,10 +455,14 @@ test("native source renderer capabilities are retained, collision checked, and b
     "output/specialized:featureMorph",
     "output/specialized:featureMorphV2",
     "output/specialized:text",
-    "output/specialized:meshPatterns",
   ]) {
     assert.equal(specialized.hasNativeRenderer(rendererId), true, `${rendererId} capability`);
   }
+  assert.equal(
+    specialized.hasNativeRenderer("output/specialized:meshPatterns"),
+    false,
+    "Mesh Patterns compiles reusable topology, material, and render nodes rather than a parent renderer",
+  );
   assert.throws(
     () => specialized.registerNativeRenderer("output/specialized:text", () => {}),
     /VJ1_NATIVE_SOURCE_RENDERER_DUPLICATE:output\/specialized:text/,
@@ -536,7 +540,13 @@ test("extracted source backend owns source detail and suppresses only repeated i
   });
 
   const runtime = new SourceRenderRuntime({ state: { render: {} } });
-  const target = { width: 160, height: 90, background() {} };
+  const target = {
+    width: 160,
+    height: 90,
+    push() {},
+    pop() {},
+    background() {},
+  };
   const component = { id: "owner", name: "Owner" };
   const source = { type: "media", mediaId: "media/clip.mov" };
   const originalError = console.error;
@@ -596,6 +606,108 @@ test("source backend executes the compiled renderer capability without source-ki
   assert.equal(calls[0][4], 2.5);
 });
 
+test("source backends prepare dependencies unbound and own only their final target draw", () => {
+  let depth = 0;
+  const target = {
+    width: 640,
+    height: 360,
+    push() {
+      depth++;
+    },
+    pop() {
+      depth--;
+    },
+    translate() {},
+    rotate() {},
+    scale() {},
+  };
+  const child = {
+    id: "child",
+    type: "chain",
+    frameShape: "landscape",
+    resolutionScale: 1,
+    transform: {},
+  };
+  const parent = { id: "parent", type: "chain" };
+  const events = [];
+  const runtime = new SourceRenderRuntime({
+    state: {
+      render: { componentAspectRatio: 16 / 9, pixelDensity: 1 },
+    },
+    componentTimes: new Map(),
+    componentPrograms: new Map([[
+      parent.id,
+      {
+        inspect: () => ({
+          references: [{ kind: "component", id: child.id, path: "source.componentId" }],
+        }),
+      },
+    ]]),
+    componentForId: (id) => id === child.id ? child : null,
+    componentRegionSafe: () => false,
+    renderComponentForRequest: () => {
+      events.push(`dependency:${depth}`);
+      return { width: 640, height: 360 };
+    },
+    drawPlacedResultGeometry: () => events.push(`present:${depth}`),
+    isShaderBuffer: () => false,
+    acquireMedia: () => null,
+    requestMissingMedia() {},
+    acquireScreenInput: () => null,
+    screenError: () => "",
+    generatorNodeComponent: () => null,
+  });
+
+  runtime.drawComponentReferenceSource(
+    target,
+    {
+      type: "component",
+      componentId: child.id,
+      instanceId: "child-instance",
+      placement: { scale: 1 },
+      contentTransform: {},
+    },
+    parent,
+    0,
+    { width: 640, height: 360 },
+  );
+
+  runtime.drawGeneratorSource(
+    target,
+    { type: "generator", generatorId: "immediate", params: {}, contentTransform: {} },
+    parent,
+    0,
+    { width: 640, height: 360 },
+    {
+      nodeProcess: (_inputs, context) => events.push(`immediate:${depth}:${context.target === target}`),
+    },
+  );
+
+  runtime.registerNativeRenderer(
+    "test/native:intermediate",
+    () => events.push(`native:${depth}`),
+  );
+  runtime.drawGeneratorSource(
+    target,
+    { type: "generator", generatorId: "native", params: {}, contentTransform: {} },
+    parent,
+    0,
+    { width: 640, height: 360 },
+    {
+      backend: "native-specialized",
+      renderer: "test/native:intermediate",
+    },
+  );
+
+  assert.deepEqual(events, [
+    "dependency:0",
+    "present:1",
+    "immediate:1:true",
+    "native:0",
+  ]);
+  assert.equal(depth, 0);
+});
+
 test("render-plan roots include visible current and transition endpoint Components only", () => {
   const state = {
     ui: { selectedComponentId: "editor-component" },
@@ -625,6 +737,132 @@ test("render-plan roots include visible current and transition endpoint Componen
     [...renderStateComponentProgramRoots(state, "component")],
     ["editor-component"],
   );
+});
+
+test("Component program reachability remains structural across visibility patches", () => {
+  const child = {
+    id: "child",
+    type: "chain",
+    chain: [{ id: "child-source", kind: "source", enabled: true, source: { type: "generator", generatorId: "waves" } }],
+  };
+  const replacement = {
+    id: "replacement",
+    type: "chain",
+    chain: [{ id: "replacement-source", kind: "source", enabled: true, source: { type: "generator", generatorId: "waves" } }],
+  };
+  const reference = {
+    id: "child-reference",
+    kind: "source",
+    enabled: false,
+    source: { type: "component", componentId: child.id },
+  };
+  const root = { id: "root", type: "scene", chain: [reference] };
+  const renderer = new OutputRenderer({ mode: "component" });
+  renderer.state = {
+    components: [root, child, replacement],
+    nodes: { groups: [] },
+    render: {},
+    surfaces: [],
+    ui: { selectedComponentId: root.id },
+  };
+  renderer.rebuildVisualNodeResolver();
+  renderer.rebuildComponentPrograms();
+  assert.deepEqual(
+    [...renderer.componentPrograms.keys()].sort(),
+    [child.id, root.id],
+    "a hidden reference retains its executable child program",
+  );
+  assert.deepEqual(
+    renderer.componentPrograms.get(root.id).inspect().dependencies.components,
+    [],
+    "active render dependencies still exclude hidden references",
+  );
+
+  const result = renderer.applyRenderPatches([{
+    componentId: root.id,
+    path: "chain.0.enabled",
+    value: true,
+  }]);
+
+  assert.equal(result.applied, true);
+  assert.equal(renderer.state.components[0].chain[0].enabled, true);
+  assert.deepEqual([...renderer.componentPrograms.keys()].sort(), [child.id, root.id]);
+  let patchedReference = null;
+  renderer.componentPrograms.get(root.id).forEachOperation((operation) => {
+    if (operation.id === reference.id) patchedReference = operation.configuration;
+  });
+  assert.equal(
+    patchedReference?.enabled,
+    true,
+    "visibility patches update retained operation configuration without recompiling topology",
+  );
+
+  renderer.applyRenderPatches([{
+    componentId: root.id,
+    path: "chain.0.source.componentId",
+    value: replacement.id,
+  }]);
+  assert.deepEqual(
+    [...renderer.componentPrograms.keys()].sort(),
+    [replacement.id, root.id],
+    "retargeting a reference derives a fresh closure from current topology rather than stale inspection",
+  );
+});
+
+test("persisted compact Component graphs compile their referenced Component closure", () => {
+  const child = { id: "child", type: "chain", chain: [] };
+  const root = { id: "root", type: "scene", chain: [] };
+  const sourceNode = (id, configuration) => ({
+    id,
+    nodeId: "core.visual.source",
+    nodeVersion: "0.1.0",
+    role: "source",
+    configuration,
+    generatedBy: "vj1-component-compiler",
+  });
+  const group = (componentId, nodes) => ({
+    id: `vj1.component.${componentId}`,
+    nodeId: "core.composition.component-program",
+    nodeVersion: "0.1.0",
+    componentId,
+    nodes,
+    connections: [],
+    publicInlets: {},
+    publicOutlets: { texture: nodes.length ? `${nodes.at(-1).id}.texture` : "$in.texture" },
+    compiler: {
+      id: "vj1.visual.component-program",
+      target: "visual",
+      strategy: "allocation-stable-direct-render-program",
+    },
+    generatedBy: "vj1-component-compiler",
+    compactTopology: true,
+  });
+  const renderer = new OutputRenderer({ mode: "component" });
+  renderer.state = {
+    components: [root, child],
+    nodes: {
+      groups: [
+        group(root.id, [sourceNode("child-reference", {
+          id: "child-reference",
+          kind: "source",
+          enabled: true,
+          source: { type: "component", componentId: child.id },
+        })]),
+        group(child.id, [sourceNode("child-source", {
+          id: "child-source",
+          kind: "source",
+          enabled: true,
+          source: { type: "generator", generatorId: "waves" },
+        })]),
+      ],
+    },
+    render: {},
+    surfaces: [],
+    ui: { selectedComponentId: root.id },
+  };
+  renderer.rebuildVisualNodeResolver();
+  renderer.rebuildComponentPrograms();
+  assert.deepEqual([...renderer.componentPrograms.keys()].sort(), [child.id, root.id]);
 });
 import { createInitialState } from "../js/domain/models.js";
 
@@ -1498,7 +1736,7 @@ test("a full Scene request applies ROI to a heavily scaled nested Component", ()
   });
 
   runtime.drawComponentReferenceSource(
-    { width: 1456, height: 728 },
+    { width: 1456, height: 728, push() {}, pop() {} },
     {
       type: "component",
       componentId: child.id,
@@ -1518,7 +1756,7 @@ test("a full Scene request applies ROI to a heavily scaled nested Component", ()
 
   childRequest = null;
   runtime.drawComponentReferenceSource(
-    { width: 1456, height: 728 },
+    { width: 1456, height: 728, push() {}, pop() {} },
     {
       type: "component",
       componentId: child.id,
@@ -2772,7 +3010,9 @@ test("component groups render isolated from earlier parent layers", () => {
   assert.ok(groupRenderSource.includes("? this.executeVisualTextureDag("));
   assert.ok(groupRenderSource.includes(": this.renderComponentOperationsState("));
   assert.ok(groupRenderSource.includes("operation?.operations || item.chain || []"));
-  assert.ok(groupRenderSource.includes("combineContentTransforms(inheritedTransform, item.transform || {})"));
+  assert.ok(groupRenderSource.includes("operation.placementLowering === \"terminal-coordinate\""));
+  assert.ok(groupRenderSource.includes("const groupTransform = compiledGroup && !lowersPlacementToTerminal"));
+  assert.ok(groupRenderSource.includes("transform: lowersPlacementToTerminal ? {} : compoundPlacementTransform"));
   assert.ok(groupRenderSource.includes("this.renderBoundedLayerNodeState(nodeId, state, groupState"));
   assert.ok(groupRenderSource.includes(": this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest);"));
   assert.ok(!groupRenderSource.includes("drawBuffer(groupState.buffer, state.buffer"));
@@ -2817,6 +3057,14 @@ test("compiled visual Groups route named texture inputs by public port identity"
   assert.deepEqual(
     [...renderer.compiledVisualGroupInputStates(operation, fallback, inputs)],
     [["foreground", foreground], ["background", background]],
+  );
+  assert.deepEqual(
+    [...renderer.compiledVisualGroupInputStates({
+      textureInputs: { texture: "previous-chain-operation" },
+      publicTextureInputs: {},
+    }, fallback)],
+    [],
+    "an implicit chain edge cannot become an undeclared generator Group input",
   );
 });
 
@@ -2997,6 +3245,34 @@ test("element render quality scales physical component pixels without changing l
   assert.equal(scaled.height, 700);
   assert.equal(scaled.logicalWidth, 1000);
   assert.equal(scaled.logicalHeight, 700);
+});
+
+test("compiled shader sources allocate quality-scaled instance-owned targets", () => {
+  const request = {
+    role: "source",
+    width: 1200,
+    height: 800,
+    logicalWidth: 1200,
+    logicalHeight: 800,
+    renderIdentity: "eye-instance",
+  };
+  assert.deepEqual(
+    compiledSourceRenderRequest(
+      { backend: "shader-generator" },
+      { params: { renderQuality: 0 } },
+      request,
+    ),
+    { ...request, width: 420, height: 280, qualityScale: 0.35 },
+  );
+  assert.strictEqual(
+    compiledSourceRenderRequest(
+      { backend: "native-specialized" },
+      { params: { renderQuality: 0.5 } },
+      request,
+    ),
+    request,
+    "native renderers retain ownership of their declared internal quality policy",
+  );
 });
 
 test("shader generators preserve the component render contract", () => {

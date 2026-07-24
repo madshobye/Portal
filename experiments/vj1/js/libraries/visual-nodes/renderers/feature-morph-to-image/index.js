@@ -79,7 +79,12 @@ export const FeatureMorphToImageNode = defineNode({
   metadata: {
     nativeKernel: "feature-morph",
     nativeRenderer: "output/specialized:featureMorph",
+    nodeOwnedNativeModule: true,
     allocationStable: true,
+    runtimePolicy: Object.freeze({
+      timeDependent: (params = {}) => Math.abs(Number(params.autoSpeed) || 0) > 0.0001,
+      rateParam: "autoSpeed",
+    }),
     nativeArtifactRequirements: {
       moduleExports: ["imageFitUniform"],
       shaders: ["feature-morph-vertex", "feature-morph-fragment"],

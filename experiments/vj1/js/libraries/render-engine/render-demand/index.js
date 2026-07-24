@@ -12,8 +12,14 @@ export const RenderDemandNode = defineNode({
   description: "Publishes the current retained render request as explicit graph values.",
   implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   outlets: {
+    // Allocation dimensions are the pixels actually requested for this ROI.
     width: { type: "number" },
     height: { type: "number" },
+    // Domain dimensions recover the complete physical node boundary. Layout
+    // and procedural algorithms use these so cropping never changes their
+    // geometry; uvRect only selects the allocated window.
+    domainWidth: { type: "number" },
+    domainHeight: { type: "number" },
     logicalWidth: { type: "number" },
     logicalHeight: { type: "number" },
     renderIdentity: { type: "string" },
@@ -40,7 +46,10 @@ export const RenderDemandNode = defineNode({
     editable: true,
     module: import.meta.url,
     export: "renderDemandProcess",
-    source: renderDemandProcess.toString(),
+    source: [
+      renderDemandProcess,
+      renderDemandUvRect,
+    ].map(String).join("\n\n"),
   }],
   process: renderDemandProcess,
 });
@@ -51,8 +60,23 @@ export function renderDemandProcess(_inputs = {}, {
 } = {}) {
   output.width = Math.max(1, Number(renderRequest.width) || 1);
   output.height = Math.max(1, Number(renderRequest.height) || 1);
+  const uvRect = renderDemandUvRect(renderRequest.uvRect);
+  output.domainWidth = output.width / uvRect[2];
+  output.domainHeight = output.height / uvRect[3];
   output.logicalWidth = Math.max(1, Number(renderRequest.logicalWidth) || output.width);
   output.logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || output.height);
   output.renderIdentity = String(renderRequest.renderIdentity || "");
   return output;
+}
+
+function renderDemandUvRect(value) {
+  if (!Array.isArray(value) || value.length < 4) return [0, 0, 1, 1];
+  const width = Math.max(1e-9, Math.min(1, Number(value[2]) || 1));
+  const height = Math.max(1e-9, Math.min(1, Number(value[3]) || 1));
+  return [
+    Math.max(0, Math.min(1 - width, Number(value[0]) || 0)),
+    Math.max(0, Math.min(1 - height, Number(value[1]) || 0)),
+    width,
+    height,
+  ];
 }

@@ -16,9 +16,9 @@
     <main id="app" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></main>
     <script>
       (async () => {
-        const sourceRevision = "source-coherence-19";
+        const sourceRevision = "source-coherence-24";
         const workerUrl = new URL(`./module-source-worker.js?v=${sourceRevision}`, location.href).href;
-        const start = () => import(`./js/app.js?v=eyeball-coordinate-contract-1`);
+        const start = () => import(`./js/app.js?v=mesh-pattern-node-authority-1`);
         if (!("serviceWorker" in navigator) || !window.isSecureContext) {
           await start();
           return;

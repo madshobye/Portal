@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
-import { OutputRenderer } from "./output-renderer.js?v=effect-quality-request-scope-1";
+import { OutputRenderer } from "./output-renderer.js?v=mesh-pattern-node-authority-1";
 import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderPresentationFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";

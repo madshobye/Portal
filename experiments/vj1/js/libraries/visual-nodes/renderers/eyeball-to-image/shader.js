@@ -28,13 +28,11 @@ varying vec2 vTexCoord;
 void main() {
   vec2 boundaryUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;
   vec2 uv = (contentUvMatrix * vec3(boundaryUv, 1.0)).xy;
-  float inside = step(0.0, uv.x) * step(uv.x, 1.0) *
-    step(0.0, uv.y) * step(uv.y, 1.0);
   vec2 aspect = vec2(resolution.x / max(resolution.y, 1.0), 1.0);
   vec2 p = (uv - 0.5) * vec2(aspect.x, 1.0) * 2.2;
   float r = length(p);
   float sphere = smoothstep(1.02, 0.98, r);
-  if (sphere <= 0.001 || inside <= 0.0) {
+  if (sphere <= 0.001) {
     gl_FragColor = vec4(0.0);
     return;
   }
@@ -103,7 +101,7 @@ void main() {
   }
 
   float edge = smoothstep(1.0, 0.985, r);
-  float alpha = sphere * edge * inside;
+  float alpha = sphere * edge;
   gl_FragColor = vec4(clamp(color, 0.0, 1.0) * alpha, alpha);
 }`;
 
