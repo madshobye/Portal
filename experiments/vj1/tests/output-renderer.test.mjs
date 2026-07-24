@@ -1305,8 +1305,8 @@ test("direct output presentation handles stretch contain and cover without homog
   });
   const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const plannerSource = readFileSync(new URL("../js/libraries/composition-engine/surface-composition/index.js", import.meta.url), "utf8");
-  assert.ok(source.includes("else if (mapped.direct) this.drawDirectSurfaceTexture(target, route)"));
-  assert.ok(source.includes("mapped.direct && Number(surface.feather) > 0"));
+  assert.ok(source.includes("this.drawBufferedSurfaceTexture(target, route)"));
+  assert.ok(source.includes("mapped.direct && Number(surface.feather) <= 0 && !viewUv"));
   assert.ok(plannerSource.includes("preserveFullFootprint: mapped.direct"));
 });
 
@@ -2130,7 +2130,8 @@ test("paused previews contain thumbnails and canvas surface routes preserve samp
   assert.ok(source.includes('sceneEditorWorld: this.mode === "component" && this.state?.ui?.workspace === "scene"'));
   assert.ok(source.includes("thumbnail.img,"));
   assert.ok(source.includes('surface.sourceFitActive ? surface.sourceFit : "stretch"'));
-  assert.ok(source.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {"));
+  assert.ok(source.includes("drawBufferedSurfaceTexture(texture, route = {})"));
+  assert.ok(source.includes("textureViewUv: viewUv"));
   assert.ok(source.includes("opacity: surfaceRouteOpacity(route)"));
 });
 
@@ -3108,7 +3109,7 @@ test("projection mapper uses actual texture size for surface sampling math", () 
   assert.ok(source.includes("const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);"));
   assert.ok(source.includes("const sourceHeight = sourceRect[3] * Math.max(1, Number(texture.height) || 1);"));
   assert.ok(source.includes('projectionFit = "cover"'));
-  assert.ok(rendererSource.includes("renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {"));
+  assert.ok(rendererSource.includes("drawBufferedSurfaceTexture(texture, route = {})"));
   assert.ok(rendererSource.includes("opacity: surfaceRouteOpacity(route)"));
   assert.ok(rendererSource.includes("sourceRect: view.sourceRect"));
   assert.ok(rendererSource.includes("directSurfaceSamples"));
@@ -3157,12 +3158,16 @@ test("Live transition mapper applies the stable source-view contract per endpoin
   const source = mapperTransitionFragmentShaderSource({ feather: true });
   assert.match(source, /uniform vec4 uFromSourceRect/);
   assert.match(source, /uniform vec4 uToSourceRect/);
+  assert.match(source, /uniform vec4 uFromTextureView/);
+  assert.match(source, /uniform vec4 uToTextureView/);
   assert.match(source, /uniform bool uFromUseSourceFit/);
   assert.match(source, /uniform bool uToUseSourceFit/);
   assert.match(source, /float fromProjectionSourceAspect = uFromUseSourceFit \? uFromSourceTargetAspect : uFromSourceAspect/);
   assert.match(source, /float toProjectionSourceAspect = uToUseSourceFit \? uToSourceTargetAspect : uToSourceAspect/);
   assert.match(source, /vec2 fromTextureUv = uFromSourceRect\.xy/);
   assert.match(source, /vec2 toTextureUv = uToSourceRect\.xy/);
+  assert.match(source, /vec2 fromViewUv = \(fromUv - uFromTextureView\.xy\)/);
+  assert.match(source, /vec2 toViewUv = \(toUv - uToTextureView\.xy\)/);
   assert.match(source, /fromInside \* uFromOpacity/);
   assert.match(source, /toInside \* uToOpacity/);
 });

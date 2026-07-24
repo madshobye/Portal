@@ -212,6 +212,126 @@ test("root Content scale uses transformed ROI detail without enlarging Surface a
   assert.match(runtimeSource, /\[VJ1_ROOT_CONTENT_DETAIL_LIMITED\]/);
 });
 
+test("output viewport ROI is inverse-composed through root Content scale", () => {
+  const state = createInitialState();
+  state.render.componentAspectRatio = 2;
+  const component = {
+    ...state.components[0],
+    id: "component-scaled-output",
+    transform: { x: 0, y: 0, scale: 8, rotation: 0 },
+  };
+  const surface = {
+    ...state.surfaces[0],
+    id: "surface-scaled-output",
+    enabled: true,
+    componentId: component.id,
+    projectionFit: "stretch",
+  };
+  state.components = [component];
+  state.surfaces = [surface];
+  const mapperSurface = {
+    name: surface.id,
+    corners: [
+      { x: -200, y: 0 },
+      { x: 1400, y: 0 },
+      { x: 1400, y: 800 },
+      { x: -200, y: 800 },
+    ],
+  };
+  const plan = planSurfaceRoutes({
+    state,
+    mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
+    componentById: new Map([[component.id, component]]),
+    viewport: { width: 1200, height: 800 },
+    pixelScale: 1,
+    preserveDirectFootprint: true,
+    allowViewportRegions: true,
+    resolveRouteSourceNode: () => ({ id: `component:${component.id}`, componentId: component.id }),
+    isComponentRegionSafe: () => true,
+  });
+
+  const route = plan.routes[0];
+  assert.deepEqual(route.componentRequest.uvRect, [0.453125, 0.4375, 0.09375, 0.125]);
+  assert.deepEqual(
+    { width: route.componentRequest.width, height: route.componentRequest.height },
+    { width: 1200, height: 800 }
+  );
+  assert.deepEqual(
+    { width: route.surfaceRequest.width, height: route.surfaceRequest.height },
+    { width: 1200, height: 800 }
+  );
+  assert.deepEqual(route.surfacePresentationUvRect, [0.125, 0, 0.75, 1]);
+  assert.deepEqual(route.rootTransformRegion.targetViewport, {
+    x: 200,
+    y: 0,
+    width: 1200,
+    height: 800,
+  });
+  assert.equal(plan.metrics.componentRasterPixels, 1200 * 800);
+});
+
+test("live transition endpoint planning retains output viewport ROI", () => {
+  const state = createInitialState();
+  state.render.componentAspectRatio = 2;
+  const component = { ...state.components[0], id: "transition-roi-component" };
+  const surface = {
+    ...state.surfaces[0],
+    id: "transition-roi-surface",
+    enabled: true,
+    componentId: component.id,
+    projectionFit: "stretch",
+  };
+  state.components = [component];
+  state.surfaces = [surface];
+  state.liveTransition = {
+    id: "transition-roi",
+    fromState: { ...state, liveTransition: null },
+    startedAtMs: Date.now() - 10,
+    durationMs: 100000,
+  };
+  const mapperSurface = {
+    name: surface.id,
+    corners: [
+      { x: -200, y: 0 },
+      { x: 1400, y: 0 },
+      { x: 1400, y: 800 },
+      { x: -200, y: 800 },
+    ],
+  };
+  const renderer = {
+    mode: "output",
+    state,
+    mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
+    componentById: new Map([[component.id, component]]),
+    routeSourceNodeById: new Map(),
+    frameProfile: {
+      surfaceRouteCandidates: 0,
+      surfaceRoutesCulled: 0,
+      surfaceRoutesVisible: 0,
+      componentRasterPixels: 0,
+    },
+    displayCanvasSize: () => ({ width: 1200, height: 800 }),
+    previewViewportTransform: () => ({ x: 0, y: 0, zoom: 1 }),
+    renderPixelDensity: () => 1,
+    mappingProgramSurfaces: () => state.surfaces,
+    resolveRouteSourceNode: () => ({ id: `component:${component.id}`, componentId: component.id }),
+    componentRegionSafe: () => true,
+    sceneComponentFrameFanoutSafe: () => true,
+    recordPresentedRenderRequest() {},
+  };
+  const runtime = new OutputSurfaceRuntime(renderer);
+  const route = runtime.buildSurfaceRenderPlan()[0];
+
+  assert.equal(runtime.currentLiveTransition()?.id, "transition-roi");
+  assert.deepEqual(
+    { width: route.componentRequest.width, height: route.componentRequest.height },
+    { width: 1200, height: 800 }
+  );
+  state.liveTransition = null;
+  const stableRoute = runtime.buildSurfaceRenderPlan()[0];
+  assert.deepEqual(stableRoute.componentRequest, route.componentRequest);
+});
+
 test("Scene root Content scale uses a physical regional request beyond the full-Scene cap", () => {
   const state = createInitialState();
   const scene = {

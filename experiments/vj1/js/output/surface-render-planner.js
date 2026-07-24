@@ -4,15 +4,15 @@ import {
   componentRootTransformRegion,
   componentSourceView,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=pixel-density-4";
+} from "./component-render-layout.js?v=roi-composition-1";
 import {
   createRenderRequest,
   frameSize,
   sourceRenderDemand,
   SURFACE_DEMAND_OVERSCAN,
-} from "./render-geometry.js?v=output-viewport-roi-1";
-import { visibleSurfaceUvRect } from "../libraries/mapping-engine/mapping-engine/index.js?v=output-viewport-roi-1";
-import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=output-viewport-roi-1";
+} from "./render-geometry.js?v=roi-composition-1";
+import { visibleSurfaceUvRect } from "../libraries/mapping-engine/mapping-engine/index.js?v=roi-composition-1";
+import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=roi-composition-1";
 
 // Direct render-host bridge: the node owns the route algorithm while the
 // renderer supplies its established geometry policies directly. This closure

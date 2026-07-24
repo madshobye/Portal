@@ -391,6 +391,7 @@ export function componentRootTransformRegion({
   logicalSize = {},
   sampleRect = {},
   targetSize = {},
+  targetViewUv = null,
   transform = {},
   fit = "stretch",
 } = {}) {
@@ -401,13 +402,27 @@ export function componentRootTransformRegion({
     width: Math.max(1, Number(targetSize.width) || 1),
     height: Math.max(1, Number(targetSize.height) || 1),
   };
+  const viewWidth = Math.max(1e-9, Math.min(1, Number(targetViewUv?.[2]) || 1));
+  const viewHeight = Math.max(1e-9, Math.min(1, Number(targetViewUv?.[3]) || 1));
+  const view = [
+    Math.max(0, Math.min(1 - viewWidth, Number(targetViewUv?.[0]) || 0)),
+    Math.max(0, Math.min(1 - viewHeight, Number(targetViewUv?.[1]) || 0)),
+    viewWidth,
+    viewHeight,
+  ];
+  const targetViewport = {
+    x: view[0] * target.width,
+    y: view[1] * target.height,
+    width: view[2] * target.width,
+    height: view[3] * target.height,
+  };
   const fitted = fittedSampleRect(sampleRect, target.width, target.height, fit);
   const visible = transformedRectVisibleRegion(target, {
     x: fitted.x,
     y: fitted.y,
     width: fitted.width,
     height: fitted.height,
-  }, transform, target);
+  }, transform, targetViewport);
   if (!visible) return { empty: true };
   const logicalWidth = Math.max(1, Number(logicalSize.width) || 1);
   const logicalHeight = Math.max(1, Number(logicalSize.height) || 1);
@@ -421,6 +436,9 @@ export function componentRootTransformRegion({
       visible.uvRect[3] * source.height / logicalHeight,
     ],
     destinationRect: visible.destinationRect,
+    targetSize: { width: target.width, height: target.height },
+    targetViewport,
+    targetViewUv: view,
   };
 }
 

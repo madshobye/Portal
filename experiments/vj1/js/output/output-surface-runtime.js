@@ -14,9 +14,9 @@ import {
   fittedSampleRect,
   scaledComponentSampleRect,
   unifyTransitionComponentRenderRequests,
-} from "./component-render-layout.js?v=pixel-density-4";
+} from "./component-render-layout.js?v=roi-composition-1";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=pixel-density-4";
+import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=roi-composition-1";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
@@ -30,6 +30,14 @@ export function surfaceRouteOpacity(route = {}) {
 export function surfaceRouteBlend(route = {}) {
   const surfaceBlend = route.surface?.finalBlend || "normal";
   return surfaceBlend !== "normal" ? surfaceBlend : (route.component?.blend || "normal");
+}
+
+function surfaceRouteLogicalAspect(route = {}) {
+  return Math.max(
+    0.0001,
+    (Number(route?.demand?.surfaceSize?.width) || 1) /
+      Math.max(1, Number(route?.demand?.surfaceSize?.height) || 1)
+  );
 }
 
 export class OutputSurfaceRuntime {
@@ -113,14 +121,7 @@ export class OutputSurfaceRuntime {
         push();
         try {
           applyBlendGlobal(surfaceRouteBlend(route));
-          if (mapped.direct && Number(surface.feather) > 0) {
-            renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {
-              opacity: surfaceRouteOpacity(route),
-            });
-          } else if (mapped.direct) this.drawDirectSurfaceTexture(target, route);
-          else renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {
-            opacity: surfaceRouteOpacity(route),
-          });
+          this.drawBufferedSurfaceTexture(target, route);
           this.drawLiveMonitorGuideNodes(route);
         } finally {
           blendMode(BLEND);
@@ -276,6 +277,14 @@ export class OutputSurfaceRuntime {
             toProjectionFit: toRoute?.surface?.projectionFit
               || fromRoute?.surface?.projectionFit
               || "cover",
+            fromTextureViewUv: directViews?.fromView?.textureViewUv
+              || fromRoute?.surfacePresentationUvRect,
+            toTextureViewUv: directViews?.toView?.textureViewUv
+              || toRoute?.surfacePresentationUvRect,
+            fromLogicalSourceAspect: directViews?.fromView?.logicalSourceAspect
+              || surfaceRouteLogicalAspect(fromRoute),
+            toLogicalSourceAspect: directViews?.toView?.logicalSourceAspect
+              || surfaceRouteLogicalAspect(toRoute),
             ...(directViews ? {
               fromSourceRect: directViews.fromView.sourceRect,
               toSourceRect: directViews.toView.sourceRect,
@@ -331,10 +340,7 @@ export class OutputSurfaceRuntime {
       push();
       try {
         applyBlendGlobal(surfaceRouteBlend(route));
-        if (mapped.direct && Number(surface.feather) <= 0) this.drawDirectSurfaceTexture(target, route);
-        else renderer.mapper.drawTexture(target, mapped.mapperSurface, surface.projectionFit, surface.feather, {
-          opacity: surfaceRouteOpacity(route),
-        });
+        this.drawBufferedSurfaceTexture(target, route);
         this.drawLiveMonitorGuideNodes(route);
       } finally {
         blendMode(BLEND);
@@ -456,7 +462,7 @@ export class OutputSurfaceRuntime {
       // Standalone Output is the final consumer and can therefore request a
       // coordinate-correct source ROI from its actual canvas. Editor pan/zoom
       // remains presentation-only and must not invalidate Component textures.
-      allowViewportRegions: renderer.mode === "output" && !this.currentLiveTransition(),
+      allowViewportRegions: renderer.mode === "output",
       renderIdentityPrefix: this.renderIdentityPrefix,
       surfaceProgram: orderedSurfaceProgram(surfaceProgram || renderer.mappingProgramSurfaces(renderer.state)),
       resolveRouteSourceNode: (surface) => renderer.resolveRouteSourceNode(surface),
@@ -565,6 +571,33 @@ export class OutputSurfaceRuntime {
       blendMode(BLEND);
       pop();
     }
+  }
+
+  drawBufferedSurfaceTexture(texture, route = {}) {
+    const renderer = this.renderer;
+    const { surface = {}, mapped = {}, demand = {} } = route;
+    const viewUv = route.surfacePresentationUvRect;
+    if (mapped.direct && Number(surface.feather) <= 0 && !viewUv) {
+      this.drawDirectSurfaceTexture(texture, route);
+      return;
+    }
+    renderer.mapper.drawTexture(
+      texture,
+      mapped.mapperSurface,
+      surface.projectionFit,
+      surface.feather,
+      {
+        opacity: surfaceRouteOpacity(route),
+        ...(viewUv ? {
+          textureViewUv: viewUv,
+          logicalSourceAspect: Math.max(
+            0.0001,
+            (Number(demand.surfaceSize?.width) || 1) /
+              Math.max(1, Number(demand.surfaceSize?.height) || 1)
+          ),
+        } : {}),
+      }
+    );
   }
 
   drawLiveMonitorGuideNodes(route = {}) {
@@ -709,7 +742,7 @@ export class OutputSurfaceRuntime {
       drawTransformedRegion(
         target,
         source,
-        route.rootTransformRegion.destinationRect,
+        route.rootTransformRegion,
         component?.transform,
       );
     } else {
@@ -790,18 +823,33 @@ function drawTransformedSampleRect(target, source, sampleRect, transform = {}, f
   target.pop();
 }
 
-function drawTransformedRegion(target, source, destinationRect = {}, transform = {}) {
+function drawTransformedRegion(target, source, region = {}, transform = {}) {
   const value = normalizedContentTransform(transform);
-  const placement = contentTransformCanvasPlacement(value, target.width, target.height);
+  const fullSize = region.targetSize || { width: target.width, height: target.height };
+  const viewport = region.targetViewport || {
+    x: 0,
+    y: 0,
+    width: fullSize.width,
+    height: fullSize.height,
+  };
+  const destinationRect = region.destinationRect || {};
+  const placement = contentTransformCanvasPlacement(value, fullSize.width, fullSize.height);
+  const scaleX = target.width / Math.max(1e-9, Number(viewport.width) || target.width);
+  const scaleY = target.height / Math.max(1e-9, Number(viewport.height) || target.height);
   target.push();
+  // A viewport ROI is a cropped backing store for the same full Surface
+  // coordinate system. Move that full domain behind the cropped target before
+  // applying the authored transform; never recenter the crop as a new canvas.
+  target.scale(scaleX, scaleY);
+  target.translate(-(Number(viewport.x) || 0), -(Number(viewport.y) || 0));
   target.translate(placement.centerX, placement.centerY);
   target.rotate(value.rotation);
   target.scale(value.scale);
   drawBuffer(
     target,
     source,
-    destinationRect.x - target.width * 0.5,
-    destinationRect.y - target.height * 0.5,
+    destinationRect.x - fullSize.width * 0.5,
+    destinationRect.y - fullSize.height * 0.5,
     destinationRect.width,
     destinationRect.height,
     source?.__vj1ShaderBuffer === true,

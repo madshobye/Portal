@@ -225,6 +225,10 @@ export class VjMapper {
     toProjectionFit = "cover",
     fromSourceRect = null,
     toSourceRect = null,
+    fromTextureViewUv = null,
+    toTextureViewUv = null,
+    fromLogicalSourceAspect = 0,
+    toLogicalSourceAspect = 0,
     fromSourceFitActive = false,
     toSourceFitActive = false,
     fromSourceFit = "cover",
@@ -278,8 +282,16 @@ export class VjMapper {
     const toHeight = normalizedToRect[3] * Math.max(1, Number(toTexture.height) || 1);
     shaderProgram.setUniform("uFromSourceRect", normalizedFromRect);
     shaderProgram.setUniform("uToSourceRect", normalizedToRect);
-    shaderProgram.setUniform("uFromSourceAspect", Math.max(0.0001, fromWidth / Math.max(1, fromHeight)));
-    shaderProgram.setUniform("uToSourceAspect", Math.max(0.0001, toWidth / Math.max(1, toHeight)));
+    shaderProgram.setUniform("uFromTextureView", normalizedUvRect(fromTextureViewUv));
+    shaderProgram.setUniform("uToTextureView", normalizedUvRect(toTextureViewUv));
+    shaderProgram.setUniform("uFromSourceAspect", Math.max(
+      0.0001,
+      Number(fromLogicalSourceAspect) || fromWidth / Math.max(1, fromHeight)
+    ));
+    shaderProgram.setUniform("uToSourceAspect", Math.max(
+      0.0001,
+      Number(toLogicalSourceAspect) || toWidth / Math.max(1, toHeight)
+    ));
     shaderProgram.setUniform("uFromUseSourceFit", fromSourceFitActive === true);
     shaderProgram.setUniform("uToUseSourceFit", toSourceFitActive === true);
     shaderProgram.setUniform("uFromSourceTargetAspect", Math.max(0.0001, Number(fromSourceAspect) || fromWidth / Math.max(1, fromHeight)));
@@ -695,6 +707,8 @@ export function mapperTransitionFragmentShaderSource({
       uniform sampler2D toTex;
       uniform vec4 uFromSourceRect;
       uniform vec4 uToSourceRect;
+      uniform vec4 uFromTextureView;
+      uniform vec4 uToTextureView;
       uniform float uFromSourceAspect;
       uniform float uToSourceAspect;
       uniform bool uFromUseSourceFit;
@@ -745,8 +759,22 @@ export function mapperTransitionFragmentShaderSource({
           toInside *= toSourceFit.z;
         }
 
-        vec2 fromTextureUv = uFromSourceRect.xy + clamp(fromUv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw;
-        vec2 toTextureUv = uToSourceRect.xy + clamp(toUv, vec2(0.0), vec2(1.0)) * uToSourceRect.zw;
+        float fromViewInside =
+          step(uFromTextureView.x, fromUv.x) *
+          step(fromUv.x, uFromTextureView.x + uFromTextureView.z) *
+          step(uFromTextureView.y, fromUv.y) *
+          step(fromUv.y, uFromTextureView.y + uFromTextureView.w);
+        float toViewInside =
+          step(uToTextureView.x, toUv.x) *
+          step(toUv.x, uToTextureView.x + uToTextureView.z) *
+          step(uToTextureView.y, toUv.y) *
+          step(toUv.y, uToTextureView.y + uToTextureView.w);
+        fromInside *= fromViewInside;
+        toInside *= toViewInside;
+        vec2 fromViewUv = (fromUv - uFromTextureView.xy) / max(uFromTextureView.zw, vec2(1e-9));
+        vec2 toViewUv = (toUv - uToTextureView.xy) / max(uToTextureView.zw, vec2(1e-9));
+        vec2 fromTextureUv = uFromSourceRect.xy + clamp(fromViewUv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw;
+        vec2 toTextureUv = uToSourceRect.xy + clamp(toViewUv, vec2(0.0), vec2(1.0)) * uToSourceRect.zw;
         vec4 fromColor = texture2D(fromTex, fromTextureUv) * fromInside * uFromOpacity;
         vec4 toColor = texture2D(toTex, toTextureUv) * toInside * uToOpacity;
         ${featherCode}

@@ -647,6 +647,7 @@ test("output viewport clipping is inverse-projected into one source ROI", () => 
   assert.deepEqual(demand.viewportRegion, {
     uvRect: [0.125, 0, 0.75, 1],
     textureViewUv: [0.125, 0, 0.75, 1],
+    surfaceViewUv: [0.125, 0, 0.75, 1],
     rasterSize: { width: 1200, height: 800 },
     rasterScale: 0.8,
   });

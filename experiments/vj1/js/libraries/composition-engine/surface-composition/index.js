@@ -80,19 +80,19 @@ export function createSurfaceCompositionEngine({
         metrics.culled++;
         continue;
       }
+      const viewportRegion = regionSafe &&
+        !surface.finalShaderChain?.length
+        ? demand.viewportRegion
+        : null;
       const transformRegion = regionSafe
         ? componentRootTransformRegion({
             logicalSize: sourceView.logicalSize,
             sampleRect: demand.sampleRect,
             targetSize: demand.surfaceSize,
+            targetViewUv: viewportRegion?.surfaceViewUv,
             transform: component.transform,
             fit: surface.sourceFitActive ? surface.sourceFit : "stretch",
           })
-        : null;
-      const viewportRegion = regionSafe &&
-        !transformRegion &&
-        !surface.finalShaderChain?.length
-        ? demand.viewportRegion
         : null;
       routes.push({
         surface,
@@ -183,7 +183,7 @@ export function createSurfaceCompositionEngine({
       if (regional) {
         const logical = route.sourceView.logicalSize;
         const rect = route.demand.sampleRect;
-        const uvRect = route.viewportRegion?.uvRect || route.transformRegion?.uvRect || [
+        const uvRect = route.transformRegion?.uvRect || route.viewportRegion?.uvRect || [
           rect.x / logical.width,
           rect.y / logical.height,
           rect.width / logical.width,
@@ -200,12 +200,22 @@ export function createSurfaceCompositionEngine({
           regionView: true,
         });
         route.rootTransformRegion = route.transformRegion || null;
-        route.presentationUvRect = route.viewportRegion?.textureViewUv || null;
+        route.presentationUvRect = route.transformRegion
+          ? null
+          : (route.viewportRegion?.textureViewUv || null);
+        route.surfacePresentationUvRect = route.transformRegion && route.viewportRegion
+          ? route.viewportRegion.surfaceViewUv
+          : null;
       } else {
         route.componentRequest = componentRequests.get(renderInstanceKey);
       }
-      const scale = route.componentRequest?.demandScale || route.demand.rasterScale;
-      route.surfaceRequest = createRenderRequest("surface", route.demand.surfaceSize, {
+      const scale = route.surfacePresentationUvRect
+        ? route.viewportRegion.rasterScale
+        : (route.componentRequest?.demandScale || route.demand.rasterScale);
+      const surfaceSize = route.surfacePresentationUvRect
+        ? route.viewportRegion.rasterSize
+        : route.demand.surfaceSize;
+      route.surfaceRequest = createRenderRequest("surface", surfaceSize, {
         surfaceId: route.surface.id,
         timingId: route.surface.id,
         logicalWidth: route.demand.sampleRect.width,

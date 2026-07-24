@@ -35,7 +35,7 @@ import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runti
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=decoded-frame-drawability-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=pixel-density-4";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=roi-composition-1";
 import { IsfRenderRuntime } from "./isf-render-runtime.js?v=isf-backend-1";
 import { TextureOperatorRuntime } from "./texture-operator-runtime.js?v=texture-operator-backend-1";
 import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=shader-effect-backend-1";
@@ -76,7 +76,7 @@ import {
   outputSpanRect,
   worldSize,
 } from "./render-geometry.js?v=fit-geometry-demand-1";
-import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=output-viewport-roi-1";
+import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=roi-composition-1";
 import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=compiled-artifact-authority-2";
 import {
   sceneMaxRasterSize,

@@ -285,7 +285,7 @@ function visibleSourceRegion({
 } = {}) {
   if (!Array.isArray(visibleUvRect) || visibleUvRect.length < 4) return null;
   const target = normalizeUvRect(visibleUvRect);
-  const points = [
+  const projectedPoints = [
     { x: target[0], y: target[1] },
     { x: target[0] + target[2], y: target[1] },
     { x: target[0] + target[2], y: target[1] + target[3] },
@@ -297,20 +297,28 @@ function visibleSourceRegion({
       projectedAspect,
       projectionFit
     );
-    if (!projected.inside) return null;
-    if (!sourceFitActive) return projected;
-    const source = fitTargetUvToSourceUv(
-      projected,
-      sampledAspect,
-      intermediateAspect,
-      sourceFit
-    );
-    return source.inside ? source : null;
+    return projected.inside ? projected : null;
   });
   // A contain letterbox can intersect the viewport without sampling source
   // pixels. Retain the established full request until that polygon is clipped
   // against the contain content rectangle rather than guessing a smaller ROI.
+  if (projectedPoints.some((point) => !point)) return null;
+  const points = sourceFitActive
+    ? projectedPoints.map((projected) => {
+        const source = fitTargetUvToSourceUv(
+          projected,
+          sampledAspect,
+          intermediateAspect,
+          sourceFit
+        );
+        return source.inside ? source : null;
+      })
+    : projectedPoints;
   if (points.some((point) => !point)) return null;
+  const surfaceLeft = clamp01(Math.min(...projectedPoints.map((point) => point.x)));
+  const surfaceTop = clamp01(Math.min(...projectedPoints.map((point) => point.y)));
+  const surfaceRight = clamp01(Math.max(...projectedPoints.map((point) => point.x)));
+  const surfaceBottom = clamp01(Math.max(...projectedPoints.map((point) => point.y)));
   const left = clamp01(Math.min(...points.map((point) => point.x)));
   const top = clamp01(Math.min(...points.map((point) => point.y)));
   const right = clamp01(Math.max(...points.map((point) => point.x)));
@@ -341,6 +349,16 @@ function visibleSourceRegion({
       height * sampleRect.height / logicalHeight,
     ],
     textureViewUv: [left, top, width, height],
+    // The root Content transform is applied after source fit but before final
+    // Surface projection. Preserve the visible window in that intermediate
+    // coordinate space so its inverse ROI can be composed with output
+    // clipping instead of replacing it.
+    surfaceViewUv: [
+      surfaceLeft,
+      surfaceTop,
+      surfaceRight - surfaceLeft,
+      surfaceBottom - surfaceTop,
+    ],
     rasterSize: { width: allocation.width, height: allocation.height },
     rasterScale: allocation.scale,
   };
