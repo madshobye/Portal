@@ -8,15 +8,20 @@ import {
   nodeBoundaryUniformScale,
   nodeBoundaryWithUniformScale,
   nodeRoiRequest,
+  fitRectGeometry,
+  fitSourceUvToTargetUv,
+  fitTargetUvToSourceUv,
   renderView,
 } from "../js/libraries/render-engine/index.js";
 import {
   circleClippedBarSlices,
   testPatternLayout,
   testPatternRenderView,
+  TestPatternShaderSource,
 } from "../js/libraries/visual-nodes/generators/test-pattern/index.js";
 
 import {
+  aspectPreservingRenderDemand,
   canvasSizeForMode,
   createRenderRequest,
   defaultProjectSurfaceMapping,
@@ -34,6 +39,37 @@ import {
   visibleMappedSurfaceSize,
 } from "../js/output/render-geometry.js";
 import { projectedRelativeQuadAspect } from "../js/libraries/render-engine/relative-geometry.js";
+import { visibleSurfaceUvRect } from "../js/libraries/mapping-engine/mapping-engine/index.js";
+
+test("one fit contract owns cover rectangles and forward/inverse UV geometry", () => {
+  const fitted = fitRectGeometry(
+    { x: 0, y: 0, width: 2000, height: 1000 },
+    { x: 0, y: 0, width: 1000, height: 1000 },
+    "cover"
+  );
+  assert.deepEqual(fitted, {
+    source: { x: 500, y: 0, width: 1000, height: 1000 },
+    destination: { x: 0, y: 0, width: 1000, height: 1000 },
+  });
+
+  const sourcePoint = { x: 0.25, y: 0.75 };
+  const targetPoint = fitSourceUvToTargetUv(sourcePoint, 2, 1, "cover");
+  const recovered = fitTargetUvToSourceUv(targetPoint, 2, 1, "cover");
+  assert.ok(Math.abs(recovered.x - sourcePoint.x) < 1e-12);
+  assert.ok(Math.abs(recovered.y - sourcePoint.y) < 1e-12);
+  assert.equal(recovered.inside, true);
+});
+
+test("render demand quantizes one shared scale upward while preserving aspect", () => {
+  assert.deepEqual(
+    aspectPreservingRenderDemand(
+      { width: 2000, height: 1000 },
+      0.855,
+      { width: 8192, height: 8192 }
+    ),
+    { width: 1712, height: 856, scale: 0.856, limited: false }
+  );
+});
 
 test("relative Surface aspect is measured in its non-square Mapping world", () => {
   const corners = [
@@ -129,6 +165,19 @@ test("Test Pattern geometry remains proportional across raster resolutions", () 
   assert.ok(Math.abs(high.centerY / low.centerY - 3) < 1e-12);
   assert.ok(Math.abs(high.circleRadius / low.circleRadius - 3) < 1e-12);
   assert.ok(Math.abs(low.circleRadius / low.unit - high.circleRadius / high.unit) < 1e-12);
+});
+
+test("Test Pattern uses hard diagnostic edges instead of SDF smoothing", () => {
+  assert.doesNotMatch(TestPatternShaderSource, /smoothstep/);
+  assert.match(TestPatternShaderSource, /step\(field, 0\.0\)/);
+});
+
+test("Test Pattern resolution bands follow one- and two-pixel source periods", () => {
+  assert.match(TestPatternShaderSource, /0\.42\*resolution\.x\/1\.0/);
+  assert.match(TestPatternShaderSource, /0\.06\*resolution\.x\/1\.0/);
+  assert.match(TestPatternShaderSource, /0\.06\*resolution\.x\/2\.0/);
+  assert.match(TestPatternShaderSource, /0\.28\*resolution\.y\/1\.0/);
+  assert.match(TestPatternShaderSource, /0\.28\*resolution\.y\/2\.0/);
 });
 
 test("Test Pattern color-bar clipping stays inside its proportional circle", () => {
@@ -251,6 +300,57 @@ test("a rotated boundary stays boundary-sized and carries oriented composite geo
   assert.equal(request.roi.rotation, Math.PI / 4);
   assert.equal(request.logicalWidth, 250);
   assert.equal(request.logicalHeight, 125);
+});
+
+test("a covering axis-aligned source ROI renders on the consumer pixel grid", () => {
+  const boundary = {
+    x: -0.01921501128622675,
+    y: 0,
+    width: 1.0787603048142944,
+    height: 1.0787603048142944,
+    rotation: 0,
+  };
+  const parent = {
+    width: 1200,
+    height: 800,
+    logicalWidth: 1500,
+    logicalHeight: 1000,
+  };
+  const conservative = nodeRoiRequest(parent, boundary);
+  const aligned = nodeRoiRequest(parent, boundary, { consumerGrid: true });
+
+  assert.equal(conservative.width, 1201);
+  assert.equal(conservative.height, 801);
+  assert.equal(aligned.width, 1200);
+  assert.equal(aligned.height, 800);
+  assert.ok(Math.abs(aligned.roi.x) < 1e-9);
+  assert.ok(Math.abs(aligned.roi.y) < 1e-9);
+  assert.ok(Math.abs(aligned.roi.uvRect[2] - 1200 / aligned.roi.boundaryWidth) < 1e-12);
+  assert.ok(Math.abs(aligned.roi.uvRect[3] - 800 / aligned.roi.boundaryHeight) < 1e-12);
+
+  const view = renderView({ width: aligned.width, height: aligned.height }, aligned);
+  assert.ok(Math.abs(view.width - aligned.roi.boundaryWidth) < 1e-9);
+  assert.ok(Math.abs(view.height - aligned.roi.boundaryHeight) < 1e-9);
+});
+
+test("consumer-grid ROI retains conservative allocation for rotation and halos", () => {
+  const parent = { width: 1200, height: 800 };
+  const boundary = {
+    x: -0.01921501128622675,
+    y: 0,
+    width: 1.0787603048142944,
+    height: 1.0787603048142944,
+    rotation: 0.001,
+  };
+  const rotated = nodeRoiRequest(parent, boundary, { consumerGrid: true });
+  const haloed = nodeRoiRequest(parent, { ...boundary, rotation: 0 }, {
+    consumerGrid: true,
+    halo: 2,
+  });
+
+  assert.ok(rotated.width > parent.width || rotated.height > parent.height);
+  assert.ok(haloed.width > parent.width);
+  assert.ok(haloed.height > parent.height);
 });
 
 test("render evaluation distinguishes equal allocations showing different logical views", () => {
@@ -426,8 +526,8 @@ test("generic source demand follows visible mapped pixels and culls outside view
     viewport: { width: 1000, height: 600 },
     overscan: 1,
   });
-  assert.deepEqual(demand.rasterSize, { width: 800, height: 448 });
-  assert.deepEqual(demand.surfaceSize, { width: 400, height: 224 });
+  assert.deepEqual(demand.rasterSize, { width: 800, height: 450 });
+  assert.deepEqual(demand.surfaceSize, { width: 400, height: 225 });
 });
 
 test("generic source demand propagates an upstream sampling requirement", () => {
@@ -461,8 +561,8 @@ test("a small recording frame keeps mapped-surface detail independent from the s
     overscan: 1,
   });
 
-  assert.deepEqual(demand.rasterSize, { width: 1000, height: 496 });
-  assert.deepEqual(demand.surfaceSize, { width: 1008, height: 496 });
+  assert.deepEqual(demand.rasterSize, { width: 1000, height: 500 });
+  assert.deepEqual(demand.surfaceSize, { width: 1008, height: 504 });
   assert.ok(demand.surfaceSize.width > demand.rasterSize.width * 0.1);
 });
 
@@ -492,8 +592,93 @@ test("projective demand follows the longest edge instead of undersampling trapez
     overscan: 1,
   });
   assert.equal(demand.footprint.width, 800);
-  assert.deepEqual(demand.surfaceSize, { width: 960, height: 480 });
+  assert.deepEqual(demand.surfaceSize, { width: 976, height: 488 });
   assert.ok(demand.surfaceSize.width >= demand.footprint.width);
+});
+
+test("standalone cover demand cannot fall below its output-window axis", () => {
+  const demand = sourceRenderDemand({
+    logicalSize: { width: 2000, height: 1000 },
+    sampleRect: { x: 0, y: 0, width: 2000, height: 1000 },
+    maxRasterSize: { width: 8192, height: 8192 },
+    maxSurfaceSize: { width: 8192, height: 8192 },
+    corners: [
+      { x: -208.5, y: 0 },
+      { x: 1501.5, y: 0 },
+      { x: 1501.5, y: 855 },
+      { x: -208.5, y: 855 },
+    ],
+    viewport: { width: 1293, height: 855 },
+    pixelScale: 1,
+    preserveFullFootprint: true,
+    projectionFit: "cover",
+  });
+
+  assert.deepEqual(demand.rasterSize, { width: 1712, height: 856 });
+  assert.deepEqual(demand.surfaceSize, { width: 1712, height: 856 });
+  assert.ok(demand.rasterSize.height >= 855);
+});
+
+test("output viewport clipping is inverse-projected into one source ROI", () => {
+  const corners = [
+    { x: -200, y: 0 },
+    { x: 1400, y: 0 },
+    { x: 1400, y: 800 },
+    { x: -200, y: 800 },
+  ];
+  const viewport = { width: 1200, height: 800 };
+  const visibleUvRect = visibleSurfaceUvRect(corners, viewport);
+  assert.deepEqual(visibleUvRect, [0.125, 0, 0.75, 1]);
+
+  const demand = sourceRenderDemand({
+    logicalSize: { width: 2000, height: 1000 },
+    sampleRect: { x: 0, y: 0, width: 2000, height: 1000 },
+    maxRasterSize: { width: 8192, height: 8192 },
+    maxSurfaceSize: { width: 8192, height: 8192 },
+    corners,
+    viewport,
+    pixelScale: 1,
+    preserveFullFootprint: true,
+    projectionFit: "cover",
+    visibleUvRect,
+  });
+
+  assert.deepEqual(demand.rasterSize, { width: 1600, height: 800 });
+  assert.deepEqual(demand.viewportRegion, {
+    uvRect: [0.125, 0, 0.75, 1],
+    textureViewUv: [0.125, 0, 0.75, 1],
+    rasterSize: { width: 1200, height: 800 },
+    rasterScale: 0.8,
+  });
+});
+
+test("full-surface cover derives an exact output-grid source ROI", () => {
+  const corners = [
+    { x: 0, y: 0 },
+    { x: 1422, y: 0 },
+    { x: 1422, y: 554 },
+    { x: 0, y: 554 },
+  ];
+  const viewport = { width: 1422, height: 554 };
+  const visibleUvRect = visibleSurfaceUvRect(corners, viewport);
+  const demand = sourceRenderDemand({
+    logicalSize: { width: 2000, height: 1000 },
+    sampleRect: { x: 0, y: 0, width: 2000, height: 1000 },
+    maxRasterSize: { width: 8192, height: 8192 },
+    maxSurfaceSize: { width: 8192, height: 8192 },
+    corners,
+    viewport,
+    pixelScale: 1,
+    preserveFullFootprint: true,
+    projectionFit: "cover",
+    visibleUvRect,
+  });
+
+  assert.deepEqual(demand.viewportRegion.rasterSize, viewport);
+  assert.equal(demand.viewportRegion.textureViewUv[0], 0);
+  assert.equal(demand.viewportRegion.textureViewUv[2], 1);
+  assert.ok(demand.viewportRegion.textureViewUv[1] > 0);
+  assert.ok(demand.viewportRegion.textureViewUv[3] < 1);
 });
 
 test("surface demand retains both cover crops in a two-stage live component route", () => {

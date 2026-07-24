@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
-import { OutputRenderer } from "./output-renderer.js?v=compiled-artifact-authority-runtime-visual-sources-2";
-import { renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
+import { OutputRenderer } from "./output-renderer.js?v=video-loop-drawability-1";
+import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderPresentationFrameRate } from "../domain/render-settings.js?v=pixel-density-4";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js?v=cursor-anchored-zoom-1";
@@ -525,9 +525,9 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       viewport: previewViewportForUi(state.ui),
       render: state.render || {},
     });
-    const deviceScale = Math.max(1, Math.min(2, Number(window.devicePixelRatio) || 1));
+    const deviceScale = Math.max(1, Math.min(MAX_PIXEL_DENSITY, Number(window.devicePixelRatio) || 1));
     const displayScale = Math.min(size.width / logical.width, size.height / logical.height, 1);
-    const configuredDensity = Math.max(0.5, Math.min(2, Number(state.render?.pixelDensity) || 1));
+    const configuredDensity = normalizePixelDensity(state.render?.pixelDensity);
     const previewQuality = ["auto", "good", "low"].includes(state.ui?.previewQuality)
       ? state.ui.previewQuality
       : "good";
@@ -969,8 +969,8 @@ export function mediaFilesSignatureFor(entries = []) {
 }
 
 export function previewRasterDensity({ configuredDensity = 1, displayScale = 1, deviceScale = 1, quality = "auto" } = {}) {
-  const configured = Math.max(0.5, Math.min(2, Number(configuredDensity) || 1));
-  const nativeDisplay = Math.max(1, Math.min(2, Number(deviceScale) || 1));
+  const configured = normalizePixelDensity(configuredDensity);
+  const nativeDisplay = Math.max(1, Math.min(MAX_PIXEL_DENSITY, Number(deviceScale) || 1));
   const good = Math.max(configured, nativeDisplay);
   if (quality === "good" || quality === "full") return good;
   const automatic = Math.min(configured, Math.max(0.125, Number(displayScale) * Number(deviceScale) || 0.125));

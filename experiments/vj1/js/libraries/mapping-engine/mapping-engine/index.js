@@ -1,10 +1,16 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
 import { projectedQuadAspect } from "../../render-engine/relative-geometry.js?v=frame-projection-aspect-1";
 import {
+  fitModeCode,
+  fitTargetUvToSourceUvShaderSource,
+} from "../../render-engine/fit-geometry/index.js?v=fit-geometry-1";
+import {
   DissolveTransitionKernel,
   transitionKernelCacheKey,
   transitionKernelUniformValues,
 } from "../../transition-engine/index.js";
+
+const visibleSurfaceUvRectCache = new WeakMap();
 
 export class VjMapper {
   constructor({ onConfigChange, onTransitionError } = {}) {
@@ -187,12 +193,17 @@ export class VjMapper {
         }
         const options = item.options || {};
         const sourceRect = normalizedSourceRect(texture, options.sourceRect);
+        const textureViewUv = normalizedUvRect(options.textureViewUv);
         const sourceWidth = sourceRect[2] * Math.max(1, Number(texture.width) || 1);
         const sourceHeight = sourceRect[3] * Math.max(1, Number(texture.height) || 1);
         shaderProgram.setUniform("tex", texture?.framebuffer || texture);
         shaderProgram.setUniform("uHinv", cache.Hc);
         shaderProgram.setUniform("uSourceRect", sourceRect);
-        shaderProgram.setUniform("uSourceAspect", Math.max(0.0001, sourceWidth / Math.max(1, sourceHeight)));
+        shaderProgram.setUniform("uTextureView", textureViewUv);
+        shaderProgram.setUniform("uSourceAspect", Math.max(
+          0.0001,
+          Number(options.logicalSourceAspect) || sourceWidth / Math.max(1, sourceHeight)
+        ));
         shaderProgram.setUniform("uTargetAspect", cache.targetAspect);
         shaderProgram.setUniform("uProjectionFit", projectionFitMode(item.projectionFit));
         const sourceFitActive = options.sourceFitActive === true;
@@ -610,6 +621,7 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
       precision highp float;
       uniform sampler2D tex;
       uniform vec4 uSourceRect;
+      uniform vec4 uTextureView;
       uniform float uSourceAspect;
       uniform float uTargetAspect;
       uniform float uProjectionFit;
@@ -620,6 +632,7 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
       ${featherUniform}
       varying vec3 vProjectiveUv;
       ${featherFunction}
+      ${fitTargetUvToSourceUvShaderSource()}
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
@@ -627,40 +640,23 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
         vec2 sampleUv = uv;
         float inside = 1.0;
         float projectionSourceAspect = uUseSourceFit ? uSourceTargetAspect : uSourceAspect;
-        if (uProjectionFit > 0.5 && uProjectionFit < 1.5) {
-          if (projectionSourceAspect > uTargetAspect) {
-            sourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / projectionSourceAspect);
-          } else {
-            sourceTargetUv.y = 0.5 + (uv.y - 0.5) * (projectionSourceAspect / uTargetAspect);
-          }
-        } else if (uProjectionFit >= 1.5) {
-          if (projectionSourceAspect > uTargetAspect) {
-            sourceTargetUv.y = 0.5 + (uv.y - 0.5) * (projectionSourceAspect / uTargetAspect);
-          } else {
-            sourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / projectionSourceAspect);
-          }
-          inside = step(0.0, sourceTargetUv.x) * step(sourceTargetUv.x, 1.0) *
-            step(0.0, sourceTargetUv.y) * step(sourceTargetUv.y, 1.0);
-        }
+        vec3 projectionFit = vj1FitTargetUvToSourceUv(uv, projectionSourceAspect, uTargetAspect, uProjectionFit);
+        sourceTargetUv = projectionFit.xy;
+        inside = projectionFit.z;
         sampleUv = sourceTargetUv;
         if (uUseSourceFit) {
-          if (uSourceFit > 0.5 && uSourceFit < 1.5) {
-            if (uSourceAspect > uSourceTargetAspect) {
-              sampleUv.x = 0.5 + (sourceTargetUv.x - 0.5) * (uSourceTargetAspect / uSourceAspect);
-            } else {
-              sampleUv.y = 0.5 + (sourceTargetUv.y - 0.5) * (uSourceAspect / uSourceTargetAspect);
-            }
-          } else if (uSourceFit >= 1.5) {
-            if (uSourceAspect > uSourceTargetAspect) {
-              sampleUv.y = 0.5 + (sourceTargetUv.y - 0.5) * (uSourceAspect / uSourceTargetAspect);
-            } else {
-              sampleUv.x = 0.5 + (sourceTargetUv.x - 0.5) * (uSourceTargetAspect / uSourceAspect);
-            }
-            inside *= step(0.0, sampleUv.x) * step(sampleUv.x, 1.0) *
-              step(0.0, sampleUv.y) * step(sampleUv.y, 1.0);
-          }
+          vec3 sourceFit = vj1FitTargetUvToSourceUv(sourceTargetUv, uSourceAspect, uSourceTargetAspect, uSourceFit);
+          sampleUv = sourceFit.xy;
+          inside *= sourceFit.z;
         }
-        vec2 textureUv = uSourceRect.xy + clamp(sampleUv, vec2(0.0), vec2(1.0)) * uSourceRect.zw;
+        float viewInside =
+          step(uTextureView.x, sampleUv.x) *
+          step(sampleUv.x, uTextureView.x + uTextureView.z) *
+          step(uTextureView.y, sampleUv.y) *
+          step(sampleUv.y, uTextureView.y + uTextureView.w);
+        inside *= viewInside;
+        vec2 viewUv = (sampleUv - uTextureView.xy) / max(uTextureView.zw, vec2(1e-9));
+        vec2 textureUv = uSourceRect.xy + clamp(viewUv, vec2(0.0), vec2(1.0)) * uSourceRect.zw;
         vec4 color = texture2D(tex, textureUv) * inside * uOpacity;
         ${featherCode}
         gl_FragColor = color;
@@ -717,6 +713,7 @@ export function mapperTransitionFragmentShaderSource({
       varying vec3 vProjectiveUv;
       ${featherFunction}
       ${transitionKernel?.source || DissolveTransitionKernel.source}
+      ${fitTargetUvToSourceUvShaderSource()}
       void main() {
         float w = abs(vProjectiveUv.z) > 1e-6 ? vProjectiveUv.z : 1e-6;
         vec2 uv = clamp(vProjectiveUv.xy / w, vec2(0.0), vec2(1.0));
@@ -724,76 +721,28 @@ export function mapperTransitionFragmentShaderSource({
         vec2 fromSourceTargetUv = uv;
         vec2 fromUv = uv;
         float fromInside = 1.0;
-        if (uFromProjectionFit > 0.5 && uFromProjectionFit < 1.5) {
-          if (fromProjectionSourceAspect > uTargetAspect) {
-            fromSourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / fromProjectionSourceAspect);
-          } else {
-            fromSourceTargetUv.y = 0.5 + (uv.y - 0.5) * (fromProjectionSourceAspect / uTargetAspect);
-          }
-        } else if (uFromProjectionFit >= 1.5) {
-          if (fromProjectionSourceAspect > uTargetAspect) {
-            fromSourceTargetUv.y = 0.5 + (uv.y - 0.5) * (fromProjectionSourceAspect / uTargetAspect);
-          } else {
-            fromSourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / fromProjectionSourceAspect);
-          }
-          fromInside = step(0.0, fromSourceTargetUv.x) * step(fromSourceTargetUv.x, 1.0) *
-            step(0.0, fromSourceTargetUv.y) * step(fromSourceTargetUv.y, 1.0);
-        }
+        vec3 fromProjectionFit = vj1FitTargetUvToSourceUv(uv, fromProjectionSourceAspect, uTargetAspect, uFromProjectionFit);
+        fromSourceTargetUv = fromProjectionFit.xy;
+        fromInside = fromProjectionFit.z;
         fromUv = fromSourceTargetUv;
         if (uFromUseSourceFit) {
-          if (uFromSourceFit > 0.5 && uFromSourceFit < 1.5) {
-            if (uFromSourceAspect > uFromSourceTargetAspect) {
-              fromUv.x = 0.5 + (fromSourceTargetUv.x - 0.5) * (uFromSourceTargetAspect / uFromSourceAspect);
-            } else {
-              fromUv.y = 0.5 + (fromSourceTargetUv.y - 0.5) * (uFromSourceAspect / uFromSourceTargetAspect);
-            }
-          } else if (uFromSourceFit >= 1.5) {
-            if (uFromSourceAspect > uFromSourceTargetAspect) {
-              fromUv.y = 0.5 + (fromSourceTargetUv.y - 0.5) * (uFromSourceAspect / uFromSourceTargetAspect);
-            } else {
-              fromUv.x = 0.5 + (fromSourceTargetUv.x - 0.5) * (uFromSourceTargetAspect / uFromSourceAspect);
-            }
-            fromInside *= step(0.0, fromUv.x) * step(fromUv.x, 1.0) *
-              step(0.0, fromUv.y) * step(fromUv.y, 1.0);
-          }
+          vec3 fromSourceFit = vj1FitTargetUvToSourceUv(fromSourceTargetUv, uFromSourceAspect, uFromSourceTargetAspect, uFromSourceFit);
+          fromUv = fromSourceFit.xy;
+          fromInside *= fromSourceFit.z;
         }
 
         float toProjectionSourceAspect = uToUseSourceFit ? uToSourceTargetAspect : uToSourceAspect;
         vec2 toSourceTargetUv = uv;
         vec2 toUv = uv;
         float toInside = 1.0;
-        if (uToProjectionFit > 0.5 && uToProjectionFit < 1.5) {
-          if (toProjectionSourceAspect > uTargetAspect) {
-            toSourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / toProjectionSourceAspect);
-          } else {
-            toSourceTargetUv.y = 0.5 + (uv.y - 0.5) * (toProjectionSourceAspect / uTargetAspect);
-          }
-        } else if (uToProjectionFit >= 1.5) {
-          if (toProjectionSourceAspect > uTargetAspect) {
-            toSourceTargetUv.y = 0.5 + (uv.y - 0.5) * (toProjectionSourceAspect / uTargetAspect);
-          } else {
-            toSourceTargetUv.x = 0.5 + (uv.x - 0.5) * (uTargetAspect / toProjectionSourceAspect);
-          }
-          toInside = step(0.0, toSourceTargetUv.x) * step(toSourceTargetUv.x, 1.0) *
-            step(0.0, toSourceTargetUv.y) * step(toSourceTargetUv.y, 1.0);
-        }
+        vec3 toProjectionFit = vj1FitTargetUvToSourceUv(uv, toProjectionSourceAspect, uTargetAspect, uToProjectionFit);
+        toSourceTargetUv = toProjectionFit.xy;
+        toInside = toProjectionFit.z;
         toUv = toSourceTargetUv;
         if (uToUseSourceFit) {
-          if (uToSourceFit > 0.5 && uToSourceFit < 1.5) {
-            if (uToSourceAspect > uToSourceTargetAspect) {
-              toUv.x = 0.5 + (toSourceTargetUv.x - 0.5) * (uToSourceTargetAspect / uToSourceAspect);
-            } else {
-              toUv.y = 0.5 + (toSourceTargetUv.y - 0.5) * (uToSourceAspect / uToSourceTargetAspect);
-            }
-          } else if (uToSourceFit >= 1.5) {
-            if (uToSourceAspect > uToSourceTargetAspect) {
-              toUv.y = 0.5 + (toSourceTargetUv.y - 0.5) * (uToSourceAspect / uToSourceTargetAspect);
-            } else {
-              toUv.x = 0.5 + (toSourceTargetUv.x - 0.5) * (uToSourceTargetAspect / uToSourceAspect);
-            }
-            toInside *= step(0.0, toUv.x) * step(toUv.x, 1.0) *
-              step(0.0, toUv.y) * step(toUv.y, 1.0);
-          }
+          vec3 toSourceFit = vj1FitTargetUvToSourceUv(toSourceTargetUv, uToSourceAspect, uToSourceTargetAspect, uToSourceFit);
+          toUv = toSourceFit.xy;
+          toInside *= toSourceFit.z;
         }
 
         vec2 fromTextureUv = uFromSourceRect.xy + clamp(fromUv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw;
@@ -808,9 +757,7 @@ export function mapperTransitionFragmentShaderSource({
 }
 
 export function projectionFitMode(value = "cover") {
-  if (value === "stretch") return 0;
-  if (value === "contain") return 2;
-  return 1;
+  return fitModeCode(value);
 }
 
 export function normalizedSourceRect(texture = {}, rect = null) {
@@ -822,6 +769,18 @@ export function normalizedSourceRect(texture = {}, rect = null) {
   const rectWidth = Math.max(1, Math.min(width - x, Number(rect.width) || width));
   const rectHeight = Math.max(1, Math.min(height - y, Number(rect.height) || height));
   return [x / width, y / height, rectWidth / width, rectHeight / height];
+}
+
+function normalizedUvRect(value = null) {
+  if (!Array.isArray(value) || value.length < 4) return [0, 0, 1, 1];
+  const width = Math.max(1e-9, Math.min(1, Number(value[2]) || 1));
+  const height = Math.max(1e-9, Math.min(1, Number(value[3]) || 1));
+  return [
+    Math.max(0, Math.min(1 - width, Number(value[0]) || 0)),
+    Math.max(0, Math.min(1 - height, Number(value[1]) || 0)),
+    width,
+    height,
+  ];
 }
 
 export function surfaceQuadVertices(corners, canvasWidth, canvasHeight) {
@@ -963,6 +922,101 @@ export function projectSurfaceUv(corners = [], point = {}) {
   return { x: qx / qz, y: qy / qz };
 }
 
+// Return the conservative Surface-UV window that can contribute to one host
+// viewport. The clipped screen polygon is inverse-projected through the same
+// homography used by the mapper, so render demand and presentation cannot
+// disagree about which source pixels are visible.
+export function visibleSurfaceUvRect(corners = [], viewport = {}) {
+  if (!Array.isArray(corners) || corners.length !== 4) return null;
+  const width = Math.max(1, Number(viewport.width) || 1);
+  const height = Math.max(1, Number(viewport.height) || 1);
+  const cached = visibleSurfaceUvRectCache.get(corners);
+  let cacheMatches = cached?.width === width && cached?.height === height;
+  for (let index = 0; cacheMatches && index < corners.length; index++) {
+    const point = corners[index];
+    cacheMatches = cached.coordinates[index * 2] === (Number(point?.x) || 0)
+      && cached.coordinates[index * 2 + 1] === (Number(point?.y) || 0);
+  }
+  if (cacheMatches) return cached.value;
+  const cacheEntry = {
+    width,
+    height,
+    coordinates: corners.flatMap((point) => [
+      Number(point?.x) || 0,
+      Number(point?.y) || 0,
+    ]),
+    value: null,
+  };
+  let polygon = normalizeCorners(corners);
+  polygon = clipPolygonAxis(polygon, "x", 0, true);
+  polygon = clipPolygonAxis(polygon, "x", width, false);
+  polygon = clipPolygonAxis(polygon, "y", 0, true);
+  polygon = clipPolygonAxis(polygon, "y", height, false);
+  if (polygon.length < 3) {
+    visibleSurfaceUvRectCache.set(corners, cacheEntry);
+    return null;
+  }
+  const inverse = invert3x3(computeHomography(...corners));
+  if (!inverse) {
+    visibleSurfaceUvRectCache.set(corners, cacheEntry);
+    return null;
+  }
+  const uvPoints = polygon.map((point) => projectPoint(inverse, point)).filter(Boolean);
+  if (uvPoints.length < 3) {
+    visibleSurfaceUvRectCache.set(corners, cacheEntry);
+    return null;
+  }
+  const left = clamp01(Math.min(...uvPoints.map((point) => point.x)));
+  const top = clamp01(Math.min(...uvPoints.map((point) => point.y)));
+  const right = clamp01(Math.max(...uvPoints.map((point) => point.x)));
+  const bottom = clamp01(Math.max(...uvPoints.map((point) => point.y)));
+  if (right - left <= 1e-9 || bottom - top <= 1e-9) {
+    visibleSurfaceUvRectCache.set(corners, cacheEntry);
+    return null;
+  }
+  const value = Object.freeze([left, top, right - left, bottom - top]);
+  cacheEntry.value = value;
+  visibleSurfaceUvRectCache.set(corners, cacheEntry);
+  return value;
+}
+
+function clipPolygonAxis(polygon = [], axis = "x", boundary = 0, keepGreater = true) {
+  if (!polygon.length) return [];
+  const inside = (point) => keepGreater
+    ? Number(point[axis]) >= boundary
+    : Number(point[axis]) <= boundary;
+  const output = [];
+  for (let index = 0; index < polygon.length; index++) {
+    const current = polygon[index];
+    const previous = polygon[(index + polygon.length - 1) % polygon.length];
+    const currentInside = inside(current);
+    const previousInside = inside(previous);
+    if (currentInside !== previousInside) {
+      const delta = Number(current[axis]) - Number(previous[axis]);
+      if (Math.abs(delta) > 1e-12) {
+        const amount = (boundary - Number(previous[axis])) / delta;
+        output.push({
+          x: Number(previous.x) + (Number(current.x) - Number(previous.x)) * amount,
+          y: Number(previous.y) + (Number(current.y) - Number(previous.y)) * amount,
+        });
+      }
+    }
+    if (currentInside) output.push(current);
+  }
+  return output;
+}
+
+function projectPoint(matrix = [], point = {}) {
+  const x = Number(point.x);
+  const y = Number(point.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+  const qx = matrix[0] * x + matrix[1] * y + matrix[2];
+  const qy = matrix[3] * x + matrix[4] * y + matrix[5];
+  const qz = matrix[6] * x + matrix[7] * y + matrix[8];
+  if (!Number.isFinite(qz) || Math.abs(qz) < 1e-9) return null;
+  return { x: qx / qz, y: qy / qz };
+}
+
 function solve8(matrix, values) {
   const work = matrix.map((row) => row.slice());
   const y = values.slice();
@@ -1016,6 +1070,10 @@ function invert3x3(matrix) {
   if (Math.abs(det) < 1e-9) return null;
   const invDet = 1 / det;
   return [A * invDet, D * invDet, G * invDet, B * invDet, E * invDet, H * invDet, C * invDet, F * invDet, I * invDet];
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, Number(value) || 0));
 }
 
 export const MappingEngineNode = defineNode({

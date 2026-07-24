@@ -2,13 +2,13 @@ import { normalizeParamValues } from "../libraries/visual-nodes/shared/component
 import {
   VISUAL_SOURCE_RENDERERS,
   visualSourceRenderer,
-} from "../libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
+} from "../libraries/composition-engine/index.js?v=fit-geometry-demand-1";
 import {
   createPlacedRenderResult,
   transformedPlacementDemandRect,
 } from "../graph/placed-render-result.js?v=atomic-video-seek-1";
 import { drawStandby as drawStandbyDiagnostic } from "./generators.js?v=compiled-code-sources-1";
-import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=gapless-video-loop-1";
+import { drawCover, drawMediaFit, isDrawableMedia } from "./media-utils.js?v=fit-geometry-demand-1";
 import { mediaSourceFit } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import {
   combineContentTransforms,
@@ -40,11 +40,11 @@ import {
   componentReferenceCount,
   componentReferencePlacement,
   componentReferencePrefersSharedTexture,
-  componentReferenceRegionRequest,
   componentReferenceRenderRequest,
+  componentReferenceVisibleRenderRequest,
   componentRenderInstanceKey,
   fullTargetRect,
-} from "./component-render-layout.js?v=transition-demand-stability-compiled-reference-count-1";
+} from "./component-render-layout.js?v=nested-component-roi-1";
 
 const SOURCE_RUNTIME_METHODS = Object.freeze({
   [VISUAL_SOURCE_RENDERERS.COMPONENT]: "drawComponentReferenceSource",
@@ -252,15 +252,31 @@ export class SourceRenderRuntime {
       referenceCount,
       fullSourceRequest,
     );
-    const visibleRegion = renderRequest.regionView === true
-      && !preferSharedTexture
+    // ROI is a property of the child placement inside its consumer, not of
+    // whether the consumer itself happens to be a regional request. A normal
+    // full-Scene request must still discard the scaled child area outside the
+    // Scene or an off-screen placement can allocate the entire 8K child.
+    const candidateVisibleRegion = !preferSharedTexture
       && host.componentRegionSafe(sourceComponent)
       ? transformedRectVisibleRegion(coordinateFrame, placement, placementTransform, viewport)
       : null;
+    // A completely visible child retains the ordinary full request and its
+    // stable-cache eligibility. ROI is only introduced when it actually
+    // removes invisible source pixels.
+    const visibleRegion = isPartialUvRect(candidateVisibleRegion?.uvRect)
+      ? candidateVisibleRegion
+      : null;
     const sourceRequest = visibleRegion
-      ? componentReferenceRegionRequest(fullSourceRequest, visibleRegion.uvRect, {
+      ? componentReferenceVisibleRenderRequest(
+        host.state.render,
+        sourceComponent,
+        demandRect,
+        visibleRegion.uvRect,
+        {
           reason: "component-reference-region",
-        })
+          renderIdentity,
+        }
+      )
       : fullSourceRequest;
     const sourceOutput = host.renderComponentForRequest(
       sourceComponent,
@@ -695,6 +711,14 @@ function rectsIntersect(left = {}, right = {}) {
     && leftX + Math.max(0, Number(left.width) || 0) > rightX
     && leftY < rightY + Math.max(0, Number(right.height) || 0)
     && leftY + Math.max(0, Number(left.height) || 0) > rightY;
+}
+
+function isPartialUvRect(value) {
+  if (!Array.isArray(value) || value.length < 4) return false;
+  return Math.abs(Number(value[0]) || 0) > 1e-9 ||
+    Math.abs(Number(value[1]) || 0) > 1e-9 ||
+    Math.abs((Number(value[2]) || 0) - 1) > 1e-9 ||
+    Math.abs((Number(value[3]) || 0) - 1) > 1e-9;
 }
 
 function sourceDiagnosticKey(component = {}, source = {}, operation = null) {

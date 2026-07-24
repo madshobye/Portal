@@ -1,9 +1,9 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-1-scene-mapping-default-selection-runtime-visual-sources-1";
+import { sanitizeState } from "../domain/models.js?v=pixel-density-4";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=screen-input-registry-1";
 import { createOutputBridge } from "../services/output-bridge-service.js?v=thumbnail-url-lifecycle-1-scene-mapping-default-selection-1";
-import { OutputRenderer } from "./output-renderer.js?v=compiled-artifact-authority-runtime-visual-sources-2";
+import { OutputRenderer } from "./output-renderer.js?v=video-loop-drawability-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=output-one-1";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";

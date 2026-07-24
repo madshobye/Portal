@@ -1,5 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
 import { numberType, optionalType, recordType, valueType } from "../../node-engine/node-types.js";
+import { fitScale } from "../../render-engine/fit-geometry/index.js?v=fit-geometry-1";
 
 export const MAX_CPU_RESIZE_PIXELS = 4_194_304;
 
@@ -88,7 +89,7 @@ export const ImageResizeNode = defineNode({
       editable: true,
       module: import.meta.url,
       exports: ["resizeRasterImage", "resizePlan"],
-      source: [resizeRasterImage, resizePlan, pixel, positiveDimension, positiveChannels, clampIndex, identityTransform2d]
+      source: [fitScale, resizeRasterImage, resizePlan, pixel, positiveDimension, positiveChannels, clampIndex, identityTransform2d]
         .map((fn) => fn.toString()).join("\n\n"),
     },
     {
@@ -174,9 +175,11 @@ export function resizePlan(sourceWidth, sourceHeight, requestedWidth, requestedH
   if (fit === "stretch") {
     return { width: requestedWidth, height: requestedHeight, sourceX: 0, sourceY: 0, sourceWidth, sourceHeight };
   }
-  const scale = fit === "cover"
-    ? Math.max(requestedWidth / sourceWidth, requestedHeight / sourceHeight)
-    : Math.min(requestedWidth / sourceWidth, requestedHeight / sourceHeight);
+  const scale = fitScale(
+    { width: sourceWidth, height: sourceHeight },
+    { width: requestedWidth, height: requestedHeight },
+    fit
+  ).x;
   if (fit === "contain") {
     return {
       width: Math.max(1, Math.round(sourceWidth * scale)),

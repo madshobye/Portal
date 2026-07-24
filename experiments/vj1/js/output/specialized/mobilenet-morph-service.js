@@ -4,6 +4,7 @@ import {
   matchMobileNetFeatures,
   mobileNetMorphFieldForStrategy,
 } from "../../libraries/visual-nodes/generators/feature-morph-v2/analysis.js?v=node-program-hooks-15";
+import { fitOverflowDestination } from "../../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
 
 export {
   buildMobileNetMorphField,
@@ -440,13 +441,13 @@ function drawFittedImage(canvas, image, fit = "cover") {
     context.drawImage(drawable, 0, 0, ANALYSIS_SIZE, ANALYSIS_SIZE);
     return;
   }
-  const sourceAspect = sourceWidth / sourceHeight;
-  const scale = fit === "contain"
-    ? Math.min(ANALYSIS_SIZE / sourceWidth, ANALYSIS_SIZE / sourceHeight)
-    : Math.max(ANALYSIS_SIZE / sourceWidth, ANALYSIS_SIZE / sourceHeight);
-  const width = sourceWidth * scale;
-  const height = sourceHeight * scale;
-  context.drawImage(drawable, (ANALYSIS_SIZE - width) * 0.5, (ANALYSIS_SIZE - height) * 0.5, width, height);
+  const fitted = fitOverflowDestination(
+    { x: 0, y: 0, width: sourceWidth, height: sourceHeight },
+    { x: 0, y: 0, width: ANALYSIS_SIZE, height: ANALYSIS_SIZE },
+    fit
+  );
+  const destination = fitted.destination;
+  context.drawImage(drawable, destination.x, destination.y, destination.width, destination.height);
 }
 
 function normalizeDescriptor(values) {

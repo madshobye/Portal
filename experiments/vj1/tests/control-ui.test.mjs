@@ -1042,6 +1042,12 @@ test("all embedded previews share automatic, native-density Good, and reduced Lo
   assert.equal(previewRasterDensity({ ...options, quality: "low" }), 0.5);
   assert.equal(previewRasterDensity({ ...options, quality: "good" }), 2);
   assert.equal(previewRasterDensity({ ...options, quality: "high" }), 1);
+  assert.equal(previewRasterDensity({
+    configuredDensity: 4,
+    displayScale: 1,
+    deviceScale: 4,
+    quality: "good",
+  }), 4);
 });
 
 test("preview resolution controls reserve invariant space while labels and metrics change", () => {

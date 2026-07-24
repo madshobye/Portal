@@ -1,4 +1,4 @@
-import { normalizeRenderSettings, RESOLUTION_CEILING_PRESETS } from "../domain/render-settings.js?v=projector-resolution-ceilings-1";
+import { MAX_PIXEL_DENSITY, normalizeRenderSettings, RESOLUTION_CEILING_PRESETS } from "../domain/render-settings.js?v=pixel-density-4";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
 import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
 
@@ -98,7 +98,7 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="settings-group">
           <div class="settings-group-title"><span class="material-symbols-rounded">speed</span><span>Performance</span></div>
           <label class="field">Maximum frame rate <input type="number" min="1" max="120" step="1" data-settings-update="render.maxFrameRate" value="${render.maxFrameRate}" /></label>
-          <label class="field">Pixel density <input type="number" min="0.5" max="2" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
+          <label class="field">Pixel density <input type="number" min="0.5" max="${MAX_PIXEL_DENSITY}" step="0.25" data-settings-update="render.pixelDensity" value="${render.pixelDensity}" /></label>
           <div class="soft-note">Caps both embedded previews and standalone output windows. Lower values reduce render, video-upload, and CPU scheduling pressure.</div>
           </div>
           <div class="settings-group">

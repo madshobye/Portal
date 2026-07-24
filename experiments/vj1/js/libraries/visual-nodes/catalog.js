@@ -32,7 +32,7 @@ import GeneratorSunRays from "./generators/sun-rays/index.js";
 import GeneratorSwayingTrees from "./generators/swaying-trees/index.js";
 import GeneratorTerrainFlyover from "./generators/terrain-flyover/index.js?v=semantic-terrain-node-ownership-1";
 import GeneratorExpressiveRibbonBrush from "./generators/expressive-ribbon-brush/index.js";
-import GeneratorTestPattern from "./generators/test-pattern/index.js?v=procedural-2d-1";
+import GeneratorTestPattern from "./generators/test-pattern/index.js?v=pixel-diagnostics-1";
 import GeneratorText from "./generators/text/index.js?v=text-mask-readback-1";
 import GeneratorTileTexture from "./generators/tile-texture/index.js?v=source-roi-view-3";
 import GeneratorVolumetricClouds from "./generators/volumetric-clouds/index.js";

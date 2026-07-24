@@ -7,7 +7,7 @@ import {
   OutputMediaRuntime,
   VIDEO_IDLE_GRACE_FRAMES,
 } from "../js/output/output-media-runtime.js";
-import { syncVideoPlayback } from "../js/output/media-utils.js?v=atomic-video-seek-1";
+import { acceptVideoDecodedFrame, syncVideoPlayback } from "../js/output/media-utils.js?v=decoded-frame-drawability-1";
 import { OutputThumbnailRuntime } from "../js/output/output-thumbnail-runtime.js";
 import { mediaSourceDemandSize, mediaSourceDemandWidth, OutputRenderer } from "../js/output/output-renderer.js";
 import { createControlBridge, createOutputBridge } from "../js/services/output-bridge-service.js";
@@ -441,6 +441,9 @@ test("video import stays metadata-only until an active render acquires it", () =
     playsInline: false,
     preload: "",
     currentTime: 0,
+    readyState: 4,
+    videoWidth: 1920,
+    videoHeight: 1080,
     addEventListener() {},
     setAttribute(name, value) { attributes.set(name, value); },
     requestVideoFrameCallback(callback) {
@@ -655,6 +658,35 @@ test("video playback enforces the authored end on the media clock", () => {
   element.currentTime = 4;
   listeners.get("timeupdate")();
   assert.equal(element.currentTime, 2, "the authored end loops directly to the authored start");
+});
+
+test("loop restart does not publish a decoded revision until the video is drawable", () => {
+  const element = {
+    tagName: "VIDEO",
+    paused: false,
+    duration: 10,
+    currentTime: 3.95,
+    playbackRate: 1,
+    loop: false,
+    seeking: false,
+    readyState: 1,
+    videoWidth: 1920,
+    videoHeight: 1080,
+    addEventListener() {},
+  };
+  syncVideoPlayback({ elt: element }, { start: 1, end: 4, speed: 1 });
+  assert.equal(element.currentTime, 1);
+  assert.equal(
+    acceptVideoDecodedFrame(element, 1),
+    false,
+    "the retained pre-seek texture remains authoritative during a readyState dip",
+  );
+  element.readyState = 2;
+  assert.equal(
+    acceptVideoDecodedFrame(element, 1),
+    true,
+    "the loop-start frame publishes once the renderer can draw it",
+  );
 });
 
 test("full-length video loops before the decoder exposes its exhausted surface", () => {

@@ -36,12 +36,12 @@ import {
 import { CacheEngineNode } from "./libraries/cache-engine/index.js";
 import { DataStoreNode } from "./libraries/data-store/index.js";
 import { DiagnosticsEngineNode } from "./libraries/diagnostics-engine/index.js";
-import { ImageResizeNode } from "./libraries/image-engine/index.js";
+import { ImageResizeNode } from "./libraries/image-engine/index.js?v=nested-component-roi-1";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./libraries/timing-engine/index.js";
 import { NestedNoiseMotionNode, OrbitMotionNode } from "./libraries/motion-engine/index.js";
 import { TerrainFlightControllerNode } from "./libraries/terrain-engine/index.js?v=semantic-terrain-contract-4";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
-import { SceneFrameGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
+import { SceneFrameGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=nested-component-roi-1";
 import {
   COMPONENT_PROGRAM_GENERATOR,
   ComponentProgramNode,
@@ -52,7 +52,7 @@ import {
   compileVisualRenderPlan,
   componentProgramInstances,
   reconcileComponentGroupTopology,
-} from "./libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
+} from "./libraries/composition-engine/index.js?v=nested-component-roi-1";
 import {
   MAPPING_PROGRAM_GENERATOR,
   OutputProgramNode,
@@ -62,7 +62,7 @@ import {
   compileMappingGroupTopology,
   compileReachableProgramGraph,
   mappingProgramInstances,
-} from "./libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
+} from "./libraries/composition-engine/index.js?v=nested-component-roi-1";
 import {
   APPLICATION_PROGRAM_GENERATOR,
   ApplicationProgramRuntime,
@@ -70,7 +70,7 @@ import {
   applicationProgramInstances,
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
-} from "./libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
+} from "./libraries/composition-engine/index.js?v=nested-component-roi-1";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";

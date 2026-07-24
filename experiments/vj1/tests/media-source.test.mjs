@@ -1298,6 +1298,40 @@ test("output accepts an immediate Live Scene cut without waiting behind media pr
   assert.equal(shouldPrepareLiveSceneState(requested, current, "output"), false);
 });
 
+test("output prepares an incoming Live Scene with that Scene's compiled program", () => {
+  const child = createDefaultComponent(0, { empty: true });
+  const currentScene = createSceneComponent(0, child.id);
+  const incomingScene = createSceneComponent(1, child.id);
+  const current = createInitialState();
+  current.components = [child, currentScene, incomingScene];
+  current.surfaces = [{
+    ...current.surfaces[0],
+    enabled: true,
+    componentId: currentScene.id,
+    sourceNodeId: sceneSourceNodeId(currentScene.id),
+  }];
+  const incoming = structuredClone(current);
+  incoming.ui.live.selectedSceneId = incomingScene.id;
+  incoming.ui.live.selectedComponentId = incomingScene.id;
+  incoming.surfaces = [{
+    ...incoming.surfaces[0],
+    componentId: incomingScene.id,
+    sourceNodeId: sceneSourceNodeId(incomingScene.id),
+  }];
+
+  const renderer = new OutputRenderer({ mode: "output" });
+  renderer.state = current;
+  renderer.rebuildVisualNodeResolver();
+  renderer.rebuildComponentPrograms();
+  renderer.rebuildRouteLookups();
+
+  assert.equal(renderer.componentPrograms.has(currentScene.id), true);
+  assert.equal(renderer.componentPrograms.has(incomingScene.id), false);
+  assert.doesNotThrow(() => renderer.prepareOutputState(incoming));
+  renderer.clearPreparedOutputState();
+  renderer.dispose();
+});
+
 test("output Scene identity follows Live rather than editor selection", () => {
   const state = createInitialState();
   state.ui.selectedMappingId = "scene-being-edited";
@@ -1407,7 +1441,7 @@ test("playback control pauses the shared preview and output transport", () => {
   assert.equal(
     (rendererSource.match(/this\.videoPlaybackOptions\(source, component\)/g) || []).length
       + (sourceRuntime.match(/host\.videoPlaybackOptions\(source, component\)/g) || []).length,
-    3,
+    4,
   );
   assert.ok(bridgeSource.includes("const clientWatchdog = setInterval"));
 });
@@ -1683,6 +1717,55 @@ test("static source textures repaint only when their own source state changes", 
     item.source.params.fit = "cover";
     renderer.renderComponentSourceItem(state.components[0], item, 2, request);
     assert.equal(paints, 2);
+  } finally {
+    if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
+    else globalThis.createGraphics = previousCreateGraphics;
+  }
+});
+
+test("retained video source nodes renew playback ownership on a cache hit", () => {
+  const previousCreateGraphics = globalThis.createGraphics;
+  const renderer = new OutputRenderer({ mode: "output" });
+  const state = createInitialState();
+  const component = state.components[0];
+  component.speed = 0.5;
+  state.media = [{ id: "clips/loop.mov", path: "clips/loop.mov", type: "video", size: 42 }];
+  renderer.state = state;
+  renderer.media.set("clips/loop.mov", {
+    ready: true,
+    video: { elt: {} },
+    videoFrameDriven: true,
+    videoFrameRevision: 1,
+  });
+  renderer.applyGraphicsFont = () => {};
+  renderer.safeDrawSourceToGraphics = () => {};
+  const claims = [];
+  renderer.acquireMedia = (id, options) => claims.push({ id, options });
+  globalThis.createGraphics = (width, height) => ({
+    width,
+    height,
+    push() {},
+    pop() {},
+    clear() {},
+  });
+
+  try {
+    const item = createComponentLayer(0, {
+      type: "media",
+      mediaId: "clips/loop.mov",
+      start: 1,
+      end: 4,
+      speed: 2,
+    });
+    const request = { role: "component", width: 640, height: 360 };
+    renderer.renderComponentSourceItem(component, item, 0, request);
+    assert.equal(claims.length, 0, "a dirty source owns playback through its draw callback");
+
+    renderer.renderComponentSourceItem(component, item, 0, request);
+    assert.equal(claims.length, 1, "a retained source renews the decoder lease without repainting");
+    assert.equal(claims[0].id, "clips/loop.mov");
+    assert.deepEqual(claims[0].options.playback, { start: 1, end: 4, speed: 1 });
+    assert.equal(claims[0].options.width, 640);
   } finally {
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
     else globalThis.createGraphics = previousCreateGraphics;

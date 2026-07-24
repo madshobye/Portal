@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, sceneComponentPlacementRect, sceneFrameBorderHit, sceneMaxRasterSize, scenePreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveSceneFrameRect, namedTextureStateKey, OutputRenderer, pointInTransformedRect, primaryTextureInputPort, qualityScaledRenderRequest, renderStateComponentProgramRoots, resizeSceneFrameRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
+import { averageGpuQueryNanoseconds, cameraCaptureSettings, cameraSettingsSignature, sceneComponentPlacementRect, sceneFrameBorderHit, sceneMaxRasterSize, scenePreviewRenderRequest, chainTransformDragScale, compiledNativeSourceRenderer, compiledVisualSourceRenderer, componentAdaptiveRasterLimit, componentInstanceTime, componentLogicalPreviewRect, componentPipelineSourceRequest, componentPreviewRenderRequest, componentReferenceCount, componentReferencePlacement, componentReferencePrefersSharedTexture, componentReferenceRegionRequest, componentReferenceRenderRequest, componentReferenceVisibleRenderRequest, componentRenderInstanceKey, componentSourceView, directFitRects, effectNeedsComposite, eyeballFrameUniforms, fittedThumbnailSize, GpuTimerTracker, moveSceneFrameRect, namedTextureStateKey, OutputRenderer, pointInTransformedRect, primaryTextureInputPort, qualityScaledRenderRequest, renderStateComponentProgramRoots, resizeSceneFrameRect, sharedComponentRenderRequests, visualOperationRenderItem } from "../js/output/output-renderer.js";
 import { createPlacedRenderResult, directPlacementKind, transformedPlacementDemandRect } from "../js/graph/placed-render-result.js";
 import { defaultProjectSurfaceMapping, outputFrameForId, outputFrames, renderRequestKey, worldSize } from "../js/output/render-geometry.js";
 import { disposeP5Shader, mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
@@ -1310,6 +1310,14 @@ test("direct output presentation handles stretch contain and cover without homog
   assert.ok(plannerSource.includes("preserveFullFootprint: mapped.direct"));
 });
 
+test("covering a 3:2 component into a 5:3 output uses one centered crop", () => {
+  const fitted = directFitRects(1360, 907, { x: 0, y: 0, width: 1272, height: 763 }, "cover");
+  assert.deepEqual(fitted.destination, { x: 0, y: 0, width: 1272, height: 763 });
+  assertClose(fitted.source.width / fitted.source.height, 1272 / 763);
+  assertClose(fitted.source.x, 0);
+  assertClose(fitted.source.y * 2 + fitted.source.height, 907);
+});
+
 test("GPU timing averages query samples instead of adding overlapping work", () => {
   assert.equal(averageGpuQueryNanoseconds([30_000_000, 10_000_000, 5_000_000]), 15_000_000);
   assert.equal(averageGpuQueryNanoseconds([]), 0);
@@ -1418,6 +1426,102 @@ test("a nested regional Component allocates only its visible source fraction", (
   assert.equal(request.renderIdentity, "component-a");
   assert.equal(request.regionView, true);
   assert.deepEqual(request.uvRect, [0.25, 0.1, 0.5, 0.4]);
+});
+
+test("a visible nested-Component ROI is planned before the full-frame ceiling", () => {
+  const render = { componentAspectRatio: 1.5, pixelDensity: 1 };
+  const component = {
+    id: "child",
+    type: "chain",
+    frameShape: "landscape",
+    resolutionScale: 1,
+  };
+  const placement = { width: 12000, height: 8000 };
+  const uvRect = [0.4, 0.4, 0.12, 0.09];
+  const full = componentReferenceRenderRequest(render, component, placement);
+  const croppedAfterCeiling = componentReferenceRegionRequest(full, uvRect);
+  const visible = componentReferenceVisibleRenderRequest(render, component, placement, uvRect);
+
+  assert.deepEqual(pickRequestSize(full), { width: 8192, height: 5461 });
+  assert.deepEqual(pickRequestSize(croppedAfterCeiling), { width: 984, height: 492 });
+  assert.deepEqual(pickRequestSize(visible), { width: 1440, height: 720 });
+  assert.equal(visible.demandScale, 8);
+  assert.equal(visible.regionView, true);
+  assert.deepEqual(visible.uvRect, uvRect);
+});
+
+test("a full Scene request applies ROI to a heavily scaled nested Component", () => {
+  const child = {
+    id: "child",
+    type: "chain",
+    frameShape: "landscape",
+    resolutionScale: 1,
+    syncInstances: false,
+    transform: {},
+  };
+  const parent = { id: "scene", type: "scene" };
+  let childRequest = null;
+  const runtime = new SourceRenderRuntime({
+    state: {
+      render: {
+        sceneAspectRatio: 2,
+        componentAspectRatio: 1.5,
+        pixelDensity: 1,
+      },
+    },
+    componentTimes: new Map(),
+    componentPrograms: new Map([[
+      parent.id,
+      {
+        inspect: () => ({
+          references: [{ kind: "component", id: child.id, path: "source.componentId" }],
+        }),
+      },
+    ]]),
+    componentForId: (id) => id === child.id ? child : null,
+    componentRegionSafe: () => true,
+    renderComponentForRequest: (_component, _time, request) => {
+      childRequest = request;
+      return { width: request.width, height: request.height };
+    },
+    drawPlacedResultGeometry() {},
+    isShaderBuffer: () => false,
+  });
+
+  runtime.drawComponentReferenceSource(
+    { width: 1456, height: 728 },
+    {
+      type: "component",
+      componentId: child.id,
+      instanceId: "scaled-child",
+      contentTransform: { scale: 8 },
+      placement: { scale: 1 },
+    },
+    parent,
+    0,
+    { width: 1456, height: 728 },
+  );
+
+  assert.equal(childRequest.regionView, true);
+  assert.equal(childRequest.reason, "component-reference-region");
+  assert.deepEqual(pickRequestSize(childRequest), { width: 1472, height: 736 });
+  assert.ok(childRequest.width < 2000, "the invisible scaled remainder must not allocate an 8K texture");
+
+  childRequest = null;
+  runtime.drawComponentReferenceSource(
+    { width: 1456, height: 728 },
+    {
+      type: "component",
+      componentId: child.id,
+      instanceId: "fully-visible-child",
+      contentTransform: { scale: 1 },
+      placement: { scale: 0.5 },
+    },
+    parent,
+    0,
+    { width: 1456, height: 728 },
+  );
+  assert.notEqual(childRequest.regionView, true, "a fully visible child must retain stable full-request caching");
 });
 
 test("small repeated synchronized Component references converge on reusable resolution classes", () => {
@@ -1545,6 +1649,16 @@ test("standalone Output presentation covers a mismatched window without non-unif
   }
 });
 
+test("stable and transition mapping shaders consume the shared fit operation", () => {
+  const stable = mapperFragmentShaderSource();
+  const transition = mapperTransitionFragmentShaderSource();
+  assert.equal((stable.match(/vec3 vj1FitTargetUvToSourceUv\(/g) || []).length, 1);
+  assert.equal((transition.match(/vec3 vj1FitTargetUvToSourceUv\(/g) || []).length, 1);
+  assert.ok(stable.includes("projectionFit = vj1FitTargetUvToSourceUv"));
+  assert.ok(transition.includes("fromProjectionFit = vj1FitTargetUvToSourceUv"));
+  assert.ok(transition.includes("toProjectionFit = vj1FitTargetUvToSourceUv"));
+});
+
 test("standalone Output keeps relative Surface proportions across popup aspect changes", () => {
   const previousWidth = globalThis.width;
   const previousHeight = globalThis.height;
@@ -1614,6 +1728,12 @@ test("hud render resolution reports GPU render pixels, not window size", () => {
     assert.deepEqual(renderer.displayCanvasSize(render), { width: 1280, height: 720 });
     assert.deepEqual(renderer.renderResolutionSize(render), { width: 1920, height: 1080, density: 1.5 });
     assert.equal(renderer.renderResolutionLabel(render), "1920x1080 @1.5x");
+    assert.equal(renderer.renderPixelDensity({ pixelDensity: 4 }), 4);
+    assert.deepEqual(renderer.renderResolutionSize({ ...render, pixelDensity: 4 }), {
+      width: 5120,
+      height: 2880,
+      density: 4,
+    });
   } finally {
     if (previousWidth === undefined) delete globalThis.width;
     else globalThis.width = previousWidth;
@@ -2160,7 +2280,7 @@ test("multiple recording frames share one parent Canvas texture request", () => 
   ], "to:");
 
   assert.equal(requests.size, 1);
-  assert.deepEqual(pickRequestSize(requests.get("canvas-a")), { width: 1920, height: 1088 });
+  assert.deepEqual(pickRequestSize(requests.get("canvas-a")), { width: 1920, height: 1080 });
   assert.equal(requests.get("canvas-a").renderIdentity, "to:canvas-a");
   assert.equal(requests.get("canvas-a").demandScale, 0.5);
 });

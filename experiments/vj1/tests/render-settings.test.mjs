@@ -25,7 +25,7 @@ test("render settings normalize independently from the aggregate domain model", 
   assert.equal(render.outputs[0].aspectRatio, 4 / 3);
   assert.equal(Object.hasOwn(render, "width"), false);
   assert.equal(Object.hasOwn(render, "worldWidth"), false);
-  assert.equal(render.pixelDensity, 2);
+  assert.equal(render.pixelDensity, 4);
   assert.equal(render.maxFrameRate, 120);
   assert.equal(render.sceneAspectRatio, 16 / 9);
   assert.equal(render.componentAspectRatio, 4 / 3);
@@ -94,7 +94,7 @@ test("the duplicate embedded preview can occupy the opposite output render phase
 
 test("models remains a compatibility facade for render settings", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
-  assert.ok(source.includes('from "./render-settings.js?v=projector-resolution-ceilings-1"'));
+  assert.ok(source.includes('from "./render-settings.js?v=pixel-density-4"'));
   assert.doesNotMatch(source, /export function normalizeRenderSettings\(/);
   assert.doesNotMatch(source, /export function normalizeCameraSettings\(/);
 });

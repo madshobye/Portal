@@ -1,7 +1,7 @@
 import { clamp01 } from "../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-runtime-visual-sources-1";
 import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=surface-identity-runtime-visual-sources-1";
 import { BoundedRenderTargetPool } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
-import { SceneFrameGuideNode } from "../libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
+import { SceneFrameGuideNode } from "../libraries/composition-engine/index.js?v=fit-geometry-demand-1";
 import { projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=frame-projection-aspect-1";
 import { componentInstanceTime } from "../libraries/timing-engine/index.js";
 import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=gc-allocation-1";
@@ -14,9 +14,9 @@ import {
   fittedSampleRect,
   scaledComponentSampleRect,
   unifyTransitionComponentRenderRequests,
-} from "./component-render-layout.js?v=root-content-transform-roi-1";
+} from "./component-render-layout.js?v=pixel-density-4";
 import { drawBuffer, drawSampleRect, withShaderInstancePrefix } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=root-content-transform-roi-3";
+import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=pixel-density-4";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
@@ -433,10 +433,15 @@ export class OutputSurfaceRuntime {
     const render = renderer.state?.render || {};
     const viewport = renderer.displayCanvasSize(render);
     const previewTransform = renderer.previewViewportTransform(render);
-    const transformDemandCorners = (corners = []) => corners.map((corner) => ({
-      x: viewport.width * 0.5 + ((Number(corner?.x) || 0) - viewport.width * 0.5) * previewTransform.zoom + previewTransform.x,
-      y: viewport.height * 0.5 + ((Number(corner?.y) || 0) - viewport.height * 0.5) * previewTransform.zoom + previewTransform.y,
-    }));
+    const identityViewport = Math.abs(previewTransform.zoom - 1) < 1e-12 &&
+      Math.abs(previewTransform.x) < 1e-12 &&
+      Math.abs(previewTransform.y) < 1e-12;
+    const transformDemandCorners = (corners = []) => identityViewport
+      ? corners
+      : corners.map((corner) => ({
+          x: viewport.width * 0.5 + ((Number(corner?.x) || 0) - viewport.width * 0.5) * previewTransform.zoom + previewTransform.x,
+          y: viewport.height * 0.5 + ((Number(corner?.y) || 0) - viewport.height * 0.5) * previewTransform.zoom + previewTransform.y,
+        }));
     const { routes, metrics } = planSurfaceRoutes({
       state: renderer.state,
       mapperSurfaces: renderer.mapperSurfaces,
@@ -448,6 +453,10 @@ export class OutputSurfaceRuntime {
       // Embedded previews can safely exclude the part clipped by their fixed
       // p5 canvas after the final viewport transform.
       preserveDirectFootprint: renderer.mode === "output",
+      // Standalone Output is the final consumer and can therefore request a
+      // coordinate-correct source ROI from its actual canvas. Editor pan/zoom
+      // remains presentation-only and must not invalidate Component textures.
+      allowViewportRegions: renderer.mode === "output" && !this.currentLiveTransition(),
       renderIdentityPrefix: this.renderIdentityPrefix,
       surfaceProgram: orderedSurfaceProgram(surfaceProgram || renderer.mappingProgramSurfaces(renderer.state)),
       resolveRouteSourceNode: (surface) => renderer.resolveRouteSourceNode(surface),
@@ -521,7 +530,14 @@ export class OutputSurfaceRuntime {
     const texture = component ? renderer.renderComponentForRequest(component, componentTime, componentRequest) : renderer.mainMix;
     if (!texture) return null;
     if (componentRequest?.regionView) {
-      return { texture, sourceRect: { x: 0, y: 0, width: texture.width, height: texture.height } };
+      return {
+        texture,
+        sourceRect: { x: 0, y: 0, width: texture.width, height: texture.height },
+        textureViewUv: route.presentationUvRect,
+        logicalSourceAspect: Math.max(0.0001,
+          (Number(demand?.sampleRect?.width) || 1) /
+          Math.max(1, Number(demand?.sampleRect?.height) || 1)),
+      };
     }
     return { texture, sourceRect: scaledComponentSampleRect(demand?.sampleRect, demand?.logicalSize, texture) };
   }
@@ -540,6 +556,10 @@ export class OutputSurfaceRuntime {
         sourceFitActive: surface.sourceFitActive,
         sourceFit: surface.sourceFit,
         sourceAspect: surface.sourceAspect,
+        ...(view.textureViewUv ? {
+          textureViewUv: view.textureViewUv,
+          logicalSourceAspect: view.logicalSourceAspect,
+        } : {}),
       });
     } finally {
       blendMode(BLEND);
@@ -621,6 +641,10 @@ export class OutputSurfaceRuntime {
           sourceFitActive: route.surface.sourceFitActive,
           sourceFit: route.surface.sourceFit,
           sourceAspect: route.surface.sourceAspect,
+          ...(view.textureViewUv ? {
+            textureViewUv: view.textureViewUv,
+            logicalSourceAspect: view.logicalSourceAspect,
+          } : {}),
         },
       })));
     } finally {
@@ -653,6 +677,10 @@ export class OutputSurfaceRuntime {
           sourceFitActive: true,
           sourceFit: route.surface.sourceFit,
           sourceAspect: route.surface.sourceAspect,
+        } : {}),
+        ...(view.textureViewUv ? {
+          textureViewUv: view.textureViewUv,
+          logicalSourceAspect: view.logicalSourceAspect,
         } : {}),
       }
     );

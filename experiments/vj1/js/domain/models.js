@@ -1,6 +1,6 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
 import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
-import { componentFrameMetrics, normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
+import { componentFrameMetrics, normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js?v=pixel-density-4";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
 import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=model-media-scene-group-1";
@@ -15,7 +15,7 @@ import {
   normalizeRenderSettings,
   normalizeOutputName,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=projector-resolution-ceilings-1";
+} from "./render-settings.js?v=pixel-density-4";
 import {
   applySceneSourceNode,
   authoredSurfaceFields,
@@ -44,7 +44,7 @@ export {
   normalizeRenderSettings,
   normalizeOutputName,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=output-one-1";
+} from "./render-settings.js?v=pixel-density-4";
 export {
   applySceneSourceNode,
   authoredSurfaceFields,

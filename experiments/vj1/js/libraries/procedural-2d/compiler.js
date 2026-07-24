@@ -25,11 +25,20 @@ export function compileSdf2dSketchSource(source, {
 
 // Compiles a stored procedural-2D command structure into one fragment shader.
 // Repeated geometry uses periodic fields (fract/floor), not unrolled shapes.
-export function compileSdf2dProgram(program = {}) {
+export function compileSdf2dProgram(program = {}, { antialias = true } = {}) {
   const body = [];
   for (const [index, operation] of (program.commands || []).entries()) {
-    body.push(compileOperation(operation, index));
+    body.push(compileOperation(operation, index, { antialias }));
   }
+  const maskFunctions = antialias ? `
+float fillLinearField(float field) { return 1.0 - smoothstep(-1.0, 1.0, field); }
+float fillDistanceField(float field, float pixelField) {
+  return 1.0 - smoothstep(-pixelField, pixelField, field);
+}` : `
+float fillLinearField(float field) { return step(field, 0.0); }
+float fillDistanceField(float field, float pixelField) {
+  return step(field, 0.0);
+}`;
   return `
 #ifdef GL_ES
 precision highp float;
@@ -38,11 +47,11 @@ uniform vec2 resolution;
 uniform float time;
 varying vec2 vTexCoord;
 
-float fillLinearField(float field) { return 1.0 - smoothstep(-1.0, 1.0, field); }
+${maskFunctions}
 
-// Axis boxes avoid a length(); circles and lines compare squared distance and
-// use a one-pixel field estimate. These approximations are cheaper than exact
-// SDFs while retaining stable antialiasing at different render resolutions.
+// Axis boxes avoid a length(); circles and lines compare squared distance.
+// The selected mask functions decide whether their edges are hard or
+// antialiased without changing the authored geometry.
 float boxMask(vec2 pointPx, vec2 centerPx, vec2 halfPx) {
   vec2 q = abs(pointPx - centerPx) - halfPx;
   return fillLinearField(max(q.x, q.y));
@@ -51,13 +60,13 @@ float circleMask(vec2 pointPx, vec2 centerPx, float radiusPx) {
   vec2 q = pointPx - centerPx;
   float field = dot(q,q) - radiusPx*radiusPx;
   float pixelField = max(radiusPx*2.0, 1.0);
-  return 1.0 - smoothstep(-pixelField, pixelField, field);
+  return fillDistanceField(field, pixelField);
 }
 float ringMask(vec2 pointPx, vec2 centerPx, float radiusPx, float weightPx) {
   vec2 q = pointPx - centerPx;
   float field = abs(dot(q,q) - radiusPx*radiusPx) - max(weightPx, 1.0) * radiusPx;
   float pixelField = max(radiusPx*2.0, 1.0);
-  return 1.0 - smoothstep(-pixelField, pixelField, field);
+  return fillDistanceField(field, pixelField);
 }
 float segmentMask(vec2 pointPx, vec2 aPx, vec2 bPx, float weightPx) {
   vec2 pa = pointPx - aPx;
@@ -67,7 +76,7 @@ float segmentMask(vec2 pointPx, vec2 aPx, vec2 bPx, float weightPx) {
   float radius = max(weightPx*0.5, 0.5);
   float field = dot(q,q) - radius*radius;
   float pixelField = max(radius*2.0, 1.0);
-  return 1.0 - smoothstep(-pixelField, pixelField, field);
+  return fillDistanceField(field, pixelField);
 }
 void paint(inout vec4 destination, vec4 source, float coverage) {
   float alpha = clamp(source.a * coverage, 0.0, 1.0);
@@ -84,7 +93,7 @@ void main() {
 }`;
 }
 
-function compileOperation(op = {}, index = 0) {
+function compileOperation(op = {}, index = 0, { antialias = true } = {}) {
   const mask = `mask${index}`;
   const clip = compileClip(op.clip);
   if (op.type === "background") return `paint(color, ${color(op.color)}, 1.0);`;
@@ -92,7 +101,7 @@ function compileOperation(op = {}, index = 0) {
   if (op.type === "circle") return `float ${mask}=circleMask(px,vec2(${num(op.x)},${num(op.y)})*resolution,${num(op.radius)}*unitPx)${clip}; paint(color,${color(op.color)},${mask});`;
   if (op.type === "ring") return `float ${mask}=ringMask(px,vec2(${num(op.x)},${num(op.y)})*resolution,${num(op.radius)}*unitPx,${num(op.weight)}*unitPx)${clip}; paint(color,${color(op.color)},${mask});`;
   if (op.type === "line") return `float ${mask}=segmentMask(px,vec2(${num(op.x1)},${num(op.y1)})*resolution,vec2(${num(op.x2)},${num(op.y2)})*resolution,${num(op.weight)}*unitPx)${clip}; paint(color,${color(op.color)},${mask});`;
-  if (op.type === "grid") return compileGrid(op, mask, clip);
+  if (op.type === "grid") return compileGrid(op, mask, clip, antialias);
   if (op.type === "edgeChecks") return compileEdgeChecks(op, mask);
   if (op.type === "stripes") return compileStripes(op, mask, clip);
   if (op.type === "colorBars") return compileColorBars(op, mask, clip);
@@ -100,8 +109,13 @@ function compileOperation(op = {}, index = 0) {
   throw new Error(`SDF2D_OPERATION_UNSUPPORTED:${op.type}`);
 }
 
-function compileGrid(op, mask, clip) {
-  return `vec2 gridCell${mask}=fract(uv*vec2(${num(op.columns)},${num(op.rows)})); vec2 gridDistance${mask}=min(gridCell${mask},1.0-gridCell${mask})*resolution/vec2(${num(op.columns)},${num(op.rows)}); float ${mask}=(1.0-smoothstep(${num(op.weight)}*unitPx*.5,${num(op.weight)}*unitPx*.5+1.0,min(gridDistance${mask}.x,gridDistance${mask}.y)))${clip}; paint(color,${color(op.color)},${mask});`;
+function compileGrid(op, mask, clip, antialias = true) {
+  const distance = `min(gridDistance${mask}.x,gridDistance${mask}.y)`;
+  const threshold = `${num(op.weight)}*unitPx*.5`;
+  const coverage = antialias
+    ? `(1.0-smoothstep(${threshold},${threshold}+1.0,${distance}))`
+    : `step(${distance},${threshold})`;
+  return `vec2 gridCell${mask}=fract(uv*vec2(${num(op.columns)},${num(op.rows)})); vec2 gridDistance${mask}=min(gridCell${mask},1.0-gridCell${mask})*resolution/vec2(${num(op.columns)},${num(op.rows)}); float ${mask}=${coverage}${clip}; paint(color,${color(op.color)},${mask});`;
 }
 
 function compileEdgeChecks(op, mask) {

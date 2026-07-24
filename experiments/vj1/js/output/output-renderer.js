@@ -1,7 +1,7 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
 import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLiveRenderPath, resolveLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
-import { sceneFrameSize, renderMaxFrameRate, renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
+import { normalizePixelDensity, sceneFrameSize, renderMaxFrameRate, renderPresentationFrameRate } from "../domain/render-settings.js?v=pixel-density-4";
 import { runtimeVisualSourceComponents } from "../domain/runtime-visual-sources.js?v=runtime-visual-sources-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-projector-resolution-ceilings-1";
 import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-1-scene-mapping-default-selection-runtime-visual-sources-1";
@@ -9,7 +9,7 @@ import { normalizeParamValues } from "../libraries/visual-nodes/shared/component
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { advancePresentationClock, createPresentationClock } from "../libraries/timing-engine/presentation-clock/index.js?v=presentation-clock-1";
 import { RenderNodeRuntime, textureStateKey } from "../libraries/render-engine/render-node-contract.js";
-import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, TextureOperatorNodeDefinitions } from "../libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
+import { activeMappingProgramSurfaces, compileComponentRenderPrograms, compileOutputRenderProgram, compileMappingRenderPrograms, TextureOperatorNodeDefinitions } from "../libraries/composition-engine/index.js?v=fit-geometry-demand-1";
 import { ComposableScene3dGroup, Transform3dNode } from "../libraries/mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
 import { createPlacedRenderResult, directPlacementKind } from "../graph/placed-render-result.js?v=atomic-video-seek-1";
 import { compileShaderSchedule, flattenComponentChain, isFusibleShaderJob } from "../graph/render-scheduler.js?v=pending-project-node-1";
@@ -28,14 +28,14 @@ import {
 } from "./shared-framebuffer-target.js?v=isf-runtime-1";
 import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
-import { drawMediaFit, isDrawableMedia } from "./media-utils.js?v=gapless-video-loop-1";
+import { drawMediaFit, isDrawableMedia } from "./media-utils.js?v=fit-geometry-demand-1";
 import { chainLayerState, componentRuntimeTimeKey, createMediaReadinessStatus, effectParamState, isReadyMediaItem, renderBufferKey, runtimeCompiledComponentGraphMediaState, runtimeMediaInvalidation, runtimeMediaStateForSource, staticCompiledComponentGraphMediaState, staticCompiledComponentGraphState, staticMediaStateForSource, staticSourceState } from "./component-render-state.js?v=gapless-video-loop-1";
 import { mediaSourceAlphaEdge, mediaSourceFit, sourceWithNodeParams } from "./component-patch-adapter.js?v=chain-general-controls-1";
 import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runtime-diagnostics-1";
-import { OutputMediaRuntime } from "./output-media-runtime.js?v=media-url-retirement-1";
+import { OutputMediaRuntime } from "./output-media-runtime.js?v=decoded-frame-drawability-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=root-content-transform-roi-runtime-visual-sources-2";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=pixel-density-4";
 import { IsfRenderRuntime } from "./isf-render-runtime.js?v=isf-backend-1";
 import { TextureOperatorRuntime } from "./texture-operator-runtime.js?v=texture-operator-backend-1";
 import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=shader-effect-backend-1";
@@ -43,8 +43,8 @@ import { CompositeRenderRuntime } from "./composite-render-runtime.js?v=composit
 import {
   mediaSourceDemandWidth,
   SourceRenderRuntime,
-} from "./source-render-runtime.js?v=source-backend-4-source-detail-diagnostics-runtime-visual-sources-2";
-import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=root-content-transform-roi-3";
+} from "./source-render-runtime.js?v=nested-component-roi-1";
+import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=fit-geometry-demand-1";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=direct-scene-surface-edit-1";
@@ -53,6 +53,10 @@ import { OutputRenderProfile, roundMetric } from "./output-render-profile.js?v=o
 import { OutputRenderCache, RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
 import { FULL_NODE_BOUNDARY, isFullNodeBoundary, nodeBoundaryPixelRect, nodeRoiRequest, sameNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import { renderSourceDetail, renderView } from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
+import {
+  fitOverflowDestination,
+  fitRectGeometry,
+} from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
 import { applyShaderTarget, chainItemToShaderPass, clearShaderTarget, disposeGraphics, drawShaderTarget, drawShaderTargetRect, effectNeedsComposite, effectParamNumber, resetShaderTarget, setShaderUniformIfPresent, shaderDrawingBufferSize } from "./shader-target-runtime.js?v=source-roi-view-3";
 import { effectTransformUniforms, generatorRateParam, globalVisualTimeScale, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, usesShadertoyInterface } from "./render-runtime-math.js?v=declarative-render-policy-1";
 import {
@@ -71,8 +75,8 @@ import {
   RECORDING_FRAME_DEMAND_SCALE,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=root-content-transform-roi-3";
-import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
+} from "./render-geometry.js?v=fit-geometry-demand-1";
+import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=output-viewport-roi-1";
 import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=compiled-artifact-authority-2";
 import {
   sceneMaxRasterSize,
@@ -85,7 +89,7 @@ import {
   rectToCorners,
   resolutionScaledStrokeWidth,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=root-content-transform-roi-1";
+} from "./component-render-layout.js?v=nested-component-roi-1";
 
 const COMPILED_VISUAL_CORE_DEFINITIONS = new Map([
   ...TextureOperatorNodeDefinitions,
@@ -107,7 +111,7 @@ export {
   compiledVisualSourceRenderer,
   mediaSourceDemandSize,
   mediaSourceDemandWidth,
-} from "./source-render-runtime.js?v=source-backend-4-source-detail-diagnostics-runtime-visual-sources-2";
+} from "./source-render-runtime.js?v=nested-component-roi-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {
@@ -132,6 +136,7 @@ export {
   componentReferencePrefersSharedTexture,
   componentReferenceRegionRequest,
   componentReferenceRenderRequest,
+  componentReferenceVisibleRenderRequest,
   componentRenderInstanceKey,
   componentSourceView,
   directFitRects,
@@ -140,7 +145,7 @@ export {
   resizeSceneFrameRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=root-content-transform-roi-1";
+} from "./component-render-layout.js?v=nested-component-roi-1";
 
 export function visualOperationRenderItem(operation = {}, item = {}, inheritedTransform = {}, effectComponent = null) {
   const opcode = operation?.opcode || item?.kind;
@@ -263,6 +268,7 @@ export class OutputRenderer {
     this.visualForkSignature = "";
     this.transitionCatalogSignature = "";
     this.componentPrograms = new Map();
+    this.preparedOutputPrograms = null;
     this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
     this.mappingPrograms = new Map();
@@ -377,6 +383,7 @@ export class OutputRenderer {
     this.previewInteraction.dispose();
     this.thumbnailRuntime.dispose();
     this.gpuTimer?.dispose?.();
+    this.clearPreparedOutputPrograms();
     for (const program of this.componentPrograms?.values?.() || []) program.dispose?.();
     this.componentPrograms?.clear?.();
     this.disposeBuffers();
@@ -860,18 +867,26 @@ export class OutputRenderer {
   rebuildComponentPrograms() {
     for (const program of this.componentPrograms?.values?.() || []) program.dispose?.();
     this.runtimeComponents = runtimeVisualSourceComponents();
-    const components = [...(this.state?.components || []), ...this.runtimeComponents];
-    this.componentPrograms = compileComponentRenderPrograms(
+    this.componentPrograms = this.compileComponentProgramsForState(this.state, this.runtimeComponents);
+    this.validateComponentPrograms(this.componentPrograms);
+  }
+
+  compileComponentProgramsForState(state = this.state, runtimeComponents = runtimeVisualSourceComponents()) {
+    const components = [...(state?.components || []), ...runtimeComponents];
+    return compileComponentRenderPrograms(
       components,
-      this.state?.nodes?.groups || [],
+      state?.nodes?.groups || [],
       {
-        rootComponentIds: renderStateComponentProgramRoots(this.state, this.mode, components),
+        rootComponentIds: renderStateComponentProgramRoots(state, this.mode, components),
         resolveNodeDefinition: (node) =>
           this.visualNodes.definition(node?.nodeId) ||
           COMPILED_VISUAL_CORE_DEFINITIONS.get(String(node?.nodeId || "")),
       }
     );
-    for (const program of this.componentPrograms.values()) {
+  }
+
+  validateComponentPrograms(programs = this.componentPrograms) {
+    for (const program of programs.values()) {
       program.forEachOperation((operation) => {
         if (operation?.backend !== "native-specialized") return;
         const rendererId = String(operation.renderer || operation.compilerHook?.renderer || "");
@@ -883,6 +898,12 @@ export class OutputRenderer {
         );
       });
     }
+  }
+
+  clearPreparedOutputPrograms() {
+    if (!this.preparedOutputPrograms) return;
+    for (const program of this.preparedOutputPrograms.programs?.values?.() || []) program.dispose?.();
+    this.preparedOutputPrograms = null;
   }
 
   rebuildVisualNodeResolver() {
@@ -1061,9 +1082,9 @@ export class OutputRenderer {
   }
 
   renderPixelDensity(render = this.state?.render || {}) {
-    const configured = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+    const configured = normalizePixelDensity(render.pixelDensity);
     const demandScale = Math.max(0.125, Math.min(8, Number(render.previewRasterScale) || 1));
-    return Math.max(0.125, Math.min(2, configured * demandScale));
+    return Math.max(0.125, Math.min(4, configured * demandScale));
   }
 
   renderResolutionSize(render = this.state?.render || {}) {
@@ -1176,7 +1197,7 @@ export class OutputRenderer {
     const p5WindowHeight = Math.max(1, Math.round(Number(globalThis.windowHeight) || browserHeight));
     const hostWidth = Math.max(1, Math.round(Number(render.hostViewport?.width) || logical.width));
     const hostHeight = Math.max(1, Math.round(Number(render.hostViewport?.height) || logical.height));
-    const configuredDensity = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+    const configuredDensity = normalizePixelDensity(render.pixelDensity);
     const previewScale = Math.max(0.125, Math.min(8, Number(render.previewRasterScale) || 1));
     const effectiveDensity = this.renderPixelDensity(render);
     let actualP5Density = Number(this.lastPixelDensity) || effectiveDensity;
@@ -1307,14 +1328,16 @@ export class OutputRenderer {
     // output and every mapped surface. The popup may have different
     // proportions from its configured Output; crop the excess axis instead
     // of letterboxing, while keeping every projected layer locked together.
-    const scale = Math.max(
-      outputFrame.width / Math.max(1, projectFrame.width),
-      outputFrame.height / Math.max(1, projectFrame.height)
+    const fitted = fitOverflowDestination(
+      { x: 0, y: 0, width: projectFrame.width, height: projectFrame.height },
+      { x: 0, y: 0, width: outputFrame.width, height: outputFrame.height },
+      "cover"
     );
+    const scale = fitted.destination.width / Math.max(1, projectFrame.width);
     return {
       scale,
-      x: (outputFrame.width - projectFrame.width * scale) * 0.5,
-      y: (outputFrame.height - projectFrame.height * scale) * 0.5,
+      x: fitted.destination.x,
+      y: fitted.destination.y,
     };
   }
 
@@ -2330,6 +2353,11 @@ export class OutputRenderer {
             renderIdentity: renderBufferKey(renderRequest.renderIdentity || component.id, renderedItem.id || nodeId),
             halo: sourceRoi?.halo,
             coordinateSpace: sourceRoi?.coordinateSpace,
+            // Boundary-local sources can retain their complete logical domain
+            // while sampling directly on an axis-aligned consumer pixel grid.
+            // nodeRoiRequest falls back to conservative local allocation for
+            // rotation, partial boundary edges, and halo-expanded contracts.
+            consumerGrid: sourceRoi?.coordinateSpace !== "full-frame",
           });
           if (roiRequest.empty) continue;
           const sourceState = this.measureCompiledSourceOperation(
@@ -2694,6 +2722,18 @@ export class OutputRenderer {
       });
     });
     visiting.delete(component.id);
+  }
+
+  claimRetainedSourceMedia(source = {}, component = {}, renderRequest = {}) {
+    if (source.type !== "media" || !source.mediaId) return null;
+    const runtimeItem = this.media.get(source.mediaId);
+    const mediaMeta = (this.state?.media || []).find((entry) => entry.id === source.mediaId);
+    if (mediaMeta?.type !== "video" && !runtimeItem?.video) return null;
+    const qualityRequest = qualityScaledRenderRequest(renderRequest, source.params || {});
+    return this.acquireMedia(source.mediaId, {
+      playback: this.videoPlaybackOptions(source, component),
+      width: mediaSourceDemandWidth(qualityRequest, source),
+    });
   }
 
   componentContainsVideo(component = {}, visiting = new Set()) {
@@ -3523,6 +3563,10 @@ export class OutputRenderer {
       pg.pop();
       return pg;
     }, { frame: this.frameIndex, dirtyReason: "source" });
+    // A retained source texture still owns its live decoder. The source draw
+    // callback renews that lease on dirty frames; cache hits must renew it
+    // explicitly or OutputMediaRuntime.endFrame() correctly pauses the video.
+    if (!result.rendered) this.claimRetainedSourceMedia(source, component, evaluationRequest);
     if (!result.rendered) this.frameProfile.stageCacheHits++;
     else this.frameProfile.stageRenders++;
     const sourceState = {
@@ -4636,16 +4680,27 @@ export class OutputRenderer {
   }
 
   prepareOutputState(state, { requireMedia = false } = {}) {
-    const status = this.mediaReadinessForState(state, { requireMedia });
+    if (this.preparedOutputPrograms?.state !== state) {
+      this.clearPreparedOutputPrograms();
+      const runtimeComponents = runtimeVisualSourceComponents();
+      const programs = this.compileComponentProgramsForState(state, runtimeComponents);
+      this.validateComponentPrograms(programs);
+      this.preparedOutputPrograms = { state, programs };
+    }
+    const status = this.mediaReadinessForState(state, {
+      requireMedia,
+      programs: this.preparedOutputPrograms.programs,
+    });
     this.mediaRuntime.reserveMedia(status.mediaIds);
     return status;
   }
 
   clearPreparedOutputState() {
+    this.clearPreparedOutputPrograms();
     this.mediaRuntime.reserveMedia();
   }
 
-  mediaReadinessForState(state, { requireMedia = false } = {}) {
+  mediaReadinessForState(state, { requireMedia = false, programs = this.componentPrograms } = {}) {
     const frame = frameSize(state?.render || {});
     const status = collectOutputMediaReadiness({
       mode: requireMedia ? "output" : this.mode,
@@ -4655,7 +4710,7 @@ export class OutputRenderer {
       // not an alternative Component graph. Media readiness therefore uses
       // the same compiled programs as rendering instead of reconstructing a
       // second raw-chain dependency view.
-      programs: this.componentPrograms,
+      programs,
       acquireMedia: (id) => this.mediaRuntime.acquireMedia(this.media.get(id), { width: frame.width }),
     });
     this.requestMissingMediaBatch(Array.from(status.missingIds));
@@ -4902,39 +4957,33 @@ export function componentPipelineSourceRequest(request = {}, pipeline = {}) {
 }
 
 function containedRect(containerWidth, containerHeight, contentWidth, contentHeight) {
-  const cw = Math.max(1, Number(containerWidth) || 1);
-  const ch = Math.max(1, Number(containerHeight) || 1);
-  const iw = Math.max(1, Number(contentWidth) || 1);
-  const ih = Math.max(1, Number(contentHeight) || 1);
-  const scale = Math.min(cw / iw, ch / ih);
-  const width = iw * scale;
-  const height = ih * scale;
-  return {
-    x: (cw - width) * 0.5,
-    y: (ch - height) * 0.5,
-    width,
-    height,
-  };
+  return fitRectGeometry(
+    { x: 0, y: 0, width: contentWidth, height: contentHeight },
+    { x: 0, y: 0, width: containerWidth, height: containerHeight },
+    "contain"
+  ).destination;
 }
 
 
 function drawImageCoverCrop(source, x, y, targetWidth, targetHeight) {
   const sourceWidth = Math.max(1, Number(source?.width || source?.naturalWidth || source?.elt?.naturalWidth) || targetWidth);
   const sourceHeight = Math.max(1, Number(source?.height || source?.naturalHeight || source?.elt?.naturalHeight) || targetHeight);
-  const sourceAspect = sourceWidth / sourceHeight;
-  const targetAspect = Math.max(1, targetWidth) / Math.max(1, targetHeight);
-  let sx = 0;
-  let sy = 0;
-  let sw = sourceWidth;
-  let sh = sourceHeight;
-  if (sourceAspect > targetAspect) {
-    sw = sourceHeight * targetAspect;
-    sx = (sourceWidth - sw) * 0.5;
-  } else if (sourceAspect < targetAspect) {
-    sh = sourceWidth / targetAspect;
-    sy = (sourceHeight - sh) * 0.5;
-  }
-  image(source, x, y, targetWidth, targetHeight, sx, sy, sw, sh);
+  const fitted = fitRectGeometry(
+    { x: 0, y: 0, width: sourceWidth, height: sourceHeight },
+    { x, y, width: targetWidth, height: targetHeight },
+    "cover"
+  );
+  image(
+    source,
+    fitted.destination.x,
+    fitted.destination.y,
+    fitted.destination.width,
+    fitted.destination.height,
+    fitted.source.x,
+    fitted.source.y,
+    fitted.source.width,
+    fitted.source.height
+  );
 }
 
 // Editor-only clip for transformed stale thumbnails. This changes GL scissor

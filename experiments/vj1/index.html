@@ -18,7 +18,7 @@
       (async () => {
         const sourceRevision = "source-coherence-11";
         const workerUrl = new URL(`./module-source-worker.js?v=${sourceRevision}`, location.href).href;
-        const start = () => import(`./js/app.js?v=source-coherence-16`);
+        const start = () => import(`./js/app.js?v=video-loop-drawability-1`);
         if (!("serviceWorker" in navigator) || !window.isSecureContext) {
           await start();
           return;

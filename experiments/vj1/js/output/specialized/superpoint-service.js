@@ -1,4 +1,5 @@
 import { buildFeatureMorphField, matchSuperPointFeatures } from "./feature-morph-field.js?v=node-program-hooks-15";
+import { fitOverflowDestination } from "../../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
 
 const FALLBACK_ANALYSIS_MODULE = Object.freeze({ buildFeatureMorphField, matchSuperPointFeatures });
 
@@ -292,12 +293,13 @@ function imageTensor(image, fit = "cover") {
   if (fit === "stretch") {
     context.drawImage(drawable, 0, 0, INPUT_WIDTH, INPUT_HEIGHT);
   } else {
-    const scale = fit === "contain"
-      ? Math.min(INPUT_WIDTH / sourceWidth, INPUT_HEIGHT / sourceHeight)
-      : Math.max(INPUT_WIDTH / sourceWidth, INPUT_HEIGHT / sourceHeight);
-    const width = sourceWidth * scale;
-    const height = sourceHeight * scale;
-    context.drawImage(drawable, (INPUT_WIDTH - width) * 0.5, (INPUT_HEIGHT - height) * 0.5, width, height);
+    const fitted = fitOverflowDestination(
+      { x: 0, y: 0, width: sourceWidth, height: sourceHeight },
+      { x: 0, y: 0, width: INPUT_WIDTH, height: INPUT_HEIGHT },
+      fit
+    );
+    const destination = fitted.destination;
+    context.drawImage(drawable, destination.x, destination.y, destination.width, destination.height);
   }
   const rgba = context.getImageData(0, 0, INPUT_WIDTH, INPUT_HEIGHT).data;
   const grayscale = new Float32Array(INPUT_WIDTH * INPUT_HEIGHT);

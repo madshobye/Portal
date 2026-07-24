@@ -1,5 +1,6 @@
 import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
 import { renderTargetDescriptor, RENDER_TARGET_KIND } from "./render-target-contract.js?v=render-core-contract-1";
+import { fitOverflowDestination } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
 
 const reportedMediaFallbacks = new WeakMap();
 const webGlMediaBridges = new WeakMap();
@@ -20,12 +21,12 @@ export function drawMediaFit(pg, media, x, y, w, h, fit = "cover") {
   const element = media.elt || media.canvas || media;
   const mw = element.videoWidth || element.naturalWidth || media.width || element.width || w;
   const mh = element.videoHeight || element.naturalHeight || media.height || element.height || h;
-  const stretch = fit === "stretch";
-  const scale = fit === "contain" ? Math.min(w / mw, h / mh) : Math.max(w / mw, h / mh);
-  const dw = stretch ? w : mw * scale;
-  const dh = stretch ? h : mh * scale;
-  const dx = stretch ? x : x + (w - dw) / 2;
-  const dy = stretch ? y : y + (h - dh) / 2;
+  const fitted = fitOverflowDestination(
+    { x: 0, y: 0, width: mw, height: mh },
+    { x, y, width: w, height: h },
+    fit
+  );
+  const { x: dx, y: dy, width: dw, height: dh } = fitted.destination;
   const targetKind = renderTargetDescriptor(pg).kind;
   const webglTarget = targetKind === RENDER_TARGET_KIND.sharedFramebuffer ||
     targetKind === RENDER_TARGET_KIND.p5GraphicsWebgl ||
@@ -245,7 +246,11 @@ function enforceVideoSegmentBoundary(element, state) {
 // publishable only when it belongs to the current seek target; otherwise the
 // retained pre-seek frame remains authoritative.
 export function acceptVideoDecodedFrame(element, mediaTime) {
-  if (!element || element.seeking === true) return false;
+  // A callback can arrive while the decoder is leaving its seek transition
+  // but before the element is drawable by the renderer. Publishing that
+  // revision would clear the retained source buffer and replace its last good
+  // frame with the decoder's temporary empty surface.
+  if (!element || element.seeking === true || !isDrawableMedia(element)) return false;
   const state = videoSegmentStates.get(element);
   if (!state || state.pendingSeekTarget == null) return true;
   const presentedTime = Number(mediaTime);

@@ -4,14 +4,15 @@ import {
   componentRootTransformRegion,
   componentSourceView,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=root-content-transform-roi-1";
+} from "./component-render-layout.js?v=pixel-density-4";
 import {
   createRenderRequest,
   frameSize,
   sourceRenderDemand,
   SURFACE_DEMAND_OVERSCAN,
-} from "./render-geometry.js?v=root-content-transform-roi-3";
-import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=root-content-transform-roi-3";
+} from "./render-geometry.js?v=output-viewport-roi-1";
+import { visibleSurfaceUvRect } from "../libraries/mapping-engine/mapping-engine/index.js?v=output-viewport-roi-1";
+import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=output-viewport-roi-1";
 
 // Direct render-host bridge: the node owns the route algorithm while the
 // renderer supplies its established geometry policies directly. This closure
@@ -24,6 +25,7 @@ export const planSurfaceRoutes = createSurfaceCompositionEngine({
   sharedComponentRenderRequests,
   createRenderRequest,
   sourceRenderDemand,
+  visibleSurfaceUvRect,
   surfaceDemandOverscan: SURFACE_DEMAND_OVERSCAN,
   componentRegionSafe: (component) => component?.regionSafe === true,
   componentFrameFanoutSafe: (component) => component?.frameFanoutSafe !== false,

@@ -42,6 +42,15 @@ test("component resolution scale multiplies the global density", () => {
   assert.deepEqual([low.effectiveScale, low.width, low.height], [0.25, 357, 250]);
   assert.deepEqual([normal.effectiveScale, normal.width, normal.height], [0.5, 714, 500]);
   assert.deepEqual([high.effectiveScale, high.width, high.height], [1, 1429, 1000]);
+
+  const highDensity = componentFrameMetrics(
+    { ...render, pixelDensity: 4 },
+    { frameShape: "landscape", resolutionScale: 1 },
+  );
+  assert.deepEqual(
+    [highDensity.globalDensity, highDensity.effectiveScale, highDensity.width, highDensity.height],
+    [4, 4, 5714, 4000],
+  );
 });
 
 test("component frame settings normalize to backward-compatible defaults", () => {

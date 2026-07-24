@@ -1,4 +1,4 @@
-import { componentFrameSize } from "./render-settings.js";
+import { componentFrameSize, normalizePixelDensity } from "./render-settings.js";
 
 export const COMPONENT_FRAME_SHAPES = ["landscape", "portrait", "square"];
 export const COMPONENT_RESOLUTION_SCALES = [0.5, 1, 2];
@@ -20,7 +20,7 @@ export function componentFrameMetrics(render = {}, component = {}) {
   const shortEdge = Math.min(textureWidth, textureHeight);
   const frameShape = normalizeComponentFrameShape(component.frameShape);
   const resolutionScale = normalizeComponentResolutionScale(component.resolutionScale);
-  const globalDensity = clamp(Number(render.pixelDensity) || 1, 0.5, 2);
+  const globalDensity = normalizePixelDensity(render.pixelDensity);
   const effectiveScale = globalDensity * resolutionScale;
   const base = frameShape === "portrait"
     ? { width: shortEdge, height: longEdge }

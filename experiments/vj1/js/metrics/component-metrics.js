@@ -5,6 +5,7 @@ import { compileComponentPatch } from "../graph/render-scheduler.js?v=chain-only
 import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
 import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import { frameSize, worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
+import { normalizePixelDensity } from "../domain/render-settings.js?v=pixel-density-4";
 
 export function analyzeVj1Project(input = {}, options = {}) {
   const state = sanitizeState(input || {});
@@ -549,7 +550,7 @@ function renderMetrics(state) {
     worldWidth: world.width,
     worldHeight: world.height,
     worldPixels: world.width * world.height,
-    pixelDensity: Math.max(0.5, Math.min(2, Number(state.render?.pixelDensity) || 1)),
+    pixelDensity: normalizePixelDensity(state.render?.pixelDensity),
   };
 }
 

@@ -1,4 +1,5 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
+import { fitSourceUvToTargetUv } from "../../render-engine/fit-geometry/index.js?v=fit-geometry-1";
 
 // Surface guides are route geometry, not a canvas overlay. The node converts
 // authored Scene-relative Surface rectangles into the exact UV space sampled by a Surface;
@@ -41,20 +42,7 @@ export function sceneFrameGuideNodeProcess({
 }
 
 export function sourceUvToSurfaceUv(point = {}, sourceAspect = 1, targetAspect = 1, fit = "cover") {
-  const source = Math.max(0.0001, Number(sourceAspect) || 1);
-  const target = Math.max(0.0001, Number(targetAspect) || 1);
-  let x = Number(point.x) || 0;
-  let y = Number(point.y) || 0;
-  // This is the inverse of the Mapping shader's projection-fit sampling. It
-  // answers where a source-space point is presented on the Surface.
-  if (fit === "cover") {
-    if (source > target) x = 0.5 + (x - 0.5) * (source / target);
-    else y = 0.5 + (y - 0.5) * (target / source);
-  } else if (fit === "contain") {
-    if (source > target) y = 0.5 + (y - 0.5) * (target / source);
-    else x = 0.5 + (x - 0.5) * (source / target);
-  }
-  return { x, y };
+  return fitSourceUvToTargetUv(point, sourceAspect, targetAspect, fit);
 }
 
 export const SceneFrameGuideNode = defineNode({
@@ -82,7 +70,7 @@ export const SceneFrameGuideNode = defineNode({
     editable: true,
     module: import.meta.url,
     export: "sceneFrameGuideNodeProcess",
-    source: [sceneFrameGuideNodeProcess, sourceUvToSurfaceUv].map((value) => value.toString()).join("\n\n"),
+    source: [fitSourceUvToTargetUv, sceneFrameGuideNodeProcess, sourceUvToSurfaceUv].map((value) => value.toString()).join("\n\n"),
   }],
   process: sceneFrameGuideNodeProcess,
 });

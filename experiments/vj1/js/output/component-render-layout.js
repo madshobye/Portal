@@ -1,40 +1,22 @@
 import { VJ1 } from "../constants.js";
 import { relativeRectToLogical } from "../libraries/render-engine/relative-geometry.js";
+import { fitRectGeometry } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
+import { normalizeRenderUvRect } from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { sceneFrameSize } from "../domain/render-settings.js?v=canvas-global-resolution-1";
-import { createRenderRequest, RECORDING_FRAME_DEMAND_SCALE } from "./render-geometry.js?v=adaptive-component-demand-29";
+import { normalizePixelDensity, sceneFrameSize } from "../domain/render-settings.js?v=pixel-density-4";
+import {
+  aspectPreservingRenderDemand,
+  createRenderRequest,
+  RECORDING_FRAME_DEMAND_SCALE,
+} from "./render-geometry.js?v=aspect-preserving-demand-1";
 import { isIdentityTransform, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 
 export function directFitRects(sourceWidth, sourceHeight, target = {}, fit = "stretch") {
-  const sw = Math.max(1, Number(sourceWidth) || 1);
-  const sh = Math.max(1, Number(sourceHeight) || 1);
-  const destination = {
-    x: Number(target.x) || 0,
-    y: Number(target.y) || 0,
-    width: Math.max(1, Number(target.width) || 1),
-    height: Math.max(1, Number(target.height) || 1),
-  };
-  const source = { x: 0, y: 0, width: sw, height: sh };
-  if (fit === "contain") {
-    const scale = Math.min(destination.width / sw, destination.height / sh);
-    const widthPx = sw * scale;
-    const heightPx = sh * scale;
-    destination.x += (destination.width - widthPx) * 0.5;
-    destination.y += (destination.height - heightPx) * 0.5;
-    destination.width = widthPx;
-    destination.height = heightPx;
-  } else if (fit === "cover") {
-    const sourceAspect = sw / sh;
-    const targetAspect = destination.width / destination.height;
-    if (sourceAspect > targetAspect) {
-      source.width = sh * targetAspect;
-      source.x = (sw - source.width) * 0.5;
-    } else {
-      source.height = sw / targetAspect;
-      source.y = (sh - source.height) * 0.5;
-    }
-  }
-  return { source, destination };
+  return fitRectGeometry(
+    { x: 0, y: 0, width: sourceWidth, height: sourceHeight },
+    target,
+    fit
+  );
 }
 
 export function rectToCorners(rect = {}) {
@@ -206,10 +188,15 @@ export function componentReferenceRenderRequest(render = {}, component = {}, pla
     demandScale = sharedReferenceResolutionScale(metrics, demandScale, limit);
   }
   const scale = Math.min(limit.width / metrics.baseWidth, limit.height / metrics.baseHeight, demandScale);
+  const allocation = aspectPreservingRenderDemand(
+    { width: metrics.baseWidth, height: metrics.baseHeight },
+    scale,
+    limit
+  );
   return createRenderRequest("texture", {
-    width: quantizedRenderDimension(metrics.baseWidth * scale, limit.width),
-    height: quantizedRenderDimension(metrics.baseHeight * scale, limit.height),
-  }, { ...meta, logicalWidth: metrics.baseWidth, logicalHeight: metrics.baseHeight, demandScale: scale });
+    width: allocation.width,
+    height: allocation.height,
+  }, { ...meta, logicalWidth: metrics.baseWidth, logicalHeight: metrics.baseHeight, demandScale: allocation.scale });
 }
 
 // Repeated synchronized references can reuse one canonical texture only when
@@ -265,6 +252,45 @@ export function componentReferenceRegionRequest(fullRequest = {}, uvRect = [0, 0
       widthRatio,
       heightRatio,
     ],
+    regionView: true,
+  });
+}
+
+// Plan a nested Component directly for the source window which can contribute
+// to its parent. Building a full-frame request first would apply the global
+// raster ceiling before the crop and either allocate invisible pixels or
+// under-resolve the visible region once the full frame reached that ceiling.
+export function componentReferenceVisibleRenderRequest(
+  render = {},
+  component = {},
+  placement = {},
+  uvRect = [0, 0, 1, 1],
+  meta = {},
+) {
+  const metrics = componentFrameMetrics(render, component);
+  const normalizedUv = normalizeRenderUvRect(uvRect);
+  const demandScale = Math.max(
+    Math.max(1, Number(placement.width) || 1) / metrics.baseWidth,
+    Math.max(1, Number(placement.height) || 1) / metrics.baseHeight
+  ) * Math.max(0.05, Number(metrics.resolutionScale) || 1);
+  const regionLogicalSize = {
+    width: metrics.baseWidth * normalizedUv[2],
+    height: metrics.baseHeight * normalizedUv[3],
+  };
+  const allocation = aspectPreservingRenderDemand(
+    regionLogicalSize,
+    demandScale,
+    componentAdaptiveRasterLimit(regionLogicalSize)
+  );
+  return createRenderRequest("texture", {
+    width: allocation.width,
+    height: allocation.height,
+  }, {
+    ...meta,
+    logicalWidth: metrics.baseWidth,
+    logicalHeight: metrics.baseHeight,
+    demandScale: allocation.scale,
+    uvRect: normalizedUv,
     regionView: true,
   });
 }
@@ -407,14 +433,16 @@ export function componentCoverSceneSampleRect(render = {}, componentSize = {}, s
   const sceneRect = relativeRectToLogical(surface, sceneSize);
   const componentWidth = Math.max(1, Number(componentSize.width) || 1);
   const componentHeight = Math.max(1, Number(componentSize.height) || 1);
-  const coverScale = Math.max(sceneSize.width / componentWidth, sceneSize.height / componentHeight);
-  const offsetX = (sceneSize.width - componentWidth * coverScale) * 0.5;
-  const offsetY = (sceneSize.height - componentHeight * coverScale) * 0.5;
+  const fitted = fitRectGeometry(
+    { x: 0, y: 0, width: componentWidth, height: componentHeight },
+    { x: 0, y: 0, width: sceneSize.width, height: sceneSize.height },
+    "cover"
+  );
   return {
-    x: Math.max(0, (sceneRect.x - offsetX) / coverScale),
-    y: Math.max(0, (sceneRect.y - offsetY) / coverScale),
-    width: Math.min(componentWidth, sceneRect.width / coverScale),
-    height: Math.min(componentHeight, sceneRect.height / coverScale),
+    x: fitted.source.x + sceneRect.x / sceneSize.width * fitted.source.width,
+    y: fitted.source.y + sceneRect.y / sceneSize.height * fitted.source.height,
+    width: sceneRect.width / sceneSize.width * fitted.source.width,
+    height: sceneRect.height / sceneSize.height * fitted.source.height,
   };
 }
 
@@ -430,7 +458,7 @@ export function sceneMaxRasterSize(render = {}, logicalSize = {}, resolutionScal
   const height = Math.max(1, Number(logicalSize.height) || VJ1.sceneHeight);
   const componentScale = Math.max(0.5, Math.min(2, Number(resolutionScale) || 1));
   const limitToLogicalSize = render.sampling?.limitSceneToLogicalSize !== false;
-  const density = Math.max(0.5, Math.min(2, Number(render.pixelDensity) || 1));
+  const density = normalizePixelDensity(render.pixelDensity);
   const frameScale = Math.max(0.5, Math.min(2, Number(render.sampling?.recordingFrameScale) || RECORDING_FRAME_DEMAND_SCALE));
   const scale = (limitToLogicalSize ? 1 : Math.max(1, frameScale, density)) * componentScale;
   return { width: Math.min(8192, Math.max(1, Math.round(width * scale))), height: Math.min(8192, Math.max(1, Math.round(height * scale))) };
@@ -459,10 +487,14 @@ export function sharedComponentRenderRequests(routes = [], renderIdentityPrefix 
   }
   return new Map(Array.from(planned, ([id, { route, scale }]) => {
     const logical = route.sourceView.logicalSize;
-    const maximum = route.sourceView.maxRasterSize;
+    const rasterSize = route.demand.rasterSize || aspectPreservingRenderDemand(
+      logical,
+      scale,
+      route.sourceView.maxRasterSize
+    );
     return [id, createRenderRequest("texture", {
-      width: quantizedRenderDimension(logical.width * scale, maximum.width),
-      height: quantizedRenderDimension(logical.height * scale, maximum.height),
+      width: rasterSize.width,
+      height: rasterSize.height,
     }, {
       timingId: id,
       renderIdentity: `${renderIdentityPrefix}${id}`,
@@ -511,41 +543,22 @@ export function componentRenderInstanceKey(component = {}, instanceId = "") {
 export function fittedSampleRect(source = {}, targetWidth = 1, targetHeight = 1, fit = "stretch") {
   const tw = Math.max(1, Number(targetWidth) || 1);
   const th = Math.max(1, Number(targetHeight) || 1);
-  const sw = Math.max(1, Number(source.width) || 1);
-  const sh = Math.max(1, Number(source.height) || 1);
-  if (fit === "contain") {
-    const scale = Math.min(tw / sw, th / sh);
-    const width = sw * scale;
-    const height = sh * scale;
-    return { source, x: (tw - width) * 0.5, y: (th - height) * 0.5, width, height };
-  }
-  if (fit === "cover") {
-    const targetAspect = tw / th;
-    const sourceAspect = sw / sh;
-    if (sourceAspect > targetAspect) {
-      const width = sh * targetAspect;
-      return { source: { ...source, x: source.x + (sw - width) * 0.5, width }, x: 0, y: 0, width: tw, height: th };
-    }
-    const height = sw / targetAspect;
-    return { source: { ...source, y: source.y + (sh - height) * 0.5, height }, x: 0, y: 0, width: tw, height: th };
-  }
-  return { source, x: 0, y: 0, width: tw, height: th };
+  const fitted = fitRectGeometry(source, { x: 0, y: 0, width: tw, height: th }, fit);
+  return {
+    source: fitted.source,
+    x: fitted.destination.x,
+    y: fitted.destination.y,
+    width: fitted.destination.width,
+    height: fitted.destination.height,
+  };
 }
 
 function containedRect(containerWidth, containerHeight, contentWidth, contentHeight) {
-  const width = Math.max(1, Number(containerWidth) || 1);
-  const height = Math.max(1, Number(containerHeight) || 1);
-  const contentW = Math.max(1, Number(contentWidth) || 1);
-  const contentH = Math.max(1, Number(contentHeight) || 1);
-  const scale = Math.min(width / contentW, height / contentH);
-  return { width: contentW * scale, height: contentH * scale };
-}
-
-function quantizedRenderDimension(value, maximum) {
-  const upper = Math.max(1, Math.round(Number(maximum) || 1));
-  const next = Math.min(upper, Math.max(1, Math.round(Number(value) || 1)));
-  if (next < 16) return next;
-  return Math.min(upper, Math.max(16, Math.round(next / 16) * 16));
+  return fitRectGeometry(
+    { x: 0, y: 0, width: contentWidth, height: contentHeight },
+    { x: 0, y: 0, width: containerWidth, height: containerHeight },
+    "contain"
+  ).destination;
 }
 
 function renderRequestDemand(request = {}) {

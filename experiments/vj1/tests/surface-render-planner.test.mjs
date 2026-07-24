@@ -113,6 +113,56 @@ test("a Surface route renders its source at mapped demand without a parallel Fra
   assert.equal(metrics.componentRasterPixels, routes[0].componentRequest.width * routes[0].componentRequest.height);
 });
 
+test("standalone output plans its cover crop as an exact viewport ROI", () => {
+  const state = createInitialState();
+  state.render.componentAspectRatio = 2;
+  const component = { ...state.components[0], id: "viewport-component" };
+  const surface = {
+    ...state.surfaces[0],
+    id: "viewport-surface",
+    enabled: true,
+    componentId: component.id,
+    projectionFit: "cover",
+  };
+  state.components = [component];
+  state.surfaces = [surface];
+  const mapperSurface = {
+    name: surface.id,
+    corners: [
+      { x: 0, y: 0 },
+      { x: 1422, y: 0 },
+      { x: 1422, y: 554 },
+      { x: 0, y: 554 },
+    ],
+  };
+  const { routes, metrics } = planSurfaceRoutes({
+    state,
+    mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
+    componentById: new Map([[component.id, component]]),
+    viewport: { width: 1422, height: 554 },
+    pixelScale: 1,
+    preserveDirectFootprint: true,
+    allowViewportRegions: true,
+    resolveRouteSourceNode: () => ({
+      id: `component:${component.id}`,
+      componentId: component.id,
+    }),
+    isComponentRegionSafe: () => true,
+  });
+
+  const route = routes[0];
+  assert.equal(route.componentRequest.regionView, true);
+  assert.deepEqual(
+    { width: route.componentRequest.width, height: route.componentRequest.height },
+    { width: 1422, height: 554 }
+  );
+  assert.equal(route.presentationUvRect[0], 0);
+  assert.equal(route.presentationUvRect[2], 1);
+  assert.ok(route.presentationUvRect[1] > 0);
+  assert.ok(route.presentationUvRect[3] < 1);
+  assert.equal(metrics.componentRasterPixels, 1422 * 554);
+});
+
 test("root Content scale uses transformed ROI detail without enlarging Surface allocation", () => {
   const state = createInitialState();
   const component = {
@@ -148,9 +198,9 @@ test("root Content scale uses transformed ROI detail without enlarging Surface a
   assert.equal(route.componentRequest.role, "scene-region");
   assert.deepEqual(route.componentRequest.uvRect, [0.4375, 0.4375, 0.125, 0.125]);
   assert.equal(route.componentRequest.width, 960);
-  assert.equal(route.componentRequest.height, 544);
+  assert.equal(route.componentRequest.height, 540);
   assert.equal(route.surfaceRequest.width, 960);
-  assert.equal(route.surfaceRequest.height, 544);
+  assert.equal(route.surfaceRequest.height, 540);
   assert.equal(route.componentRequest.width / route.componentRequest.uvRect[2], 7680);
   assert.deepEqual(safe.metrics.rootTransformDetailLimited, []);
 

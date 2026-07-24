@@ -366,7 +366,9 @@ test("projection mapping exposes cover contain and stretch without another rende
   assert.match(featherSource, /float featherAspect = uUseSourceFit \? uSourceTargetAspect : \(uProjectionFit >= 1\.5 \? uSourceAspect : uTargetAspect\)/);
   assert.match(featherSource, /color \*= featherMask/);
   assert.match(fragmentSource, /uniform vec4 uSourceRect/);
-  assert.match(fragmentSource, /textureUv = uSourceRect\.xy \+ clamp\(sampleUv/);
+  assert.match(fragmentSource, /uniform vec4 uTextureView/);
+  assert.match(fragmentSource, /viewUv = \(sampleUv - uTextureView\.xy\)/);
+  assert.match(fragmentSource, /textureUv = uSourceRect\.xy \+ clamp\(viewUv/);
   assert.match(fragmentSource, /texture2D\(tex, textureUv\)/);
   assert.deepEqual(normalizedSourceRect(
     { width: 1000, height: 500 },

@@ -5,6 +5,8 @@ import {
 } from "../libraries/render-engine/relative-geometry.js";
 
 export const DEFAULT_MAX_FRAME_RATE = 120;
+export const MIN_PIXEL_DENSITY = 0.5;
+export const MAX_PIXEL_DENSITY = 4;
 export const RESOLUTION_CEILING_PRESETS = Object.freeze([
   Object.freeze({ id: "auto", label: "Auto · current window", longEdge: Infinity }),
   Object.freeze({ id: "vga", label: "VGA · 640 × 480", longEdge: 640 }),
@@ -68,13 +70,17 @@ export function normalizeRenderSettings(render = {}) {
     ),
     resolutionCeiling: normalizeResolutionCeiling(render.resolutionCeiling),
     maxFrameRate: renderMaxFrameRate(render),
-    pixelDensity: clampNumber(render.pixelDensity, 0.5, 2, 1),
+    pixelDensity: normalizePixelDensity(render.pixelDensity),
     sampling: normalizeSamplingSettings(render.sampling),
     camera: normalizeCameraSettings(render.camera),
     screenCapture: normalizeScreenCaptureSettings(render.screenCapture),
     hostViewport: normalizeHostViewport(render.hostViewport),
     ...normalizeComponentPipelineSettings(render),
   };
+}
+
+export function normalizePixelDensity(value) {
+  return clampNumber(value, MIN_PIXEL_DENSITY, MAX_PIXEL_DENSITY, 1);
 }
 
 // This is an aspect-based mathematical space used by interactions and shader

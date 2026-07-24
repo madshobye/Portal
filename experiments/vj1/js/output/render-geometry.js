@@ -1,6 +1,10 @@
 import { VJ1 } from "../constants.js";
 import { componentFrameSize, normalizeOutputName } from "../domain/render-settings.js";
 import { compositionLogicalSize, normalizeAspectRatio, projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js";
+import {
+  fitSampleFractions,
+  fitTargetUvToSourceUv,
+} from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
 
 export const SURFACE_DEMAND_OVERSCAN = 1;
 export const RECORDING_FRAME_DEMAND_SCALE = 1;
@@ -173,6 +177,7 @@ export function sourceRenderDemand({
   sourceFitActive = false,
   sourceFit = "cover",
   sourceAspect = 1,
+  visibleUvRect = null,
 } = {}) {
   const footprint = visibleMappedSurfaceSize(corners, viewport);
   if (!footprint) return null;
@@ -186,9 +191,9 @@ export function sourceRenderDemand({
     : sampledAspect;
   const projectedAspect = projectedQuadAspect(corners, demandFootprint.width / demandFootprint.height);
   const sourceFitFractions = sourceFitActive
-    ? coverSampleFractions(sampledAspect, intermediateAspect, sourceFit)
+    ? fitSampleFractions(sampledAspect, intermediateAspect, sourceFit)
     : { x: 1, y: 1 };
-  const projectionFitFractions = coverSampleFractions(intermediateAspect, projectedAspect, projectionFit);
+  const projectionFitFractions = fitSampleFractions(intermediateAspect, projectedAspect, projectionFit);
   const sampledFractions = {
     x: sourceFitFractions.x * projectionFitFractions.x,
     y: sourceFitFractions.y * projectionFitFractions.y,
@@ -205,11 +210,11 @@ export function sourceRenderDemand({
     Math.max(1, Number(maxRasterSize.height) || logicalHeight) / logicalHeight
   );
   const rasterScale = Math.max(1 / Math.max(logicalWidth, logicalHeight), Math.min(rasterLimit, surfaceScale));
-  const rasterSize = {
-    width: quantizedDemandInt(logicalWidth * rasterScale, Math.max(1, Number(maxRasterSize.width) || logicalWidth)),
-    height: quantizedDemandInt(logicalHeight * rasterScale, Math.max(1, Number(maxRasterSize.height) || logicalHeight)),
-  };
-  const effectiveScale = Math.min(rasterSize.width / logicalWidth, rasterSize.height / logicalHeight);
+  const rasterAllocation = aspectPreservingRenderDemand(
+    { width: logicalWidth, height: logicalHeight },
+    rasterScale,
+    maxRasterSize
+  );
   const maxSurfaceWidth = Math.max(1, Number(maxSurfaceSize.width) || rect.width);
   const maxSurfaceHeight = Math.max(1, Number(maxSurfaceSize.height) || rect.height);
   const intermediateSize = intermediateFitLogicalSize(
@@ -230,34 +235,115 @@ export function sourceRenderDemand({
       maxSurfaceHeight / intermediateSize.height
     )
   );
-  const surfaceSize = {
-    width: quantizedDemandInt(intermediateSize.width * regionalScale, maxSurfaceWidth),
-    height: quantizedDemandInt(intermediateSize.height * regionalScale, maxSurfaceHeight),
-  };
+  const surfaceAllocation = aspectPreservingRenderDemand(
+    intermediateSize,
+    regionalScale,
+    { width: maxSurfaceWidth, height: maxSurfaceHeight }
+  );
+  const viewportRegion = visibleSourceRegion({
+    visibleUvRect,
+    logicalWidth,
+    logicalHeight,
+    sampleRect: rect,
+    sampledAspect,
+    intermediateAspect,
+    projectedAspect,
+    projectionFit,
+    sourceFitActive,
+    sourceFit,
+    footprint,
+    scaleToPixels,
+    maxSurfaceSize: { width: maxSurfaceWidth, height: maxSurfaceHeight },
+  });
   return {
     footprint,
     demandFootprint,
     logicalSize: { width: logicalWidth, height: logicalHeight },
     sampleRect: rect,
     sampledFractions,
-    rasterScale: effectiveScale,
-    rasterSize,
-    surfaceSize,
+    rasterScale: rasterAllocation.scale,
+    rasterSize: { width: rasterAllocation.width, height: rasterAllocation.height },
+    surfaceSize: { width: surfaceAllocation.width, height: surfaceAllocation.height },
+    viewportRegion,
   };
 }
 
-// Cover samples only a fraction of one source axis. A single cover stage is
-// naturally represented by max(widthScale, heightScale), but Live component
-// routes can cover into a Scene-space Surface and then cover that result into
-// the physical projection. Those crops may affect different axes, so demand
-// must retain both fractions through the complete sampling chain.
-function coverSampleFractions(sourceAspect = 1, targetAspect = 1, fit = "cover") {
-  if (fit !== "cover") return { x: 1, y: 1 };
-  const source = Math.max(0.0001, Number(sourceAspect) || 1);
-  const target = Math.max(0.0001, Number(targetAspect) || 1);
-  if (source > target) return { x: target / source, y: 1 };
-  if (source < target) return { x: 1, y: source / target };
-  return { x: 1, y: 1 };
+function visibleSourceRegion({
+  visibleUvRect = null,
+  logicalWidth = 1,
+  logicalHeight = 1,
+  sampleRect = {},
+  sampledAspect = 1,
+  intermediateAspect = 1,
+  projectedAspect = 1,
+  projectionFit = "cover",
+  sourceFitActive = false,
+  sourceFit = "cover",
+  footprint = {},
+  scaleToPixels = 1,
+  maxSurfaceSize = {},
+} = {}) {
+  if (!Array.isArray(visibleUvRect) || visibleUvRect.length < 4) return null;
+  const target = normalizeUvRect(visibleUvRect);
+  const points = [
+    { x: target[0], y: target[1] },
+    { x: target[0] + target[2], y: target[1] },
+    { x: target[0] + target[2], y: target[1] + target[3] },
+    { x: target[0], y: target[1] + target[3] },
+  ].map((point) => {
+    const projected = fitTargetUvToSourceUv(
+      point,
+      intermediateAspect,
+      projectedAspect,
+      projectionFit
+    );
+    if (!projected.inside) return null;
+    if (!sourceFitActive) return projected;
+    const source = fitTargetUvToSourceUv(
+      projected,
+      sampledAspect,
+      intermediateAspect,
+      sourceFit
+    );
+    return source.inside ? source : null;
+  });
+  // A contain letterbox can intersect the viewport without sampling source
+  // pixels. Retain the established full request until that polygon is clipped
+  // against the contain content rectangle rather than guessing a smaller ROI.
+  if (points.some((point) => !point)) return null;
+  const left = clamp01(Math.min(...points.map((point) => point.x)));
+  const top = clamp01(Math.min(...points.map((point) => point.y)));
+  const right = clamp01(Math.max(...points.map((point) => point.x)));
+  const bottom = clamp01(Math.max(...points.map((point) => point.y)));
+  const width = right - left;
+  const height = bottom - top;
+  if (width <= 1e-9 || height <= 1e-9) return null;
+  if (width >= 1 - 1e-9 && height >= 1 - 1e-9) return null;
+  const regionLogicalSize = {
+    width: Math.max(1e-9, sampleRect.width * width),
+    height: Math.max(1e-9, sampleRect.height * height),
+  };
+  const requestedScale = Math.max(
+    Math.max(1, Number(footprint.width) || 1) * scaleToPixels / regionLogicalSize.width,
+    Math.max(1, Number(footprint.height) || 1) * scaleToPixels / regionLogicalSize.height
+  );
+  const allocation = aspectPreservingRenderDemand(
+    regionLogicalSize,
+    requestedScale,
+    maxSurfaceSize,
+    1
+  );
+  return {
+    uvRect: [
+      (sampleRect.x + left * sampleRect.width) / logicalWidth,
+      (sampleRect.y + top * sampleRect.height) / logicalHeight,
+      width * sampleRect.width / logicalWidth,
+      height * sampleRect.height / logicalHeight,
+    ],
+    textureViewUv: [left, top, width, height],
+    rasterSize: { width: allocation.width, height: allocation.height },
+    rasterScale: allocation.scale,
+  };
 }
 
 // A routed Component is first fitted into Scene/Surface presentation space,
@@ -271,7 +357,7 @@ function intermediateFitLogicalSize(rect, targetAspect, fit = "cover", active = 
   const sourceAspect = Math.max(0.0001, rect.width / rect.height);
   const target = Math.max(0.0001, Number(targetAspect) || sourceAspect);
   if (fit === "cover") {
-    const fractions = coverSampleFractions(sourceAspect, target, fit);
+    const fractions = fitSampleFractions(sourceAspect, target, fit);
     return {
       width: rect.width * fractions.x,
       height: rect.height * fractions.y,
@@ -430,11 +516,36 @@ function containedAspectSize(container = {}, aspectRatio = VJ1.renderWidth / VJ1
     : { width: Math.round(width), height: Math.max(1, Math.round(width / aspect)) };
 }
 
-function quantizedDemandInt(value, max) {
-  const upper = Math.max(1, Math.round(Number(max) || 1));
-  const clamped = Math.min(upper, Math.max(1, Math.round(Number(value) || 1)));
-  if (clamped < 16) return clamped;
-  return Math.min(upper, Math.max(16, Math.round(clamped / 16) * 16));
+// Render-demand classes are keyed by one shared scale, not by independently
+// rounded axes. Rounding the long edge upward retains cache stability while
+// guaranteeing that neither axis falls below physical demand. The dependent
+// edge is derived from the same scale, preserving source aspect within one
+// integer pixel. Explicit raster ceilings remain authoritative.
+export function aspectPreservingRenderDemand(logicalSize = {}, requestedScale = 1, maximumSize = {}, quantum = 16) {
+  const logicalWidth = Math.max(1, Number(logicalSize.width) || 1);
+  const logicalHeight = Math.max(1, Number(logicalSize.height) || 1);
+  const maximumWidth = Math.max(1, Math.round(Number(maximumSize.width) || logicalWidth));
+  const maximumHeight = Math.max(1, Math.round(Number(maximumSize.height) || logicalHeight));
+  const maximumScale = Math.min(maximumWidth / logicalWidth, maximumHeight / logicalHeight);
+  const demandScale = Math.max(
+    1 / Math.max(logicalWidth, logicalHeight),
+    Math.min(maximumScale, Number(requestedScale) || 1)
+  );
+  const longEdge = Math.max(logicalWidth, logicalHeight);
+  const step = Math.max(1, Math.round(Number(quantum) || 1));
+  const demandedLongEdge = longEdge * demandScale;
+  const quantizedLongEdge = demandedLongEdge < step
+    ? Math.ceil(demandedLongEdge)
+    : Math.ceil((demandedLongEdge - 1e-9) / step) * step;
+  const allocationScale = Math.min(maximumScale, quantizedLongEdge / longEdge);
+  const width = Math.min(maximumWidth, Math.max(1, Math.ceil(logicalWidth * allocationScale - 1e-9)));
+  const height = Math.min(maximumHeight, Math.max(1, Math.ceil(logicalHeight * allocationScale - 1e-9)));
+  return {
+    width,
+    height,
+    scale: Math.min(width / logicalWidth, height / logicalHeight),
+    limited: maximumScale + 1e-12 < Number(requestedScale),
+  };
 }
 
 function clampLogicalRect(rect = {}, logicalWidth = 1, logicalHeight = 1) {
@@ -443,6 +554,21 @@ function clampLogicalRect(rect = {}, logicalWidth = 1, logicalHeight = 1) {
   const width = Math.max(1, Math.min(logicalWidth - x, Number(rect.width) || logicalWidth));
   const height = Math.max(1, Math.min(logicalHeight - y, Number(rect.height) || logicalHeight));
   return { x, y, width, height };
+}
+
+function normalizeUvRect(value = []) {
+  const width = Math.max(1e-9, Math.min(1, Number(value[2]) || 1));
+  const height = Math.max(1e-9, Math.min(1, Number(value[3]) || 1));
+  return [
+    Math.max(0, Math.min(1 - width, Number(value[0]) || 0)),
+    Math.max(0, Math.min(1 - height, Number(value[1]) || 0)),
+    width,
+    height,
+  ];
+}
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, Number(value) || 0));
 }
 
 function pointDistance(a, b) {

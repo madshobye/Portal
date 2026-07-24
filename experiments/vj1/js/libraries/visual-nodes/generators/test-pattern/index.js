@@ -1,5 +1,5 @@
 import { NODE_PART_KINDS } from "../../../node-engine/node-definition.js";
-import { compileSdf2dProgram } from "../../../procedural-2d/compiler.js?v=procedural-2d-2";
+import { compileSdf2dProgram } from "../../../procedural-2d/compiler.js?v=pixel-diagnostics-1";
 import { createSdf2dProgram, sdfExpr } from "../../../procedural-2d/program.js?v=procedural-2d-1";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js?v=procedural-2d-1";
 import { ALWAYS_TIME_RUNTIME } from "../../shared/shader-component-common.js";
@@ -34,14 +34,16 @@ export function defineTestPatternProgram(p) {
     const x = 0.27 + 0.46 * index / 12;
     p.line(x, 0.525, x, index % 2 ? 0.575 : 0.6, 0.0025, light, { clip: circle });
   }
-  p.stripes(0.29, 0.62, 0.42, 0.12, 128, light, dark, { clip: circle });
+  p.stripes(0.29, 0.62, 0.42, 0.12, pixelStripeCount(0.42, "x", 1), light, dark, { clip: circle });
   p.grayScale(0.33, 0.745, 0.34, 0.075, 9, { clip: circle });
 
-  // Resolution wedges are periodic stripe fields, not arrays of line shapes.
-  p.stripes(0.065, 0.36, 0.06, 0.28, 32, light, dark, { direction: "horizontal" });
-  p.stripes(0.135, 0.36, 0.06, 0.28, 56, light, dark, { direction: "horizontal" });
-  p.stripes(0.795, 0.36, 0.06, 0.28, 56, light, dark);
-  p.stripes(0.865, 0.36, 0.06, 0.28, 32, light, dark);
+  // Resolution wedges are tied to the source pixel grid. They deliberately
+  // expose one- and two-pixel sampling on both axes so scaling or filtering
+  // becomes visible instead of producing an arbitrary normalized pattern.
+  p.stripes(0.065, 0.36, 0.06, 0.28, pixelStripeCount(0.28, "y", 1), light, dark, { direction: "horizontal" });
+  p.stripes(0.135, 0.36, 0.06, 0.28, pixelStripeCount(0.28, "y", 2), light, dark, { direction: "horizontal" });
+  p.stripes(0.795, 0.36, 0.06, 0.28, pixelStripeCount(0.06, "x", 2), light, dark);
+  p.stripes(0.865, 0.36, 0.06, 0.28, pixelStripeCount(0.06, "x", 1), light, dark);
 
   p.ring(0.5, 0.505, 0.3382, 0.004, dark);
   p.ring(0.5, 0.505, 0.1068, 0.003, dark);
@@ -77,13 +79,22 @@ export function defineTestPatternProgram(p) {
     0.0024, light);
 }
 
+function pixelStripeCount(span, axis = "x", pixelsPerStripe = 1) {
+  const normalizedSpan = Math.max(0, Number(span) || 0);
+  const pixelPeriod = Math.max(1, Math.round(Number(pixelsPerStripe) || 1));
+  const resolutionAxis = axis === "y" ? "y" : "x";
+  return sdfExpr(`${normalizedSpan}*resolution.${resolutionAxis}/${pixelPeriod}.0`);
+}
+
 export const TestPatternProgram = createSdf2dProgram({
   id: "test-pattern",
   name: "Test Pattern SDF program",
   draw: defineTestPatternProgram,
 });
 
-export const TestPatternShaderSource = compileSdf2dProgram(TestPatternProgram);
+export const TestPatternShaderSource = compileSdf2dProgram(TestPatternProgram, {
+  antialias: false,
+});
 
 const shader = Object.freeze({
   id: "generator.test-pattern",

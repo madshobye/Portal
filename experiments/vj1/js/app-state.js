@@ -16,7 +16,7 @@ import {
   sanitizeState,
   syncSurfaceProportionsFromMapping,
   uid,
-} from "./domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-live-scene-mapping-override-1-scene-mapping-default-selection-derived-media-element-names-runtime-visual-sources-1";
+} from "./domain/models.js?v=pixel-density-4";
 import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
 import { firstEnabledLiveSurfaceId } from "./domain/live-ui-state.js?v=scene-mapping-default-selection-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";

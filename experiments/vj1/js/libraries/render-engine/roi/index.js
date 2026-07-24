@@ -17,7 +17,7 @@ export function isFullNodeBoundary(boundary = {}) {
     Math.abs(value.rotation) < 0.000001;
 }
 
-export function nodeBoundaryPixelRect(boundary = {}, target = {}, halo = 0) {
+export function nodeBoundaryPixelRect(boundary = {}, target = {}, halo = 0, options = {}) {
   const value = normalizeNodeBoundary(boundary);
   const targetWidth = Math.max(1, Math.round(Number(target.width) || 1));
   const targetHeight = Math.max(1, Math.round(Number(target.height) || 1));
@@ -53,10 +53,32 @@ export function nodeBoundaryPixelRect(boundary = {}, target = {}, halo = 0) {
       y: dx * sine + dy * cosine + height * 0.5,
     };
   });
-  const sampleLeft = Math.max(0, Math.floor(Math.min(...localViewport.map((point) => point.x)) - padding));
-  const sampleTop = Math.max(0, Math.floor(Math.min(...localViewport.map((point) => point.y)) - padding));
-  const sampleRight = Math.min(width, Math.ceil(Math.max(...localViewport.map((point) => point.x)) + padding));
-  const sampleBottom = Math.min(height, Math.ceil(Math.max(...localViewport.map((point) => point.y)) + padding));
+  const localLeft = Math.min(...localViewport.map((point) => point.x));
+  const localTop = Math.min(...localViewport.map((point) => point.y));
+  const localRight = Math.max(...localViewport.map((point) => point.x));
+  const localBottom = Math.max(...localViewport.map((point) => point.y));
+  // An unrotated source that completely covers the requested viewport can
+  // render directly on its consumer's pixel grid. Preserve the exact
+  // boundary-local crop in uvRect instead of rounding it outward, which would
+  // otherwise allocate an extra row/column and fractionally resample it back.
+  // Partial edges, rotation, and effect halos retain conservative coverage.
+  const consumerGrid = options.consumerGrid === true &&
+    Math.abs(value.rotation) < 1e-12 &&
+    padding === 0;
+  const alignConsumerX = consumerGrid && localLeft >= 0 && localRight <= width;
+  const alignConsumerY = consumerGrid && localTop >= 0 && localBottom <= height;
+  const sampleLeft = alignConsumerX
+    ? localLeft
+    : Math.max(0, Math.floor(localLeft - padding));
+  const sampleTop = alignConsumerY
+    ? localTop
+    : Math.max(0, Math.floor(localTop - padding));
+  const sampleRight = alignConsumerX
+    ? localRight
+    : Math.min(width, Math.ceil(localRight + padding));
+  const sampleBottom = alignConsumerY
+    ? localBottom
+    : Math.min(height, Math.ceil(localBottom + padding));
   const visibleWidth = Math.max(0, sampleRight - sampleLeft);
   const visibleHeight = Math.max(0, sampleBottom - sampleTop);
   return {
@@ -87,7 +109,9 @@ export function nodeBoundaryPixelRect(boundary = {}, target = {}, halo = 0) {
 }
 
 export function nodeRoiRequest(renderRequest = {}, boundary = {}, additions = {}) {
-  const roi = nodeBoundaryPixelRect(boundary, renderRequest, additions.halo);
+  const roi = nodeBoundaryPixelRect(boundary, renderRequest, additions.halo, {
+    consumerGrid: additions.consumerGrid,
+  });
   const coordinateSpace = additions.coordinateSpace === "full-frame" ? "full-frame" : "boundary";
   const logicalWidth = Math.max(1, Number(renderRequest.logicalWidth) || Number(renderRequest.width) || 1);
   const logicalHeight = Math.max(1, Number(renderRequest.logicalHeight) || Number(renderRequest.height) || 1);
