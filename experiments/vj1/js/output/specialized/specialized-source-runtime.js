@@ -1,4 +1,4 @@
-import { clamp01 } from "../../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-1";
+import { clamp01 } from "../../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-runtime-visual-sources-1";
 import { createSharedFramebufferTarget, isSharedFramebufferTarget, unwrapRenderTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
 import { drawStandby } from "../generators.js?v=standby-grace-1";
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=canvas-global-resolution-1";

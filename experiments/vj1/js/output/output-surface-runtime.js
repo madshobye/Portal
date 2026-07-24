@@ -1,5 +1,5 @@
-import { clamp01 } from "../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-1";
-import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=surface-identity-1";
+import { clamp01 } from "../domain/models.js?v=chain-only-authority-1-scene-mapping-default-selection-runtime-visual-sources-1";
+import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=surface-identity-runtime-visual-sources-1";
 import { BoundedRenderTargetPool } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
 import { SceneFrameGuideNode } from "../libraries/composition-engine/index.js?v=compiled-semantic-specialized-compounds-compiler-authority-1";
 import { projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=frame-projection-aspect-1";
@@ -706,7 +706,7 @@ export class OutputSurfaceRuntime {
 
   drawSurfaceThumbnailRoute(target, surface, demand = null, compositeOpacity = 1) {
     const renderer = this.renderer;
-    const component = renderer.componentById.get(surface.componentId);
+    const component = renderer.componentForId(surface.componentId);
     const thumbnail = renderer.getThumbnailImage(component);
     target.push();
     applyBlend(target, "normal");

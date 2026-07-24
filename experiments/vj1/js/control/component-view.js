@@ -14,7 +14,7 @@ import { UI_ICONS } from "./ui-icons.js";
 import {
   isAutomaticMediaSourceName,
   sourceBackedMediaId,
-} from "../domain/models.js?v=model-media-scene-group-1";
+} from "../domain/models.js?v=model-media-scene-group-runtime-visual-sources-1";
 
 
 export function sceneInspectorTemplate(component, state) {

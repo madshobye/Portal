@@ -4,7 +4,7 @@ import { applyLiveRenderPatches, interpolatedLiveRenderValue, isInterpolableLive
 import { sceneFrameSize, renderMaxFrameRate, renderPresentationFrameRate } from "../domain/render-settings.js?v=presentation-clock-1";
 import { runtimeVisualSourceComponents } from "../domain/runtime-visual-sources.js?v=runtime-visual-sources-1";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-projector-resolution-ceilings-1";
-import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-1-scene-mapping-default-selection-1";
+import { clamp01, normalizeComponentPipelineSettings, sanitizeState, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-1-scene-mapping-default-selection-runtime-visual-sources-1";
 import { normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import { advancePresentationClock, createPresentationClock } from "../libraries/timing-engine/presentation-clock/index.js?v=presentation-clock-1";
@@ -35,7 +35,7 @@ import { collectOutputMediaReadiness } from "./output-media-readiness.js?v=runti
 import { OutputMediaRuntime } from "./output-media-runtime.js?v=media-url-retirement-1";
 import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=runtime-diagnostics-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=root-content-transform-roi-3";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=root-content-transform-roi-runtime-visual-sources-2";
 import { IsfRenderRuntime } from "./isf-render-runtime.js?v=isf-backend-1";
 import { TextureOperatorRuntime } from "./texture-operator-runtime.js?v=texture-operator-backend-1";
 import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=shader-effect-backend-1";
@@ -43,7 +43,7 @@ import { CompositeRenderRuntime } from "./composite-render-runtime.js?v=composit
 import {
   mediaSourceDemandWidth,
   SourceRenderRuntime,
-} from "./source-render-runtime.js?v=source-backend-4-source-detail-diagnostics";
+} from "./source-render-runtime.js?v=source-backend-4-source-detail-diagnostics-runtime-visual-sources-2";
 import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=root-content-transform-roi-3";
 import { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import { contentTransformCanvasPlacement, contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
@@ -107,7 +107,7 @@ export {
   compiledVisualSourceRenderer,
   mediaSourceDemandSize,
   mediaSourceDemandWidth,
-} from "./source-render-runtime.js?v=source-backend-4-source-detail-diagnostics";
+} from "./source-render-runtime.js?v=source-backend-4-source-detail-diagnostics-runtime-visual-sources-2";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {
@@ -1024,6 +1024,15 @@ export class OutputRenderer {
       if (runtimeComponent) this.componentById.set(componentId, runtimeComponent);
       else this.componentById.delete(componentId);
     }
+  }
+
+  componentForId(componentId) {
+    const id = String(componentId || "");
+    if (!id) return null;
+    return this.componentById.get(id) ||
+      this.state?.components?.find((component) => String(component?.id || "") === id) ||
+      this.runtimeComponents?.find((component) => String(component?.id || "") === id) ||
+      null;
   }
 
   resolveRouteSourceNode(surface = {}) {
@@ -4683,9 +4692,7 @@ export class OutputRenderer {
     const ids = this.neededComponentIds();
     for (const componentId of ids) {
       const component = this.componentPrograms.has(componentId)
-        ? this.componentById.get(componentId) ||
-          this.state.components?.find((candidate) => candidate.id === componentId) ||
-          this.runtimeComponents?.find((candidate) => candidate.id === componentId)
+        ? this.componentForId(componentId)
         : null;
       // Decoder callbacks identify new media revisions, but they are not a
       // presentation clock. Browsers may coalesce or throttle callbacks for

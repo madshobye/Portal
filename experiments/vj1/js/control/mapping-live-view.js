@@ -1,6 +1,6 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1-scene-mapping-default-selection-1";
-import { liveProgramComponentIds } from "../domain/scene-routing.js?v=live-program-component-catalog-1";
+import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-1-scene-mapping-default-selection-runtime-visual-sources-1";
+import { liveProgramComponentIds } from "../domain/scene-routing.js?v=live-program-component-catalog-runtime-visual-sources-1";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=compiled-semantic-specialized-compounds-26";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";

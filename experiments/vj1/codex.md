@@ -206,6 +206,8 @@ The built-in, installed, and project visual-library layers use the same artifact
 - Removed the last generator-name execution table from the source backend. Code-owned visual primitives such as Black and Checker now compile as direct node processes through the generic source runtime; only implementations that genuinely require a retained host kernel compile to a native renderer capability. An operation lacking a process, shader, or registered capability emits one explicit diagnostic instead of silently selecting a visual-name fallback. No generic packets or graph traversal were added to the frame loop.
 - Restored effect-quality request ownership after the render-chain resolution HUD work accidentally moved that request into an unrelated direct-source/layer path. Nested Component effects now derive and record their quality-scaled request before retained evaluation; direct sources no longer reference effect parameters. The regression contract checks both boundaries, and the optimized Surface/window presentation path is unchanged.
 - Made compiled specialized-Group artifacts fail closed. Child nodes now declare the JavaScript exports and shader parts required by their retained kernel; specialized lowering validates the aggregated artifacts once and rejects a missing/empty module or GLSL part before the render plan becomes active, disposing the rejected partial program. Runtime adapters retain allocation-stable, cached corruption checks, while host-bundled JavaScript/GLSL remains available only to explicit legacy non-graph calls. Terrain, Mesh Patterns, Feature Morph, Tile Texture, Text, Screen Share, Eyeball, and legacy Anatomy hosting can therefore no longer display one editable graph while silently executing another host implementation. The native kernels and optimized Surface/window path are unchanged.
+- Removed Mapping Test Pattern from authored project state. It is now a host-owned runtime visual source with a stable route identity, while its semantic Test Pattern Component shape is supplied only at renderer activation and compiled by the ordinary retained Component program compiler. Mapping preview, ROI/demand planning, transitions, and final Surface/window presentation therefore keep the same optimized path without normalization injecting a hidden Component or persistence filtering one back out. Runtime and project Components share one renderer lookup contract, and legacy in-memory system entries are discarded during normalization.
+- Audited the Live Overall monitor adapter and retained it as an intentional editor-host boundary. Overall is not authored visual content or an editable output graph; it projects the selected compiled source into one ordinary typed direct-Surface route in an immutable render-state view. That route uses the same demand, cache, transition, and optimized Surface/window renderer as authored outputs. Introducing a user-visible Monitor node would duplicate presentation ownership without making more of the visual system editable.
 
 ## Unresolved Architecture Decisions
 
@@ -213,15 +215,11 @@ The built-in, installed, and project visual-library layers use the same artifact
 
 2. **Direct-output hierarchy.** Group/child precedence currently derives hierarchy from `destination.outputIds.length`. It is centralized and deterministic, but explicit parent/override graph edges would be clearer if output routing becomes more complex.
 
-3. **Mapping Test Pattern identity.** It is currently a hidden system Component because the renderer consumes Component textures. A system/runtime source node would be cleaner and would remove the hidden Component container, but this requires a general non-project source contract in demand planning and thumbnails.
+3. **Internal Frame terminology.** `scene-frame-guides`, preview interaction names such as `sceneFrameDrag`, and the technical sampling key `recordingFrameScale` now describe Surfaces or sampling windows rather than a persisted Frame model. The persisted node ID needs a schema/node-diff migration; the non-persisted APIs can then be renamed as one coordinated terminology migration. Avoid piecemeal aliases.
 
-4. **Overall monitor adapter.** Live Overall preview is represented by a synthetic direct Surface/output in a cloned render state. It no longer mutates the Mapping, but an explicit monitor-output node would better describe this presentation boundary.
+4. **Protocol compatibility.** Output recovery still accepts older recovery payload shapes so a stale output window can reconnect during application reload. Replacing this requires an explicit protocol-version handshake that reloads or rejects stale clients; do not grow more compatibility branches around it.
 
-5. **Internal Frame terminology.** `scene-frame-guides`, preview interaction names such as `sceneFrameDrag`, and the technical sampling key `recordingFrameScale` now describe Surfaces or sampling windows rather than a persisted Frame model. The persisted node ID needs a schema/node-diff migration; the non-persisted APIs can then be renamed as one coordinated terminology migration. Avoid piecemeal aliases.
-
-6. **Protocol compatibility.** Output recovery still accepts older recovery payload shapes so a stale output window can reconnect during application reload. Replacing this requires an explicit protocol-version handshake that reloads or rejects stale clients; do not grow more compatibility branches around it.
-
-7. **Fallback policy.** Shared-framebuffer, media draw, sample draw, font, video-callback, and specialized ML fallbacks still exist and emit diagnostics. The product targets current Chrome/GPU, but removal should be a deliberate startup capability/fail-fast policy, not scattered deletion during render work.
+5. **Fallback policy.** Shared-framebuffer, media draw, sample draw, font, video-callback, and specialized ML fallbacks still exist and emit diagnostics. The product targets current Chrome/GPU, but removal should be a deliberate startup capability/fail-fast policy, not scattered deletion during render work.
 
 8. **Effect parameter migration.** Runtime effect normalization still merges the old top-level `amount` field into the canonical param map, with `params` taking precedence. This should eventually become a project migration only, but needs a schema cutoff and fixtures for affected saved projects.
 
@@ -246,10 +244,10 @@ The built-in, installed, and project visual-library layers use the same artifact
 
 ## Verification Status
 
-The complete automated VJ1 suite is green: **1140/1140**.
+The complete automated VJ1 suite is green: **1141/1141**.
 
 ```sh
-npm test                       # 1140/1140
+npm test                       # 1141/1141
 npm run test:metrics           # 10/10
 npm run test:render            # 31/31
 git diff --check               # clean

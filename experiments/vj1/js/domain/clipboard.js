@@ -1,8 +1,8 @@
-import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js?v=render-coordinate-scope-3-scene-mapping-default-selection-1";
+import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js?v=render-coordinate-scope-3-scene-mapping-default-selection-runtime-visual-sources-1";
 import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
 import { sceneFrameSize } from "./render-settings.js?v=canvas-global-resolution-1";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
-import { initializeLiveChainInsertion } from "./scene-routing.js?v=chain-only-authority-1";
+import { initializeLiveChainInsertion } from "./scene-routing.js?v=chain-only-authority-runtime-visual-sources-1";
 
 export const VJ1_CLIPBOARD_TYPE = "application/x-vj1-item";
 

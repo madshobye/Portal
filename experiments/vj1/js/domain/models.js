@@ -27,7 +27,7 @@ import {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=explicit-surface-visibility-1";
+} from "./scene-routing.js?v=explicit-surface-visibility-runtime-visual-sources-1";
 import { compileLiveProjectionProgram } from "./live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
 import { firstEnabledLiveSurfaceId } from "./live-ui-state.js?v=scene-mapping-default-selection-1";
 import {
@@ -57,7 +57,7 @@ export {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=explicit-surface-visibility-1";
+} from "./scene-routing.js?v=explicit-surface-visibility-runtime-visual-sources-1";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;

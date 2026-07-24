@@ -16,7 +16,7 @@ import {
   sanitizeState,
   syncSurfaceProportionsFromMapping,
   uid,
-} from "./domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-live-scene-mapping-override-1-scene-mapping-default-selection-derived-media-element-names-1";
+} from "./domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-live-scene-mapping-override-1-scene-mapping-default-selection-derived-media-element-names-runtime-visual-sources-1";
 import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
 import { firstEnabledLiveSurfaceId } from "./domain/live-ui-state.js?v=scene-mapping-default-selection-1";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
@@ -27,7 +27,7 @@ import { sceneFrameSize } from "./domain/render-settings.js?v=canvas-global-reso
 import { nextCatalogMarker } from "./domain/catalog-marker.js?v=catalog-marker-four-state-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
 import { copyComponentAsScene, pasteClipboardPayload } from "./domain/clipboard.js?v=canvas-global-resolution-1";
-import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-source-target-1";
+import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-source-target-runtime-visual-sources-1";
 import { ObservableDataStore } from "./libraries/data-store/data-store/index.js";
 
 export function createAppState(initial = null, { prepareState = null, classifyChange = createChangeEvent } = {}) {

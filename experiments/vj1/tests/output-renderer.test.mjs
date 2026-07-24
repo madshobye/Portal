@@ -14,6 +14,7 @@ import { ShaderEffectRuntime } from "../js/output/shader-effect-runtime.js";
 import { CompositeRenderRuntime } from "../js/output/composite-render-runtime.js";
 import { mediaSourceDemandSize, SourceRenderRuntime } from "../js/output/source-render-runtime.js";
 import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-source-runtime.js";
+import { MAPPING_TEST_PATTERN_COMPONENT_ID } from "../js/domain/runtime-visual-sources.js";
 
 test("effect opacity and blend request a separate generic composite", () => {
   assert.equal(effectNeedsComposite({}), false);
@@ -2236,6 +2237,26 @@ test("Surface route lookup indexes Components and explicit source nodes once per
   assert.equal(renderer.componentById.get("vj1-system-mapping-test-pattern")?.runtimeSource, true);
   assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "", componentId: "", outputFrameId: "" }), null);
   assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "missing", componentId: "", outputFrameId: "" }), null);
+});
+
+test("runtime visual sources compile through the ordinary retained Component program", () => {
+  const renderer = new OutputRenderer({ mode: "output" });
+  renderer.state = {
+    components: [],
+    nodes: { groups: [] },
+    surfaces: [{ enabled: true, componentId: MAPPING_TEST_PATTERN_COMPONENT_ID }],
+    ui: {},
+  };
+
+  renderer.rebuildComponentPrograms();
+  renderer.rebuildRouteLookups();
+
+  assert.equal(renderer.componentPrograms.has(MAPPING_TEST_PATTERN_COMPONENT_ID), true);
+  assert.equal(renderer.componentById.get(MAPPING_TEST_PATTERN_COMPONENT_ID)?.runtimeSource, true);
+  assert.equal(
+    renderer.componentPrograms.get(MAPPING_TEST_PATTERN_COMPONENT_ID)?.chain?.[0]?.source?.generatorId,
+    "testPattern",
+  );
 });
 
 test("Canvas demand is capped to logical size by default and can opt into supersampling", () => {

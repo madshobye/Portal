@@ -11,7 +11,7 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-1-scene-mapping-default-selection-1";
+import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-projector-resolution-ceilings-1-scene-mapping-default-selection-runtime-visual-sources-1";
 import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
 import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=model-media-scene-group-1";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";

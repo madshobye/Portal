@@ -1,8 +1,8 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-navigation-reachability-projector-resolution-ceilings-direct-output-independence-1-scene-mapping-default-selection-1";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=scene-mapping-controls-separated-explicit-surface-visibility-navigation-reachability-projector-resolution-ceilings-direct-output-independence-1-scene-mapping-default-selection-runtime-visual-sources-1";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js?v=component-transport-patch-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=compiled-artifact-authority-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=compiled-artifact-authority-runtime-visual-sources-2";
 import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=cursor-anchored-zoom-1";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=alpha-feather-1";
