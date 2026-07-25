@@ -81,10 +81,10 @@ test("automatic model LODs stay within bounded triangle budgets", () => {
 });
 
 test("geometry detail uses a perceptual triangle scale and caps pixel demand", () => {
-  assert.equal(modelGeometryTriangleBudget(0), 3000);
-  assert.equal(modelGeometryTriangleBudget(1), 120000);
-  assert.ok(modelGeometryTriangleBudget(0.5) > 18000);
-  assert.ok(modelGeometryTriangleBudget(0.5) < 20000);
+  assert.equal(modelGeometryTriangleBudget(0), 6000);
+  assert.equal(modelGeometryTriangleBudget(1), 80000);
+  assert.ok(modelGeometryTriangleBudget(0.5) > 21000);
+  assert.ok(modelGeometryTriangleBudget(0.5) < 23000);
   assert.equal(
     modelLodTargetTriangles({ width: 3840, height: 2160, geometryDetail: 0.5 }),
     modelGeometryTriangleBudget(0.5),
@@ -119,9 +119,9 @@ test("wire detail selects a complete resolution-independent construction mesh", 
   const low = modelLodTargetTriangles({ ...common, wireDetail: 0 });
   const medium = modelLodTargetTriangles({ ...common, wireDetail: 0.25 });
   const high = modelLodTargetTriangles({ ...common, wireDetail: 1 });
-  assert.equal(low, 3000);
+  assert.equal(low, 6000);
   assert.ok(medium > low && medium < high);
-  assert.equal(high, 120000);
+  assert.equal(high, 80000);
   assert.equal(
     medium,
     modelLodTargetTriangles({ ...common, width: 2560, height: 1440, wireDetail: 0.25 }),

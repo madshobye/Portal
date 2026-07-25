@@ -3,7 +3,7 @@ import { visitVisualParameterReferences } from "../libraries/visual-nodes/shared
 import {
   VISUAL_SOURCE_RENDERERS,
   visualSourceRenderer,
-} from "../libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
+} from "../libraries/composition-engine/index.js?v=node-roi-placement-1";
 import {
   createPlacedRenderResult,
   directPlacementKind,
@@ -32,7 +32,7 @@ import {
   transformedRectBounds,
   transformedRectVisibleRegion,
 } from "./preview-interaction-geometry.js?v=alpha-feather-1";
-import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=gc-allocation-1";
+import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=node-roi-placement-1";
 import { applyBlend } from "./blend-utils.js";
 import {
   disposeGraphics,
@@ -40,7 +40,7 @@ import {
 } from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
 import {
   createSharedFramebufferTarget,
-} from "./shared-framebuffer-target.js?v=mesh-geometry-detail-2";
+} from "./shared-framebuffer-target.js?v=node-roi-placement-1";
 import {
   componentInstanceTime,
   globalVisualTimeScale,
@@ -61,7 +61,7 @@ import {
 import {
   createVisualRenderProcessContext,
   updateVisualRenderProcessContext,
-} from "../libraries/render-engine/render-process-context.js?v=mesh-geometry-detail-2";
+} from "../libraries/render-engine/render-process-context.js?v=node-roi-placement-1";
 import { NativeRendererRegistry } from "../libraries/render-engine/native-renderer-registry.js";
 import {
   componentReferenceCount,
@@ -76,7 +76,7 @@ import {
   withRenderTarget2D,
 } from "./render-target-contract.js?v=source-target-ownership-1";
 import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { isFullNodeBoundary, nodeBoundaryPixelRect } from "../libraries/render-engine/roi/index.js";
+import { isFullNodeBoundary, nodeBoundaryPixelRect } from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
 import {
   chainLayerState,
   componentRuntimeTimeKey,
@@ -320,9 +320,12 @@ export class SourceRenderRuntime {
     component = {},
   ) {
     const host = this.host;
-    // Direct placement uses the allocation as its complete coordinate frame.
-    // Regional requests must use the render-view-aware retained source path.
-    if (renderRequest.regionView === true) return false;
+    // Direct placement uses the allocation as its complete fit rectangle.
+    // A node-local ROI is only a cropped allocation within the authored node
+    // boundary, so it must use the render-view-aware retained source path.
+    // `regionView` is intentionally not checked here: it describes a regional
+    // render of the whole Component and has different placement ownership.
+    if (renderRequest.nodeRegionView === true) return false;
     const source = item.source || {};
     const dependency = source.type === "component"
       ? host.state?.components?.find(

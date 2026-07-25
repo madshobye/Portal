@@ -118,6 +118,11 @@ export function nodeRoiRequest(renderRequest = {}, boundary = {}, additions = {}
   return {
     ...renderRequest,
     ...additions,
+    // A node ROI is an allocation window inside one Component render. Keep it
+    // distinct from `regionView`, which means the *Component itself* is being
+    // rendered as a regional view by its parent. Conflating the two drops the
+    // node-boundary placement when the regional result is composited.
+    nodeRegionView: true,
     // Keep allocation limited to visible pixels, but retain the full logical
     // boundary as the node's resolution/coordinate domain.
     width: Math.max(1, roi.width),

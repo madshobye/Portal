@@ -1,4 +1,4 @@
-import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=render-core-contract-1";
+import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=node-roi-placement-1";
 import { qualityComputeMultiplier } from "../render-runtime-math.js?v=render-coordinate-scope-3";
 import {
   lowerTerrainGeometryProvider,

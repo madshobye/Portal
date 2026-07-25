@@ -22,6 +22,7 @@ import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-s
 import { MAPPING_TEST_PATTERN_COMPONENT_ID } from "../js/domain/runtime-visual-sources.js";
 import { createIsfNodeDefinition } from "../js/libraries/isf-engine/index.js";
 import { NativeRendererRegistry } from "../js/libraries/render-engine/native-renderer-registry.js";
+import { nodeRoiRequest } from "../js/libraries/render-engine/roi/index.js";
 import {
   BuiltInVisualLibrary,
   DefaultBuiltInTransition,
@@ -433,6 +434,13 @@ test("the shader-effect backend owns program caching uniforms and GL disposal", 
 test("the shader-effect backend owns paired scratch targets pruning and disposal", () => {
   const created = [];
   const disposed = [];
+  let compileCount = 0;
+  const component = {
+    id: "retained-program-effect",
+    type: "effect",
+    code: "vec4 effect(vec4 color, vec2 uv) { return color; }",
+    params: [],
+  };
   const runtime = new ShaderEffectRuntime({
     frameRuntime: { frameIndex: 1 },
     renderRequestRuntime: {
@@ -445,6 +453,11 @@ test("the shader-effect backend owns paired scratch targets pruning and disposal
       const target = {
         width,
         height,
+        __vj1ShaderContextId: "shared-test-context",
+        createShader() {
+          compileCount++;
+          return { id: `shader-${compileCount}` };
+        },
         resizeCanvas(nextWidth, nextHeight) {
           this.width = nextWidth;
           this.height = nextHeight;
@@ -456,13 +469,16 @@ test("the shader-effect backend owns paired scratch targets pruning and disposal
     disposeTarget(target) {
       disposed.push(target);
     },
+    getComponent: () => component,
   });
 
   const first = runtime.getTarget({ width: 320, height: 180 }, 0);
   const second = runtime.getTarget({ width: 320, height: 180 }, 1);
+  const retainedProgram = runtime.getShader({ id: component.id }, first);
   assert.notEqual(first, second);
   assert.equal(runtime.ownsTarget(first), true);
   assert.deepEqual(runtime.targets, [first, second]);
+  assert.equal(compileCount, 1);
 
   runtime.host.frameRuntime.frameIndex = 2;
   runtime.getTarget({ width: 640, height: 360 }, 0);
@@ -472,6 +488,16 @@ test("the shader-effect backend owns paired scratch targets pruning and disposal
   runtime.getTarget({ width: 960, height: 540 }, 0);
   assert.equal(runtime.targetGroups.size, 3, "the oldest target pair is pruned before a fourth size is retained");
   assert.deepEqual(disposed, [first, second]);
+  assert.equal(
+    runtime.getShader({ id: component.id }, runtime.targets[0]),
+    retainedProgram,
+    "evicting a size-keyed scratch target retains programs from the shared WebGL context",
+  );
+  assert.equal(
+    compileCount,
+    1,
+    "scratch-target churn cannot trigger per-frame shader recompilation",
+  );
 
   runtime.dispose();
   assert.equal(runtime.targetGroups.size, 0);
@@ -3240,10 +3266,12 @@ test("direct placement eligibility is shared by Canvas and ordinary component pa
     components: [dependency],
     media: [
       { id: "image", type: "image" },
+      { id: "logo.svg", type: "image" },
       { id: "video", type: "video" },
     ],
   };
   renderer.media.set("image", { image: { width: 640, height: 360 } });
+  renderer.media.set("logo.svg", { image: { width: 640, height: 360 } });
 
   const reference = { kind: "source", source: { type: "component", componentId: dependency.id } };
   assert.equal(renderer.sourceRuntime.canDirectComposite(reference), true);
@@ -3294,6 +3322,39 @@ test("direct placement eligibility is shared by Canvas and ordinary component pa
   );
   assert.equal(
     renderer.sourceRuntime.canDirectComposite(
+      projectImage,
+      nodeRoiRequest(
+        { width: 640, height: 360 },
+        { x: 0.75, y: 0, width: 1, height: 1 },
+      ),
+      projectImageOperation,
+      { speed: 1 },
+    ),
+    false,
+    "a cropped media ROI uses the render-view-aware retained path instead of fitting into the ROI allocation",
+  );
+  assert.equal(
+    renderer.sourceRuntime.canDirectComposite(
+      projectImage,
+      nodeRoiRequest(
+        { width: 640, height: 360 },
+        { x: -0.75, y: 0, width: 1, height: 1 },
+      ),
+      {
+        ...projectImageOperation,
+        runtimeValueInputs: new Map([["resource", {
+          kind: "project-media-resource",
+          mediaId: "logo.svg",
+          ready: true,
+        }]]),
+      },
+      { speed: 1 },
+    ),
+    false,
+    "SVG uses the same full-boundary retained crop contract as raster media",
+  );
+  assert.equal(
+    renderer.sourceRuntime.canDirectComposite(
       {
         ...projectImage,
         source: {
@@ -3325,6 +3386,123 @@ test("direct placement eligibility is shared by Canvas and ordinary component pa
     false,
     "project video keeps the atomic retained-frame boundary",
   );
+});
+
+test("bounded raster SVG shader and 3D sources keep node ROI separate from Component region views", () => {
+  const sourceRequests = [];
+  const composites = [];
+  const transparent = {
+    buffer: { id: "transparent" },
+    instanceInvariant: true,
+  };
+  const host = {
+    compositeRuntime: {
+      transparentChainState: () => transparent,
+      renderBoundedLayerNodeState: (
+        id,
+        input,
+        layer,
+        item,
+        request,
+        roi,
+      ) => {
+        composites.push({ id, input, layer, item, request, roi });
+        return layer;
+      },
+    },
+    sourceRuntime: {
+      measureOperation: (_component, _item, _request, draw) => draw(),
+      renderItemState: (
+        _component,
+        item,
+        _time,
+        request,
+      ) => {
+        sourceRequests.push({ item, request });
+        return {
+          buffer: {
+            id: item.source.generatorId,
+            width: request.width,
+            height: request.height,
+          },
+          instanceInvariant: true,
+        };
+      },
+    },
+    visualNodeRuntime: {
+      effect: () => null,
+    },
+  };
+  const runtime = new VisualPlanRuntime(host);
+  const component = { id: "bounded-sources" };
+  const request = {
+    role: "component",
+    width: 800,
+    height: 600,
+  };
+  const boundary = {
+    x: 0.75,
+    y: -0.25,
+    width: 0.8,
+    height: 0.6,
+    rotation: 0,
+  };
+
+  for (const generatorId of [
+    "mediaImage:raster",
+    "mediaImage:svg",
+    "gradient",
+    "modelMedia",
+    "terrainFlyover",
+  ]) {
+    runtime.renderOperations(
+      component,
+      [{
+        id: generatorId,
+        opcode: "source",
+        configuration: {
+          id: generatorId,
+          kind: "source",
+          enabled: true,
+          boundary,
+          opacity: 1,
+          blend: "normal",
+          source: {
+            type: "generator",
+            generatorId,
+            params: {},
+          },
+        },
+        contract: {
+          roi: {
+            coordinateSpace: "boundary",
+            halo: 0,
+          },
+        },
+      }],
+      0,
+      request,
+      generatorId,
+    );
+  }
+
+  assert.equal(sourceRequests.length, 5);
+  assert.equal(composites.length, 5);
+  for (const { request: sourceRequest } of sourceRequests) {
+    assert.equal(sourceRequest.nodeRegionView, true);
+    assert.notEqual(
+      sourceRequest.regionView,
+      true,
+      "a bounded node must not masquerade as a regional Component render",
+    );
+    assert.ok(sourceRequest.width < request.width);
+    assert.ok(sourceRequest.height < request.height);
+  }
+  for (const composite of composites) {
+    assert.strictEqual(composite.request, request);
+    assert.equal(composite.item.boundary, boundary);
+    assert.ok(composite.roi.centerX > request.width * 0.5);
+  }
 });
 
 test("direct placement composites texture geometry without a parent-sized source buffer", () => {

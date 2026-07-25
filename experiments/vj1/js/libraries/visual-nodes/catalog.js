@@ -1,4 +1,4 @@
-import GeneratorAnatomy from "./generators/anatomy/index.js?v=mesh-geometry-detail-2";
+import GeneratorAnatomy from "./generators/anatomy/index.js?v=node-roi-placement-1";
 import GeneratorAdditiveLightOrbs from "./generators/additive-light-orbs/index.js";
 import GeneratorAnimatedDazzleStripes from "./generators/animated-dazzle-stripes/index.js";
 import GeneratorBezierStrokes from "./generators/bezier-strokes/index.js";
@@ -21,7 +21,7 @@ import GeneratorGestureReticle from "./generators/gesture-reticle/index.js";
 import GeneratorLightning from "./generators/lightning/index.js";
 import GeneratorMediaImage from "./generators/media-image/index.js?v=project-media-contain-1";
 import GeneratorMeshPatterns from "./generators/mesh-patterns/index.js?v=compiled-capability-revision-1";
-import GeneratorModelMedia from "./generators/model-media/index.js?v=mesh-geometry-detail-2";
+import GeneratorModelMedia from "./generators/model-media/index.js?v=node-roi-placement-1";
 import GeneratorNoise from "./generators/noise/index.js";
 import GeneratorNestedOrbitMotion from "./generators/nested-orbit-motion/index.js";
 import GeneratorPaintDrips from "./generators/paint-drips/index.js";

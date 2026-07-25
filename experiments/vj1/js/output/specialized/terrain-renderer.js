@@ -8,7 +8,7 @@ import {
   captureRawWebGlAttributes,
   disposeRawWebGlVertexArray,
   restoreRawWebGlState,
-} from "../../libraries/render-engine/raw-webgl-state.js?v=mesh-geometry-detail-2";
+} from "../../libraries/render-engine/raw-webgl-state.js?v=node-roi-placement-1";
 import {
   TerrainNodeModuleExports,
 } from "./terrain-mesh.js?v=shared-terrain-grid-math-16";

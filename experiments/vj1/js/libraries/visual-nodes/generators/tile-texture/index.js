@@ -4,7 +4,7 @@ import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compo
 import {
   MediaResourceToImageNode,
   ProjectMediaResourceNode,
-} from "../../shared/visual-stage-nodes.js?v=mesh-geometry-detail-2";
+} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
 import TileRepeat from "../../effects/tile-repeat/index.js";
 
 const manifest = Object.freeze({

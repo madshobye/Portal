@@ -7,7 +7,7 @@ import {
   componentPreviewRenderRequest,
   scenePreviewRenderRequest,
 } from "./component-render-layout.js?v=surface-terminology-1";
-import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=gc-allocation-1";
+import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=node-roi-placement-1";
 import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
 import { normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
 import {

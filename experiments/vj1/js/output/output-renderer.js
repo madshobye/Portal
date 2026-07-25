@@ -4,17 +4,17 @@ import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=compiled
 import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=live-output-matrix-contract-3";
 import { IsfRenderRuntime } from "./isf-render-runtime.js?v=visual-node-runtime-capability-1";
 import { TextureOperatorRuntime } from "./texture-operator-runtime.js?v=async-media-dirty-1";
-import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=compiled-capability-revision-1";
+import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=shader-program-lifetime-1";
 import { ShaderGeneratorRuntime } from "./shader-generator-runtime.js?v=async-media-dirty-1";
 import { RenderEvaluationRuntime } from "./render-evaluation-runtime.js?v=async-media-dirty-1";
 import { RenderTargetRuntime } from "./render-target-runtime.js?v=async-media-dirty-1";
 import { RenderRequestRuntime } from "./render-request-runtime.js?v=render-request-capability-1";
-import { CompositeRenderRuntime } from "./composite-render-runtime.js?v=async-media-dirty-1";
+import { CompositeRenderRuntime } from "./composite-render-runtime.js?v=node-roi-placement-1";
 import { TransitionRuntime } from "./transition-runtime.js?v=transition-capability-1";
 import {
   ComponentProgramRuntime,
   renderStateComponentProgramRoots,
-} from "./component-program-runtime.js?v=mesh-geometry-detail-2";
+} from "./component-program-runtime.js?v=node-roi-placement-1";
 import {
   ComponentRenderRuntime,
   componentPipelineSourceRequest,
@@ -24,8 +24,8 @@ import {
   VisualPlanRuntime,
   primaryTextureInputPort,
   visualOperationRenderItem,
-} from "./visual-plan-runtime.js?v=source-detail-value-1";
-import { SourceRenderRuntime } from "./source-render-runtime.js?v=mesh-geometry-detail-2";
+} from "./visual-plan-runtime.js?v=node-roi-placement-1";
+import { SourceRenderRuntime } from "./source-render-runtime.js?v=node-roi-placement-1";
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=output-resource-runtime-capability-1";
 import { OutputRenderProfile } from "./output-render-profile.js?v=profiling-capability-1";
 import { OutputPresentationMetrics } from "./output-presentation-metrics.js?v=async-media-dirty-1";
@@ -33,7 +33,7 @@ import { PresentationGeometryRuntime } from "./presentation-geometry-runtime.js?
 import { OutputReadinessRuntime } from "./output-readiness-runtime.js?v=async-media-dirty-1";
 import { OutputFrameRuntime } from "./output-frame-runtime.js?v=async-media-dirty-1";
 import { LiveRenderPatchRuntime } from "./live-render-patch-runtime.js?v=output-mapping-runtime-capability-1";
-import { VisualNodeRuntime } from "./visual-node-runtime.js?v=mesh-geometry-detail-2";
+import { VisualNodeRuntime } from "./visual-node-runtime.js?v=node-roi-placement-1";
 import { OutputMappingRuntime } from "./output-mapping-runtime.js?v=output-resource-runtime-capability-1";
 import { OutputPresentationRuntime } from "./output-presentation-runtime.js?v=live-output-projection-1";
 import { OutputResourceRuntime } from "./output-resource-runtime.js?v=output-resource-runtime-capability-1";
@@ -59,7 +59,7 @@ export {
   mediaSourceDemandWidth,
   namedTextureStateKey,
   namedValueIdentityKey,
-} from "./source-render-runtime.js?v=mesh-geometry-detail-2";
+} from "./source-render-runtime.js?v=node-roi-placement-1";
 export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
 export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
 export {

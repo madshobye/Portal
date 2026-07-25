@@ -12,7 +12,7 @@ import {
   listEffectNodeComponents,
   listGeneratorNodeComponents,
   VisualStageNodeDefinitions,
-} from "./libraries/visual-nodes/index.js?v=mesh-geometry-detail-2";
+} from "./libraries/visual-nodes/index.js?v=node-roi-placement-1";
 import {
   AudioControlInputNode,
   ComponentTimeControlNode,
@@ -41,7 +41,7 @@ import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./librarie
 import { NestedNoiseMotionNode, OrbitMotionNode } from "./libraries/motion-engine/index.js";
 import { TerrainFlightControllerNode } from "./libraries/terrain-engine/index.js?v=semantic-terrain-contract-4";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
-import { SceneSurfaceGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
+import { SceneSurfaceGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=node-roi-placement-1";
 import {
   COMPONENT_PROGRAM_GENERATOR,
   ComponentProgramNode,
@@ -52,7 +52,7 @@ import {
   compileVisualRenderPlan,
   componentProgramInstances,
   reconcileComponentGroupTopology,
-} from "./libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
+} from "./libraries/composition-engine/index.js?v=node-roi-placement-1";
 import {
   MAPPING_PROGRAM_GENERATOR,
   OutputProgramNode,
@@ -62,7 +62,7 @@ import {
   compileMappingGroupTopology,
   compileReachableProgramGraph,
   mappingProgramInstances,
-} from "./libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
+} from "./libraries/composition-engine/index.js?v=node-roi-placement-1";
 import {
   APPLICATION_PROGRAM_GENERATOR,
   ApplicationProgramRuntime,
@@ -70,13 +70,13 @@ import {
   applicationProgramInstances,
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
-} from "./libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
+} from "./libraries/composition-engine/index.js?v=node-roi-placement-1";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
 import { RenderDemandNode } from "./libraries/render-engine/index.js";
-import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=mesh-geometry-detail-2";
+import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=node-roi-placement-1";
 import {
   Convert3dFileToImageGroup,
   ComposableScene3dGroup,
@@ -89,7 +89,7 @@ import {
   Scene3dNodeDefinitions,
   StlParserNode,
   compileScene3dProgram,
-} from "./libraries/mesh-engine/index.js?v=mesh-geometry-detail-2";
+} from "./libraries/mesh-engine/index.js?v=node-roi-placement-1";
 import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js?v=named-image-inputs-1";
 
 const ProjectComponentNode = semanticProjectNode("vj1.project.component", "Component", "A task-oriented visual program composed from reusable nodes.", "texture");

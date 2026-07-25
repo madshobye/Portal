@@ -3,7 +3,7 @@ import {
   releaseMeshRenderCacheOwner,
   renderMeshNodeProcess,
   retainMeshRenderCacheOwner,
-} from "../mesh-render/index.js?v=mesh-geometry-detail-2";
+} from "../mesh-render/index.js?v=node-roi-placement-1";
 import { Scene3dType } from "../scene-types.js";
 import { defineVisualNodeContract } from "../../render-engine/visual-node-contract.js";
 import {
@@ -11,8 +11,8 @@ import {
   updateVisualRenderProcessContext,
   VISUAL_RENDER_PROCESS_CONTEXT_FORMAT,
   visualRenderProcessContext,
-} from "../../render-engine/render-process-context.js?v=mesh-geometry-detail-2";
-import { withOwnedRawWebGlState } from "../../render-engine/raw-webgl-state.js?v=mesh-geometry-detail-2";
+} from "../../render-engine/render-process-context.js?v=node-roi-placement-1";
+import { withOwnedRawWebGlState } from "../../render-engine/raw-webgl-state.js?v=node-roi-placement-1";
 
 const SCENE_TO_IMAGE_VISUAL_CONTRACT = defineVisualNodeContract({
   transform: { domain: "content" },

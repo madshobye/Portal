@@ -26,7 +26,7 @@ import { MeshPatternWireMaterialProviderNode } from "../providers/mesh-pattern-w
 import {
   TerrainSurfaceToImageNode,
   TerrainWireToImageNode,
-} from "../renderers/terrain-passes/index.js?v=mesh-geometry-detail-2";
+} from "../renderers/terrain-passes/index.js?v=node-roi-placement-1";
 import {
   MeshPatternFillToImageNode,
   MeshPatternWireToImageNode,

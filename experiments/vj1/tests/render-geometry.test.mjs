@@ -211,6 +211,8 @@ test("an off-screen boundary keeps its full logical domain while allocating only
   assert.equal(request.height, 500);
   assert.equal(request.logicalWidth, 1000);
   assert.equal(request.logicalHeight, 500);
+  assert.equal(request.nodeRegionView, true);
+  assert.notEqual(request.regionView, true);
   assert.deepEqual(request.uvRect, [0.25, 0, 0.75, 1]);
   assert.deepEqual(testPatternRenderView({ width: request.width, height: request.height }, request), {
     x: 250,

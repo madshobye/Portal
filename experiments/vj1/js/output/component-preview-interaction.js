@@ -1,6 +1,6 @@
 import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
 import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=async-media-dirty-1";
-import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
+import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
 import {
   surfaceBorderHit,
   surfaceRectCorners,

@@ -5,7 +5,7 @@ import { SceneSurfaceGuideNode } from "../libraries/composition-engine/index.js?
 import { projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=frame-projection-aspect-1";
 import { componentInstanceTime } from "../libraries/timing-engine/index.js";
 import { sceneLogicalSize } from "../domain/render-settings.js?v=surface-terminology-1";
-import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=gc-allocation-1";
+import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=node-roi-placement-1";
 import { applyBlend } from "./blend-utils.js";
 import {
   drawStandby,

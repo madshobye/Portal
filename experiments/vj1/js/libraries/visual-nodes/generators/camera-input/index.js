@@ -4,7 +4,7 @@ import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   CameraInputResourceNode,
   MediaResourceToImageNode,
-} from "../../shared/visual-stage-nodes.js?v=mesh-geometry-detail-2";
+} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
 import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
 
 const manifest = Object.freeze({

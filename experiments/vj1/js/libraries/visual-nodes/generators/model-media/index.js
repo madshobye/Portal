@@ -11,7 +11,7 @@ import {
 import {
   LitMeshMaterialProviderNode,
   ModelFitCameraNode,
-} from "../../shared/visual-stage-nodes.js?v=mesh-geometry-detail-2";
+} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
 import {
   AnimatedTransform3dNode,
   CombineObjects3dNode,
@@ -20,7 +20,7 @@ import {
   Scene3dNode,
   SceneObject3dNode,
   SceneToImageNode,
-} from "../../../mesh-engine/index.js?v=mesh-geometry-detail-2";
+} from "../../../mesh-engine/index.js?v=node-roi-placement-1";
 
 export const MODEL_MEDIA_GENERATOR_ID = "modelMedia";
 

@@ -13,7 +13,7 @@ import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
 import {
   GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER,
   RENDER_PASS_VERTEX_SHADER,
-} from "../render-pass-shaders.js?v=render-coordinate-scope-3";
+} from "../render-pass-shaders.js?v=node-roi-placement-1";
 import {
   applyShaderTarget,
   clearShaderTarget,

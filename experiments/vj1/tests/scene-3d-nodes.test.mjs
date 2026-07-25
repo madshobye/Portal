@@ -438,7 +438,7 @@ test("model import basis remains an explicit replaceable transform input", () =>
 });
 
 test("display LOD is a retained semantic mesh operation driven by image demand", () => {
-  const fine = { ...triangleMesh(), triangleCount: 120000 };
+  const fine = { ...triangleMesh(), triangleCount: 80000 };
   const medium = { ...triangleMesh(), triangleCount: 25000 };
   const coarse = { ...triangleMesh(), triangleCount: 6000 };
   const mesh = { ...fine, lods: [fine, medium, coarse] };
@@ -466,9 +466,9 @@ test("display LOD is a retained semantic mesh operation driven by image demand",
   );
   assert.strictEqual(first, second, "frame evaluation mutates one retained result record");
   assert.strictEqual(firstMesh, coarse);
-  assert.equal(firstTargetTriangles, 3000);
+  assert.equal(firstTargetTriangles, 6000);
   assert.strictEqual(second.mesh, fine);
-  assert.equal(second.targetTriangles, 120000);
+  assert.equal(second.targetTriangles, 80000);
 });
 
 test("canonical Mesh resources share retained GPU cache ownership across Scene programs", () => {

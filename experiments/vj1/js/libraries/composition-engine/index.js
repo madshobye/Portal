@@ -10,7 +10,7 @@ export * from "./mapping-program/index.js?v=compiler-template-authority-1";
 export * from "./output-program/index.js?v=compiler-template-authority-1";
 export * from "./shared/component-program-compiler.js?v=retained-value-signal-1";
 export * from "./shared/mapping-program-compiler.js?v=mapping-order-compiler-template-authority-1";
-export * from "./shared/visual-render-plan.js?v=mesh-geometry-detail-2";
+export * from "./shared/visual-render-plan.js?v=node-roi-placement-1";
 export * from "./shared/visual-control-program.js?v=async-media-dirty-1";
 export * from "./shared/visual-value-program.js?v=retained-value-signal-1";
 export * from "./shared/program-graph-compiler.js";

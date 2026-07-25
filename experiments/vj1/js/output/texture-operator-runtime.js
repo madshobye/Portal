@@ -9,7 +9,7 @@ import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import {
   RENDER_PASS_VERTEX_SHADER,
   TEXTURE_OPERATOR_FRAGMENT_SHADER,
-} from "./render-pass-shaders.js?v=premultiplied-alpha-5";
+} from "./render-pass-shaders.js?v=node-roi-placement-1";
 import {
   applyShaderTarget,
   clearShaderTarget,

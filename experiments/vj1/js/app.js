@@ -1,10 +1,10 @@
 import { createAppState } from "./app-state.js?v=live-output-matrix-contract-3";
-import { createControlShell } from "./control/control-shell-controller.js?v=mesh-geometry-detail-2";
+import { createControlShell } from "./control/control-shell-controller.js?v=node-roi-placement-shader-program-lifetime-1";
 import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=scene-mapping-1";
 import { createMediaLibrary } from "./services/media-library-service.js?v=atomic-media-reconciliation-1";
 import { createProjectFolderService } from "./services/project-folder-service.js?v=project-history-transaction-1";
 import { createControlBridge } from "./services/output-bridge-service.js?v=live-surface-visibility-projection-1";
-import { installOutputApp } from "./output/output-app.js?v=mesh-geometry-detail-2";
+import { installOutputApp } from "./output/output-app.js?v=node-roi-placement-shader-program-lifetime-1";
 import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
 import { createRenderStatePatch } from "./domain/live-render-patch.js?v=render-state-patch-1";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
@@ -33,7 +33,7 @@ if (!compatibility?.supported) {
 async function installControlApp() {
   // Control-only composition keeps node catalog/editor metadata completely out
   // of output and preview render processes; no live-frame work is introduced.
-  const { createVj1NodePackage } = await import("./app-node-package.js?v=mesh-geometry-detail-2");
+  const { createVj1NodePackage } = await import("./app-node-package.js?v=node-roi-placement-1");
   const { applicationProgramFromProjectData, loadStoredApplicationProgram } = await import("./services/application-program-loader.js?v=project-media-contain-1");
   const nodePackage = createVj1NodePackage();
   const fixtureUrl = fixtureStateUrl();

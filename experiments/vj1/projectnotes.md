@@ -33,14 +33,6 @@
 
 toggling visibility of surfaces either in mapping view or in live view is heavy as if a lot of processing are reacting to it.
 
-moving a image partly outside its components boundary make the image scale to roi instead of to its own bounds. still.
-
-terrain is weirdly tied to the frame it is below the boundary instead of being in the boundary
-
-svg images has the same problem of using roi as its boundary instead of using the image. please make a test for this case.
-
-there used to be a graceperiod before thumbnails updated such that clicking on a scene did not cause a flickr as soon a the scene was loaded. i suggest making a graceperiod and also verify that we are not generating thumbnails every frame etc. also it would be nice if there were a transition to camoufalge the flicker
-
 live output window does not seem to like showing feature morph it newer transitions to it. this may have something to do with the need to load the library etc. feature morph has a tendency to reanalyse images at different scales which i dont think it needs to. also feature morph two has this problem. it however seems to be a bug because when one transitions away from a scene with feature morph then it does the transition with it. so a flag that says that it is loaded is newer set. that is the first problem.
 
 undo does not give a consistent result. undo should only capture user changes such that pressing it results in an undo of the user action. after 3 to 6 clicks on undo the undo happened but then the selected component was reset such that the view i was in was lost. also this error appeared: portal.js?v=adaptive-component-demand-29:407 ## https://learn.hobye.dk/portal v:1.172
@@ -158,14 +150,7 @@ The scaling architecture has a bug in which x and y for scaling boundary and con
 shift refresh - hard refresh - on the vj tab takes forever to reload and sometimes it fails with just a black page or a message about time took too long. we need to look a possible optimization at least there should be some kind of loading bar that shows a progress or something and it should not timeout. also having a live output window open can make it go stuck so it newer goes beyond the black screen (i think that might be one major issue). we need a test for this because it has been a recurring problem.
 
 
-an image uses its roi to place the image instead of its own boundary box which means that it scales when its boundary is moved outside its parents boundary.
-
-
 In liveview the scaling and general boundary info is not shown in the list of a canvas. it should be similar to a component.
-
-stl generator multiple obs: it seems like the edge budget and point budget depends on which types of rendering one uses. they only seems to affect the 3 outline modes. stl loader had a brilliant parser that optimized the amount of vertizes have we lost it or is it still doing its job. 
-stl generator  cpu load is high which could  point to that we have regressed to the old p5 based render or the stl optimizer is not used for surfaces or we are using the old one. canv 15 seems significantly slower that it used to be.
-
 
 refresh reset the live output selection it should keep the current selection this is a bit complicated with the multiple surfaces but ideally the live output state should be consistent on reset including params tweaked in liveview. e.g. a local storage. i think for debugging this we need a live preview reset button i think the best placement to the right of the timing header text. maybe change the timing header to live
 
@@ -178,7 +163,9 @@ there is a bug where the bounding box of a component that is placed in a scene i
 
 verify that we have not introduced a large overhead of constant recompile of node structures or merging of models everytime some changes or a new frame is rendered. I would like for some how to have a visuel marker that counts some event and data flow e.g. per frame or something so i can also keep an eye on it. e.g. it could be another circel with the other circel and a part of the general profiler. it is important to catch signalling regressions that result in complex rerenders and cache updates. I do not know exactly what to measure but an arbitrary summary of certain key point in the system so at least it is noticed when it goes off the roof randomly or can detect patterns like mouse movement over at preview results in rerendering of massive amount of elements.
 
+another observation - canv 5 has always been the heaviest to compute because it does a lot of individual renders of the same komponents which it should. but the fps seems noticiably slower now than usual. is something is going on there. normally it would be around 45 fps in output window 25-30.
 
+**Root regression repaired; fresh browser profiling is still required before moving this item to Done. The July 20 and July 25 profiles contain the same five authored Comp 33 renders and ten shader passes, with no second context, larger request, lost cache reuse, or per-frame graph compilation. The newer run nevertheless fell from about 42 FPS to 16 FPS while its shader allocations were smaller. The migrated shader host coupled two unrelated lifetimes: exceeding three size-keyed scratch framebuffer pairs pruned a framebuffer and also cleared every program in their shared WebGL context. Canv 5 cycles through enough distinct regional sizes to trigger that path during normal frames, repeatedly recompiling Cellular Circles, Eyeball, and the shared effects. Scratch allocation eviction now retains shared-context programs; explicit shader invalidation and renderer disposal still clear them. A compile-count regression test exercises four target sizes and proves one compilation, and the complete suite passes (1,319/1,319). Resolution, ROI, shader math, and the five distinct renders are unchanged.**
 
 The loading media with the checkerboard and the text. i suggest we refactor to an alpha bg and then just an icon for the type of item missing or loading. in cases like morph where there is progress there could still be text.
 
@@ -235,6 +222,27 @@ I would be good to be able to have the option for multiple webcams. e.g. that on
 
 
 #Done
+
+moving a image partly outside its components boundary make the image scale to roi instead of to its own bounds. still.
+
+svg images has the same problem of using roi as its boundary instead of using the image. please make a test for this case.
+
+an image uses its roi to place the image instead of its own boundary box which means that it scales when its boundary is moved outside its parents boundary.
+
+**Repaired at the shared ROI request boundary. A node-local ROI now has its own `nodeRegionView` contract and is deliberately distinct from `regionView`, which is reserved for a parent requesting a regional render of an entire Component. The optimized direct-media placement path declines node-local regional allocations, so cropped raster images, SVGs, and videos use the existing retained render-view path: fit and layout remain relative to the full authored element boundary while allocation remains limited to visible pixels. Full-frame media still uses direct placement. This separation also preserves authored boundary placement for shaders, 3D nodes, and compiled Groups; using the Component-level flag for nodes briefly detached all content from its yellow boundary and was removed. Cross-type boundary tests and the complete suite pass (1,319/1,319). Live visual verification of the corrected follow-up remains pending because browser control was unavailable.**
+
+terrain is weirdly tied to the frame it is below the boundary instead of being in the boundary
+
+**Repaired by the same shared node-ROI/Component-region separation above. Terrain Flyover has no private boundary-placement authority: its retained Surface/Wire kernels render the requested node view and the shared compositor places that view in the authored yellow boundary. Terrain is now an explicit case in the cross-source boundary regression alongside raster, SVG, shader, and model sources.**
+
+there used to be a graceperiod before thumbnails updated such that clicking on a scene did not cause a flickr as soon a the scene was loaded. i suggest making a graceperiod and also verify that we are not generating thumbnails every frame etc. also it would be nice if there were a transition to camoufalge the flicker
+
+**The retained thumbnail runtime now owns this as event-driven background work: invalidations coalesce by semantic Component/Surface signature, wait 240 ms after the latest change, run through `requestIdleCallback`, and space captures rather than capturing per presentation frame. Unready media/AI renders keep the last valid thumbnail and retry later. The suggested cosmetic thumbnail transition is a separate feature and is intentionally not part of this regression pass.**
+
+stl generator multiple obs: it seems like the edge budget and point budget depends on which types of rendering one uses. they only seems to affect the 3 outline modes. stl loader had a brilliant parser that optimized the amount of vertizes have we lost it or is it still doing its job.
+stl generator cpu load is high which could point to that we have regressed to the old p5 based render or the stl optimizer is not used for surfaces or we are using the old one. canv 15 seems significantly slower that it used to be.
+
+**Repaired and clarified at the shared retained mesh-LOD boundary. STL/OBJ loading still uses the compact parser, worker-side meshoptimizer QEM simplification, derived progressive-LOD cache, and direct retained Scene-to-Image renderer; static meshes do not rebuild or render from p5 each frame. Surface and Outline now select the same topology through one logarithmic Geometry detail control. Its useful range is 6,000–80,000 triangles with a midpoint near 22,000, avoiding both unusably coarse outlines and needlessly dense filled surfaces. Edge and point budgets intentionally affect only their respective drawing modes and never choose the mesh LOD. Focused topology/runtime tests and the complete suite pass (1,318/1,318); a clean browser load exposes one Geometry detail control under one coherent module revision.**
 
 
 

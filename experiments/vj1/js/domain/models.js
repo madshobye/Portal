@@ -10,7 +10,7 @@ import {
 } from "./authored-visual-source.js?v=async-media-dirty-1";
 import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
 import { normalizeRelativeRect, projectedQuadAspect, projectedRelativeQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=surface-relative-aspect-1";
-import { FULL_NODE_BOUNDARY, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
+import { FULL_NODE_BOUNDARY, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
 import {
   createOutputDefinition,
   normalizeCameraSettings,

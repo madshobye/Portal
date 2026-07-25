@@ -11,7 +11,7 @@ import {
   visualNodeContractFromMetadata,
   VISUAL_TRANSFORM_DOMAINS,
 } from "../../render-engine/visual-node-contract.js";
-import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=mesh-geometry-detail-2";
+import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=node-roi-placement-1";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";

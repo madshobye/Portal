@@ -4,7 +4,7 @@ import { textureStateKey } from "../libraries/render-engine/render-node-contract
 import {
   FULL_NODE_BOUNDARY,
   nodeRoiRequest,
-} from "../libraries/render-engine/roi/index.js";
+} from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
@@ -24,7 +24,7 @@ import {
 } from "./render-geometry.js?v=fit-geometry-demand-1";
 import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import { isIdentityTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
-import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=gc-allocation-1";
+import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=node-roi-placement-1";
 import { effectTransformUniforms } from "./render-runtime-math.js?v=declarative-render-policy-1";
 import {
   applyShaderTarget,
@@ -41,7 +41,7 @@ import {
   LAYER_TRANSFORM_FRAGMENT_SHADER,
   OVERLAY_BLEND_FRAGMENT_SHADER,
   RENDER_PASS_VERTEX_SHADER,
-} from "./render-pass-shaders.js?v=premultiplied-alpha-5";
+} from "./render-pass-shaders.js?v=node-roi-placement-1";
 
 // Fixed-function compositing backend shared by Components, Groups, and
 // Canvases. RenderTargetRuntime owns target allocation and

@@ -5,9 +5,9 @@ import {
   isIdentityTransform,
   localContentDragDelta,
   normalizedContentTransform,
-} from "./content-coordinate-space.js?v=render-core-contract-1";
+} from "./content-coordinate-space.js?v=node-roi-placement-1";
 
-export { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=render-core-contract-1";
+export { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=node-roi-placement-1";
 
 export function findChainItemById(chain = [], id = "") {
   if (!Array.isArray(chain) || !id) return null;

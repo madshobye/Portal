@@ -1,4 +1,4 @@
-import { contentTransformUvMatrices } from "./content-coordinate-space.js?v=gc-allocation-1";
+import { contentTransformUvMatrices } from "./content-coordinate-space.js?v=node-roi-placement-1";
 import {
   isSharedFramebufferTarget,
 } from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";

@@ -3,7 +3,7 @@ import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizePara
 import { esc, formatRangeValue, paramContextAttributes, paramRangePairTemplate } from "./template-utils.js?v=param-select-1";
 import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
 import { screenCaptureStatus } from "../output/screen-capture-service.js?v=async-media-dirty-1";
-import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
+import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
 
 export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
   const params = options.params || component?.params || [];

@@ -1,6 +1,6 @@
 import { sceneSourceNodes } from "../domain/models.js?v=surface-terminology-1";
 import { runtimeVisualSourceComponents } from "../domain/runtime-visual-sources.js?v=runtime-visual-sources-1";
-import { compileComponentRenderPrograms } from "../libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
+import { compileComponentRenderPrograms } from "../libraries/composition-engine/index.js?v=node-roi-placement-1";
 
 // Owns the compiled Component program set and the lookup indexes derived from
 // it. Rendering reads these retained structures directly; compilation,

@@ -5,7 +5,7 @@ import {
   nodeBoundaryPixelRect,
   nodeRoiRequest,
   sameNodeBoundary,
-} from "../libraries/render-engine/roi/index.js";
+} from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
 import { transitionKernelCacheKey } from "../libraries/transition-engine/index.js";
 import {
   compileShaderSchedule,

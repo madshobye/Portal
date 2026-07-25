@@ -3,7 +3,7 @@ import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   AnatomyGeometryProviderNode,
   ModelFitCameraNode,
-} from "../../shared/visual-stage-nodes.js?v=mesh-geometry-detail-2";
+} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
 import {
   defineCompiledVisualCompound,
 } from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
@@ -13,7 +13,7 @@ import {
   MeshCollectionObjects3dNode,
   Scene3dNode,
   SceneToImageNode,
-} from "../../../mesh-engine/index.js?v=mesh-geometry-detail-2";
+} from "../../../mesh-engine/index.js?v=node-roi-placement-1";
 
 const manifest = Object.freeze({
     id: "anatomy",

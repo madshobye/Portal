@@ -112,7 +112,6 @@ export class ShaderEffectRuntime {
       return target;
     }
     if (target.width !== widthPx || target.height !== heightPx) {
-      this.clear();
       try {
         target.resizeCanvas(widthPx, heightPx);
       } catch {
@@ -129,7 +128,11 @@ export class ShaderEffectRuntime {
     const stale = Array.from(this.targetGroups.entries())
       .sort((a, b) => (a[1].lastUsed || 0) - (b[1].lastUsed || 0));
     const removeCount = Math.max(1, this.targetGroups.size - maxGroups + 1);
-    this.clear();
+    // Scratch framebuffers are size-keyed allocations within one shared
+    // WebGL context. Their lifetime is independent from shader programs:
+    // pruning a target must not evict and recompile every shader used by the
+    // renderer. Program invalidation remains owned by explicit shader-source
+    // changes and runtime disposal.
     for (const [key, group] of stale.slice(0, removeCount)) {
       for (const target of group.targets || []) this.disposeTarget(target);
       this.targetGroups.delete(key);

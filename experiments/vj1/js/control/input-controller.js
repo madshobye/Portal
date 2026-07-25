@@ -3,7 +3,7 @@ import { formatTrimTime, roundTrimTime } from "./component-view.js?v=inspector-v
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { createLiveRenderPatch } from "../domain/live-render-patch.js?v=live-param-patch-1";
 import { bindMarkdownEditors } from "./markdown-editor.js?v=text-style-controls-1";
-import { nodeBoundaryWithUniformScale } from "../libraries/render-engine/roi/index.js";
+import { nodeBoundaryWithUniformScale } from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
 
 export function createInputController({
   store,

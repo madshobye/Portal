@@ -3,9 +3,14 @@ import { listType, numberType, recordType } from "../../node-engine/node-types.j
 import { attachLegacyTriangleView, MeshType, modelTriangleCount } from "../mesh-types.js";
 import { buildMeshoptimizerLods, indexedMeshToTriangleSoup } from "../meshoptimizer-simplifier.js";
 
-export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([120000, 80000, 50000, 25000, 12000, 6000, 3000]);
-const MIN_DISPLAY_TRIANGLES = 3000;
-const MAX_DISPLAY_TRIANGLES = 120000;
+export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([80000, 50000, 25000, 12000, 6000]);
+// Geometry detail is a visual control, not an unrestricted simplifier target.
+// Keep both ends useful across every draw mode: the low end must retain enough
+// topology for coherent outlines, while the high end must not make a filled
+// surface needlessly expensive. Surface and outline deliberately share this
+// range and the same selected LOD.
+const MIN_DISPLAY_TRIANGLES = 6000;
+const MAX_DISPLAY_TRIANGLES = 80000;
 
 const MeshResolutionStatsType = recordType("mesh-resolution-stats", {
   sourceTriangles: numberType(),
