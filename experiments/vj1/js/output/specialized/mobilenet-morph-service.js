@@ -35,16 +35,26 @@ let modelReady = false;
 let inferenceQueue = Promise.resolve();
 let sharedRevision = 0;
 const sharedPairEntries = new Map();
+const sharedInvalidationSubscribers = new Set();
 const pendingAnalyses = new Map();
 const imageFeatureCache = new WeakMap();
 const spatialEndpointCache = new WeakMap();
 const scriptPromises = new Map();
 
 export class MobileNetMorphPairService {
-  constructor({ cache = createMobileNetMorphPersistentCache(), debounceMs = 280 } = {}) {
+  constructor({
+    cache = createMobileNetMorphPersistentCache(),
+    debounceMs = 280,
+    onInvalidate = null,
+  } = {}) {
     this.entries = sharedPairEntries;
     this.cache = cache;
     this.debounceMs = Math.max(0, Number(debounceMs) || 0);
+    this.onInvalidate =
+      typeof onInvalidate === "function" ? onInvalidate : null;
+    if (this.onInvalidate) {
+      sharedInvalidationSubscribers.add(this.onInvalidate);
+    }
   }
 
   pairKey(params = {}) {
@@ -92,6 +102,7 @@ export class MobileNetMorphPairService {
     };
     this.entries.set(key, entry);
     this.trimCache();
+    publishAnalysisInvalidation("feature-morph-analysis-loading", entry);
     this.schedulePair(entry, params, imageA, imageB, media);
     return entry;
   }
@@ -104,6 +115,10 @@ export class MobileNetMorphPairService {
       pending.entry.status = "error";
       pending.entry.detail = "analysis superseded";
       pending.entry.revision = ++sharedRevision;
+      publishAnalysisInvalidation(
+        "feature-morph-analysis-superseded",
+        pending.entry,
+      );
     }
     const start = () => {
       pendingAnalyses.delete(groupKey);
@@ -116,11 +131,13 @@ export class MobileNetMorphPairService {
         entry.detail = "MobileNet field ready";
         entry.result = result;
         entry.revision = ++sharedRevision;
+        publishAnalysisInvalidation("feature-morph-analysis-ready", entry);
       })
       .catch((error) => {
         entry.status = "error";
         entry.error = error?.message || String(error || "MobileNet failed");
         entry.revision = ++sharedRevision;
+        publishAnalysisInvalidation("feature-morph-analysis-error", entry);
         console.error("[VJ1_MOBILENET_MORPH_FAILED]", error);
       });
     };
@@ -175,6 +192,21 @@ export class MobileNetMorphPairService {
   persistentKey(pairKey, media = {}, entry = null) {
     const algorithmRevision = media.algorithmRevision ?? entry?.algorithmRevision ?? "legacy";
     return mobileNetMorphPersistentKey(pairKey, media.imageAFile, media.imageBFile, algorithmRevision);
+  }
+
+  dispose() {
+    if (this.onInvalidate) {
+      sharedInvalidationSubscribers.delete(this.onInvalidate);
+      this.onInvalidate = null;
+    }
+  }
+}
+
+function publishAnalysisInvalidation(reason, entry) {
+  for (const subscriber of sharedInvalidationSubscribers) {
+    try {
+      subscriber(reason, entry);
+    } catch {}
   }
 }
 

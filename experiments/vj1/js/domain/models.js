@@ -1,9 +1,13 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
+import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=project-media-contain-1";
 import { componentFrameMetrics, normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js?v=pixel-density-4";
 import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
 import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=package-content-lock-1";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=project-media-contain-1";
+import {
+  canonicalizeAuthoredVisualChain,
+  canonicalizeAuthoredVisualSource,
+} from "./authored-visual-source.js?v=async-media-dirty-1";
 import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
 import { normalizeRelativeRect, projectedQuadAspect, projectedRelativeQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=surface-relative-aspect-1";
 import { FULL_NODE_BOUNDARY, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
@@ -27,9 +31,9 @@ import {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=explicit-direct-surface-hierarchy-1";
-import { compileLiveProjectionProgram } from "./live-projection-program.js?v=explicit-surface-visibility-direct-output-independence-1";
-import { firstEnabledLiveSurfaceId } from "./live-ui-state.js?v=scene-mapping-default-selection-1";
+} from "./scene-routing.js?v=live-output-matrix-contract-3";
+import { compileLiveProjectionProgram } from "./live-projection-program.js?v=live-output-matrix-contract-3";
+import { firstEnabledLiveSurfaceId } from "./live-ui-state.js?v=live-output-matrix-contract-3";
 import {
   MAPPING_TEST_PATTERN_COMPONENT_ID,
   MAPPING_TEST_PATTERN_SOURCE_NODE_ID,
@@ -57,7 +61,7 @@ export {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=explicit-direct-surface-hierarchy-1";
+} from "./scene-routing.js?v=live-output-matrix-contract-3";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -526,6 +530,10 @@ export function sanitizeState(input = {}) {
   next.ui.previewViewports = normalizePreviewViewports(input.ui?.previewViewports);
   next.ui.previewDiagnostics = input.ui?.previewDiagnostics === true;
   next.media = Array.isArray(input.media) ? input.media.map(normalizeMediaMeta) : [];
+  next.components = next.components.map((component) => ({
+    ...component,
+    chain: canonicalizeAuthoredVisualChain(component.chain || [], next.media),
+  }));
   next.ui.workspace = WORKSPACES.includes(next.ui.workspace) ? next.ui.workspace : "mapping";
   next.ui.selectedComponentId = next.components.some((component) => component.id === next.ui.selectedComponentId)
     ? next.ui.selectedComponentId
@@ -663,13 +671,21 @@ export function createLiveScenePreviewState(state = createInitialState()) {
   const program = compileLiveProjectionProgram(state);
   const { live, target } = program;
   const next = createLiveEndpointState(state, live.componentOverrides);
+  const previewsSceneMapping = String(live.previewSurfaceId || "__mapping__") === "__mapping__";
   if (!target && live.overallSourceCleared !== true) return next;
-  if (String(live.previewSurfaceId || "__mapping__") === "__mapping__" && live.sceneMappingVisible === false) {
+  if (previewsSceneMapping && live.sceneMappingVisible === false) {
     applyLiveMonitorTarget(next, null);
-  } else if (!target && String(live.previewSurfaceId || "__mapping__") === "__mapping__") {
+  } else if (!target && previewsSceneMapping) {
     applyLiveMonitorTarget(next, null);
   } else {
     applyLivePreviewProjection(next, target, live.previewSurfaceId, program.currentRoutes);
+  }
+  if (previewsSceneMapping) {
+    // Scene Mapping presents one retained source-monitor route, but its yellow
+    // guides describe the real compiled output matrix. Keep that derived guide
+    // program beside the monitor instead of replacing the monitor route or
+    // reconstructing routes inside the renderer.
+    next.livePreviewGuideSurfaces = clone(program.currentRoutes.surfaces);
   }
 
   const transition = program.previewTransition;
@@ -782,6 +798,12 @@ function applyLivePreviewProjection(
   state.ui.selectedMappingId = mapping.id;
   state.ui.selectedSurfaceId = requestedId;
   state.global.calibrating = false;
+  // Output and Surface rows inspect the compiled output matrix. The retained
+  // Live renderer keeps owning its transition/resource clocks, while
+  // presentation reuses the same projected frame and selection overlays as
+  // Mapping. This is derived Preview state and never changes the authored
+  // workspace or routed program.
+  state.livePreviewPresentation = "mapping";
 }
 
 function applyLiveMonitorTarget(state, target) {
@@ -823,6 +845,9 @@ function applyLiveMonitorTarget(state, target) {
   state.mappingCalibration = {};
   state.ui.selectedSurfaceId = "";
   state.global.calibrating = false;
+  // Scene Mapping is the sole flat source monitor. Its yellow rectangles are
+  // Scene-space route guides supplied by livePreviewGuideSurfaces.
+  state.livePreviewPresentation = "scene";
 }
 
 function liveComponentMonitorAspect(render = {}, component = {}) {
@@ -1170,8 +1195,10 @@ export function isAutomaticMediaSourceName(name = "", source = {}) {
 }
 
 export function sourceBackedMediaId(source = {}) {
-  if (source?.type === "media") return String(source.mediaId || "").trim();
-  if (source?.type === "generator" && source.generatorId === "modelMedia") {
+  if (
+    source?.type === "generator" &&
+    (source.generatorId === "modelMedia" || source.generatorId === "mediaImage")
+  ) {
     return String(source.params?.mediaId || "").trim();
   }
   return "";
@@ -1244,14 +1271,15 @@ export function createComponentEffect(id = "ripple", params = {}) {
   });
 }
 
-function normalizeSource(source) {
-  if (!source || typeof source !== "object" || !source.type) {
+function normalizeSource(input) {
+  if (!input || typeof input !== "object" || !input.type) {
     throw new TypeError("[VJ1_INVALID_SOURCE] A source node requires an explicit source.type");
   }
+  const source = canonicalizeAuthoredVisualSource(input);
   if (source.type === "generator" && !source.generatorId) {
     throw new TypeError("[VJ1_INVALID_SOURCE] A generator source requires generatorId");
   }
-  if (!["generator", "media", "camera", "component", "black"].includes(source.type)) {
+  if (!["generator", "component"].includes(source.type)) {
     throw new TypeError(`[VJ1_INVALID_SOURCE] Unsupported source.type ${String(source.type)}`);
   }
   const speed = clampNumber(source.speed, 0, 8, 1);
@@ -1298,17 +1326,14 @@ function createDefaultSource() {
 function sourceComponentId(source = {}) {
   if (source.type === "generator") return source.generatorId;
   if (source.type === "component") return "source.component";
-  return `source.${source.type || "black"}`;
+  throw new TypeError(`[VJ1_INVALID_SOURCE] Unsupported source.type ${String(source.type || "missing")}`);
 }
 
 function sourceLabel(source = {}) {
   if (source.type === "component") return source.componentId || "Component";
-  if (source.type === "media") return source.mediaId || "Media";
   if (source.type === "generator" && source.generatorId === "modelMedia") {
     return source.params?.mediaId || "Model Media";
   }
-  if (source.type === "camera") return "Camera";
-  if (source.type === "black") return "Black";
   return formatSourceLabel(source.generatorId || "Generator");
 }
 

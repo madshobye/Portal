@@ -16,7 +16,7 @@ export async function graphicsToThumbnailBlob(graphics) {
   return await canvasToBlob(canvas, "image/png");
 }
 
-export function componentThumbnailSignature(component = {}, render = {}) {
+export function componentThumbnailSignature(component = {}, render = {}, programConfiguration = []) {
   try {
     return JSON.stringify({
       opacity: component.opacity,
@@ -26,7 +26,7 @@ export function componentThumbnailSignature(component = {}, render = {}) {
       resolutionScale: component.resolutionScale,
       sceneAspectRatio: component.type === "scene" ? render.sceneAspectRatio : null,
       componentAspectRatio: component.type === "scene" ? null : render.componentAspectRatio,
-      chain: component.chain,
+      programConfiguration,
     });
   } catch {
     const clock = typeof globalThis.millis === "function" ? globalThis.millis() : Date.now();

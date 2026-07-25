@@ -2,13 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { generatorIcon } from "../js/control/picker-view.js";
+import { createAuthoredMediaSource } from "../js/domain/authored-visual-source.js";
 
 import { createSceneComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState, sceneSourceNodeId } from "../js/domain/models.js?v=world-frame-27";
 import { normalizeParamValue, renderQualityScale } from "../js/libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, listGeneratorNodeComponents as listGeneratorComponents } from "../js/libraries/visual-nodes/index.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/libraries/render-engine/render-node-contract.js";
 import { mediaRenderInvalidation } from "../js/libraries/render-engine/invalidation/index.js";
-import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
+import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js?v=compiled-program-projection-1";
 import { hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-6";
 import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js?v=source-target-ownership-1";
@@ -112,6 +113,13 @@ test("screen share is a live generator with native-aspect fit modes", () => {
   assert.deepEqual(calls[0].slice(1), [0, 0, 400, 400]);
 });
 
+test("Project Media defaults to native-aspect contain presentation", () => {
+  const generator = getGeneratorComponent("mediaImage");
+  const fitParam = generator.params.find((param) => param.id === "fit");
+  assert.deepEqual(fitParam.values, ["contain", "cover", "stretch"]);
+  assert.equal(fitParam.defaultValue, "contain");
+});
+
 test("media sources keep trim and playback speed through normalization and graph compile", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
@@ -131,9 +139,11 @@ test("media sources keep trim and playback speed through normalization and graph
 
   const normalized = sanitizeState(state);
   const source = normalized.components[0].chain[0].source;
-  assert.equal(source.start, 1.25);
-  assert.equal(source.end, 5.5);
-  assert.equal(source.speed, 0.65);
+  assert.equal(source.type, "generator");
+  assert.equal(source.generatorId, "mediaImage");
+  assert.equal(source.params.start, 1.25);
+  assert.equal(source.params.end, 5.5);
+  assert.equal(source.params.speed, 0.65);
   assert.equal(source.params.fit, "contain");
 
   const patch = compileComponentPatch(normalized.components[0]);
@@ -197,7 +207,7 @@ test("unknown generators fail instead of becoming Test Pattern", () => {
 });
 
 test("render quality preserves current work at midpoint and scales expensive work around it", () => {
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const generatorRuntimeSource = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
   const effectRuntimeSource = readFileSync(new URL("../js/output/shader-effect-runtime.js", import.meta.url), "utf8");
   const request = { role: "component", width: 1280, height: 720 };
   assert.deepEqual(qualityScaledRenderRequest(request, { renderQuality: 0.5 }), request);
@@ -215,7 +225,7 @@ test("render quality preserves current work at midpoint and scales expensive wor
   assert.equal(qualityAdjustedGeneratorParams(cloudyTunnel, { renderQuality: 0.5, raySteps: 72 }).raySteps, 72);
   assert.equal(qualityAdjustedGeneratorParams(cloudyTunnel, { renderQuality: 0, raySteps: 72 }).raySteps, 25);
   assert.equal(qualityAdjustedGeneratorParams(cloudyTunnel, { renderQuality: 1, raySteps: 72 }).raySteps, 108);
-  assert.ok(rendererSource.includes("this.getFxPingPongTarget(renderRequest, 0)"));
+  assert.ok(generatorRuntimeSource.includes("shaderRuntime.getTarget(renderRequest, 0)"));
   assert.ok(effectRuntimeSource.includes('shader.setUniform("resolution", [logicalWidth, logicalHeight])'));
   assert.ok(effectRuntimeSource.includes('shader.setUniform("texelSize", [1 / logicalWidth, 1 / logicalHeight])'));
 });
@@ -250,7 +260,7 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   const ids = component.params.map((param) => param.id);
   const speed = component.params.find((param) => param.id === "speed");
   const builderSource = readFileSync(new URL("../js/shaders/shader-builder.js", import.meta.url), "utf8");
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const generatorRuntimeSource = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
   const targetRuntimeSource = readFileSync(new URL("../js/output/shader-target-runtime.js", import.meta.url), "utf8");
 
   assert.equal(component.name, "Base Warp");
@@ -267,8 +277,8 @@ test("Shadertoy base warp is exposed as a generator with clock speed", () => {
   assert.ok(builderSource.includes("vec2 baseUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;"));
   assert.ok(builderSource.includes("vec2(shaderUv.x, 1.0 - shaderUv.y) * iResolution.xy"));
   assert.ok(builderSource.includes("vj1MainImage(fragColor, shadertoyFragCoord)"));
-  assert.ok(rendererSource.includes('setShaderUniformIfPresent(shader, "iTime", shaderTime)'));
-  assert.ok(rendererSource.includes("shaderDrawingBufferSize(target"));
+  assert.match(generatorRuntimeSource, /setShaderUniformIfPresent\(shader,\s*"iTime",\s*shaderTime\)/);
+  assert.match(generatorRuntimeSource, /shaderDrawingBufferSize\(\s*target,/);
   assert.ok(targetRuntimeSource.includes("gl?.drawingBufferWidth"));
   assert.equal(component.runtime.rateParam, "speed");
 });
@@ -471,14 +481,16 @@ test("low poly anatomy generator exposes body part and stl-style 3d controls", (
   for (const id of ["expression", "mouthOpen", "brow", "eyeSquint", "fingerBend", "limbBend", "heartPulse"]) {
     assert.ok(params[id], `missing anatomy behavior param ${id}`);
   }
-  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:scene3d-program");
-  assert.equal(component.nodeDefinition.metadata.visualCompilerHook.id, "vj1.visual.scene-3d-program");
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "");
+  assert.equal(component.nodeDefinition.metadata.visualCompilerHook.id, "vj1.visual.compound");
   assert.equal(component.nodeDefinition.parts.some((part) => part.kind === "javascript"), false);
   const graph = component.nodeDefinition.parts.find((part) => part.kind === "graph");
   assert.deepEqual(graph.nodes.map((node) => node.id), [
     "geometry", "motion", "materials", "objects", "camera", "scene", "render",
   ]);
-  assert.ok(rendererSource.includes("drawCompiledScene3dProgram("));
+  assert.equal(graph.nodes.find((node) => node.id === "render").type, "core.scene3d.render");
+  assert.equal(graph.nodes.find((node) => node.id === "render").role, "source");
+  assert.ok(rendererSource.includes("executeCompiledVisualNodeProcess("));
   assert.ok(rendererSource.includes("renderMeshNodeProcess("));
   assert.ok(rendererSource.includes("createAnatomyMeshCollection("));
   assert.ok(rendererSource.includes("anatomyMotionTransform3dProcess("));
@@ -493,10 +505,16 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
   const rendererSource = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/output-frame-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/shader-effect-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/specialized-target-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/terrain-render-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-mesh.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/visual-plan-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/composition-engine/shared/visual-render-plan.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/shaders.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/terrain-engine/flight-controller/index.js", import.meta.url), "utf8"),
@@ -520,35 +538,34 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
     assert.equal(params[id].type, "color", `missing terrain color ${id}`);
   }
   assert.equal(generatorIcon("terrainFlyover"), "landscape");
-  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "output/specialized:terrainFlyover");
-  assert.equal(component.nodeDefinition.metadata.nodeOwnedNativeModule, true);
-  assert.match(rendererSource, /registerNativeRenderer\(\s*"output\/specialized:terrainFlyover"/);
-  assert.ok(rendererSource.includes("this.targets = new Map()"));
-  assert.ok(rendererSource.includes("this.getTerrainTarget(renderRequest.width, renderRequest.height, renderRequest.pixelDensity)"));
-  assert.ok(rendererSource.includes("disposeGraphicsMap(this.targets)"));
-  assert.ok(rendererSource.includes("this.terrainSurfaceResources = new Map()"));
-  assert.ok(rendererSource.includes("drawTerrainSurface(target, this.terrainSurfaceResources"));
+  assert.equal(component.nodeDefinition.metadata.nativeRenderer, "");
+  assert.equal(component.nodeDefinition.metadata.renderAuthority, "compiled-graph");
+  assert.match(rendererSource, /registerNativeRenderer\(\s*"output\/specialized:terrainSurface"/);
+  assert.match(rendererSource, /registerNativeRenderer\(\s*"output\/specialized:terrainWire"/);
+  assert.ok(rendererSource.includes("renderFramebufferPassSequence("));
+  assert.ok(rendererSource.includes("VISUAL_FRAMEBUFFER_PASS_ALIAS_UNSAFE"));
+  assert.ok(rendererSource.includes("input && input !== output"));
+  assert.ok(rendererSource.includes("this.surfaceResources = new Map()"));
+  assert.ok(rendererSource.includes("drawTerrainSurface("));
+  assert.ok(rendererSource.includes("this.surfaceResources,"));
   assert.ok(rendererSource.includes("updateTerrainSurfaceBuffers(gl, resources, widthCells, depthCells, baseRow, terrainModule, moduleRevision)"));
   assert.ok(rendererSource.includes("gl.drawElements(gl.TRIANGLES, resources.count, gl.UNSIGNED_SHORT, 0)"));
   assert.ok(rendererSource.includes("terrainSurfaceGridVertices(widthCells, depthCells)"));
   assert.ok(rendererSource.includes("terrainSurfaceTriangleIndices(widthCells, depthCells, baseRow)"));
   assert.ok(!rendererSource.includes("function drawTerrainSurfaceMesh("));
-  assert.ok(rendererSource.includes('specializedCompoundNativeKernel(operation, "terrain-surface")'));
-  assert.ok(rendererSource.includes('specializedCompoundNativeKernel(operation, "terrain-wire")'));
-  assert.ok(rendererSource.includes("evaluateSpecializedCompoundGraph("));
-  assert.ok(rendererSource.includes('graph?.stageInput(surfaceStageId, "controller")'));
-  assert.ok(rendererSource.includes('graph?.stageInput(surfaceStageId, "geometry")'));
-  assert.ok(rendererSource.includes('graph?.stageInput(surfaceStageId, "camera")'));
-  assert.ok(rendererSource.includes('graph?.stageInput(surfaceStageId, "material")'));
-  assert.ok(rendererSource.includes('graph?.stageInput(wireStageId, "material")'));
+  assert.ok(rendererSource.includes('kernel === "terrain-surface"'));
+  assert.ok(rendererSource.includes('kernel === "terrain-wire"'));
+  assert.ok(rendererSource.includes('runtimeValueInputs?.get?.("controller")'));
+  assert.ok(rendererSource.includes('runtimeValueInputs?.get?.("geometry")'));
+  assert.ok(rendererSource.includes('runtimeValueInputs?.get?.("camera")'));
+  assert.ok(rendererSource.includes('runtimeValueInputs?.get?.("material")'));
   assert.ok(rendererSource.includes('id: "core.terrain.flight-controller"'));
   assert.ok(rendererSource.includes("gl.drawArrays(gl.TRIANGLES, 0, resources.count)"));
   assert.ok(rendererSource.includes("if (style === 2)"));
   assert.ok(rendererSource.includes("gl.polygonOffset(1, 2)"));
-  assert.ok(rendererSource.includes("if (drawSurface) target.background"));
-  assert.ok(rendererSource.includes("specializedCompoundStageEnabled(operation, surfaceStageId)"));
-  assert.ok(rendererSource.includes("specializedCompoundStageEnabled(operation, wireStageId)"));
-  assert.ok(rendererSource.includes("markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.bottomLeft)"));
+  assert.ok(rendererSource.includes('style === "wire"'));
+  assert.ok(rendererSource.includes('style === "biome"'));
+  assert.ok(rendererSource.includes("markRenderTargetOrientation("));
   assert.ok(rendererSource.includes("program: gl.getParameter(gl.CURRENT_PROGRAM)"));
   assert.ok(rendererSource.includes("gl.useProgram(state.program)"));
   assert.ok(!rendererSource.includes("previousLiveSceneId !== nextLiveSceneId"));
@@ -561,7 +578,8 @@ test("terrain flyover exposes flight, terrain, wire, and biome controls", () => 
   assert.ok(rendererSource.includes("function terrainIrregularMesh("));
   assert.ok(rendererSource.includes("terrainExpandedGridWireVertices(widthCells, depthCells)"));
   assert.ok(rendererSource.includes("gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW)"));
-  assert.ok(rendererSource.includes("measureComponentProfile(meta, fn)"));
+  assert.ok(rendererSource.includes("host.profileRuntime.finishFrame(this.frameStart)"));
+  assert.ok(rendererSource.includes("profile.activeComponentIdentity()"));
   assert.ok(profileSource.includes("const outermost = this.componentDepth === 0"));
   assert.ok(profileSource.includes("if (outermost) this.frameProfile.componentWallMs += ms"));
   assert.ok(!rendererSource.includes("float rowTravel = fract("));
@@ -653,42 +671,41 @@ test("terrain scale changes preserve noise phase at the camera anchor", () => {
 
 test("terrain camera space is independent from generic chain transforms", () => {
   const view = terrainCameraView({ altitude: 6, turn: 0.25 }, 2);
-  const runtimeSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
-  const drawTerrainSource = runtimeSource.slice(runtimeSource.indexOf("  drawTerrain("), runtimeSource.indexOf("  drawModel("));
+  const drawTerrainSource = readFileSync(new URL("../js/output/specialized/terrain-render-runtime.js", import.meta.url), "utf8");
 
   assert.equal(view.altitude, 6);
   assert.equal(view.turn, 0.25);
   assert.equal(view.cameraAnchor.length, 2);
-  assert.match(drawTerrainSource, /evaluateSpecializedCompoundGraph\(/);
-  assert.match(drawTerrainSource, /graph\?\.stageInput\(surfaceStageId, "controller"\)/);
+  assert.match(drawTerrainSource, /runtimeValueInputs\?\.get\?\.\("controller"\)/);
+  assert.match(drawTerrainSource, /runtimeValueInputs\?\.get\?\.\("camera"\)/);
   const cameraRenderSource = drawTerrainSource.slice(0, drawTerrainSource.indexOf("const flightParams"));
   assert.doesNotMatch(cameraRenderSource, /source\.contentTransform/);
-  assert.match(drawTerrainSource, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.bottomLeft\)/);
-  assert.match(drawTerrainSource, /contentPlacementMatrix: contentTransformUvMatrices\(source\.contentTransform\)\.placement/);
-  assert.match(drawTerrainSource, /presentGeneratedTarget\(pg, target\)/);
+  assert.match(drawTerrainSource, /markRenderTargetOrientation\(/);
+  assert.match(drawTerrainSource, /contentPlacementMatrix: contentTransformUvMatrices\(\s*source\.contentTransform,?\s*\)\.placement/);
+  assert.doesNotMatch(drawTerrainSource, /this\.targets\.present\(/);
 });
 
-test("parsed mesh rendering stays in a shared depth framebuffer", () => {
-  const runtimeSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
-  const drawModelSource = runtimeSource.slice(runtimeSource.indexOf("  drawModel("), runtimeSource.indexOf("  presentGeneratedTarget("));
-  const rawTargetSource = runtimeSource.slice(runtimeSource.indexOf("  getRawModelTarget("), runtimeSource.indexOf("  getTerrainTarget("));
+test("parsed mesh rendering uses the canonical Scene-to-Image process", () => {
+  const sceneRender = readFileSync(new URL("../js/libraries/mesh-engine/scene-render/index.js", import.meta.url), "utf8");
+  const meshRender = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
 
-  assert.match(drawModelSource, /const target = this\.getRawModelTarget/);
-  assert.match(drawModelSource, /renderMeshNodeProcess\(/);
-  assert.match(drawModelSource, /\[VJ1_MODEL_SHARED_RENDER_FAILED\]/);
-  assert.match(rawTargetSource, /preferSharedFramebuffer: true/);
-  assert.match(rawTargetSource, /depth: true/);
+  assert.match(sceneRender, /renderMeshNodeProcess\(/);
+  assert.match(meshRender, /export function renderMeshNodeProcess\(/);
+  assert.doesNotMatch(sourceRuntime, /drawMediaSource|VJ1_DIRECT_MODEL_SOURCE_UNSUPPORTED/);
+  assert.doesNotMatch(sourceRuntime, /specializedSources\.model|model-render-runtime/);
 });
 
 test("random generator speed controls use phase-continuous clocks", () => {
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const generatorSource = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
   const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.equal(getGeneratorComponent("fireflies").runtime.rateParam, "speed");
   assert.equal(getGeneratorComponent("bezierStrokes").runtime.rateParam, "speed");
   assert.doesNotMatch(runtimeSource, /generatorId ===/);
-  assert.ok(rendererSource.includes("this.continuousRateTime(`${instanceId || generatorId}:${rateParam}`"));
-  assert.ok(rendererSource.includes("const shaderParams = rateParam ? { ...qualityParams, [rateParam]: 1 } : qualityParams"));
+  assert.ok(generatorSource.includes("this.rateTime("));
+  assert.ok(generatorSource.includes("`${instanceId || generatorId}:${rateParam}`"));
+  assert.match(generatorSource, /const shaderParams = rateParam\s*\?\s*\{ \.\.\.qualityParams, \[rateParam\]: 1 \}/);
 });
 
 test("terrain wireframe contains every real grid and triangle edge", () => {
@@ -866,11 +883,11 @@ test("source params are canonical and chain-level params are discarded", () => {
   const normalizedItem = normalized.components[0].chain[0];
   assert.equal(normalizedItem.params, undefined);
   assert.equal(normalizedItem.source.params.surfaceColor, "#3366ccff");
-  assert.equal(normalizedItem.source.params.wireColor, undefined);
+  assert.equal(normalizedItem.source.params.wireColor, "#141414dd");
 
   const sourceNode = compileComponentPatch(normalized.components[0]).nodes.find((node) => node.role === "source");
   assert.equal(sourceNode.params.surfaceColor, "#3366ccff");
-  assert.equal(sourceNode.params.wireColor, undefined);
+  assert.equal(sourceNode.params.wireColor, "#141414dd");
 });
 
 test("obj parser triangulates polygon faces and supports negative indices", () => {
@@ -905,20 +922,14 @@ test("3d model visible depth follows transformed normalized model bounds", () =>
 });
 
 test("3d model point mode uses cached bounded point clouds", () => {
-  const compatibilityRuntime = readFileSync(
-    new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url),
-    "utf8",
-  );
-  const drawModelSource = compatibilityRuntime.slice(
-    compatibilityRuntime.indexOf("  drawModel("),
-    compatibilityRuntime.indexOf("  presentGeneratedTarget("),
-  );
+  const meshRender = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
   const source = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8"),
-    compatibilityRuntime,
+    readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/mesh-engine/mesh-render-cache.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/libraries/mesh-engine/mesh-resolution/index.js", import.meta.url), "utf8"),
   ].join("\n");
 
   assert.ok(source.includes("drawRawParsedModelMode(target, item"));
@@ -927,10 +938,11 @@ test("3d model point mode uses cached bounded point clouds", () => {
   assert.ok(source.includes("ensureParsedModelWireLines(item, budget, mesh)"));
   assert.ok(source.includes("ensureParsedModelThickWireVertices(item, budget, mesh)"));
   assert.ok(source.includes("ensureParsedModelPerceptualWireVertices(item, budget, mesh)"));
-  assert.ok(!drawModelSource.includes("ensureP5ModelPointCloud("), "model media has no duplicate p5 rendering fallback");
+  assert.ok(!meshRender.includes("ensureP5ModelPointCloud("), "model media has no duplicate p5 rendering fallback");
+  assert.ok(!source.includes("specializedSources.model"), "model media has no compatibility renderer");
   assert.ok(source.includes("uniform float uThickness;"));
   assert.ok(source.includes("resolutionScaledStrokeWidth("));
-  assert.ok(source.includes("Math.min(50000"));
+  assert.match(source, /Math\.min\(75000/);
   assert.ok(!source.includes("function drawModelPoints"));
 });
 
@@ -944,11 +956,12 @@ test("specialized wire thickness is scaled once from logical to raster resolutio
 
   const source = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
+    readFileSync(new URL("../js/output/specialized/terrain-render-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8"),
   ].join("\n");
-  assert.ok(source.includes("drawTerrainWireframe(target, this.terrainWireResources"));
+  assert.ok(source.includes("drawTerrainWireframe("));
+  assert.ok(source.includes("this.wireResources,"));
   assert.ok(source.includes("const viewportSize = renderTargetPixelSize(target);"));
   assert.ok(source.includes("gl.uniform2f(resources.resolution, viewportSize.width, viewportSize.height);"));
   assert.ok(source.includes("{ width: drawingWidth, height: drawingHeight }"));
@@ -958,12 +971,11 @@ test("specialized wire thickness is scaled once from logical to raster resolutio
 test("3d model scale uses logical render viewport instead of backing pixels", () => {
   const source = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/mesh-engine/mesh-render-math.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8"),
   ].join("\n");
 
-  assert.ok(source.includes("const viewport = modelViewportMetrics(target, renderRequest);"));
+  assert.ok(source.includes("const metrics = modelViewportMetrics(target, viewport);"));
   assert.ok(source.includes("gl.uniform3f(resources.cameraPosition, 0, 0, metrics.cameraZ)"));
   assert.ok(source.includes("const scale = metrics.unitScale * modelScale;"));
   assert.ok(source.includes("const { width: drawingWidth, height: drawingHeight } = rawModelTargetPixelSize(target);"));
@@ -978,7 +990,6 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
   const source = [
     readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8"),
-    readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/mesh-engine/mesh-geometry.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8"),
   ].join("\n");
@@ -991,7 +1002,7 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
   assert.ok(source.includes("const stride = 6 * 4;"));
   assert.ok(source.includes("pruneRawModelBufferVariants(gl, contextResources"));
   assert.ok(source.includes("function disposeRawModelContextResources("));
-  assert.ok(source.includes("onContextDiscard: (gl) => this.resetModelResources(gl)"));
+  assert.ok(!source.includes("specializedSources.model"));
   assert.ok(!source.includes("modelRawRenderers ||= new WeakMap()"));
   assert.ok(source.includes("return processObjModelBuffer(buffer, { cacheKey: `${item.id}:${item.sourceRevision}` });"));
   assert.ok(source.includes("item.modelData = mesh;"));
@@ -1007,7 +1018,7 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
 });
 
 test("renderer source extraction merges source node params", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   const adapterSource = readFileSync(new URL("../js/output/component-patch-adapter.js", import.meta.url), "utf8");
 
   assert.ok(adapterSource.includes("sourceWithNodeParams(node.state.source, node.params || {}"));
@@ -1024,8 +1035,9 @@ test("live source controls use dynamic param metadata", () => {
   assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path, viewParams)"));
   assert.ok(source.includes("visualGeneratorComponent(state, source.generatorId)?.params"));
   assert.ok(source.includes("listProjectIsfVisualComponents(state)"));
-  assert.ok(source.includes("mediaSourceParams(source, media)"));
   assert.ok(source.includes("paramControlsTemplate(params,"));
+  assert.ok(!source.includes("source-control-schema"));
+  assert.ok(!source.includes("source.type === \"media\""));
   assert.ok(parameterSource.includes("export function paramControlTemplate"));
   assert.ok(!source.includes("function liveParamControlTemplate"));
 });
@@ -1060,35 +1072,32 @@ test("output renderer blackouts while active media sources are missing or loadin
       requestMediaFiles: (ids) => requested.push(ids),
     });
     renderer.state = { ...sanitizeState(state), surfaces: [route] };
-    renderer.rebuildComponentPrograms();
+    renderer.componentProgramRuntime.rebuild();
 
-    let status = renderer.outputMediaReadiness();
-    renderer.outputMediaStatus = status;
+    let status = renderer.readinessRuntime.refresh();
     assert.equal(status.blocked, true);
     assert.equal(status.missingIds.has("clips/loop.mov"), true);
     assert.deepEqual(requested, [["clips/loop.mov"]]);
-    assert.equal(renderer.isOutputBlackout(), true);
+    assert.equal(renderer.readinessRuntime.isBlackout(), true);
 
     renderer.media.set("clips/loop.mov", { id: "clips/loop.mov", video: null, image: null, ready: false });
-    status = renderer.outputMediaReadiness();
-    renderer.outputMediaStatus = status;
+    status = renderer.readinessRuntime.refresh();
     assert.equal(status.blocked, true);
     assert.equal(status.loadingIds.has("clips/loop.mov"), true);
-    assert.equal(renderer.shouldHoldOutputFrameForMedia(), true, "loading retains the last complete output frame");
+    assert.equal(renderer.readinessRuntime.shouldHoldFrame(), true, "loading retains the last complete output frame");
 
     const previewRenderer = new OutputRenderer({ mode: "preview" });
     previewRenderer.state = renderer.state;
-    previewRenderer.rebuildComponentPrograms();
+    previewRenderer.componentProgramRuntime.rebuild();
     previewRenderer.media.set("clips/loop.mov", { id: "clips/loop.mov", video: null, image: null, ready: false });
-    assert.equal(previewRenderer.prepareOutputState(renderer.state).blocked, false, "ordinary editor previews do not globally blackout");
-    assert.equal(previewRenderer.prepareOutputState(renderer.state, { requireMedia: true }).blocked, true, "Live preparation explicitly waits for drawable media");
+    assert.equal(previewRenderer.readinessRuntime.prepare(renderer.state).blocked, false, "ordinary editor previews do not globally blackout");
+    assert.equal(previewRenderer.readinessRuntime.prepare(renderer.state, { requireMedia: true }).blocked, true, "Live preparation explicitly waits for drawable media");
 
     renderer.media.set("clips/loop.mov", { id: "clips/loop.mov", image: { width: 64, height: 64 }, ready: true });
-    status = renderer.outputMediaReadiness();
-    renderer.outputMediaStatus = status;
+    status = renderer.readinessRuntime.refresh();
     assert.equal(status.blocked, false);
-    assert.equal(renderer.isOutputBlackout(), false);
-    assert.equal(renderer.shouldHoldOutputFrameForMedia(), false);
+    assert.equal(renderer.readinessRuntime.isBlackout(), false);
+    assert.equal(renderer.readinessRuntime.shouldHoldFrame(), false);
   } finally {
     if (previousMillis === undefined) delete globalThis.millis;
     else globalThis.millis = previousMillis;
@@ -1144,14 +1153,14 @@ test("decoded video frames invalidate render caches instead of renderer ticks", 
   const renderer = new OutputRenderer({ mode: "component" });
   const state = createInitialState();
   const component = createDefaultComponent(0);
-  const source = { type: "media", mediaId: "clips/loop.mov" };
+  const source = createAuthoredMediaSource("clips/loop.mov", { type: "video" });
   component.chain = [createComponentLayer(0, source)];
   state.components = [component];
   state.media = [{ id: "clips/loop.mov", path: "clips/loop.mov", type: "video", size: 42 }];
   state.ui.selectedComponentId = component.id;
   state.ui.debugPreview = true;
   renderer.state = state;
-  renderer.rebuildComponentPrograms();
+  renderer.componentProgramRuntime.rebuild();
   const videoElement = {
     tagName: "VIDEO",
     videoWidth: 640,
@@ -1168,31 +1177,32 @@ test("decoded video frames invalidate render caches instead of renderer ticks", 
   };
   renderer.media.set("clips/loop.mov", runtimeItem);
 
-  assert.equal(renderer.sourceIsFrameDynamic(source), false);
-  assert.equal(renderer.presentationFrameMode(), "continuous", "video presentation cadence is independent from decoded-frame callback cadence");
-  assert.deepEqual(
-    renderer.sourceRuntimeTimeKey(source, component.chain[0], { frame: 100 }),
-    { asset: 0, frame: 3, timeMs: 1250 },
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), false);
+  assert.equal(renderer.frameRuntime.presentationMode(), "continuous", "video presentation cadence is independent from decoded-frame callback cadence");
+  assert.equal(
+    renderer.sourceRuntime.runtimeTimeKey(source, component.chain[0], { frame: 100 }),
+    null,
+    "decoded media revisions belong to the compiled resource dependency, not the visual clock",
   );
-  const first = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
+  const first = renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 });
   assert.ok(first);
 
   videoElement.currentTime = 1.3;
-  const next = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
+  const next = renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 });
   assert.equal(next, first, "a fresh decoded-frame callback avoids rerendering at renderer cadence");
 
   videoElement.currentTime = 1.6;
-  const stalled = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
+  const stalled = renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 });
   assert.equal(stalled, first, "media time cannot publish a texture the decoder has not confirmed");
 
   runtimeItem.videoFrameRevision = 4;
   runtimeItem.videoFrameMediaTime = 1.6;
-  const callbackNext = renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 });
+  const callbackNext = renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 });
   assert.notEqual(callbackNext, stalled, "a decoded-frame callback publishes the next retained texture revision");
 
   runtimeItem.videoFrameDriven = false;
-  assert.equal(renderer.sourceIsFrameDynamic(source), true, "older browsers retain renderer-frame invalidation");
-  assert.equal(renderer.sourceRuntimeTimeKey(source, component.chain[0], { frame: 100 }), 100);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true, "older browsers retain renderer-frame invalidation");
+  assert.equal(renderer.sourceRuntime.runtimeTimeKey(source, component.chain[0], { frame: 100 }), null);
 });
 
 test("retained video components renew playback ownership without rerendering", () => {
@@ -1200,27 +1210,169 @@ test("retained video components renew playback ownership without rerendering", (
   const state = createInitialState();
   const child = createDefaultComponent(1);
   child.speed = 0.5;
-  child.chain = [createComponentLayer(0, {
-    type: "media",
-    mediaId: "clips/loop.mov",
+  child.chain = [createComponentLayer(0, createAuthoredMediaSource(
+    "clips/loop.mov",
+    { type: "video" },
+  ))];
+  child.chain[0].source.params = {
+    ...child.chain[0].source.params,
     start: 1,
     end: 4,
     speed: 2,
-  })];
+  };
   const parent = createSceneComponent(0, child.id);
   state.components = [child, parent];
   state.media = [{ id: "clips/loop.mov", path: "clips/loop.mov", type: "video", size: 42 }];
   renderer.state = state;
-  renderer.rebuildComponentPrograms();
+  renderer.componentProgramRuntime.rebuild();
   renderer.media.set("clips/loop.mov", { video: { elt: {} } });
   const claims = [];
-  renderer.acquireMedia = (id, options) => claims.push({ id, options });
+  renderer.mediaRuntime.acquireMediaById = (id, options) => claims.push({ id, options });
 
-  renderer.claimRetainedComponentMedia(parent);
+  renderer.sourceRuntime.claimRetainedComponentMedia(parent);
 
   assert.equal(claims.length, 1);
   assert.equal(claims[0].id, "clips/loop.mov");
   assert.deepEqual(claims[0].options.playback, { start: 1, end: 4, speed: 1 });
+});
+
+test("retained compiled media compounds renew playback from their typed resource input", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  component.speed = 0.5;
+  state.components = [component];
+  state.media = [{
+    id: "clips/compiled.mov",
+    path: "clips/compiled.mov",
+    type: "video",
+    size: 42,
+  }];
+  renderer.state = state;
+  renderer.media.set("clips/compiled.mov", {
+    ready: true,
+    video: { elt: {} },
+  });
+  renderer.componentProgramRuntime.programs.set(component.id, {
+    inspect: () => ({
+      dependencies: { components: [] },
+      mediaDemand: { ids: ["clips/compiled.mov"] },
+    }),
+    forEachOperation(visitor) {
+      visitor({
+        opcode: "source",
+        configuration: {
+          enabled: true,
+          source: {
+            type: "generator",
+            generatorId: "core.visual.media-resource-to-image",
+            params: { fit: "contain" },
+          },
+        },
+        runtimeValueInputs: new Map([[
+          "resource",
+          {
+            kind: "project-media-resource",
+            mediaId: "clips/compiled.mov",
+            start: 1,
+            end: 4,
+            speed: 2,
+            ready: true,
+            resourceIdentity: "project-media:clips/compiled.mov",
+          },
+        ]]),
+      });
+    },
+  });
+  const claims = [];
+  renderer.mediaRuntime.acquireMediaById = (id, options) => {
+    claims.push({ id, options });
+  };
+
+  renderer.sourceRuntime.claimRetainedComponentMedia(component);
+
+  assert.deepEqual(claims, [{
+    id: "clips/compiled.mov",
+    options: {
+      playback: { start: 1, end: 4, speed: 1 },
+    },
+  }]);
+});
+
+test("retained components renew image and model leases without decoding", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(
+      0,
+      createAuthoredMediaSource("media/photo.png", { type: "image" }),
+    ),
+    createComponentLayer(
+      1,
+      createAuthoredMediaSource("media/mesh.stl", { type: "model" }),
+    ),
+  ];
+  state.components = [component];
+  state.media = [
+    { id: "media/photo.png", path: "media/photo.png", type: "image", size: 42 },
+    { id: "media/mesh.stl", path: "media/mesh.stl", type: "model", size: 84 },
+  ];
+  renderer.state = state;
+  renderer.componentProgramRuntime.rebuild();
+  renderer.media.set("media/photo.png", { image: {} });
+  renderer.media.set("media/mesh.stl", { modelData: {} });
+  const retained = [];
+  renderer.mediaRuntime.retainMediaById = (id) => retained.push(id);
+  renderer.mediaRuntime.acquireMediaById = () => {
+    throw new Error("retained non-video media must not be decoded again");
+  };
+
+  renderer.sourceRuntime.claimRetainedComponentMedia(component);
+
+  assert.deepEqual(retained.sort(), [
+    "media/mesh.stl",
+    "media/photo.png",
+  ]);
+});
+
+test("an executing compiled plan retains media while its source operation is cached", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const retained = [];
+  let inspections = 0;
+  renderer.mediaRuntime.retainMediaById = (id) => retained.push(id);
+  renderer.visualPlanRuntime.renderOperations = () => ({ buffer: {} });
+  const plan = {
+    format: "vj1.visual-render-plan@1",
+    executionModel: "chain",
+    operations: [],
+    controlProgram: null,
+    inspect() {
+      inspections++;
+      return {
+        mediaDemand: {
+          ids: ["media/photo.png", "media/mesh.stl"],
+        },
+      };
+    },
+  };
+  const component = { id: "component-a" };
+  const request = { role: "component", width: 640, height: 360 };
+
+  renderer.visualPlanRuntime.execute(plan, component, 0, request);
+  renderer.visualPlanRuntime.execute(plan, component, 1, request);
+
+  assert.equal(inspections, 1, "stable compiled topology is not introspected in every frame");
+  assert.deepEqual(retained, [
+    "media/photo.png",
+    "media/mesh.stl",
+    "media/photo.png",
+    "media/mesh.stl",
+  ]);
+
+  plan.operations = [];
+  renderer.visualPlanRuntime.execute(plan, component, 2, request);
+  assert.equal(inspections, 2, "configuration replacement refreshes declared ownership");
 });
 
 test("output readiness includes images referenced by media-backed generators", () => {
@@ -1239,9 +1391,9 @@ test("output readiness includes images referenced by media-backed generators", (
     const requested = [];
     const renderer = new OutputRenderer({ mode: "output", requestMediaFiles: (ids) => requested.push(ids) });
     renderer.state = { ...sanitizeState(state), surfaces: [route] };
-    renderer.rebuildComponentPrograms();
+    renderer.componentProgramRuntime.rebuild();
 
-    const status = renderer.outputMediaReadiness();
+    const status = renderer.readinessRuntime.refresh();
     assert.equal(status.blocked, true);
     assert.deepEqual(Array.from(status.missingIds), ["a.png", "b.png", "c.png", "d.png", "tiles.png"]);
     assert.deepEqual(requested, [["a.png", "b.png", "c.png", "d.png", "tiles.png"]]);
@@ -1321,14 +1473,14 @@ test("output prepares an incoming Live Scene with that Scene's compiled program"
 
   const renderer = new OutputRenderer({ mode: "output" });
   renderer.state = current;
-  renderer.rebuildVisualNodeResolver();
-  renderer.rebuildComponentPrograms();
-  renderer.rebuildRouteLookups();
+  renderer.visualNodeRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuildLookups();
 
-  assert.equal(renderer.componentPrograms.has(currentScene.id), true);
-  assert.equal(renderer.componentPrograms.has(incomingScene.id), false);
-  assert.doesNotThrow(() => renderer.prepareOutputState(incoming));
-  renderer.clearPreparedOutputState();
+  assert.equal(renderer.componentProgramRuntime.programs.has(currentScene.id), true);
+  assert.equal(renderer.componentProgramRuntime.programs.has(incomingScene.id), false);
+  assert.doesNotThrow(() => renderer.readinessRuntime.prepare(incoming));
+  renderer.readinessRuntime.clearPrepared();
   renderer.dispose();
 });
 
@@ -1393,30 +1545,35 @@ test("active output can return project state and files to a refreshed control wi
   assert.ok(bridgeSource.includes('msg.type === "protocol-mismatch"'));
   assert.ok(bridgeSource.includes('msg.sessionId !== controlSessionId'));
   assert.ok(bridgeSource.includes('msg.type === "recovery-state"'));
-  assert.ok(bridgeSource.includes('store.replace(recoveredState, "project-output-recovery")'));
+  assert.ok(bridgeSource.includes("store.replace(recoveredOutputProjectState("));
+  assert.ok(bridgeSource.includes('), "project-output-recovery")'));
   assert.ok(bridgeSource.includes('type: "recovery-media-files"'));
   assert.ok(outputSource.includes("bridge?.recoveryState(acceptedState, acceptedFiles)"));
   assert.ok(outputSource.includes('sessionId !== receivedSessionId'));
 });
 
 test("Component Scene and Live previews follow the shared thumbnail toggle", () => {
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const stateRuntimeSource = readFileSync(new URL("../js/output/output-state-runtime.js", import.meta.url), "utf8");
+  const presentationSource = readFileSync(new URL("../js/output/output-presentation-runtime.js", import.meta.url), "utf8");
   const thumbnailSource = readFileSync(new URL("../js/output/output-thumbnail-runtime.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('this.mode === "preview" || this.mode === "component" || this.mode === "live"'));
-  assert.ok(rendererSource.includes('this.state?.ui?.debugPreview === false'));
-  assert.ok(rendererSource.includes("this.thumbnailRuntime.invalidateSelectedComponent()"));
+  assert.ok(presentationSource.includes('host.mode === "preview"'));
+  assert.ok(presentationSource.includes('host.mode === "component"'));
+  assert.ok(presentationSource.includes('host.mode === "live"'));
+  assert.ok(presentationSource.includes('host.state?.ui?.debugPreview === false'));
+  assert.ok(stateRuntimeSource.includes("host.thumbnailRuntime.invalidateSelectedComponent()"));
   assert.ok(thumbnailSource.includes("if (!this.sendThumbnail || !this.canCapture() || this.shouldUseThumbnailPreview())"));
-  assert.ok(rendererSource.includes("this.renderSelectedChainTransformOverlay()"));
-  assert.ok(rendererSource.includes("renderSceneThumbnailSnapshotPreview(component)"));
-  assert.doesNotMatch(rendererSource, /renderSceneThumbnailEditPreview\(/);
-  assert.ok(rendererSource.includes("renderFlattenedThumbnailEditPreview(component)"));
+  assert.ok(presentationSource.includes("host.previewInteraction.renderSelectedChainTransformOverlay()"));
+  assert.ok(presentationSource.includes("renderSceneThumbnailSnapshotPreview(component)"));
+  assert.doesNotMatch(presentationSource, /renderSceneThumbnailEditPreview\(/);
+  assert.ok(presentationSource.includes("renderFlattenedThumbnailEditPreview(component)"));
 });
 
 test("playback control pauses the shared preview and output transport", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const frameRuntimeSource = readFileSync(new URL("../js/output/output-frame-runtime.js", import.meta.url), "utf8");
   const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
   const paused = createInitialState();
@@ -1428,23 +1585,20 @@ test("playback control pauses the shared preview and output transport", () => {
   assert.ok(controllerSource.includes("if (!hasOpenProject(latestState)) return"));
   assert.doesNotMatch(controllerSource, /if \(latestState\.metrics\.clients <= 0\) return/);
   assert.ok(controllerSource.includes('outputPlaying ? "pause" : "play_arrow"'));
-  assert.ok(rendererSource.includes("this.presentationClock = advancePresentationClock("));
-  assert.ok(rendererSource.includes("this.visualDeltaSeconds = this.presentationClock.presentationDeltaSeconds * timeScale"));
-  assert.ok(rendererSource.includes("if (!playing) return"));
-  assert.ok(rendererSource.includes("return this.state?.global?.playing !== false"));
-  assert.doesNotMatch(rendererSource, /this\.mode !== "output" \|\| this\.state\?\.global\?\.playing/);
-  assert.ok(rendererSource.includes("this.isPlaybackActive() ? 1 : 0"));
-  const playbackOptions = rendererSource.slice(
-    rendererSource.indexOf("  videoPlaybackOptions("),
-    rendererSource.indexOf("  claimRetainedComponentMedia(")
+  assert.ok(frameRuntimeSource.includes("this.presentationClock = advancePresentationClock("));
+  assert.ok(frameRuntimeSource.includes("this.visualDeltaSeconds = this.presentationClock.presentationDeltaSeconds * timeScale"));
+  assert.ok(frameRuntimeSource.includes("if (!playing) return"));
+  assert.ok(frameRuntimeSource.includes("return this.host.state?.global?.playing !== false"));
+  assert.doesNotMatch(frameRuntimeSource, /this\.mode !== "output" \|\| this\.state\?\.global\?\.playing/);
+  assert.ok(sourceRuntime.includes("host.frameRuntime.isPlaybackActive() ? 1 : 0"));
+  const playbackOptions = sourceRuntime.slice(
+    sourceRuntime.indexOf("  videoPlaybackOptions("),
+    sourceRuntime.indexOf("  componentContainsVideo(")
   );
-  assert.ok(playbackOptions.includes("globalVisualTimeScale(this.state?.global)"));
+  assert.ok(playbackOptions.includes("globalVisualTimeScale(host.state?.global)"));
   assert.ok(playbackOptions.includes("Number(source.speed)"));
-  assert.equal(
-    (rendererSource.match(/this\.videoPlaybackOptions\(source, component\)/g) || []).length
-      + (sourceRuntime.match(/host\.videoPlaybackOptions\(source, component\)/g) || []).length,
-    4,
-  );
+  assert.doesNotMatch(sourceRuntime, /source\.type === "media"/);
+  assert.ok(sourceRuntime.includes("this.videoPlaybackOptions(params, component)"));
   assert.ok(bridgeSource.includes("const clientWatchdog = setInterval"));
 });
 
@@ -1454,24 +1608,24 @@ test("dirty cache classifier keeps static photo chains cacheable and animated no
   state.media = [{ id: "media/a.png", path: "media/a.png", type: "image", size: 42 }];
   const component = createDefaultComponent(0);
   component.chain = [
-    createComponentLayer(0, { type: "media", mediaId: "media/a.png" }),
+    createComponentLayer(0, createAuthoredMediaSource("media/a.png", { type: "image" })),
     createComponentEffect("photoGrade"),
   ];
   component.chain[1].params = { exposure: 0.25, contrast: 0.15 };
   state.components = [component];
   renderer.state = state;
-  renderer.rebuildComponentPrograms();
+  renderer.componentProgramRuntime.rebuild();
   renderer.media.set("media/a.png", { ready: true });
 
-  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
+  assert.ok(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[1].params = { grain: 0.5, seedMode: "animated" };
-  renderer.rebuildComponentPrograms();
-  assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
+  renderer.componentProgramRuntime.rebuild();
+  assert.equal(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }), "");
 
   component.chain[1].params = { grain: 0.5, seedMode: "fixed", seed: 9 };
-  renderer.rebuildComponentPrograms();
-  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
+  renderer.componentProgramRuntime.rebuild();
+  assert.ok(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[1] = createComponentEffect("smear");
   component.chain[1].params = {
@@ -1483,33 +1637,33 @@ test("dirty cache classifier keeps static photo chains cacheable and animated no
     smearAmount: 0,
     seedMode: "animated",
   };
-  renderer.rebuildComponentPrograms();
-  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
+  renderer.componentProgramRuntime.rebuild();
+  assert.ok(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[1].params = { cctvAmount: 0.35, seedMode: "animated" };
-  renderer.rebuildComponentPrograms();
-  assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
+  renderer.componentProgramRuntime.rebuild();
+  assert.equal(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }), "");
 
   component.chain[1].params = { cctvAmount: 0.35, screenPrintAmount: 0.25, seedMode: "fixed", seed: 4 };
-  renderer.rebuildComponentPrograms();
-  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
+  renderer.componentProgramRuntime.rebuild();
+  assert.ok(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain = [createComponentLayer(0, { type: "generator", generatorId: "anatomy" })];
   component.chain[0].source.params = { part: "arm", spinY: 0 };
-  renderer.rebuildComponentPrograms();
-  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
+  renderer.componentProgramRuntime.rebuild();
+  assert.ok(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[0].source.params = { part: "arm", spinY: 0.2 };
-  renderer.rebuildComponentPrograms();
-  assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
+  renderer.componentProgramRuntime.rebuild();
+  assert.equal(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }), "");
 
   component.chain[0].source.params = { part: "heart", heartPulse: 0 };
-  renderer.rebuildComponentPrograms();
-  assert.ok(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }));
+  renderer.componentProgramRuntime.rebuild();
+  assert.ok(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }));
 
   component.chain[0].source.params = { part: "heart", heartPulse: 0.35 };
-  renderer.rebuildComponentPrograms();
-  assert.equal(renderer.stableComponentSignature(component, { role: "component", width: 640, height: 360 }), "");
+  renderer.componentProgramRuntime.rebuild();
+  assert.equal(renderer.componentRenderRuntime.stableSignature(component, { role: "component", width: 640, height: 360 }), "");
 });
 
 test("Canvas and ordinary components share dependency-aware static caching", () => {
@@ -1520,21 +1674,86 @@ test("Canvas and ordinary components share dependency-aware static caching", () 
   const canvas = createSceneComponent(0, child.id);
   state.components = [child, canvas];
   renderer.state = state;
-  renderer.rebuildComponentPrograms();
+  renderer.componentProgramRuntime.rebuild();
   const request = { role: "component", width: 640, height: 360 };
 
-  const first = renderer.stableComponentSignature(canvas, request);
+  const first = renderer.componentRenderRuntime.stableSignature(canvas, request);
   assert.ok(first);
 
   child.chain[0].source.params.colorA = "#ff0000ff";
-  renderer.rebuildComponentPrograms();
-  const changed = renderer.stableComponentSignature(canvas, request);
+  renderer.componentProgramRuntime.rebuild();
+  const changed = renderer.componentRenderRuntime.stableSignature(canvas, request);
   assert.ok(changed);
   assert.notEqual(changed, first);
 
   child.chain[0] = createComponentLayer(0, { type: "generator", generatorId: "cloudyTunnel", params: { speed: 0.2 } });
-  renderer.rebuildComponentPrograms();
-  assert.equal(renderer.stableComponentSignature(canvas, request), "");
+  renderer.componentProgramRuntime.rebuild();
+  assert.equal(renderer.componentRenderRuntime.stableSignature(canvas, request), "");
+});
+
+test("retained Component identity includes only its declared control-signal revisions", () => {
+  let midiRevision = 0;
+  const controlSignals = {
+    resolve: () => ({ value: 0, sequence: midiRevision }),
+    revisionFor: (requirements) =>
+      requirements.map(({ signalKind, address }) =>
+        `${signalKind}:${address}:${midiRevision}`).join("|"),
+    beginFrame() {},
+    endFrame() {},
+    dispose() {},
+  };
+  const renderer = new OutputRenderer({
+    mode: "component",
+    controlSignals,
+  });
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(0, {
+      type: "generator",
+      generatorId: "gradient",
+      params: {},
+    }),
+  ];
+  state.components = [component];
+  renderer.state = state;
+  renderer.componentProgramRuntime.rebuild();
+  const program = renderer.componentProgramRuntime.programs.get(component.id);
+  const inspect = program.inspect.bind(program);
+  program.inspect = () => {
+    const inspection = inspect();
+    return {
+      ...inspection,
+      readiness: {
+        ...inspection.readiness,
+        requirements: [
+          ...(inspection.readiness?.requirements || []),
+          {
+            kind: "control-signal",
+            signalKind: "midi",
+            address: "1:cc:7",
+            required: false,
+          },
+        ],
+      },
+    };
+  };
+  const request = { role: "component", width: 640, height: 360 };
+
+  const first = renderer.componentRenderRuntime.stableSignature(
+    component,
+    request,
+  );
+  assert.ok(first);
+  midiRevision++;
+  const changed = renderer.componentRenderRuntime.stableSignature(
+    component,
+    request,
+  );
+  assert.ok(changed);
+  assert.notEqual(changed, first);
+
+  renderer.dispose();
 });
 
 test("a Live Canvas element scale patch updates compiled placement demand and retained cache identity", () => {
@@ -1544,22 +1763,22 @@ test("a Live Canvas element scale patch updates compiled placement demand and re
   const canvas = createSceneComponent(0, child.id);
   state.components = [child, canvas];
   renderer.state = state;
-  renderer.rebuildComponentPrograms();
+  renderer.componentProgramRuntime.rebuild();
 
   let compiledPlacement = null;
-  renderer.componentPrograms.get(canvas.id).forEachOperation((operation) => {
+  renderer.componentProgramRuntime.programs.get(canvas.id).forEachOperation((operation) => {
     if (operation.configuration?.id === canvas.chain[0].id) compiledPlacement = operation.configuration;
   });
   assert.equal(compiledPlacement, canvas.chain[0], "the compiled Canvas operation owns the live materialized element by identity");
 
   const outputRequest = { role: "component", width: 1000, height: 500 };
-  const signatureBefore = renderer.stableComponentSignature(canvas, outputRequest);
+  const signatureBefore = renderer.componentRenderRuntime.stableSignature(canvas, outputRequest);
   let childRequest = null;
-  renderer.renderComponentForRequest = (_component, _time, request) => {
+  renderer.componentRenderRuntime.render = (_component, _time, request) => {
     childRequest = request;
     return { width: request.width, height: request.height };
   };
-  const resolvePlacement = () => renderer.resolvePlacedSourceResult(
+  const resolvePlacement = () => renderer.sourceRuntime.resolvePlacedSourceResult(
     { width: outputRequest.width, height: outputRequest.height },
     {
       ...compiledPlacement.source,
@@ -1573,7 +1792,7 @@ test("a Live Canvas element scale patch updates compiled placement demand and re
   resolvePlacement();
   const widthBefore = childRequest.width;
 
-  const result = renderer.applyRenderPatches([{
+  const result = renderer.livePatchRuntime.apply([{
     target: "component",
     componentId: canvas.id,
     path: "chain.0.transform.scale",
@@ -1581,7 +1800,7 @@ test("a Live Canvas element scale patch updates compiled placement demand and re
   }], 0, 0);
   assert.equal(result.applied, true);
   assert.equal(compiledPlacement.transform.scale, 2);
-  assert.notEqual(renderer.stableComponentSignature(canvas, outputRequest), signatureBefore);
+  assert.notEqual(renderer.componentRenderRuntime.stableSignature(canvas, outputRequest), signatureBefore);
 
   resolvePlacement();
   assert.ok(childRequest.width > widthBefore, "Content scale raises the nested Component raster demand through the shared placement contract");
@@ -1599,17 +1818,17 @@ test("component runtime policies decide whether generators and effects need time
   const grain = createComponentEffect("labelThresholdGrain");
   grain.params = { amount: 0.6, seedMode: "fixed", seed: 37 };
   component.chain = [cloudy, grain];
-  renderer.rebuildComponentPrograms();
-  assert.ok(renderer.stableComponentSignature(component, request));
+  renderer.componentProgramRuntime.rebuild();
+  assert.ok(renderer.componentRenderRuntime.stableSignature(component, request));
 
   cloudy.source.params.speed = 0.1;
-  renderer.rebuildComponentPrograms();
-  assert.equal(renderer.stableComponentSignature(component, request), "");
+  renderer.componentProgramRuntime.rebuild();
+  assert.equal(renderer.componentRenderRuntime.stableSignature(component, request), "");
 
   cloudy.source.params.speed = 0;
   grain.params.seedMode = "animated";
-  renderer.rebuildComponentPrograms();
-  assert.equal(renderer.stableComponentSignature(component, request), "");
+  renderer.componentProgramRuntime.rebuild();
+  assert.equal(renderer.componentRenderRuntime.stableSignature(component, request), "");
 });
 
 test("render node runtime keeps its output version stable until its signature changes", () => {
@@ -1635,7 +1854,7 @@ test("node output versions propagate dirtiness only to downstream nodes", () => 
   const renderer = new OutputRenderer({ mode: "component" });
   const request = { role: "component", width: 640, height: 360 };
   const buffers = new Map();
-  renderer.getComponentGpuBuffer = (id) => {
+  renderer.renderTargetRuntime.gpu = (id) => {
     if (!buffers.has(id)) buffers.set(id, { id });
     return buffers.get(id);
   };
@@ -1643,9 +1862,9 @@ test("node output versions propagate dirtiness only to downstream nodes", () => 
   let gradeRenders = 0;
   let tailRenders = 0;
   const evaluate = (sourceSignature, gradeSignature = "grade:a", tailSignature = "tail:a") => {
-    const source = renderer.evaluateChainNode("source", sourceSignature, request, () => { sourceRenders++; }, "source");
-    const grade = renderer.evaluateChainNode("grade", `${textureStateKey(source)}|${gradeSignature}`, request, () => { gradeRenders++; }, "effect");
-    const tail = renderer.evaluateChainNode("tail", `${textureStateKey(grade)}|${tailSignature}`, request, () => { tailRenders++; }, "effect");
+    const source = renderer.renderEvaluationRuntime.evaluate("source", sourceSignature, request, () => { sourceRenders++; }, "source");
+    const grade = renderer.renderEvaluationRuntime.evaluate("grade", `${textureStateKey(source)}|${gradeSignature}`, request, () => { gradeRenders++; }, "effect");
+    const tail = renderer.renderEvaluationRuntime.evaluate("tail", `${textureStateKey(grade)}|${tailSignature}`, request, () => { tailRenders++; }, "effect");
     return { source, grade, tail };
   };
 
@@ -1662,14 +1881,14 @@ test("node output versions propagate dirtiness only to downstream nodes", () => 
   assert.equal(sourceChanged.source.outputVersion, first.source.outputVersion + 1);
   assert.equal(sourceChanged.grade.outputVersion, first.grade.outputVersion + 1);
   assert.equal(sourceChanged.tail.outputVersion, tailOnly.tail.outputVersion + 1);
-  assert.equal(renderer.frameProfile.stageRenders, 7);
-  assert.equal(renderer.frameProfile.stageCacheHits, 5);
+  assert.equal(renderer.profileRuntime.frameProfile.stageRenders, 7);
+  assert.equal(renderer.profileRuntime.frameProfile.stageCacheHits, 5);
 });
 
 test("instance-invariant node states share one retained evaluation across async identities", () => {
   const renderer = new OutputRenderer({ mode: "component" });
   const buffers = new Map();
-  renderer.getComponentGpuBuffer = (id, request) => {
+  renderer.renderTargetRuntime.gpu = (id, request) => {
     const key = `${id}:${request.width}x${request.height}:${request.renderIdentity || "shared"}`;
     if (!buffers.has(key)) buffers.set(key, { id: key });
     return buffers.get(key);
@@ -1677,21 +1896,21 @@ test("instance-invariant node states share one retained evaluation across async 
   const requestA = { role: "component", width: 320, height: 180, renderIdentity: "instance:a" };
   const requestB = { role: "component", width: 320, height: 180, renderIdentity: "instance:b" };
   let sharedRenders = 0;
-  const first = renderer.evaluateChainNode("static-prefix", "same", requestA, () => { sharedRenders++; }, "source", { instanceInvariant: true });
-  const second = renderer.evaluateChainNode("static-prefix", "same", requestB, () => { sharedRenders++; }, "source", { instanceInvariant: true });
+  const first = renderer.renderEvaluationRuntime.evaluate("static-prefix", "same", requestA, () => { sharedRenders++; }, "source", { instanceInvariant: true });
+  const second = renderer.renderEvaluationRuntime.evaluate("static-prefix", "same", requestB, () => { sharedRenders++; }, "source", { instanceInvariant: true });
   assert.equal(sharedRenders, 1);
   assert.equal(first.buffer, second.buffer);
   assert.equal(first.nodeKey, second.nodeKey);
   assert.equal(second.instanceInvariant, true);
 
   let dynamicRenders = 0;
-  const dynamicA = renderer.evaluateChainNode("dynamic-tail", "same", requestA, () => { dynamicRenders++; }, "source");
-  const dynamicB = renderer.evaluateChainNode("dynamic-tail", "same", requestB, () => { dynamicRenders++; }, "source");
+  const dynamicA = renderer.renderEvaluationRuntime.evaluate("dynamic-tail", "same", requestA, () => { dynamicRenders++; }, "source");
+  const dynamicB = renderer.renderEvaluationRuntime.evaluate("dynamic-tail", "same", requestB, () => { dynamicRenders++; }, "source");
   assert.equal(dynamicRenders, 2);
   assert.notEqual(dynamicA.nodeKey, dynamicB.nodeKey);
 });
 
-test("static source textures repaint only when their own source state changes", () => {
+test("static semantic media textures repaint only when their own resource state changes", () => {
   const previousCreateGraphics = globalThis.createGraphics;
   const restoreFramebuffer = installFakeSharedFramebuffer();
   const renderer = new OutputRenderer({ mode: "component" });
@@ -1701,7 +1920,7 @@ test("static source textures repaint only when their own source state changes", 
   renderer.media.set("media/a.png", { ready: true });
   renderer.applyGraphicsFont = () => {};
   let paints = 0;
-  renderer.safeDrawSourceToGraphics = () => { paints++; };
+  renderer.sourceRuntime.safeDrawSourceToGraphics = () => { paints++; };
   globalThis.createGraphics = (width, height) => ({
     width,
     height,
@@ -1711,14 +1930,18 @@ test("static source textures repaint only when their own source state changes", 
   });
 
   try {
-    const item = createComponentLayer(0, { type: "media", mediaId: "media/a.png", params: { fit: "contain" } });
+    const item = createComponentLayer(
+      0,
+      createAuthoredMediaSource("media/a.png", { type: "image" }),
+    );
+    item.source.params.fit = "contain";
     const request = { role: "component", width: 640, height: 360, renderIdentity: "instance:a" };
-    renderer.renderComponentSourceItem(state.components[0], item, 0, request);
-    renderer.renderComponentSourceItem(state.components[0], item, 1, { ...request, renderIdentity: "instance:b" });
+    renderer.sourceRuntime.renderItem(state.components[0], item, 0, request);
+    renderer.sourceRuntime.renderItem(state.components[0], item, 1, { ...request, renderIdentity: "instance:b" });
     assert.equal(paints, 1);
 
     item.source.params.fit = "cover";
-    renderer.renderComponentSourceItem(state.components[0], item, 2, request);
+    renderer.sourceRuntime.renderItem(state.components[0], item, 2, request);
     assert.equal(paints, 2);
   } finally {
     restoreFramebuffer();
@@ -1743,9 +1966,9 @@ test("retained video source nodes renew playback ownership on a cache hit", () =
     videoFrameRevision: 1,
   });
   renderer.applyGraphicsFont = () => {};
-  renderer.safeDrawSourceToGraphics = () => {};
+  renderer.sourceRuntime.safeDrawSourceToGraphics = () => {};
   const claims = [];
-  renderer.acquireMedia = (id, options) => claims.push({ id, options });
+  renderer.mediaRuntime.acquireMediaById = (id, options) => claims.push({ id, options });
   globalThis.createGraphics = (width, height) => ({
     width,
     height,
@@ -1755,22 +1978,72 @@ test("retained video source nodes renew playback ownership on a cache hit", () =
   });
 
   try {
-    const item = createComponentLayer(0, {
-      type: "media",
-      mediaId: "clips/loop.mov",
-      start: 1,
-      end: 4,
-      speed: 2,
-    });
+    const item = createComponentLayer(
+      0,
+      createAuthoredMediaSource("clips/loop.mov", { type: "video" }),
+    );
+    Object.assign(item.source.params, { start: 1, end: 4, speed: 2 });
     const request = { role: "component", width: 640, height: 360 };
-    renderer.renderComponentSourceItem(component, item, 0, request);
+    renderer.sourceRuntime.renderItem(component, item, 0, request);
     assert.equal(claims.length, 0, "a dirty source owns playback through its draw callback");
 
-    renderer.renderComponentSourceItem(component, item, 0, request);
+    renderer.sourceRuntime.renderItem(component, item, 0, request);
     assert.equal(claims.length, 1, "a retained source renews the decoder lease without repainting");
     assert.equal(claims[0].id, "clips/loop.mov");
     assert.deepEqual(claims[0].options.playback, { start: 1, end: 4, speed: 1 });
     assert.equal(claims[0].options.width, 640);
+  } finally {
+    restoreFramebuffer();
+    if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
+    else globalThis.createGraphics = previousCreateGraphics;
+  }
+});
+
+test("retained image source nodes renew resource ownership on a cache hit", () => {
+  const previousCreateGraphics = globalThis.createGraphics;
+  const restoreFramebuffer = installFakeSharedFramebuffer();
+  const renderer = new OutputRenderer({ mode: "output" });
+  const state = createInitialState();
+  const component = state.components[0];
+  state.media = [{
+    id: "media/a.png",
+    path: "media/a.png",
+    type: "image",
+    size: 42,
+  }];
+  renderer.state = state;
+  renderer.media.set("media/a.png", {
+    ready: true,
+    image: { width: 640, height: 360 },
+    revision: 1,
+  });
+  renderer.applyGraphicsFont = () => {};
+  renderer.sourceRuntime.safeDrawSourceToGraphics = () => {};
+  const retained = [];
+  renderer.mediaRuntime.retainMediaById = (id) => retained.push(id);
+  globalThis.createGraphics = (width, height) => ({
+    width,
+    height,
+    push() {},
+    pop() {},
+    clear() {},
+  });
+
+  try {
+    const item = createComponentLayer(
+      0,
+      createAuthoredMediaSource("media/a.png", { type: "image" }),
+    );
+    const request = { role: "component", width: 640, height: 360 };
+    renderer.sourceRuntime.renderItem(component, item, 0, request);
+    assert.deepEqual(retained, []);
+
+    renderer.sourceRuntime.renderItem(component, item, 0, request);
+    assert.deepEqual(
+      retained,
+      ["media/a.png"],
+      "the retained framebuffer keeps its decoded image resident",
+    );
   } finally {
     restoreFramebuffer();
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
@@ -1789,7 +2062,7 @@ test("media readiness invalidates a cached loading placeholder", () => {
   renderer.media.set("media/a.png", runtimeMedia);
   renderer.applyGraphicsFont = () => {};
   let paints = 0;
-  renderer.safeDrawSourceToGraphics = () => { paints++; };
+  renderer.sourceRuntime.safeDrawSourceToGraphics = () => { paints++; };
   globalThis.createGraphics = (width, height) => ({
     width,
     height,
@@ -1799,16 +2072,95 @@ test("media readiness invalidates a cached loading placeholder", () => {
   });
 
   try {
-    const item = createComponentLayer(0, { type: "media", mediaId: "media/a.png" });
+    const item = createComponentLayer(
+      0,
+      createAuthoredMediaSource("media/a.png", { type: "image" }),
+    );
     const request = { role: "component", width: 640, height: 360 };
-    renderer.renderComponentSourceItem(state.components[0], item, 0, request);
-    renderer.renderComponentSourceItem(state.components[0], item, 1, request);
+    renderer.sourceRuntime.renderItem(state.components[0], item, 0, request);
+    renderer.sourceRuntime.renderItem(state.components[0], item, 1, request);
     assert.equal(paints, 1);
 
     runtimeMedia.ready = true;
-    renderer.renderComponentSourceItem(state.components[0], item, 2, request);
-    renderer.renderComponentSourceItem(state.components[0], item, 3, request);
+    renderer.sourceRuntime.renderItem(state.components[0], item, 2, request);
+    renderer.sourceRuntime.renderItem(state.components[0], item, 3, request);
     assert.equal(paints, 2);
+  } finally {
+    restoreFramebuffer();
+    if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
+    else globalThis.createGraphics = previousCreateGraphics;
+  }
+});
+
+test("retained sources track runtime time and external resource revisions independently", () => {
+  const previousCreateGraphics = globalThis.createGraphics;
+  const restoreFramebuffer = installFakeSharedFramebuffer();
+  const renderer = new OutputRenderer({ mode: "component" });
+  const state = createInitialState();
+  renderer.state = state;
+  renderer.applyGraphicsFont = () => {};
+  let paints = 0;
+  let externalRevision = "loading:1";
+  let clockDriven = true;
+  renderer.sourceRuntime.safeDrawSourceToGraphics = () => { paints++; };
+  renderer.sourceRuntime.runtimeTimeKey = (_source, _owner, context) => context.time;
+  renderer.sourceRuntime.runtimeExternalKey = () => externalRevision;
+  globalThis.createGraphics = (width, height) => ({
+    width,
+    height,
+    push() {},
+    pop() {},
+    clear() {},
+  });
+
+  try {
+    const item = createComponentLayer(0, {
+      type: "generator",
+      generatorId: "gradient",
+      params: { speed: 1 },
+    });
+    const operation = {
+      id: "async-render",
+      backend: "source-runtime",
+      configuration: item,
+      renderInvalidation: { mode: "revision" },
+      externalResourceDependent: true,
+      runtimePolicy: {
+        timeDependent: () => clockDriven,
+        timeKey: (_params, context = {}) => context.time,
+      },
+    };
+    const request = { role: "component", width: 640, height: 360 };
+    const render = (time) => renderer.sourceRuntime.renderItemState(
+      state.components[0],
+      item,
+      time,
+      request,
+      "async-render",
+      operation,
+    );
+
+    render(0);
+    render(1);
+    assert.equal(
+      paints,
+      2,
+      "a runtime policy remains clock-driven even when a typed dependency declares revision invalidation",
+    );
+
+    clockDriven = false;
+    render(2);
+    render(3);
+    assert.equal(paints, 3, "a stopped source retains its current output");
+
+    externalRevision = "ready:2";
+    render(3);
+    render(3);
+    assert.equal(
+      paints,
+      4,
+      "an external resource revision repaints a retained source without an authored edit or time change",
+    );
   } finally {
     restoreFramebuffer();
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;

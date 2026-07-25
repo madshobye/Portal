@@ -2,11 +2,14 @@ import { createOutputDefinition, normalizeRenderSettings } from "../domain/rende
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=picker-filter-tabs-derived-thumbnail-projection-shared-ui-icons-1";
+import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=project-media-contain-1";
 import { configuredOutputsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js?v=surface-terminology-1";
 import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
-import { renameScreenCaptureInput, screenCaptureStatus, startScreenCapture, stopScreenCapture, stopScreenCaptureInput, subscribeScreenCapture } from "../output/screen-capture-service.js?v=screen-input-registry-1";
-import { screenInputOptionsTemplate } from "./parameter-view.js?v=canonical-effect-params-1";
+import {
+  createAuthoredMediaSource,
+} from "../domain/authored-visual-source.js?v=async-media-dirty-1";
+import { renameScreenCaptureInput, screenCaptureStatus, startScreenCapture, stopScreenCapture, stopScreenCaptureInput, subscribeScreenCapture } from "../output/screen-capture-service.js?v=async-media-dirty-1";
+import { screenInputOptionsTemplate } from "./parameter-view.js?v=parameter-control-group-1";
 
 export function nextPickerFilter(activeFilter = "all", requestedFilter = "all") {
   return activeFilter === requestedFilter ? "all" : requestedFilter;
@@ -15,10 +18,7 @@ export function nextPickerFilter(activeFilter = "all", requestedFilter = "all") 
 export function sourceForCatalogMedia(mediaId, state = {}) {
   const id = String(mediaId || "");
   const media = (state?.media || []).find((item) => String(item.id || "") === id);
-  const model = media?.type === "model" || /\.(?:stl|obj)$/i.test(id);
-  return model
-    ? { type: "generator", generatorId: "modelMedia", params: { mediaId: id } }
-    : { type: "media", mediaId: id };
+  return createAuthoredMediaSource(id, media);
 }
 
 export function createModalController({
@@ -99,10 +99,17 @@ export function createModalController({
     host.querySelector("[data-refresh-media]")?.addEventListener("click", refreshMediaPicker);
     bindDemandMediaPreviews(host);
     host.querySelectorAll("[data-pick-source-media]").forEach((button) => {
-      button.addEventListener("click", () => chooseSource({ type: "media", mediaId: button.dataset.pickSourceMedia || "" }));
+      button.addEventListener("click", () => chooseSource(
+        sourceForCatalogMedia(button.dataset.pickSourceMedia || "", getState())
+      ));
     });
-    host.querySelector("[data-pick-source-camera]")?.addEventListener("click", () => chooseSource({ type: "camera" }));
-    host.querySelector("[data-pick-source-black]")?.addEventListener("click", () => chooseSource({ type: "black" }));
+    host.querySelector("[data-pick-source-camera]")?.addEventListener("click", () => chooseSource({
+      type: "generator",
+      generatorId: "cameraInput",
+    }));
+    host.querySelector("[data-pick-source-black]")?.addEventListener("click", () =>
+      chooseSource({ type: "generator", generatorId: "black" })
+    );
     host.querySelectorAll("[data-pick-source-generator]").forEach((button) => {
       button.addEventListener("click", () => chooseSource({ type: "generator", generatorId: button.dataset.pickSourceGenerator }));
     });
@@ -120,17 +127,26 @@ export function createModalController({
       return;
     }
     closeSourceChoicePicker();
-    if (target?.valueMode === "mediaId") setMediaValue(source.mediaId || "", target);
+    if (target?.valueMode === "mediaId") setMediaValue(authoredSourceMediaId(source), target);
     else setSourceChoice(source, target);
   }
 
   function sourceChoiceCategory(source, state) {
-    if (source?.type === "media") {
-      return elementMediaCategory((state.media || []).find((item) => item.id === source.mediaId) || {});
+    const mediaId = authoredSourceMediaId(source);
+    if (mediaId) {
+      return elementMediaCategory((state.media || []).find((item) => item.id === mediaId) || {});
     }
-    if (source?.type === "camera") return "live";
-    if (source?.type === "black") return "blank";
+    if (source?.type === "generator" && source.generatorId === "cameraInput") return "live";
+    if (source?.type === "generator" && source.generatorId === "black") return "blank";
     return source?.type || "";
+  }
+
+  function authoredSourceMediaId(source = {}) {
+    if (
+      source.type === "generator" &&
+      (source.generatorId === "mediaImage" || source.generatorId === "modelMedia")
+    ) return String(source.params?.mediaId || "");
+    return "";
   }
 
   function renderElementPicker(host, state) {
@@ -157,7 +173,10 @@ export function createModalController({
     host.querySelectorAll("[data-add-element-component]").forEach((button) => {
       button.addEventListener("click", () => addElement("source", { type: "component", componentId: button.dataset.addElementComponent || "" }));
     });
-    host.querySelector("[data-add-element-camera]")?.addEventListener("click", () => addElement("source", { type: "camera" }));
+    host.querySelector("[data-add-element-camera]")?.addEventListener("click", () => addElement("source", {
+      type: "generator",
+      generatorId: "cameraInput",
+    }));
     host.querySelector("[data-add-element-group]")?.addEventListener("click", () => addElement("group"));
     host.querySelectorAll("[data-add-element-generator]").forEach((button) => {
       button.addEventListener("click", () => addElement("source", { type: "generator", generatorId: button.dataset.addElementGenerator }));
@@ -580,7 +599,7 @@ export function createModalController({
     if (!target?.path) return;
     store.update((draft) => {
       setByPath(draft, target.path, mediaId);
-      if (/\.mediaId$/.test(target.path)) {
+      if (/\.source\.mediaId$/.test(target.path)) {
         const sourcePath = target.path.replace(/\.mediaId$/, "");
         setByPath(draft, `${sourcePath}.type`, "media");
       }

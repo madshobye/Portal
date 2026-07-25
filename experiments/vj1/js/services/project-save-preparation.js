@@ -1,4 +1,4 @@
-import { buildProjectPayload } from "./project-serializer.js?v=surface-terminology-1";
+import { buildProjectPayload } from "./project-serializer.js?v=project-media-contain-1";
 import { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
 
 export function prepareProjectSave(state, savedAt = new Date().toISOString()) {
@@ -40,8 +40,9 @@ export function projectPayloadSignature(payload = {}) {
 
 export function createProjectSavePreparer({
   WorkerClass = globalThis.Worker,
-  workerUrl = new URL("./project-save-preparation-worker.js?v=surface-terminology-1", import.meta.url),
+  workerUrl = new URL("./project-save-preparation-worker.js?v=autosave-worker-timeout-1", import.meta.url),
   onFallback = defaultFallbackWarning,
+  requestTimeoutMs = 5000,
 } = {}) {
   let worker = null;
   let nextRequestId = 0;
@@ -67,6 +68,7 @@ export function createProjectSavePreparer({
     try { active?.terminate?.(); } catch {}
     reportFallback(error);
     for (const request of pending.values()) {
+      clearTimeout(request.timeoutId);
       try {
         request.resolve(local(request.task));
       } catch (fallbackError) {
@@ -88,6 +90,7 @@ export function createProjectSavePreparer({
         const request = pending.get(response.id);
         if (!request) return;
         pending.delete(response.id);
+        clearTimeout(request.timeoutId);
         if (response.ok) request.resolve(response.result);
         else request.reject(new Error(response.message || "VJ1_PROJECT_SAVE_PREPARATION_FAILED"));
       };
@@ -108,11 +111,17 @@ export function createProjectSavePreparer({
     }
     const id = ++nextRequestId;
     return new Promise((resolve, reject) => {
-      pending.set(id, { resolve, reject, task });
+      const timeoutId = setTimeout(() => {
+        if (!pending.has(id)) return;
+        retireWorker(new Error(`VJ1_PROJECT_SAVE_PREPARATION_TIMEOUT:${Math.max(0, Number(requestTimeoutMs) || 0)}`));
+      }, Math.max(0, Number(requestTimeoutMs) || 0));
+      pending.set(id, { resolve, reject, task, timeoutId });
       try {
         active.postMessage({ id, ...task });
       } catch (error) {
+        const request = pending.get(id);
         pending.delete(id);
+        clearTimeout(request?.timeoutId);
         reportFallback(error);
         try {
           resolve(local(task));
@@ -129,7 +138,10 @@ export function createProjectSavePreparer({
     inspectText: (text) => request({ kind: "inspect-text", text }),
     dispose() {
       const error = new Error("project save preparer disposed");
-      for (const request of pending.values()) request.reject(error);
+      for (const request of pending.values()) {
+        clearTimeout(request.timeoutId);
+        request.reject(error);
+      }
       pending.clear();
       try { worker?.terminate?.(); } catch {}
       worker = null;

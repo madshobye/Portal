@@ -7,6 +7,7 @@ import { orderedSurfaceProgram, planSurfaceRoutes } from "../js/output/surface-r
 import { unifyTransitionComponentRenderRequests } from "../js/output/component-render-layout.js";
 import {
   OutputSurfaceRuntime,
+  liveSceneGuideContext,
   surfaceRouteBlend,
   surfaceRouteOpacity,
   transitionRouteSourceKey,
@@ -22,6 +23,27 @@ test("transition endpoints share the larger component demand", () => {
 
   assert.strictEqual(fromRoutes[0].componentRequest, fromRequest);
   assert.strictEqual(toRoutes[0].componentRequest, fromRequest);
+});
+
+test("Live Scene guides retain Scene space when a mixed-aspect Component is covered into it", () => {
+  const landscape = liveSceneGuideContext({ sceneAspectRatio: 16 / 9 });
+  const portraitSourceDemand = {
+    logicalSize: { width: 1000, height: 1777 },
+    sampleRect: { x: 0, y: 0, width: 1000, height: 1777 },
+  };
+
+  assert.equal(landscape.sourceAspect, 16 / 9);
+  assert.deepEqual(landscape.sampleRect, {
+    x: 0,
+    y: 0,
+    width: landscape.logicalSize.width,
+    height: landscape.logicalSize.height,
+  });
+  assert.notEqual(
+    landscape.sourceAspect,
+    portraitSourceDemand.sampleRect.width / portraitSourceDemand.sampleRect.height,
+    "source demand cannot redefine yellow Scene-frame coordinates",
+  );
 });
 
 test("surface planner resolves visible routes and their shared component demand", () => {
@@ -301,23 +323,40 @@ test("live transition endpoint planning retains output viewport ROI", () => {
   const renderer = {
     mode: "output",
     state,
-    mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
-    componentById: new Map([[component.id, component]]),
-    routeSourceNodeById: new Map(),
-    frameProfile: {
-      surfaceRouteCandidates: 0,
-      surfaceRoutesCulled: 0,
-      surfaceRoutesVisible: 0,
-      componentRasterPixels: 0,
+    mappingRuntime: {
+      surfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
     },
-    displayCanvasSize: () => ({ width: 1200, height: 800 }),
-    previewViewportTransform: () => ({ x: 0, y: 0, zoom: 1 }),
-    renderPixelDensity: () => 1,
-    mappingProgramSurfaces: () => state.surfaces,
-    resolveRouteSourceNode: () => ({ id: `component:${component.id}`, componentId: component.id }),
-    componentRegionSafe: () => true,
-    sceneComponentFrameFanoutSafe: () => true,
-    recordPresentedRenderRequest() {},
+    componentProgramRuntime: {
+      componentById: new Map([[component.id, component]]),
+      routeSourceNodeById: new Map(),
+      resolveRouteSourceNode: () => ({
+        id: `component:${component.id}`,
+        componentId: component.id,
+      }),
+    },
+    profileRuntime: {
+      frameProfile: {
+        surfaceRouteCandidates: 0,
+        surfaceRoutesCulled: 0,
+        surfaceRoutesVisible: 0,
+        componentRasterPixels: 0,
+      },
+    },
+    presentationGeometry: {
+      displayCanvasSize: () => ({ width: 1200, height: 800 }),
+      viewportTransform: () => ({ x: 0, y: 0, zoom: 1 }),
+      pixelDensity: () => 1,
+    },
+    mappingProgramRuntime: {
+      surfaces: () => state.surfaces,
+    },
+    sourceRuntime: {
+      componentRegionSafe: () => true,
+      sceneComponentFrameFanoutSafe: () => true,
+    },
+    presentationMetrics: {
+      recordPresentedRequest() {},
+    },
   };
   const runtime = new OutputSurfaceRuntime(renderer);
   const route = runtime.buildSurfaceRenderPlan()[0];
@@ -485,12 +524,12 @@ test("transition compositor uses the same direct-backplane ordering", () => {
 });
 
 test("embedded Live outlines the selected projection without exposing Mapping handles", () => {
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.ok(rendererSource.includes('const liveSelection = workspace === "live"'));
-  assert.ok(rendererSource.includes("const revealHandles = mappingSelection && calibrating"));
-  assert.ok(rendererSource.includes("if (mapped?.direct)"));
-  assert.ok(rendererSource.includes("if (liveSelection) this.renderSelectedDirectOutputFrameOverlay(surfaceId)"));
-  assert.ok(rendererSource.includes("outputFramesForIds("));
+  const presentationSource = readFileSync(new URL("../js/output/output-presentation-runtime.js", import.meta.url), "utf8");
+  assert.ok(presentationSource.includes('const liveSelection = workspace === "live"'));
+  assert.match(presentationSource, /const revealHandles =\s*mappingSelection &&\s*calibrating/);
+  assert.ok(presentationSource.includes("if (mapped?.direct)"));
+  assert.ok(presentationSource.includes("if (liveSelection) this.renderSelectedDirectOutputFrameOverlay(surfaceId)"));
+  assert.ok(presentationSource.includes("outputFramesForIds("));
 });
 
 test("output renderer delegates surface demand planning", () => {
@@ -501,10 +540,13 @@ test("output renderer delegates surface demand planning", () => {
   assert.match(rendererSource, /from "\.\/output-surface-runtime\.js\?v=[^"]+"/);
   assert.match(runtimeSource, /from "\.\/surface-render-planner\.js\?v=[^"]+"/);
   assert.ok(runtimeSource.includes("const { routes, metrics } = planSurfaceRoutes({"));
-  assert.ok(runtimeSource.includes("surfaceProgram: orderedSurfaceProgram(surfaceProgram || renderer.mappingProgramSurfaces(renderer.state))"));
+  assert.match(
+    runtimeSource,
+    /surfaceProgram:\s*orderedSurfaceProgram\(\s*surfaceProgram\s*\|\|\s*renderer\.mappingProgramRuntime\.surfaces\(renderer\.state\)/,
+  );
   assert.ok(runtimeSource.includes("transformDemandCorners,"));
   assert.ok(runtimeSource.includes('preserveDirectFootprint: renderer.mode === "output"'));
-  assert.ok(runtimeSource.includes("renderer.componentRegionSafe?.(component) === true"));
+  assert.ok(runtimeSource.includes("renderer.sourceRuntime.componentRegionSafe(component) === true"));
   assert.ok(!runtimeSource.includes("renderer.sceneComponentRegionSafe?.(component) === true"));
   assert.doesNotMatch(runtimeSource, /outputSpanFitScale/);
   assert.doesNotMatch(rendererSource, /sourceRenderDemand\(\{/);
@@ -551,8 +593,10 @@ test("transition route identity ignores Surface geometry but detects source chan
 test("direct recording-frame views stay in the mapper shader instead of p5 sub-texture copies", () => {
   const calls = [];
   const renderer = {
-    mapper: {
-      drawTexture(...args) { calls.push(args); },
+    mappingRuntime: {
+      mapper: {
+        drawTexture(...args) { calls.push(args); },
+      },
     },
   };
   const runtime = new OutputSurfaceRuntime(renderer);
@@ -600,25 +644,28 @@ test("surface runtime restores temporary render state and identity scopes", () =
     componentById: new Map([["current-component", {}]]),
     routeSourceNodeById: new Map([["current-node", {}]]),
   };
-  const renderer = {
-    state: originalState,
+  const componentProgramRuntime = {
     ...originalLookups,
-    rebuildRouteLookups() {
-      const id = this.state.id;
+    rebuildLookups() {
+      const id = renderer.state.id;
       this.componentById = new Map([[`${id}-component`, {}]]);
       this.routeSourceNodeById = new Map([[`${id}-node`, {}]]);
     },
   };
+  const renderer = {
+    state: originalState,
+    componentProgramRuntime,
+  };
   const runtime = new OutputSurfaceRuntime(renderer);
 
   assert.equal(runtime.withRenderState({ id: "temporary" }, () => {
-    assert.equal(renderer.componentById.has("temporary-component"), true);
-    assert.equal(renderer.routeSourceNodeById.has("temporary-node"), true);
+    assert.equal(componentProgramRuntime.componentById.has("temporary-component"), true);
+    assert.equal(componentProgramRuntime.routeSourceNodeById.has("temporary-node"), true);
     return renderer.state.id;
   }), "temporary");
   assert.equal(renderer.state, originalState);
-  assert.equal(renderer.componentById, originalLookups.componentById);
-  assert.equal(renderer.routeSourceNodeById, originalLookups.routeSourceNodeById);
+  assert.equal(componentProgramRuntime.componentById, originalLookups.componentById);
+  assert.equal(componentProgramRuntime.routeSourceNodeById, originalLookups.routeSourceNodeById);
   assert.equal(runtime.withSurfaceRenderIdentityPrefix("from:", () => runtime.renderIdentityPrefix), "from:");
   assert.equal(runtime.renderIdentityPrefix, "");
 });

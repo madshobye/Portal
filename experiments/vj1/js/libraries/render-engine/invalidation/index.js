@@ -43,6 +43,9 @@ export function mergeRenderInvalidations(...values) {
     }
     if (invalidation.key !== null && invalidation.key !== undefined) keys.push(invalidation.key);
     if (invalidation.reason) reasons.push(String(invalidation.reason));
+    for (const reason of invalidation.reasons || []) {
+      if (reason) reasons.push(String(reason));
+    }
   }
   return Object.freeze({
     mode,

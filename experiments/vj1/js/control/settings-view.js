@@ -1,6 +1,6 @@
 import { MAX_PIXEL_DENSITY, normalizeRenderSettings, RESOLUTION_CEILING_PRESETS } from "../domain/render-settings.js?v=surface-terminology-1";
 import { esc, formatRangeValue, icon } from "./template-utils.js?v=flat-orange-sliders-70";
-import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
+import { screenCaptureStatus } from "../output/screen-capture-service.js?v=async-media-dirty-1";
 
 export function settingsModalTemplate(state, activeTab = "outputs") {
   activeTab = normalizeSettingsTab(activeTab);

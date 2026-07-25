@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { drawStandby } from "../js/output/generators.js";
+import { SourceRenderRuntime } from "../js/output/source-render-runtime.js";
 
 function standbyTarget() {
   const calls = [];
@@ -10,6 +11,9 @@ function standbyTarget() {
     calls,
     width: 112,
     height: 112,
+    push: record("push"),
+    pop: record("pop"),
+    resetMatrix: record("resetMatrix"),
     clear: record("clear"),
     background: record("background"),
     noStroke: record("noStroke"),
@@ -41,4 +45,35 @@ test("a discontinuous loading episode receives a new grace period", () => {
 
   assert.equal(target.calls.filter(([name]) => name === "text").length, 0);
   assert.equal(target.calls.filter(([name]) => name === "background").at(-1)[1], "#000000");
+});
+
+test("standby diagnostics own a target-local matrix instead of inheriting source transforms", () => {
+  const target = standbyTarget();
+
+  drawStandby(target, "media resource unavailable");
+
+  const names = target.calls.map(([name]) => name);
+  assert.ok(names.indexOf("resetMatrix") > names.indexOf("push"));
+  assert.ok(names.indexOf("resetMatrix") < names.indexOf("rect"));
+  assert.ok(names.indexOf("resetMatrix") < names.indexOf("text"));
+  assert.ok(names.lastIndexOf("pop") > names.indexOf("text"));
+});
+
+test("clean Output never renders editor standby diagnostics", () => {
+  const target = standbyTarget();
+  const runtime = new SourceRenderRuntime({
+    mode: "output",
+    state: { ui: { debugPreview: true } },
+    frameRuntime: { frameIndex: 1 },
+  });
+
+  runtime.drawStandby(target, "media resource unavailable", {
+    forceVisible: true,
+  });
+
+  assert.equal(target.calls.filter(([name]) => name === "background").length, 0);
+  assert.equal(target.calls.filter(([name]) => name === "rect").length, 0);
+  assert.equal(target.calls.filter(([name]) => name === "text").length, 0);
+  assert.equal(target.calls.filter(([name]) => name === "clear").length, 1);
+  runtime.dispose();
 });

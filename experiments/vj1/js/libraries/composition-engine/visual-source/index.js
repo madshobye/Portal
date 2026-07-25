@@ -2,9 +2,6 @@ import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../no
 
 export const VISUAL_SOURCE_RENDERERS = Object.freeze({
   COMPONENT: "output/source:component",
-  MEDIA: "output/source:media",
-  CAMERA: "output/source:camera",
-  BLACK: "output/source:black",
   GENERATOR: "output/source:generator",
 });
 
@@ -13,17 +10,17 @@ export const VISUAL_SOURCE_RENDERERS = Object.freeze({
 // resources, but it does not decide what conceptual source node was authored.
 export function visualSourceRenderer(source = {}) {
   if (source.type === "component") return "output/source:component";
-  if (source.type === "media") return "output/source:media";
-  if (source.type === "camera") return "output/source:camera";
-  if (source.type === "black") return "output/source:black";
-  return "output/source:generator";
+  if (source.type === "generator") return "output/source:generator";
+  throw new Error(
+    `VJ1_AUTHORED_VISUAL_SOURCE_REQUIRED:${String(source.type || "missing")}`
+  );
 }
 
 export const VisualSourceNode = defineNode({
   id: "core.visual.source",
   name: "Visual Source",
   version: "0.1.0",
-  description: "Produces a texture from media, camera, component-reference, or another host-provided visual input.",
+  description: "Produces a texture from a semantic visual generator or Component reference.",
   implementation: NODE_IMPLEMENTATION_KINDS.NATIVE,
   inlets: { texture: { type: "texture", optional: true }, source: { type: "any", required: true } },
   outlets: { texture: { type: "texture" } },

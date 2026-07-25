@@ -26,8 +26,17 @@ export const MeshCollectionObjects3dNode = defineNode({
   },
   outlets: { objects: { type: Object3dListType } },
   execution: { trigger: "input-change", domain: "main", pure: true },
-  capabilities: ["scene-3d", "mesh-collection", "multi-object-3d", "graph-placeable"],
-  presentation: { catalogs: ["graph", "mesh", "scene-3d"], placeableOn: ["node-graph"] },
+  capabilities: [
+    "scene-3d",
+    "mesh-collection",
+    "multi-object-3d",
+    "retained-value-provider",
+    "graph-placeable",
+  ],
+  presentation: {
+    catalogs: ["graph", "mesh", "scene-3d", "visual"],
+    placeableOn: ["visual-graph", "node-graph"],
+  },
   process: meshCollectionObjects3dNodeProcess,
 });
 

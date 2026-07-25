@@ -3,7 +3,7 @@ import {
   NODE_IMPLEMENTATION_KINDS,
   NODE_PART_KINDS,
 } from "../../../node-engine/node-definition.js";
-import { DrawableMediaResourceType } from "../../shared/specialized-compound-types.js";
+import { DrawableMediaResourceType } from "../../shared/visual-stage-types.js";
 
 export const ScreenInputResourceNode = defineNode({
   id: "core.visual.screen-input-resource",
@@ -25,7 +25,7 @@ export const ScreenInputResourceNode = defineNode({
     resource: { type: DrawableMediaResourceType },
   },
   execution: {
-    trigger: "input-change",
+    trigger: "frame",
     domain: "main",
     pure: true,
     asynchronous: false,
@@ -34,14 +34,22 @@ export const ScreenInputResourceNode = defineNode({
     "media-resource",
     "live-media-resource",
     "screen-input-resource",
-    "specialized-visual-provider",
-    "specialized-visual-stage",
+    "retained-value-provider",
+    "visual-value-provider",
+    "visual-stage",
     "graph-placeable",
   ],
   presentation: {
-    catalogs: ["node-graph", "media", "live", "input", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "media", "live", "input", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
     previewOutput: "resource",
+  },
+  metadata: {
+    resourceDependencies: [{
+      kind: "screen-input",
+      parameterId: "inputId",
+      required: true,
+    }],
   },
   parts: [{
     id: "screen-input-resource-process",

@@ -14,7 +14,15 @@ export const CombineObjects3dNode = defineNode({
   },
   outlets: { objects: { type: Object3dListType } },
   execution: { trigger: "input-change", domain: "main", pure: true },
-  capabilities: ["scene-3d", "collection", "graph-placeable"],
-  presentation: { catalogs: ["graph", "mesh", "scene-3d"], placeableOn: ["node-graph"] },
+  capabilities: [
+    "scene-3d",
+    "collection",
+    "retained-value-provider",
+    "graph-placeable",
+  ],
+  presentation: {
+    catalogs: ["graph", "mesh", "scene-3d", "visual"],
+    placeableOn: ["visual-graph", "node-graph"],
+  },
   process: ({ objects, a, b }) => ({ objects: combineObjects3d(objects, a, b) }),
 });

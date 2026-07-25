@@ -24,6 +24,10 @@ export function compileIsfFragmentSource(document, { kind = document?.kind || "g
   if (!document?.fragmentSource) throw new Error("VJ1_ISF_DOCUMENT_REQUIRED");
   const effect = kind === "effect";
   const transition = kind === "transition";
+  const explicitEffectAmount = effect &&
+    document.inputs.some((input) =>
+      input.name === "amount" && input.type === "float"
+    );
   const imageNames = uniqueIdentifiers([
     ...document.inputs.filter((input) => ["image", "audio", "audioFFT"].includes(input.type)).map((input) => input.name),
     ...document.passes.map((pass) => pass.target).filter(Boolean),
@@ -42,6 +46,7 @@ export function compileIsfFragmentSource(document, { kind = document?.kind || "g
   const declared = declaredUniformNames(source);
   const inputUniforms = document.inputs
     .map((input) => [isfGlslType(input.type), input.name])
+    .filter(([, name]) => !effect || name !== "amount")
     .filter(([, name]) => !declared.has(name));
   if (effect && !declared.has("inputImage") && !inputUniforms.some(([, name]) => name === "inputImage")) {
     inputUniforms.unshift(["sampler2D", "inputImage"]);
@@ -84,9 +89,75 @@ ${source}
 
 void main() {
   vj1IsfUserMain();
-  ${effect ? "if (vj1IsfFinalPass) gl_FragColor = mix(IMG_THIS_NORM_PIXEL(inputImage), gl_FragColor, clamp(amount, 0.0, 1.0));" : ""}
+  ${effect && !explicitEffectAmount ? "if (vj1IsfFinalPass) gl_FragColor = mix(IMG_THIS_NORM_PIXEL(inputImage), gl_FragColor, clamp(amount, 0.0, 1.0));" : ""}
   ${transition ? "" : "if (vj1IsfFinalPass) gl_FragColor.rgb *= gl_FragColor.a;"}
 }`.trim();
+}
+
+// A deliberately narrow optimization contract for portable built-in ISF.
+// General ISF continues through IsfRenderRuntime. These lowerings accept only
+// semantics that are provably equivalent to VJ1's existing direct generator
+// or fusible local-effect kernels.
+export function compileIsfOptimizedFragmentSource(
+  document,
+  { lowering = document?.metadata?.VJ1?.LOWERING || "" } = {},
+) {
+  if (!document?.fragmentSource) throw new Error("VJ1_ISF_DOCUMENT_REQUIRED");
+  if (
+    document.passes.length !== 1 ||
+    document.passes[0]?.persistent ||
+    document.passes[0]?.target
+  ) {
+    throw new Error(
+      `VJ1_ISF_OPTIMIZED_MULTIPASS_UNSUPPORTED:${document.path || document.name}`,
+    );
+  }
+  if (lowering === "fragment-generator") {
+    if (document.kind !== "generator" || document.inputs.length) {
+      throw new Error(
+        `VJ1_ISF_FRAGMENT_GENERATOR_CONTRACT_INVALID:${document.path || document.name}`,
+      );
+    }
+    assertOptimizedIsfSymbols(document.fragmentSource, {
+      allowed: [],
+      code: "VJ1_ISF_FRAGMENT_GENERATOR_SYMBOL_UNSUPPORTED",
+      path: document.path || document.name,
+    });
+    return ensureFragmentPrecision(document.fragmentSource);
+  }
+  if (lowering === "local-effect") {
+    if (document.kind !== "effect") {
+      throw new Error(
+        `VJ1_ISF_LOCAL_EFFECT_REQUIRED:${document.path || document.name}`,
+      );
+    }
+    const imageInputs = document.inputs.filter((input) =>
+      ["image", "audio", "audioFFT"].includes(input.type)
+    );
+    if (
+      imageInputs.length !== 1 ||
+      imageInputs[0].name !== "inputImage" ||
+      !document.inputs.some((input) =>
+        input.name === "amount" && input.type === "float"
+      ) ||
+      document.inputs.some((input) =>
+        !["image", "float"].includes(input.type)
+      )
+    ) {
+      throw new Error(
+        `VJ1_ISF_LOCAL_EFFECT_INPUT_CONTRACT_INVALID:${document.path || document.name}`,
+      );
+    }
+    assertOptimizedIsfSymbols(document.fragmentSource, {
+      allowed: ["isf_FragNormCoord", "IMG_THIS_NORM_PIXEL", "IMG_THIS_PIXEL"],
+      code: "VJ1_ISF_LOCAL_EFFECT_SYMBOL_UNSUPPORTED",
+      path: document.path || document.name,
+    });
+    return compileLocalEffectBody(document.fragmentSource, document.path);
+  }
+  throw new Error(
+    `VJ1_ISF_OPTIMIZED_LOWERING_UNKNOWN:${lowering || "missing"}`,
+  );
 }
 
 // ISF transitions are embedded as a kernel inside the mapper's existing
@@ -237,6 +308,111 @@ function adaptImageMacros(source, imageNames) {
       .replace(new RegExp(`\\bIMG_PIXEL\\s*\\(\\s*${escaped}\\s*,`, "g"), `VJ1_IMG_PIXEL_${name}(`);
   }
   return adapted;
+}
+
+function assertOptimizedIsfSymbols(source, {
+  allowed = [],
+  code,
+  path,
+} = {}) {
+  const allowedSymbols = new Set(allowed);
+  const symbols = [
+    "TIME",
+    "TIMEDELTA",
+    "FRAMEINDEX",
+    "PASSINDEX",
+    "DATE",
+    "RENDERSIZE",
+    "gl_FragCoord",
+    "isf_FragNormCoord",
+    "IMG_THIS_NORM_PIXEL",
+    "IMG_THIS_PIXEL",
+    "IMG_NORM_PIXEL",
+    "IMG_PIXEL",
+    "IMG_SIZE",
+  ];
+  for (const symbol of symbols) {
+    if (allowedSymbols.has(symbol)) continue;
+    if (new RegExp(`\\b${symbol}\\b`).test(source)) {
+      throw new Error(`${code}:${path || "inline"}:${symbol}`);
+    }
+  }
+}
+
+function ensureFragmentPrecision(source) {
+  const text = String(source || "").trim();
+  return /\bprecision\s+(?:lowp|mediump|highp)\s+float\s*;/.test(text)
+    ? text
+    : `precision mediump float;\n${text}`;
+}
+
+function compileLocalEffectBody(source, path = "") {
+  const extracted = extractMainFunction(source, path);
+  const surrounding = `${extracted.before}\n${extracted.after}`
+    .replace(/\bprecision\s+(?:lowp|mediump|highp)\s+\w+\s*;/g, "")
+    .replace(/\bvarying\s+\w+\s+\w+\s*;/g, "")
+    .replace(/\buniform\s+\w+\s+\w+\s*;/g, "")
+    .trim();
+  if (surrounding) {
+    throw new Error(
+      `VJ1_ISF_LOCAL_EFFECT_HELPERS_UNSUPPORTED:${path || "inline"}`,
+    );
+  }
+  let body = extracted.body
+    .replace(
+      /\bIMG_THIS_(?:NORM_)?PIXEL\s*\(\s*inputImage\s*\)/g,
+      "vj1IsfInput",
+    )
+    .replace(/\bisf_FragNormCoord\b/g, "uv")
+    .replace(/\bgl_FragColor\b/g, "vj1IsfOutput");
+  if (/\b(?:IMG_[A-Z_]+|discard|return)\b/.test(body)) {
+    throw new Error(
+      `VJ1_ISF_LOCAL_EFFECT_BODY_UNSUPPORTED:${path || "inline"}`,
+    );
+  }
+  return `
+vec4 runEffect(vec2 uv, vec4 vj1SourceColor) {
+  float vj1SourceAlpha = vj1SourceColor.a;
+  vec4 vj1IsfInput = vec4(
+    vj1SourceAlpha > 0.0001
+      ? vj1SourceColor.rgb / vj1SourceAlpha
+      : vec3(0.0),
+    vj1SourceAlpha
+  );
+  vec4 vj1IsfOutput = vj1IsfInput;
+  ${body.trim()}
+  return vec4(
+    vj1IsfOutput.rgb * vj1IsfOutput.a,
+    vj1IsfOutput.a
+  );
+}`.trim();
+}
+
+function extractMainFunction(source, path = "") {
+  const text = String(source || "");
+  const match = /\bvoid\s+main\s*\(\s*\)\s*\{/.exec(text);
+  if (!match) throw new Error(`VJ1_ISF_MAIN_MISSING:${path || "inline"}`);
+  const open = text.indexOf("{", match.index);
+  let depth = 0;
+  let close = -1;
+  for (let index = open; index < text.length; index += 1) {
+    if (text[index] === "{") depth += 1;
+    else if (text[index] === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        close = index;
+        break;
+      }
+    }
+  }
+  if (close < 0) {
+    throw new Error(`VJ1_ISF_MAIN_UNTERMINATED:${path || "inline"}`);
+  }
+  return {
+    before: text.slice(0, match.index),
+    body: text.slice(open + 1, close),
+    after: text.slice(close + 1),
+  };
 }
 
 function uniqueIdentifiers(values) {

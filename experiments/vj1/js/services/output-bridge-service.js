@@ -6,6 +6,20 @@ import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-map
 
 export const OUTPUT_BRIDGE_PROTOCOL_VERSION = 1;
 
+export function recoveredOutputProjectState(recoveredState = {}, localProject = {}) {
+  const localWarnings = [...(localProject?.warnings || [])];
+  const folderName = String(recoveredState.project?.folderName || "this project");
+  return {
+    ...recoveredState,
+    project: {
+      ...(recoveredState.project || {}),
+      warnings: localWarnings.length
+        ? localWarnings
+        : [`Read-only recovery from Output. Click the folder button to restore access to ${folderName}.`],
+    },
+  };
+}
+
 function protocolMessage(message = {}) {
   return { ...message, protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION };
 }
@@ -100,7 +114,10 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
           // instead of committing the same large project twice during boot.
           pendingRecoveryState = { state: recoveredState, recovery: activeRecovery };
         } else {
-          store.replace(recoveredState, "project-output-recovery");
+          store.replace(recoveredOutputProjectState(
+            recoveredState,
+            store.getState().project,
+          ), "project-output-recovery");
         }
         return;
       }
@@ -259,15 +276,29 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     pendingRecoveryState = null;
     pendingRecoveryMedia = null;
     if (pendingState && !store.getState().project?.folderName) {
-      store.replace(pendingState.state, "project-output-recovery");
+      // Output recovery is a useful read-only fallback, but it must never make
+      // a failed local-folder restore look writable. Preserve the local
+      // permission/load diagnostic until a directory really opens.
+      store.replace(recoveredOutputProjectState(
+        pendingState.state,
+        store.getState().project,
+      ), "project-output-recovery");
     }
     if (pending) scheduleRecoveryMedia(pending.files, pending.recovery);
   }
 
-  function acceptStateChange(_state, _reason, change = {}) {
+  function acceptStateChange(_state, reason, change = {}) {
     if (change.scope !== "live") return;
     if (!Array.isArray(change.livePatches) || !change.livePatches.length) {
-      sendState();
+      // Surface eyes change only the derived output-route projection. They
+      // still need an atomic projected snapshot because one Scene Mapping
+      // toggle can alter several fallback routes, but receivers must not treat
+      // that snapshot as a new visual/component/resource program.
+      sendState(null, {
+        activation: reason === "live:surface-visibility"
+          ? "projection"
+          : "full",
+      });
       return;
     }
     queueLivePatches(change.livePatches);
@@ -279,7 +310,13 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
   }
   const unsubscribeLiveState = subscribeStore ? store.subscribe?.(acceptStateChange) : null;
 
-  function sendState(stateOverride = null, { targetClientId = "" } = {}) {
+  function sendState(stateOverride = null, {
+    targetClientId = "",
+    activation = "full",
+  } = {}) {
+    const scopedActivation = ["assets", "projection"].includes(activation)
+      ? activation
+      : "full";
     if (!targetClientId) {
       liveSynchronization.stateRevision({ broadcast: true });
     }
@@ -287,6 +324,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
       type: "state",
       state: stateWithoutThumbnailUrls(stateOverride || store.getLiveRenderState?.() || store.getRenderState?.() || store.getState()),
       targetClientId,
+      activation: scopedActivation,
       revision: liveSynchronization.revision,
       sessionId,
       transport: { sentAtMs: transportTimestampMs() },
@@ -448,7 +486,14 @@ export function createOutputBridge({
         revision: msg.revision,
         sentAtMs: msg.transport?.sentAtMs,
       });
-      onState?.(msg.state, { revision: Number(msg.revision) || 0, sessionId: String(msg.sessionId || controlSessionId), transport });
+      onState?.(msg.state, {
+        revision: Number(msg.revision) || 0,
+        sessionId: String(msg.sessionId || controlSessionId),
+        activation: ["assets", "projection"].includes(msg.activation)
+          ? msg.activation
+          : "full",
+        transport,
+      });
     }
     if (msg.type === "live-patch") {
       const transport = transportProfiler.receive({

@@ -2,7 +2,7 @@ import { BLEND_MODES } from "../constants.js";
 import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { esc, formatRangeValue, paramContextAttributes, paramRangePairTemplate } from "./template-utils.js?v=param-select-1";
 import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
-import { screenCaptureStatus } from "../output/screen-capture-service.js?v=screen-input-registry-1";
+import { screenCaptureStatus } from "../output/screen-capture-service.js?v=async-media-dirty-1";
 import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 
 export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
@@ -51,6 +51,20 @@ export function chainParamViewDefinitions(primary = "", details = "", general = 
     ...(details ? [{ id: "details", label: "Details", html: details }] : []),
     { id: "general", label: "General", html: general },
   ];
+}
+
+export function parameterGroupTemplate(label, controls, {
+  id = "",
+  className = "",
+} = {}) {
+  if (!controls) return "";
+  const classes = ["parameter-control-group", className].filter(Boolean).join(" ");
+  return `
+    <section class="${classes}"${id ? ` data-control-section="${esc(id)}"` : ""}>
+      <div class="parameter-control-group-title"><span>${esc(label)}</span></div>
+      ${controls}
+    </section>
+  `;
 }
 
 export const CHAIN_TRANSFORM_PARAMS = Object.freeze([

@@ -5,11 +5,13 @@ import {
   createTextParam,
 } from "../../shared/component-schema.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
-import { defineScene3dVisualCompound } from "../../shared/scene3d-visual-compound.js?v=anatomy-scene3d-1";
+import {
+  defineCompiledVisualCompound,
+} from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
 import {
   LitMeshMaterialProviderNode,
   ModelFitCameraNode,
-} from "../../shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
+} from "../../shared/visual-stage-nodes.js?v=mesh-geometry-detail-2";
 import {
   AnimatedTransform3dNode,
   CombineObjects3dNode,
@@ -18,7 +20,7 @@ import {
   Scene3dNode,
   SceneObject3dNode,
   SceneToImageNode,
-} from "../../../mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
+} from "../../../mesh-engine/index.js?v=mesh-geometry-detail-2";
 
 export const MODEL_MEDIA_GENERATOR_ID = "modelMedia";
 
@@ -33,12 +35,36 @@ const manifest = Object.freeze({
       Math.abs(Number(params.spinY) || 0) +
       Math.abs(Number(params.spinZ) || 0) > 0.0001,
   },
+  primaryParamIds: [
+    "mediaId",
+    "renderMode",
+    "geometryDetail",
+    "surfaceColor",
+    "wireColor",
+    "modelScale",
+  ],
+  detailParamIds: [
+    "rotationX",
+    "rotationY",
+    "rotationZ",
+    "spinX",
+    "spinY",
+    "spinZ",
+    "depth",
+    "visibleDepth",
+    "focalLength",
+    "wireThickness",
+    "wireDetail",
+    "edgeAngle",
+    "edgeBudget",
+    "pointBudget",
+  ],
   params: [
     {
       ...createTextParam("mediaId", "3D model", "", { ui: "media", rows: 1 }),
       mediaCategory: "model",
     },
-    createNumberParam("renderQuality", "Geometry detail", {
+    createNumberParam("geometryDetail", "Geometry detail", {
       min: 0,
       max: 1,
       step: 0.01,
@@ -72,17 +98,17 @@ const manifest = Object.freeze({
 
 const NativeVisualComponent = defineGeneratorNode(manifest);
 
-export const VisualComponent = defineScene3dVisualCompound(NativeVisualComponent, {
+export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "media", type: MediaMeshNode.id },
-    { id: "lod", type: MeshDisplayLodNode.id },
-    { id: "motion", type: AnimatedTransform3dNode.id },
-    { id: "material", type: LitMeshMaterialProviderNode.id },
-    { id: "object", type: SceneObject3dNode.id, parameters: { id: "model" } },
-    { id: "objects", type: CombineObjects3dNode.id },
-    { id: "camera", type: ModelFitCameraNode.id },
-    { id: "scene", type: Scene3dNode.id },
-    { id: "render", type: SceneToImageNode.id },
+    { id: "media", definition: MediaMeshNode, role: "value" },
+    { id: "lod", definition: MeshDisplayLodNode, role: "value" },
+    { id: "motion", definition: AnimatedTransform3dNode, role: "value" },
+    { id: "material", definition: LitMeshMaterialProviderNode, role: "value" },
+    { id: "object", definition: SceneObject3dNode, role: "value", parameters: { id: "model" } },
+    { id: "objects", definition: CombineObjects3dNode, role: "value" },
+    { id: "camera", definition: ModelFitCameraNode, role: "value" },
+    { id: "scene", definition: Scene3dNode, role: "value" },
+    { id: "render", definition: SceneToImageNode, role: "renderer" },
   ],
   connections: [
     { from: "media.mesh", to: "lod.mesh", type: "mesh" },
@@ -94,12 +120,12 @@ export const VisualComponent = defineScene3dVisualCompound(NativeVisualComponent
     { from: "objects.objects", to: "scene.objects", type: "list<object3d>" },
     { from: "camera.camera", to: "scene.camera", type: "camera3d" },
     { from: "scene.scene", to: "render.scene", type: "scene3d" },
-    { from: "$in.componentTime", to: "render.componentTime", type: "number" },
-    { from: "$in.viewport", to: "lod.viewport", type: "viewport" },
+    { from: "media.status", to: "render.resourceStatus", type: "resource-status" },
   ],
-  controlBindings: {
+  output: "render.texture",
+  parameterBindings: {
     media: ["mediaId"],
-    lod: ["renderMode", "renderQuality", "wireDetail", "edgeBudget"],
+    lod: ["renderMode", "geometryDetail", "wireDetail"],
     motion: [
       { publicParameterId: "modelScale", targetParameterId: "uniformScale" },
       { publicParameterId: "depth", targetParameterId: "scaleZ" },
@@ -116,11 +142,10 @@ export const VisualComponent = defineScene3dVisualCompound(NativeVisualComponent
       "edgeAngle",
       "edgeBudget",
       "wireDetail",
-      "renderQuality",
     ],
     camera: ["focalLength"],
   },
-  controlPresentation: {
+  parameterPresentation: {
     media: { label: "Mesh", order: 0 },
     lod: { label: "Geometry", order: 10 },
     motion: { label: "Transform", order: 20 },

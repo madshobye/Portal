@@ -494,6 +494,70 @@ export function graphNodeFromDefinition(definition, {
     compilerHook: { ...declaredVisualHook },
     position: normalizedPosition(position),
   };
+  if (
+    definition?.metadata?.nodeOwnedNativeProcess === true &&
+    definition?.outlets?.texture
+  ) return {
+    id: instanceId,
+    nodeId,
+    nodeVersion: definition.version,
+    role: "source",
+    parameters,
+    configuration: {
+      id: instanceId,
+      kind: "source",
+      name: definition.name,
+      enabled: true,
+      opacity: 1,
+      blend: "normal",
+      source: {
+        type: "generator",
+        generatorId: definition.metadata?.visualId || nodeId,
+        instanceId,
+        params: { ...parameters },
+      },
+    },
+    compilerHook: {
+      id: "vj1.visual.source",
+      allocationStable:
+        definition.metadata?.allocationStableDirectPath === true,
+      contract: definition.metadata?.visualContract,
+    },
+    position: normalizedPosition(position),
+  };
+  if (
+    definition?.metadata?.nativeRenderer &&
+    definition?.outlets?.texture &&
+    definition?.presentation?.placeableOn?.includes("visual-graph")
+  ) return {
+    id: instanceId,
+    nodeId,
+    nodeVersion: definition.version,
+    role: "source",
+    parameters,
+    configuration: {
+      id: instanceId,
+      kind: "source",
+      name: definition.name,
+      enabled: true,
+      opacity: 1,
+      blend: "normal",
+      source: {
+        type: "generator",
+        generatorId: definition.metadata?.visualId || nodeId,
+        instanceId,
+        params: { ...parameters },
+      },
+    },
+    compilerHook: {
+      id: "vj1.visual.native-source",
+      renderer: definition.metadata.nativeRenderer,
+      nativeKernel: definition.metadata.nativeKernel,
+      allocationStable: definition.metadata?.allocationStable === true,
+      contract: definition.metadata?.visualContract,
+    },
+    position: normalizedPosition(position),
+  };
   if (declaredVisualHook?.id && definition?.outlets?.texture) return {
     id: instanceId,
     nodeId,
@@ -515,6 +579,17 @@ export function graphNodeFromDefinition(definition, {
       },
     },
     compilerHook: { ...declaredVisualHook },
+    position: normalizedPosition(position),
+  };
+  if (
+    definition?.capabilities?.includes("retained-value-provider") &&
+    typeof definition.process === "function"
+  ) return {
+    id: instanceId,
+    nodeId,
+    nodeVersion: definition.version,
+    role: "value",
+    parameters,
     position: normalizedPosition(position),
   };
   if (isVisualControlDefinition(definition)) return {

@@ -1,7 +1,4 @@
 import { defineNodeGroup } from "../../node-engine/node-group.js?v=explicit-group-compiler-public-group-ports-1";
-import {
-  SCENE_3D_VISUAL_COMPILER_HOOK,
-} from "../../mesh-engine/composable-scene-3d/index.js?v=project-group-authoring-1";
 import { defineVisualNodeContract } from "../../render-engine/visual-node-contract.js";
 import { componentFromNodeDefinition } from "./visual-node-factory.js";
 
@@ -38,18 +35,10 @@ export function defineScene3dVisualCompound(component, {
     },
     inlets: {
       ...(base.inlets || {}),
-      target: { type: "any", required: true },
-      componentTime: { type: "number", defaultValue: 0 },
-      viewport: { type: "viewport", optional: true },
-      contentTransform: { type: "transform2d", defaultValue: {} },
     },
     nodes,
     connections,
     publicInlets: {
-      target: "render.target",
-      componentTime: "motion.componentTime",
-      viewport: "render.viewport",
-      contentTransform: "render.contentTransform",
       ...publicInlets,
     },
     publicOutlets: { texture: output },
@@ -74,11 +63,11 @@ export function defineScene3dVisualCompound(component, {
     metadata: {
       ...(base.metadata || {}),
       visualCompilerHook: {
-        id: SCENE_3D_VISUAL_COMPILER_HOOK,
-        renderer: "output/specialized:scene3d-program",
+        id: "vj1.visual.compound",
         contract: SCENE_3D_VISUAL_CONTRACT,
       },
-      nativeRenderer: "output/specialized:scene3d-program",
+      nativeRenderer: "",
+      renderAuthority: "compiled-graph",
     },
     // The executable implementation belongs to the child nodes. Keeping a
     // former monolithic parent implementation here would expose editable code
@@ -86,6 +75,6 @@ export function defineScene3dVisualCompound(component, {
     parts: [],
   });
   return componentFromNodeDefinition(component, definition, {
-    renderAuthority: "compiled-scene3d-group",
+    renderAuthority: "compiled-graph",
   });
 }

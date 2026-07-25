@@ -13,7 +13,7 @@ export const MeshDisplayLodNode = defineNode({
   id: "core.mesh.display-lod",
   name: "Mesh Display LOD",
   version: "0.1.0",
-  description: "Selects an existing retained mesh LOD from image demand and material mode without rebuilding geometry.",
+  description: "Selects an existing retained mesh LOD from image demand and an authored geometry cap without rebuilding geometry.",
   implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: {
     mesh: { type: MeshType, required: true },
@@ -25,9 +25,8 @@ export const MeshDisplayLodNode = defineNode({
       },
       defaultValue: "surface",
     },
-    renderQuality: { type: "number", defaultValue: 0.5, allowedRange: [0, 1], clamp: true },
+    geometryDetail: { type: "number", defaultValue: 0.5, allowedRange: [0, 1], clamp: true },
     wireDetail: { type: "number", defaultValue: 0.25, allowedRange: [0, 1], clamp: true },
-    edgeBudget: { type: "number", defaultValue: 20000, allowedRange: [1000, 50000], clamp: true },
   },
   outlets: {
     mesh: { type: MeshType },
@@ -38,17 +37,21 @@ export const MeshDisplayLodNode = defineNode({
     domain: "main",
     pure: true,
     asynchronous: false,
+    // Render demand is supplied by the current request. It can change which
+    // retained LOD is selected without making wall-clock time a dependency.
+    frameDependent: false,
   },
   capabilities: [
     "mesh-processing",
     "mesh-lod-selection",
     "scene-3d",
+    "retained-value-provider",
     "graph-placeable",
     "live-fast-path",
   ],
   presentation: {
     catalogs: ["graph", "mesh", "scene-3d"],
-    placeableOn: ["node-graph"],
+    placeableOn: ["visual-graph", "node-graph"],
     previewOutput: "mesh",
   },
   parts: [{
@@ -69,14 +72,21 @@ export const MeshDisplayLodNode = defineNode({
   process: meshDisplayLodProcess,
 });
 
-export function meshDisplayLodProcess(inputs = {}, { state = {}, output = null } = {}) {
-  const viewport = inputs.viewport || {};
+export function meshDisplayLodProcess(
+  inputs = {},
+  {
+    state = {},
+    output = null,
+    renderRequest = null,
+    sourceDetail = null,
+  } = {},
+) {
+  const viewport = inputs.viewport || sourceDetail || renderRequest || {};
   const targetTriangles = modelLodTargetTriangles({
     width: viewport.width,
     height: viewport.height,
     renderMode: inputs.renderMode,
-    renderQuality: inputs.renderQuality,
-    edgeBudget: inputs.edgeBudget,
+    geometryDetail: inputs.geometryDetail,
     wireDetail: inputs.wireDetail,
   });
   const result = output || state.output || (state.output = {

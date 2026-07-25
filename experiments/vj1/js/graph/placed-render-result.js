@@ -2,19 +2,16 @@ export function directPlacementKind({
   source = {},
   blend = "normal",
   dependency = null,
-  mediaDrawable = false,
-  mediaIsModel = false,
-  mediaRequiresRetainedFrame = false,
-  cameraDrawable = false,
+  drawableResourceDrawable = false,
+  drawableResourceRequiresRetainedFrame = false,
 } = {}) {
   if (blend === "overlay") return "";
   if (source.type === "component") {
     return dependency && dependency.type !== "scene" ? "component-texture" : "";
   }
-  if (source.type === "media") {
-    return mediaDrawable && !mediaIsModel && !mediaRequiresRetainedFrame ? "media-texture" : "";
+  if (drawableResourceDrawable) {
+    return drawableResourceRequiresRetainedFrame ? "" : "drawable-resource";
   }
-  if (source.type === "camera") return cameraDrawable ? "camera-texture" : "";
   return "";
 }
 

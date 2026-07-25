@@ -4,12 +4,12 @@ import {
   transitionKernelUniformValues,
 } from "../libraries/transition-engine/index.js";
 import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
-import { renderBufferKey } from "./component-render-state.js?v=canonical-effect-params-1";
+import { renderBufferKey } from "./component-render-state.js?v=async-media-dirty-1";
 import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
 import {
   RENDER_PASS_VERTEX_SHADER,
   TEXTURE_OPERATOR_FRAGMENT_SHADER,
-} from "./render-pass-shaders.js?v=texture-dag-1";
+} from "./render-pass-shaders.js?v=premultiplied-alpha-5";
 import {
   applyShaderTarget,
   clearShaderTarget,
@@ -17,8 +17,11 @@ import {
   drawShaderTargetRect,
   resetShaderTarget,
   setShaderUniformIfPresent,
-} from "./shader-target-runtime.js?v=canonical-effect-params-1";
-import { unwrapRenderTarget } from "./shared-framebuffer-target.js?v=isf-runtime-1";
+} from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
+import { unwrapRenderTarget } from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
+import {
+  renderTargetNeedsShaderSampleFlip,
+} from "./render-target-contract.js?v=source-target-ownership-1";
 
 // Optimized backend for the generic texture-node family. The compiled visual
 // plan owns topology and scheduling; this class owns shader programs and the
@@ -48,11 +51,11 @@ export class TextureOperatorRuntime {
       };
       plan.retainedOperators.set(operation.id, runtime);
     }
-    const read = this.host.getComponentGpuBuffer(
+    const read = this.host.renderTargetRuntime.gpu(
       renderBufferKey(scopeId, operation.id, "retained-a"),
       renderRequest,
     );
-    const write = this.host.getComponentGpuBuffer(
+    const write = this.host.renderTargetRuntime.gpu(
       renderBufferKey(scopeId, operation.id, "retained-b"),
       renderRequest,
     );
@@ -103,8 +106,20 @@ export class TextureOperatorRuntime {
       applyShaderTarget(target, shaderProgram);
       shaderProgram.setUniform("textureA", unwrapRenderTarget(textureA));
       shaderProgram.setUniform("textureB", unwrapRenderTarget(textureB));
-      shaderProgram.setUniform("flipA", !this.host.isShaderBuffer(textureA));
-      shaderProgram.setUniform("flipB", !this.host.isShaderBuffer(textureB));
+      shaderProgram.setUniform(
+        "flipA",
+        renderTargetNeedsShaderSampleFlip(
+          textureA,
+          this.host.renderTargetRuntime.isShaderBuffer(textureA),
+        ),
+      );
+      shaderProgram.setUniform(
+        "flipB",
+        renderTargetNeedsShaderSampleFlip(
+          textureB,
+          this.host.renderTargetRuntime.isShaderBuffer(textureB),
+        ),
+      );
       shaderProgram.setUniform("operation", opcode === "mask" ? 1 : 0);
       shaderProgram.setUniform("blendMode", blendMode);
       shaderProgram.setUniform("amount", amount);
@@ -136,15 +151,21 @@ export class TextureOperatorRuntime {
       );
       return;
     }
-    const fromFlip = !this.host.isShaderBuffer(fromTexture);
-    const toFlip = !this.host.isShaderBuffer(toTexture);
+    const fromFlip = renderTargetNeedsShaderSampleFlip(
+      fromTexture,
+      this.host.renderTargetRuntime.isShaderBuffer(fromTexture),
+    );
+    const toFlip = renderTargetNeedsShaderSampleFlip(
+      toTexture,
+      this.host.renderTargetRuntime.isShaderBuffer(toTexture),
+    );
     const uniforms = transitionKernelUniformValues(
       kernel,
       transition.transitionParameters,
       {
         time: Number(componentTime) || 0,
-        timeDelta: this.host.visualDeltaSeconds,
-        frameIndex: this.host.frameIndex,
+        timeDelta: this.host.frameRuntime.visualDeltaSeconds,
+        frameIndex: this.host.frameRuntime.frameIndex,
         passIndex: 0,
         renderSize: [target.width, target.height],
         startImageSize: [
@@ -237,7 +258,7 @@ export class TextureOperatorRuntime {
       0,
       target.width,
       target.height,
-      this.host.isShaderBuffer(source),
+      this.host.renderTargetRuntime.isShaderBuffer(source),
     );
     target.pop();
   }

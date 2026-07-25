@@ -8,7 +8,7 @@ import {
 import {
   FeatureMorphAnalysisType,
   MediaImageResourceType,
-} from "../../shared/specialized-compound-types.js";
+} from "../../shared/visual-stage-types.js";
 import {
   FEATURE_MORPH_FRAGMENT_SHADER,
   FEATURE_MORPH_VERTEX_SHADER,
@@ -22,7 +22,7 @@ export const FeatureMorphToImageNode = defineNode({
   description: "Combines two image resources and a feature-analysis field through the retained morph shader.",
   implementation: {
     kind: NODE_IMPLEMENTATION_KINDS.NATIVE,
-    compiler: "vj1.visual.specialized-compound",
+    compiler: "vj1.visual.native-source",
     kernel: "feature-morph",
   },
   inlets: {
@@ -67,13 +67,13 @@ export const FeatureMorphToImageNode = defineNode({
     "retained-render-target",
     "feature-morph",
     "feature-morph-render-kernel",
-    "specialized-visual-stage",
+    "visual-stage",
     "graph-placeable",
     "compiled-only",
   ],
   presentation: {
-    catalogs: ["node-graph", "image", "ai", "render", "specialized-visual"],
-    placeableOn: ["native-visual-graph"],
+    catalogs: ["node-graph", "image", "ai", "render", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
     previewOutput: "texture",
   },
   metadata: {

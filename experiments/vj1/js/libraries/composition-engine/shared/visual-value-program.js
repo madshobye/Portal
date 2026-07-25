@@ -10,13 +10,26 @@ export class VisualValueProgram {
     this.outputIdentities = new Map();
     this.resourceObjects = new WeakMap();
     this.nextResourceObjectId = 1;
+    this.evaluationRevision = 0;
+    this.frameDrivenSteps = new Set();
+    this.ready = true;
     this.format = "vj1.visual-value-program@1";
     this.contractVersion = 1;
   }
 
-  evaluate({ componentTime = 0, timestamp = componentTime, renderRequest = null } = {}) {
+  evaluate({
+    componentTime = 0,
+    timestamp = componentTime,
+    renderRequest = null,
+    sourceDetail = null,
+    runtimeContext = null,
+  } = {}) {
     this.outputs.clear();
     this.outputIdentities.clear();
+    this.frameDrivenSteps.clear();
+    this.evaluationRevision =
+      Math.max(0, Number(this.evaluationRevision) || 0) + 1;
+    this.ready = true;
     const boundOperations = new Set();
     for (const binding of this.bindings) {
       if (boundOperations.has(binding.operation)) continue;
@@ -25,8 +38,17 @@ export class VisualValueProgram {
       binding.operation.runtimeValueIdentityInputs?.clear?.();
     }
     for (const step of this.steps) {
+      const frameDriven =
+        step.frameDynamic === true ||
+        step.inputs.some((edge) =>
+          this.frameDrivenSteps.has(edge.sourceStepId)
+        );
+      if (frameDriven) this.frameDrivenSteps.add(step.id);
       const inputs = step.inputValues;
       for (const id of step.parameterIds) inputs[id] = step.parameters[id];
+      if (step.frameDynamic && step.inlets.componentTime) {
+        inputs.componentTime = componentTime;
+      }
       for (const edge of step.inputs) {
         const source = this.outputs.get(edge.sourceStepId);
         if (!source || !(edge.sourcePortId in source)) {
@@ -43,12 +65,21 @@ export class VisualValueProgram {
       context.componentTime = componentTime;
       context.timestamp = timestamp;
       context.renderRequest = renderRequest;
+      context.sourceDetail = sourceDetail;
+      applyRuntimeContext(context, runtimeContext);
       const output = step.process(inputs, context);
       if (output && typeof output.then === "function") {
         throw new Error(`VISUAL_VALUE_ASYNC_RESULT:${this.id}:${step.id}`);
       }
       if (output !== step.outputValues) retainValues(step.outputValues, output);
       this.outputs.set(step.id, step.outputValues);
+      if (
+        step.externalResolver &&
+        !externalStepReady(step, step.externalResolver)
+      ) {
+        this.ready = false;
+        break;
+      }
       for (const portId of step.outletIds) {
         if (!(portId in step.outputValues)) continue;
         this.outputIdentities.set(
@@ -58,6 +89,7 @@ export class VisualValueProgram {
             step.outlets[portId]?.type,
             this.resourceObjects,
             () => this.nextResourceObjectId++,
+            frameDriven ? this.evaluationRevision : 0,
           ),
         );
       }
@@ -65,6 +97,14 @@ export class VisualValueProgram {
     for (const binding of this.bindings) {
       const output = this.outputs.get(binding.sourceStepId);
       if (!output || !(binding.sourcePortId in output)) {
+        if (!this.ready) {
+          binding.operation.runtimeValueInputs.set(binding.targetPortId, null);
+          binding.operation.runtimeValueIdentityInputs.set(
+            binding.targetPortId,
+            `${binding.sourceType}:missing`,
+          );
+          continue;
+        }
         throw new Error(`VISUAL_VALUE_OUTPUT_MISSING:${this.id}:${binding.sourceStepId}.${binding.sourcePortId}`);
       }
       binding.operation.runtimeValueInputs.set(binding.targetPortId, output[binding.sourcePortId]);
@@ -73,7 +113,7 @@ export class VisualValueProgram {
         this.outputIdentities.get(`${binding.sourceStepId}.${binding.sourcePortId}`) || "",
       );
     }
-    return this.outputs;
+    return this.ready;
   }
 
   inspect() {
@@ -97,6 +137,7 @@ export class VisualValueProgram {
         trigger: step.trigger,
         frameDependent: step.frameDynamic,
         externalResolver: step.externalResolver,
+        resourceDependencies: step.resourceDependencies,
         inputs: Object.freeze(Object.fromEntries(Object.entries(step.inlets)
           .map(([id, port]) => [id, valueTypeId(port?.type || port || "any")]))),
         outputs: Object.freeze(Object.fromEntries(Object.entries(step.outlets)
@@ -116,6 +157,9 @@ export class VisualValueProgram {
         targetPortId: binding.targetPortId,
         targetType: binding.targetType,
       }))),
+      readiness: Object.freeze({
+        ready: this.ready,
+      }),
     });
   }
 
@@ -132,6 +176,8 @@ export class VisualValueProgram {
     }
     this.outputs.clear();
     this.outputIdentities.clear();
+    this.frameDrivenSteps.clear();
+    this.ready = false;
   }
 }
 
@@ -158,6 +204,7 @@ export function compileVisualValueProgram(group = {}, operations = [], {
       edge,
       valueById,
       operationById,
+      nodeById,
       definitionFor,
       group.id || "component",
     ))
@@ -167,6 +214,7 @@ export function compileVisualValueProgram(group = {}, operations = [], {
     values,
     valueById,
     operationById,
+    nodeById,
     definitionFor,
     renderBindings,
     group.id || "component",
@@ -216,6 +264,13 @@ function compileValueStep(node, connections, required, valueById, definition, pa
     .filter(Boolean);
   const state = {};
   const outputValues = {};
+  const declaredFrameDependency = definition.execution?.frameDependent;
+  const frameDependent =
+    typeof declaredFrameDependency === "function"
+      ? declaredFrameDependency
+      : declaredFrameDependency === false
+        ? () => false
+        : null;
   return Object.freeze({
     id: `${path}/${node.id}`,
     instanceId: String(node.id || ""),
@@ -234,13 +289,31 @@ function compileValueStep(node, connections, required, valueById, definition, pa
     process: definition.process,
     dispose: definition.execution?.dispose,
     trigger: String(definition.execution?.trigger || "input-change"),
-    frameDynamic: definition.execution?.trigger === "frame",
+    // Frame-triggered retained values may declare that their current authored
+    // parameters are static. A getter keeps the compiled step authoritative
+    // as public parameter bindings update its retained parameter object.
+    get frameDynamic() {
+      if (definition.execution?.trigger !== "frame") return false;
+      if (!frameDependent) return true;
+      try {
+        return frameDependent(parameters) === true;
+      } catch {
+        // A broken invalidation declaration must fail safe by rendering rather
+        // than publishing a stale retained value.
+        return true;
+      }
+    },
     externalResolver: retainedExternalResolver(definition, node, path),
+    resourceDependencies: Object.freeze(
+      (definition.metadata?.resourceDependencies || []).map((dependency) =>
+        Object.freeze({ ...dependency })),
+    ),
     state,
     processContext: {
       componentTime: 0,
       timestamp: 0,
       renderRequest: null,
+      sourceDetail: null,
       state,
       parameters,
       output: outputValues,
@@ -250,13 +323,23 @@ function compileValueStep(node, connections, required, valueById, definition, pa
   });
 }
 
-function compileRenderBinding(edge, valueById, operationById, definitionFor, path) {
+function compileRenderBinding(edge, valueById, operationById, nodeById, definitionFor, path) {
   if (textureEdge(edge) || parameterEndpoint(edge.to)) return null;
   const source = endpoint(edge.from);
   const target = endpoint(edge.to);
   if (!source || !target || !valueById.has(source.nodeId) || !operationById.has(target.nodeId)) return null;
-  const sourcePort = requiredOutlet(definitionFor(source.nodeId), source, path);
-  const targetPort = requiredInlet(definitionFor(target.nodeId), target, path);
+  const sourcePort = requiredOutlet(
+    definitionFor(source.nodeId),
+    source,
+    path,
+    nodeById.get(source.nodeId),
+  );
+  const targetPort = requiredInlet(
+    definitionFor(target.nodeId),
+    target,
+    path,
+    nodeById.get(target.nodeId),
+  );
   assertCompatibleValuePorts(path, edge.from, edge.to, sourcePort, targetPort);
   return {
     sourceStepId: source.nodeId,
@@ -370,6 +453,7 @@ function validateValueConnections(
   values,
   valueById,
   operationById,
+  nodeById,
   definitionFor,
   renderBindings,
   path,
@@ -386,8 +470,18 @@ function validateValueConnections(
       }
       continue;
     }
-    const sourcePort = requiredOutlet(definitionFor(source.nodeId), source, path);
-    const targetPort = requiredInlet(definitionFor(target.nodeId), target, path);
+    const sourcePort = requiredOutlet(
+      definitionFor(source.nodeId),
+      source,
+      path,
+      nodeById.get(source.nodeId),
+    );
+    const targetPort = requiredInlet(
+      definitionFor(target.nodeId),
+      target,
+      path,
+      nodeById.get(target.nodeId),
+    );
     assertCompatibleValuePorts(path, edge.from, edge.to, sourcePort, targetPort);
     const targetKey = `${target.nodeId}.${target.portId}`;
     if (incoming.has(targetKey)) {
@@ -426,9 +520,11 @@ function validateValueConnections(
   }
 }
 
-function requiredOutlet(definition, endpointValue, path) {
+function requiredOutlet(definition, endpointValue, path, node = null) {
   if (!definition) {
-    throw new Error(`VISUAL_VALUE_DEFINITION_MISSING:${endpointValue.nodeId}:unknown`);
+    throw new Error(
+      `VISUAL_VALUE_DEFINITION_MISSING:${path}:${endpointValue.nodeId}:${node?.nodeId || node?.type || "unknown"}`,
+    );
   }
   const port = definition.outlets?.[endpointValue.portId];
   if (!port) {
@@ -437,9 +533,11 @@ function requiredOutlet(definition, endpointValue, path) {
   return port;
 }
 
-function requiredInlet(definition, endpointValue, path) {
+function requiredInlet(definition, endpointValue, path, node = null) {
   if (!definition) {
-    throw new Error(`VISUAL_VALUE_DEFINITION_MISSING:${endpointValue.nodeId}:unknown`);
+    throw new Error(
+      `VISUAL_VALUE_DEFINITION_MISSING:${path}:${endpointValue.nodeId}:${node?.nodeId || node?.type || "unknown"}`,
+    );
   }
   const port = definition.inlets?.[endpointValue.portId];
   if (!port) {
@@ -456,7 +554,13 @@ function assertCompatibleValuePorts(path, from, to, sourcePort, targetPort) {
   }
 }
 
-function retainedValueIdentity(value, specification, objectIds, allocateObjectId) {
+function retainedValueIdentity(
+  value,
+  specification,
+  objectIds,
+  allocateObjectId,
+  signalRevision = 0,
+) {
   const type = valueTypeId(specification || "any");
   if (value === null || value === undefined) return `${type}:missing`;
   if (typeof value !== "object" && typeof value !== "function") {
@@ -472,11 +576,15 @@ function retainedValueIdentity(value, specification, objectIds, allocateObjectId
     ?? value.providerId
     ?? value.kind
     ?? `object-${objectId}`;
-  const revision = value.resourceRevision
+  const declaredRevision = value.resourceRevision
     ?? value.revision
     ?? value.version
-    ?? value.signature
-    ?? 0;
+    ?? value.signature;
+  const revision = signalRevision
+    ? declaredRevision === undefined
+      ? `signal-${signalRevision}`
+      : `${String(declaredRevision)}+signal-${signalRevision}`
+    : declaredRevision ?? 0;
   return `${type}:${String(identity)}@${String(revision)}`;
 }
 
@@ -495,6 +603,12 @@ function retainedExternalResolver(definition, node, path) {
   if (invalidation !== "external-revision") {
     throw new Error(`VISUAL_VALUE_EXTERNAL_INVALIDATION_UNSUPPORTED:${path}:${node.id}:${invalidation || "missing"}`);
   }
+  const readyOutlet = String(external.readyOutlet || "");
+  if (readyOutlet && !definition.outlets?.[readyOutlet]) {
+    throw new Error(
+      `VISUAL_VALUE_EXTERNAL_READY_OUTLET_MISSING:${path}:${node.id}:${readyOutlet}`,
+    );
+  }
   return Object.freeze({
     capability,
     asynchronous: true,
@@ -502,7 +616,26 @@ function retainedExternalResolver(definition, node, path) {
     invalidation,
     pending: String(external.pending || "standby"),
     error: String(external.error || "diagnostic"),
+    readyOutlet,
   });
+}
+
+function externalStepReady(step, resolver) {
+  const outletId = resolver.readyOutlet || step.outletIds[0] || "";
+  return !!outletId && step.outputValues[outletId] != null;
+}
+
+function applyRuntimeContext(context, runtimeContext) {
+  if (!runtimeContext || typeof runtimeContext !== "object") return;
+  for (const [key, value] of Object.entries(runtimeContext)) {
+    if (
+      key === "state" ||
+      key === "parameters" ||
+      key === "output" ||
+      key === "executionClass"
+    ) continue;
+    context[key] = value;
+  }
 }
 
 function endpoint(value) {

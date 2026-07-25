@@ -39,8 +39,8 @@ test("Noise shader uses bounded simplex layers and multidirectional domain motio
 test("Noise steady mode and zero motion stop frame invalidation", () => {
   const renderer = new OutputRenderer({ mode: "component" });
 
-  assert.equal(renderer.sourceIsFrameDynamic(createGeneratorSource("noise", { motionMode: "flow" })), true);
-  assert.equal(renderer.sourceIsFrameDynamic(createGeneratorSource("noise", { motionMode: "steady" })), false);
-  assert.equal(renderer.sourceIsFrameDynamic(createGeneratorSource("noise", { motionMode: "flow", speed: 0 })), false);
-  assert.equal(renderer.sourceIsFrameDynamic(createGeneratorSource("noise", { motionMode: "turbulence", movement: 0 })), false);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(createGeneratorSource("noise", { motionMode: "flow" })), true);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(createGeneratorSource("noise", { motionMode: "steady" })), false);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(createGeneratorSource("noise", { motionMode: "flow", speed: 0 })), false);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(createGeneratorSource("noise", { motionMode: "turbulence", movement: 0 })), false);
 });

@@ -3,7 +3,7 @@ import { numberType, optionalType, recordType, valueType } from "../../node-engi
 import { resolutionScaledStrokeWidth } from "../../render-engine/render-metrics.js";
 import { buildParsedModelSurfaceVertices } from "../mesh-geometry.js";
 import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "../mesh-render-cache.js";
-import { modelCameraFov, modelDepthCutoff, modelDepthSliceEnabled, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js?v=resolution-relative-model-clip-1";
+import { modelCameraFov, modelDepthCutoff, modelDepthSliceEnabled, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js?v=mesh-geometry-detail-2";
 import { MeshType, meshResourceCacheKey, modelTriangleCount } from "../mesh-types.js";
 import {
   Camera3dType,
@@ -19,8 +19,13 @@ import {
   bindRawWebGlVertexArray,
   captureRawWebGlAttributes,
   disposeRawWebGlVertexArray,
+  rawWebGlContextGeneration,
   restoreRawWebGlState,
-} from "../../render-engine/raw-webgl-state.js";
+} from "../../render-engine/raw-webgl-state.js?v=mesh-geometry-detail-2";
+import {
+  VISUAL_RENDER_PROCESS_CONTEXT_FORMAT,
+  visualRenderProcessContext,
+} from "../../render-engine/render-process-context.js?v=mesh-geometry-detail-2";
 
 const MeshRenderResultType = recordType("mesh-render-result", {
   rendered: valueType("boolean"),
@@ -74,14 +79,8 @@ export const MeshRenderNode = defineNode({
     material: { type: Material3dType, optional: true },
     transform: { type: "transform3d", optional: true },
     camera: { type: Camera3dType, optional: true },
-    target: { type: "any", optional: true },
-    cacheOwner: { type: "any", optional: true },
-    componentTime: { type: "number", defaultValue: 0 },
-    viewport: { type: valueType("viewport"), optional: true },
-    contentTransform: { type: valueType("transform2d"), optional: true },
     surfaceColor: { type: "color", defaultValue: [220, 225, 220, 255] },
     wireColor: { type: "color", defaultValue: [20, 20, 20, 220] },
-    clear: { type: "boolean", defaultValue: true },
   },
   parameters: {
     backend: {
@@ -117,6 +116,10 @@ export const MeshRenderNode = defineNode({
   },
   capabilities: ["mesh-rendering", "produces-image", "gpu", "graph-placeable", "live-fast-path", "composable-render-operation"],
   presentation: { catalogs: ["graph", "mesh", "render"], placeableOn: ["node-graph"], previewOutput: "image" },
+  metadata: {
+    renderProcessContext: VISUAL_RENDER_PROCESS_CONTEXT_FORMAT,
+    renderTarget: { depth: true },
+  },
   parts: [
     {
       id: "mesh-render-algorithm",
@@ -153,7 +156,8 @@ export const MeshRenderNode = defineNode({
   process: renderMeshNodeProcess,
 });
 
-export function renderMeshNodeProcess(inputs = {}, { state = {}, output = null } = {}) {
+export function renderMeshNodeProcess(inputs = {}, context = {}) {
+  const { state = {}, output = null } = context;
   const nodeOutput = output || state.nodeOutput || (state.nodeOutput = {
     image: null,
     texture: null,
@@ -184,14 +188,16 @@ export function renderMeshNodeProcess(inputs = {}, { state = {}, output = null }
     nodeOutput.result.image = image;
     return nodeOutput;
   }
-  if (!inputs.cacheOwner && (!state.cacheOwner || state.mesh !== inputs.mesh)) {
+  const renderProcess = visualRenderProcessContext(context);
+  const target = renderProcess.target;
+  if (!renderProcess.cacheOwner && (!state.cacheOwner || state.mesh !== inputs.mesh)) {
     if (state.cacheOwner) disposeRawModelItemResources(state.cacheOwner);
     state.mesh = inputs.mesh;
     state.cacheOwner = { modelData: inputs.mesh };
   }
-  const cacheOwner = inputs.cacheOwner || state.cacheOwner;
+  const cacheOwner = renderProcess.cacheOwner || state.cacheOwner;
   const material = inputs.material?.kind === "material3d" ? inputs.material : null;
-  if (inputs.clear !== false) inputs.target?.clear?.();
+  if (renderProcess.clear) target?.clear?.();
   const params = state.renderParams || (state.renderParams = {});
   for (const key in inputs) params[key] = inputs[key];
   params.pointBudget = boundedBudget(material?.pointBudget ?? inputs.pointBudget);
@@ -216,19 +222,19 @@ export function renderMeshNodeProcess(inputs = {}, { state = {}, output = null }
       visibleDepth: inputs.visibleDepth,
     }));
   const rendered = drawRawParsedModelMode(
-    inputs.target,
+    target,
     cacheOwner,
     params,
-    inputs.componentTime,
+    renderProcess.time,
     material?.renderMode ?? inputs.renderMode,
     material?.surfaceColor ?? inputs.surfaceColor,
     material?.wireColor ?? inputs.wireColor,
     params.pointBudget,
-    inputs.viewport,
-    inputs.contentTransform,
+    renderProcess.view || renderProcess.request,
+    renderProcess.contentTransform || {},
     inputs.mesh,
   );
-  const image = inputs.target;
+  const image = target;
   nodeOutput.image = image;
   nodeOutput.texture = image;
   nodeOutput.result.rendered = rendered;
@@ -622,8 +628,10 @@ function ensureRawPerceptualWireResources(gl, item, pointBudget = 4000, mesh = i
 function ensureRawModelContextResources(gl, item) {
   if (!(item.modelRawRenderers instanceof Map)) item.modelRawRenderers = new Map();
   let resources = item.modelRawRenderers.get(gl);
-  if (!resources) {
+  const generation = rawWebGlContextGeneration(gl);
+  if (!resources || resources.generation !== generation) {
     resources = {
+      generation,
       programPool: acquireRawModelProgramPool(gl),
       buffers: new Map(),
     };
@@ -636,8 +644,10 @@ function ensureRawModelContextResources(gl, item) {
 // material source. Vertex buffers remain owned by each canonical Mesh cache.
 export function acquireRawModelProgramPool(gl) {
   let pool = RAW_MODEL_PROGRAM_POOLS.get(gl);
-  if (!pool) {
+  const generation = rawWebGlContextGeneration(gl);
+  if (!pool || pool.generation !== generation) {
     pool = {
+      generation,
       references: 0,
       program: null,
       surfaceProgram: null,
@@ -678,7 +688,12 @@ function createArrayBuffer(gl, data, valuesPerVertex) {
   const buffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
   gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
-  return { buffer, count: Math.floor(data.length / valuesPerVertex), byteLength: data.byteLength || 0 };
+  return {
+    buffer,
+    generation: rawWebGlContextGeneration(gl),
+    count: Math.floor(data.length / valuesPerVertex),
+    byteLength: data.byteLength || 0,
+  };
 }
 
 function bindFloatAttribute(gl, location, size, stride, offset) {
@@ -688,6 +703,7 @@ function bindFloatAttribute(gl, location, size, stride, offset) {
 
 function configureModelGl(gl) {
   gl.enable(gl.DEPTH_TEST);
+  gl.depthMask(true);
   gl.depthFunc(gl.LEQUAL);
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -695,12 +711,14 @@ function configureModelGl(gl) {
 }
 
 function rawModelProgramValid(gl, resource) {
-  return !!resource?.program && (typeof gl.isProgram !== "function" || gl.isProgram(resource.program));
+  return !!resource?.program &&
+    resource.generation === rawWebGlContextGeneration(gl);
 }
 
 function rawModelBufferValid(gl, resource) {
   const buffers = [resource?.buffer, resource?.positionBuffer, resource?.normalBuffer].filter(Boolean);
-  return buffers.length > 0 && (typeof gl.isBuffer !== "function" || buffers.every((buffer) => gl.isBuffer(buffer)));
+  return buffers.length > 0 &&
+    resource.generation === rawWebGlContextGeneration(gl);
 }
 
 function pruneRawModelBufferVariants(gl, resources, prefix, keepKey) {
@@ -913,7 +931,10 @@ function createProgram(gl, { vertex, fragment, attributes = [], uniforms = [], e
   const fragmentShader = compileRawShader(gl, gl.FRAGMENT_SHADER, fragment);
   const program = linkSpecializedProgram(gl, vertexShader, fragmentShader);
   if (!program) return null;
-  const resource = { program };
+  const resource = {
+    program,
+    generation: rawWebGlContextGeneration(gl),
+  };
   for (const entry of attributes) {
     const [key, name] = entry.split(":");
     resource[key] = gl.getAttribLocation(program, name);

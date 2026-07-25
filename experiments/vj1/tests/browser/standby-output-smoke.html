@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Standby Output Contract</title>
+    <style>
+      body {
+        margin: 0;
+        background: #08090b;
+        color: #eef2ef;
+        font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      pre {
+        margin: 16px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <pre id="standby-results">initializing...</pre>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <script type="module">
+      import {
+        drawStandby,
+        standbyDiagnosticsVisible,
+      } from "../../js/output/generators.js?v=standby-local-diagnostic-1";
+      import {
+        createSharedFramebufferTarget,
+      } from "../../js/output/shared-framebuffer-target.js?v=premultiplied-alpha-5";
+      import {
+        withRenderTarget2D,
+      } from "../../js/output/render-target-contract.js?v=source-target-ownership-1";
+
+      const resultElement = document.querySelector("#standby-results");
+
+      window.addEventListener("error", (event) => reportFailure(
+        event.error?.stack || event.message || "STANDBY_SMOKE_SCRIPT_ERROR",
+      ));
+      window.addEventListener("unhandledrejection", (event) => reportFailure(
+        event.reason?.stack || event.reason?.message || String(event.reason || "STANDBY_SMOKE_REJECTION"),
+      ));
+
+      function reportFailure(error) {
+        resultElement.textContent = JSON.stringify({ ok: false, error }, null, 2);
+        document.documentElement.dataset.status = "error";
+      }
+
+      globalThis.setup = () => {
+        let target = null;
+        try {
+          createCanvas(96, 64, WEBGL);
+          pixelDensity(1);
+          noLoop();
+          target = createSharedFramebufferTarget(96, 64);
+
+          withRenderTarget2D(target, () => {
+            target.translate(400, 300);
+            drawStandby(target, "media unavailable");
+          });
+          const diagnostic = summarize(target);
+
+          withRenderTarget2D(target, () => {
+            target.translate(-400, -300);
+            drawStandby(target, "media unavailable", { visible: false });
+          });
+          const clean = summarize(target);
+          const outputVisible = standbyDiagnosticsVisible({
+            mode: "output",
+            debugPreview: true,
+            forceVisible: true,
+          });
+          const ok =
+            diagnostic.nonTransparent === diagnostic.pixels &&
+            diagnostic.checkerPixels > diagnostic.pixels * 0.2 &&
+            clean.nonTransparent === 0 &&
+            outputVisible === false;
+          resultElement.textContent = JSON.stringify({
+            ok,
+            diagnostic,
+            clean,
+            outputVisible,
+          }, null, 2);
+          document.documentElement.dataset.status = ok ? "ok" : "failed";
+        } catch (error) {
+          reportFailure(error?.stack || error?.message || String(error));
+        } finally {
+          target?.remove?.();
+        }
+      };
+
+      function summarize(target) {
+        const framebuffer = target.framebuffer;
+        framebuffer.loadPixels();
+        let nonTransparent = 0;
+        let checkerPixels = 0;
+        for (let index = 0; index < framebuffer.pixels.length; index += 4) {
+          const red = framebuffer.pixels[index];
+          const green = framebuffer.pixels[index + 1];
+          const blue = framebuffer.pixels[index + 2];
+          const alpha = framebuffer.pixels[index + 3];
+          if (alpha > 0) nonTransparent++;
+          if (red >= 20 && green >= 24 && blue >= 30) checkerPixels++;
+        }
+        return {
+          pixels: framebuffer.width * framebuffer.height,
+          nonTransparent,
+          checkerPixels,
+        };
+      }
+
+      new p5();
+    </script>
+  </body>
+</html>

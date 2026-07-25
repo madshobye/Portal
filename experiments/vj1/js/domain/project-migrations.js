@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
 
-export const CURRENT_PROJECT_VERSION = 34;
+export const CURRENT_PROJECT_VERSION = 37;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -59,6 +59,9 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   31: migrateProjectV31ToV32,
   32: migrateProjectV32ToV33,
   33: migrateProjectV33ToV34,
+  34: migrateProjectV34ToV35,
+  35: migrateProjectV35ToV36,
+  36: migrateProjectV36ToV37,
 });
 
 export function migrateProjectData(project = {}) {
@@ -1047,6 +1050,107 @@ export function migrateProjectV33ToV34(project) {
   };
 }
 
+// v35 removes direct image/video sources from the authored project model.
+// Project Media is an ordinary editable visual Group: one typed media resource
+// feeds a reusable image operation and optional alpha cleanup. Migrate both
+// compatibility chains and the graph-authoritative Component programs because
+// v24+ projects normally persist only the latter.
+export function migrateProjectV34ToV35(project) {
+  const migrateState = (state = {}) => {
+    const mediaKinds = new Map((state.media || []).map((item) => [
+      String(item?.id || ""),
+      String(item?.type || ""),
+    ]));
+    return {
+      ...state,
+      components: (state.components || []).map((component) => ({
+        ...component,
+        ...(Array.isArray(component?.chain)
+          ? { chain: migrateProjectMediaChain(component.chain, mediaKinds) }
+          : {}),
+      })),
+      nodes: migrateProjectMediaNodeProject(state.nodes, mediaKinds),
+    };
+  };
+  const migrated = migrateState(project);
+  const live = migrated.ui?.live;
+  if (!live?.sceneSnapshot) return migrated;
+  return {
+    ...migrated,
+    ui: {
+      ...migrated.ui,
+      live: {
+        ...live,
+        sceneSnapshot: migrateState(live.sceneSnapshot),
+      },
+    },
+  };
+}
+
+// v36 removes the remaining host-shaped Camera and Black sources from authored
+// Components. Both already have ordinary visual implementations: Camera Input
+// is a resource-to-image Group and Black is a built-in ISF generator. Persist
+// those semantic generator identities in chains, graph-authoritative programs,
+// and the retained Live snapshot so the output host never becomes their
+// conceptual owner again.
+export function migrateProjectV35ToV36(project) {
+  const migrateState = (state = {}) => ({
+    ...state,
+    components: (state.components || []).map((component) => ({
+      ...component,
+      ...(Array.isArray(component?.chain)
+        ? { chain: migrateLegacyHostSourceChain(component.chain) }
+        : {}),
+    })),
+    nodes: migrateLegacyHostSourceNodeProject(state.nodes),
+  });
+  const migrated = migrateState(project);
+  const live = migrated.ui?.live;
+  if (!live?.sceneSnapshot) return migrated;
+  return {
+    ...migrated,
+    ui: {
+      ...migrated.ui,
+      live: {
+        ...live,
+        sceneSnapshot: migrateState(live.sceneSnapshot),
+      },
+    },
+  };
+}
+
+// v37 restores Project Media's native-aspect presentation contract. The
+// compiled Project Media Group and its renderer already treat `contain` as the
+// semantic default, but the former manifest default materialized `stretch`
+// into compatibility chains, graph nodes, and generated parameter controls.
+// Rewrite those authored values once so existing projects follow the same
+// contract as newly inserted media.
+export function migrateProjectV36ToV37(project) {
+  const migrateState = (state = {}) => ({
+    ...state,
+    components: (state.components || []).map((component) => ({
+      ...component,
+      ...(Array.isArray(component?.chain)
+        ? { chain: migrateProjectMediaFitChain(component.chain) }
+        : {}),
+    })),
+    nodes: migrateProjectMediaFitNodeProject(state.nodes),
+  });
+  const migrated = migrateState(project);
+  const live = migrated.ui?.live;
+  if (!live?.sceneSnapshot) return migrated;
+  return {
+    ...migrated,
+    ui: {
+      ...migrated.ui,
+      live: {
+        ...live,
+        sceneSnapshot: migrateState(live.sceneSnapshot),
+      },
+    },
+  };
+}
+
 function migrateSceneSurfaceGuideNodeId(value) {
   if (value === "core.composition.scene-frame-guides") {
     return "core.composition.scene-surface-guides";
@@ -1058,6 +1162,97 @@ function migrateSceneSurfaceGuideNodeId(value) {
   );
 }
 
+function migrateProjectMediaFitChain(chain) {
+  return (chain || []).map((item) => {
+    if (item?.kind === "group") {
+      return {
+        ...item,
+        chain: migrateProjectMediaFitChain(item.chain || []),
+      };
+    }
+    if (item?.kind !== "source") return item;
+    const source = migrateProjectMediaFitSource(item.source);
+    return source === item.source ? item : { ...item, source };
+  });
+}
+
+function migrateProjectMediaFitSource(source) {
+  if (
+    source?.type !== "generator" ||
+    source?.generatorId !== "mediaImage" ||
+    source?.params?.fit !== "stretch"
+  ) {
+    return source;
+  }
+  return {
+    ...source,
+    params: {
+      ...source.params,
+      fit: "contain",
+    },
+  };
+}
+
+function migrateProjectMediaFitNodeProject(nodes) {
+  if (!nodes || typeof nodes !== "object") return nodes;
+  const migrateNodes = (items) => {
+    const mediaNodeIds = new Set((items || [])
+      .filter(isProjectMediaGraphNode)
+      .map((node) => String(node.id || ""))
+      .filter(Boolean));
+    return (items || []).map((node) => {
+      const projectMedia = isProjectMediaGraphNode(node);
+      const fitControl =
+        mediaNodeIds.has(String(node?.targetNodeId || "")) &&
+        node?.targetParameterId === "fit" &&
+        node?.parameters?.value === "stretch";
+      const parameters = projectMedia && node?.parameters?.fit === "stretch"
+        ? { ...node.parameters, fit: "contain" }
+        : fitControl
+          ? { ...node.parameters, value: "contain" }
+          : node?.parameters;
+      const configuration = projectMedia
+        ? migrateProjectMediaFitConfiguration(node.configuration)
+        : node?.configuration;
+      return {
+        ...node,
+        ...(node?.parameters ? { parameters } : {}),
+        ...(node?.configuration ? { configuration } : {}),
+        ...(Array.isArray(node?.nodes) ? { nodes: migrateNodes(node.nodes) } : {}),
+      };
+    });
+  };
+  return {
+    ...nodes,
+    groups: Array.isArray(nodes.groups)
+      ? nodes.groups.map((group) => ({
+          ...group,
+          ...(Array.isArray(group?.nodes)
+            ? { nodes: migrateNodes(group.nodes) }
+            : {}),
+        }))
+      : nodes.groups,
+  };
+}
+
+function isProjectMediaGraphNode(node) {
+  return (
+    node?.nodeId === "vj1.visual.generator.mediaImage" ||
+    (
+      node?.configuration?.kind === "source" &&
+      node?.configuration?.source?.type === "generator" &&
+      node?.configuration?.source?.generatorId === "mediaImage"
+    )
+  );
+}
+
+function migrateProjectMediaFitConfiguration(configuration) {
+  const source = migrateProjectMediaFitSource(configuration?.source);
+  return source === configuration?.source
+    ? configuration
+    : { ...configuration, source };
+}
+
 function migrateCanonicalEffectChain(chain) {
   return (chain || []).map((item) => {
     if (item?.kind === "group") {
@@ -1065,6 +1260,200 @@ function migrateCanonicalEffectChain(chain) {
     }
     return item?.kind === "effect" ? migrateCanonicalEffectRecord(item) : item;
   });
+}
+
+function migrateProjectMediaChain(chain, mediaKinds) {
+  return (chain || []).map((item) => {
+    if (item?.kind === "group") {
+      return {
+        ...item,
+        chain: migrateProjectMediaChain(item.chain || [], mediaKinds),
+      };
+    }
+    if (item?.kind !== "source") return item;
+    return {
+      ...item,
+      source: migrateProjectMediaSource(item.source, mediaKinds),
+    };
+  });
+}
+
+function migrateProjectMediaSource(source, mediaKinds) {
+  if (source?.type !== "media") return source;
+  const mediaId = String(source.mediaId || "");
+  const mediaKind = mediaKinds.get(mediaId) || "";
+  const model =
+    mediaKind === "model" ||
+    /\.(?:stl|obj)$/i.test(mediaId);
+  const {
+    type: _type,
+    mediaId: _mediaId,
+    start: _start,
+    end: _end,
+    speed: _speed,
+    params: sourceParams,
+    ...placement
+  } = source;
+  const params = {
+    ...(sourceParams && typeof sourceParams === "object" ? sourceParams : {}),
+    mediaId,
+  };
+  if (!model) {
+    params.start = Math.max(0, Number(source.start) || 0);
+    params.end = Math.max(0, Number(source.end) || 0);
+    params.speed = Math.max(0, Number(source.speed ?? 1) || 0);
+  }
+  return {
+    ...placement,
+    type: "generator",
+    generatorId: model ? "modelMedia" : "mediaImage",
+    params,
+  };
+}
+
+function migrateProjectMediaNodeProject(nodes, mediaKinds) {
+  if (!nodes || typeof nodes !== "object") return nodes;
+  const migrateNodes = (items) => (items || []).map((node) => {
+    const configuration = node?.configuration;
+    const directMedia =
+      configuration?.kind === "source" &&
+      configuration?.source?.type === "media";
+    const nextConfiguration = directMedia
+      ? {
+          ...configuration,
+          source: migrateProjectMediaSource(
+            configuration.source,
+            mediaKinds,
+          ),
+        }
+      : configuration;
+    const nested = Array.isArray(node?.nodes)
+      ? migrateNodes(node.nodes)
+      : node?.nodes;
+    if (!directMedia) {
+      return {
+        ...node,
+        ...(configuration ? { configuration: nextConfiguration } : {}),
+        ...(Array.isArray(node?.nodes) ? { nodes: nested } : {}),
+      };
+    }
+    const generatorId = nextConfiguration.source.generatorId;
+    const nodeId = `vj1.visual.generator.${generatorId}`;
+    const { compilerHook: _legacyCompilerHook, ...current } = node;
+    return {
+      ...current,
+      nodeId,
+      nodeVersion: "0.1.0",
+      ...(Object.hasOwn(node, "type") ? { type: nodeId } : {}),
+      ...(Object.hasOwn(node, "version") ? { version: "0.1.0" } : {}),
+      parameters: {
+        ...(node.parameters || {}),
+        ...(nextConfiguration.source.params || {}),
+      },
+      configuration: nextConfiguration,
+      ...(Array.isArray(node?.nodes) ? { nodes: nested } : {}),
+    };
+  });
+  return {
+    ...nodes,
+    groups: Array.isArray(nodes.groups)
+      ? nodes.groups.map((group) => ({
+          ...group,
+          ...(Array.isArray(group?.nodes)
+            ? { nodes: migrateNodes(group.nodes) }
+            : {}),
+        }))
+      : nodes.groups,
+  };
+}
+
+function migrateLegacyHostSourceChain(chain) {
+  return (chain || []).map((item) => {
+    if (item?.kind === "group") {
+      return {
+        ...item,
+        chain: migrateLegacyHostSourceChain(item.chain || []),
+      };
+    }
+    if (item?.kind !== "source") return item;
+    return {
+      ...item,
+      source: migrateLegacyHostSource(item.source),
+    };
+  });
+}
+
+function migrateLegacyHostSource(source) {
+  const generatorId = source?.type === "camera"
+    ? "cameraInput"
+    : source?.type === "black"
+      ? "black"
+      : "";
+  if (!generatorId) return source;
+  const {
+    type: _type,
+    mediaId: _mediaId,
+    componentId: _componentId,
+    generatorId: _generatorId,
+    params,
+    ...retained
+  } = source;
+  return {
+    ...retained,
+    type: "generator",
+    generatorId,
+    params: params && typeof params === "object" ? { ...params } : {},
+  };
+}
+
+function migrateLegacyHostSourceNodeProject(nodes) {
+  if (!nodes || typeof nodes !== "object") return nodes;
+  const migrateNodes = (items) => (items || []).map((node) => {
+    const configuration = node?.configuration;
+    const source = configuration?.kind === "source"
+      ? migrateLegacyHostSource(configuration.source)
+      : configuration?.source;
+    const changed = source && source !== configuration?.source;
+    const nextConfiguration = changed
+      ? { ...configuration, source }
+      : configuration;
+    const nested = Array.isArray(node?.nodes)
+      ? migrateNodes(node.nodes)
+      : node?.nodes;
+    if (!changed) {
+      return {
+        ...node,
+        ...(configuration ? { configuration: nextConfiguration } : {}),
+        ...(Array.isArray(node?.nodes) ? { nodes: nested } : {}),
+      };
+    }
+    const nodeId = `vj1.visual.generator.${source.generatorId}`;
+    const { compilerHook: _legacyCompilerHook, ...current } = node;
+    return {
+      ...current,
+      nodeId,
+      nodeVersion: "0.1.0",
+      ...(Object.hasOwn(node, "type") ? { type: nodeId } : {}),
+      ...(Object.hasOwn(node, "version") ? { version: "0.1.0" } : {}),
+      parameters: {
+        ...(node.parameters || {}),
+        ...(source.params || {}),
+      },
+      configuration: nextConfiguration,
+      ...(Array.isArray(node?.nodes) ? { nodes: nested } : {}),
+    };
+  });
+  return {
+    ...nodes,
+    groups: Array.isArray(nodes.groups)
+      ? nodes.groups.map((group) => ({
+          ...group,
+          ...(Array.isArray(group?.nodes)
+            ? { nodes: migrateNodes(group.nodes) }
+            : {}),
+        }))
+      : nodes.groups,
+  };
 }
 
 function migrateCanonicalEffectSurface(surface = {}) {

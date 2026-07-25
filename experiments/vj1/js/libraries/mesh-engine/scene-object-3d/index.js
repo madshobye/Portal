@@ -17,7 +17,15 @@ export const SceneObject3dNode = defineNode({
   },
   outlets: { object: { type: Object3dType } },
   execution: { trigger: "input-change", domain: "main", pure: true },
-  capabilities: ["scene-3d", "mesh-instance", "graph-placeable"],
-  presentation: { catalogs: ["graph", "mesh", "scene-3d"], placeableOn: ["node-graph"] },
+  capabilities: [
+    "scene-3d",
+    "mesh-instance",
+    "retained-value-provider",
+    "graph-placeable",
+  ],
+  presentation: {
+    catalogs: ["graph", "mesh", "scene-3d", "visual"],
+    placeableOn: ["visual-graph", "node-graph"],
+  },
   process: (inputs) => ({ object: createObject3d(inputs) }),
 });

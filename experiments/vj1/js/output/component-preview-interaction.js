@@ -1,5 +1,5 @@
 import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=async-media-dirty-1";
 import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
   surfaceBorderHit,
@@ -48,7 +48,7 @@ export class ComponentPreviewInteraction {
   renderComponentFrameOverlay(component, source = null) {
     const renderer = this.renderer;
     if (renderer.mode !== "component" || !component) return;
-    const frame = renderer.componentPreviewRect(component, source);
+    const frame = renderer.presentationRuntime.componentPreviewRect(component, source);
     const inset = 1.5;
     resetShader();
     push();
@@ -95,7 +95,7 @@ export class ComponentPreviewInteraction {
   sceneSurfaceRects(component, source = null) {
     if (component?.type !== "scene") return [];
     const renderer = this.renderer;
-    const preview = renderer.componentPreviewRect(component, source);
+    const preview = renderer.presentationRuntime.componentPreviewRect(component, source);
     const mapping = renderer.state?.mappings?.find((item) =>
       String(item.id) === String(renderer.state?.ui?.selectedMappingId || "")
     ) || renderer.state?.mappings?.[0] || null;
@@ -221,10 +221,11 @@ export class ComponentPreviewInteraction {
       if (selected && this.startChainTransformDrag(x, y)) return;
       if (selected) return;
     }
-    renderer.mapper?.mousePressed?.(x, y);
-    const surfaceIndex = Number(renderer.mapper?._dragSurf);
+    const mapper = renderer.mappingRuntime.mapper;
+    mapper?.mousePressed?.(x, y);
+    const surfaceIndex = Number(mapper?._dragSurf);
     const surfaceName = Number.isInteger(surfaceIndex) && surfaceIndex >= 0
-      ? renderer.mapper?.surfaces?.[surfaceIndex]?.name
+      ? mapper?.surfaces?.[surfaceIndex]?.name
       : "";
     if (surfaceName) renderer.onSurfaceSelect?.(surfaceName);
   }
@@ -232,7 +233,7 @@ export class ComponentPreviewInteraction {
   mouseDragged(x, y) {
     if (this.surfaceDrag) return this.updateSurfaceDrag(x, y);
     if (this.chainTransformDrag) return this.updateChainTransformDrag(x, y);
-    this.renderer.mapper?.mouseDragged?.(x, y);
+    this.renderer.mappingRuntime.mapper?.mouseDragged?.(x, y);
   }
 
   mouseReleased() {
@@ -268,14 +269,14 @@ export class ComponentPreviewInteraction {
       }
       return;
     }
-    renderer.mapper?.mouseReleased?.();
+    renderer.mappingRuntime.mapper?.mouseReleased?.();
   }
 
   startSurfaceDrag(x, y) {
     const renderer = this.renderer;
     const component = renderer.state?.components?.find((item) => item.id === renderer.state?.ui?.selectedComponentId);
     if (component?.type !== "scene") return false;
-    const source = renderer.componentOutput.get(component.id);
+    const source = renderer.resourceRuntime.componentOutput.get(component.id);
     const rects = this.sceneSurfaceRects(component, source);
     for (let index = rects.length - 1; index >= 0; index--) {
       const item = rects[index];
@@ -292,8 +293,8 @@ export class ComponentPreviewInteraction {
         mode: corner?.id || "move",
         startX: x,
         startY: y,
-        previewWidth: Math.max(1, renderer.componentPreviewRect(component, source).width),
-        previewHeight: Math.max(1, renderer.componentPreviewRect(component, source).height),
+        previewWidth: Math.max(1, renderer.presentationRuntime.componentPreviewRect(component, source).width),
+        previewHeight: Math.max(1, renderer.presentationRuntime.componentPreviewRect(component, source).height),
         sceneWidth: 1,
         sceneHeight: 1,
         rect: {
@@ -347,7 +348,7 @@ export class ComponentPreviewInteraction {
     const renderer = this.renderer;
     const component = renderer.state?.components?.find((item) => item.id === renderer.state?.ui?.selectedComponentId);
     if (!component?.chain?.length) return null;
-    const frame = renderer.componentPreviewRect(component, renderer.componentOutput.get(component.id));
+    const frame = renderer.presentationRuntime.componentPreviewRect(component, renderer.resourceRuntime.componentOutput.get(component.id));
     // Handles get an explicit first chance in mousePressed(). The body hit
     // itself must follow visual stacking order; giving the selected body
     // priority makes overlapping objects impossible to pick reliably.
@@ -413,7 +414,7 @@ export class ComponentPreviewInteraction {
     const selected = findChainItemById(component?.chain, renderer.state?.ui?.selectedChainItemId);
     if (!selected || selected.id === hit.id || !findChainItemById(hit.chain, selected.id)) return false;
     if (selected.kind !== "group" && !isPhysicalChainItem(selected)) return false;
-    const frame = renderer.componentPreviewRect(component, renderer.componentOutput.get(component.id));
+    const frame = renderer.presentationRuntime.componentPreviewRect(component, renderer.resourceRuntime.componentOutput.get(component.id));
     return this.pointInChainItemHitArea(component, selected, frame, x, y);
   }
 
@@ -458,14 +459,14 @@ export class ComponentPreviewInteraction {
     );
     // Handles live inside the final p5 viewport transform. Counter-scale their
     // geometry and hit radius so zoom changes the artwork, not the controls.
-    const viewportZoom = Math.max(0.1, Number(this.renderer.previewViewportTransform?.().zoom) || 1);
+    const viewportZoom = Math.max(0.1, Number(this.renderer.presentationGeometry?.viewportTransform?.().zoom) || 1);
     return canvasScale / viewportZoom;
   }
 
   chainItemPreviewGeometry(component, item) {
     if (!component || !item) return null;
     const renderer = this.renderer;
-    const frame = renderer.componentPreviewRect(component, renderer.componentOutput.get(component.id));
+    const frame = renderer.presentationRuntime.componentPreviewRect(component, renderer.resourceRuntime.componentOutput.get(component.id));
     const baseRect = this.chainItemBaseRect(component, item, frame);
     const context = findChainItemTransformContext(component.chain, item.id);
     const localTransform = normalizedContentTransform(item.transform);
@@ -562,23 +563,31 @@ export class ComponentPreviewInteraction {
   applyLocalChainTransform(componentId, itemId, transform) {
     const renderer = this.renderer;
     renderer.state = stateWithChainItemTransform(renderer.state, componentId, itemId, transform);
-    renderer.refreshComponentLookup?.(componentId);
+    renderer.componentProgramRuntime.refreshLookup(componentId);
     const component = renderer.state?.components?.find((entry) => entry.id === componentId);
     const item = findChainItemById(component?.chain, itemId);
     // Compiled Component programs intentionally avoid traversing project node
     // metadata in the frame loop. During a preview drag, patch only the one
     // materialized chain item so the local pointer overlay remains immediate;
     // waiting for the RAF-coalesced store echo makes motion visibly stair-step.
-    if (item) renderer.componentPrograms?.get?.(componentId)?.replaceChainItem?.(itemId, item);
+    if (item) {
+      renderer.componentProgramRuntime.programs
+        .get(componentId)
+        ?.replaceChainItem?.(itemId, item);
+    }
   }
 
   applyLocalChainBoundary(componentId, itemId, boundary) {
     const renderer = this.renderer;
     renderer.state = stateWithChainItemBoundary(renderer.state, componentId, itemId, boundary);
-    renderer.refreshComponentLookup?.(componentId);
+    renderer.componentProgramRuntime.refreshLookup(componentId);
     const component = renderer.state?.components?.find((entry) => entry.id === componentId);
     const item = findChainItemById(component?.chain, itemId);
-    if (item) renderer.componentPrograms?.get?.(componentId)?.replaceChainItem?.(itemId, item);
+    if (item) {
+      renderer.componentProgramRuntime.programs
+        .get(componentId)
+        ?.replaceChainItem?.(itemId, item);
+    }
   }
 
   reconcileIncomingState(nextState) {

@@ -16,10 +16,12 @@ import {
   sceneSourceNodeId,
 } from "../js/domain/models.js?v=world-frame-27";
 import { compileLiveProjectionProgram } from "../js/domain/live-projection-program.js?v=live-projection-program-1";
+import { liveSurfaceVisible } from "../js/domain/live-ui-state.js";
 import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
-import { compileComponentPatch } from "../js/graph/render-scheduler.js?v=world-frame-27";
+import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js?v=compiled-program-projection-1";
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
 import { DataStoreNode, ObservableDataStore } from "../js/libraries/data-store/data-store/index.js";
+import { isMappingProjectionPresentation } from "../js/output/output-presentation-runtime.js";
 
 test("one immutable-style state snapshot is shared across subscribers per emission", () => {
   const store = createAppState(createInitialState());
@@ -94,9 +96,18 @@ test("workspace navigation is a structurally shared UI command, not a project au
 });
 
 test("Live projection inspection is UI-only and does not reroute the program", () => {
-  const store = createAppState(createInitialState());
+  const initial = createInitialState();
+  const scene = createSceneComponent(0, initial.components[0].id);
+  initial.components.push(scene);
+  initial.ui.workspace = "live";
+  initial.ui.live.selectedSceneId = scene.id;
+  initial.ui.live.selectedComponentId = scene.id;
+  const store = createAppState(initial);
   const before = store.getState();
   const surface = before.mappings[0].surfaces.find((item) => item.destination?.type !== "direct");
+  store.updateUi((ui) => {
+    ui.previewViewports.live = { zoom: 2.5, x: 120, y: -80, fit: "manual" };
+  }, "test:manual-live-preview-view");
   let observedEvent = null;
   store.subscribe((_state, _reason, event) => { observedEvent = event; });
 
@@ -107,8 +118,138 @@ test("Live projection inspection is UI-only and does not reroute the program", (
   assert.equal(observedEvent.scope, "ui");
   assert.equal(after.ui.live.previewSurfaceId, surface.id);
   assert.equal(after.ui.live.patchSourceId, "");
+  assert.deepEqual(after.ui.previewViewports.live, { zoom: 1, x: 0, y: 0, fit: "frame" });
   assert.deepEqual(after.mappings, before.mappings);
   assert.deepEqual(compileLiveProjectionProgram(after).currentRoutes, compileLiveProjectionProgram(before).currentRoutes);
+  assert.deepEqual(
+    createLiveScenePreviewState(after).surfaces,
+    compileLiveProjectionProgram(after).currentRoutes.surfaces,
+    "an output selection presents the real compiled output program on the retained Preview canvas",
+  );
+  const preview = createLiveScenePreviewState(after);
+  assert.equal(preview.livePreviewPresentation, "mapping");
+  assert.equal(preview.ui.selectedSurfaceId, surface.id);
+  assert.equal(isMappingProjectionPresentation({ mode: "live", state: preview }), true);
+});
+
+test("Scene Mapping preview monitors its mounted source while guiding the compiled output matrix", () => {
+  const state = createInitialState();
+  const scene = createSceneComponent(0, state.components[0].id);
+  state.components.push(scene);
+  state.ui.workspace = "live";
+  state.ui.live.selectedSceneId = scene.id;
+  state.ui.live.selectedComponentId = scene.id;
+  state.ui.live.previewSurfaceId = "__mapping__";
+  const program = compileLiveProjectionProgram(state);
+  const preview = createLiveScenePreviewState(state);
+
+  assert.equal(preview.surfaces.length, 1, "Scene Mapping uses one retained source-monitor route");
+  assert.equal(preview.surfaces[0].componentId, scene.id);
+  assert.equal(preview.livePreviewPresentation, "scene");
+  assert.equal(isMappingProjectionPresentation({ mode: "live", state: preview }), false);
+  assert.deepEqual(
+    preview.livePreviewGuideSurfaces,
+    program.currentRoutes.surfaces,
+    "the monitor guides come from the same compiled matrix used by Output",
+  );
+});
+
+test("Live output matrix presentation remains fixed across row selection and Scene changes", () => {
+  const state = createInitialState();
+  const firstScene = createSceneComponent(0, state.components[0].id);
+  const secondScene = createSceneComponent(1, state.components[0].id);
+  state.components.push(firstScene, secondScene);
+  state.ui.workspace = "live";
+  state.ui.live.selectedSceneId = firstScene.id;
+  state.ui.live.selectedComponentId = firstScene.id;
+  state.ui.live.previewSurfaceId = "__mapping__";
+  const store = createAppState(state);
+  const mapping = store.getState().mappings[0];
+  const direct = mapping.surfaces.find((surface) => surface.destination?.type === "direct");
+  const projected = mapping.surfaces.find((surface) => surface.destination?.type !== "direct");
+
+  const assertFlatSceneMapping = (sceneId) => {
+    const preview = createLiveScenePreviewState(store.getState());
+    assert.equal(preview.livePreviewPresentation, "scene");
+    assert.equal(preview.surfaces.length, 1);
+    assert.equal(preview.surfaces[0].destination?.type, "direct");
+    assert.equal(preview.surfaces[0].componentId, sceneId);
+    assert.equal(preview.ui.selectedSurfaceId, "");
+    assert.equal(isMappingProjectionPresentation({ mode: "live", state: preview }), false);
+    if (preview.liveTransition) {
+      assert.equal(preview.liveTransition.fromState.livePreviewPresentation, "scene");
+      assert.equal(preview.liveTransition.fromState.surfaces.length, 1);
+    }
+  };
+  const assertProjectedOutput = (surfaceId) => {
+    const authored = store.getState();
+    const preview = createLiveScenePreviewState(authored);
+    assert.equal(preview.livePreviewPresentation, "mapping");
+    assert.deepEqual(preview.surfaces, compileLiveProjectionProgram(authored).currentRoutes.surfaces);
+    assert.equal(preview.ui.selectedSurfaceId, surfaceId);
+    assert.equal(isMappingProjectionPresentation({ mode: "live", state: preview }), true);
+  };
+
+  assertFlatSceneMapping(firstScene.id);
+  store.selectLivePreviewSurface(direct.id);
+  assertProjectedOutput(direct.id);
+  store.selectLivePreviewSurface(projected.id);
+  assertProjectedOutput(projected.id);
+  store.selectLivePreviewSurface("__mapping__");
+  assertFlatSceneMapping(firstScene.id);
+
+  store.selectLiveScene(secondScene.id);
+  assert.equal(store.getState().ui.live.previewSurfaceId, "__mapping__");
+  assertFlatSceneMapping(secondScene.id);
+
+  store.selectLivePreviewSurface(projected.id);
+  assertProjectedOutput(projected.id);
+  store.selectLivePreviewSurface(direct.id);
+  assertProjectedOutput(direct.id);
+});
+
+test("Live source selection targets exactly the selected output-matrix row", () => {
+  const state = createInitialState();
+  const overallScene = createSceneComponent(0, state.components[0].id);
+  const directScene = createSceneComponent(1, state.components[0].id);
+  const directComponent = createDefaultComponent(2);
+  state.components.push(overallScene, directScene, directComponent);
+  state.ui.live.selectedSceneId = overallScene.id;
+  state.ui.live.selectedComponentId = overallScene.id;
+  state.ui.live.previewSurfaceId = "__mapping__";
+  const store = createAppState(state);
+  const mapping = store.getState().mappings[0];
+  const selectedSurface = mapping.surfaces.find((surface) => surface.destination?.type !== "direct");
+  const fallbackSurface = mapping.surfaces.find((surface) =>
+    surface.id !== selectedSurface.id && surface.destination?.type !== "direct"
+  );
+
+  store.selectLivePreviewSurface(selectedSurface.id);
+  store.selectLiveComponent(directComponent.id);
+  let current = store.getState();
+  let routes = compileLiveProjectionProgram(current).currentRoutes.surfaces;
+  assert.equal(current.ui.live.selectedComponentId, overallScene.id);
+  assert.equal(current.ui.live.surfacePatches[selectedSurface.id], directComponent.id);
+  assert.equal(routes.find((route) => route.id === selectedSurface.id).componentId, directComponent.id);
+  assert.equal(routes.find((route) => route.id === fallbackSurface.id).componentId, overallScene.id);
+
+  store.selectLiveScene(directScene.id);
+  current = store.getState();
+  routes = compileLiveProjectionProgram(current).currentRoutes.surfaces;
+  assert.equal(current.ui.live.selectedComponentId, overallScene.id);
+  assert.equal(current.ui.live.surfacePatches[selectedSurface.id], directScene.id);
+  assert.equal(routes.find((route) => route.id === selectedSurface.id).componentId, directScene.id);
+  assert.equal(routes.find((route) => route.id === fallbackSurface.id).componentId, overallScene.id);
+
+  store.selectLivePreviewSurface("__mapping__");
+  store.selectLiveComponent(directComponent.id);
+  current = store.getState();
+  routes = compileLiveProjectionProgram(current).currentRoutes.surfaces;
+  assert.equal(current.ui.live.selectedComponentId, directComponent.id);
+  assert.equal(current.ui.live.surfacePatches[selectedSurface.id], directScene.id);
+  assert.equal(routes.find((route) => route.id === selectedSurface.id).componentId, directScene.id);
+  assert.equal(routes.find((route) => route.id === fallbackSurface.id).componentId, directComponent.id);
+  assert.equal(routes.find((route) => route.id === fallbackSurface.id).sceneCrop, true);
 });
 
 test("Live Surface visibility changes only the routed program and survives source changes", () => {
@@ -137,7 +278,7 @@ test("Live Surface visibility changes only the routed program and survives sourc
   assert.equal(createLiveRenderState(after).surfaces.find((item) => item.id === surface.id).enabled, false);
 });
 
-test("Scene Mapping visibility detaches Overall routes but preserves patched Surfaces and direct visibility", () => {
+test("Scene Mapping visibility removes only fallback routes while preserving direct mounts and row state", () => {
   const state = createInitialState();
   const scene = createSceneComponent(0, state.components[0].id);
   const patchComponent = createDefaultComponent(2);
@@ -152,41 +293,37 @@ test("Scene Mapping visibility detaches Overall routes but preserves patched Sur
   store.selectLiveComponent(patchComponent.id);
   store.selectLivePreviewSurface("__mapping__");
   const routesBefore = compileLiveProjectionProgram(store.getState()).currentRoutes;
+  const visibilityBefore = structuredClone(store.getState().ui.live.surfaceVisibility);
+  const patchesBefore = structuredClone(store.getState().ui.live.surfacePatches);
   assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
 
   let after = store.getState();
   assert.equal(after.ui.live.sceneMappingVisible, false);
+  assert.deepEqual(after.ui.live.surfaceVisibility, visibilityBefore);
+  assert.deepEqual(after.ui.live.surfacePatches, patchesBefore);
   assert.equal(after.ui.live.previewSurfaceId, "__mapping__", "route visibility does not change the selected Live output");
   assert.equal(after.ui.live.selectedComponentId, scene.id, "the overall source remains selected");
   assert.equal(after.ui.live.transition, null, "visibility changes do not create a transition snapshot");
-  assert.equal(createLiveScenePreviewState(after).surfaces[0].componentId, "", "only the Scene Mapping monitor is blank");
-  const hiddenOutput = createLiveRenderState(after);
+  assert.equal(createLiveScenePreviewState(after).surfaces[0].componentId, "", "the Scene Mapping monitor is blank");
+  const hiddenRoutes = compileLiveProjectionProgram(after).currentRoutes.surfaces;
   assert.equal(
-    hiddenOutput.surfaces.find((item) => item.id === patchedSurface.id).enabled,
-    true,
-    "an explicitly patched Surface stays independently visible"
+    hiddenRoutes.find((item) => item.id === patchedSurface.id).componentId,
+    patchComponent.id,
+    "an explicitly mounted Surface remains independent of Scene Mapping",
   );
   assert.equal(
-    hiddenOutput.surfaces
-      .filter((item) => item.id !== patchedSurface.id && item.destination?.type !== "direct")
-      .every((item) => item.enabled === false),
+    hiddenRoutes.find((item) => item.id === patchedSurface.id).enabled,
     true,
-    "unpatched mapped Overall routes are hidden in the Output program"
+    "the explicitly mounted Surface retains its own visibility",
   );
   assert.equal(
-    hiddenOutput.surfaces
-      .filter((item) => item.destination?.type === "direct")
-      .every((item) => item.enabled === routesBefore.surfaces.find((before) => before.id === item.id)?.enabled),
-    true,
-    "direct outputs retain their independent visibility state"
-  );
-  assert.equal(
-    hiddenOutput.surfaces
-      .filter((item) => item.destination?.type === "direct")
+    hiddenRoutes
+      .filter((item) => item.id !== patchedSurface.id)
       .every((item) => item.componentId === "" && item.sourceNodeId === ""),
     true,
-    "unpatched direct outputs do not inherit the disabled Scene Mapping source"
+    "every unpatched destination detaches the indirect Scene Mapping source",
   );
+  assert.deepEqual(createLiveRenderState(after).surfaces, hiddenRoutes);
 
   assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
   after = store.getState();
@@ -197,7 +334,7 @@ test("Scene Mapping visibility detaches Overall routes but preserves patched Sur
   assert.equal(createLiveRenderState(after).surfaces.some((item) => item.enabled !== false), true);
 });
 
-test("hiding Scene Mapping leaves direct outputs independently toggleable without leaking the Overall source", () => {
+test("Scene Mapping and Surface visibility state are independent while fallback routing is gated", () => {
   const state = createInitialState();
   const scene = createSceneComponent(0, state.components[0].id);
   const patchComponent = createDefaultComponent(2);
@@ -217,12 +354,12 @@ test("hiding Scene Mapping leaves direct outputs independently toggleable withou
   assert.equal(
     compileLiveProjectionProgram(store.getState()).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).enabled,
     true,
-    "Scene Mapping is not a master switch for direct outputs",
+    "Scene Mapping is not a master switch for Direct Output",
   );
   assert.equal(
     compileLiveProjectionProgram(store.getState()).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).componentId,
     "",
-    "the enabled direct output is transparent without an explicit source patch",
+    "an unpatched Direct Output loses the indirect Overall source",
   );
 
   assert.equal(store.toggleLiveSurfaceVisibility(directOutput.id), true);
@@ -249,7 +386,7 @@ test("hiding Scene Mapping leaves direct outputs independently toggleable withou
   assert.equal(
     createLiveRenderState(after).surfaces.find((surface) => surface.id === directOutput.id).componentId,
     "",
-    "re-enabling the direct output does not restore the hidden Overall source",
+    "re-enabling the row does not silently restore a disabled fallback source",
   );
 
   store.selectLivePreviewSurface(directOutput.id);
@@ -266,7 +403,7 @@ test("hiding Scene Mapping leaves direct outputs independently toggleable withou
   assert.equal(
     compileLiveProjectionProgram(after).currentRoutes.surfaces.find((surface) => surface.id === directOutput.id).componentId,
     "",
-    "removing the explicit patch returns to transparent while Scene Mapping is hidden",
+    "removing the explicit mount returns to transparent while Scene Mapping is disabled",
   );
 
   assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
@@ -278,7 +415,40 @@ test("hiding Scene Mapping leaves direct outputs independently toggleable withou
   );
 });
 
-test("hiding Scene Mapping suppresses an in-flight Overall transition endpoint", () => {
+test("restored hidden Scene Mapping cannot make an unpatched Surface eye inherit route transparency", () => {
+  const state = createInitialState();
+  const scene = createSceneComponent(0, state.components[0].id);
+  state.components.push(scene);
+  state.ui.live.selectedSceneId = scene.id;
+  state.ui.live.selectedComponentId = scene.id;
+  state.ui.live.sceneMappingVisible = false;
+  const store = createAppState(state);
+  const surface = store.getState().mappings[0].surfaces
+    .find((candidate) => candidate.destination?.type !== "direct" && candidate.enabled !== false);
+
+  assert.ok(surface);
+  assert.equal(
+    compileLiveProjectionProgram(store.getState()).currentRoutes.surfaces
+      .find((route) => route.id === surface.id).enabled,
+    false,
+    "the indirect route is transparent",
+  );
+  assert.equal(store.getState().ui.live.surfaceVisibility[surface.id], undefined);
+  assert.equal(
+    liveSurfaceVisible(surface, store.getState().ui.live),
+    true,
+    "the row eye still follows its Mapping default after refresh",
+  );
+
+  assert.equal(store.toggleLiveSurfaceVisibility(surface.id), true);
+  assert.equal(
+    store.getState().ui.live.surfaceVisibility[surface.id],
+    false,
+    "the first click after refresh hides the row instead of recreating an already-visible override",
+  );
+});
+
+test("hiding Scene Mapping suppresses its fallback routes and Overall transition", () => {
   const state = createInitialState();
   const firstScene = createSceneComponent(0, state.components[0].id);
   const secondScene = createSceneComponent(1, state.components[0].id);
@@ -294,6 +464,7 @@ test("hiding Scene Mapping suppresses an in-flight Overall transition endpoint",
 
   const program = compileLiveProjectionProgram(store.getState());
   assert.equal(program.transition, null);
+  assert.equal(program.previewTransition, null);
   assert.equal(
     program.currentRoutes.surfaces
       .filter((surface) => !store.getState().ui.live.surfacePatches?.[surface.id])
@@ -333,7 +504,11 @@ test("Mapping sets the Scene Mapping default while Live can override its current
   let state = store.getState();
   assert.equal(state.ui.live.sceneMappingInLive, false);
   assert.equal(state.ui.live.sceneMappingVisible, false);
-  assert.equal(state.ui.live.previewSurfaceId, directSurface.id);
+  assert.equal(
+    state.ui.live.previewSurfaceId,
+    directSurface.id,
+    "when the fallback source is disabled, Live selects an independently visible destination",
+  );
 
   assert.equal(store.toggleLiveSurfaceVisibility("__mapping__"), true);
   state = store.getState();
@@ -461,6 +636,34 @@ test("Live Overall keeps Scene presentation geometry while covering an ordinary 
   assert.equal(preview.surfaces[0].sourceFit, "cover");
   assert.equal(preview.surfaces[0].sourceFitActive, true);
   assert.notEqual(preview.surfaces[0].sourceAspect, 16 / 9);
+});
+
+test("mixed-aspect Overall transitions keep both endpoints inside one temporary Scene", () => {
+  const state = createInitialState();
+  state.render.sceneAspectRatio = 16 / 9;
+  state.ui.live.transitionDuration = 1;
+  state.ui.live.previewSurfaceId = "__mapping__";
+  const scene = createSceneComponent(0, state.components[0].id);
+  const portrait = createDefaultComponent(2);
+  portrait.frameShape = "portrait";
+  state.components.push(scene, portrait);
+  const store = createAppState(state);
+
+  store.selectLiveScene(scene.id);
+  store.selectLiveComponent(portrait.id);
+  const preview = createLiveScenePreviewState(store.getState());
+
+  assert.equal(preview.livePreviewPresentation, "scene");
+  assert.equal(preview.render.outputs[0].aspectRatio, 16 / 9);
+  assert.equal(preview.surfaces.length, 1);
+  assert.equal(preview.surfaces[0].componentId, portrait.id);
+  assert.equal(preview.surfaces[0].sourceFit, "cover");
+  assert.equal(preview.surfaces[0].sourceFitActive, true);
+  assert.ok(preview.liveTransition);
+  assert.equal(preview.liveTransition.fromState.livePreviewPresentation, "scene");
+  assert.equal(preview.liveTransition.fromState.render.outputs[0].aspectRatio, 16 / 9);
+  assert.equal(preview.liveTransition.fromState.surfaces.length, 1);
+  assert.equal(preview.liveTransition.fromState.surfaces[0].componentId, scene.id);
 });
 
 test("Live transition snapshots retain source routes but use current Surface geometry", () => {
@@ -725,8 +928,36 @@ test("new media elements keep their catalog-derived name out of project properti
 
   const added = store.getState().components
     .find((item) => item.id === component.id)
-    .chain.find((item) => item.source?.mediaId === "media/collections/projector/plate.png");
+    .chain.find((item) => item.source?.params?.mediaId === "media/collections/projector/plate.png");
   assert.equal(added.name, "");
+  assert.equal(added.source.generatorId, "mediaImage");
+  assert.equal(added.source.type, "generator");
+});
+
+test("state normalization keeps Camera and Black as semantic visual generators", () => {
+  const initial = createInitialState();
+  const component = initial.components.find((item) => item.type !== "scene");
+  const store = createAppState(initial);
+
+  store.addChainSource(component.id, {
+    type: "camera",
+    instanceId: "camera-instance",
+    params: { fit: "cover" },
+  });
+  store.addChainSource(component.id, {
+    type: "black",
+    instanceId: "black-instance",
+  });
+
+  const sources = store.getState().components
+    .find((item) => item.id === component.id)
+    .chain.map((item) => item.source);
+  assert.equal(sources.at(-2).type, "generator");
+  assert.equal(sources.at(-2).generatorId, "cameraInput");
+  assert.equal(sources.at(-2).params.fit, "cover");
+  assert.equal(sources.at(-1).type, "generator");
+  assert.equal(sources.at(-1).generatorId, "black");
+  assert.equal(sources.some((source) => ["camera", "black"].includes(source?.type)), false);
 });
 
 test("runtime metrics update without passing through project state normalization", () => {
@@ -1266,7 +1497,8 @@ test("adding a generator inserts a visible chain element without replacing media
 
   assert.equal(chain.length, 3);
   assert.equal(chain[0].kind, "source");
-  assert.equal(chain[0].source.mediaId, "models/head.stl");
+  assert.equal(chain[0].source.generatorId, "modelMedia");
+  assert.equal(chain[0].source.params.mediaId, "models/head.stl");
   assert.equal(chain[1].kind, "source");
   assert.equal(chain[1].source.generatorId, "gradient");
   assert.equal(chain[1].source.params.colorA, "#ff4f92ff");
@@ -1489,7 +1721,7 @@ test("component chain compiles as one accumulated image pipeline", () => {
   assert.equal(compositor.inputs.length, 1);
   assert.deepEqual(
     compositor.inputs[0].effectComponentIds,
-    ["eyeball", "source.media", "pixelate"]
+    ["eyeball", "modelMedia", "pixelate"]
   );
 });
 
@@ -1587,6 +1819,14 @@ test("thumbnail replacement publishes atomically without clearing the previous d
   assert.equal(store.getState().components[0].thumbnail, "blob:replacement");
   assert.equal(events.at(-1).scope, "derived");
   assert.equal(events.at(-1).history, "none");
+  assert.deepEqual(events.at(-1).projection, {
+    kind: "component-thumbnails",
+    entries: [{
+      componentId,
+      surfaceId: "",
+      url: "blob:replacement",
+    }],
+  }, "runtime-generated thumbnails must carry the same narrow UI projection as restored thumbnail batches");
 });
 
 test("mapping feedback updates only the mapping slice while retaining project history semantics", () => {

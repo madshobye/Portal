@@ -1,13 +1,17 @@
 import { ComponentProgramNode } from "../component-program/index.js?v=compiler-template-authority-1";
 import { LayerGroupNode } from "../layer-group/index.js?v=compiler-template-authority-1";
 import { VisualSourceNode, visualSourceRenderer } from "../visual-source/index.js";
+import {
+  canonicalizeAuthoredVisualChain,
+  canonicalizeAuthoredVisualSource,
+} from "./authored-visual-source.js";
 import { defineNodeCompiler, NodeCompilerRegistry, NODE_COMPILER_TARGETS } from "../../node-engine/index.js";
 import {
   defineVisualNodeContract,
   visualNodeContractFromMetadata,
   VISUAL_TRANSFORM_DOMAINS,
 } from "../../render-engine/visual-node-contract.js";
-import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=mesh-pattern-node-authority-1";
+import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=mesh-geometry-detail-2";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";
@@ -94,12 +98,18 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
   // Persisted graph configuration wins on load and after graph edits. The
   // chain remains a materialized compatibility view for the current product
   // UI; it is not a second persisted authority.
+  const definitions = options.definitions || new Map();
+  const nodes = annotateComponentCompositionTopology(
+    refreshVisualCompilerHooks(existingGroup.nodes || [], definitions),
+    definitions,
+  );
   const group = {
     ...existingGroup,
     componentId: String(component.id || ""),
     artifactType: component.type === "scene" ? "scene" : "component",
     name: component.name || (component.type === "scene" ? "Scene" : "Component"),
-    nodes: refreshVisualCompilerHooks(existingGroup.nodes || [], options.definitions || new Map()),
+    nodes,
+    connections: markCompositionConnections(existingGroup.connections || [], nodes, definitions),
     projectionSignature: graphSignature,
   };
   return {
@@ -174,13 +184,46 @@ export function compileComponentRenderPrograms(components = [], groups = [], {
     .map((group) => [group.componentId, group]));
   const componentById = new Map((components || []).map((component) => [String(component.id || ""), component]));
   const compileComponent = (component) => {
+    const semanticComponent = {
+      ...component,
+      chain: canonicalizeAuthoredVisualChain(component.chain || []),
+    };
     // Old project snapshots are upgraded in memory at the compilation
     // boundary. Rendering therefore always consumes a Component program and
     // never needs a second raw-chain execution path.
-    const group = groupByComponent.get(String(component.id || "")) || compileComponentGroupTopology(component);
+    let storedGroup =
+      groupByComponent.get(String(component.id || "")) ||
+      compileComponentGroupTopology(component);
+    storedGroup = canonicalizeStoredVisualSourceNodes(storedGroup);
+    const definitions = componentGroupDefinitions(
+      storedGroup,
+      resolveNodeDefinition,
+    );
+    if (storedGroup.compactTopology === true) {
+      storedGroup = hydrateCompactComponentGroup(
+        storedGroup,
+        definitions,
+      );
+    }
+    // Generated topology can be created before the visual catalog is
+    // available, in which case it carries only a generic source hook. Once
+    // definitions are resolved, their executable compiler contracts are
+    // authoritative. Refresh them before compilation so compound generators
+    // publish their actual child graph, readiness, and invalidation instead
+    // of remaining opaque source-runtime wrappers until a later graph edit.
+    // Unresolved project/package definitions retain their stored hook.
+    const nodes = annotateComponentCompositionTopology(
+      refreshVisualCompilerHooks(storedGroup.nodes || [], definitions),
+      definitions,
+    );
+    const group = {
+      ...storedGroup,
+      nodes,
+      connections: markCompositionConnections(storedGroup.connections || [], nodes, definitions),
+    };
     return [component.id, componentCompilerRegistry.compile(group, {
       target: NODE_COMPILER_TARGETS.VISUAL,
-      component,
+      component: semanticComponent,
       resolveNodeDefinition,
     })];
   };
@@ -208,28 +251,121 @@ export function compileComponentRenderPrograms(components = [], groups = [], {
   return programs;
 }
 
+function canonicalizeStoredVisualSourceNodes(group = {}) {
+  const visit = (nodes = []) => {
+    let changedNodes = false;
+    const semanticNodes = nodes.map((node) => {
+    const configuration = node?.configuration;
+    const source = configuration?.kind === "source"
+      ? canonicalizeAuthoredVisualSource(configuration.source)
+      : null;
+    const sourceChanged = source && source !== configuration.source;
+    const childNodes = Array.isArray(node?.nodes)
+      ? visit(node.nodes)
+      : node?.nodes;
+    const childrenChanged = childNodes !== node?.nodes;
+    if (!sourceChanged && !childrenChanged) return node;
+    changedNodes = true;
+    const nextConfiguration = sourceChanged
+      ? { ...configuration, source }
+      : configuration;
+    const nextNodeId = sourceChanged
+      ? nodeTypeForItem(nextConfiguration)
+      : node.nodeId;
+    const semanticNode = sourceChanged
+      ? Object.fromEntries(
+          Object.entries(node || {}).filter(([key]) => key !== "compilerHook"),
+        )
+      : node;
+    return {
+      ...semanticNode,
+      nodeId: nextNodeId,
+      ...(sourceChanged ? {
+        nodeVersion: "0.1.0",
+        parameters: {
+          ...(node.parameters || {}),
+          ...(source.params || {}),
+          sourceType: source.type,
+          mediaId: source.params?.mediaId || "",
+          componentId: source.componentId || "",
+        },
+      } : {}),
+      ...(nextConfiguration ? { configuration: nextConfiguration } : {}),
+      ...(Array.isArray(childNodes)
+        ? { nodes: childNodes }
+        : {}),
+    };
+    });
+    return changedNodes ? semanticNodes : nodes;
+  };
+  const nodes = visit(group.nodes || []);
+  if (nodes === group.nodes) return group;
+  return {
+    ...group,
+    nodes,
+  };
+}
+
+function componentGroupDefinitions(group, resolveNodeDefinition) {
+  const definitions = new Map();
+  if (typeof resolveNodeDefinition !== "function") return definitions;
+  const visit = (nodes = []) => {
+    for (const node of nodes) {
+      const definition = resolveNodeDefinition(node);
+      if (definition) definitions.set(String(node.nodeId || ""), definition);
+      visit(node.nodes || []);
+    }
+  };
+  visit(group?.nodes || []);
+  return definitions;
+}
+
 export class CompiledComponentRenderProgram {
   constructor(group, component, { resolveNodeDefinition = null } = {}) {
     this.id = group.id;
     this.componentId = group.componentId;
     this.group = group;
     this.plan = compileVisualRenderPlan(group, component, { resolveDefinition: resolveNodeDefinition });
-    this.chain = visualRenderPlanConfiguration(this.plan);
+    // Persisted generated control nodes are a compiled projection, not an
+    // authority for current Component values. Reconcile them before the first
+    // frame just as live configuration patches do; otherwise a stale projected
+    // value can temporarily overwrite the materialized operation it controls.
+    this.plan.controlProgram?.syncGeneratedControlsFromConfiguration?.();
+    this.configurationProjection = visualRenderPlanConfiguration(this.plan);
     this.generatedBy = COMPONENT_PROGRAM_GENERATOR;
   }
 
   execute(renderHost, component, componentTime, renderRequest, scopeId = component.id) {
-    if (typeof renderHost.executeVisualRenderPlan !== "function") throw new Error("VJ1_VISUAL_RENDER_PLAN_HOST_MISSING");
-    return renderHost.executeVisualRenderPlan(this.plan, component, componentTime, renderRequest, scopeId);
+    const runtime = renderHost?.visualPlanRuntime;
+    if (typeof runtime?.execute !== "function") throw new Error("VJ1_VISUAL_PLAN_CAPABILITY_REQUIRED");
+    return runtime.execute(this.plan, component, componentTime, renderRequest, scopeId);
   }
 
   replaceChainItem(itemId, nextItem) {
-    const result = replaceMaterializedChainItem(this.chain, String(itemId || ""), nextItem);
+    const result = replaceMaterializedChainItem(this.configurationProjection, String(itemId || ""), nextItem);
     if (result.changed) {
-      this.chain = result.chain;
+      this.configurationProjection = result.chain;
       this.plan.replaceConfiguration(itemId, nextItem);
     }
     return result.changed;
+  }
+
+  syncProjectedConfiguration(component = {}) {
+    let changed = false;
+    const visit = (chain = []) => {
+      for (const item of chain || []) {
+        if (!item?.id) continue;
+        changed = this.replaceChainItem(item.id, item) || changed;
+        if (item.kind === "group") visit(item.chain || []);
+      }
+    };
+    visit(component.chain || []);
+    if (changed) this.syncGeneratedControlsFromConfiguration();
+    return changed;
+  }
+
+  configurationState() {
+    return this.configurationProjection;
   }
 
   syncGeneratedControlsFromConfiguration() {
@@ -295,7 +431,11 @@ function refreshVisualCompilerHooks(nodes, definitions) {
   return (nodes || []).map((node) => {
     const definition = definitions.get(node.nodeId);
     const configuration = node.configuration || { kind: node.role };
-    const compilerHook = definition || node.role === "group"
+    const renderNode =
+      node.role === "source" ||
+      node.role === "effect" ||
+      node.role === "group";
+    const compilerHook = renderNode && (definition || node.role === "group")
       ? visualCompilerHookFor(configuration, definition)
       : node.compilerHook;
     return {
@@ -414,10 +554,36 @@ function linearConnections(nodes = [], definitions = new Map()) {
       from: index === 0 ? "$in.texture" : `${renderNodes[index - 1].id}.texture`,
       to: `${renderNodes[index].id}.${textureInletId(renderNodes[index], definitions)}`,
       type: "texture",
+      semantic: "composition",
     });
   }
   if (renderNodes.length) connections.push({ from: `${renderNodes[renderNodes.length - 1].id}.texture`, to: "$out.texture", type: "texture" });
   return connections;
+}
+
+function annotateComponentCompositionTopology(nodes = [], definitions = new Map()) {
+  return (nodes || []).map((node) => {
+    if (!node.nodes) return node;
+    const children = annotateComponentCompositionTopology(node.nodes, definitions);
+    return {
+      ...node,
+      nodes: children,
+      connections: markCompositionConnections(node.connections || [], children, definitions),
+    };
+  });
+}
+
+function markCompositionConnections(connections = [], nodes = [], definitions = new Map()) {
+  const renderNodes = nodes.filter((node) => node.role !== "control");
+  const canonical = new Set(renderNodes.map((node, index) => (
+    `${index === 0 ? "$in" : renderNodes[index - 1].id}\u0000${node.id}`
+  )));
+  return (connections || []).map((edge) => (
+    edge.semantic ||
+    !canonical.has(`${String(edge.from || "").split(".")[0]}\u0000${String(edge.to || "").split(".")[0]}`)
+      ? edge
+      : { ...edge, semantic: "composition" }
+  ));
 }
 
 function textureInletId(node, definitions) {

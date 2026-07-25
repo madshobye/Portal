@@ -31,6 +31,10 @@ import { compileVisualRenderPlan } from "../js/libraries/composition-engine/inde
 import { graphNodeFromDefinition, graphWithNodeParameter } from "../js/control/node-graph-canvas.js";
 import { withProjectNodeGraph, withProjectNodeParameterExposure, withProjectNodePortExposure } from "../js/control/node-editor-view.js";
 import { materializeProjectNodeFork } from "../js/libraries/node-engine/index.js";
+import {
+  createVisualRenderProcessContext,
+  updateVisualRenderProcessContext,
+} from "../js/libraries/render-engine/index.js";
 
 function triangleMesh() {
   return {
@@ -39,6 +43,21 @@ function triangleMesh() {
     triangleCount: 1,
     bounds: { min: [-1, -1, 0], max: [1, 1, 0] },
     sourceBounds: { min: [-1, -1, 0], max: [1, 1, 0] },
+  };
+}
+
+function renderContext(target, time = 0) {
+  return {
+    renderProcess: updateVisualRenderProcessContext(
+      createVisualRenderProcessContext(),
+      {
+        target,
+        time,
+        request: { width: 640, height: 360 },
+        view: { width: 640, height: 360 },
+        contentTransform: {},
+      },
+    ),
   };
 }
 
@@ -52,14 +71,10 @@ test("scene-3d graphs compile mesh material transform camera and mesh-to-image a
     capabilities: ["scene-3d-program"],
     inlets: {
       mesh: { type: "mesh", required: true },
-      target: { type: "any", required: true },
-      time: { type: "number", defaultValue: 0 },
     },
     outlets: { image: { type: "image", optional: true } },
     publicInlets: {
       mesh: "render.mesh",
-      target: "render.target",
-      time: "render.componentTime",
     },
     publicOutlets: { image: "render.image" },
     nodes: [
@@ -83,9 +98,9 @@ test("scene-3d graphs compile mesh material transform camera and mesh-to-image a
   ]);
   const program = compileScene3dProgram(group, { registry });
   const target = { clearCalls: 0, clear() { this.clearCalls++; } };
-  const result = program.execute({ mesh: triangleMesh(), target, time: 3 });
+  const result = program.execute({ mesh: triangleMesh() }, renderContext(target, 3));
   const retainedStepOutputs = program.steps.map((step) => step.outputValues);
-  const secondResult = program.execute({ mesh: triangleMesh(), target, time: 4 });
+  const secondResult = program.execute({ mesh: triangleMesh() }, renderContext(target, 4));
 
   assert.equal(result.image, target);
   assert.strictEqual(secondResult, result);
@@ -105,9 +120,9 @@ test("one Planar Grid node feeds both specialized geometry and an ordinary Scene
     executionModel: "compiled-graph",
     compiler: { id: "vj1.scene-3d.direct-program", target: "scene-3d" },
     capabilities: ["scene-3d-program"],
-    inlets: { target: { type: "any", required: true } },
+    inlets: {},
     outlets: { texture: { type: "texture" } },
-    publicInlets: { target: "render.target" },
+    publicInlets: {},
     publicOutlets: { texture: "render.texture" },
     nodes: [
       {
@@ -148,7 +163,7 @@ test("one Planar Grid node feeds both specialized geometry and an ordinary Scene
   ]);
   const program = compileScene3dProgram(group, { registry });
   const target = { clearCalls: 0, clear() { this.clearCalls += 1; } };
-  const result = program.execute({ target });
+  const result = program.execute({}, renderContext(target));
   const gridOutput = program.outputs.get("grid");
   const materialOutput = program.outputs.get("material");
   const scene = program.outputs.get("scene").scene;
@@ -174,9 +189,9 @@ test("Terrain height-field topology and biome material compose through the ordin
     executionModel: "compiled-graph",
     compiler: { id: "vj1.scene-3d.direct-program", target: "scene-3d" },
     capabilities: ["scene-3d-program"],
-    inlets: { target: { type: "any", required: true } },
+    inlets: {},
     outlets: { texture: { type: "texture" } },
-    publicInlets: { target: "render.target" },
+    publicInlets: {},
     publicOutlets: { texture: "render.texture" },
     nodes: [
       {
@@ -224,7 +239,7 @@ test("Terrain height-field topology and biome material compose through the ordin
   ]);
   const program = compileScene3dProgram(group, { registry });
   const target = { clearCalls: 0, clear() { this.clearCalls += 1; } };
-  const result = program.execute({ target });
+  const result = program.execute({}, renderContext(target));
   const terrain = program.outputs.get("terrain");
   const material = program.outputs.get("material");
   const camera = program.outputs.get("camera");
@@ -253,13 +268,9 @@ test("compiled Scene graphs expand canonical multipart meshes through material s
     executionModel: "compiled-graph",
     compiler: { id: "vj1.scene-3d.direct-program", target: "scene-3d" },
     capabilities: ["scene-3d-program"],
-    inlets: {
-      target: { type: "any", required: true },
-    },
+    inlets: {},
     outlets: { texture: { type: "texture" } },
-    publicInlets: {
-      target: "render.target",
-    },
+    publicInlets: {},
     publicOutlets: { texture: "render.texture" },
     nodes: [
       {
@@ -300,7 +311,7 @@ test("compiled Scene graphs expand canonical multipart meshes through material s
   ]);
   const program = compileScene3dProgram(group, { registry });
   const target = { clearCalls: 0, clear() { this.clearCalls += 1; } };
-  const result = program.execute({ target });
+  const result = program.execute({}, renderContext(target));
   const objects = program.outputs.get("objects").objects;
   const material = program.outputs.get("material").sceneMaterial;
   const collection = program.outputs.get("geometry").collection;
@@ -324,9 +335,9 @@ test("compiled Scene graphs consume the canonical Anatomy Hand collection withou
     executionModel: "compiled-graph",
     compiler: { id: "vj1.scene-3d.direct-program", target: "scene-3d" },
     capabilities: ["scene-3d-program"],
-    inlets: { target: { type: "any", required: true } },
+    inlets: {},
     outlets: { texture: { type: "texture" } },
-    publicInlets: { target: "render.target" },
+    publicInlets: {},
     publicOutlets: { texture: "render.texture" },
     nodes: [
       {
@@ -352,7 +363,7 @@ test("compiled Scene graphs consume the canonical Anatomy Hand collection withou
   ]);
   const program = compileScene3dProgram(group, { registry });
   const target = { clearCalls: 0, clear() { this.clearCalls += 1; } };
-  const result = program.execute({ target });
+  const result = program.execute({}, renderContext(target));
   const collection = program.outputs.get("geometry").collection;
   const objects = program.outputs.get("objects").objects;
 
@@ -376,9 +387,9 @@ test("compiled Scene graphs compose canonical Anatomy Body parts through one exi
     executionModel: "compiled-graph",
     compiler: { id: "vj1.scene-3d.direct-program", target: "scene-3d" },
     capabilities: ["scene-3d-program"],
-    inlets: { target: { type: "any", required: true } },
+    inlets: {},
     outlets: { texture: { type: "texture" } },
-    publicInlets: { target: "render.target" },
+    publicInlets: {},
     publicOutlets: { texture: "render.texture" },
     nodes: [
       {
@@ -402,7 +413,7 @@ test("compiled Scene graphs compose canonical Anatomy Body parts through one exi
     registry: new NodeRegistry([...Scene3dNodeDefinitions, AnatomyGeometryProviderNode, ModelFitCameraNode]),
   });
   const target = { clearCalls: 0, clear() { this.clearCalls += 1; } };
-  const result = program.execute({ target });
+  const result = program.execute({}, renderContext(target));
   const collection = program.outputs.get("geometry").collection;
   const objects = program.outputs.get("objects").objects;
 
@@ -436,9 +447,9 @@ test("every Anatomy geometry choice is a canonical collection consumable by the 
       executionModel: "compiled-graph",
       compiler: { id: "vj1.scene-3d.direct-program", target: "scene-3d" },
       capabilities: ["scene-3d-program"],
-      inlets: { target: { type: "any", required: true } },
+      inlets: {},
       outlets: { texture: { type: "texture" } },
-      publicInlets: { target: "render.target" },
+      publicInlets: {},
       publicOutlets: { texture: "render.texture" },
       nodes: [
         {
@@ -462,7 +473,7 @@ test("every Anatomy geometry choice is a canonical collection consumable by the 
       registry: new NodeRegistry([...Scene3dNodeDefinitions, AnatomyGeometryProviderNode]),
     });
     const target = { clearCalls: 0, clear() { this.clearCalls += 1; } };
-    const result = program.execute({ target });
+    const result = program.execute({}, renderContext(target));
     const collection = program.outputs.get("geometry").collection;
 
     assert.strictEqual(result.texture, target, part);
@@ -538,55 +549,42 @@ test("expandable multi-object 3D groups lower into production visual source oper
   }, {}, {
     resolveDefinition: (node) => node.nodeId === ComposableScene3dGroup.id
       ? ComposableScene3dGroup
-      : null,
+      : Scene3dNodeDefinitions.find((definition) =>
+          definition.id === (node.nodeId || node.type)
+        ) || null,
   });
 
   const operation = plan.operations[0];
-  assert.equal(operation.backend, "scene-3d-program");
-  assert.equal(operation.renderer, "output/specialized:scene3d-program");
-  assert.equal(operation.scene3dProgram.format, "vj1.scene-3d-program@1");
-  assert.deepEqual(operation.scene3dProgram.steps.map((step) => step.id), [
+  const render = operation.operations[0];
+  assert.equal(operation.backend, "compiled-visual-group");
+  assert.equal(operation.scene3dProgram, undefined);
+  assert.equal(render.nodeId, "core.scene3d.render");
+  assert.equal(typeof render.nodeProcess, "function");
+  assert.deepEqual(render.renderTarget, { depth: true });
+  assert.deepEqual(operation.valueProgram.steps.map((step) => step.instanceId), [
     "mesh-a",
-    "mesh-b",
     "transform-a",
-    "transform-b",
     "material-a",
+    "mesh-b",
+    "transform-b",
     "material-b",
     "camera",
     "object-a",
     "object-b",
     "objects",
     "scene",
-    "render",
   ]);
-  assert.deepEqual(operation.scene3dProgram.publicInputs, [
-    { id: "meshAId", type: "string", required: true },
-    { id: "meshBId", type: "string", required: true },
-    { id: "target", type: "any", required: true },
-    { id: "componentTime", type: "number", required: false },
-    { id: "viewport", type: "viewport", required: false },
-    { id: "contentTransform", type: "transform2d", required: false },
-  ]);
-  assert.deepEqual(operation.scene3dProgram.resourceBindings, [
-    {
-      nodeId: "mesh-a",
-      kind: "media",
-      valueType: "mesh",
-      parameterId: "mediaId",
-      publicInputId: "meshAId",
-      staticId: "",
-      required: true,
-    },
-    {
-      nodeId: "mesh-b",
-      kind: "media",
-      valueType: "mesh",
-      parameterId: "mediaId",
-      publicInputId: "meshBId",
-      staticId: "",
-      required: true,
-    },
-  ]);
+  assert.deepEqual(
+    operation.valueProgram.inspect().externalResolvers.map((resolver) => ({
+      nodeId: resolver.nodeId,
+      capability: resolver.capability,
+      readyOutlet: resolver.readyOutlet,
+    })),
+    [
+      { nodeId: "core.scene3d.media-mesh", capability: "project-mesh", readyOutlet: "mesh" },
+      { nodeId: "core.scene3d.media-mesh", capability: "project-mesh", readyOutlet: "mesh" },
+    ],
+  );
   assert.equal(operation.configuration.source.params.meshAId, "mesh-a");
   assert.equal(operation.configuration.source.params.meshBId, "mesh-b");
   const inspection = plan.inspect();
@@ -614,7 +612,7 @@ test("authored child values persist through project forks into the compiled reta
   assert.equal(program.format, "vj1.scene-3d-program@1");
 });
 
-test("a new project-owned 3D Group compiles through the same retained Scene program", () => {
+test("a new project-owned 3D Group keeps Scene validation and ordinary visual lowering", () => {
   const definition = createProjectGroupDefinitionFromTemplate(ComposableScene3dGroup, {
     id: "org.vj1.project.scene3d-fixture",
     name: "Project Scene3D Fixture",
@@ -625,7 +623,8 @@ test("a new project-owned 3D Group compiles through the same retained Scene prog
 
   assert.equal(definition.persistence, "project");
   assert.equal(definition.compiler.id, "vj1.scene-3d.direct-program");
-  assert.equal(definition.metadata.visualCompilerHook.id, "vj1.visual.scene-3d-program");
+  assert.equal(definition.metadata.visualCompilerHook.id, "vj1.visual.compound");
+  assert.equal(definition.metadata.nativeRenderer, "");
   assert.deepEqual(program.steps.map((step) => step.id), [
     "mesh-a",
     "mesh-b",
@@ -700,9 +699,9 @@ test("project 3D public controls can expose authored material inlets", () => {
   program.execute({
     meshAId: "media/a.stl",
     meshBId: "media/b.stl",
-    target,
   }, {
     resolveMesh: () => mesh,
+    ...renderContext(target),
   });
   assert.deepEqual(
     program.outputs.get("material-a").material.surfaceColor,
@@ -713,10 +712,10 @@ test("project 3D public controls can expose authored material inlets", () => {
   program.execute({
     meshAId: "media/a.stl",
     meshBId: "media/b.stl",
-    target,
     "surface-color": "#123456cc",
   }, {
     resolveMesh: () => mesh,
+    ...renderContext(target),
   });
   assert.deepEqual(
     program.outputs.get("material-a").material.surfaceColor,

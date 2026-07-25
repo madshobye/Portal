@@ -45,6 +45,8 @@
   --param-label-control-gap: 0px;
   --param-stack-gap: 7px;
   --param-section-bottom-inset: 10px;
+  --text-list-row-height: 34px;
+  --text-list-control-height: 28px;
   --thumbnail-remove-hover-delay: 2s;
   --workspace-content-gap: 6px;
   --workspace-column-gap: 4px;
@@ -1302,7 +1304,7 @@ small {
   align-items: center;
   gap: 2px;
   min-width: 0;
-  min-height: 42px;
+  min-height: var(--text-list-row-height);
   padding: 3px;
   border: 0;
   border-radius: var(--radius-section-inner);
@@ -1380,8 +1382,8 @@ small {
   align-items: center;
   width: 100%;
   min-width: 0;
-  height: 32px;
-  min-height: 32px;
+  height: var(--text-list-control-height);
+  min-height: var(--text-list-control-height);
   padding: 0;
   border: 0;
   border-radius: var(--radius-section-inner);
@@ -1400,7 +1402,7 @@ small {
   gap: 8px;
   min-width: 0;
   width: 100%;
-  min-height: 32px;
+  min-height: var(--text-list-control-height);
   padding: 0 7px;
   border: 0;
   border-radius: var(--radius-section-inner);
@@ -1793,21 +1795,25 @@ button.text-list-main:hover {
   gap: 6px;
 }
 
-.live-component-view-tab {
+.inspector-view-option {
   display: flex;
   min-width: 0;
-  min-height: 32px;
   align-items: center;
   justify-content: center;
+  min-height: 24px;
   gap: 6px;
-  padding: 6px 9px;
+  padding: 3px 7px;
   border: 0;
   border-radius: var(--radius-control);
   background: var(--control);
   color: var(--muted);
+  font-size: 11px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
 }
 
-.live-component-view-tab:hover { background: var(--control-hover); }
+.inspector-view-option:hover { background: var(--control-hover); }
 
 .live-component-view-tab.is-selected,
 .live-component-view-tab.is-selected:hover {
@@ -1815,7 +1821,7 @@ button.text-list-main:hover {
   background: var(--accent-strong);
 }
 
-.live-component-view-tab .material-symbols-rounded { font-size: 16px; }
+.inspector-view-option .material-symbols-rounded { font-size: 16px; }
 
 .live-timing-params {
   display: grid;
@@ -1844,8 +1850,7 @@ button.text-list-main:hover {
 }
 
 .live-significant-panel,
-.live-significant-component,
-.live-significant-group {
+.live-significant-component {
   display: grid;
   gap: 8px;
 }
@@ -1855,10 +1860,20 @@ button.text-list-main:hover {
   border-top: 1px solid var(--line);
 }
 
-.live-significant-group > span,
 .live-significant-component > strong {
   color: var(--muted);
   font-size: 11px;
+}
+
+.parameter-control-group {
+  display: grid;
+  gap: var(--param-stack-gap);
+}
+
+.parameter-control-group-title {
+  color: var(--slider-text);
+  font-size: var(--label-font-size);
+  font-weight: 400;
 }
 
 .live-component-head {
@@ -3228,16 +3243,7 @@ button.text-list-main:hover {
   --text-list-action-size: 22px;
   width: 100%;
   gap: 2px;
-  min-height: 34px;
   padding: 2px;
-}
-
-.compact-list-row .enable-toggle,
-.compact-list-row .text-list-static-icon,
-.compact-list-row .text-list-remove,
-.compact-list-row .text-list-main {
-  height: 28px;
-  min-height: 28px;
 }
 
 .compact-list-row .text-list-main {
@@ -4186,18 +4192,6 @@ button.text-list-main:hover {
 
 .chain-param-view-tab {
   grid-row: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 24px;
-  padding: 3px 7px;
-  border-radius: var(--radius-control);
-  background: var(--control);
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1;
-  text-align: center;
-  cursor: pointer;
 }
 
 .chain-param-view-input:checked + .chain-param-view-tab {
@@ -4209,8 +4203,6 @@ button.text-list-main:hover {
   outline: 1px solid var(--slider-thumb);
   outline-offset: -1px;
 }
-
-.chain-param-view-tab:hover { background: var(--control-hover); }
 
 .chain-param-view-input:checked + .chain-param-view-tab:hover { background: var(--accent-strong); }
 

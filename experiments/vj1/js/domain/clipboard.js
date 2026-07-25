@@ -3,6 +3,11 @@ import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component
 import { sceneLogicalSize } from "./render-settings.js?v=surface-terminology-1";
 import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
 import { initializeLiveChainInsertion } from "./scene-routing.js?v=explicit-direct-surface-hierarchy-1";
+import {
+  canonicalizeAuthoredVisualChain,
+  canonicalizeAuthoredVisualSource,
+  createAuthoredMediaSource,
+} from "./authored-visual-source.js?v=async-media-dirty-1";
 
 export const VJ1_CLIPBOARD_TYPE = "application/x-vj1-item";
 
@@ -96,7 +101,10 @@ function pasteComponent(draft, source, target) {
   copy.name = uniqueCopyName(source.name || (source.type === "scene" ? "Scene" : "Component"), draft.components || []);
   copy.thumbnail = "";
   delete copy.activity;
-  copy.chain = (copy.chain || []).map(regenerateChainItemIds);
+  copy.chain = canonicalizeAuthoredVisualChain(
+    (copy.chain || []).map(regenerateChainItemIds),
+    draft.media || [],
+  );
   if (copy.scene) copy.scene.surfaceThumbnails = {};
   draft.components ||= [];
   draft.components.push(copy);
@@ -114,7 +122,13 @@ function pasteChainItem(draft, source, target) {
   if (!component || (component.type !== "scene" && containsComponentReference(source))) {
     return { pasted: false, reason: "components-only-in-scene" };
   }
-  return insertIntoTarget(draft, target, regenerateChainItemIds(clone(source)));
+  const copy = regenerateChainItemIds(clone(source));
+  if (copy.kind === "group") {
+    copy.chain = canonicalizeAuthoredVisualChain(copy.chain || [], draft.media || []);
+  } else if (copy.kind === "source") {
+    copy.source = canonicalizeAuthoredVisualSource(copy.source, draft.media || []);
+  }
+  return insertIntoTarget(draft, target, copy);
 }
 
 function pasteMapping(draft, source, target) {
@@ -158,9 +172,7 @@ function pasteMedia(draft, source, target) {
     opacity: 1,
     blend: "normal",
     transform: { x: 0, y: 0, scale: 1, rotation: 0 },
-    source: /\.(?:stl|obj)$/i.test(String(source.id || ""))
-      ? { type: "generator", generatorId: "modelMedia", params: { mediaId: source.id } }
-      : { type: "media", mediaId: source.id },
+    source: createAuthoredMediaSource(source.id, source),
   }));
 }
 

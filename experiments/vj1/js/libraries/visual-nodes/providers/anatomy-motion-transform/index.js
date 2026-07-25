@@ -13,7 +13,8 @@ export const AnatomyMotionTransform3dNode = defineNode({
   implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: {
     collection: { type: MeshCollectionType, required: true },
-    componentTime: { type: "number", required: true },
+    componentTime: { type: "number", defaultValue: 0, required: true },
+    part: { type: "string", defaultValue: "face" },
     modelScale: { type: "number", defaultValue: 1 },
     rotationX: { type: "number", defaultValue: 0 },
     rotationY: { type: "number", defaultValue: 0 },
@@ -24,11 +25,25 @@ export const AnatomyMotionTransform3dNode = defineNode({
     heartPulse: { type: "number", defaultValue: 0.35 },
   },
   outlets: { transform: { type: "transform3d" } },
-  execution: { trigger: "frame", domain: "main", pure: true, asynchronous: false },
-  capabilities: ["scene-3d", "transform", "controller", "motion", "graph-placeable", "live-fast-path"],
+  execution: {
+    trigger: "frame",
+    domain: "main",
+    pure: true,
+    asynchronous: false,
+    frameDependent: anatomyMotionFrameDependent,
+  },
+  capabilities: [
+    "scene-3d",
+    "transform",
+    "controller",
+    "motion",
+    "retained-value-provider",
+    "graph-placeable",
+    "live-fast-path",
+  ],
   presentation: {
     catalogs: ["graph", "mesh", "scene-3d", "motion"],
-    placeableOn: ["node-graph"],
+    placeableOn: ["visual-graph", "node-graph"],
   },
   parts: [{
     id: "anatomy-motion-transform",
@@ -41,6 +56,7 @@ export const AnatomyMotionTransform3dNode = defineNode({
     entry: "process",
     source: [
       anatomyMotionTransform3dProcess,
+      anatomyMotionFrameDependent,
       boundsFitScale,
       clamp,
       finite,
@@ -53,6 +69,19 @@ export const AnatomyMotionTransform3dNode = defineNode({
   },
   process: anatomyMotionTransform3dProcess,
 });
+
+export function anatomyMotionFrameDependent(params = {}) {
+  return (
+    Math.abs(finite(params.spinX, 0)) +
+      Math.abs(finite(params.spinY, 0)) +
+      Math.abs(finite(params.spinZ, 0)) >
+      0.0001 ||
+    (
+      params.part === "heart" &&
+      finite(params.heartPulse, 0) > 0.0001
+    )
+  );
+}
 
 export function anatomyMotionTransform3dProcess(inputs = {}, { state = {}, output = null } = {}) {
   const collection = inputs.collection;

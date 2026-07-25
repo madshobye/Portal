@@ -1,10 +1,11 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
 
 export class SerializedTaskQueue {
-  constructor({ worker, onError = () => false } = {}) {
+  constructor({ worker, onError = () => false, retainFailed = true } = {}) {
     if (typeof worker !== "function") throw new Error("SERIALIZED_TASK_QUEUE_WORKER_REQUIRED");
     this.worker = worker;
     this.onError = onError;
+    this.retainFailed = retainFailed;
     this.pending = [];
     this.drainPromise = null;
   }
@@ -23,8 +24,11 @@ export class SerializedTaskQueue {
         try {
           completed = await this.worker(task) || completed;
         } catch (error) {
-          this.pending.unshift(task);
-          throw error;
+          if (this.retainFailed) {
+            this.pending.unshift(task);
+            throw error;
+          }
+          completed = this.onError(error) || completed;
         }
       }
       return completed;

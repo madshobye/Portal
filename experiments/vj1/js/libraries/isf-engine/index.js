@@ -1,6 +1,7 @@
 export { parseIsfDocument, sourceHash } from "./isf-document.js?v=isf-coordinates-1";
 export {
   compileIsfFragmentSource,
+  compileIsfOptimizedFragmentSource,
   compileIsfTransitionKernel,
   evaluateIsfDimension,
   isfGlslType,

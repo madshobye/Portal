@@ -9,13 +9,16 @@ import {
   createMappingFromState,
   sceneSourceNodeId,
 } from "../js/domain/models.js?v=world-frame-27";
+import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js?v=built-in-isf-repository-5";
+import { createAuthoredMediaSource } from "../js/domain/authored-visual-source.js";
+import { getGeneratorNodeComponent } from "../js/libraries/visual-nodes/catalog.js";
 
 test("analyzes component graph shape and missing media", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
   component.name = "Stress";
   component.chain = [
-    createComponentLayer(0, { type: "media", mediaId: "media/missing.mov" }),
+    createComponentLayer(0, createAuthoredMediaSource("media/missing.mov")),
     createComponentEffect("ripple"),
     createComponentEffect("rgbSplit"),
     createComponentEffect("kaleido"),
@@ -36,9 +39,76 @@ test("analyzes component graph shape and missing media", () => {
   assert.equal(metrics.components[0].sources.missingMedia, 1);
   assert.ok(metrics.costliestChainItems.length >= 1);
   assert.equal(metrics.aggregate.topCostContributor.componentName, "Stress");
+  assert.equal(metrics.aggregate.topCostContributor.componentId, component.id);
+  assert.notEqual(
+    metrics.aggregate.topCostContributor.implementationId,
+    component.id,
+  );
   assert.ok(metrics.engineHotspots.some((item) => item.step === "Heavy shader components"));
   assert.ok(metrics.bottlenecks.some((item) => item.severity === "critical" && item.message.includes("missing")));
   assert.ok(metrics.bottlenecks.some((item) => item.scope === "Stress" && item.message.includes("enabled effects")));
+});
+
+test("analyzes graph-authoritative Components without a persisted chain projection", () => {
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  component.name = "Graph authority";
+  component.chain = [
+    createComponentLayer(0, createAuthoredMediaSource("media/clip.mov")),
+    createComponentEffect("blur"),
+  ];
+  const generatedGroup = compileComponentGroupTopology(component);
+  const group = {
+    ...generatedGroup,
+    compactTopology: true,
+    persistence: "compact-generated-topology",
+    connections: [],
+    nodes: generatedGroup.nodes.filter((node) => node.role !== "control"),
+  };
+  component.chain = [];
+  state.components = [component];
+  state.nodes.groups = [group];
+  state.media = [{
+    id: "media/clip.mov",
+    path: "media/clip.mov",
+    type: "video",
+    size: 42,
+  }];
+  state.surfaces[0].componentId = component.id;
+  state.surfaces[0].sourceNodeId = sceneSourceNodeId(component.id);
+  state.surfaces[1].enabled = false;
+
+  const metrics = analyzeVj1Project(state);
+  assert.equal(metrics.components[0].chainItems.total, 2);
+  assert.equal(metrics.components[0].sources.enabled, 1);
+  assert.equal(metrics.components[0].sources.video, 1);
+  assert.equal(metrics.components[0].effects.enabled, 1);
+  assert.ok(metrics.components[0].estimatedWork > 0);
+  assert.equal(metrics.components[0].patchWarnings.length, 0);
+});
+
+test("analyzer resolves compiled visual compounds through the supplied node registry", () => {
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  component.chain = [createComponentLayer(0, {
+    type: "generator",
+    generatorId: "cameraInput",
+    params: { fit: "cover" },
+  })];
+  const camera = getGeneratorNodeComponent("cameraInput");
+  const definitions = new Map([
+    camera.nodeDefinition,
+    ...(camera.childNodeDefinitions || []),
+  ].map((definition) => [definition.id, definition]));
+  state.components = [component];
+  state.nodes.groups = [compileComponentGroupTopology(component, { definitions })];
+
+  const metrics = analyzeVj1Project(state, {
+    resolveNodeDefinition: (node) => definitions.get(node?.nodeId) || null,
+  });
+
+  assert.equal(metrics.aggregate.componentCount, 1);
+  assert.equal(metrics.components[0].sources.enabled, 1);
 });
 
 test("flags mapping problems against active surfaces", () => {

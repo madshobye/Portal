@@ -6,6 +6,14 @@ const manifest = Object.freeze({
     id: "alphaFeather",
     name: "Alpha Feather",
     category: "key",
+    runtime: {
+      roi: {
+        mode: "neighborhood",
+        halo: 64,
+        coordinateSpace: "boundary",
+        pixelEquivalentToFullFrame: true,
+      },
+    },
     params: [
       createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 1 }),
       createNumberParam("cut", "Cut edge", { min: 0, max: 32, step: 0.25, defaultValue: 1 }),

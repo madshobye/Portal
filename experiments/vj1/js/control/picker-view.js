@@ -1,4 +1,4 @@
-import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
+import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=project-media-contain-1";
 import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
 import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
@@ -18,6 +18,7 @@ export function generatorIcon(id) {
     noise: "grain",
     tileTexture: "grid_on",
     screenShare: "present_to_all",
+    cameraInput: "photo_camera",
     text: "text_fields",
     plasma: "blur_on",
     gradient: "gradient",
@@ -52,7 +53,7 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
     ? allMediaItems.filter((item) => elementMediaCategory(item) === allowedCategory)
     : allMediaItems;
   const generators = [...listGeneratorComponents(), ...listProjectIsfVisualComponents(state).filter((component) => component.kind === "generator")]
-    .filter((generator) => generator.id !== "black");
+    .filter((generator) => !["black", "cameraInput"].includes(generator.id));
   const sourceFilter = allowedCategory || picker?.filter || "all";
   const isMediaValuePicker = picker?.valueMode === "mediaId";
   return `
@@ -79,7 +80,7 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
       <div class="element-modal-body" data-scroll-region data-scroll-key="source-picker-results">
         ${mediaPickerSectionTemplate(mediaItems, mediaLibrary, {
           action: "pick",
-          selectedMediaId: source.type === "media" ? source.mediaId : "",
+          selectedMediaId: selectedSourceMediaId(source),
           sortMode: mediaSortMode,
           emptyMessage: allowedCategory === "model"
             ? "No 3D objects are available. Add an OBJ or STL file to the project folder."
@@ -103,12 +104,12 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
         ${allowedCategory ? "" : `<section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">input</span><span>Other sources</span></div>
           <div class="element-grid compact-element-grid">
-            <button type="button" class="element-card ${source.type === "camera" ? "is-selected" : ""}" data-pick-source-camera data-element-category="live" data-element-search-card="live camera portal camera feed video input">
+            <button type="button" class="element-card ${source.type === "generator" && source.generatorId === "cameraInput" ? "is-selected" : ""}" data-pick-source-camera data-element-category="live" data-element-search-card="live camera portal camera feed video input">
               ${icon("photo_camera")}
               <strong>Live camera</strong>
               <small>Portal camera feed</small>
             </button>
-            <button type="button" class="element-card ${source.type === "black" ? "is-selected" : ""}" data-pick-source-black data-element-category="blank" data-element-search-card="black empty blank source">
+            <button type="button" class="element-card ${source.type === "generator" && source.generatorId === "black" ? "is-selected" : ""}" data-pick-source-black data-element-category="blank" data-element-search-card="black empty blank source">
               ${icon("radio_button_unchecked")}
               <strong>Black</strong>
               <small>Empty black source</small>
@@ -159,7 +160,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
     : [];
   const projectIsf = listProjectIsfVisualComponents(state);
   const generators = [...listGeneratorComponents(), ...projectIsf.filter((component) => component.kind === "generator")]
-    .filter((generator) => generator.id !== "black");
+    .filter((generator) => !["black", "cameraInput"].includes(generator.id));
   const effects = [...listShaderComponents(), ...projectIsf.filter((component) => component.kind === "effect")];
   return `
     <div class="modal-backdrop"></div>
@@ -361,7 +362,18 @@ function currentSourceValue(picker, state) {
   if (!picker?.path || !state) return {};
   const source = getByPath(state, picker.path);
   if (picker.valueMode === "mediaId") {
-    return typeof source === "string" ? { type: "media", mediaId: source } : {};
+    return typeof source === "string" ? { type: "media-value", mediaId: source } : {};
   }
   return source && typeof source === "object" ? source : {};
+}
+
+function selectedSourceMediaId(source = {}) {
+  if (source.type === "media-value") {
+    return String(source.mediaId || "");
+  }
+  if (
+    source.type === "generator" &&
+    (source.generatorId === "mediaImage" || source.generatorId === "modelMedia")
+  ) return String(source.params?.mediaId || "");
+  return "";
 }

@@ -2,7 +2,6 @@ import { createBooleanParam, createColorParam, createEnumParam, createNumberPara
 import { ALWAYS_TIME_RUNTIME, timeParamRuntime } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
-  defineSpecializedVisualCompound,
   PlanarGridGeometryProviderNode,
   TerrainBiomeMaterialProviderNode,
   TerrainFlightCameraProviderNode,
@@ -10,7 +9,8 @@ import {
   TerrainSurfaceToImageNode,
   TerrainWireMaterialProviderNode,
   TerrainWireToImageNode,
-} from "../../shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
+} from "../../shared/visual-stage-nodes.js?v=mesh-geometry-detail-2";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
 import { TerrainFlightControllerNode } from "../../../terrain-engine/flight-controller/index.js";
 import {
   terrainNodeModuleParts,
@@ -66,24 +66,23 @@ const NativeVisualComponent = defineGeneratorNode(manifest, null, {
   parts: terrainNodeModuleParts(),
 });
 
-export const VisualComponent = defineSpecializedVisualCompound(NativeVisualComponent, {
-  compoundKind: "terrain-flyover",
-  nativeRenderer: "output/specialized:terrainFlyover",
+export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "flight", type: TerrainFlightControllerNode.id },
-    { id: "geometry", type: TerrainHeightFieldGeometryProviderNode.id, parameters: { providerId: "terrain-height-field" } },
-    { id: "surface-material", type: TerrainBiomeMaterialProviderNode.id, parameters: { providerId: "terrain-biome" } },
-    { id: "wire-material", type: TerrainWireMaterialProviderNode.id, parameters: { providerId: "terrain-wire" } },
+    { id: "flight", definition: TerrainFlightControllerNode, role: "value" },
+    { id: "geometry", definition: TerrainHeightFieldGeometryProviderNode, role: "value", parameters: { providerId: "terrain-height-field" } },
+    { id: "surface-material", definition: TerrainBiomeMaterialProviderNode, role: "value", parameters: { providerId: "terrain-biome" } },
+    { id: "wire-material", definition: TerrainWireMaterialProviderNode, role: "value", parameters: { providerId: "terrain-wire" } },
     {
       id: "camera",
-      type: TerrainFlightCameraProviderNode.id,
+      definition: TerrainFlightCameraProviderNode,
+      role: "value",
       parameters: {
         providerId: "terrain-flight-camera",
         settings: { projection: "perspective" },
       },
     },
-    { id: "surface-render", type: TerrainSurfaceToImageNode.id, parameters: { providerId: "terrain-surface-pass" } },
-    { id: "wire-render", type: TerrainWireToImageNode.id, parameters: { providerId: "terrain-wire-pass" } },
+    { id: "surface-render", definition: TerrainSurfaceToImageNode, role: "renderer", parameters: { providerId: "terrain-surface-pass" } },
+    { id: "wire-render", definition: TerrainWireToImageNode, role: "renderer", parameters: { providerId: "terrain-wire-pass" } },
   ],
   connections: [
     { from: "flight.flight", to: "camera.flight", type: "terrain-flight-state" },
@@ -99,13 +98,13 @@ export const VisualComponent = defineSpecializedVisualCompound(NativeVisualCompo
   ],
   output: "wire-render.texture",
   parameterBindings: {
-    flight: ["flightMode", "flightSpeed", "turn", "altitude", "terrainScale"],
+    flight: ["flightSpeed", "turn", "altitude", "terrainScale"],
     geometry: ["mountainHeight", "terrainScale", "lakeLevel", "viewDistance", "globeRadius", "gridWidth", "gridDepth", "gridDensity", "gridScale", "gridJitter"],
     camera: ["pitch", "fieldOfView", "nearClip", "farClip", "lookAhead", "noseFollow"],
     "surface-material": ["waterColor", "grassColor", "rockColor", "snowColor", "downSlopeColor", "directionColor", "skyColor", "textureGrain", "textureDepth", "colorDirection"],
     "wire-material": ["wireColor", "wireWidth"],
-    "surface-render": ["style", "renderQuality"],
-    "wire-render": ["style", "renderQuality"],
+    "surface-render": ["style", "flightMode", "renderQuality"],
+    "wire-render": ["style", "flightMode", "renderQuality"],
   },
   parameterPresentation: {
     flight: { label: "Flight", order: 10, omitParameterIds: ["terrainScale"] },

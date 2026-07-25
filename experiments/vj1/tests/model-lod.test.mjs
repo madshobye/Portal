@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 
 import {
   buildAutomaticModelLods,
+  modelGeometryTriangleBudget,
   modelLodTargetTriangles,
   selectModelLod,
   simplifyMeshByQuadricError,
@@ -79,36 +80,51 @@ test("automatic model LODs stay within bounded triangle budgets", () => {
   assert.equal(selectModelLod(lodMesh, 4000), lodMesh.lods.find((lod) => modelTriangleCount(lod) <= 4000));
 });
 
-test("model LOD demand is stricter for perceptual outlines", () => {
-  const request = { width: 1280, height: 720, renderQuality: 0.5 };
-  assert.ok(modelLodTargetTriangles({ ...request, renderMode: "outline" })
-    < modelLodTargetTriangles({ ...request, renderMode: "surface" }));
+test("geometry detail uses a perceptual triangle scale and caps pixel demand", () => {
+  assert.equal(modelGeometryTriangleBudget(0), 3000);
+  assert.equal(modelGeometryTriangleBudget(1), 120000);
+  assert.ok(modelGeometryTriangleBudget(0.5) > 18000);
+  assert.ok(modelGeometryTriangleBudget(0.5) < 20000);
+  assert.equal(
+    modelLodTargetTriangles({ width: 3840, height: 2160, geometryDetail: 0.5 }),
+    modelGeometryTriangleBudget(0.5),
+    "large outputs cannot exceed the authored geometry cap",
+  );
+  assert.ok(
+    modelLodTargetTriangles({ width: 320, height: 180, geometryDetail: 1 })
+      < modelGeometryTriangleBudget(1),
+    "small ROI demand avoids unnecessary retained geometry",
+  );
+});
+
+test("surface and outline share mesh detail while edge budget controls drawing only", () => {
+  const request = { width: 1280, height: 720, geometryDetail: 0.5 };
+  assert.equal(
+    modelLodTargetTriangles({ ...request, renderMode: "outline" }),
+    modelLodTargetTriangles({ ...request, renderMode: "surface" }),
+  );
   assert.equal(
     modelLodTargetTriangles({ ...request, renderMode: "xrayOutline" }),
     modelLodTargetTriangles({ ...request, renderMode: "outline" })
   );
   assert.equal(
     modelLodTargetTriangles({ ...request, renderMode: "outline", edgeBudget: 20000 }),
-    modelLodTargetTriangles({ ...request, width: 2560, height: 1440, renderMode: "outline", edgeBudget: 20000 }),
-    "2x resolution must not select more outline edges than the complete-edge budget can hold"
-  );
-  assert.ok(
-    modelLodTargetTriangles({ ...request, renderMode: "outline", edgeBudget: 50000 })
-      > modelLodTargetTriangles({ ...request, renderMode: "outline", edgeBudget: 20000 }),
-    "raising the explicit edge budget may select a denser outline LOD"
+    modelLodTargetTriangles({ ...request, renderMode: "outline", edgeBudget: 50000 }),
+    "edge extraction budget must not degrade the retained mesh",
   );
 });
 
 test("wire detail selects a complete resolution-independent construction mesh", () => {
-  const low = modelLodTargetTriangles({ width: 640, height: 360, renderMode: "wireframe", wireDetail: 0 });
-  const medium = modelLodTargetTriangles({ width: 640, height: 360, renderMode: "wireframe", wireDetail: 0.25 });
-  const high = modelLodTargetTriangles({ width: 640, height: 360, renderMode: "wireframe", wireDetail: 1 });
+  const common = { width: 1920, height: 1080, renderMode: "wireframe", geometryDetail: 1 };
+  const low = modelLodTargetTriangles({ ...common, wireDetail: 0 });
+  const medium = modelLodTargetTriangles({ ...common, wireDetail: 0.25 });
+  const high = modelLodTargetTriangles({ ...common, wireDetail: 1 });
   assert.equal(low, 3000);
   assert.ok(medium > low && medium < high);
-  assert.equal(high, 25000);
+  assert.equal(high, 120000);
   assert.equal(
     medium,
-    modelLodTargetTriangles({ width: 2560, height: 1440, renderMode: "wireframe", wireDetail: 0.25 }),
+    modelLodTargetTriangles({ ...common, width: 2560, height: 1440, wireDetail: 0.25 }),
     "render resolution must not replace the authored wire detail"
   );
 });

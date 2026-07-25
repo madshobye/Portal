@@ -1,4 +1,4 @@
-import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
+import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
 import { renderTargetDescriptor, RENDER_TARGET_KIND } from "./render-target-contract.js?v=source-target-ownership-1";
 import { fitOverflowDestination } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
 

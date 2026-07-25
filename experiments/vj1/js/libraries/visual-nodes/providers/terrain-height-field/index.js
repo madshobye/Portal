@@ -14,7 +14,7 @@ import {
   TerrainKernelTopologyModuleExports,
   terrainKernelTopologyModuleSource,
 } from "../../../terrain-engine/kernel-topology/index.js?v=semantic-terrain-node-ownership-1";
-import { GeometryProviderType } from "../../shared/specialized-compound-types.js";
+import { GeometryProviderType } from "../../shared/visual-stage-types.js";
 
 export const TerrainHeightFieldGeometryProviderNode = defineNode({
   id: "core.visual.terrain-height-field-geometry",
@@ -53,12 +53,13 @@ export const TerrainHeightFieldGeometryProviderNode = defineNode({
     "height-field",
     "procedural-mesh",
     "scene-3d",
-    "specialized-visual-stage",
+    "retained-value-provider",
+    "visual-stage",
     "graph-placeable",
   ],
   presentation: {
-    catalogs: ["node-graph", "mesh", "terrain", "scene-3d", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "mesh", "terrain", "scene-3d", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
   },
   metadata: {
     nativeArtifactRequirements: {
@@ -138,6 +139,7 @@ export function terrainHeightFieldGeometryProviderProcess(inputs = {}, { state =
   geometry.kind = "geometry";
   geometry.providerId = String(inputs.providerId || "terrain-height-field");
   geometry.settings = settings;
+  geometry.runtimeSettings = state.heightField.settings;
   geometry.enabled = inputs.enabled !== false;
   geometry.mesh = mesh;
   geometry.heightField = state.heightField;

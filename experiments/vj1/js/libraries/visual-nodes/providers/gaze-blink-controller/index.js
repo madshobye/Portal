@@ -3,7 +3,7 @@ import {
   NODE_IMPLEMENTATION_KINDS,
   NODE_PART_KINDS,
 } from "../../../node-engine/node-definition.js";
-import { GazeBlinkUniformsType } from "../../shared/specialized-compound-types.js";
+import { GazeBlinkUniformsType } from "../../shared/visual-stage-types.js";
 
 export const GazeBlinkControllerNode = defineNode({
   id: "core.visual.gaze-blink-controller",
@@ -50,13 +50,13 @@ export const GazeBlinkControllerNode = defineNode({
     "controller",
     "gaze",
     "blink",
-    "specialized-visual-provider",
-    "specialized-visual-stage",
+    "visual-value-provider",
+    "visual-stage",
     "graph-placeable",
     "live-fast-path",
   ],
   presentation: {
-    catalogs: ["node-graph", "motion", "character", "controller", "specialized-visual"],
+    catalogs: ["node-graph", "motion", "character", "controller", "visual-stage"],
     placeableOn: ["node-graph", "native-visual-graph"],
     previewOutput: "uniforms",
   },

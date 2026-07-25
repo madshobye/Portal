@@ -16,7 +16,7 @@ import {
   ValueControlNode,
   Vector2ControlNode,
   Vector3ControlNode,
-} from "../../control-engine/index.js?v=architecture-r2-2";
+} from "../../control-engine/index.js?v=async-media-dirty-1";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "../../timing-engine/index.js";
 import { NestedNoiseMotionNode, OrbitMotionNode } from "../../motion-engine/index.js";
 import { TerrainFlightControllerNode } from "../../terrain-engine/index.js";
@@ -126,6 +126,51 @@ export class VisualControlProgram {
       step.parameters.value = mapControlValue(value, binding.targetRange, binding.sourceRange);
     }
   }
+
+  inspect() {
+    const requirements = [];
+    const seen = new Set();
+    for (const step of this.steps) {
+      const dependency = step.controlSignalDependency;
+      if (!dependency) continue;
+      const signalKind = String(
+        step.parameters[dependency.kindParameterId] || "",
+      );
+      const address = String(
+        step.parameters[dependency.addressParameterId] || "",
+      );
+      const endpoint = dependency.endpointParameterId
+        ? String(step.parameters[dependency.endpointParameterId] || "")
+        : "";
+      if (!signalKind || !address) continue;
+      const key = endpoint
+        ? `${signalKind}:${endpoint}:${address}`
+        : `${signalKind}:${address}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      requirements.push(Object.freeze({
+        kind: "control-signal",
+        signalKind,
+        address,
+        ...(endpoint ? { endpoint } : {}),
+        required: dependency.required === true,
+      }));
+    }
+    return Object.freeze({
+      format: "vj1.visual-control-program-introspection@1",
+      executionModel: "compiled-direct-controls",
+      dynamics: Object.freeze({
+        frameDependent: this.steps.some((step) => step.frameDynamic),
+      }),
+      requirements: Object.freeze(requirements),
+      steps: Object.freeze(this.steps.map((step) => Object.freeze({
+        id: step.id,
+        instanceId: step.instanceId,
+        nodeId: step.nodeId,
+        frameDependent: step.frameDynamic,
+      }))),
+    });
+  }
 }
 
 export function compileVisualControlProgram(group = {}, operations = [], {
@@ -189,6 +234,9 @@ function compileScope(group, operations, path, context) {
       }))),
       process: definition.process,
       frameDynamic: definition.execution?.trigger === "frame" || definition.execution?.stateful === true,
+      controlSignalDependency: definition.metadata?.controlSignalDependency
+        ? Object.freeze({ ...definition.metadata.controlSignalDependency })
+        : null,
       state,
       processContext: {
         componentTime: 0,
@@ -338,7 +386,9 @@ function writeVisualParameter(operation, parameterId, value, restorations, index
     if (binding.parameterId !== parameterId) continue;
     index = binding.controlStep
       ? writeProperty(
-          binding.controlStep.parameters,
+          binding.controlInput
+            ? binding.controlStep.inputValues
+            : binding.controlStep.parameters,
           binding.targetParameterId,
           value,
           restorations,
@@ -398,7 +448,10 @@ export function setCompiledVisualParameter(operation, parameterId, value) {
   for (const binding of operation?.publicParameterBindings || []) {
     if (binding.parameterId !== parameterId) continue;
     if (binding.controlStep) {
-      binding.controlStep.parameters[binding.targetParameterId] = value;
+      const target = binding.controlInput
+        ? binding.controlStep.inputValues
+        : binding.controlStep.parameters;
+      target[binding.targetParameterId] = value;
     } else {
       setCompiledVisualParameter(binding.operation, binding.targetParameterId, value);
     }

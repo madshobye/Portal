@@ -2,15 +2,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  compileComponentRenderPrograms,
   compileVisualValueProgram,
   compileVisualRenderPlan,
   mapControlValue,
+  VISUAL_COMPILER_HOOKS,
   visualRenderPlanConfiguration,
 } from "../js/libraries/composition-engine/index.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
 import {
   createProjectVisualGroupDefinition,
   createNodePackageFromProject,
   defineNode,
+  defineNodeGroup,
   materializeProjectNodeFork,
   NodeRegistry,
 } from "../js/libraries/node-engine/index.js";
@@ -21,9 +25,12 @@ import {
   withProjectNodePortExposure,
 } from "../js/control/node-editor-view.js";
 import {
+  AudioControlInputNode,
   ComponentTimeControlNode,
   MidiControlInputNode,
+  OscControlInputNode,
   OscillatorControlNode,
+  ScalarMathControlNode,
   SliderNode,
   SmoothControlNode,
 } from "../js/libraries/control-engine/index.js";
@@ -338,6 +345,96 @@ test("project visual Groups publish control-node configuration into the direct c
   assert.equal(oscillatorStep.parameters.frequency, 1);
 });
 
+test("project visual Groups publish unconnected control-node inlets without inventing parameters", () => {
+  const Generator = defineNode({
+    id: "test.visual.public-control-inlet-source",
+    name: "Public Control Inlet Source",
+    description: "A source fixture driven by a reusable math node.",
+    implementation: "shader",
+    parameters: { gain: { type: "number", defaultValue: 0 } },
+    outlets: { texture: "texture" },
+    metadata: {
+      visualId: "public-control-inlet-source",
+      visualKind: "generator",
+      shaderInterface: "generator",
+    },
+  });
+  const serialized = createProjectVisualGroupDefinition({
+    id: "org.vj1.project.public-control-inlet-fixture",
+    name: "Public Control Inlet Fixture",
+  });
+  const registry = new NodeRegistry([
+    Generator,
+    ScalarMathControlNode,
+    serialized,
+  ]);
+  const base = registry.get(serialized.id);
+  const math = graphNodeFromDefinition(ScalarMathControlNode, {
+    id: "math",
+    visualProgram: true,
+  });
+  math.parameters.operation = "max";
+  const source = graphNodeFromDefinition(Generator, {
+    id: "source",
+    visualProgram: true,
+  });
+  let nodes = withProjectNodeGraph({}, base, {
+    ...base.parts.find((part) => part.kind === "graph"),
+    nodes: [math, source],
+    connections: [
+      { from: "math.value", to: "source.$parameter.gain", type: "number" },
+      { from: "source.texture", to: "$out.texture", type: "texture" },
+    ],
+  });
+  nodes = withProjectNodeParameterExposure(nodes, base, {
+    nodeId: "math",
+    parameterId: "a",
+    publicParameterId: "left",
+    parameter: { type: "number", defaultValue: 0.25 },
+    sectionLabel: "Inputs",
+    exposed: true,
+  });
+  nodes = withProjectNodeParameterExposure(nodes, base, {
+    nodeId: "math",
+    parameterId: "b",
+    publicParameterId: "right",
+    parameter: { type: "number", defaultValue: 0.75 },
+    sectionLabel: "Inputs",
+    exposed: true,
+  });
+  const group = materializeProjectNodeFork(base, nodes.forks[0]);
+  const compound = graphNodeFromDefinition(group, {
+    id: "compound",
+    visualProgram: true,
+  });
+  const plan = compileVisualRenderPlan({
+    id: "vj1.component.public-control-inlet",
+    nodes: [compound],
+    connections: [
+      { from: "compound.texture", to: "$out.texture", type: "texture" },
+    ],
+  }, {}, {
+    resolveDefinition: (node) => {
+      if (node.nodeId === group.id) return group;
+      return registry.get(node.nodeId);
+    },
+  });
+
+  const operation = plan.operations[0];
+  const mathStep = operation.controlProgram.steps.find(
+    (step) => step.instanceId === "math"
+  );
+  const child = operation.operations[0];
+  assert.equal(Object.hasOwn(mathStep.parameters, "a"), false);
+  assert.equal(Object.hasOwn(mathStep.parameters, "b"), false);
+  assert.equal(mathStep.inputValues.a, 0.25);
+  assert.equal(mathStep.inputValues.b, 0.75);
+  const restore = operation.controlProgram.apply();
+  assert.equal(child.configuration.source.params.gain, 0.75);
+  restore();
+  assert.equal(child.configuration.source.params.gain, 0);
+});
+
 test("a project visual Group can compile as a reusable texture-input effect module", () => {
   const Source = defineNode({
     id: "test.visual.compound-input-source",
@@ -607,6 +704,195 @@ test("visual Group placements compile distinct simultaneous image outputs as ret
   });
 });
 
+test("framebuffer continuation compilation rejects a source exposed through another public alias", () => {
+  const nativeSource = (id, renderer, framebufferPass = null) => ({
+    id,
+    type: `test.${id}`,
+    nodeId: `test.${id}`,
+    role: "source",
+    configuration: {
+      id,
+      kind: "source",
+      enabled: true,
+      source: {
+        type: "generator",
+        generatorId: `test.${id}`,
+        instanceId: id,
+        params: {},
+      },
+    },
+    compilerHook: {
+      id: "vj1.visual.native-source",
+      renderer,
+      ...(framebufferPass ? { framebufferPass } : {}),
+    },
+  });
+  const fill = nativeSource(
+    "framebuffer-fill",
+    "output/specialized:framebufferFill",
+  );
+  const wire = nativeSource(
+    "framebuffer-wire",
+    "output/specialized:framebufferWire",
+    { input: "target", preserve: ["color"] },
+  );
+  const group = defineNodeGroup({
+    id: "test.visual.framebuffer-alias-group",
+    name: "Framebuffer alias fixture",
+    description: "Exposes an unsafe intermediate framebuffer for compiler validation.",
+    executionModel: "compiled-graph",
+    outlets: {
+      texture: { type: "texture" },
+      fill: { type: "texture" },
+    },
+    nodes: [fill, wire],
+    connections: [
+      { from: "framebuffer-fill.texture", to: "framebuffer-wire.target", type: "texture" },
+      { from: "framebuffer-wire.texture", to: "$out.texture", type: "texture" },
+      { from: "framebuffer-fill.texture", to: "$out.fill", type: "texture" },
+    ],
+    publicOutlets: {
+      texture: "framebuffer-wire.texture",
+      fill: "framebuffer-fill.texture",
+    },
+    metadata: {
+      visualCompilerHook: { id: "vj1.visual.compound" },
+    },
+  });
+  const compound = graphNodeFromDefinition(group, {
+    id: "compound",
+    visualProgram: true,
+  });
+  const mix = graphNodeFromDefinition(MixTextureNode, {
+    id: "mix",
+    visualProgram: true,
+  });
+
+  assert.throws(
+    () => compileVisualRenderPlan({
+      id: "vj1.component.framebuffer-alias-rejection",
+      nodes: [compound, mix],
+      connections: [
+        { from: "compound.texture", to: "mix.a", type: "texture" },
+        { from: "compound.fill", to: "mix.b", type: "texture" },
+        { from: "mix.texture", to: "$out.texture", type: "texture" },
+      ],
+    }, {}, {
+      resolveDefinition: (node) =>
+        node.nodeId === group.id
+          ? group
+          : node.nodeId === MixTextureNode.id
+            ? MixTextureNode
+            : null,
+    }),
+    /VISUAL_FRAMEBUFFER_PASS_ALIAS_UNSAFE/,
+  );
+});
+
+test("linear framebuffer continuation chains retain every pass input and one attachment contract", () => {
+  const nativeSource = (id, framebufferPass = null) => ({
+    id,
+    type: `test.${id}`,
+    nodeId: `test.${id}`,
+    role: "source",
+    configuration: {
+      id,
+      kind: "source",
+      enabled: true,
+      source: {
+        type: "generator",
+        generatorId: `test.${id}`,
+        instanceId: id,
+        params: {},
+      },
+    },
+    compilerHook: {
+      id: "vj1.visual.native-source",
+      renderer: `output/specialized:${id}`,
+      ...(framebufferPass ? { framebufferPass } : {}),
+    },
+  });
+  const begin = nativeSource("framebuffer-begin");
+  const middle = nativeSource(
+    "framebuffer-middle",
+    { input: "target", preserve: ["color"] },
+  );
+  const end = nativeSource(
+    "framebuffer-end",
+    { input: "target", preserve: ["depth"] },
+  );
+  const group = defineNodeGroup({
+    id: "test.visual.linear-framebuffer-group",
+    name: "Linear framebuffer fixture",
+    description: "Compiles three native passes onto one private framebuffer.",
+    executionModel: "compiled-graph",
+    outlets: { texture: { type: "texture" } },
+    nodes: [begin, middle, end],
+    connections: [
+      { from: "framebuffer-begin.texture", to: "framebuffer-middle.target", type: "texture" },
+      { from: "framebuffer-middle.texture", to: "framebuffer-end.target", type: "texture" },
+      { from: "framebuffer-end.texture", to: "$out.texture", type: "texture" },
+    ],
+    publicOutlets: { texture: "framebuffer-end.texture" },
+    metadata: {
+      visualCompilerHook: { id: "vj1.visual.compound" },
+    },
+  });
+  const compound = graphNodeFromDefinition(group, {
+    id: "compound",
+    visualProgram: true,
+  });
+  const plan = compileVisualRenderPlan({
+    id: "vj1.component.linear-framebuffer-sequence",
+    nodes: [compound],
+    connections: [
+      { from: "compound.texture", to: "$out.texture", type: "texture" },
+    ],
+  }, {}, {
+    resolveDefinition: (node) => node.nodeId === group.id ? group : null,
+  });
+  const operations = plan.operations[0].operations;
+  const first = operations.find(({ id }) => id === "framebuffer-begin");
+  const second = operations.find(({ id }) => id === "framebuffer-middle");
+  const third = operations.find(({ id }) => id === "framebuffer-end");
+
+  assert.ok(first);
+  assert.ok(second);
+  assert.ok(third);
+  assert.equal(first.framebufferSequence.phase, "begin");
+  assert.equal(second.framebufferSequence.phase, "continue");
+  assert.equal(second.framebufferSequence.inputPort, "target");
+  assert.equal(third.framebufferSequence.phase, "continue");
+  assert.equal(third.framebufferSequence.inputPort, "target");
+  assert.equal(
+    first.framebufferSequence.sequenceId,
+    third.framebufferSequence.sequenceId,
+  );
+  assert.deepEqual(first.framebufferSequence.preserve, ["color", "depth"]);
+  assert.deepEqual(second.framebufferSequence.preserve, ["color", "depth"]);
+  assert.deepEqual(third.framebufferSequence.preserve, ["color", "depth"]);
+});
+
+test("the obsolete hidden specialized-Group compiler fails closed", () => {
+  assert.equal("SPECIALIZED_COMPOUND" in VISUAL_COMPILER_HOOKS, false);
+  const source = renderNode("obsolete-specialized", "source");
+  source.compilerHook = {
+    id: "vj1.visual.specialized-compound",
+    renderer: "output/specialized:obsolete",
+  };
+
+  assert.throws(
+    () => compileVisualRenderPlan({
+      id: "vj1.component.obsolete-specialized",
+      nodes: [source],
+      connections: [
+        { from: "obsolete-specialized.texture", to: "$out.texture", type: "texture" },
+      ],
+    }),
+    /VISUAL_NODE_COMPILER_HOOK_MISSING:obsolete-specialized:vj1\.visual\.specialized-compound/,
+  );
+});
+
 test("visual render plans follow authored texture connections and omit disconnected editor nodes", () => {
   const group = {
     id: "vj1.component.plan",
@@ -657,23 +943,81 @@ test("visual render plans retain normalized semantic contracts for optimized hos
 });
 
 test("compiled media model spin keeps the component frame-dependent", () => {
-  const source = renderNode("spinning-model", "source");
-  source.configuration.source = {
-    type: "media",
-    mediaId: "media/skull.obj",
-    params: { spinX: 0.22, spinY: 0, spinZ: -0.14 },
+  const packageRoot = createVj1NodePackage();
+  const component = {
+    id: "spinning-model",
+    type: "component",
+    chain: [{
+      id: "model",
+      kind: "source",
+      source: {
+        type: "generator",
+        generatorId: "modelMedia",
+        params: {
+          mediaId: "media/skull.obj",
+          spinX: 0.22,
+          spinY: 0,
+          spinZ: -0.14,
+        },
+      },
+    }],
   };
-  const plan = compileVisualRenderPlan({
-    id: "vj1.component.spinning-model",
-    componentId: "spinning-model",
-    nodes: [source],
-    connections: [
-      { from: "$in.texture", to: "spinning-model.image", type: "texture" },
-      { from: "spinning-model.texture", to: "$out.texture", type: "texture" },
-    ],
+  const state = packageRoot.prepareProjectState({
+    components: [component],
+    nodes: {},
   });
+  const program = compileComponentRenderPrograms(
+    state.components,
+    state.nodes.groups,
+    {
+      resolveNodeDefinition: (node) =>
+        packageRoot.registry.get(node.nodeId, node.nodeVersion),
+    },
+  ).get(component.id);
 
-  assert.equal(plan.inspect().dynamics.frameDependent, true);
+  assert.equal(program.inspect().dynamics.frameDependent, true);
+  assert.equal(program.plan.operations[0].valueProgram.inspect().dynamics.frameDependent, true);
+});
+
+test("compiled static media models remain revision-driven", () => {
+  const packageRoot = createVj1NodePackage();
+  const component = {
+    id: "static-model",
+    type: "component",
+    chain: [{
+      id: "model",
+      kind: "source",
+      source: {
+        type: "generator",
+        generatorId: "modelMedia",
+        params: {
+          mediaId: "media/skull.obj",
+          spinX: 0,
+          spinY: 0,
+          spinZ: 0,
+        },
+      },
+    }],
+  };
+  const state = packageRoot.prepareProjectState({
+    components: [component],
+    nodes: {},
+  });
+  const program = compileComponentRenderPrograms(
+    state.components,
+    state.nodes.groups,
+    {
+      resolveNodeDefinition: (node) =>
+        packageRoot.registry.get(node.nodeId, node.nodeVersion),
+    },
+  ).get(component.id);
+
+  assert.equal(
+    program.inspect().dynamics.frameDependent,
+    false,
+    "a retained static model should wake for revisions and render-demand changes, not every presentation frame",
+  );
+  assert.equal(program.plan.operations[0].valueProgram.inspect().dynamics.frameDependent, false);
 });
 
 test("animated file-backed shader definitions remain frame-dependent without host-specific exceptions", () => {
@@ -1266,10 +1610,119 @@ test("host signals and smoothing compile into retained direct control steps", ()
     MidiControlInputNode.id,
     SmoothControlNode.id,
   ]);
+  assert.deepEqual(
+    plan.controlProgram.inspect().steps.map((step) => step.frameDependent),
+    [false, true],
+    "MIDI is revision-driven while the explicitly temporal smoother retains the frame clock",
+  );
   assert.deepEqual(plan.controlProgram.steps.map((step) => step.outputValues), stepOutputs);
-  assert.equal(plan.inspect().dynamics.frameDependent, true);
+  const inspection = plan.inspect();
+  assert.equal(inspection.dynamics.frameDependent, true);
+  assert.deepEqual(inspection.controlPrograms[0].requirements, [{
+    kind: "control-signal",
+    signalKind: "midi",
+    address: "1:cc:7",
+    required: false,
+  }]);
+  assert.deepEqual(
+    inspection.readiness.requirements.filter(({ kind }) => kind === "control-signal"),
+    [{
+      kind: "control-signal",
+      signalKind: "midi",
+      address: "1:cc:7",
+      required: false,
+    }],
+  );
   restore();
   assert.equal(source.configuration.source.params.scale, 0);
+});
+
+test("a direct MIDI binding is revision-driven rather than frame-driven", () => {
+  const source = renderNode("source", "source");
+  const plan = compileVisualRenderPlan({
+    id: "vj1.component.direct-midi-control",
+    nodes: [
+      {
+        id: "midi",
+        nodeId: MidiControlInputNode.id,
+        role: "control",
+        parameters: { kind: "midi", address: "1:cc:12", fallback: 0 },
+      },
+      source,
+    ],
+    connections: [
+      { from: "$in.texture", to: "source.image", type: "texture" },
+      { from: "source.texture", to: "$out.texture", type: "texture" },
+      { from: "midi.number", to: "source.$parameter.scale", type: "number" },
+    ],
+  });
+
+  const inspection = plan.inspect();
+  assert.equal(inspection.dynamics.frameDependent, false);
+  assert.equal(inspection.controlPrograms[0].steps[0].frameDependent, false);
+  assert.deepEqual(inspection.controlPrograms[0].requirements, [{
+    kind: "control-signal",
+    signalKind: "midi",
+    address: "1:cc:12",
+    required: false,
+  }]);
+
+  const audioSource = renderNode("audio-source", "source");
+  const audioPlan = compileVisualRenderPlan({
+    id: "vj1.component.direct-audio-control",
+    nodes: [
+      {
+        id: "audio",
+        nodeId: AudioControlInputNode.id,
+        role: "control",
+        parameters: { kind: "audio", address: "level", fallback: 0 },
+      },
+      audioSource,
+    ],
+    connections: [
+      { from: "$in.texture", to: "audio-source.image", type: "texture" },
+      { from: "audio-source.texture", to: "$out.texture", type: "texture" },
+      { from: "audio.number", to: "audio-source.$parameter.scale", type: "number" },
+    ],
+  });
+  assert.equal(audioPlan.inspect().dynamics.frameDependent, true);
+  assert.equal(
+    audioPlan.inspect().controlPrograms[0].steps[0].frameDependent,
+    true,
+  );
+
+  const oscSource = renderNode("osc-source", "source");
+  const oscPlan = compileVisualRenderPlan({
+    id: "vj1.component.direct-osc-control",
+    nodes: [
+      {
+        id: "osc",
+        nodeId: OscControlInputNode.id,
+        role: "control",
+        parameters: {
+          kind: "osc",
+          endpoint: "ws://127.0.0.1:9000/osc",
+          address: "/vj1/scale",
+          fallback: 0,
+        },
+      },
+      oscSource,
+    ],
+    connections: [
+      { from: "$in.texture", to: "osc-source.image", type: "texture" },
+      { from: "osc-source.texture", to: "$out.texture", type: "texture" },
+      { from: "osc.number", to: "osc-source.$parameter.scale", type: "number" },
+    ],
+  });
+  const oscInspection = oscPlan.inspect();
+  assert.equal(oscInspection.dynamics.frameDependent, false);
+  assert.deepEqual(oscInspection.controlPrograms[0].requirements, [{
+    kind: "control-signal",
+    signalKind: "osc",
+    address: "/vj1/scale",
+    endpoint: "ws://127.0.0.1:9000/osc",
+    required: false,
+  }]);
 });
 
 test("compiled-plan introspection exposes dependencies media dynamics readiness and editable operations", () => {
@@ -1297,6 +1750,11 @@ test("compiled-plan introspection exposes dependencies media dynamics readiness 
 
   assert.deepEqual(inspection.dependencies.components, ["child-component"]);
   assert.deepEqual(inspection.mediaDemand.ids, ["texture-a"]);
+  assert.deepEqual(
+    plan.operations[0].mediaDependencies,
+    ["texture-a"],
+    "the operation cache owns the same declared media dependency as plan introspection",
+  );
   assert.deepEqual(inspection.readiness.requirements, [{ kind: "media", id: "texture-a" }]);
   assert.equal(inspection.dynamics.frameDependent, true);
   assert.equal(inspection.dynamics.hasControlProgram, true);

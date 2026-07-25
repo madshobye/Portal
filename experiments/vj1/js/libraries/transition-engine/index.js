@@ -180,7 +180,16 @@ export class TransitionCatalog {
   constructor(entries = []) {
     this.entries = new Map();
     this.diagnostics = [];
-    this.add({
+    const candidates = [...(entries || [])];
+    const repositoryFallbackIndex = candidates.findIndex((entry) =>
+      entry?.id === DissolveTransitionKernel.id &&
+      entry?.origin?.kind === "built-in" &&
+      entry?.kernel
+    );
+    const repositoryFallback = repositoryFallbackIndex >= 0
+      ? candidates.splice(repositoryFallbackIndex, 1)[0]
+      : null;
+    this.add(repositoryFallback || {
       id: DissolveTransitionKernel.id,
       version: DissolveTransitionKernel.version,
       name: DissolveTransitionKernel.name,
@@ -189,7 +198,7 @@ export class TransitionCatalog {
       kernel: DissolveTransitionKernel,
       origin: { kind: "built-in", id: "vj1.built-in.transitions" },
     });
-    for (const entry of entries || []) this.add(entry);
+    for (const entry of candidates) this.add(entry);
     this.diagnostics = Object.freeze(this.diagnostics);
   }
 

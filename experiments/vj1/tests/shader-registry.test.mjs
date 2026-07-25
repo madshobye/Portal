@@ -76,7 +76,12 @@ test("alpha-sensitive effects keep transparent pixels premultiplied", () => {
   for (const id of ["invert", "labelGrain", "labelThresholdGrain", "hardBlack", "gray", "plasma"]) {
     const component = getShaderComponent(id);
 
-    assert.ok(component.code.includes("* color.a") || component.code.includes("* alpha"), `${id} should multiply generated RGB by alpha`);
+    assert.ok(
+      component.code.includes("* color.a") ||
+      component.code.includes("* alpha") ||
+      component.code.includes("vj1IsfOutput.rgb * vj1IsfOutput.a"),
+      `${id} should multiply generated RGB by alpha`,
+    );
   }
 });
 
@@ -148,6 +153,12 @@ test("Alpha Feather erodes then softens alpha while preserving premultiplied col
   assert.equal(component.category, "key");
   assert.equal(component.sampling, "neighborhood");
   assert.equal(component.fusible, false);
+  assert.deepEqual(component.runtime.roi, {
+    mode: "neighborhood",
+    halo: 64,
+    coordinateSpace: "boundary",
+    pixelEquivalentToFullFrame: true,
+  });
   assert.equal(params.amount.defaultValue, 1);
   assert.equal(params.cut.defaultValue, 1);
   assert.equal(params.feather.defaultValue, 3);

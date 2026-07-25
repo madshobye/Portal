@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { compileShaderSchedule, fuseLocalShaderSchedule } from "../js/graph/render-scheduler.js";
+import { compileShaderSchedule, fuseLocalShaderSchedule } from "../js/graph/shader-scheduler.js?v=compiled-program-projection-1";
 import { effectTransformUniforms } from "../js/output/output-renderer.js";
 import {
   CONTENT_COORDINATE_CONVENTION,
@@ -17,6 +17,11 @@ import { SharedFramebufferTarget, unwrapRenderTarget } from "../js/output/shared
 import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, normalizedSourceRect, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 import { getEffectNodeComponent as getShaderComponent } from "../js/libraries/visual-nodes/index.js";
+import {
+  beginRawWebGlState,
+  restoreRawWebGlState,
+  withOwnedRawWebGlState,
+} from "../js/libraries/render-engine/raw-webgl-state.js";
 
 test("shader components declare sampling cost and safe fusion metadata", () => {
   const invert = getShaderComponent("invert");
@@ -118,7 +123,7 @@ test("terrain preserves world-up camera Y until Composition placement converts i
     readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8"),
     readFileSync(new URL("../js/libraries/visual-nodes/generators/terrain-flyover/shaders.js", import.meta.url), "utf8"),
   ].join("\n");
-  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const specializedSource = readFileSync(new URL("../js/output/specialized/terrain-render-runtime.js", import.meta.url), "utf8");
   assert.match(source, /float terrainClipYFromWorldUp\(float worldUpY\)/);
   assert.match(source, /return worldUpY;/);
   assert.equal((source.match(/terrainClipYFromWorldUp\(cameraY\) \* focalLength/g) || []).length, 2);
@@ -127,12 +132,11 @@ test("terrain preserves world-up camera Y until Composition placement converts i
   assert.equal((source.match(/placeTerrainInComposition\(vec4\(/g) || []).length, 2);
   assert.match(source, /clip\.w \* 0\.5 - clip\.y \* 0\.5/);
   assert.match(source, /gl\.uniformMatrix3fv\(resources\.contentPlacementMatrix/);
-  const terrainDraw = specializedSource.slice(
-    specializedSource.indexOf("  drawTerrain("),
-    specializedSource.indexOf("  drawModel(")
+  assert.match(
+    specializedSource,
+    /markRenderTargetOrientation\(\s*output,\s*RENDER_TEXTURE_ORIENTATION\.bottomLeft,?\s*\)/,
   );
-  assert.match(terrainDraw, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.bottomLeft\)/);
-  assert.doesNotMatch(terrainDraw, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.topLeft\)/);
+  assert.doesNotMatch(specializedSource, /markRenderTargetOrientation\(target, RENDER_TEXTURE_ORIENTATION\.topLeft\)/);
 });
 
 test("terrain raw WebGL passes are isolated from the shared p5 renderer", () => {
@@ -143,11 +147,42 @@ test("terrain raw WebGL passes are isolated from the shared p5 renderer", () => 
   assert.match(source, /beginRawWebGlState\(gl, "terrain-wire"\)/);
   assert.match(stateSource, /VERTEX_ARRAY_BINDING/);
   assert.match(stateSource, /OES_vertex_array_object/);
-  assert.doesNotMatch(stateSource, /FRAMEBUFFER_BINDING|DEPTH_WRITEMASK|COLOR_WRITEMASK|BLEND_EQUATION_RGB/);
+  assert.match(stateSource, /DEPTH_WRITEMASK/);
+  assert.match(stateSource, /gl\.depthMask\(state\.depthWrite\)/);
+  assert.doesNotMatch(stateSource, /FRAMEBUFFER_BINDING|COLOR_WRITEMASK|BLEND_EQUATION_RGB/);
   assert.equal((source.match(/restoreRawWebGlState\(gl, passState, attributeStates\)/g) || []).length, 2);
   assert.equal((source.match(/\} finally \{/g) || []).length >= 2, true);
   assert.match(rawWebGlSource, /\[VJ1_RAW_SHADER_COMPILE_FAILED\]/);
   assert.match(rawWebGlSource, /\[VJ1_RAW_PROGRAM_LINK_FAILED\]/);
+});
+
+test("node-owned raw WebGL scopes do not synchronously rediscover driver state per draw", () => {
+  const calls = [];
+  const gl = {
+    VERTEX_ARRAY_BINDING: 34229,
+    createVertexArray: () => ({}),
+    bindVertexArray: (value) => calls.push(["bindVertexArray", value]),
+    deleteVertexArray() {},
+    getParameter() {
+      calls.push(["getParameter"]);
+      throw new Error("owned raw draw queried synchronous driver state");
+    },
+  };
+  const renderer = {
+    _curShader: { id: "p5-shader" },
+    _cachedBlendMode: "source-over",
+  };
+  const target = { drawingContext: gl, _renderer: renderer };
+
+  withOwnedRawWebGlState(target, () => {
+    const state = beginRawWebGlState(gl, "retained-mesh");
+    assert.equal(state.owned, true);
+    restoreRawWebGlState(gl, state);
+  });
+
+  assert.deepEqual(calls, [["bindVertexArray", null]]);
+  assert.equal(renderer._curShader, undefined);
+  assert.equal(renderer._cachedBlendMode, undefined);
 });
 
 test("render failures are explicit and mapper overlays restore depth state", () => {
@@ -157,9 +192,9 @@ test("render failures are explicit and mapper overlays restore depth state", () 
   const fontSource = readFileSync(new URL("../js/output/font-loader.js", import.meta.url), "utf8");
   const modelWorkerSource = readFileSync(new URL("../js/output/specialized/model-processing-client.js", import.meta.url), "utf8");
   const mobileNetSource = readFileSync(new URL("../js/output/specialized/mobilenet-morph-service.js", import.meta.url), "utf8");
-  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-target-runtime.js", import.meta.url), "utf8");
   const mapperSource = readFileSync(new URL("../js/libraries/mapping-engine/mapping-engine/index.js", import.meta.url), "utf8");
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const mappingRuntimeSource = readFileSync(new URL("../js/output/output-mapping-runtime.js", import.meta.url), "utf8");
   const terrainSource = readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8");
   const mediaRuntimeSource = readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8");
   const inputRuntimeSource = readFileSync(new URL("../js/output/shared-input-runtime.js", import.meta.url), "utf8");
@@ -180,7 +215,7 @@ test("render failures are explicit and mapper overlays restore depth state", () 
   assert.match(mobileNetSource, /VJ1_TFJS_WEBGL_BACKEND_REQUIRED/);
   assert.match(specializedSource, /\[VJ1_PRESENTATION_SHADER_FAILED\]/);
   assert.match(specializedSource, /\[VJ1_SPECIALIZED_TARGET_RESIZE_FAILED\]/);
-  assert.match(rendererSource, /\[VJ1_MAPPING_SIGNATURE_FAILED\]/);
+  assert.match(mappingRuntimeSource, /\[VJ1_MAPPING_SIGNATURE_FAILED\]/);
   assert.match(terrainSource, /\[VJ1_TERRAIN_SURFACE_RESOURCE_CHECK_FAILED\]/);
   assert.match(terrainSource, /\[VJ1_TERRAIN_WIRE_RESOURCE_CHECK_FAILED\]/);
   assert.match(inputRuntimeSource, /\[VJ1_CAMERA_SETUP_LOOKUP_FAILED\]/);
@@ -194,12 +229,13 @@ test("render failures are explicit and mapper overlays restore depth state", () 
 });
 
 test("detailed CPU pass attribution is sampled instead of instrumenting every frame", () => {
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const metricsSource = readFileSync(new URL("../js/output/output-presentation-metrics.js", import.meta.url), "utf8");
   const profileSource = readFileSync(new URL("../js/output/output-render-profile.js", import.meta.url), "utf8");
   assert.match(profileSource, /this\.collectDetailed = frameIndex % this\.sampleInterval === 0/);
   assert.match(profileSource, /measure\(bucket, meta, fn\) \{\s*if \(!this\.collectDetailed\) return fn\(\)/);
   assert.match(profileSource, /measureComponent\(meta, fn\) \{\s*if \(!this\.collectDetailed\) return fn\(\)/);
-  assert.match(rendererSource, /const frameMs = Math\.max\(0, performance\.now\(\) - this\.frameStart\)/);
+  assert.match(metricsSource, /const frameMs = Math\.max\(0, performance\.now\(\) - startedAt\)/);
+  assert.match(metricsSource, /VJ1_PRESENTATION_FRAME_START_REQUIRED/);
 });
 
 test("selected grain effects use the shared cached noise texture", () => {
@@ -276,6 +312,35 @@ test("shared framebuffer shader draws undo an active top-left translation", () =
       if (previous[name] === undefined) delete globalThis[name];
       else globalThis[name] = previous[name];
     }
+  }
+});
+
+test("shared framebuffer clear establishes writable attachments without querying the driver", () => {
+  const calls = [];
+  const previousClear = globalThis.clear;
+  globalThis.clear = () => calls.push(["clear"]);
+  const gl = {
+    depthMask: (value) => calls.push(["depthMask", value]),
+    colorMask: (...values) => calls.push(["colorMask", ...values]),
+    getParameter() {
+      throw new Error("framebuffer clear queried synchronous driver state");
+    },
+  };
+  const framebuffer = {
+    width: 32,
+    height: 32,
+    renderer: { GL: gl },
+  };
+  try {
+    new SharedFramebufferTarget(framebuffer).clear();
+    assert.deepEqual(calls, [
+      ["depthMask", true],
+      ["colorMask", true, true, true, true],
+      ["clear"],
+    ]);
+  } finally {
+    if (previousClear === undefined) delete globalThis.clear;
+    else globalThis.clear = previousClear;
   }
 });
 

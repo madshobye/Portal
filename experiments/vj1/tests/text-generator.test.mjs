@@ -15,7 +15,11 @@ import {
   materializeProjectNodeFork,
   NODE_PART_KINDS,
 } from "../js/libraries/node-engine/index.js";
-import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
+import {
+  graphNodeFromDefinition,
+  NODE_GRAPH_AUTHORING_TARGETS,
+  nodeDefinitionPlaceableInGraph,
+} from "../js/control/node-graph-canvas.js";
 import { createTextMask, parseTextMarkdown, TEXT_GENERATOR_FRAGMENT_SHADER, textMaskDimensions, textMaskSignature } from "../js/output/specialized/text-generator-renderer.js";
 import { textNodeRuntimeModule, textNodeShaderSource } from "../js/output/specialized/specialized-source-runtime.js";
 
@@ -46,6 +50,36 @@ test("text generator exposes portable typography and persistent style parameters
   assert.equal(TextMaskToImageNode.metadata.nodeOwnedNativeModule, true);
   assert.ok(TextMaskToImageNode.parts.some((part) => part.id === "vertex-shader" && part.stage === "vertex"));
   assert.ok(TextMaskToImageNode.parts.some((part) => part.id === "fragment-shader" && part.stage === "fragment"));
+});
+
+test("Text demand, mask, and retained image kernel are ordinary visual-editor nodes", () => {
+  for (const definition of [
+    RenderDemandNode,
+    TextMaskProviderNode,
+    TextMaskToImageNode,
+  ]) {
+    assert.equal(
+      nodeDefinitionPlaceableInGraph(
+        definition,
+        NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
+      ),
+      true,
+      `${definition.id} must be placeable in an authored visual Group`,
+    );
+  }
+  assert.equal(
+    graphNodeFromDefinition(TextMaskProviderNode, {
+      id: "mask",
+      visualProgram: true,
+    }).role,
+    "value",
+  );
+  const render = graphNodeFromDefinition(TextMaskToImageNode, {
+    id: "render",
+    visualProgram: true,
+  });
+  assert.equal(render.role, "source");
+  assert.equal(render.compilerHook.id, "vj1.visual.native-source");
 });
 
 test("Text compiles a connected reusable mask provider and retained image kernel", () => {
@@ -221,24 +255,27 @@ test("Text host adapter consumes the compiler-supplied node module and shaders",
 
 test("text generator uses an ordinary retained-value graph and compact editor", async () => {
   const component = getGeneratorComponent("text");
-  const [renderer, sourceRuntime, specialized, parameterView, inputController] = await Promise.all([
+  const [renderer, sourceRuntime, specialized, textRuntime, artifacts, parameterView, inputController] = await Promise.all([
     readFile(new URL("../js/output/output-renderer.js", import.meta.url), "utf8"),
     readFile(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8"),
     readFile(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8"),
+    readFile(new URL("../js/output/specialized/text-render-runtime.js", import.meta.url), "utf8"),
+    readFile(new URL("../js/output/specialized/specialized-node-artifacts.js", import.meta.url), "utf8"),
     readFile(new URL("../js/control/parameter-view.js", import.meta.url), "utf8"),
     readFile(new URL("../js/control/input-controller.js", import.meta.url), "utf8"),
   ]);
   assert.equal(component.nodeDefinition.metadata.nativeRenderer, "");
   assert.doesNotMatch(sourceRuntime, /NATIVE_SOURCE_HOST_METHODS/);
   assert.match(specialized, /registerNativeRenderer\(\s*"output\/specialized:text"/);
-  assert.match(renderer, /this\.specializedSources\.drawText/);
-  assert.match(specialized, /operation\?\.runtimeValueInputs\?\.get\?\.\("mask"\)/);
-  assert.match(specialized, /!maskValue\?\.canvas/);
-  assert.match(specialized, /operation\?\.nodeShaders\?\.\[id\]/);
-  assert.match(specialized, /TEXT_COMPILED_SHADER_MISSING/);
-  assert.match(specialized, /nodeShaderRevision/);
-  assert.match(specialized, /textMaskImage\(canvas, mask\?\.image/);
-  assert.match(specialized, /setUniform\("textMask", mask\.image\)/);
+  assert.doesNotMatch(renderer, /this\.specializedSources\.drawText/);
+  assert.match(textRuntime, /^  draw\(/m);
+  assert.match(textRuntime, /operation\?\.runtimeValueInputs\?\.get\?\.\("mask"\)/);
+  assert.match(textRuntime, /!maskValue\?\.canvas/);
+  assert.match(artifacts, /operation\?\.nodeShaders\?\.\[id\]/);
+  assert.match(artifacts, /TEXT_COMPILED_SHADER_MISSING/);
+  assert.match(textRuntime, /nodeShaderRevision/);
+  assert.match(textRuntime, /textMaskImage\(canvas, mask\?\.image/);
+  assert.match(textRuntime, /setUniform\("textMask", mask\.image\)/);
   assert.match(parameterView, /data-markdown-editor/);
   assert.match(inputController, /bindMarkdownEditors\(scope\)/);
 });

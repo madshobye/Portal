@@ -7,7 +7,7 @@ import {
   createMaterial3d,
   Material3dType,
 } from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
-import { VisualMaterialProviderType } from "../../shared/specialized-compound-types.js";
+import { VisualMaterialProviderType } from "../../shared/visual-stage-types.js";
 
 const WIRE_SETTING_IDS = Object.freeze([
   "wireColor",
@@ -44,12 +44,13 @@ export const MeshPatternWireMaterialProviderNode = defineNode({
     "wireframe",
     "mesh-pattern",
     "scene-3d",
-    "specialized-visual-stage",
+    "retained-value-provider",
+    "visual-stage",
     "graph-placeable",
   ],
   presentation: {
-    catalogs: ["node-graph", "mesh-pattern", "material", "scene-3d", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "mesh-pattern", "material", "scene-3d", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
   },
   metadata: {
     nativeArtifactRequirements: {

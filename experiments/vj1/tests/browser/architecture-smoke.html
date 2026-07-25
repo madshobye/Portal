@@ -35,16 +35,17 @@
     </script>
     <script type="module">
       import MeshPatterns from "../../js/libraries/visual-nodes/generators/mesh-patterns/index.js";
-      import ModelMedia from "../../js/libraries/visual-nodes/generators/model-media/index.js?v=model-media-scene-group-1";
+      import ModelMedia from "../../js/libraries/visual-nodes/generators/model-media/index.js?v=async-media-dirty-1";
       import TerrainFlyover from "../../js/libraries/visual-nodes/generators/terrain-flyover/index.js";
       import FeatureMorph from "../../js/libraries/visual-nodes/generators/feature-morph/index.js?v=retained-feature-morph-1";
       import FeatureMorphV2 from "../../js/libraries/visual-nodes/generators/feature-morph-v2/index.js?v=retained-feature-morph-v2-1";
-      import TileTexture from "../../js/libraries/visual-nodes/generators/tile-texture/index.js?v=tile-texture-semantic-1";
+      import TileTexture from "../../js/libraries/visual-nodes/generators/tile-texture/index.js?v=async-media-dirty-1";
       import Text from "../../js/libraries/visual-nodes/generators/text/index.js?v=text-mask-semantic-1";
       import ScreenShare from "../../js/libraries/visual-nodes/generators/screen-share/index.js?v=screen-input-semantic-1";
+      import CameraInput from "../../js/libraries/visual-nodes/generators/camera-input/index.js?v=async-media-dirty-1";
       import Eyeball from "../../js/libraries/visual-nodes/generators/eyeball/index.js?v=gaze-blink-semantic-1";
       import EyeballRender from "../../js/libraries/visual-nodes/generators/eyeball-render/index.js";
-      import MediaImage from "../../js/libraries/visual-nodes/generators/media-image/index.js";
+      import ProjectMedia from "../../js/libraries/visual-nodes/generators/media-image/index.js?v=async-media-dirty-1";
       import TileRepeat from "../../js/libraries/visual-nodes/effects/tile-repeat/index.js";
       import {
         FEATURE_MORPH_FRAGMENT_SHADER,
@@ -52,29 +53,45 @@
       } from "../../js/libraries/visual-nodes/generators/feature-morph/runtime.js?v=feature-morph-semantic-1";
       import { TerrainBiomeMaterialProviderNode } from "../../js/libraries/visual-nodes/providers/terrain-biome-material/index.js?v=semantic-terrain-node-ownership-1";
       import { TerrainWireMaterialProviderNode } from "../../js/libraries/visual-nodes/providers/terrain-wire-material/index.js?v=semantic-terrain-node-ownership-1";
+      import { TerrainFlightControllerNode } from "../../js/libraries/terrain-engine/flight-controller/index.js?v=semantic-terrain-contract-5";
       import { TextMaskProviderNode } from "../../js/libraries/visual-nodes/providers/text-mask/index.js?v=text-mask-semantic-1";
       import { TextMaskToImageNode } from "../../js/libraries/visual-nodes/renderers/text-mask-to-image/index.js?v=text-mask-semantic-1";
-      import { ScreenInputResourceNode } from "../../js/libraries/visual-nodes/providers/screen-input-resource/index.js?v=screen-input-semantic-1";
-      import { MediaResourceToImageNode } from "../../js/libraries/visual-nodes/renderers/media-resource-to-image/index.js?v=screen-input-semantic-1";
+      import { ScreenInputResourceNode } from "../../js/libraries/visual-nodes/providers/screen-input-resource/index.js?v=async-media-dirty-1";
+      import { CameraInputResourceNode } from "../../js/libraries/visual-nodes/providers/camera-input-resource/index.js?v=async-media-dirty-1";
+      import { MediaResourceToImageNode } from "../../js/libraries/visual-nodes/renderers/media-resource-to-image/index.js?v=async-media-dirty-1";
       import { MediaImageResourceNode } from "../../js/libraries/visual-nodes/providers/media-image-resource/index.js";
+      import { ProjectMediaResourceNode } from "../../js/libraries/visual-nodes/providers/project-media-resource/index.js?v=async-media-dirty-1";
       import { MobileNetMorphAnalysisNode, SuperPointMorphAnalysisNode } from "../../js/libraries/visual-nodes/providers/feature-morph-analysis/index.js";
       import { FeatureMorphToImageNode } from "../../js/libraries/visual-nodes/renderers/feature-morph-to-image/index.js";
       import { GazeBlinkControllerNode } from "../../js/libraries/visual-nodes/providers/gaze-blink-controller/index.js?v=gaze-blink-semantic-1";
-      import { ComponentTimeControlNode } from "../../js/libraries/control-engine/index.js?v=architecture-r2-2";
+      import {
+        AudioControlInputNode,
+        ComponentTimeControlNode,
+        MidiControlInputNode,
+        OscControlInputNode,
+      } from "../../js/libraries/control-engine/index.js?v=async-media-dirty-1";
       import { RenderDemandNode } from "../../js/libraries/render-engine/index.js";
+      import { SceneToImageNode } from "../../js/libraries/mesh-engine/index.js?v=async-media-dirty-1";
       import { CONTROLLED_IMAGE_VERTEX_SHADER } from "../../js/libraries/visual-nodes/renderers/eyeball-to-image/shader.js";
       import { standaloneFragmentSource } from "../../js/shaders/shader-builder.js";
       import { graphNodeFromDefinition } from "../../js/control/node-graph-canvas.js";
       import {
-        compileSpecializedCompoundProgram,
-      } from "../../js/libraries/visual-nodes/shared/specialized-compound.js";
-      import { compileVisualRenderPlan, setCompiledVisualParameter } from "../../js/libraries/composition-engine/index.js?v=retained-value-contract-1";
+        MeshPatternFillMaterialProviderNode,
+        MeshPatternFillToImageNode,
+        MeshPatternTopologyProviderNode,
+        MeshPatternWireMaterialProviderNode,
+        MeshPatternWireToImageNode,
+        TerrainFlightCameraProviderNode,
+        TerrainHeightFieldGeometryProviderNode,
+        TerrainSurfaceToImageNode,
+        TerrainWireToImageNode,
+      } from "../../js/libraries/visual-nodes/shared/visual-stage-nodes.js?v=visual-stage-authority-1";
+      import { compileVisualRenderPlan, setCompiledVisualParameter } from "../../js/libraries/composition-engine/index.js?v=async-media-dirty-1";
       import {
         createIsfNodeDefinition,
         createIsfVisualComponent,
       } from "../../js/libraries/isf-engine/index.js?v=named-image-inputs-1";
       import {
-        DissolveTransitionKernel,
         textureTransitionFragmentShaderSource,
       } from "../../js/libraries/transition-engine/index.js";
       import {
@@ -83,7 +100,15 @@
         MESH_PATTERN_WIRE_FRAGMENT_SHADER,
         MESH_PATTERN_WIRE_VERTEX_SHADER,
       } from "../../js/libraries/visual-nodes/generators/mesh-patterns/shaders.js";
+      import { LAYER_BLEND_FRAGMENT_SHADER as LAYER_BLEND_SHADER } from "../../js/output/render-pass-shaders.js?v=premultiplied-alpha-5";
       import { SpecializedSourceRuntime } from "../../js/output/specialized/specialized-source-runtime.js";
+      import { ControlSignalRuntime } from "../../js/output/control-signal-runtime.js?v=async-media-dirty-1";
+      import { OutputPresentationMetrics } from "../../js/output/output-presentation-metrics.js?v=async-media-dirty-1";
+      import {
+        DefaultBuiltInTransition,
+        getEffectNodeComponent,
+        getGeneratorNodeComponent,
+      } from "../../js/libraries/visual-nodes/catalog.js?v=async-media-dirty-1";
       const resultElement = document.querySelector("#architecture-smoke-results");
       const resourceCounts = {
         shadersCreated: 0,
@@ -110,7 +135,9 @@
         if (!gl) throw new Error("WEBGL_CONTEXT_UNAVAILABLE");
 
         const transition = verifyTransition(gl);
+        const transparentLayerBlend = verifyTransparentLayerBlend(gl);
         const namedIsfInputs = verifyNamedIsfInputs(gl);
+        const builtInIsf = verifyBuiltInIsf(gl);
         const nativeShaders = [
           compilePair(gl, "mesh-pattern-fill", MESH_PATTERN_FILL_VERTEX_SHADER, MESH_PATTERN_FILL_FRAGMENT_SHADER),
           compilePair(gl, "mesh-pattern-wire", MESH_PATTERN_WIRE_VERTEX_SHADER, MESH_PATTERN_WIRE_FRAGMENT_SHADER),
@@ -126,8 +153,22 @@
           ),
         ];
         const compounds = [
-          compileCompound("mesh-patterns", MeshPatterns),
-          compileCompound("terrain-flyover", TerrainFlyover),
+          compileOrdinaryCompound("mesh-patterns", MeshPatterns, [
+            MeshPatternTopologyProviderNode,
+            MeshPatternFillMaterialProviderNode,
+            MeshPatternWireMaterialProviderNode,
+            MeshPatternFillToImageNode,
+            MeshPatternWireToImageNode,
+          ]),
+          compileOrdinaryCompound("terrain-flyover", TerrainFlyover, [
+            TerrainFlightControllerNode,
+            TerrainHeightFieldGeometryProviderNode,
+            TerrainBiomeMaterialProviderNode,
+            TerrainWireMaterialProviderNode,
+            TerrainFlightCameraProviderNode,
+            TerrainSurfaceToImageNode,
+            TerrainWireToImageNode,
+          ]),
           compileOrdinaryCompound("feature-morph", FeatureMorph, [
             MediaImageResourceNode,
             SuperPointMorphAnalysisNode,
@@ -139,8 +180,13 @@
             FeatureMorphToImageNode,
           ]),
           compileOrdinaryCompound("tile-texture", TileTexture, [
-            MediaImage.nodeDefinition,
+            ProjectMediaResourceNode,
+            MediaResourceToImageNode,
             TileRepeat.nodeDefinition,
+          ]),
+          compileOrdinaryCompound("project-media", ProjectMedia, [
+            ProjectMediaResourceNode,
+            MediaResourceToImageNode,
           ]),
           compileOrdinaryCompound("text", Text, [
             RenderDemandNode,
@@ -151,6 +197,10 @@
             ScreenInputResourceNode,
             MediaResourceToImageNode,
           ]),
+          compileOrdinaryCompound("camera-input", CameraInput, [
+            CameraInputResourceNode,
+            MediaResourceToImageNode,
+          ]),
           compileOrdinaryCompound("eyeball", Eyeball, [
             ComponentTimeControlNode,
             GazeBlinkControllerNode,
@@ -159,10 +209,13 @@
         ];
         const textMask = verifyTextMaskGroup();
         const screenShare = verifyScreenShareGroup();
+        const cameraInput = verifyCameraInputGroup();
         const eyeball = verifyEyeballGroup();
         const featureMorphProviders = verifyFeatureMorphProviders();
-        const modelMedia = verifyModelMediaGroup(ModelMedia);
+        const modelMedia = verifyModelMediaGroup(ModelMedia, SceneToImageNode);
         const temporalInvalidation = verifyTemporalInvalidation();
+        const externalControl = await verifyExternalControl();
+        const aggregateMetrics = verifyAggregateMetrics();
         const resourcesBalanced =
           resourceCounts.shadersCreated === resourceCounts.shadersDeleted &&
           resourceCounts.programsCreated === resourceCounts.programsDeleted &&
@@ -172,14 +225,29 @@
         const ok =
           transition.compiled &&
           transition.linked &&
+          transition.implementation === "isf" &&
+          transition.fileBacked &&
           transition.endpointEquivalent &&
           transition.midpointEquivalent &&
           transition.roiPixelEquivalent &&
+          transparentLayerBlend.compiled &&
+          transparentLayerBlend.linked &&
+          transparentLayerBlend.transparentPixelsPreserveBase &&
+          transparentLayerBlend.premultipliedSourceOver &&
           namedIsfInputs.compiled &&
           namedIsfInputs.linked &&
           namedIsfInputs.namedSamplerEquivalent &&
+          builtInIsf.compiled &&
+          builtInIsf.linked &&
+          builtInIsf.directGenerator &&
+          builtInIsf.fusibleEffect &&
+          builtInIsf.blackEquivalent &&
+          builtInIsf.premultipliedInvertEquivalent &&
+          builtInIsf.premultipliedGrayEquivalent &&
+          builtInIsf.premultipliedThresholdEquivalent &&
           nativeShaders.every((entry) => entry.compiled && entry.linked) &&
           compounds.every((entry) => entry.compiledFastPath && entry.graphEditable && entry.activation === "recompile") &&
+          compounds.find((entry) => entry.kind === "project-media")?.directPlacement === true &&
           textMask.connected &&
           textMask.stableRevision &&
           textMask.textInvalidatedOnce &&
@@ -188,6 +256,13 @@
           screenShare.connected &&
           screenShare.resourceIdentity &&
           screenShare.presentationOwned &&
+          screenShare.directProcess &&
+          screenShare.frameDrivenByResource &&
+          screenShare.screenDemand &&
+          cameraInput.connected &&
+          cameraInput.resourceIdentity &&
+          cameraInput.directProcess &&
+          cameraInput.cameraDemand &&
           eyeball.connected &&
           eyeball.retainedUniforms &&
           eyeball.finiteAnimation &&
@@ -196,8 +271,23 @@
           modelMedia.compiledFastPath &&
           modelMedia.graphEditable &&
           modelMedia.meshToImage &&
+          modelMedia.semanticRenderPorts &&
+          modelMedia.declaredRenderProcessContext &&
           temporalInvalidation.cloneable &&
           temporalInvalidation.frameDependent &&
+          externalControl.lazyPermission &&
+          externalControl.retainedSignal &&
+          externalControl.revisionDrivenMidi &&
+          externalControl.lazyAudioPermission &&
+          externalControl.retainedAudioAnalysis &&
+          externalControl.audioDeviceIdentity &&
+          externalControl.frameDrivenAudio &&
+          externalControl.lazyOscTransport &&
+          externalControl.retainedOscSignal &&
+          externalControl.revisionDrivenOsc &&
+          aggregateMetrics.cpuMeasured &&
+          aggregateMetrics.overallMeasured &&
+          aggregateMetrics.gpuPreserved &&
           resourcesBalanced &&
           glError === gl.NO_ERROR;
         report({
@@ -208,15 +298,20 @@
             glError,
           },
           transition,
+          transparentLayerBlend,
           namedIsfInputs,
+          builtInIsf,
           nativeShaders,
           compounds,
           textMask,
           screenShare,
+          cameraInput,
           eyeball,
           featureMorphProviders,
           modelMedia,
           temporalInvalidation,
+          externalControl,
+          aggregateMetrics,
           resources: {
             ...resourceCounts,
             balanced: resourcesBalanced,
@@ -230,24 +325,55 @@
         });
       }
 
-      function compileCompound(expectedKind, component) {
-        const definition = component?.nodeDefinition;
-        const program = compileSpecializedCompoundProgram(definition);
-        const graphPart = definition.parts?.find((part) => part.kind === "graph");
-        if (program.kind !== expectedKind) {
-          throw new Error(`COMPOUND_KIND_MISMATCH:${expectedKind}:${program.kind}`);
-        }
-        return {
-          kind: program.kind,
-          format: program.format,
-          stages: program.stages.map(({ id, nodeId }) => ({ id, nodeId })),
-          output: program.output,
-          executionModel: definition.implementation?.executionModel || "",
-          graphEditable: graphPart?.editable === true,
-          activation: definition.authoring?.activation || "",
-          compiledFastPath: definition.capabilities?.includes("compiled-fast-path") === true,
-          renderer: definition.metadata?.visualCompilerHook?.renderer || "",
+      function verifyAggregateMetrics() {
+        const previousFrameRate = globalThis.frameRate;
+        const previousMillis = globalThis.millis;
+        globalThis.frameRate = () => 60;
+        globalThis.millis = () => 1000;
+        const published = [];
+        const host = {
+          mode: "component",
+          state: {
+            global: { showHud: false },
+            render: { maxFrameRate: 60 },
+            ui: {},
+          },
+          presentationRuntime: {
+            gpuTimer: {
+              latestMs: 4.2,
+              sampleId: 1,
+              supported: true,
+            },
+            shouldUseThumbnailPreview: () => false,
+          },
+          presentationGeometry: {
+            viewport: { x: 0, y: 0 },
+            pixelDensity: () => 1,
+            displayCanvasSize: () => ({ width: 640, height: 360 }),
+            viewportLabel: () => "",
+          },
+          resourceRuntime: { lastPixelDensity: 1 },
+          profileRuntime: { lastFrameProfile: { componentWallMs: 1.6 } },
+          sendMetrics: (metrics) => published.push(metrics),
+          hud: null,
         };
+        try {
+          const metrics = new OutputPresentationMetrics(host);
+          metrics.lastPublishedAt = -1000;
+          metrics.update({ frameStart: performance.now() - 4 });
+          const sample = published[0] || {};
+          return {
+            cpuMeasured: Number(sample.frameMs) > 0,
+            overallMeasured: Number(sample.renderCost) > 0,
+            gpuPreserved: Math.abs(Number(sample.gpuMs) - 4.2) < 0.001,
+            frameMs: sample.frameMs,
+            renderCost: sample.renderCost,
+            gpuMs: sample.gpuMs,
+          };
+        } finally {
+          globalThis.frameRate = previousFrameRate;
+          globalThis.millis = previousMillis;
+        }
       }
 
       function compileOrdinaryCompound(expectedKind, component, definitions) {
@@ -276,20 +402,32 @@
         const result = {
           kind: expectedKind,
           format: plan.format,
-          stages: operation.operations.map(({ id, nodeId }) => ({ id, nodeId })),
+          stages: [
+            ...(operation.valueProgram?.steps || []).map(({ instanceId, nodeId }) => ({ id: instanceId, nodeId })),
+            ...operation.operations.map(({ id, nodeId }) => ({ id, nodeId })),
+          ],
           output: operation.outputPort,
           executionModel: definition.implementation?.executionModel || "",
           graphEditable: graphPart?.editable === true,
           activation: definition.authoring?.activation || "",
           compiledFastPath: definition.capabilities?.includes("compiled-fast-path") === true,
+          directPlacement: operation.operations.some((item) =>
+            item.directPlacement?.kind === "drawable-resource"),
           renderer: operation.renderer || "",
           backend: operation.backend,
+          framebufferPasses: operation.operations
+            .filter((item) => item.framebufferSequence)
+            .map((item) => ({
+              id: item.id,
+              phase: item.framebufferSequence.phase,
+              preserve: item.framebufferSequence.preserve,
+            })),
         };
         plan.dispose();
         return result;
       }
 
-      function verifyModelMediaGroup(component) {
+      function verifyModelMediaGroup(component, renderNode) {
         const definition = component?.nodeDefinition;
         const graphPart = definition?.parts?.find((part) => part.kind === "graph");
         const nodeIds = graphPart?.nodes?.map((node) => node.id) || [];
@@ -306,6 +444,11 @@
             nodeIds.includes("material") &&
             nodeIds.includes("scene") &&
             nodeIds.includes("render"),
+          semanticRenderPorts:
+            JSON.stringify(Object.keys(renderNode?.inlets || {})) ===
+            JSON.stringify(["scene", "resourceStatus"]),
+          declaredRenderProcessContext:
+            renderNode?.metadata?.renderProcessContext === "vj1.visual-render-process-context@1",
         };
       }
 
@@ -381,6 +524,7 @@
         operation.valueProgram.evaluate();
         const resource = render.runtimeValueInputs.get("resource");
         const settings = render.configuration.source.params;
+        const inspection = plan.introspection.snapshot();
         const target = {
           width: 320,
           height: 180,
@@ -411,10 +555,59 @@
             target.calls.some((call) => call[0] === "translate" && call[1] === 320) &&
             target.calls.some((call) => call[0] === "scale" && call[1] === -1) &&
             draws[0]?.[6] === "cover",
+          directProcess:
+            render.backend === "source-runtime" &&
+            typeof render.nodeProcess === "function" &&
+            !render.renderer,
+          frameDrivenByResource:
+            operation.valueProgram.inspect().dynamics.frameDependent === true,
+          screenDemand:
+            inspection.mediaDemand.screenInputs.length === 1 &&
+            inspection.mediaDemand.screenInputs[0] === "browser-display" &&
+            inspection.readiness.requirements.some(
+              ({ kind, id }) =>
+                kind === "screen-input" && id === "browser-display",
+            ),
           stages: [
             ...operation.valueProgram.steps.map(({ instanceId, nodeId }) => ({ id: instanceId, nodeId })),
             ...operation.operations.map(({ id, nodeId }) => ({ id, nodeId })),
           ],
+        };
+        plan.dispose();
+        return result;
+      }
+
+      function verifyCameraInputGroup() {
+        const definitions = new Map([
+          [CameraInputResourceNode.id, CameraInputResourceNode],
+          [MediaResourceToImageNode.id, MediaResourceToImageNode],
+        ]);
+        const { plan, operation, render } = compileOrdinaryVisualOperation(
+          CameraInput,
+          definitions,
+          { fit: "contain" },
+          "browser-camera-input",
+        );
+        operation.valueProgram.evaluate();
+        const resource = render.runtimeValueInputs.get("resource");
+        const inspection = plan.introspection.snapshot();
+        const result = {
+          connected:
+            operation.backend === "compiled-visual-group" &&
+            operation.valueProgram.bindings[0]?.targetPortId === "resource",
+          resourceIdentity:
+            resource?.kind === "camera-input-resource" &&
+            resource?.inputId === "default" &&
+            resource?.ready === true,
+          directProcess:
+            render.backend === "source-runtime" &&
+            typeof render.nodeProcess === "function" &&
+            !render.renderer,
+          cameraDemand:
+            inspection.mediaDemand.camera === true &&
+            inspection.readiness.requirements.some(
+              ({ kind, id }) => kind === "camera" && id === "default",
+            ),
         };
         plan.dispose();
         return result;
@@ -525,15 +718,15 @@
       function verifyFeatureMorphProviders() {
         const runtime = new SpecializedSourceRuntime();
         const projectService = {};
-        runtime.registerFeatureMorphAnalysisProvider("project-analysis", {
+        runtime.featureMorph.registerAnalysisProvider("project-analysis", {
           service: () => projectService,
         });
         const result = {
           registered:
-            runtime.featureMorphAnalysisService("superpoint") === runtime.superPointPairs &&
-            runtime.featureMorphAnalysisService("mobilenet") === runtime.mobileNetMorphPairs,
-          substitutable: runtime.featureMorphAnalysisService("project-analysis") === projectService,
-          providers: [...runtime.featureMorphAnalysisProviders.keys()],
+            runtime.featureMorph.analysisService("superpoint") === runtime.featureMorph.superPointPairs &&
+            runtime.featureMorph.analysisService("mobilenet") === runtime.featureMorph.mobileNetMorphPairs,
+          substitutable: runtime.featureMorph.analysisService("project-analysis") === projectService,
+          providers: [...runtime.featureMorph.analysisProviders.keys()],
         };
         runtime.dispose();
         return result;
@@ -592,7 +785,161 @@
         };
       }
 
+      async function verifyExternalControl() {
+        let accessRequests = 0;
+        let audioRequests = 0;
+        const oscSockets = [];
+        const input = {
+          id: "browser-midi",
+          state: "connected",
+          onmidimessage: null,
+          open: () => Promise.resolve(),
+          close: () => Promise.resolve(),
+        };
+        const access = {
+          inputs: new Map([[input.id, input]]),
+          onstatechange: null,
+        };
+        const audioTrack = {
+          id: "browser-microphone",
+          readyState: "live",
+          onended: null,
+          getSettings: () => ({ deviceId: "browser-microphone" }),
+          stop() {
+            this.readyState = "ended";
+          },
+        };
+        const audioStream = {
+          getAudioTracks: () => [audioTrack],
+          getTracks: () => [audioTrack],
+        };
+        const audioAnalyser = {
+          fftSize: 32,
+          frequencyBinCount: 16,
+          smoothingTimeConstant: 0,
+          getByteTimeDomainData(target) {
+            target.fill(128);
+            target[0] = 224;
+          },
+          getByteFrequencyData(target) {
+            target.fill(96);
+          },
+          disconnect() {},
+        };
+        const audioContext = {
+          state: "running",
+          sampleRate: 48000,
+          createAnalyser: () => audioAnalyser,
+          createMediaStreamSource: () => ({
+            connect() {},
+            disconnect() {},
+          }),
+          close() {
+            this.state = "closed";
+            return Promise.resolve();
+          },
+        };
+        const runtime = new ControlSignalRuntime({
+          requestMidiAccess: async () => {
+            accessRequests++;
+            return access;
+          },
+          requestAudioStream: async () => {
+            audioRequests++;
+            return audioStream;
+          },
+          createAudioContext: () => audioContext,
+          audioMediaDevices: null,
+          createWebSocket: (endpoint) => {
+            const socket = {
+              endpoint,
+              binaryType: "",
+              onopen: null,
+              onmessage: null,
+              onerror: null,
+              onclose: null,
+              close() {},
+            };
+            oscSockets.push(socket);
+            return socket;
+          },
+        });
+        const requirement = [{
+          kind: "control-signal",
+          signalKind: "midi",
+          address: "1:cc:7",
+          required: false,
+        }];
+        const before = runtime.revisionFor(requirement);
+        const lazyPermission = accessRequests === 0;
+        const lazyAudioPermission = audioRequests === 0;
+        const lazyOscTransport = oscSockets.length === 0;
+        runtime.resolve("midi", "1:cc:7");
+        await runtime.whenReady("midi");
+        input.onmidimessage({
+          data: new Uint8Array([0xb0, 7, 96]),
+          receivedTime: 24,
+        });
+        const signal = runtime.resolve("midi", "1:cc:7");
+        const after = runtime.revisionFor(requirement);
+        runtime.resolve("audio", "level");
+        await runtime.whenReady("audio");
+        runtime.beginFrame();
+        const audioLevel = runtime.resolve("audio", "level");
+        const deviceLevel = runtime.resolve(
+          "audio",
+          "browser-microphone/level",
+        );
+        const oscEndpoint = "ws://osc.browser/control";
+        runtime.resolve("osc", "/vj1/value", { endpoint: oscEndpoint });
+        oscSockets[0].onopen();
+        oscSockets[0].onmessage({
+          data: JSON.stringify({
+            address: "/vj1/value",
+            value: 0.625,
+          }),
+        });
+        await Promise.resolve();
+        await Promise.resolve();
+        const oscSignal = runtime.resolve(
+          "osc",
+          "/vj1/value",
+          { endpoint: oscEndpoint },
+        );
+        const result = {
+          lazyPermission: lazyPermission && accessRequests === 1,
+          retainedSignal:
+            signal?.sequence === 1 &&
+            Math.abs(signal.value - 96 / 127) < 1e-8 &&
+            before !== after,
+          revisionDrivenMidi:
+            MidiControlInputNode.execution.trigger === "input-change",
+          lazyAudioPermission:
+            lazyAudioPermission && audioRequests === 1,
+          retainedAudioAnalysis:
+            audioLevel?.sequence === 1 &&
+            audioLevel.value > 0 &&
+            audioLevel.value < 1,
+          audioDeviceIdentity:
+            deviceLevel?.sequence === audioLevel?.sequence &&
+            runtime.status("audio").deviceId === "browser-microphone",
+          frameDrivenAudio:
+            AudioControlInputNode.execution.trigger === "frame",
+          lazyOscTransport:
+            lazyOscTransport && oscSockets.length === 1,
+          retainedOscSignal:
+            oscSignal?.value === 0.625 && oscSignal.sequence === 1,
+          revisionDrivenOsc:
+            OscControlInputNode.execution.trigger === "input-change" &&
+            "endpoint" in OscControlInputNode.parameters,
+        };
+        runtime.dispose();
+        return result;
+      }
+
       function verifyTransition(gl) {
+        const transitionEntry = DefaultBuiltInTransition;
+        const transitionKernel = transitionEntry.kernel;
         const vertexSource = `
           precision highp float;
           attribute vec2 aPosition;
@@ -602,7 +949,7 @@
             gl_Position = vec4(aPosition, 0.0, 1.0);
           }
         `;
-        const fragmentSource = textureTransitionFragmentShaderSource(DissolveTransitionKernel);
+        const fragmentSource = textureTransitionFragmentShaderSource(transitionKernel);
         const compiled = compileProgram(gl, "transition-dissolve", vertexSource, fragmentSource);
         const program = compiled.program;
         const position = gl.getAttribLocation(program, "aPosition");
@@ -652,7 +999,14 @@
         disposeProgram(gl, compiled);
 
         return {
-          id: DissolveTransitionKernel.id,
+          id: transitionKernel.id,
+          implementation: transitionKernel.implementation,
+          fileBacked:
+            transitionEntry.origin?.kind === "built-in" &&
+            transitionEntry.definition?.parts?.some(
+              (part) => part.language === "isf" &&
+                part.source.includes('"ID": "vj1.transition.dissolve"'),
+            ) === true,
           compiled: true,
           linked: true,
           endpointEquivalent,
@@ -660,6 +1014,285 @@
           roiPixelEquivalent,
           fullSize: [8, 8],
           roi: [2, 2, 4, 4],
+        };
+      }
+
+      function verifyTransparentLayerBlend(gl) {
+        const vertexSource = `
+          precision highp float;
+          attribute vec2 aPosition;
+          varying vec2 vTexCoord;
+          void main() {
+            vTexCoord = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.0, 1.0);
+          }
+        `;
+        const compiled = compileProgram(
+          gl,
+          "premultiplied-layer-blend",
+          vertexSource,
+          LAYER_BLEND_SHADER,
+        );
+        const { program } = compiled;
+        const position = gl.getAttribLocation(program, "aPosition");
+        const buffer = createBuffer(gl);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+          -1, -1,
+           1, -1,
+          -1,  1,
+          -1,  1,
+           1, -1,
+           1,  1,
+        ]), gl.STATIC_DRAW);
+        const width = 8;
+        const height = 8;
+        const basePixels = patternedPixels(width, height, false);
+        for (let index = 3; index < basePixels.length; index += 4) basePixels[index] = 255;
+        const layerPixels = new Uint8Array(width * height * 4);
+        const centerOffset = (4 * width + 4) * 4;
+        layerPixels.set([96, 32, 16, 128], centerOffset);
+        const baseTexture = createTexture(gl, width, height, basePixels);
+        const layerTexture = createTexture(gl, width, height, layerPixels);
+        gl.useProgram(program);
+        gl.enableVertexAttribArray(position);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, baseTexture);
+        gl.uniform1i(gl.getUniformLocation(program, "baseTex"), 0);
+        gl.activeTexture(gl.TEXTURE1);
+        gl.bindTexture(gl.TEXTURE_2D, layerTexture);
+        gl.uniform1i(gl.getUniformLocation(program, "layerTex"), 1);
+        gl.uniform1i(gl.getUniformLocation(program, "baseFlipY"), 0);
+        gl.uniform1i(gl.getUniformLocation(program, "layerFlipY"), 0);
+        gl.uniform1f(gl.getUniformLocation(program, "layerOpacity"), 1);
+        gl.uniform1i(gl.getUniformLocation(program, "layerBlendMode"), 0);
+        gl.viewport(0, 0, width, height);
+        gl.disable(gl.BLEND);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        const pixels = new Uint8Array(width * height * 4);
+        gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+        let transparentPixelsPreserveBase = true;
+        for (let offset = 0; offset < pixels.length; offset += 4) {
+          if (offset === centerOffset) continue;
+          for (let channel = 0; channel < 4; channel++) {
+            if (pixels[offset + channel] !== basePixels[offset + channel]) {
+              transparentPixelsPreserveBase = false;
+            }
+          }
+        }
+        const expectedCenter = [
+          Math.round(96 + basePixels[centerOffset] * (1 - 128 / 255)),
+          Math.round(32 + basePixels[centerOffset + 1] * (1 - 128 / 255)),
+          Math.round(16 + basePixels[centerOffset + 2] * (1 - 128 / 255)),
+          255,
+        ];
+        const actualCenter = Array.from(pixels.slice(centerOffset, centerOffset + 4));
+        const premultipliedSourceOver = actualCenter.every(
+          (value, index) => Math.abs(value - expectedCenter[index]) <= 1,
+        );
+        gl.disableVertexAttribArray(position);
+        deleteBuffer(gl, buffer);
+        deleteTexture(gl, baseTexture);
+        deleteTexture(gl, layerTexture);
+        disposeProgram(gl, compiled);
+        return {
+          compiled: true,
+          linked: true,
+          transparentPixelsPreserveBase,
+          premultipliedSourceOver,
+          expectedCenter,
+          actualCenter,
+        };
+      }
+
+      function verifyBuiltInIsf(gl) {
+        const black = getGeneratorNodeComponent("black");
+        const invert = getEffectNodeComponent("invert");
+        const gray = getEffectNodeComponent("gray");
+        const threshold = getEffectNodeComponent("threshold");
+        const vertexSource = `
+          precision highp float;
+          attribute vec2 aPosition;
+          varying vec2 vTexCoord;
+          void main() {
+            vTexCoord = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.0, 1.0);
+          }
+        `;
+        const buffer = createBuffer(gl);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+          -1, -1,
+           1, -1,
+          -1,  1,
+          -1,  1,
+           1, -1,
+           1,  1,
+        ]), gl.STATIC_DRAW);
+        const blackProgram = compileProgram(
+          gl,
+          "built-in-isf-black",
+          vertexSource,
+          black.code,
+        );
+        let position = gl.getAttribLocation(blackProgram.program, "aPosition");
+        gl.useProgram(blackProgram.program);
+        gl.enableVertexAttribArray(position);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+        gl.viewport(0, 0, 8, 8);
+        gl.disable(gl.BLEND);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        const blackPixel = new Uint8Array(4);
+        gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, blackPixel);
+        gl.disableVertexAttribArray(position);
+        disposeProgram(gl, blackProgram);
+
+        const invertFragment = `
+          precision highp float;
+          varying vec2 vTexCoord;
+          uniform sampler2D sourceTex;
+          uniform float amount;
+          ${invert.code}
+          void main() {
+            gl_FragColor = runEffect(vTexCoord, texture2D(sourceTex, vTexCoord));
+          }
+        `;
+        const invertProgram = compileProgram(
+          gl,
+          "built-in-isf-invert",
+          vertexSource,
+          invertFragment,
+        );
+        position = gl.getAttribLocation(invertProgram.program, "aPosition");
+        const sourceTexture = createTexture(
+          gl,
+          1,
+          1,
+          new Uint8Array([64, 32, 16, 128]),
+        );
+        gl.useProgram(invertProgram.program);
+        gl.enableVertexAttribArray(position);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+        gl.uniform1i(gl.getUniformLocation(invertProgram.program, "sourceTex"), 0);
+        gl.uniform1f(gl.getUniformLocation(invertProgram.program, "amount"), 1);
+        gl.viewport(0, 0, 8, 8);
+        gl.disable(gl.BLEND);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        const invertPixel = new Uint8Array(4);
+        gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, invertPixel);
+        gl.disableVertexAttribArray(position);
+        disposeProgram(gl, invertProgram);
+
+        const grayFragment = `
+          precision highp float;
+          varying vec2 vTexCoord;
+          uniform sampler2D sourceTex;
+          uniform float amount;
+          ${gray.code}
+          void main() {
+            gl_FragColor = runEffect(vTexCoord, texture2D(sourceTex, vTexCoord));
+          }
+        `;
+        const grayProgram = compileProgram(
+          gl,
+          "built-in-isf-gray",
+          vertexSource,
+          grayFragment,
+        );
+        position = gl.getAttribLocation(grayProgram.program, "aPosition");
+        gl.useProgram(grayProgram.program);
+        gl.enableVertexAttribArray(position);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+        gl.uniform1i(gl.getUniformLocation(grayProgram.program, "sourceTex"), 0);
+        gl.uniform1f(gl.getUniformLocation(grayProgram.program, "amount"), 1);
+        gl.viewport(0, 0, 8, 8);
+        gl.disable(gl.BLEND);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        const grayPixel = new Uint8Array(4);
+        gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, grayPixel);
+        gl.disableVertexAttribArray(position);
+        disposeProgram(gl, grayProgram);
+
+        const thresholdFragment = `
+          precision highp float;
+          varying vec2 vTexCoord;
+          uniform sampler2D sourceTex;
+          uniform float amount;
+          uniform float cutoff;
+          ${threshold.code}
+          void main() {
+            gl_FragColor = runEffect(vTexCoord, texture2D(sourceTex, vTexCoord));
+          }
+        `;
+        const thresholdProgram = compileProgram(
+          gl,
+          "built-in-isf-threshold",
+          vertexSource,
+          thresholdFragment,
+        );
+        position = gl.getAttribLocation(thresholdProgram.program, "aPosition");
+        gl.useProgram(thresholdProgram.program);
+        gl.enableVertexAttribArray(position);
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+        gl.uniform1i(gl.getUniformLocation(thresholdProgram.program, "sourceTex"), 0);
+        gl.uniform1f(gl.getUniformLocation(thresholdProgram.program, "amount"), 0.65);
+        gl.uniform1f(gl.getUniformLocation(thresholdProgram.program, "cutoff"), 0.5);
+        gl.viewport(0, 0, 8, 8);
+        gl.disable(gl.BLEND);
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        const thresholdPixel = new Uint8Array(4);
+        gl.readPixels(4, 4, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, thresholdPixel);
+        gl.disableVertexAttribArray(position);
+        deleteTexture(gl, sourceTexture);
+        disposeProgram(gl, thresholdProgram);
+        deleteBuffer(gl, buffer);
+
+        const expectedInvert = [64, 96, 112, 128];
+        const expectedGray = [38, 38, 38, 128];
+        const expectedThreshold = [22, 11, 6, 128];
+        return {
+          compiled: true,
+          linked: true,
+          directGenerator:
+            black.type === "fragment" &&
+            black.nodeDefinition.metadata.optimizedIsfLowering === "fragment-generator",
+          fusibleEffect:
+            invert.fusible === true &&
+            invert.sampling === "local" &&
+            invert.nodeDefinition.metadata.optimizedIsfLowering === "local-effect" &&
+            gray.fusible === true &&
+            gray.sampling === "local" &&
+            gray.nodeDefinition.metadata.optimizedIsfLowering === "local-effect" &&
+            threshold.fusible === true &&
+            threshold.sampling === "local" &&
+            threshold.nodeDefinition.metadata.optimizedIsfLowering === "local-effect",
+          blackEquivalent: equalPixels(blackPixel, new Uint8Array([0, 0, 0, 255])),
+          premultipliedInvertEquivalent: Array.from(invertPixel).every(
+            (value, index) => Math.abs(value - expectedInvert[index]) <= 1,
+          ),
+          premultipliedGrayEquivalent: Array.from(grayPixel).every(
+            (value, index) => Math.abs(value - expectedGray[index]) <= 1,
+          ),
+          premultipliedThresholdEquivalent: Array.from(thresholdPixel).every(
+            (value, index) => Math.abs(value - expectedThreshold[index]) <= 1,
+          ),
+          blackPixel: Array.from(blackPixel),
+          invertPixel: Array.from(invertPixel),
+          grayPixel: Array.from(grayPixel),
+          thresholdPixel: Array.from(thresholdPixel),
+          expectedInvert,
+          expectedGray,
+          expectedThreshold,
         };
       }
 

@@ -1,7 +1,10 @@
 import { createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
-import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
-import MediaImage from "../media-image/index.js";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
+import {
+  MediaResourceToImageNode,
+  ProjectMediaResourceNode,
+} from "../../shared/visual-stage-nodes.js?v=mesh-geometry-detail-2";
 import TileRepeat from "../../effects/tile-repeat/index.js";
 
 const manifest = Object.freeze({
@@ -28,19 +31,27 @@ const NativeVisualComponent = defineGeneratorNode(manifest);
 
 export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "image", component: MediaImage, parameters: { fit: "stretch" } },
+    { id: "media", definition: ProjectMediaResourceNode, role: "value" },
+    {
+      id: "image",
+      definition: MediaResourceToImageNode,
+      role: "renderer",
+      parameters: { fit: "stretch", providerId: "tile-texture-media-pass" },
+    },
     { id: "render", component: TileRepeat, parameters: { amount: 1 } },
   ],
   connections: [
+    { from: "media.resource", to: "image.resource", type: "drawable-media-resource" },
     { from: "image.texture", to: "render.texture", type: "texture" },
   ],
   output: "render.texture",
   parameterBindings: {
-    image: [{ publicParameterId: "imageId", targetParameterId: "mediaId" }],
+    media: [{ publicParameterId: "imageId", targetParameterId: "mediaId" }],
     render: ["tileAxis", "repeat", "offsetX", "offsetY", "scrollX", "scrollY", "renderQuality"],
   },
   parameterPresentation: {
-    image: { hidden: true },
+    media: { hidden: true },
+    image: { label: "Image presentation", order: 5 },
     render: { label: "Tile render", order: 10 },
   },
 });

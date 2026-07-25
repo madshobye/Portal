@@ -3,7 +3,7 @@ import {
   retainPlanarGridMesh,
 } from "../../../mesh-engine/planar-grid-mesh/index.js?v=retained-resource-2";
 import { MeshType } from "../../../mesh-engine/mesh-types.js";
-import { GeometryProviderType } from "../../shared/specialized-compound-types.js";
+import { GeometryProviderType } from "../../shared/visual-stage-types.js";
 
 export const PlanarGridGeometryProviderNode = defineNode({
   id: "core.visual.planar-grid-geometry-provider",
@@ -35,12 +35,12 @@ export const PlanarGridGeometryProviderNode = defineNode({
     "mesh-source",
     "procedural-mesh",
     "scene-3d",
-    "specialized-visual-stage",
+    "visual-stage",
     "planar-grid",
     "graph-placeable",
   ],
   presentation: {
-    catalogs: ["node-graph", "mesh", "scene-3d", "specialized-visual"],
+    catalogs: ["node-graph", "mesh", "scene-3d", "visual-stage"],
     placeableOn: ["node-graph", "native-visual-graph"],
   },
   process: planarGridGeometryProviderProcess,

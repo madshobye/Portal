@@ -1,31 +1,35 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=surface-terminology-1";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=live-output-matrix-contract-3";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js?v=component-transport-patch-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=mesh-pattern-node-authority-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=mesh-geometry-detail-2";
 import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=cursor-anchored-zoom-1";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
-import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=canonical-effect-params-1";
+import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=compiled-capability-revision-1";
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { bindReorderList } from "./reorder-list.js";
 import { collectRefs, shellTemplate } from "./shell-view.js?v=workspace-icons-1-unified-playback-surface-mapping-icon-shared-ui-icons-topbar-order-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=component-dependency-closure-1";
-import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=explicit-surface-visibility-direct-output-independence-1";
-import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=canonical-effect-params-1";
+import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=inspector-view-option-parameter-control-group-1";
+import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=live-output-matrix-contract-3";
+import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=live-output-matrix-contract-3";
 import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-card-type-icons-1";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
 import { createClipboardController } from "./clipboard-controller.js?v=scene-live-audit-1";
-import { createModalController } from "./modal-controller.js?v=canonical-effect-params-1";
-import { createInputController } from "./input-controller.js?v=derived-media-element-names-1";
+import { createModalController } from "./modal-controller.js?v=parameter-control-group-1";
+import { createInputController } from "./input-controller.js?v=inspector-view-option-parameter-control-group-1";
 import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-counter-1";
 import { createControlRenderDiagnostics } from "./control-render-diagnostics.js?v=control-ui-long-render-1";
 import { componentTypeIcon, UI_ICONS } from "./ui-icons.js";
-import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js?v=root-content-transform-roi-3";
+import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js?v=live-output-matrix-contract-3";
 import { prepareProjectNodeDefinitionEdit, prepareProjectNodeGraphEdit, selectedNodeEditorTemplate, withProjectNodeFork, withProjectNodeParameterExposure, withProjectNodePortExposure, withoutProjectNodeFork } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-atomic-preflight-2";
 import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=canonical-effect-params-1";
-import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=canonical-effect-params-1";
+import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=typed-media-render-process-1";
+import {
+  resolveProjectVisualTransitionEntries,
+} from "../libraries/visual-nodes/project-visual-node-resolver.js?v=async-media-dirty-1";
+import { isMappingSurfaceVisibilityReason, previewActivationForContext } from "./preview-state-activation.js?v=live-output-matrix-contract-3";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -68,6 +72,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let deferredRenderState = null;
   let deferredRenderTimer = 0;
   let liveTransitionRefreshTimer = 0;
+  let liveTransitionNodes = null;
+  let liveTransitionPackages = null;
+  let liveTransitionEntries = Object.freeze([]);
   let activePointerCount = 0;
   let activeCatalogViewKey = "";
   let deepEditReturnContext = null;
@@ -144,7 +151,17 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   const performanceSession = createControlPerformanceSession({
     getState: () => latestState,
     metricForState: performanceMetricForState,
-    analyze: (state, samples) => analyzeVj1Project(state, { runtimeSamples: samples }),
+    analyze: (state, samples) => analyzeVj1Project(state, {
+      runtimeSamples: samples,
+      resolveNodeDefinition: (node) => {
+        const registry = editorNodePackage?.registry;
+        const nodeId = String(node?.nodeId || "");
+        const nodeVersion = String(node?.nodeVersion || "");
+        return registry?.has?.(nodeId, nodeVersion)
+          ? registry.get(nodeId, nodeVersion)
+          : null;
+      },
+    }),
     onTick: () => renderTopbar(latestState),
     onComplete: (report, sampleCount) => {
       globalThis.__vj1LastProfileReport = report;
@@ -185,7 +202,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         // Mapping drags originate in the embedded mapper, so its scrub echo
         // must not be fed back as a complete preview state on every pointer
         // sample. The final commit still reconciles programmatic/reset edits.
-        if (change.phase !== "scrub") renderPreview(state);
+        if (change.phase !== "scrub") renderPreview(state, { reason, change });
         return;
       }
       if (reason === "output-metrics" || reason === "preview-metrics" || reason === "project-history" || reason === "project-autosave" || reason === "project-autosave-error") {
@@ -226,7 +243,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       }
       if (change.phase === "edit") {
         renderTopbar(state);
-        if (!patchedStudioPreview) updatePreviewState(state);
+        if (!patchedStudioPreview) {
+          updatePreviewState(state, previewActivationForContext({ reason, change }));
+        }
         return;
       }
       if (change.phase === "scrub") {
@@ -249,6 +268,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         scheduleRenderNow(state, { force: true, reason, change });
         return;
       }
+      if (currentWorkspace(state) === "mapping" && isMappingSurfaceVisibilityReason(reason)) {
+        // The clicked eye is patched optimistically and its selection is part
+        // of the same transaction. Only the inspector focus and compiled
+        // Mapping projection can have changed; rebuilding catalogs, studio
+        // structure, and the Preview DOM here made one eye click unnecessarily
+        // expensive.
+        scheduleRenderNow(state, {
+          force: true,
+          reason,
+          change,
+          projection: "mapping-surface-visibility",
+        });
+        return;
+      }
       if (currentWorkspace(state) === "live" && liveProgramRenderReasons.has(reason)) {
         scheduleRenderNow(state, { force: true, reason, change, projection: "live-program" });
         return;
@@ -260,7 +293,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         scheduleRenderNow(state, { force: true, reason, change });
         return;
       }
-      scheduleRender(state, { reason, change });
+      scheduleRender(state, {
+        reason,
+        change,
+        previewPatched: patchedLivePreview || patchedStudioPreview,
+      });
     });
   }
 
@@ -310,6 +347,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       // not an authority: rapid scrubs/toggles may have advanced the store
       // before this callback runs.
       if (projection === "live-program") renderLiveProgramChange(latestState, { reason, change });
+      else if (projection === "mapping-surface-visibility") {
+        renderMappingSurfaceVisibilityChange(latestState, { reason, change });
+      }
       else render(latestState, { reason, change });
     });
   }
@@ -354,18 +394,39 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       ["live-projection-rail", () => renderLiveProjectionRail(state)],
       ["studio", () => renderStudio(state)],
       ["inspector", () => renderInspector(state)],
-      ["preview", () => renderPreview(state)],
+      ["preview", () => {
+        // A successful retained render patch has already made this exact
+        // project change authoritative inside the preview renderer. Replacing
+        // its complete state again here would rebuild programs and resources
+        // during the same UI transaction.
+        if (!context.previewPatched) renderPreview(state, context);
+      }],
       ["modals", () => modals.render(state)],
     ]);
     if (performanceSession.isActive()) performanceSession.recordUiRender(performance.now() - profileRenderStarted);
   }
 
   function renderLiveProgramChange(state, context = {}) {
+    if (context.reason === "live:surface-visibility") {
+      renderMeasuredControlPhases(state, context, [
+        ["live-projection-rail", () => renderLiveProjectionRail(state)],
+        ["preview", () => updatePreviewState(state, "projection")],
+      ]);
+      return;
+    }
     renderMeasuredControlPhases(state, context, [
       ["project-rail", () => renderProjectRail(state)],
       ["live-projection-rail", () => renderLiveProjectionRail(state)],
       ["inspector", () => renderInspector(state)],
-      ["preview", () => renderPreview(state)],
+      ["preview", () => renderPreview(state, context)],
+    ]);
+  }
+
+  function renderMappingSurfaceVisibilityChange(state, context = {}) {
+    renderMeasuredControlPhases(state, context, [
+      ["project-selection", () => patchProjectRailSelection(state)],
+      ["inspector", () => renderInspector(state)],
+      ["preview", () => updatePreviewState(state, "mapping")],
     ]);
   }
 
@@ -791,8 +852,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function renderTopbar(state) {
     const hasProject = hasOpenProject(state);
+    const hasFolderAccess = projectService.hasOpenFolder?.() ?? hasProject;
     const projectName = hasProject ? (state.project.name || state.project.folderName || "VJ1") : "No project open";
-    const projectMeta = state.project.warnings?.[0] || (
+    const projectMeta = (hasProject && !hasFolderAccess
+      ? `Read-only recovery from Output. Click the folder button to restore access to ${state.project.folderName || projectName}.`
+      : state.project.warnings?.[0]) || (
       hasProject && state.project.folderName && state.project.folderName !== projectName
         ? state.project.folderName
         : ""
@@ -972,11 +1036,49 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         ? nodeLibraryRailTemplate(state, editorNodePackage)
         : projectRailTemplate(state, {
           workspace,
+          // Selection belongs to the editor projection, not the catalog
+          // topology. Keeping it out of the catalog HTML preserves every card
+          // and thumbnail DOM node when the operator changes focus.
+          renderSelection: false,
           catalogItems: (scope, items) => catalogItemsInSnapshot(scope, items),
           catalogSortMode: (scope) => catalogSortMode(state, scope),
+          transitionEntries: workspace === "live"
+            ? transitionEntriesForState(state)
+            : null,
         })
       : "";
     if (replaceHtmlIfChanged(refs.projectRail, html, { scrollKey: `project-rail:${workspace}` })) bindRailEvents();
+    patchProjectRailSelection(state);
+  }
+
+  function patchProjectRailSelection(state) {
+    patchSelectedItems("[data-select-component]", state.ui?.selectedComponentId);
+    patchSelectedItems("[data-select-surface]", state.ui?.selectedSurfaceId, { includeRow: true });
+    patchSelectedItems("[data-select-mapping]", state.ui?.selectedMappingId, { includeRow: true });
+  }
+
+  function patchSelectedItems(selector, selectedId, { includeRow = false } = {}) {
+    refs.projectRail?.querySelectorAll?.(selector).forEach((item) => {
+      const attribute = selector.slice(1, -1);
+      const selected = String(item.getAttribute(attribute) || "") === String(selectedId || "");
+      item.classList.toggle("is-selected", selected);
+      if (includeRow) item.closest(".text-list-item")?.classList.toggle("is-selected", selected);
+    });
+  }
+
+  function transitionEntriesForState(state) {
+    const installedPackages =
+      projectService.getInstalledNodePackages?.() || [];
+    if (
+      state.nodes === liveTransitionNodes &&
+      installedPackages === liveTransitionPackages
+    ) return liveTransitionEntries;
+    liveTransitionNodes = state.nodes;
+    liveTransitionPackages = installedPackages;
+    liveTransitionEntries = resolveProjectVisualTransitionEntries(state, {
+      installedPackages,
+    });
+    return liveTransitionEntries;
   }
 
   function renderLiveProjectionRail(state) {
@@ -1047,7 +1149,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }
   }
 
-  function renderPreview(state) {
+  function renderPreview(state, context = {}) {
     if (currentWorkspace(state) === "nodes" || previewLayoutQuery?.matches) return;
     const previewHost = refs.studio.querySelector("[data-preview-host]");
     if (!previewHost || previewHost.classList.contains("is-empty")) return;
@@ -1121,10 +1223,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       hud: previewHost.querySelector("[data-preview-fps]"),
       mode: kind,
       state: previewState,
+      activation: previewActivationForContext(context),
     });
   }
 
-  function updatePreviewState(state) {
+  function updatePreviewState(state, activation = "full") {
     const workspace = currentWorkspace(state);
     if (workspace === "nodes" || previewLayoutQuery?.matches) return;
     const kind = workspace === "component" || workspace === "scene"
@@ -1137,7 +1240,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       : workspace === "mapping"
         ? store.getMappingRenderState(state.ui.selectedMappingId)
         : state;
-    embeddedPreview.setState(previewState, kind);
+    embeddedPreview.setState(previewState, kind, { activation });
   }
 
   function renderInspector(state) {
@@ -2024,13 +2127,17 @@ function formatRenderCost(cost) {
 
 function bindComponentFilters(scope) {
   scope?.querySelectorAll?.("[data-component-filter]").forEach((input) => {
-    input.addEventListener("input", () => {
-      const filterScope = input.closest("[data-component-filter-scope]");
-      const query = input.value.trim().toLowerCase();
-      filterScope?.querySelectorAll?.("[data-component-filter-card]").forEach((card) => {
-        card.hidden = !!query && !String(card.dataset.componentFilterCard || "").includes(query);
-      });
-    });
+    const apply = () => applyComponentFilter(input);
+    input.addEventListener("input", apply);
+    apply();
+  });
+}
+
+function applyComponentFilter(input) {
+  const filterScope = input?.closest?.("[data-component-filter-scope]");
+  const query = String(input?.value || "").trim().toLowerCase();
+  filterScope?.querySelectorAll?.("[data-component-filter-card]").forEach((card) => {
+    card.hidden = !!query && !String(card.dataset.componentFilterCard || "").includes(query);
   });
 }
 

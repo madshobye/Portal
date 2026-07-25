@@ -8,7 +8,7 @@ import {
 import {
   TopologyProviderType,
   VisualMaterialProviderType,
-} from "../../shared/specialized-compound-types.js";
+} from "../../shared/visual-stage-types.js";
 import {
   MESH_PATTERN_FILL_FRAGMENT_SHADER,
   MESH_PATTERN_FILL_VERTEX_SHADER,
@@ -35,6 +35,10 @@ export const MeshPatternWireToImageNode = meshPatternRenderNode({
   providerId: "mesh-pattern-wire-pass",
   kernel: "mesh-pattern-wire",
   nativeRenderer: "output/specialized:meshPatternWire",
+  framebufferPass: {
+    input: "target",
+    preserve: ["color"],
+  },
   shaders: [
     shaderPart("mesh-pattern-wire-vertex", "2D Mesh Patterns wire vertex shader", "vertex", "mesh-pattern-wire", MESH_PATTERN_WIRE_VERTEX_SHADER),
     shaderPart("mesh-pattern-wire-fragment", "2D Mesh Patterns wire fragment shader", "fragment", "mesh-pattern-wire", MESH_PATTERN_WIRE_FRAGMENT_SHADER),
@@ -42,7 +46,16 @@ export const MeshPatternWireToImageNode = meshPatternRenderNode({
   description: "Lowers a mesh-pattern topology and wire material into the retained expanded-line GPU kernel.",
 });
 
-function meshPatternRenderNode({ id, name, providerId, kernel, nativeRenderer, shaders, description }) {
+function meshPatternRenderNode({
+  id,
+  name,
+  providerId,
+  kernel,
+  nativeRenderer,
+  framebufferPass = null,
+  shaders,
+  description,
+}) {
   return defineNode({
     id,
     name,
@@ -50,7 +63,7 @@ function meshPatternRenderNode({ id, name, providerId, kernel, nativeRenderer, s
     description,
     implementation: {
       kind: NODE_IMPLEMENTATION_KINDS.NATIVE,
-      compiler: "vj1.visual.specialized-compound",
+      compiler: "vj1.visual.native-source",
       kernel,
     },
     inlets: {
@@ -86,13 +99,13 @@ function meshPatternRenderNode({ id, name, providerId, kernel, nativeRenderer, s
       "retained-render-target",
       "mesh-pattern",
       "mesh-pattern-render-kernel",
-      "specialized-visual-stage",
+      "visual-stage",
       "graph-placeable",
       "compiled-only",
     ],
     presentation: {
-      catalogs: ["node-graph", "mesh-pattern", "render", "specialized-visual"],
-      placeableOn: ["native-visual-graph"],
+      catalogs: ["node-graph", "mesh-pattern", "render", "visual-stage"],
+      placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
       previewOutput: "texture",
     },
     metadata: {
@@ -100,6 +113,7 @@ function meshPatternRenderNode({ id, name, providerId, kernel, nativeRenderer, s
       nativeRenderer,
       nodeOwnedNativeModule: true,
       allocationStable: true,
+      ...(framebufferPass ? { framebufferPass } : {}),
       nativeArtifactRequirements: {
         moduleExports: [],
         shaders: shaders.map((part) => part.id),

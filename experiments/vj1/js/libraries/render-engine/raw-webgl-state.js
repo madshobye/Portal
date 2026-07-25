@@ -1,7 +1,63 @@
 const vertexArrayApis = new WeakMap();
+const ownedStateScopes = new WeakMap();
+const contextLifecycles = new WeakMap();
+
+/**
+ * Gives a node-owned raw WebGL pass temporary exclusive authority over the
+ * active framebuffer. Inside this scope individual mesh draws do not query the
+ * driver to rediscover state that the same renderer just established.
+ *
+ * p5 caches its current shader and blend state in JavaScript. Invalidate those
+ * caches once when authority returns so its next draw rebinds its own state.
+ * WebGL1 contexts without vertex-array isolation retain the conservative
+ * capture/restore path.
+ */
+export function withOwnedRawWebGlState(target, draw) {
+  if (!target || typeof draw !== "function") return draw?.();
+  const gl = target?.drawingContext;
+  const vertexArrayApi = gl ? rawVertexArrayApi(gl) : null;
+  if (!gl || !vertexArrayApi) return draw();
+  const current = ownedStateScopes.get(gl) || { depth: 0 };
+  current.depth += 1;
+  ownedStateScopes.set(gl, current);
+  try {
+    return draw();
+  } finally {
+    current.depth = Math.max(0, current.depth - 1);
+    if (current.depth === 0) {
+      vertexArrayApi.bind(null);
+      invalidateP5WebGlState(target?._renderer);
+      ownedStateScopes.delete(gl);
+    }
+  }
+}
+
+export function rawWebGlContextGeneration(gl) {
+  if (!gl || typeof gl !== "object") return 0;
+  let lifecycle = contextLifecycles.get(gl);
+  if (lifecycle) return lifecycle.generation;
+  lifecycle = { generation: 1 };
+  contextLifecycles.set(gl, lifecycle);
+  const canvas = gl.canvas;
+  if (typeof canvas?.addEventListener === "function") {
+    canvas.addEventListener("webglcontextrestored", () => {
+      lifecycle.generation += 1;
+      vertexArrayApis.delete(gl);
+      ownedStateScopes.delete(gl);
+    });
+  }
+  return lifecycle.generation;
+}
 
 export function beginRawWebGlState(gl, label = "raw-webgl") {
   const vertexArrayApi = rawVertexArrayApi(gl);
+  if (vertexArrayApi && (ownedStateScopes.get(gl)?.depth || 0) > 0) {
+    return {
+      label,
+      vertexArrayApi,
+      owned: true,
+    };
+  }
   return {
     label,
     vertexArrayApi,
@@ -16,6 +72,7 @@ export function beginRawWebGlState(gl, label = "raw-webgl") {
     cullFace: gl.isEnabled(gl.CULL_FACE),
     polygonOffset: gl.isEnabled(gl.POLYGON_OFFSET_FILL),
     depthFunc: gl.getParameter(gl.DEPTH_FUNC),
+    depthWrite: gl.getParameter(gl.DEPTH_WRITEMASK),
     blendSrcRgb: gl.getParameter(gl.BLEND_SRC_RGB),
     blendDstRgb: gl.getParameter(gl.BLEND_DST_RGB),
     blendSrcAlpha: gl.getParameter(gl.BLEND_SRC_ALPHA),
@@ -37,6 +94,7 @@ export function captureRawWebGlAttributes(gl, state, locations) {
 }
 
 export function restoreRawWebGlState(gl, state, attributeStates = []) {
+  if (state?.owned) return;
   try {
     for (const attributeState of attributeStates) restoreVertexAttributeState(gl, attributeState);
     if (state.vertexArrayApi) state.vertexArrayApi.bind(state.vertexArray);
@@ -45,6 +103,7 @@ export function restoreRawWebGlState(gl, state, attributeStates = []) {
     gl.useProgram(state.program);
     if (state.viewport?.length === 4) gl.viewport(...state.viewport);
     gl.lineWidth(state.lineWidth);
+    gl.depthMask(state.depthWrite);
     gl.depthFunc(state.depthFunc);
     gl.blendFuncSeparate(state.blendSrcRgb, state.blendDstRgb, state.blendSrcAlpha, state.blendDstAlpha);
     gl.polygonOffset(state.polygonFactor, state.polygonUnits);
@@ -113,4 +172,13 @@ function restoreVertexAttributeState(gl, state) {
 
 function restoreCapability(gl, capability, enabled) {
   enabled ? gl.enable(capability) : gl.disable(capability);
+}
+
+function invalidateP5WebGlState(renderer) {
+  if (!renderer || typeof renderer !== "object") return;
+  // p5.Shader.useProgram() skips gl.useProgram() when _curShader still points
+  // at the previous p5 shader. A raw node has changed the actual GL program,
+  // so force the next p5 draw to bind rather than trusting that stale cache.
+  renderer._curShader = undefined;
+  renderer._cachedBlendMode = undefined;
 }

@@ -274,6 +274,8 @@ function normalizeRuntimePolicy(runtime = {}) {
     externalKey: typeof runtime?.externalKey === "function"
       ? runtime.externalKey
       : () => null,
+    externalRevisionDependent:
+      typeof runtime?.externalKey === "function",
     rateParam: String(runtime?.rateParam || ""),
     roi: Object.freeze({
       mode: ["local", "neighborhood", "full-frame", "projective"].includes(roi.mode)

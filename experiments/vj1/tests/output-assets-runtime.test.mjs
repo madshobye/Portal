@@ -14,6 +14,7 @@ import {
   createControlBridge,
   createOutputBridge,
   OUTPUT_BRIDGE_PROTOCOL_VERSION,
+  recoveredOutputProjectState,
 } from "../js/services/output-bridge-service.js";
 import { applyLiveRenderPatches, createLiveRenderPatch, createRenderStatePatch } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
@@ -23,6 +24,15 @@ import { compileComponentGroupTopology } from "../js/libraries/composition-engin
 const protocol = (message) => ({
   ...message,
   protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION,
+});
+
+test("Output recovery remains visibly read-only until local folder access exists", () => {
+  const recovered = { project: { folderName: "show", warnings: [] } };
+  assert.match(recoveredOutputProjectState(recovered).project.warnings[0], /Read-only recovery/);
+  assert.deepEqual(
+    recoveredOutputProjectState(recovered, { warnings: ["Local folder permission required"] }).project.warnings,
+    ["Local folder permission required"],
+  );
 });
 
 test("media detail demand follows physical ROI backing and content scale", () => {
@@ -64,6 +74,83 @@ test("media runtime deduplicates and throttles missing-file requests", () => {
     if (previousMillis === undefined) delete globalThis.millis;
     else globalThis.millis = previousMillis;
   }
+});
+
+test("media library publishes cumulative resource snapshots independently from project-state updates", async () => {
+  const library = createMediaLibrary();
+  const snapshots = [];
+  const unsubscribe = library.subscribe((entries, reason) => {
+    snapshots.push({
+      reason,
+      ids: entries.map((entry) => entry.id),
+    });
+  });
+  const one = new File(["one"], "one.png", {
+    type: "image/png",
+    lastModified: 1,
+  });
+  const two = new File(["two"], "two.png", {
+    type: "image/png",
+    lastModified: 2,
+  });
+
+  await library.importFiles([
+    { id: "media/one.png", file: one },
+  ]);
+  await library.importFiles([
+    { id: "media/two.png", file: two },
+  ]);
+  library.remove("media/one.png");
+  library.clear();
+  unsubscribe();
+
+  assert.deepEqual(snapshots, [
+    { reason: "import", ids: ["media/one.png"] },
+    { reason: "import", ids: ["media/one.png", "media/two.png"] },
+    { reason: "remove", ids: ["media/two.png"] },
+    { reason: "clear", ids: [] },
+  ]);
+});
+
+test("media library replaces an authoritative folder snapshot atomically", async () => {
+  const library = createMediaLibrary();
+  const snapshots = [];
+  const one = new File(["one"], "one.png", {
+    type: "image/png",
+    lastModified: 1,
+  });
+  const two = new File(["two"], "two.png", {
+    type: "image/png",
+    lastModified: 2,
+  });
+  const three = new File(["three"], "three.png", {
+    type: "image/png",
+    lastModified: 3,
+  });
+  await library.importFiles([
+    { id: "media/one.png", file: one },
+    { id: "media/two.png", file: two },
+  ]);
+  const unsubscribe = library.subscribe((entries, reason) => {
+    snapshots.push({
+      reason,
+      ids: entries.map((entry) => entry.id).sort(),
+    });
+  });
+
+  await library.replaceFiles([
+    { id: "media/two.png", file: two },
+    { id: "media/three.png", file: three },
+  ]);
+  unsubscribe();
+
+  assert.deepEqual(snapshots, [{
+    reason: "replace",
+    ids: ["media/three.png", "media/two.png"],
+  }]);
+  assert.equal(library.getFile("media/one.png"), null);
+  assert.equal(library.getFile("media/two.png"), two);
+  assert.equal(library.getFile("media/three.png"), three);
 });
 
 test("image and STL snapshots stay metadata-only until acquired", () => {
@@ -137,6 +224,66 @@ test("generic media LRU releases inactive decoded images", () => {
   }
 });
 
+test("retained render results keep decoded image and STL resources resident", () => {
+  const runtime = new OutputMediaRuntime({
+    maxCachedMedia: 0,
+    maxCachedMediaBytes: 0,
+  });
+  const removed = [];
+  const imageItem = {
+    id: "media/photo.png",
+    file: { name: "photo.png", size: 10, type: "image/png" },
+    image: {
+      width: 64,
+      height: 64,
+      remove() { removed.push("image"); },
+    },
+    imageRenditions: new Map(),
+    imageRenditionOrder: [],
+    persistedRenditions: new Map(),
+    renditionUrls: new Map(),
+    loadToken: 0,
+    revision: 0,
+    ready: true,
+    loading: false,
+    lastMediaUse: 1,
+  };
+  const modelItem = {
+    id: "media/mesh.stl",
+    file: { name: "mesh.stl", size: 20_000_000, type: "model/stl" },
+    modelData: {
+      positions: new Float32Array(4_500_000),
+      normals: new Float32Array(4_500_000),
+    },
+    imageRenditions: new Map(),
+    imageRenditionOrder: [],
+    persistedRenditions: new Map(),
+    renditionUrls: new Map(),
+    loadToken: 0,
+    revision: 0,
+    ready: true,
+    loading: false,
+    lastMediaUse: 2,
+    inactiveFrameCount: 29,
+  };
+  runtime.media.set(imageItem.id, imageItem);
+  runtime.media.set(modelItem.id, modelItem);
+
+  runtime.beginFrame();
+  runtime.retainMediaById(imageItem.id);
+  runtime.retainMediaById(modelItem.id);
+  runtime.endFrame();
+
+  assert.ok(imageItem.image, "a retained image framebuffer renews its file-resource lease");
+  assert.ok(modelItem.modelData, "a retained STL framebuffer renews its file-resource lease");
+
+  runtime.beginFrame();
+  runtime.endFrame();
+  assert.equal(imageItem.image, null, "an unowned decoded image remains evictable");
+  assert.equal(modelItem.modelData, null, "an unowned heavyweight STL remains evictable");
+  assert.deepEqual(removed, ["image"]);
+});
+
 test("large raster acquisition decodes directly to a bounded render variant", async () => {
   const previousCreateBitmap = globalThis.createImageBitmap;
   const previousCreateImage = globalThis.createImage;
@@ -177,6 +324,46 @@ test("large raster acquisition decodes directly to a bounded render variant", as
     if (previousLoadImage === undefined) delete globalThis.loadImage;
     else globalThis.loadImage = previousLoadImage;
     URL.createObjectURL = previousCreateUrl;
+  }
+});
+
+test("asynchronous media decode completion wakes on-change presentation", async () => {
+  const previousCreateBitmap = globalThis.createImageBitmap;
+  const previousCreateImage = globalThis.createImage;
+  const invalidations = [];
+  let resolveBitmap;
+  globalThis.createImageBitmap = () => new Promise((resolve) => {
+    resolveBitmap = resolve;
+  });
+  globalThis.createImage = (width, height) => ({
+    width,
+    height,
+    canvas: { getContext: () => ({ drawImage() {} }) },
+    setModified() {},
+  });
+  try {
+    const runtime = new OutputMediaRuntime({
+      onInvalidate: (reason, item) => invalidations.push([reason, item.id]),
+    });
+    runtime.importFiles([{
+      id: "media/async.jpg",
+      file: { name: "async.jpg", size: 100, lastModified: 1, type: "image/jpeg" },
+    }]);
+    const item = runtime.acquireMediaById("media/async.jpg", { width: 640 });
+    assert.equal(item.image, null, "the first on-change frame may begin an asynchronous decode");
+    assert.deepEqual(invalidations, []);
+
+    resolveBitmap({ width: 768, height: 512, close() {} });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.equal(item.ready, true);
+    assert.deepEqual(invalidations, [["media-ready", "media/async.jpg"]]);
+  } finally {
+    if (previousCreateBitmap === undefined) delete globalThis.createImageBitmap;
+    else globalThis.createImageBitmap = previousCreateBitmap;
+    if (previousCreateImage === undefined) delete globalThis.createImage;
+    else globalThis.createImage = previousCreateImage;
   }
 });
 
@@ -616,6 +803,144 @@ test("large video cache uses decoded memory and survives temporary thumbnail pre
   }
 });
 
+test("transition overlap keeps two video decoders isolated and reuses the inactive endpoint within its grace period", async () => {
+  const previousCreateVideo = globalThis.createVideo;
+  const previousCreateUrl = URL.createObjectURL;
+  const previousRevokeUrl = URL.revokeObjectURL;
+  const callbacks = new Map();
+  const readyCallbacks = new Map();
+  const wrappers = new Map();
+  const invalidations = [];
+  const revoked = [];
+  let nextCallbackId = 1;
+
+  URL.createObjectURL = (file) => `blob:${file.name}`;
+  URL.revokeObjectURL = (url) => revoked.push(url);
+  globalThis.createVideo = (url, ready) => {
+    const id = url.replace("blob:", "");
+    const element = {
+      tagName: "VIDEO",
+      duration: 10,
+      currentTime: 0,
+      playbackRate: 1,
+      paused: true,
+      seeking: false,
+      readyState: 4,
+      videoWidth: 1920,
+      videoHeight: 1080,
+      addEventListener() {},
+      setAttribute() {},
+      play() {
+        this.paused = false;
+        return Promise.resolve();
+      },
+      requestVideoFrameCallback(callback) {
+        callbacks.set(id, callback);
+        return nextCallbackId++;
+      },
+      cancelVideoFrameCallback() {},
+    };
+    const wrapper = {
+      elt: element,
+      hide() {},
+      volume() {},
+      pause() { element.paused = true; },
+      stop() { element.paused = true; },
+      remove() {},
+    };
+    readyCallbacks.set(id, ready);
+    wrappers.set(id, wrapper);
+    return wrapper;
+  };
+
+  try {
+    const runtime = new OutputMediaRuntime({
+      onInvalidate: (reason, item) =>
+        invalidations.push([reason, item.id]),
+    });
+    runtime.importFiles([
+      {
+        id: "media/a.mp4",
+        file: {
+          name: "a.mp4",
+          size: 20,
+          lastModified: 1,
+          type: "video/mp4",
+        },
+      },
+      {
+        id: "media/b.mp4",
+        file: {
+          name: "b.mp4",
+          size: 20,
+          lastModified: 1,
+          type: "video/mp4",
+        },
+      },
+    ]);
+
+    runtime.beginFrame();
+    const itemA = runtime.acquireMediaById("media/a.mp4", {
+      playback: { start: 1, end: 4, speed: 1 },
+    });
+    const itemB = runtime.acquireMediaById("media/b.mp4", {
+      playback: { start: 2, end: 6, speed: 1 },
+    });
+    readyCallbacks.get("a.mp4")();
+    readyCallbacks.get("b.mp4")();
+    runtime.endFrame();
+    await Promise.resolve();
+
+    assert.notStrictEqual(itemA.video, itemB.video);
+    assert.equal(itemA.video.elt.paused, false);
+    assert.equal(itemB.video.elt.paused, false);
+    callbacks.get("a.mp4")(100, { mediaTime: 1 });
+    callbacks.get("b.mp4")(100, { mediaTime: 2 });
+    assert.deepEqual(invalidations, [
+      ["media-ready", "media/a.mp4"],
+      ["media-ready", "media/b.mp4"],
+      ["video-frame", "media/a.mp4"],
+      ["video-frame", "media/b.mp4"],
+    ]);
+    assert.equal(itemA.videoFrameRevision, 1);
+    assert.equal(itemB.videoFrameRevision, 1);
+
+    runtime.beginFrame();
+    runtime.acquireMediaById("media/b.mp4", {
+      playback: { start: 2, end: 6, speed: 1 },
+    });
+    runtime.endFrame();
+    await Promise.resolve();
+    assert.equal(itemA.video.elt.paused, true);
+    assert.equal(itemB.video.elt.paused, false);
+    assert.strictEqual(
+      itemA.video,
+      wrappers.get("a.mp4"),
+      "leaving a transition endpoint pauses but does not destroy its decoder",
+    );
+
+    runtime.beginFrame();
+    const reacquiredA = runtime.acquireMediaById("media/a.mp4", {
+      playback: { start: 1, end: 4, speed: 1 },
+    });
+    runtime.endFrame();
+    assert.strictEqual(
+      reacquiredA.video,
+      wrappers.get("a.mp4"),
+      "returning within the media grace period reuses the original decoder",
+    );
+    assert.equal(reacquiredA.video.elt.paused, false);
+    assert.deepEqual(revoked, []);
+    assert.equal(wrappers.size, 2, "one decoder is created per distinct media file");
+    runtime.dispose();
+  } finally {
+    if (previousCreateVideo === undefined) delete globalThis.createVideo;
+    else globalThis.createVideo = previousCreateVideo;
+    URL.createObjectURL = previousCreateUrl;
+    URL.revokeObjectURL = previousRevokeUrl;
+  }
+});
+
 test("video playback owns loop state and reports promise rejection once", async () => {
   const previousError = console.error;
   const errors = [];
@@ -792,6 +1117,12 @@ test("thumbnail runtime owns nested chain transform baselines", () => {
   const group = { id: "group-a", kind: "group", transform: { y: -0.5 }, chain: [source] };
   const runtime = new OutputThumbnailRuntime({
     getState: () => ({ components: [{ id: "component-a", chain: [group] }] }),
+    getComponentProgram: () => ({
+      forEachOperation(visitor) {
+        visitor({ configuration: group });
+        visitor({ configuration: source });
+      },
+    }),
   });
 
   runtime.captureEditTransformBaselines();
@@ -1252,8 +1583,18 @@ test("queued Output state becomes the fallback when local project restore fails"
       folderName: "fallback-show",
       files: [{ id: "media/a.png", file: { name: "a.png" } }],
     }) });
+    state = {
+      ...state,
+      project: {
+        ...state.project,
+        warnings: ["Click the folder button to restore access to fallback-show."],
+      },
+    };
     bridge.finishProjectRestore(false);
     assert.equal(state.project.folderName, "fallback-show");
+    assert.deepEqual(state.project.warnings, [
+      "Click the folder button to restore access to fallback-show.",
+    ], "transport recovery must not disguise a read-only project as writable");
     assert.equal(
       Object.hasOwn(state.ui.live, "sceneMappingVisible"),
       false,
@@ -1323,6 +1664,11 @@ test("output recovery publishes project state before importing media and never o
     }) });
 
     assert.equal(state.project.folderName, "show");
+    assert.match(
+      state.project.warnings[0],
+      /Read-only recovery/,
+      "a late Output recovery cannot masquerade as a writable local project",
+    );
     assert.equal(state.components[0].thumbnail, "");
     assert.equal(importStarted, false, "media recovery must not hold the state publication task open");
 
@@ -1447,6 +1793,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       type: "state",
       state: { revision: 3 },
       targetClientId: "",
+      activation: "full",
       revision: 3,
       sessionId,
       transport: undefined,
@@ -1490,6 +1837,77 @@ test("Application graph can own bridge state delivery without a hidden store sub
     });
     await Promise.resolve();
     assert.equal(messages.filter((message) => message.type === "live-patch").at(-1).patches[0].value, 0.75);
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("asset catalog state transport declares scoped activation", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  globalThis.BroadcastChannel = class {
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    const state = {
+      project: { folderName: "project" },
+      metrics: { clients: 0, outputs: {} },
+    };
+    const bridge = createControlBridge({
+      subscribeStore: false,
+      store: {
+        getLiveRenderState: () => state,
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+
+    bridge.sendState(null, { activation: "assets" });
+    const packet = messages.find((message) => message.type === "state");
+    assert.equal(packet.activation, "assets");
+    assert.deepEqual(packet.state.project, { folderName: "project" });
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("Live Surface visibility sends one projection snapshot without full receiver activation", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  globalThis.BroadcastChannel = class {
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    const state = {
+      project: { folderName: "project" },
+      metrics: { clients: 0, outputs: {} },
+      surfaces: [{ id: "surface-a", enabled: false }],
+    };
+    const bridge = createControlBridge({
+      subscribeStore: false,
+      store: {
+        getLiveRenderState: () => state,
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+
+    bridge.acceptStateChange(state, "live:surface-visibility", {
+      scope: "live",
+    });
+    const packet = messages.find((message) => message.type === "state");
+    assert.equal(packet.activation, "projection");
+    assert.deepEqual(packet.state.surfaces, state.surfaces);
     bridge.close();
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
@@ -1593,10 +2011,17 @@ test("output bridge switches controller sessions and ignores stale controller tr
     assert.equal(messages.filter((message) => message.type === "hello").length, initialHelloCount + 1);
     assert.deepEqual(hellos.at(-1), { sessionId: "control-new", changed: true });
 
-    channel.onmessage({ data: protocol({ type: "state", sessionId: "control-new", revision: 0, state: { id: "new" } }) });
+    channel.onmessage({ data: protocol({
+      type: "state",
+      sessionId: "control-new",
+      revision: 0,
+      activation: "projection",
+      state: { id: "new" },
+    }) });
     channel.onmessage({ data: protocol({ type: "state", sessionId: "control-old", revision: 99, state: { id: "stale" } }) });
     assert.deepEqual(states.map((entry) => entry.state.id), ["new"]);
     assert.equal(states[0].meta.sessionId, "control-new");
+    assert.equal(states[0].meta.activation, "projection");
     bridge.close();
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
@@ -1752,14 +2177,14 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
     surfaces: [],
     ui: { live: { paramFadeDuration: 0 } },
   };
-  renderer.rebuildComponentPrograms();
-  renderer.rebuildRouteLookups();
-  const program = renderer.componentPrograms.get(component.id);
+  renderer.componentProgramRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuildLookups();
+  const program = renderer.componentProgramRuntime.programs.get(component.id);
   const originalPlan = program.plan;
   assert.strictEqual(program.plan.operations[0].configuration, component.chain[0]);
   assert.notStrictEqual(program.plan.operations[0].configuration, persistedGroup.nodes[0].configuration);
 
-  const result = renderer.applyLivePatches([
+  const result = renderer.livePatchRuntime.applyLive([
     createLiveRenderPatch(component.id, "chain.0.source.params.scale", 3),
   ]);
 
@@ -1776,26 +2201,26 @@ test("Live numeric patches preserve target truth while the renderer interpolates
     surfaces: [],
     ui: { live: { paramFadeDuration: 1 } },
   };
-  renderer.rebuildRouteLookups();
+  renderer.componentProgramRuntime.rebuildLookups();
 
-  const result = renderer.applyLivePatches([
+  const result = renderer.livePatchRuntime.applyLive([
     createLiveRenderPatch("component-a", "chain.0.params.amount", 1),
   ], 100);
   const params = renderer.state.components[0].chain[0].params;
   assert.equal(result.applied, true);
   assert.equal(params.amount, 1, "the commanded target remains canonical between frames");
 
-  renderer.applyLiveParamFadeFrame(600);
+  renderer.livePatchRuntime.applyFrame(600);
   assert.equal(params.amount, 0.5);
-  renderer.restoreLiveParamFadeFrame();
+  renderer.livePatchRuntime.restoreFrame();
   assert.equal(params.amount, 1, "render-only interpolation must restore user truth");
 
-  renderer.applyLivePatches([
+  renderer.livePatchRuntime.applyLive([
     createLiveRenderPatch("component-a", "chain.0.params.amount", 0),
   ], 600);
-  renderer.applyLiveParamFadeFrame(1100);
+  renderer.livePatchRuntime.applyFrame(1100);
   assert.equal(params.amount, 0.25, "retargeting continues from the currently displayed value");
-  renderer.restoreLiveParamFadeFrame();
+  renderer.livePatchRuntime.restoreFrame();
   assert.equal(params.amount, 0);
 });
 
@@ -1807,21 +2232,21 @@ test("Structural resolution patches bypass param fading in both directions", () 
     surfaces: [],
     ui: { live: { paramFadeDuration: 2 } },
   };
-  renderer.rebuildRouteLookups();
+  renderer.componentProgramRuntime.rebuildLookups();
 
-  renderer.applyLivePatches([
+  renderer.livePatchRuntime.applyLive([
     createLiveRenderPatch("component-a", "resolutionScale", 0.5),
   ], 100);
-  renderer.applyLiveParamFadeFrame(600);
+  renderer.livePatchRuntime.applyFrame(600);
   assert.equal(renderer.state.components[0].resolutionScale, 0.5);
-  assert.equal(renderer.liveParamFades.size, 0);
+  assert.equal(renderer.livePatchRuntime.fades.size, 0);
 
-  renderer.applyLivePatches([
+  renderer.livePatchRuntime.applyLive([
     createLiveRenderPatch("component-a", "resolutionScale", 2),
   ], 700);
-  renderer.applyLiveParamFadeFrame(800);
+  renderer.livePatchRuntime.applyFrame(800);
   assert.equal(renderer.state.components[0].resolutionScale, 2);
-  assert.equal(renderer.liveParamFades.size, 0);
+  assert.equal(renderer.livePatchRuntime.fades.size, 0);
 });
 
 test("persisted renditions are bound to the exact source file revision", async () => {
@@ -2067,10 +2492,12 @@ test("media load failures update readiness and emit structured diagnostics", () 
 
 test("model imports expose processing state and exact preview diagnostics", () => {
   const runtimeSource = readFileSync(new URL("../js/output/output-media-runtime.js", import.meta.url), "utf8");
-  const rendererSource = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  const meshSource = readFileSync(new URL("../js/libraries/mesh-engine/media-mesh/index.js", import.meta.url), "utf8");
+  const sceneRenderSource = readFileSync(new URL("../js/libraries/mesh-engine/scene-render/index.js", import.meta.url), "utf8");
   assert.match(runtimeSource, /item\.loadStatus = "reading 3D model"/);
   assert.match(runtimeSource, /item\.loadStatus = "processing 3D model"/);
-  assert.match(rendererSource, /`3D model error: \$\{item\.modelError\}`/);
-  assert.match(rendererSource, /item\.loadStatus \|\| "loading media"/);
-  assert.match(rendererSource, /forceVisible && this\.host\.mode !== "output"/);
+  assert.match(meshSource, /externalStatus\?\.loadStatus/);
+  assert.match(meshSource, /externalStatus\?\.modelError/);
+  assert.match(sceneRenderSource, /`3D model error: \$\{resourceStatus\.error\}`/);
+  assert.match(sceneRenderSource, /\{ forceVisible: true \}/);
 });

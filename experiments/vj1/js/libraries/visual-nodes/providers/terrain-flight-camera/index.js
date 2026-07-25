@@ -4,7 +4,7 @@ import {
   createCamera3d,
 } from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
 import { TerrainFlightStateType } from "../../../terrain-engine/flight-controller/index.js";
-import { VisualCameraProviderType } from "../../shared/specialized-compound-types.js";
+import { VisualCameraProviderType } from "../../shared/visual-stage-types.js";
 
 export const TerrainFlightCameraProviderNode = defineNode({
   id: "core.visual.terrain-flight-camera",
@@ -33,10 +33,17 @@ export const TerrainFlightCameraProviderNode = defineNode({
     sceneCamera: { type: Camera3dType },
   },
   execution: { trigger: "input-change", domain: "main", pure: true, asynchronous: false },
-  capabilities: ["camera", "terrain", "scene-3d", "specialized-visual-stage", "graph-placeable"],
+  capabilities: [
+    "camera",
+    "terrain",
+    "scene-3d",
+    "retained-value-provider",
+    "visual-stage",
+    "graph-placeable",
+  ],
   presentation: {
-    catalogs: ["node-graph", "camera", "terrain", "scene-3d", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "camera", "terrain", "scene-3d", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
   },
   process: terrainFlightCameraProviderProcess,
 });
@@ -56,6 +63,7 @@ export function terrainFlightCameraProviderProcess(inputs = {}, { state = {}, ou
   descriptor.kind = "camera";
   descriptor.providerId = providerId;
   descriptor.settings = settings;
+  descriptor.runtimeSettings = values;
   descriptor.enabled = inputs.enabled !== false;
   descriptor.sceneCamera = state.sceneCamera;
   result.sceneCamera = state.sceneCamera;

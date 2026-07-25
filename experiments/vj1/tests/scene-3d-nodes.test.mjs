@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 
 import { createNodeInstance } from "../js/libraries/node-engine/index.js";
 import {
+  createVisualRenderProcessContext,
+  updateVisualRenderProcessContext,
+} from "../js/libraries/render-engine/index.js";
+import {
   AnimatedTransform3dNode,
+  animatedTransform3dFrameDependent,
   animatedTransform3dProcess,
   createCamera3d,
   createEllipsoidMesh,
@@ -86,16 +91,33 @@ vec4 vj1Surface(vec3 normal, vec3 position, vec2 uv, vec4 baseColor) {
 
 test("mesh-to-image is the composable render operation and exposes every replaceable 3D element", async () => {
   assert.equal(MeshToImageNode.id, "core.mesh.render", "the semantic alias does not create a second renderer");
-  for (const inlet of ["mesh", "material", "transform", "camera", "target", "componentTime", "clear"]) {
+  for (const inlet of ["mesh", "material", "transform", "camera"]) {
     assert.ok(MeshToImageNode.inlets[inlet], `missing ${inlet} inlet`);
+  }
+  for (const hostConcern of ["target", "cacheOwner", "componentTime", "viewport", "contentTransform", "clear"]) {
+    assert.equal(
+      MeshToImageNode.inlets[hostConcern],
+      undefined,
+      `${hostConcern} belongs to the retained render-process context, not the authored graph`,
+    );
   }
   assert.equal(MeshToImageNode.inlets.scene, undefined);
   assert.equal(MeshToImageNode.outlets.image.type.type, "image");
   assert.equal(MeshToImageNode.capabilities.includes("composable-render-operation"), true);
+  assert.equal(
+    MeshToImageNode.metadata.renderProcessContext,
+    "vj1.visual-render-process-context@1",
+  );
+  assert.deepEqual(Object.keys(SceneToImageNode.inlets), ["scene", "resourceStatus"]);
 
   const target = { clearCalls: 0, clear() { this.clearCalls++; } };
   const instance = createNodeInstance(MeshToImageNode);
-  const output = await instance.run({ mesh: triangleMesh(), target });
+  const output = await instance.run({ mesh: triangleMesh() }, {
+    renderProcess: updateVisualRenderProcessContext(
+      createVisualRenderProcessContext(),
+      { target },
+    ),
+  });
   assert.equal(output.image, target);
   assert.equal(output.result.rendered, false, "a host without WebGL still preserves the typed image flow");
   assert.equal(target.clearCalls, 1);
@@ -329,6 +351,12 @@ test("animated transform is a reusable typed graph node with legacy-equivalent r
   assert.equal(AnimatedTransform3dNode.outlets.transform.type.type, "transform3d");
   assert.equal(AnimatedTransform3dNode.capabilities.includes("graph-placeable"), true);
   assert.equal(executed.transform.kind, "transform3d");
+  assert.equal(animatedTransform3dFrameDependent(inputs), true);
+  assert.equal(animatedTransform3dFrameDependent({
+    spinX: 0,
+    spinY: 0,
+    spinZ: 0,
+  }), false);
   assert.deepEqual(executed.transform.position, [0.25, -0.5, 0.1]);
   assert.deepEqual(executed.transform.rotation, [0.020000000000000018, -0.8500000000000001, 0.8]);
   assert.deepEqual(executed.transform.scale, [2, 1, 3]);
@@ -344,6 +372,12 @@ test("project meshes are explicit reusable graph nodes with declared host resour
 
   assert.strictEqual(output.mesh, mesh);
   assert.deepEqual(output.importRotation, [0, 0, Math.PI]);
+  assert.deepEqual(output.status, {
+    ready: true,
+    pending: false,
+    label: "3D model ready",
+    error: "",
+  });
   assert.deepEqual(mediaMeshNodeProcess(
     { mediaId: "media/skull.obj" },
     { resolveMesh: () => mesh },
@@ -356,10 +390,38 @@ test("project meshes are explicit reusable graph nodes with declared host resour
     parameterId: "mediaId",
     required: true,
   }]);
-  assert.throws(
-    () => mediaMeshNodeProcess({ mediaId: "media/missing.stl" }, { resolveMesh: () => null }),
-    /MEDIA_MESH_UNAVAILABLE:media\/missing\.stl/,
+  assert.equal(
+    mediaMeshNodeProcess(
+      { mediaId: "media/missing.stl" },
+      { resolveMesh: () => null },
+    ).mesh,
+    null,
+    "the declared external readiness contract holds the visual program in standby while a mesh is unresolved",
   );
+  assert.deepEqual(mediaMeshNodeProcess(
+    { mediaId: "media/broken.stl" },
+    {
+      resolveMesh: () => null,
+      resolveMeshStatus: () => ({
+        loadStatus: "processing 3D model",
+        modelError: "invalid facet",
+      }),
+    },
+  ).status, {
+    ready: false,
+    pending: false,
+    label: "processing 3D model",
+    error: "invalid facet",
+  });
+  assert.deepEqual(MediaMeshNode.execution.external, {
+    capability: "project-mesh",
+    asynchronous: true,
+    lifecycle: "retained-request",
+    invalidation: "external-revision",
+    pending: "standby",
+    error: "diagnostic",
+    readyOutlet: "mesh",
+  });
 });
 
 test("model import basis remains an explicit replaceable transform input", () => {
@@ -387,17 +449,26 @@ test("display LOD is a retained semantic mesh operation driven by image demand",
     renderMode: "wireframe",
     wireDetail: 0,
   }, { state });
+  const firstMesh = first.mesh;
+  const firstTargetTriangles = first.targetTriangles;
   const second = meshDisplayLodProcess({
     mesh,
     viewport: { width: 1920, height: 1080 },
     renderMode: "surface",
-    renderQuality: 1,
+    geometryDetail: 1,
   }, { state });
 
   assert.equal(MeshDisplayLodNode.capabilities.includes("mesh-lod-selection"), true);
+  assert.equal(
+    MeshDisplayLodNode.execution.frameDependent,
+    false,
+    "render-demand LOD selection does not make a static scene wall-clock dependent",
+  );
   assert.strictEqual(first, second, "frame evaluation mutates one retained result record");
-  assert.strictEqual(first.mesh, fine);
-  assert.equal(first.targetTriangles, 120000);
+  assert.strictEqual(firstMesh, coarse);
+  assert.equal(firstTargetTriangles, 3000);
+  assert.strictEqual(second.mesh, fine);
+  assert.equal(second.targetTriangles, 120000);
 });
 
 test("canonical Mesh resources share retained GPU cache ownership across Scene programs", () => {
@@ -427,12 +498,27 @@ test("scene-to-image lowers arbitrary object collections to retained shared mesh
   });
   const target = { clearCalls: 0, clear() { this.clearCalls++; } };
   const state = {};
-  const first = sceneToImageNodeProcess({ scene, target, componentTime: 1 }, { state });
-  const second = sceneToImageNodeProcess({ scene, target, componentTime: 2 }, { state });
+  const renderProcess = createVisualRenderProcessContext();
+  const first = sceneToImageNodeProcess({ scene }, {
+    state,
+    renderProcess: updateVisualRenderProcessContext(renderProcess, { target, time: 1 }),
+  });
+  const second = sceneToImageNodeProcess({ scene }, {
+    state,
+    renderProcess: updateVisualRenderProcessContext(renderProcess, {
+      target,
+      time: 2,
+      clear: false,
+    }),
+  });
 
   assert.equal(SceneToImageNode.id, "core.scene3d.render");
   assert.strictEqual(second, first);
-  assert.equal(target.clearCalls, 2, "the Scene target clears once per frame, not once per object");
+  assert.equal(
+    target.clearCalls,
+    1,
+    "an embedded Scene draws into the framebuffer already cleared by its retained source owner",
+  );
   assert.equal(state.objectStates.size, 2);
   assert.equal(state.meshCacheOwners.size, 1, "mesh instances share one retained GPU cache owner");
   assert.strictEqual(first.texture, target);
@@ -440,6 +526,47 @@ test("scene-to-image lowers arbitrary object collections to retained shared mesh
   disposeSceneRenderState(state);
   assert.equal(state.objectStates.size, 0);
   assert.equal(state.meshCacheOwners.size, 0);
+});
+
+test("scene-to-image presents typed mesh loading and errors without a model-specific host renderer", () => {
+  const target = {};
+  const labels = [];
+  const renderProcess = updateVisualRenderProcessContext(
+    createVisualRenderProcessContext(),
+    { target },
+  );
+
+  sceneToImageNodeProcess({
+    scene: null,
+    resourceStatus: {
+      ready: false,
+      pending: true,
+      label: "processing 3D model",
+      error: "",
+    },
+  }, {
+    renderProcess,
+    drawStandby: (_target, label, options) =>
+      labels.push([label, options]),
+  });
+  sceneToImageNodeProcess({
+    scene: null,
+    resourceStatus: {
+      ready: false,
+      pending: false,
+      label: "processing 3D model",
+      error: "invalid facet",
+    },
+  }, {
+    renderProcess,
+    drawStandby: (_target, label, options) =>
+      labels.push([label, options]),
+  });
+
+  assert.deepEqual(labels, [
+    ["processing 3D model", { forceVisible: true }],
+    ["3D model error: invalid facet", { forceVisible: true }],
+  ]);
 });
 
 test("normalized 3D translation and camera enter the retained matrix path directly", () => {

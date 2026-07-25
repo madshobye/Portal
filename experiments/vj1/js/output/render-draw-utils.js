@@ -1,5 +1,5 @@
 import { drawWebGLBuffer } from "./component-render-layout.js?v=surface-terminology-1";
-import { isSharedFramebufferTarget, unwrapRenderTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
+import { isSharedFramebufferTarget, unwrapRenderTarget } from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
 import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=source-target-ownership-1";
 
 export function withShaderInstancePrefix(chain = [], prefix = "") {
@@ -10,31 +10,115 @@ export function withShaderInstancePrefix(chain = [], prefix = "") {
 }
 
 export function drawBuffer(pg, source, x, y, width, height, sourceIsWebGL = false) {
-  const flipRawTarget = renderTargetNeedsPresentationFlip(source);
-  const drawY = flipRawTarget ? y + height : y;
-  const drawHeight = flipRawTarget ? -height : height;
+  const geometry = renderTargetImageGeometry(
+    source,
+    { x, y, width, height },
+  );
   if (isSharedFramebufferTarget(source)) {
     pg.push();
     pg.imageMode(CORNER);
-    pg.image(unwrapRenderTarget(source), x, drawY, width, drawHeight);
+    pg.image(
+      unwrapRenderTarget(source),
+      geometry.destination.x,
+      geometry.destination.y,
+      geometry.destination.width,
+      geometry.destination.height,
+    );
     pg.pop();
     return;
   }
   if (!sourceIsWebGL) {
-    pg.image(source, x, drawY, width, drawHeight);
+    pg.image(
+      source,
+      geometry.destination.x,
+      geometry.destination.y,
+      geometry.destination.width,
+      geometry.destination.height,
+    );
     return;
   }
-  drawWebGLBuffer(pg, source, x, drawY, width, drawHeight);
+  drawWebGLBuffer(
+    pg,
+    source,
+    geometry.destination.x,
+    geometry.destination.y,
+    geometry.destination.width,
+    geometry.destination.height,
+  );
 }
 
 export function drawSampleRect(pg, source, sampleRect = {}, x = 0, y = 0, width = pg.width, height = pg.height) {
-  const { x: sx, y: sy, width: sw, height: sh } = boundedSampleRect(source, sampleRect, width, height);
+  const sample = boundedSampleRect(source, sampleRect, width, height);
+  const geometry = renderTargetImageGeometry(
+    source,
+    { x, y, width, height },
+    sample,
+  );
   try {
-    pg.image(source, x, y, width, height, sx, sy, sw, sh);
+    pg.image(
+      source,
+      geometry.destination.x,
+      geometry.destination.y,
+      geometry.destination.width,
+      geometry.destination.height,
+      geometry.sample.x,
+      geometry.sample.y,
+      geometry.sample.width,
+      geometry.sample.height,
+    );
   } catch (error) {
     reportSampleDrawFailure(source, pg, error);
     throw error;
   }
+}
+
+export function renderTargetImageGeometry(
+  source,
+  destination = {},
+  sampleRect = null,
+) {
+  const width = Number(destination.width) || 0;
+  const height = Number(destination.height) || 0;
+  const sourceWidth = Math.max(1, Number(source?.width) || Math.abs(width) || 1);
+  const sourceHeight = Math.max(1, Number(source?.height) || Math.abs(height) || 1);
+  const sample = sampleRect
+    ? {
+        x: Number(sampleRect.x) || 0,
+        y: Number(sampleRect.y) || 0,
+        width: Math.max(0, Number(sampleRect.width) || 0),
+        height: Math.max(0, Number(sampleRect.height) || 0),
+      }
+    : {
+        x: 0,
+        y: 0,
+        width: sourceWidth,
+        height: sourceHeight,
+      };
+  if (!renderTargetNeedsPresentationFlip(source)) {
+    return {
+      flipped: false,
+      destination: {
+        x: Number(destination.x) || 0,
+        y: Number(destination.y) || 0,
+        width,
+        height,
+      },
+      sample,
+    };
+  }
+  return {
+    flipped: true,
+    destination: {
+      x: Number(destination.x) || 0,
+      y: (Number(destination.y) || 0) + height,
+      width,
+      height: -height,
+    },
+    sample: {
+      ...sample,
+      y: sourceHeight - sample.y - sample.height,
+    },
+  };
 }
 
 export function boundedSampleRect(source, sampleRect = {}, fallbackWidth = 1, fallbackHeight = 1) {

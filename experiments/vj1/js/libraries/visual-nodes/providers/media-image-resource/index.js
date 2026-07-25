@@ -3,13 +3,16 @@ import {
   NODE_IMPLEMENTATION_KINDS,
   NODE_PART_KINDS,
 } from "../../../node-engine/node-definition.js";
-import { MediaImageResourceType } from "../../shared/specialized-compound-types.js";
+import {
+  DrawableMediaResourceType,
+  MediaImageResourceType,
+} from "../../shared/visual-stage-types.js";
 
 export const MediaImageResourceNode = defineNode({
   id: "core.visual.media-image-resource",
-  name: "Media Image",
+  name: "Project Image",
   version: "0.1.0",
-  description: "Declares one project image as a typed reusable visual resource without owning decoding or GPU upload.",
+  description: "Declares the image-only view of one project media resource without creating a second loading, decoding, or GPU-upload path.",
   implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: {
     mediaId: { type: "string", defaultValue: "" },
@@ -23,6 +26,7 @@ export const MediaImageResourceNode = defineNode({
   },
   outlets: {
     image: { type: MediaImageResourceType },
+    resource: { type: DrawableMediaResourceType },
   },
   execution: {
     trigger: "input-change",
@@ -32,15 +36,25 @@ export const MediaImageResourceNode = defineNode({
   },
   capabilities: [
     "media-resource",
+    "project-media-resource",
     "image-resource",
     "declares-media-dependency",
-    "specialized-visual-provider",
-    "specialized-visual-stage",
+    "retained-value-provider",
+    "visual-value-provider",
+    "visual-stage",
     "graph-placeable",
   ],
   presentation: {
-    catalogs: ["node-graph", "media", "image", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "media", "image", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
+    previewOutput: "resource",
+  },
+  metadata: {
+    resourceDependencies: [{
+      kind: "media",
+      parameterId: "mediaId",
+      required: true,
+    }],
   },
   parts: [{
     id: "media-image-resource-process",
@@ -58,10 +72,20 @@ export const MediaImageResourceNode = defineNode({
 
 export function mediaImageResourceProcess({ mediaId = "" } = {}, { output = null, state = {} } = {}) {
   const id = String(mediaId || "");
-  const result = output || state.output || (state.output = { image: null });
+  const result = output || state.output || (state.output = {
+    image: null,
+    resource: null,
+  });
   const image = result.image || (result.image = {});
-  image.kind = "media-image-resource";
+  image.kind = "project-media-resource";
+  image.mediaKind = "image";
   image.mediaId = id;
+  image.start = 0;
+  image.end = 0;
+  image.speed = 0;
   image.ready = !!id;
+  image.resourceIdentity = `project-media:${id}`;
+  image.resourceRevision = id;
+  result.resource = image;
   return result;
 }

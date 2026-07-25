@@ -3,7 +3,7 @@ import {
   createMaterial3d,
   Material3dType,
 } from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
-import { VisualMaterialProviderType } from "../../shared/specialized-compound-types.js";
+import { VisualMaterialProviderType } from "../../shared/visual-stage-types.js";
 
 export const LitMeshMaterialProviderNode = defineNode({
   id: "core.visual.lit-mesh-material-provider",
@@ -58,12 +58,13 @@ export const LitMeshMaterialProviderNode = defineNode({
     "material",
     "shader",
     "scene-3d",
-    "specialized-visual-stage",
+    "retained-value-provider",
+    "visual-stage",
     "graph-placeable",
   ],
   presentation: {
-    catalogs: ["node-graph", "material", "mesh", "scene-3d", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "material", "mesh", "scene-3d", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
   },
   process: litMeshMaterialProviderProcess,
 });

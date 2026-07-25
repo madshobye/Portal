@@ -198,9 +198,10 @@ export function applyModelViewportProjection(target, cameraFov = Math.PI / 3, vi
   target.frustum(cropLeft, cropRight, cropBottom, cropTop, near, far);
 }
 
-// Raw WebGL model coordinates are Y-up and rotate counter-clockwise. This
-// adapter stays with the render node so the live path does not depend on the
-// application output coordinate module.
+// Authored Content coordinates are screen-down while raw WebGL clip coordinates
+// are world-up. Convert that axis exactly once at the mesh placement boundary;
+// framebuffer presentation owns storage orientation and must not compensate it.
+// Placement is derived from authored state each frame, never accumulated.
 function contentTransformRawWebglPlacement(transform = {}, width = 1, height = 1) {
   const normalized = {
     x: Math.max(-2, Math.min(2, Number(transform.x) || 0)),

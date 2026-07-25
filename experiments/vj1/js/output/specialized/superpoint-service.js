@@ -18,14 +18,23 @@ let sessionPromise = null;
 let inferenceQueue = Promise.resolve();
 let sharedRevision = 0;
 const sharedPairEntries = new Map();
+const sharedInvalidationSubscribers = new Set();
 const INFERENCE_TIMEOUT_MS = 60000;
 
 export class SuperPointPairService {
-  constructor({ cache = createSuperPointPersistentCache() } = {}) {
+  constructor({
+    cache = createSuperPointPersistentCache(),
+    onInvalidate = null,
+  } = {}) {
     // Control preview, output windows, and render routes can request the same
     // pair. Share one result instead of running the WASM session repeatedly.
     this.entries = sharedPairEntries;
     this.cache = cache;
+    this.onInvalidate =
+      typeof onInvalidate === "function" ? onInvalidate : null;
+    if (this.onInvalidate) {
+      sharedInvalidationSubscribers.add(this.onInvalidate);
+    }
   }
 
   pairKey(params = {}) {
@@ -62,6 +71,7 @@ export class SuperPointPairService {
     entry = { key, persistentKey, algorithmRevision, status: "loading", detail: "checking saved landmarks", revision: ++sharedRevision, result: null, error: "" };
     this.entries.set(key, entry);
     this.trimCache();
+    publishAnalysisInvalidation("feature-morph-analysis-loading", entry);
     withTimeout(
       this.resolvePair(params, imageA, imageB, media, (detail) => {
         entry.detail = detail;
@@ -75,11 +85,13 @@ export class SuperPointPairService {
         entry.detail = "landmarks ready";
         entry.result = result;
         entry.revision = ++sharedRevision;
+        publishAnalysisInvalidation("feature-morph-analysis-ready", entry);
       })
       .catch((error) => {
         entry.status = "error";
         entry.error = error?.message || String(error || "SuperPoint failed");
         entry.revision = ++sharedRevision;
+        publishAnalysisInvalidation("feature-morph-analysis-error", entry);
         console.error("[VJ1_SUPERPOINT_FAILED]", error);
       });
     return entry;
@@ -127,6 +139,21 @@ export class SuperPointPairService {
     // request() still replaces it immediately when edited node code arrives.
     const algorithmRevision = media.algorithmRevision ?? entry?.algorithmRevision ?? "legacy";
     return featureMorphPersistentKey(pairKey, media.imageAFile, media.imageBFile, algorithmRevision);
+  }
+
+  dispose() {
+    if (this.onInvalidate) {
+      sharedInvalidationSubscribers.delete(this.onInvalidate);
+      this.onInvalidate = null;
+    }
+  }
+}
+
+function publishAnalysisInvalidation(reason, entry) {
+  for (const subscriber of sharedInvalidationSubscribers) {
+    try {
+      subscriber(reason, entry);
+    } catch {}
   }
 }
 

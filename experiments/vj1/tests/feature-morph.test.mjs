@@ -9,7 +9,7 @@ import {
   getGeneratorNodeComponent as getGeneratorComponent,
   MediaImageResourceNode,
   MobileNetMorphAnalysisNode,
-  SpecializedCompoundStageNodeDefinitions,
+  VisualStageNodeDefinitions,
   SuperPointMorphAnalysisNode,
 } from "../js/libraries/visual-nodes/index.js";
 import { compileVisualRenderPlan } from "../js/libraries/composition-engine/shared/visual-render-plan.js";
@@ -21,16 +21,66 @@ import {
   NODE_PART_KINDS,
 } from "../js/libraries/node-engine/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
+import { FeatureMorphRuntime } from "../js/output/specialized/feature-morph-runtime.js";
 import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER } from "../js/output/specialized/feature-morph-shader.js";
 import { featureMorphNodeRuntimeModule, featureMorphNodeShaderSource } from "../js/output/specialized/specialized-source-runtime.js";
+import {
+  graphNodeFromDefinition,
+  NODE_GRAPH_AUTHORING_TARGETS,
+  nodeDefinitionPlaceableInGraph,
+} from "../js/control/node-graph-canvas.js";
+import {
+  createComponentLayer,
+  createDefaultComponent,
+  createInitialState,
+  createSceneComponent,
+} from "../js/domain/models.js";
 
 function feature(x, y, descriptor) {
   return { x, y, descriptor: Float32Array.from(descriptor) };
 }
 
+test("Feature Morph capability owns compiled analysis readiness", () => {
+  let analysisState = "loading";
+  const images = new Map([
+    ["a", { image: {}, file: { name: "a.png" } }],
+    ["b", { image: {}, file: { name: "b.png" } }],
+  ]);
+  const runtime = new FeatureMorphRuntime({
+    acquireMedia: (id) => images.get(id) || null,
+  });
+  runtime.registerAnalysisProvider("readiness-test", {
+    service: () => ({ status: () => analysisState }),
+  });
+  const program = {
+    forEachOperation(callback) {
+      callback({
+        valueProgram: {
+          steps: [{
+            externalResolver: { capability: "feature-morph-analysis" },
+            outputValues: {
+              analysis: {
+                providerId: "readiness-test",
+                settings: { imageAId: "a", imageBId: "b" },
+              },
+            },
+          }],
+        },
+      });
+    },
+  };
+
+  assert.equal(runtime.readinessStatus(program).state, "pending");
+  analysisState = "ready";
+  assert.equal(runtime.readinessStatus(program).state, "ready");
+  analysisState = "error";
+  assert.equal(runtime.readinessStatus(program).state, "error");
+  runtime.dispose();
+});
+
 function compileFeatureMorphPlan(definition, parameters = {}) {
   const definitions = new Map([
-    ...SpecializedCompoundStageNodeDefinitions,
+    ...VisualStageNodeDefinitions,
     definition,
   ].map((item) => [item.id, item]));
   const configuration = {
@@ -64,6 +114,37 @@ function compileFeatureMorphPlan(definition, parameters = {}) {
   });
   return { plan, group: plan.operations[0], render: plan.operations[0].operations[0] };
 }
+
+test("Feature Morph resources, analysis providers, and renderer are ordinary visual-editor nodes", () => {
+  for (const definition of [
+    MediaImageResourceNode,
+    SuperPointMorphAnalysisNode,
+    MobileNetMorphAnalysisNode,
+    FeatureMorphToImageNode,
+  ]) {
+    assert.equal(
+      nodeDefinitionPlaceableInGraph(
+        definition,
+        NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
+      ),
+      true,
+      `${definition.id} must be placeable in an authored visual Group`,
+    );
+  }
+  assert.equal(
+    graphNodeFromDefinition(SuperPointMorphAnalysisNode, {
+      id: "analysis",
+      visualProgram: true,
+    }).role,
+    "value",
+  );
+  const render = graphNodeFromDefinition(FeatureMorphToImageNode, {
+    id: "render",
+    visualProgram: true,
+  });
+  assert.equal(render.role, "source");
+  assert.equal(render.compilerHook.id, "vj1.visual.native-source");
+});
 
 test("Feature Morph is a two-image generator with cached animation controls", () => {
   const component = getGeneratorComponent("featureMorph");
@@ -109,6 +190,11 @@ test("Feature Morph is a two-image generator with cached animation controls", ()
   assert.equal(render.runtimeValueInputs.get("imageB").mediaId, "b.png");
   assert.equal(render.runtimeValueInputs.get("analysis").providerId, "superpoint");
   assert.equal(render.runtimeValueInputs.get("analysis").settings.landmarkCount, 88);
+  assert.equal(
+    render.externalResourceDependent,
+    true,
+    "the compiler marks the exact render consumer of the asynchronous analysis revision",
+  );
   assert.equal(render.configuration.source.params.morph, 0.4);
   assert.ok(plan.inspect().readiness.requirements.some((item) =>
     item.kind === "capability" && item.id === "feature-morph-analysis"));
@@ -117,6 +203,30 @@ test("Feature Morph is a two-image generator with cached animation controls", ()
   const source = createGeneratorSource("featureMorph", { imageAId: "a.png", imageBId: "b.png" });
   assert.equal(source.params.imageAId, "a.png");
   assert.equal(source.params.imageBId, "b.png");
+});
+
+test("Feature Morph compounds preserve authored time invalidation alongside typed values", () => {
+  const component = getGeneratorComponent("featureMorph");
+  const animated = compileFeatureMorphPlan(component.nodeDefinition, {
+    imageAId: "a.png",
+    imageBId: "b.png",
+    autoSpeed: 0.5,
+  }).plan;
+  const staticPlan = compileFeatureMorphPlan(component.nodeDefinition, {
+    imageAId: "a.png",
+    imageBId: "b.png",
+    autoSpeed: 0,
+  }).plan;
+
+  assert.equal(animated.inspect().dynamics.frameDependent, true);
+  assert.equal(animated.inspect().dynamics.invalidation.mode, "frame");
+  assert.ok(
+    animated.inspect().dynamics.invalidation.reasons.includes("runtime-time"),
+  );
+  assert.equal(staticPlan.inspect().dynamics.frameDependent, false);
+  assert.equal(staticPlan.inspect().dynamics.invalidation.mode, "revision");
+  animated.dispose();
+  staticPlan.dispose();
 });
 
 test("Feature Morph analysis is a typed provider substitution rather than a second renderer", () => {
@@ -150,30 +260,30 @@ test("Feature Morph analysis is a typed provider substitution rather than a seco
   );
 
   const renderer = new OutputRenderer({ mode: "component" });
-  const superPointService = renderer.superPointPairs;
-  const mobileNetService = renderer.mobileNetMorphPairs;
+  const superPointService = renderer.specializedSources.featureMorph.superPointPairs;
+  const mobileNetService = renderer.specializedSources.featureMorph.mobileNetMorphPairs;
   const projectService = {};
-  renderer.specializedSources.registerFeatureMorphAnalysisProvider("project-analysis", {
+  renderer.specializedSources.featureMorph.registerAnalysisProvider("project-analysis", {
     service: () => projectService,
   });
-  assert.strictEqual(renderer.featureMorphPairService("project-analysis"), projectService);
-  assert.equal(renderer.featureMorphPairService("unknown-analysis"), null);
-  renderer.generatorNodeComponent = () => ({ nodeDefinition: edited });
+  assert.strictEqual(renderer.sourceRuntime.featureMorphPairService("project-analysis"), projectService);
+  assert.equal(renderer.sourceRuntime.featureMorphPairService("unknown-analysis"), null);
+  renderer.visualNodeRuntime.generator = () => ({ nodeDefinition: edited });
   assert.strictEqual(
-    renderer.featureMorphPairService("mobilenet"),
+    renderer.sourceRuntime.featureMorphPairService("mobilenet"),
     mobileNetService,
     "dirty/readiness analysis follows the authored provider rather than the legacy visual ID",
   );
   assert.equal(
-    renderer.featureMorphAnalysisContract("featureMorph", {
+    renderer.sourceRuntime.featureMorphAnalysisContract("featureMorph", {
       imageAId: "a",
       imageBId: "b",
     }).params.featureGrid,
     15,
     "dirty/readiness keys include internal provider literals used by rendering",
   );
-  renderer.generatorNodeComponent = () => ({ nodeDefinition: definition });
-  assert.strictEqual(renderer.featureMorphPairService("superpoint"), superPointService);
+  renderer.visualNodeRuntime.generator = () => ({ nodeDefinition: definition });
+  assert.strictEqual(renderer.sourceRuntime.featureMorphPairService("superpoint"), superPointService);
   const specializedSource = readFileSync(
     new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url),
     "utf8",
@@ -323,33 +433,206 @@ test("SuperPoint runtime status rejects analysis from replaced image files", () 
   assert.equal(service.status(params, { ...files, imageBFile: { ...files.imageBFile, lastModified: 2 } }), "idle");
 });
 
+test("shared SuperPoint analysis publishes resource-driven invalidation", async () => {
+  const reasons = [];
+  const service = new SuperPointPairService({
+    cache: { load: async () => null, save: async () => {} },
+    onInvalidate: (reason) => reasons.push(reason),
+  });
+  service.resolvePair = async () => ({
+    matches: [],
+    field: {
+      width: 1,
+      height: 1,
+      phases: 1,
+      pixels: new Uint8ClampedArray(4),
+    },
+  });
+  service.request({
+    imageAId: "invalidation-superpoint-a",
+    imageBId: "invalidation-superpoint-b",
+  }, {}, {});
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(reasons, [
+    "feature-morph-analysis-loading",
+    "feature-morph-analysis-ready",
+  ]);
+  service.dispose();
+});
+
 test("Feature Morph stays dynamic until images and landmark analysis settle", () => {
   const renderer = new OutputRenderer({ mode: "component" });
   let analysisStatus = "idle";
-  renderer.superPointPairs = { status: () => analysisStatus };
+  renderer.specializedSources.featureMorph.superPointPairs = { status: () => analysisStatus };
   const source = createGeneratorSource("featureMorph", {
     imageAId: "image-a",
     imageBId: "image-b",
     autoSpeed: 0,
   });
 
-  assert.equal(renderer.sourceIsFrameDynamic(source), true, "missing decoded images must not be cached");
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true, "missing decoded images must not be cached");
   renderer.media.set("image-a", { ready: true });
   renderer.media.set("image-b", { ready: false });
-  assert.equal(renderer.sourceIsFrameDynamic(source), true, "partially decoded images must not be cached");
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true, "partially decoded images must not be cached");
 
   renderer.media.set("image-b", { ready: true });
-  assert.equal(renderer.sourceIsFrameDynamic(source), true, "idle analysis must receive another render frame");
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true, "idle analysis must receive another render frame");
   analysisStatus = "loading";
-  assert.equal(renderer.sourceIsFrameDynamic(source), true, "loading analysis must receive another render frame");
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true, "loading analysis must receive another render frame");
   analysisStatus = "ready";
-  assert.equal(renderer.sourceIsFrameDynamic(source), false, "settled static morph can be cached");
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), false, "settled static morph can be cached");
   analysisStatus = "error";
-  assert.equal(renderer.sourceIsFrameDynamic(source), false, "settled error can be cached");
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), false, "settled error can be cached");
 
   source.params.autoSpeed = 1;
   analysisStatus = "ready";
-  assert.equal(renderer.sourceIsFrameDynamic(source), true, "automatic morphing remains frame-dynamic");
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true, "automatic morphing remains frame-dynamic");
+});
+
+function assertMorphAnalysisInvalidatesRetainedHierarchy({
+  generatorId,
+  serviceName,
+}) {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  component.chain = [createComponentLayer(0, createGeneratorSource(generatorId, {
+    imageAId: "image-a",
+    imageBId: "image-b",
+    autoSpeed: 0,
+  }))];
+  const scene = createSceneComponent(1, component.id);
+  state.components = [component, scene];
+  state.media = [
+    { id: "image-a", path: "image-a.png", type: "image", size: 10 },
+    { id: "image-b", path: "image-b.png", type: "image", size: 20 },
+  ];
+  state.ui.selectedComponentId = scene.id;
+  renderer.state = state;
+  renderer.componentProgramRuntime.rebuild();
+  const program = renderer.componentProgramRuntime.programs.get(component.id);
+  const operations = [];
+  program.forEachOperation((operation) => operations.push(operation));
+  const compiledGroup = operations.find(
+    (operation) =>
+      operation.backend === "compiled-visual-group" &&
+      operation.valueProgram,
+  );
+  const analysisConsumer = operations.find(
+    (operation) =>
+      operation.externalResourceDependent === true &&
+      operation.externalResourceRequirements?.some(
+        (requirement) =>
+          requirement.id === "feature-morph-analysis",
+      ),
+  );
+  assert.equal(
+    program.inspect().readiness.requirements.some(
+      (requirement) =>
+        requirement.kind === "capability" &&
+        requirement.id === "feature-morph-analysis",
+    ),
+    true,
+    `${generatorId} must compile its asynchronous capability into the Component program`,
+  );
+  assert.ok(
+    compiledGroup,
+    `${generatorId} must compile its retained typed-value graph`,
+  );
+  assert.ok(
+    analysisConsumer,
+    `${generatorId} must project analysis readiness to its exact render consumer`,
+  );
+  assert.equal(
+    operations.some(
+      (operation) =>
+        operation.backend === "source-runtime" &&
+        operation.renderer === "output/source:generator",
+    ),
+    false,
+    `${generatorId} must compile its retained analysis consumer instead of a generic source wrapper`,
+  );
+  renderer.media.set("image-a", {
+    ready: true,
+    image: { width: 32, height: 32 },
+    file: { name: "image-a.png", size: 10, lastModified: 1 },
+  });
+  renderer.media.set("image-b", {
+    ready: true,
+    image: { width: 32, height: 32 },
+    file: { name: "image-b.png", size: 20, lastModified: 1 },
+  });
+  let analysisState = "loading";
+  let analysisRevision = "loading:1";
+  renderer.specializedSources.featureMorph[serviceName] = {
+    status: () => analysisState,
+    externalKey: () => analysisRevision,
+  };
+  compiledGroup.valueProgram.evaluate({
+    componentTime: 0,
+    timestamp: 0,
+    renderRequest: { role: "component", width: 640, height: 360 },
+    runtimeContext:
+      renderer.visualPlanRuntime.valueRuntimeContext,
+  });
+  renderer.visualPlanRuntime.synchronizeExternalResourceRevisions(
+    compiledGroup,
+    component,
+  );
+  const consumerLoadingRevision = [
+    ...analysisConsumer.runtimeExternalRevisionInputs,
+  ];
+  const request = { role: "component", width: 640, height: 360 };
+
+  const componentLoading = renderer.componentRenderRuntime.stableSignature(
+    component,
+    request,
+  );
+  const sceneLoading = renderer.componentRenderRuntime.stableSignature(
+    scene,
+    request,
+  );
+  assert.ok(componentLoading);
+  assert.ok(sceneLoading);
+
+  analysisState = "ready";
+  analysisRevision = "ready:2";
+  renderer.visualPlanRuntime.synchronizeExternalResourceRevisions(
+    compiledGroup,
+    component,
+  );
+  assert.notDeepEqual(
+    [...analysisConsumer.runtimeExternalRevisionInputs],
+    consumerLoadingRevision,
+    "the asynchronous capability revision must reach the retained render node without a graph edit",
+  );
+  assert.notEqual(
+    renderer.componentRenderRuntime.stableSignature(component, request),
+    componentLoading,
+    "the Component cannot retain its loading framebuffer after analysis becomes ready",
+  );
+  assert.notEqual(
+    renderer.componentRenderRuntime.stableSignature(scene, request),
+    sceneLoading,
+    "the async revision propagates through Component references into a Scene cache",
+  );
+  renderer.dispose();
+}
+
+test("Morph analysis revisions invalidate enclosing Component and Scene caches", () => {
+  for (const subject of [
+    {
+      generatorId: "featureMorph",
+      serviceName: "superPointPairs",
+    },
+    {
+      generatorId: "featureMorphV2",
+      serviceName: "mobileNetMorphPairs",
+    },
+  ]) {
+    assertMorphAnalysisInvalidatesRetainedHierarchy(subject);
+  }
 });
 
 test("a sole Feature Morph source retains generic transform handles without stale selection state", () => {
@@ -359,7 +642,7 @@ test("a sole Feature Morph source retains generic transform handles without stal
     components: [{ id: "component-a", chain: [sourceItem] }],
     ui: { selectedComponentId: "component-a", selectedChainItemId: "" },
   };
-  assert.equal(renderer.selectedTransformableChainItem(), sourceItem);
+  assert.equal(renderer.previewInteraction.selectedTransformableChainItem(), sourceItem);
 });
 
 test("Feature Morph persistent cache survives service recreation and invalidates changed files", async () => {

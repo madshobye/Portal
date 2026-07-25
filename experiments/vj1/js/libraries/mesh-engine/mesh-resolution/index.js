@@ -4,6 +4,8 @@ import { attachLegacyTriangleView, MeshType, modelTriangleCount } from "../mesh-
 import { buildMeshoptimizerLods, indexedMeshToTriangleSoup } from "../meshoptimizer-simplifier.js";
 
 export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([120000, 80000, 50000, 25000, 12000, 6000, 3000]);
+const MIN_DISPLAY_TRIANGLES = 3000;
+const MAX_DISPLAY_TRIANGLES = 120000;
 
 const MeshResolutionStatsType = recordType("mesh-resolution-stats", {
   sourceTriangles: numberType(),
@@ -56,11 +58,19 @@ export const MeshResolutionNode = defineNode({
       language: "javascript",
       editable: true,
       module: import.meta.url,
-      exports: ["buildAutomaticModelLods", "selectModelLod", "modelLodTargetTriangles"],
+      exports: [
+        "buildAutomaticModelLods",
+        "selectModelLod",
+        "modelGeometryTriangleBudget",
+        "modelLodTargetTriangles",
+      ],
       source: [
+        `const MIN_DISPLAY_TRIANGLES = ${MIN_DISPLAY_TRIANGLES};
+const MAX_DISPLAY_TRIANGLES = ${MAX_DISPLAY_TRIANGLES};`,
         buildAutomaticModelLods,
         simplifyMeshByQuadricError,
         selectModelLod,
+        modelGeometryTriangleBudget,
         modelLodTargetTriangles,
       ].map((fn) => fn.toString()).join("\n\n"),
     },
@@ -136,22 +146,41 @@ export function selectModelLod(mesh = {}, targetTriangles = Infinity) {
   return selected;
 }
 
-export function modelLodTargetTriangles({ width = 1, height = 1, renderMode = "surface", renderQuality = 0.5, edgeBudget = 20000, wireDetail = 0.25 } = {}) {
+// Authored geometry detail is deliberately logarithmic. Equal slider travel
+// therefore produces a useful visual change across both small and very dense
+// meshes instead of spending most of the control range near the maximum.
+export function modelGeometryTriangleBudget(detail = 0.5) {
+  const normalized = Math.max(0, Math.min(1, Number(detail) || 0));
+  return Math.round(
+    MIN_DISPLAY_TRIANGLES *
+    Math.pow(MAX_DISPLAY_TRIANGLES / MIN_DISPLAY_TRIANGLES, normalized)
+  );
+}
+
+export function modelLodTargetTriangles({
+  width = 1,
+  height = 1,
+  renderMode = "surface",
+  geometryDetail = 0.5,
+  wireDetail = 0.25,
+} = {}) {
   const pixels = Math.max(1, Number(width) || 1) * Math.max(1, Number(height) || 1);
-  const quality = 0.45 + Math.max(0, Math.min(1, Number(renderQuality) || 0)) * 1.1;
-  const perceptualOutline = renderMode === "outline" || renderMode === "surfaceOutline" || renderMode === "xrayOutline";
   const constructionWire = renderMode === "wireframe" || renderMode === "surfaceWire";
+  let authoredBudget = modelGeometryTriangleBudget(geometryDetail);
   if (constructionWire) {
-    // Intentional allocation-stable fast path: complete coherent wire LODs avoid
-    // disconnected sampled-edge artifacts and are independent of resolution.
-    const detail = Math.max(0, Math.min(1, Number(wireDetail) || 0));
-    return Math.round(3000 + detail * 22000);
+    // Wire detail may request a coarser complete mesh, but it can never exceed
+    // the common Geometry detail cap. This preserves coherent connected lines.
+    authoredBudget = Math.min(
+      authoredBudget,
+      modelGeometryTriangleBudget(wireDetail),
+    );
   }
-  const pixelsPerTriangle = perceptualOutline ? 20 : 6;
-  const rasterTarget = Math.max(12000, Math.min(120000, Math.round((pixels / pixelsPerTriangle) * quality)));
-  if (!perceptualOutline) return rasterTarget;
-  const completeEdgeTriangleBudget = Math.max(1000, Math.floor(
-    Math.max(1000, Math.min(50000, Number(edgeBudget) || 20000)) / 1.6
-  ));
-  return Math.min(rasterTarget, completeEdgeTriangleBudget);
+  // Pixel demand can reduce unnecessary geometry for a small ROI, but never
+  // raise it above the authored cap. Outline and surface intentionally share
+  // this mesh LOD; edgeBudget only controls extracted outline edges.
+  const rasterDemand = Math.max(
+    MIN_DISPLAY_TRIANGLES,
+    Math.min(MAX_DISPLAY_TRIANGLES, Math.round(pixels / 6)),
+  );
+  return Math.min(authoredBudget, rasterDemand);
 }

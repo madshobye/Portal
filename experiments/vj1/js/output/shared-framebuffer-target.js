@@ -117,6 +117,16 @@ export class SharedFramebufferTarget {
   }
 
   clear() {
+    const gl = this.drawingContext;
+    if (!gl?.depthMask || !gl?.colorMask) {
+      callP5("clear");
+      return;
+    }
+    // Clear is an ownership boundary, not a nested material pass. Establish
+    // writable attachments directly and leave that canonical state in place;
+    // querying masks here synchronizes the CPU with the GPU every frame.
+    gl.depthMask(true);
+    gl.colorMask(true, true, true, true);
     callP5("clear");
   }
 
@@ -131,7 +141,8 @@ export class SharedFramebufferTarget {
       "soft-light",
       "color-dodge",
     ]);
-    callP5("blendMode", unsupported.has(mode) ? (globalThis.BLEND ?? "source-over") : mode);
+    const normalBlend = globalThis.BLEND ?? "source-over";
+    callP5("blendMode", unsupported.has(mode) ? normalBlend : mode);
   }
 
   image(source, ...args) {

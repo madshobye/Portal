@@ -11,7 +11,7 @@ export const AnimatedTransform3dNode = defineNode({
   description: "Creates a reusable Transform3D with frame-time rotation and independent axis scaling.",
   implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: {
-    componentTime: { type: "number", required: true },
+    componentTime: { type: "number", defaultValue: 0, required: true },
     positionX: { type: "number", defaultValue: 0 },
     positionY: { type: "number", defaultValue: 0 },
     positionZ: { type: "number", defaultValue: 0 },
@@ -33,21 +33,31 @@ export const AnimatedTransform3dNode = defineNode({
     domain: "main",
     pure: true,
     asynchronous: false,
+    frameDependent: animatedTransform3dFrameDependent,
   },
   capabilities: [
     "scene-3d",
     "transform",
     "controller",
     "animation",
+    "retained-value-provider",
     "graph-placeable",
     "live-fast-path",
   ],
   presentation: {
     catalogs: ["graph", "mesh", "scene-3d", "motion"],
-    placeableOn: ["node-graph"],
+    placeableOn: ["visual-graph", "node-graph"],
   },
   process: animatedTransform3dProcess,
 });
+
+export function animatedTransform3dFrameDependent(params = {}) {
+  return (
+    Math.abs(finite(params.spinX, 0)) +
+      Math.abs(finite(params.spinY, 0)) +
+      Math.abs(finite(params.spinZ, 0))
+  ) > 0.0001;
+}
 
 export function animatedTransform3dProcess(inputs = {}, { state = {}, output = null } = {}) {
   const time = finite(inputs.componentTime, 0);

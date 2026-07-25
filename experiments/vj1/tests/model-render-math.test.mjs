@@ -97,6 +97,32 @@ test("model ROI keeps the full boundary camera and uses an off-axis projection",
   assert.ok(Math.abs(matrices.mvp[12] / matrices.mvp[15] + 1) < 1e-6, "full-boundary center maps to the ROI's left edge");
 });
 
+test("raw mesh content Y converts screen-down authoring to WebGL world-up without frame accumulation", () => {
+  const movedUp = rawModelMatrices(
+    400,
+    200,
+    1,
+    1,
+    [0, 0, 0],
+    { x: 0, y: -0.5, scale: 1, rotation: 0 },
+  );
+  const repeated = rawModelMatrices(
+    400,
+    200,
+    1,
+    1,
+    [0, 0, 0],
+    { x: 0, y: -0.5, scale: 1, rotation: 0 },
+  );
+
+  assert.equal(movedUp.model[13], 50);
+  assert.deepEqual(
+    Array.from(repeated.model),
+    Array.from(movedUp.model),
+    "each frame derives the same matrix from authored state instead of accumulating translation",
+  );
+});
+
 test("model camera clipping stays proportional to render resolution", () => {
   assert.deepEqual(modelCameraClipPlanes(200), { near: 0.1, far: 5000 });
   assert.deepEqual(modelCameraClipPlanes(800), { near: 0.4, far: 20000 });
@@ -135,15 +161,15 @@ function projectNdc(matrix, point) {
 
 test("shared mesh render operation owns bounded point and wire extraction", () => {
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   const meshCache = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render-cache.js", import.meta.url), "utf8");
   const rawRenderer = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
-  const specializedRuntime = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
 
   assert.match(meshCache, /strokeWeight\(wireThickness\)/);
   assert.match(rawRenderer, /uniform1f\(resources\.pointSize, resolutionScaledStrokeWidth\(/);
   assert.match(rawRenderer, /ensureParsedModelPointCloud\(item, budget, mesh\)/);
   assert.match(rawRenderer, /ensureParsedModelWireLines\(item, budget, mesh\)/);
-  assert.match(specializedRuntime, /renderMeshNodeProcess\(/);
+  assert.match(rawRenderer, /export function renderMeshNodeProcess\(/);
   const mesh = {
     triangles: [{
       normal: [0, 0, 1],
@@ -158,11 +184,7 @@ test("shared mesh render operation owns bounded point and wire extraction", () =
     0, 1, 0, 0, 0, 0,
   ]);
   assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
-  assert.doesNotMatch(
-    specializedRuntime,
-    /from "\.\.\/\.\.\/libraries\/mesh-engine\/mesh-render-cache\.js"/,
-    "the compatibility host cannot retain a second p5 model renderer",
-  );
+  assert.doesNotMatch(sourceRuntime, /model-render-runtime|specializedSources\.model/);
   assert.doesNotMatch(renderer, /function ensureParsedModelPointCloud\(/);
   assert.doesNotMatch(renderer, /function buildParsedModelWireLines\(/);
 });
@@ -190,8 +212,7 @@ test("raw model WebGL programs and context resources live outside the output orc
   const rawModelRenderer = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
 
   assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
-  assert.match(specializedRuntime, /from "\.\.\/\.\.\/libraries\/mesh-engine\/mesh-render\/index\.js(?:\?v=[^"]+)?"/);
-  assert.match(specializedRuntime, /Intentional allocation-stable fast path/);
+  assert.doesNotMatch(specializedRuntime, /model-render-runtime|renderMeshNodeProcess/);
   assert.doesNotMatch(specializedRuntime, /new NodeInstance\(/);
   assert.match(rawModelRenderer, /export const MeshRenderNode = defineNode\(/);
   assert.match(rawModelRenderer, /export function drawRawParsedModelMode\(/);
@@ -205,6 +226,9 @@ test("raw model WebGL programs and context resources live outside the output orc
   assert.match(rawModelRenderer, /float coverage = 1\.0 - smoothstep/);
   assert.equal((rawModelRenderer.match(/beginRawWebGlState\(gl,/g) || []).length, 4);
   assert.equal((rawModelRenderer.match(/restoreRawWebGlState\(gl, passState, attributeStates\)/g) || []).length, 4);
+  assert.match(rawModelRenderer, /gl\.depthMask\(true\)/);
+  assert.doesNotMatch(rawModelRenderer, /gl\.isProgram\(|gl\.isBuffer\(/);
+  assert.match(rawModelRenderer, /rawWebGlContextGeneration\(gl\)/);
   assert.doesNotMatch(rawModelRenderer, /gl\.useProgram\(null\)|gl\.bindBuffer\(gl\.ARRAY_BUFFER, null\)/);
   assert.doesNotMatch(renderer, /function createRawModelProgram\(/);
   assert.doesNotMatch(renderer, /function ensureRawModelContextResources\(/);

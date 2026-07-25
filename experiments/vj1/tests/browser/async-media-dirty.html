@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Async Media Dirty Contract</title>
+    <style>
+      body {
+        margin: 0;
+        background: #08090b;
+        color: #eef2ef;
+        font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      main {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+      }
+
+      canvas {
+        width: 384px;
+        height: 256px;
+        image-rendering: pixelated;
+        border: 1px solid #30343a;
+      }
+
+      pre {
+        margin: 0;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <canvas id="result" width="24" height="16"></canvas>
+      <pre id="async-media-results">initializing...</pre>
+    </main>
+    <script type="module">
+      const resultElement = document.querySelector("#async-media-results");
+      const resultCanvas = document.querySelector("#result");
+      const resultContext = resultCanvas.getContext("2d", { alpha: true });
+      const search = new URLSearchParams(location.search);
+      const sourceMime = search.get("mime") === "jpeg" ? "image/jpeg" : "image/png";
+      const sourceExtension = sourceMime === "image/jpeg" ? "jpg" : "png";
+      const sourceWidth = Math.max(1, Number(search.get("sourceWidth")) || 96);
+      const sourceHeight = Math.max(1, Number(search.get("sourceHeight")) || 64);
+      const requestWidth = Math.max(1, Number(search.get("requestWidth")) || resultCanvas.width);
+      const mediaId = `media/browser-contract.${sourceExtension}`;
+      const failures = [];
+      let timeoutId = 0;
+
+      window.addEventListener("error", (event) => finishFailure(
+        event.error?.stack || event.message || "ASYNC_MEDIA_SCRIPT_ERROR",
+      ));
+      window.addEventListener("unhandledrejection", (event) => finishFailure(
+        event.reason?.stack || event.reason?.message || String(event.reason || "ASYNC_MEDIA_REJECTION"),
+      ));
+
+      globalThis.createImage = (width, height) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        return {
+          width,
+          height,
+          canvas,
+          setModified() {},
+          remove() {
+            canvas.width = 0;
+            canvas.height = 0;
+          },
+        };
+      };
+      globalThis.loadImage = (url, ready, failed) => {
+        const source = new Image();
+        source.onload = () => {
+          const image = globalThis.createImage(source.naturalWidth, source.naturalHeight);
+          image.canvas.getContext("2d").drawImage(source, 0, 0);
+          ready(image);
+        };
+        source.onerror = failed;
+        source.src = url;
+      };
+
+      const { OutputMediaRuntime } = await import(
+        "../../js/output/output-media-runtime.js?v=async-media-dirty-1"
+      );
+      const { createMediaLibrary } = await import(
+        "../../js/services/media-library-service.js?v=incremental-media-discovery-1"
+      );
+      const sourceFile = await createSourceFile();
+      let scheduled = false;
+      let finished = false;
+      let discoveryStarted = false;
+      let frameCount = 0;
+      let firstFrameDrawable = null;
+      const invalidations = [];
+      const resourceEvents = [];
+      const mediaLibrary = createMediaLibrary();
+      const runtime = new OutputMediaRuntime({
+        getRenderSettings: () => ({ width: resultCanvas.width, height: resultCanvas.height }),
+        onInvalidate(reason, item) {
+          invalidations.push([reason, item?.id || ""]);
+          scheduleFrame();
+        },
+      });
+      const unsubscribeMediaLibrary = mediaLibrary.subscribe((files, reason) => {
+        resourceEvents.push([reason, files.map((entry) => entry.id)]);
+        runtime.importFiles(files);
+        scheduleFrame();
+      });
+
+      scheduleFrame();
+      timeoutId = setTimeout(() => {
+        finishFailure("ASYNC_MEDIA_DIRTY_TIMEOUT");
+      }, 4000);
+
+      function scheduleFrame() {
+        if (scheduled || finished) return;
+        scheduled = true;
+        requestAnimationFrame(renderFrame);
+      }
+
+      function renderFrame() {
+        scheduled = false;
+        if (finished) return;
+        frameCount++;
+        runtime.beginFrame();
+        const item = runtime.acquireMediaById(mediaId, {
+          width: requestWidth,
+        });
+        const drawable = !!item?.image?.canvas;
+        if (firstFrameDrawable == null) firstFrameDrawable = drawable;
+        resultContext.clearRect(0, 0, resultCanvas.width, resultCanvas.height);
+        if (drawable) {
+          resultContext.drawImage(
+            item.image.canvas,
+            0,
+            0,
+            resultCanvas.width,
+            resultCanvas.height,
+          );
+        }
+        runtime.endFrame();
+        if (!drawable) {
+          if (!discoveryStarted) {
+            discoveryStarted = true;
+            mediaLibrary.importFiles([{ id: mediaId, file: sourceFile }])
+              .catch(finishFailure);
+          }
+          return;
+        }
+
+        const left = Array.from(resultContext.getImageData(2, 8, 1, 1).data);
+        const right = Array.from(resultContext.getImageData(21, 8, 1, 1).data);
+        const decodedPixelsCorrect =
+          left[0] > 220 && left[1] < 40 && left[2] < 40 && left[3] === 255 &&
+          right[0] < 40 && right[1] > 110 && right[2] < 40 && right[3] === 255;
+        const ok =
+          firstFrameDrawable === false &&
+          frameCount >= 2 &&
+          invalidations.some(([reason, id]) =>
+            reason === "media-ready" && id === mediaId
+          ) &&
+          resourceEvents.some(([reason, ids]) =>
+            reason === "import" && ids.includes(mediaId)
+          ) &&
+          decodedPixelsCorrect &&
+          failures.length === 0;
+        finish({
+          ok,
+          firstFrameDrawable,
+          frameCount,
+          resourceEvents,
+          invalidations,
+          decodedPixelsCorrect,
+          pixels: { left, right },
+          failures,
+        });
+      }
+
+      async function createSourceFile() {
+        const canvas = document.createElement("canvas");
+        canvas.width = sourceWidth;
+        canvas.height = sourceHeight;
+        const context = canvas.getContext("2d", { alpha: false });
+        context.fillStyle = "#ff0000";
+        context.fillRect(0, 0, sourceWidth / 2, sourceHeight);
+        context.fillStyle = "#008000";
+        context.fillRect(sourceWidth / 2, 0, sourceWidth / 2, sourceHeight);
+        const blob = await new Promise((resolve, reject) => {
+          canvas.toBlob(
+            (value) => value ? resolve(value) : reject(new Error("PNG_ENCODE_FAILED")),
+            sourceMime,
+          );
+        });
+        return new File([blob], `browser-contract.${sourceExtension}`, {
+          type: sourceMime,
+          lastModified: 1,
+        });
+      }
+
+      function finishFailure(error) {
+        if (finished) return;
+        failures.push(String(error));
+        finish({
+          ok: false,
+          firstFrameDrawable,
+          frameCount,
+          invalidations,
+          failures,
+        });
+      }
+
+      function finish(result) {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timeoutId);
+        unsubscribeMediaLibrary();
+        runtime.dispose();
+        resultElement.textContent = JSON.stringify(result, null, 2);
+        document.documentElement.dataset.status = result.ok ? "ok" : "failed";
+      }
+    </script>
+  </body>
+</html>

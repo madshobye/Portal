@@ -40,10 +40,16 @@ export const AnatomyMaterialPaletteNode = defineNode({
     bindings: { type: MaterialBinding3dListType },
   },
   execution: { trigger: "input-change", domain: "main", pure: true, asynchronous: false },
-  capabilities: ["scene-3d", "material", "material-binding", "graph-placeable"],
+  capabilities: [
+    "scene-3d",
+    "material",
+    "material-binding",
+    "retained-value-provider",
+    "graph-placeable",
+  ],
   presentation: {
     catalogs: ["graph", "mesh", "material", "scene-3d"],
-    placeableOn: ["node-graph"],
+    placeableOn: ["visual-graph", "node-graph"],
   },
   parts: [{
     id: "anatomy-material-palette",

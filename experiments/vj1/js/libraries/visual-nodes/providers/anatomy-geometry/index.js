@@ -1,6 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../../node-engine/node-definition.js";
 import { MeshCollectionType } from "../../../mesh-engine/mesh-collection/index.js?v=mesh-collection-1";
-import { GeometryProviderType } from "../../shared/specialized-compound-types.js";
+import { GeometryProviderType } from "../../shared/visual-stage-types.js";
 import { createHeartMeshCollection } from "./heart-mesh-collection.js?v=canonical-primitives-3";
 import { createHandMeshCollection } from "./hand-mesh-collection.js?v=canonical-primitives-2";
 import { createArmMeshCollection } from "./arm-mesh-collection.js?v=canonical-limbs-1";
@@ -49,12 +49,13 @@ export const AnatomyGeometryProviderNode = defineNode({
     "geometry-provider",
     "mesh-collection-source",
     "scene-3d",
-    "specialized-visual-stage",
+    "retained-value-provider",
+    "visual-stage",
     "graph-placeable",
   ],
   presentation: {
-    catalogs: ["node-graph", "mesh", "scene-3d", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "mesh", "scene-3d", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
   },
   process: anatomyGeometryProviderProcess,
 });

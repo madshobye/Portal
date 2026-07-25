@@ -1,7 +1,7 @@
 import {
   createSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=render-diagnostics-1";
+} from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
 import { normalizedContentTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
 import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=source-target-ownership-1";
 import { boundedSampleRect } from "./render-draw-utils.js?v=runtime-diagnostics-1";
@@ -9,16 +9,25 @@ import {
   componentThumbnailSignature,
   fittedThumbnailSize,
   graphicsToThumbnailBlob,
-} from "./thumbnail-utils.js?v=thumbnail-pipeline-1";
+} from "./thumbnail-utils.js?v=compiled-program-projection-1";
 
 const CAPTURE_SETTLE_MS = 240;
 const CAPTURE_RETRY_MS = 600;
 const CAPTURE_SPACING_MS = 48;
 
 export class OutputThumbnailRuntime {
-  constructor({ getState, getComponentOutput, canCapture, shouldUseThumbnailPreview, isComponentReady, sendThumbnail } = {}) {
+  constructor({
+    getState,
+    getComponentOutput,
+    getComponentProgram,
+    canCapture,
+    shouldUseThumbnailPreview,
+    isComponentReady,
+    sendThumbnail,
+  } = {}) {
     this.getState = getState || (() => null);
     this.getComponentOutput = getComponentOutput || (() => null);
+    this.getComponentProgram = getComponentProgram || (() => null);
     this.canCapture = canCapture || (() => true);
     this.shouldUseThumbnailPreview = shouldUseThumbnailPreview || (() => false);
     this.isComponentReady = isComponentReady || (() => true);
@@ -70,9 +79,11 @@ export class OutputThumbnailRuntime {
     this.transformBaselines.clear();
     for (const component of this.getState()?.components || []) {
       if (component.systemRole) continue;
-      for (const item of nestedChainItems(component.chain || [])) {
+      const program = this.getComponentProgram(component.id);
+      program?.forEachOperation?.((operation) => {
+        const item = operation.configuration;
         if (item?.id) this.transformBaselines.set(`${component.id}:${item.id}`, normalizedContentTransform(item.transform));
-      }
+      });
     }
   }
 
@@ -94,7 +105,7 @@ export class OutputThumbnailRuntime {
     const state = this.getState();
     const component = selectedComponent(state);
     if (!component) return false;
-    const signature = componentThumbnailSignature(component, state.render);
+    const signature = this.componentSignature(component, state.render);
     const needsComponentThumbnail = !component.thumbnail || this.signatures.get(component.id) !== signature;
     let changed = false;
     const liveKeys = new Set();
@@ -121,10 +132,6 @@ export class OutputThumbnailRuntime {
     }
     if (changed && !this.interactionActive) this.scheduleCapture(CAPTURE_SETTLE_MS, { restart: true });
     return changed;
-  }
-
-  captureSelectedComponentThumbnail() {
-    return this.invalidateSelectedComponent();
   }
 
   enqueue(job) {
@@ -157,6 +164,10 @@ export class OutputThumbnailRuntime {
         this.processNextCapture();
       }
     }, Math.max(0, delay));
+    // Thumbnail capture is opportunistic background work. In non-browser
+    // hosts such as the Node test runner, its retry timer must not become the
+    // owner that keeps the process alive after every renderer client is gone.
+    this.scheduleTimer?.unref?.();
   }
 
   cancelSchedule() {
@@ -197,7 +208,7 @@ export class OutputThumbnailRuntime {
     const state = this.getState();
     const component = selectedComponent(state);
     if (!component || component.id !== job.componentId) return true;
-    const componentSignature = componentThumbnailSignature(component, state.render);
+    const componentSignature = this.componentSignature(component, state.render);
     const currentSignature = job.surfaceId
       ? surfaceThumbnailSignature(componentSignature, state.surfaces?.find((surface) => surface.id === job.surfaceId))
       : componentSignature;
@@ -227,7 +238,7 @@ export class OutputThumbnailRuntime {
     if (latest && latest.generation > job.generation) return true;
     const latestState = this.getState();
     const latestComponent = latestState?.components?.find((item) => item.id === job.componentId);
-    const latestComponentSignature = latestComponent && componentThumbnailSignature(latestComponent, latestState.render);
+    const latestComponentSignature = latestComponent && this.componentSignature(latestComponent, latestState.render);
     const latestSignature = job.surfaceId
       ? surfaceThumbnailSignature(latestComponentSignature, latestState.surfaces?.find((surface) => surface.id === job.surfaceId))
       : latestComponentSignature;
@@ -283,13 +294,10 @@ export class OutputThumbnailRuntime {
     }
     return this.captureTarget;
   }
-}
 
-function* nestedChainItems(chain = []) {
-  for (const item of chain || []) {
-    if (!item) continue;
-    yield item;
-    if (item.kind === "group") yield* nestedChainItems(item.chain || []);
+  componentSignature(component, render) {
+    const configuration = this.getComponentProgram(component?.id)?.configurationState?.() || [];
+    return componentThumbnailSignature(component, render, configuration);
   }
 }
 

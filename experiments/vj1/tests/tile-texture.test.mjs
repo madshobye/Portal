@@ -8,11 +8,12 @@ import {
   getGeneratorNodeComponent,
   listEffectNodeComponents,
   listGeneratorNodeComponents,
+  MediaResourceToImageNode,
+  ProjectMediaResourceNode,
 } from "../js/libraries/visual-nodes/index.js";
 import { NODE_PART_KINDS } from "../js/libraries/node-engine/index.js";
 import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
 import { generatorImageMediaControlTemplate } from "../js/control/generator-media-view.js";
-import { mediaImageNodeProcess } from "../js/libraries/visual-nodes/generators/media-image/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
 import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-source-runtime.js";
 
@@ -24,6 +25,8 @@ test("Tile Texture is an editable media-image plus shader-effect Group", () => {
     ...listGeneratorNodeComponents(),
     ...listEffectNodeComponents(),
   ].map((visual) => [visual.nodeDefinition.id, visual.nodeDefinition]));
+  definitions.set(ProjectMediaResourceNode.id, ProjectMediaResourceNode);
+  definitions.set(MediaResourceToImageNode.id, MediaResourceToImageNode);
   const outer = graphNodeFromDefinition(component.nodeDefinition, {
     id: "tile-texture",
     visualProgram: true,
@@ -48,22 +51,24 @@ test("Tile Texture is an editable media-image plus shader-effect Group", () => {
   assert.equal(component.renderAuthority, "compiled-graph");
   assert.equal(component.nodeDefinition.metadata.nativeRenderer, "");
   assert.deepEqual(graph.nodes.map((node) => node.type), [
-    "vj1.visual.generator.mediaImage",
+    "core.visual.project-media-resource",
+    "core.visual.media-resource-to-image",
     "vj1.visual.effect.tileRepeat",
   ]);
   assert.deepEqual(graph.connections, [
+    { from: "media.resource", to: "image.resource", type: "drawable-media-resource" },
     { from: "image.texture", to: "render.texture", type: "texture" },
     { from: "render.texture", to: "$out.texture", type: "texture" },
   ]);
   assert.deepEqual(
-    component.nodeDefinition.metadata.controlProjection.sections.find((section) => section.id === "image"),
+    component.nodeDefinition.metadata.controlProjection.sections.find((section) => section.id === "media"),
     {
-      id: "image",
-      label: "Image",
+      id: "media",
+      label: "Media",
       hidden: true,
       controls: [{
         parameterId: "imageId",
-        bindings: [{ nodeId: "image", parameterId: "mediaId" }],
+        bindings: [{ nodeId: "media", parameterId: "mediaId" }],
       }],
     },
     "hiding a child inspector section preserves its executable public binding",
@@ -78,15 +83,11 @@ test("Tile Texture is an editable media-image plus shader-effect Group", () => {
     "multi-stage texture compounds retain local intermediate targets before final placement",
   );
   const imageOperation = plan.operations[0].operations[0];
+  plan.operations[0].valueProgram.evaluate();
   assert.equal(
-    imageOperation.configuration.source.params.mediaId,
+    imageOperation.runtimeValueInputs.get("resource").mediaId,
     "",
-    "the Group image binding targets the Media Image generator parameter",
-  );
-  assert.equal(
-    imageOperation.configuration.source.mediaId,
-    undefined,
-    "a generator parameter named mediaId is not mistaken for a direct media-source identity",
+    "the Group image binding targets the typed Project Media resource",
   );
   const configuredOuter = graphNodeFromDefinition(component.nodeDefinition, {
     id: "configured-tile-texture",
@@ -103,10 +104,11 @@ test("Tile Texture is an editable media-image plus shader-effect Group", () => {
         ? component.nodeDefinition
         : definitions.get(node.nodeId),
   });
+  configuredPlan.operations[0].valueProgram.evaluate();
   assert.equal(
-    configuredPlan.operations[0].operations[0].configuration.source.params.mediaId,
+    configuredPlan.operations[0].operations[0].runtimeValueInputs.get("resource").mediaId,
     "media/textures/tiles.png",
-    "the authored outer image selection reaches the retained Media Image process",
+    "the authored outer image selection reaches the retained Project Media resource",
   );
   configuredPlan.dispose();
   assert.equal(
@@ -143,24 +145,6 @@ test("Tile Repeat is a reusable ordinary shader effect", () => {
   assert.equal(effect.nodeDefinition.metadata.visualContract.roi.inputMapping, "periodic");
 });
 
-test("Media Image is a reusable retained texture source", () => {
-  const calls = [];
-  const image = { width: 64, height: 64 };
-  mediaImageNodeProcess({ params: { mediaId: "tiles.png", fit: "stretch" } }, {
-    target: { id: "target" },
-    renderView: { width: 320, height: 180 },
-    acquireMedia: (id, options) => {
-      calls.push(["acquire", id, options]);
-      return { image };
-    },
-    isDrawableMedia: (candidate) => candidate === image,
-    drawMediaFit: (...args) => calls.push(["draw", ...args]),
-  });
-  assert.deepEqual(calls[0], ["acquire", "tiles.png", { width: 320 }]);
-  assert.deepEqual(calls[1].slice(0, 3), ["draw", { id: "target" }, image]);
-  assert.deepEqual(calls[1].slice(-5), [0, 0, 320, 180, "stretch"]);
-});
-
 test("Tile Texture retains its existing catalog controls and media dependency", () => {
   const source = createGeneratorSource("tileTexture", { imageId: "tiles.png", repeat: 8 });
   assert.equal(source.params.imageId, "tiles.png");
@@ -173,10 +157,10 @@ test("Tile Texture retains its existing catalog controls and media dependency", 
   assert.doesNotMatch(controls, />media\/textures\//);
 
   const renderer = new OutputRenderer({ mode: "component" });
-  assert.equal(renderer.sourceIsFrameDynamic(source), true);
-  assert.deepEqual(renderer.visualMediaResourceIds("tileTexture", source.params), ["tiles.png"]);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true);
+  assert.deepEqual(renderer.sourceRuntime.visualMediaResourceIds("tileTexture", source.params), ["tiles.png"]);
   renderer.media.set("tiles.png", { ready: true });
-  assert.equal(renderer.sourceIsFrameDynamic(source), false);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), false);
   source.params.scrollY = 0.5;
-  assert.equal(renderer.sourceIsFrameDynamic(source), true);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true);
 });

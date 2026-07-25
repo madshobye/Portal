@@ -6,33 +6,6 @@ export function renderBufferKey(...parts) {
   return parts.map((part) => String(part)).join(":");
 }
 
-export function staticComponentGraphState(component = {}, components = [], seen = new Set(), includeRootTransform = true) {
-  if (!component?.id || seen.has(component.id)) return { id: component?.id || "", cycle: true };
-  const nextSeen = new Set(seen);
-  nextSeen.add(component.id);
-  const dependencies = Array.from(componentDependencyIds(component))
-    .sort()
-    .map((id) => staticComponentGraphState(
-      components.find((item) => item.id === id) || { id, missing: true },
-      components,
-      nextSeen,
-      true
-    ));
-  return { ...staticComponentState(component, includeRootTransform), dependencies };
-}
-
-export function staticComponentGraphMediaState(media = [], component = {}, components = [], seen = new Set()) {
-  const ids = new Set();
-  collectComponentGraphMediaIds(component, components, ids, seen);
-  return staticMediaStateForIds(media, ids);
-}
-
-export function runtimeComponentGraphMediaState(media = new Map(), component = {}, components = [], seen = new Set()) {
-  const ids = new Set();
-  collectComponentGraphMediaIds(component, components, ids, seen);
-  return runtimeMediaStateForIds(media, ids);
-}
-
 export function staticCompiledComponentGraphState(
   component = {},
   programs = new Map(),
@@ -90,20 +63,7 @@ export function runtimeCompiledComponentGraphMediaState(
   return runtimeMediaStateForIds(media, collectCompiledGraphMediaIds(component, programs, components, new Set(), seen));
 }
 
-export function staticMediaStateForSource(media = [], source = {}) {
-  const ids = new Set();
-  collectMediaIdsFromSource(source, ids);
-  return staticMediaStateForIds(media, ids);
-}
-
-export function runtimeMediaStateForSource(media = new Map(), source = {}) {
-  const ids = new Set();
-  collectMediaIdsFromSource(source, ids);
-  if (!ids.size) return null;
-  return runtimeMediaStateForIds(media, ids);
-}
-
-function runtimeMediaStateForIds(media = new Map(), ids = new Set()) {
+export function runtimeMediaStateForIds(media = new Map(), ids = new Set()) {
   return Array.from(ids).sort().map((id) => {
     const item = media?.get?.(id);
     if (!item) return { id, present: false, ready: false, revision: 0, error: "" };
@@ -148,7 +108,6 @@ export function componentRuntimeTimeKey(component, params = {}, context = {}) {
 }
 
 export function collectMediaIdsFromSource(source = {}, ids = new Set()) {
-  if (source?.type === "media" && source.mediaId) ids.add(source.mediaId);
   collectMediaParameterIds(source?.params, ids);
   return ids;
 }
@@ -161,6 +120,14 @@ export function createMediaReadinessStatus() {
     loadingIds: new Set(),
     missingIds: new Set(),
     errorIds: new Set(),
+    resources: new Map(),
+    pendingResourceIds: new Set(),
+    errorResourceIds: new Set(),
+    controlSignals: new Map(),
+    pendingControlSignalIds: new Set(),
+    errorControlSignalIds: new Set(),
+    unsupportedControlSignalIds: new Set(),
+    requiredControlSignalIds: new Set(),
   };
 }
 
@@ -178,18 +145,6 @@ export function isReadyMediaItem(item = {}) {
   if (item.image) return isDrawableMedia(item.image);
   if (item.model || item.modelData) return true;
   return item.ready === true;
-}
-
-function staticComponentState(component = {}, includeTransform = true) {
-  return {
-    id: component.id || "",
-    type: component.type || "component",
-    frameShape: component.frameShape || "landscape",
-    resolutionScale: Number(component.resolutionScale) || 1,
-    ...(includeTransform ? { transform: normalizedStaticTransform(component.transform) } : {}),
-    scene: component.type === "scene" ? {} : null,
-    chain: staticChainState(component.chain || []),
-  };
 }
 
 function staticCompiledOperationState(operation = {}) {
@@ -219,17 +174,6 @@ function normalizedStaticTransform(transform = {}) {
   };
 }
 
-function collectComponentGraphMediaIds(component = {}, components = [], ids = new Set(), seen = new Set()) {
-  if (!component?.id || seen.has(component.id)) return ids;
-  seen.add(component.id);
-  collectMediaIdsFromChain(component.chain || [], ids);
-  for (const dependencyId of componentDependencyIds(component)) {
-    const dependency = components.find((item) => item.id === dependencyId);
-    if (dependency) collectComponentGraphMediaIds(dependency, components, ids, seen);
-  }
-  return ids;
-}
-
 function collectCompiledGraphMediaIds(component, programs, components, ids, seen) {
   if (!component?.id || seen.has(component.id)) return ids;
   seen.add(component.id);
@@ -242,94 +186,21 @@ function collectCompiledGraphMediaIds(component, programs, components, ids, seen
   return ids;
 }
 
-function componentDependencyIds(component = {}) {
-  const ids = new Set();
-  collectComponentIdsFromChain(component.chain || [], ids);
-  return ids;
-}
-
-function staticChainState(chain = []) {
-  return (chain || []).map((item) => {
-    if (item.kind === "group") {
-      return {
-        id: item.id || "",
-        kind: "group",
-        enabled: item.enabled !== false,
-        transform: item.transform || {},
-        boundary: item.boundary || {},
-        opacity: item.opacity ?? 1,
-        blend: item.blend || "normal",
-        role: item.role || "group",
-        layout: item.layout || {},
-        chain: staticChainState(item.chain || []),
-      };
-    }
-    if (item.kind === "effect") {
-      return {
-        id: item.id || "",
-        kind: "effect",
-        enabled: item.enabled !== false,
-        componentId: item.componentId || "",
-        params: item.params || {},
-        transform: item.transform || {},
-        boundary: item.boundary || {},
-        opacity: item.opacity ?? 1,
-        blend: item.blend || "normal",
-      };
-    }
-    return {
-      id: item.id || "",
-      kind: item.kind || "source",
-      enabled: item.enabled !== false,
-      source: staticSourceState(item.source),
-      transform: item.transform || {},
-      boundary: item.boundary || {},
-      opacity: item.opacity ?? 1,
-      blend: item.blend || "normal",
-    };
-  });
-}
-
 export function staticSourceState(source = {}) {
   return {
-    type: source.type || "black",
-    mediaId: source.mediaId || "",
+    type: source.type || "",
     componentId: source.componentId || "",
     generatorId: source.generatorId || "",
-    start: source.start,
-    end: source.end,
-    speed: source.speed,
     params: source.params || {},
     placement: source.placement || null,
     contentTransform: source.contentTransform || {},
   };
 }
 
-function staticMediaStateForIds(media = [], ids = new Set()) {
+export function staticMediaStateForIds(media = [], ids = new Set()) {
   return (media || [])
     .filter((item) => ids.has(item.id))
     .map((item) => ({ id: item.id || "", path: item.path || "", type: item.type || "", size: item.size || 0 }));
-}
-
-function collectMediaIdsFromChain(chain = [], ids = new Set()) {
-  for (const item of chain || []) {
-    if (item.kind === "group") collectMediaIdsFromChain(item.chain || [], ids);
-    else collectMediaIdsFromSource(item.source, ids);
-  }
-  return ids;
-}
-
-function collectComponentIdsFromChain(chain = [], ids = new Set()) {
-  for (const item of chain || []) {
-    if (item.kind === "group") collectComponentIdsFromChain(item.chain || [], ids);
-    else collectComponentIdsFromSource(item.source, ids);
-  }
-  return ids;
-}
-
-function collectComponentIdsFromSource(source = {}, ids = new Set()) {
-  if (source?.type === "component" && source.componentId) ids.add(source.componentId);
-  return ids;
 }
 
 function collectMediaParameterIds(params, ids) {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   compileIsfFragmentSource,
+  compileIsfOptimizedFragmentSource,
   compileIsfTransitionKernel,
   createIsfNodeDefinition,
   createIsfVisualComponent,
@@ -11,11 +12,12 @@ import {
   listProjectIsfVisualComponents,
   parseIsfDocument,
 } from "../js/libraries/isf-engine/index.js";
+import { getEffectNodeComponent } from "../js/libraries/visual-nodes/catalog.js";
 import { mapperTransitionFragmentShaderSource } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 import { serializeNodeProjectData } from "../js/libraries/node-engine/node-project.js";
 import { createProjectNodeFork } from "../js/libraries/node-engine/node-editor.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/project-visual-node-resolver.js";
-import { compileComponentPatch } from "../js/graph/render-scheduler.js";
+import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js?v=compiled-program-projection-1";
 
 const FILTER = `/*{
   "ISFVSN": "2.0",
@@ -172,6 +174,127 @@ test("ISF compiler owns standard declarations without redeclaring shader uniform
   assert.match(source, /uniform bool vj1IsfFinalPass/);
 });
 
+test("an explicit ISF effect amount owns interpolation without a duplicate host mix", () => {
+  const source = FILTER
+    .replace(
+      '{ "NAME": "level", "TYPE": "float", "DEFAULT": 0.5, "MIN": 0, "MAX": 1 },',
+      '{ "NAME": "amount", "TYPE": "float", "DEFAULT": 0.5, "MIN": 0, "MAX": 1 },',
+    )
+    .replace(/\blevel\b/g, "amount");
+  const compiled = compileIsfFragmentSource(parseIsfDocument(source));
+
+  assert.equal((compiled.match(/uniform float amount;/g) || []).length, 1);
+  assert.doesNotMatch(compiled, /gl_FragColor = mix\(IMG_THIS_NORM_PIXEL\(inputImage\)/);
+});
+
+test("restricted optimized ISF lowerings preserve direct generation, fusion, and premultiplied alpha", () => {
+  const black = parseIsfDocument(`/*{
+    "ISFVSN": "2.0",
+    "LABEL": "Black",
+    "INPUTS": [],
+    "VJ1": { "ID": "black-test", "LOWERING": "fragment-generator" }
+  }*/
+  void main() { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); }`);
+  const invert = parseIsfDocument(`/*{
+    "ISFVSN": "2.0",
+    "LABEL": "Invert",
+    "INPUTS": [
+      { "NAME": "inputImage", "TYPE": "image" },
+      { "NAME": "amount", "TYPE": "float", "DEFAULT": 1.0, "MIN": 0.0, "MAX": 1.0 }
+    ],
+    "VJ1": { "ID": "invert-test", "LOWERING": "local-effect" }
+  }*/
+  void main() {
+    vec4 color = IMG_THIS_NORM_PIXEL(inputImage);
+    gl_FragColor = vec4(mix(color.rgb, 1.0 - color.rgb, amount), color.a);
+  }`);
+  const generatorCode = compileIsfOptimizedFragmentSource(black);
+  const effectCode = compileIsfOptimizedFragmentSource(invert);
+
+  assert.match(generatorCode, /void main\(\)/);
+  assert.doesNotMatch(generatorCode, /runEffect/);
+  assert.match(effectCode, /vec4 runEffect\(vec2 uv, vec4 vj1SourceColor\)/);
+  assert.match(effectCode, /vj1SourceColor\.rgb \/ vj1SourceAlpha/);
+  assert.match(effectCode, /vj1IsfOutput\.rgb \* vj1IsfOutput\.a/);
+  assert.doesNotMatch(effectCode, /texture2D/);
+});
+
+test("optimized local ISF carries declared float scalars into the fused effect contract", () => {
+  const threshold = createIsfVisualComponent({
+    path: "shaders/threshold.fs",
+    source: `/*{
+      "ISFVSN": "2.0",
+      "LABEL": "Threshold",
+      "INPUTS": [
+        { "NAME": "inputImage", "TYPE": "image" },
+        { "NAME": "amount", "TYPE": "float", "DEFAULT": 0.65, "MIN": 0.0, "MAX": 1.0 },
+        { "NAME": "cutoff", "TYPE": "float", "DEFAULT": 0.5, "MIN": 0.0, "MAX": 1.0 }
+      ],
+      "VJ1": { "ID": "threshold-test", "LOWERING": "local-effect" }
+    }*/
+    void main() {
+      vec4 color = IMG_THIS_NORM_PIXEL(inputImage);
+      float ink = step(cutoff, dot(color.rgb, vec3(0.2126, 0.7152, 0.0722)));
+      gl_FragColor = vec4(mix(color.rgb, vec3(ink), amount), color.a);
+    }`,
+  });
+  const params = Object.fromEntries(
+    threshold.params.map((param) => [param.id, param]),
+  );
+
+  assert.equal(threshold.fusible, true);
+  assert.equal(params.amount.defaultValue, 0.65);
+  assert.equal(params.cutoff.defaultValue, 0.5);
+  assert.match(threshold.code, /step\(cutoff,/);
+  assert.match(threshold.code, /vj1IsfOutput\.rgb \* vj1IsfOutput\.a/);
+});
+
+test("optimized ISF lowering rejects semantics that cannot stay in the declared fast path", () => {
+  const dynamic = parseIsfDocument(`/*{
+    "ISFVSN": "2.0",
+    "INPUTS": [],
+    "VJ1": { "ID": "dynamic-test", "LOWERING": "fragment-generator" }
+  }*/
+  void main() { gl_FragColor = vec4(TIME); }`);
+  const neighborhood = parseIsfDocument(`/*{
+    "ISFVSN": "2.0",
+    "INPUTS": [
+      { "NAME": "inputImage", "TYPE": "image" },
+      { "NAME": "amount", "TYPE": "float", "DEFAULT": 1.0 }
+    ],
+    "VJ1": { "ID": "neighbor-test", "LOWERING": "local-effect" }
+  }*/
+  void main() {
+    gl_FragColor = IMG_NORM_PIXEL(inputImage, isf_FragNormCoord + vec2(0.01));
+  }`);
+  const vectorInput = parseIsfDocument(`/*{
+    "ISFVSN": "2.0",
+    "INPUTS": [
+      { "NAME": "inputImage", "TYPE": "image" },
+      { "NAME": "amount", "TYPE": "float", "DEFAULT": 1.0 },
+      { "NAME": "center", "TYPE": "point2D", "DEFAULT": [0.5, 0.5] }
+    ],
+    "VJ1": { "ID": "vector-test", "LOWERING": "local-effect" }
+  }*/
+  void main() {
+    vec4 color = IMG_THIS_NORM_PIXEL(inputImage);
+    gl_FragColor = vec4(color.rgb * center.x, color.a);
+  }`);
+
+  assert.throws(
+    () => compileIsfOptimizedFragmentSource(dynamic),
+    /VJ1_ISF_FRAGMENT_GENERATOR_SYMBOL_UNSUPPORTED/,
+  );
+  assert.throws(
+    () => compileIsfOptimizedFragmentSource(neighborhood),
+    /VJ1_ISF_LOCAL_EFFECT_SYMBOL_UNSUPPORTED/,
+  );
+  assert.throws(
+    () => compileIsfOptimizedFragmentSource(vectorInput),
+    /VJ1_ISF_LOCAL_EFFECT_INPUT_CONTRACT_INVALID/,
+  );
+});
+
 test("ISF fragment coordinates remain semantic when the physical preview size changes", () => {
   const source = FILTER.replace(
     "gl_FragColor = IMG_THIS_NORM_PIXEL(inputImage) * vec4(level, center.x, center.y, 1.0);",
@@ -240,6 +363,31 @@ test("project ISF bases stay file-backed while an edited fork recompiles", () =>
   });
   const resolver = createProjectVisualNodeResolver({ nodes: { definitions: [definition], forks: [fork] } });
   assert.match(resolver.effect(definition.metadata.visualId).code, /vec4\(1\.0, level/);
+});
+
+test("a built-in ISF fork stays editable and recompiles through the same fusible lowering", () => {
+  const base = getEffectNodeComponent("invert");
+  const editedSource = base.nodeDefinition.parts[0].source.replace(
+    "1.0 - color.rgb",
+    "vec3(0.25)",
+  );
+  const fork = createProjectNodeFork(base.nodeDefinition, {
+    forkId: "edited-built-in-invert",
+    overrides: {
+      parts: [{ ...base.nodeDefinition.parts[0], source: editedSource }],
+    },
+  });
+  const resolver = createProjectVisualNodeResolver({
+    nodes: { forks: [{ ...fork, active: true }] },
+  });
+  const edited = resolver.effect("invert");
+
+  assert.equal(edited.projectForkId, fork.id);
+  assert.equal(edited.renderAuthority, "project-isf-node-fork");
+  assert.equal(edited.fusible, true);
+  assert.equal(edited.sampling, "local");
+  assert.match(edited.nodeDefinition.parts[0].source, /vec3\(0\.25\)/);
+  assert.match(edited.code, /vec3\(0\.25\)/);
 });
 
 test("ISF parser rejects unsupported versions and malformed ports", () => {

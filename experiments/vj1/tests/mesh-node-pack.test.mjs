@@ -101,7 +101,7 @@ test("Mesh Resolution Node owns the LOD policy while retaining meshoptimizer", a
   assert.equal(result.statistics.resultTriangles, 1);
   assert.deepEqual(result.statistics.levels, [1]);
   assert.match(MeshResolutionNode.parts[0].source, /function buildAutomaticModelLods/);
-  assert.match(MeshResolutionNode.parts[0].source, /intentional allocation-stable fast path/i);
+  assert.match(MeshResolutionNode.parts[0].source, /buildMeshoptimizerLods/);
 });
 
 test("Prepare 3D Asset composes parser and resolution nodes for live imports", async () => {

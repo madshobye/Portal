@@ -5,11 +5,9 @@ import { PerspectiveCamera3dNode } from "../perspective-camera-3d/index.js";
 import { SceneObject3dNode } from "../scene-object-3d/index.js";
 import { CombineObjects3dNode } from "../combine-objects-3d/index.js";
 import { Scene3dNode } from "../scene-3d/index.js";
-import { SceneToImageNode } from "../scene-render/index.js";
+import { SceneToImageNode } from "../scene-render/index.js?v=mesh-geometry-detail-2";
 import { Transform3dNode } from "../transform-3d/index.js";
 import { MediaMeshNode } from "../media-mesh/index.js";
-
-export const SCENE_3D_VISUAL_COMPILER_HOOK = "vj1.visual.scene-3d-program";
 
 export const ComposableScene3dGroup = defineNodeGroup({
   id: "core.scene3d.composable-render",
@@ -25,10 +23,6 @@ export const ComposableScene3dGroup = defineNodeGroup({
   inlets: {
     meshAId: { type: "string", required: true },
     meshBId: { type: "string", required: true },
-    target: { type: "any", required: true },
-    componentTime: { type: "number", defaultValue: 0 },
-    viewport: { type: "viewport", optional: true },
-    contentTransform: { type: "transform2d", defaultValue: {} },
   },
   parameters: {
     meshAId: { type: "string", defaultValue: "", editor: { type: "media" } },
@@ -38,7 +32,6 @@ export const ComposableScene3dGroup = defineNodeGroup({
   publicInlets: {
     meshAId: "mesh-a.$parameter.mediaId",
     meshBId: "mesh-b.$parameter.mediaId",
-    target: "render.target",
   },
   publicOutlets: { texture: "render.texture" },
   controlBindings: {
@@ -65,8 +58,7 @@ export const ComposableScene3dGroup = defineNodeGroup({
   },
   metadata: {
     visualCompilerHook: {
-      id: SCENE_3D_VISUAL_COMPILER_HOOK,
-      renderer: "output/specialized:scene3d-program",
+      id: "vj1.visual.compound",
       contract: defineVisualNodeContract({
         transform: { domain: "content" },
         roi: {
@@ -79,20 +71,45 @@ export const ComposableScene3dGroup = defineNodeGroup({
         alpha: { input: "premultiplied", output: "premultiplied" },
       }),
     },
+    nativeRenderer: "",
+    renderAuthority: "compiled-graph",
   },
   nodes: [
-    { id: "mesh-a", type: MediaMeshNode.id },
-    { id: "mesh-b", type: MediaMeshNode.id },
-    { id: "transform-a", type: Transform3dNode.id, parameters: { position: [-0.28, 0, 0] } },
-    { id: "transform-b", type: Transform3dNode.id, parameters: { position: [0.28, 0, 0] } },
-    { id: "material-a", type: Material3dNode.id, parameters: { renderMode: "surface" } },
-    { id: "material-b", type: Material3dNode.id, parameters: { renderMode: "surfaceWire" } },
-    { id: "camera", type: PerspectiveCamera3dNode.id },
-    { id: "object-a", type: SceneObject3dNode.id, parameters: { id: "object-a" } },
-    { id: "object-b", type: SceneObject3dNode.id, parameters: { id: "object-b" } },
-    { id: "objects", type: CombineObjects3dNode.id },
-    { id: "scene", type: Scene3dNode.id },
-    { id: "render", type: SceneToImageNode.id },
+    { id: "mesh-a", type: MediaMeshNode.id, role: "value" },
+    { id: "mesh-b", type: MediaMeshNode.id, role: "value" },
+    { id: "transform-a", type: Transform3dNode.id, role: "value", parameters: { position: [-0.28, 0, 0] } },
+    { id: "transform-b", type: Transform3dNode.id, role: "value", parameters: { position: [0.28, 0, 0] } },
+    { id: "material-a", type: Material3dNode.id, role: "value", parameters: { renderMode: "surface" } },
+    { id: "material-b", type: Material3dNode.id, role: "value", parameters: { renderMode: "surfaceWire" } },
+    { id: "camera", type: PerspectiveCamera3dNode.id, role: "value" },
+    { id: "object-a", type: SceneObject3dNode.id, role: "value", parameters: { id: "object-a" } },
+    { id: "object-b", type: SceneObject3dNode.id, role: "value", parameters: { id: "object-b" } },
+    { id: "objects", type: CombineObjects3dNode.id, role: "value" },
+    { id: "scene", type: Scene3dNode.id, role: "value" },
+    {
+      id: "render",
+      type: SceneToImageNode.id,
+      role: "source",
+      configuration: {
+        id: "render",
+        kind: "source",
+        name: SceneToImageNode.name,
+        enabled: true,
+        opacity: 1,
+        blend: "normal",
+        source: {
+          type: "generator",
+          generatorId: SceneToImageNode.id,
+          instanceId: "render",
+          params: {},
+        },
+      },
+      compilerHook: {
+        id: "vj1.visual.source",
+        allocationStable: true,
+        contract: SceneToImageNode.metadata.visualContract,
+      },
+    },
   ],
   connections: [
     { from: "mesh-a.mesh", to: "object-a.mesh", type: "mesh" },
@@ -106,8 +123,6 @@ export const ComposableScene3dGroup = defineNodeGroup({
     { from: "objects.objects", to: "scene.objects", type: "list<object3d>" },
     { from: "camera.camera", to: "scene.camera", type: "camera3d" },
     { from: "scene.scene", to: "render.scene", type: "scene3d" },
-    { from: "$in.componentTime", to: "render.componentTime", type: "number" },
-    { from: "$in.viewport", to: "render.viewport", type: "viewport" },
-    { from: "$in.contentTransform", to: "render.contentTransform", type: "transform2d" },
+    { from: "render.texture", to: "$out.texture", type: "texture" },
   ],
 });

@@ -2,12 +2,12 @@ import { valueType } from "../../node-engine/node-types.js";
 
 export const GeometryProviderType = valueType("geometry-provider", {
   contractVersion: 1,
-  description: "A declarative geometry-producing stage lowered by a specialized visual compiler.",
+  description: "A declarative geometry-producing value consumed by compiled visual nodes.",
 });
 
 export const TopologyProviderType = valueType("topology-provider", {
   contractVersion: 1,
-  description: "A declarative 2D topology-producing stage lowered by a specialized visual compiler.",
+  description: "A declarative 2D topology value consumed by compiled visual nodes.",
 });
 
 export const VisualMaterialProviderType = valueType("visual-material-provider", {
@@ -22,7 +22,7 @@ export const VisualCameraProviderType = valueType("visual-camera-provider", {
 
 export const MediaImageResourceType = valueType("media-image-resource", {
   contractVersion: 1,
-  description: "A declared project-media image dependency resolved by the retained visual host.",
+  description: "An image-constrained view of the canonical project-media resource resolved by the retained visual host.",
 });
 
 export const FeatureMorphAnalysisType = valueType("feature-morph-analysis", {

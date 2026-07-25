@@ -1,9 +1,8 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
 import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
 import { sanitizeState } from "../domain/models.js?v=surface-terminology-1";
-import { compileComponentPatch } from "../graph/render-scheduler.js?v=canonical-effect-params-1";
-import { planCompositorInputs, planPatchExecution, summarizeTextureBranches } from "../graph/patch-planner.js";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
+import { compileComponentRenderPrograms } from "../libraries/composition-engine/index.js?v=compiled-capability-revision-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=async-media-dirty-1";
 import { frameSize, worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { normalizePixelDensity } from "../domain/render-settings.js?v=surface-terminology-1";
 
@@ -14,37 +13,54 @@ export function analyzeVj1Project(input = {}, options = {}) {
   const activeSurfaces = (state.surfaces || []).filter((surface) => surface.enabled !== false);
   const surfaceUsage = componentSurfaceUsage(activeSurfaces);
   const mapping = mappingMetrics(state, render);
-  const components = (state.components || []).filter((component) => !component.systemRole).map((component) =>
-    componentMetrics(component, { state, render, mediaById, surfaceUsage })
-  );
-  const costliestChainItems = rankCostItems(components.flatMap((component) => component.costItems || [])).slice(0, 12);
-  const engineHotspots = engineOptimizationTargets({ state, render, components, activeSurfaces, costliestChainItems });
-  const aggregate = aggregateMetrics({ state, render, components, activeSurfaces, mapping, costliestChainItems });
-  const runtime = summarizeRuntimeSamples(options.runtimeSamples || []);
-  const bottlenecks = rankBottlenecks([
-    ...projectBottlenecks({ state, render, activeSurfaces, components, mapping }),
-    ...components.flatMap((component) => component.bottlenecks),
-    ...mapping.bottlenecks,
-    ...runtime.bottlenecks,
-  ]);
-
-  return {
-    generatedAt: new Date().toISOString(),
-    project: {
-      name: state.project?.name || "Untitled VJ Set",
-      version: state.version,
-      mappings: state.mappings?.length || 0,
-      media: state.media?.length || 0,
+  const componentPrograms = compileComponentRenderPrograms(
+    state.components || [],
+    state.nodes?.groups || [],
+    {
+      resolveNodeDefinition: options.resolveNodeDefinition || null,
     },
-    render,
-    aggregate,
-    runtime,
-    components,
-    costliestChainItems,
-    engineHotspots,
-    mapping,
-    bottlenecks,
-  };
+  );
+  try {
+    const components = (state.components || [])
+      .filter((component) => !component.systemRole)
+      .map((component) => componentMetrics(component, {
+        state,
+        render,
+        mediaById,
+        surfaceUsage,
+        program: componentPrograms.get(component.id),
+      }));
+    const costliestChainItems = rankCostItems(components.flatMap((component) => component.costItems || [])).slice(0, 12);
+    const engineHotspots = engineOptimizationTargets({ state, render, components, activeSurfaces, costliestChainItems });
+    const aggregate = aggregateMetrics({ state, render, components, activeSurfaces, mapping, costliestChainItems });
+    const runtime = summarizeRuntimeSamples(options.runtimeSamples || []);
+    const bottlenecks = rankBottlenecks([
+      ...projectBottlenecks({ state, render, activeSurfaces, components, mapping }),
+      ...components.flatMap((component) => component.bottlenecks),
+      ...mapping.bottlenecks,
+      ...runtime.bottlenecks,
+    ]);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      project: {
+        name: state.project?.name || "Untitled VJ Set",
+        version: state.version,
+        mappings: state.mappings?.length || 0,
+        media: state.media?.length || 0,
+      },
+      render,
+      aggregate,
+      runtime,
+      components,
+      costliestChainItems,
+      engineHotspots,
+      mapping,
+      bottlenecks,
+    };
+  } finally {
+    for (const program of componentPrograms.values()) program.dispose();
+  }
 }
 
 export function reportVj1MetricsMarkdown(metrics = {}) {
@@ -468,34 +484,38 @@ function averagePositive(values) {
 }
 
 function componentMetrics(component, context) {
-  const chain = Array.isArray(component.chain) ? component.chain : [];
-  const enabledChain = chain.filter((item) => item.enabled !== false);
-  const sources = chain.filter((item) => item.kind === "source");
-  const enabledSources = sources.filter((item) => item.enabled !== false);
-  const effects = chain.filter((item) => item.kind === "effect");
-  const enabledEffects = effects.filter((item) => item.enabled !== false);
-  const spatialEffects = enabledEffects.filter((item) => getShaderComponent(item.componentId)?.spatial);
-  const customEffects = enabledEffects.filter((item) => item.componentId === "custom");
-  const mediaSources = enabledSources.filter((item) => item.source?.type === "media");
-  const missingMedia = mediaSources.filter((item) => !context.mediaById.has(item.source?.mediaId));
-  const videoSources = mediaSources.filter((item) => context.mediaById.get(item.source?.mediaId)?.type === "video");
-  const patch = compileComponentPatch(component, {
-    role: "surface",
-    width: context.render.componentWidth,
-    height: context.render.componentHeight,
-  });
-  const plan = planPatchExecution(patch);
-  const compositor = planCompositorInputs(plan);
-  const branchSummaries = summarizeTextureBranches(plan);
-  const branchDepths = branchSummaries.map((branch) => branch.effectComponentIds?.length || 0);
+  const operations = compiledMetricOperations(context.program);
+  const enabledOperations = operations.filter((operation) =>
+    operation.configuration?.enabled !== false);
+  const sources = operations.filter((operation) =>
+    operation.opcode === "source");
+  const enabledSources = sources.filter((operation) =>
+    operation.configuration?.enabled !== false);
+  const effects = operations.filter((operation) =>
+    operation.opcode === "effect");
+  const enabledEffects = effects.filter((operation) =>
+    operation.configuration?.enabled !== false);
+  const spatialEffects = enabledEffects.filter((item) =>
+    getShaderComponent(item.configuration?.componentId)?.spatial);
+  const customEffects = enabledEffects.filter((item) =>
+    item.configuration?.componentId === "custom");
+  const mediaIds = [
+    ...new Set(context.program?.plan?.introspection?.snapshot?.().mediaDemand?.ids || []),
+  ];
+  const missingMedia = mediaIds.filter((mediaId) =>
+    !context.mediaById.has(mediaId));
+  const videoSources = mediaIds.filter((mediaId) =>
+    context.mediaById.get(mediaId)?.type === "video");
+  const branchDepths = compiledEffectDepths(enabledOperations);
+  const diagnostics = context.program?.plan?.diagnostics || [];
   const surfaceCount = context.surfaceUsage.get(component.id)?.length || 0;
   const resolutionScale = Math.max(0.5, Math.min(2, Number(component.resolutionScale) || 1));
   const pixelScale = resolutionScale * resolutionScale;
   const estimatedWork = estimateComponentWork({
-    enabledSources,
-    enabledEffects,
+    enabledSources: enabledSources.map(metricOperationConfiguration),
+    enabledEffects: enabledEffects.map(metricOperationConfiguration),
     videoSources,
-    branches: Math.max(1, compositor.inputs.length || enabledSources.length || 1),
+    branches: Math.max(1, enabledSources.length || 1),
     surfaceCount,
     pixelScale,
   });
@@ -504,16 +524,24 @@ function componentMetrics(component, context) {
     name: component.name || component.id || "Component",
     selected: context.state.ui?.selectedComponentId === component.id,
     surfaces: context.surfaceUsage.get(component.id) || [],
-    chainItems: { total: chain.length, enabled: enabledChain.length },
-    sources: { total: sources.length, enabled: enabledSources.length, media: mediaSources.length, video: videoSources.length, missingMedia: missingMedia.length },
+    chainItems: {
+      total: operations.length,
+      enabled: enabledOperations.length,
+    },
+    sources: { total: sources.length, enabled: enabledSources.length, media: mediaIds.length, video: videoSources.length, missingMedia: missingMedia.length },
     effects: { total: effects.length, enabled: enabledEffects.length, spatial: spatialEffects.length, custom: customEffects.length },
-    branches: Math.max(0, compositor.inputs.length || enabledSources.length),
+    branches: Math.max(0, enabledSources.length),
     maxEffectDepth: Math.max(0, ...branchDepths),
     estimatedWork,
-    costItems: chainCostItems({ component, enabledChain, mediaById: context.mediaById, pixelScale }),
+    costItems: chainCostItems({
+      component,
+      enabledChain: enabledOperations.map(metricOperationConfiguration),
+      mediaById: context.mediaById,
+      pixelScale,
+    }),
     thumbnailBytes: component.thumbnail ? component.thumbnail.length : 0,
     blend: BLEND_MODES.includes(component.blend) ? component.blend : "unknown",
-    patchWarnings: plan.warnings || [],
+    patchWarnings: diagnostics,
     bottlenecks: [],
   };
 
@@ -525,13 +553,37 @@ function componentMetrics(component, context) {
   if (missingMedia.length) result.bottlenecks.push(bottleneck("critical", result.name, `${missingMedia.length} media source(s) reference missing project media.`));
   if (customEffects.length) result.bottlenecks.push(bottleneck("info", result.name, "Custom shader pass should be checked in browser for compile/runtime behavior."));
   if (result.thumbnailBytes > 700000) result.bottlenecks.push(bottleneck("warn", result.name, `Thumbnail is ${formatBytes(result.thumbnailBytes)}, which can bloat project.json.`));
-  if (plan.warnings?.length) result.bottlenecks.push(bottleneck("warn", result.name, `${plan.warnings.length} graph planner warning(s).`));
+  if (diagnostics.length) result.bottlenecks.push(bottleneck("warn", result.name, `${diagnostics.length} compiled graph diagnostic(s).`));
   for (const item of result.costItems.slice(0, 2)) {
     if (item.estimatedWork >= 1.75) {
       result.bottlenecks.push(bottleneck("info", result.name, `Cost contributor: ${item.name} (${formatNumber(item.estimatedWork, 2)}, ${item.reason}).`));
     }
   }
   return result;
+}
+
+function compiledMetricOperations(program) {
+  const operations = [];
+  program?.forEachOperation?.((operation) => {
+    if (!operation || operation.opcode === "group") return;
+    operations.push(operation);
+  });
+  return operations;
+}
+
+function metricOperationConfiguration(operation) {
+  return operation?.configuration || {};
+}
+
+function compiledEffectDepths(operations = []) {
+  const depths = [];
+  let depth = 0;
+  for (const operation of operations) {
+    if (operation.opcode === "source") depth = 0;
+    else if (operation.opcode === "effect") depth++;
+    depths.push(depth);
+  }
+  return depths;
 }
 
 function renderMetrics(state) {
@@ -738,7 +790,11 @@ function chainCostItems({ component, enabledChain, mediaById, pixelScale }) {
       id: item.id || `${component.id}:${index}`,
       name: item.name || item.componentId || item.source?.generatorId || item.source?.type || "Chain item",
       kind: item.kind || "unknown",
-      componentId: item.componentId || item.source?.generatorId || item.source?.type || "",
+      implementationId:
+        item.componentId ||
+        item.source?.generatorId ||
+        item.source?.type ||
+        "",
       index,
       effectDepth,
       estimatedWork: round2(cost.work * Math.max(0.1, pixelScale)),
@@ -750,15 +806,19 @@ function chainCostItems({ component, enabledChain, mediaById, pixelScale }) {
 
 function sourceCost(item, mediaById) {
   const source = item.source || {};
-  if (source.type === "media") {
-    const media = mediaById.get(source.mediaId);
+  const semanticMediaId = source.type === "generator" &&
+    (source.generatorId === "mediaImage" || source.generatorId === "modelMedia")
+    ? source.params?.mediaId
+    : "";
+  if (semanticMediaId) {
+    const media = mediaById.get(semanticMediaId);
     if (media?.type === "video") return { work: 1.65, reason: "video decode and texture upload" };
-    if (media?.type === "model") return { work: 1.35, reason: "3d model render" };
+    if (media?.type === "model" || source.generatorId === "modelMedia") return { work: 1.35, reason: "3d model render" };
     if (media?.type === "image") return { work: 1.0, reason: "image texture draw" };
     return { work: 1.25, reason: "missing or unknown media source" };
   }
-  if (source.type === "camera") return { work: 1.8, reason: "camera capture texture" };
-  if (source.type === "black") return { work: 0.1, reason: "black fill" };
+  if (source.generatorId === "cameraInput") return { work: 1.8, reason: "camera capture texture" };
+  if (source.generatorId === "black") return { work: 0.1, reason: "black fill" };
   return { work: 0.75, reason: `${source.generatorId || "generator"} generator` };
 }
 

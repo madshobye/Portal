@@ -1,4 +1,4 @@
-import { collectProjectAssetFiles, isMediaFile, isShaderFile } from "./media-library-service.js?v=model-cache-2";
+import { collectProjectAssetFiles, isMediaFile, isShaderFile } from "./media-library-service.js?v=atomic-media-reconciliation-1";
 import { RENDITION_ROOT } from "./media-rendition-service.js?v=madstodo-4";
 import {
   applyThumbnailUrls,
@@ -11,19 +11,19 @@ import {
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=package-content-lock-1";
+import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=project-media-contain-1";
 import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
-import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=package-content-lock-1";
+import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=project-media-contain-1";
 import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
 import { isHistoryReason } from "./project-history-policy.js?v=project-storage-1";
-import { buildProjectPayload } from "./project-serializer.js?v=package-content-lock-1";
+import { buildProjectPayload } from "./project-serializer.js?v=project-media-contain-1";
 import {
   createProjectSavePreparer,
   projectPayloadSignature,
-} from "./project-save-preparation.js?v=surface-terminology-1";
+} from "./project-save-preparation.js?v=autosave-worker-timeout-1";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
 import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
-import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
+import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js?v=autosave-snapshot-recovery-1";
 import { mergeProjectIsfDefinitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
 import {
   serializeNodePackage,
@@ -44,7 +44,7 @@ import {
 } from "./node-package-repository.js?v=package-content-lock-1";
 
 export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=package-content-lock-1";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=project-media-contain-1";
 export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js?v=project-history-store-1";
 
 export function restoreProjectLiveUi(currentLive = {}, projectLive = {}) {
@@ -110,6 +110,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   });
   const saveQueue = new SerializedTaskQueue({
     worker: (job) => saveProject(job),
+    // Each job is a complete authoritative project snapshot. A snapshot that
+    // cannot be serialized must be reported and discarded so it cannot poison
+    // every later valid edit, disable undo, and leave project.json stale.
+    retainFailed: false,
     onError(error) {
       store.update((draft) => {
         draft.project.warnings = [`Autosave error: ${error.message || error}`];
@@ -283,11 +287,14 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         nodeState.packageLock || [],
       );
       publishInstalledNodePackages(packages, repository);
-      const files = [...await collectProjectAssetFiles(dirHandle), ...await derivedAssets.loadIndexedRenditions()];
+      const files = await collectProjectAssetFiles(dirHandle);
       const signature = directorySignature(files);
       if (!force && signature === lastDirectorySignature) return false;
-      mediaLibrary.clear();
-      const imported = await mediaLibrary.importFiles(files);
+      const renditionFiles = await derivedAssets.loadIndexedRenditions();
+      const imported = await mediaLibrary.replaceFiles([
+        ...files,
+        ...renditionFiles,
+      ]);
       refreshProjectAssets(imported, signature);
       bridge.sendMediaFiles(mediaLibrary.getAllFiles());
       await refreshHistoryState();
@@ -298,16 +305,43 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   }
 
   async function loadDirectory(reason) {
-    mediaLibrary.clear();
+    const recoveredFolderName = String(
+      store.getState().project?.folderName || "",
+    );
+    const preserveRecoveredResources =
+      recoveredFolderName === String(dirHandle?.name || "") &&
+      mediaLibrary.getAllFiles().length > 0;
+    if (!preserveRecoveredResources) {
+      const hadResources = mediaLibrary.getAllFiles().length > 0;
+      mediaLibrary.clear();
+      if (hadResources) bridge.sendMediaFiles([]);
+    }
     // Project structure and persisted thumbnails are lightweight and define
     // the first useful UI. Publish them before traversing and importing the
     // potentially large media library so startup never waits behind assets.
     const loaded = await loadProject(reason, { media: [], shaders: [] }, "", { preserveMediaCatalog: true });
     if (!loaded) return false;
-    const files = [...await collectProjectAssetFiles(dirHandle), ...await derivedAssets.loadIndexedRenditions()];
+    const imported = { media: [], shaders: [], files: [] };
+    const files = await collectProjectAssetFiles(dirHandle, {
+      onBatch: async (batch) => {
+        if (!batch.length) return;
+        const next = await mediaLibrary.importFiles(batch);
+        imported.media.push(...next.media);
+        imported.shaders.push(...next.shaders);
+        imported.files.push(...next.files);
+        // Every message is a complete cumulative snapshot. Output windows can
+        // reconcile ownership immediately without mistaking a discovery batch
+        // for an authoritative deletion set.
+        bridge.sendMediaFiles(mediaLibrary.getAllFiles());
+      },
+    });
     const signature = directorySignature(files);
-    const imported = await mediaLibrary.importFiles(files);
     refreshProjectAssets(imported, signature);
+    // Derived caches must never gate their source assets. Publish the primary
+    // media snapshot first, then attach any persisted renditions as a second,
+    // additive snapshot once their index and File handles have been read.
+    const renditionFiles = await derivedAssets.loadIndexedRenditions();
+    await mediaLibrary.replaceFiles([...files, ...renditionFiles]);
     bridge.sendMediaFiles(mediaLibrary.getAllFiles());
     await refreshHistoryState();
     return true;
@@ -460,7 +494,11 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     }));
     if (embeddedThumbnails.length) derivedAssets.migrateEmbeddedThumbnails(embeddedThumbnails);
     lastDirectorySignature = directorySig;
-    lastSavedSignature = projectPayloadSignature(buildProjectPayload(store.getState(), projectData.project?.savedAt || ""));
+    lastSavedSignature = loadedProjectPersistenceSignature(
+      store.getState(),
+      projectData.project?.savedAt || "",
+      { requiresSave: projectMigrationSaveRequired },
+    );
     return true;
   }
 
@@ -636,7 +674,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
           customCode: imported.shaders[0].code,
         };
       }
-    }, "project-refresh-assets");
+    }, {
+      reason: "project-refresh-assets",
+      scope: "assets",
+      history: "none",
+      projection: { kind: "asset-catalog" },
+    });
     lastDirectorySignature = directorySig;
   }
 
@@ -721,6 +764,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     }
     if (!prepared) prepared = await savePreparer.prepareState(store.getState(), new Date().toISOString());
     const { savedAt, json, signature, historySignature } = prepared;
+    requireValidProjectText(json, "VJ1_PROJECT_SAVE_JSON_INVALID");
     if (signature === lastSavedSignature) return false;
 
     if (!dirHandle) {
@@ -749,9 +793,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       if (!isHistoryReason(reason)) await historyStore.clearRedoRevisions();
     }
 
-    const writable = await handle.createWritable();
-    await writable.write(json);
-    await writable.close();
+    await replaceFileText(handle, json);
     if (recordsProjectRevision) {
       try {
         await historyStore.recordColdBackup(json, savedAt);
@@ -791,10 +833,13 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       }
       const currentText = await readProjectText();
       const undoText = await (await entry.handle.getFile()).text();
+      requireValidProjectText(undoText, "VJ1_PROJECT_UNDO_REVISION_INVALID");
       if (currentText.trim()) await historyStore.writeRedoRevision(currentText, new Date().toISOString());
       await writeProjectText(undoText);
+      if (!await reloadProjectFromDisk("project-undo")) {
+        throw new Error("VJ1_PROJECT_UNDO_RELOAD_FAILED");
+      }
       await historyStore.removeRevisionEntry(entry);
-      await reloadProjectFromDisk("project-undo");
       return true;
     } finally {
       historyInFlight = false;
@@ -814,10 +859,13 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       }
       const currentText = await readProjectText();
       const redoText = await (await entry.handle.getFile()).text();
+      requireValidProjectText(redoText, "VJ1_PROJECT_REDO_REVISION_INVALID");
       if (currentText.trim()) await historyStore.writeRevision(currentText, new Date().toISOString());
       await writeProjectText(redoText);
+      if (!await reloadProjectFromDisk("project-redo")) {
+        throw new Error("VJ1_PROJECT_REDO_RELOAD_FAILED");
+      }
       await historyStore.removeRevisionEntry(entry);
-      await reloadProjectFromDisk("project-redo");
       return true;
     } finally {
       historyInFlight = false;
@@ -834,19 +882,23 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   }
 
   async function writeProjectText(text) {
+    requireValidProjectText(text, "VJ1_PROJECT_HISTORY_REVISION_INVALID");
     const handle = await dirHandle.getFileHandle("project.json", { create: true });
-    const writable = await handle.createWritable();
-    await writable.write(text);
-    await writable.close();
+    await replaceFileText(handle, text);
+    const persistedText = await (await handle.getFile()).text();
+    if (persistedText !== text) throw new Error("VJ1_PROJECT_HISTORY_WRITE_MISMATCH");
+    requireValidProjectText(persistedText, "VJ1_PROJECT_HISTORY_WRITE_INVALID");
   }
 
   async function reloadProjectFromDisk(reason) {
     // Undo/redo changes project.json only. The current media-library snapshot
     // remains authoritative and must not trigger another filesystem traversal.
     const imported = { media: store.getState().media || [], shaders: [] };
-    await loadProject(reason, imported, lastDirectorySignature);
+    const loaded = await loadProject(reason, imported, lastDirectorySignature);
+    if (!loaded) return false;
     await refreshHistoryState();
     bridge.sendState();
+    return true;
   }
 
   async function refreshHistoryState() {
@@ -916,7 +968,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
           mediaLibrary.remove(previousPath);
           store.updateDerived((draft) => {
             draft.media = (draft.media || []).filter((item) => item.id !== previousPath);
-          }, "project-observed-asset-move");
+          }, {
+            reason: "project-observed-asset-move",
+            projection: { kind: "asset-catalog" },
+          });
         } else if (previousPath && isShaderFile(previousPath)) {
           markManualRefreshNeeded(previousPath, "shader moved");
         }
@@ -929,7 +984,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         mediaLibrary.remove(path);
         store.updateDerived((draft) => {
           draft.media = (draft.media || []).filter((item) => item.id !== path);
-        }, "project-observed-asset-remove");
+        }, {
+          reason: "project-observed-asset-remove",
+          projection: { kind: "asset-catalog" },
+        });
         bridge.sendMediaFiles(mediaLibrary.getAllFiles());
         continue;
       }
@@ -972,9 +1030,19 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         draft.shaders = { ...draft.shaders, customName: imported.shaders[0].name, customCode: imported.shaders[0].code };
       }
     };
-    if (hasProjectIsf) store.update(merge, "project-observed-isf-update");
-    else store.updateDerived(merge, "project-observed-asset-update");
-    if (imported.shaders?.length) bridge.sendState();
+    if (hasProjectIsf) {
+      store.update(merge, {
+        reason: "project-observed-isf-update",
+        scope: "assets",
+        history: "none",
+        projection: { kind: "asset-catalog" },
+      });
+    } else {
+      store.updateDerived(merge, {
+        reason: "project-observed-asset-update",
+        projection: { kind: "asset-catalog" },
+      });
+    }
   }
 
   function markManualRefreshNeeded(path, eventType) {
@@ -995,6 +1063,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     undoProject,
     redoProject,
     getHistoryState,
+    hasOpenFolder: () => !!dirHandle && !projectLoadBlocked,
     getInstalledNodePackages: () => installedNodePackages,
     getAvailableNodePackages: () => availableNodePackages,
     installNodePackage,
@@ -1007,6 +1076,15 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     writeMediaRendition: (...args) => derivedAssets.writeMediaRendition(...args),
     writeComponentThumbnail: (...args) => derivedAssets.writeComponentThumbnail(...args),
   };
+}
+
+export function loadedProjectPersistenceSignature(state, savedAt = "", { requiresSave = false } = {}) {
+  // `lastSavedSignature` describes the representation that is already on
+  // disk—not merely the canonical representation currently held in memory.
+  // A migration or package-lock upgrade has produced new project truth that
+  // has never been persisted, so it must remain dirty until the write closes.
+  if (requiresSave) return "";
+  return projectPayloadSignature(buildProjectPayload(state, savedAt));
 }
 
 function resolveAllReferencedNodePackages(references = [], repository = [], packageLock = []) {
@@ -1131,6 +1209,32 @@ function parseProjectText(text = "") {
   } catch (error) {
     console.warn("[VJ1_PROJECT_HISTORY_PARSE_FAILED]", { fallback: "preserve a conservative history revision", message: error?.message || String(error) });
     return null;
+  }
+}
+
+function requireValidProjectText(text, code = "VJ1_PROJECT_JSON_INVALID") {
+  if (typeof text !== "string" || !text.trim()) throw new Error(`${code}:EMPTY`);
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch (error) {
+    throw new Error(`${code}:${error?.message || String(error)}`);
+  }
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`${code}:PROJECT_OBJECT_REQUIRED`);
+  }
+  return payload;
+}
+
+async function replaceFileText(handle, text) {
+  const writable = await handle.createWritable({ keepExistingData: true });
+  try {
+    await writable.write({ type: "write", position: 0, data: text });
+    await writable.truncate(new TextEncoder().encode(text).byteLength);
+    await writable.close();
+  } catch (error) {
+    try { await writable.abort?.(); } catch {}
+    throw error;
   }
 }
 
@@ -1327,6 +1431,7 @@ export async function projectFileForSave(directory) {
   try {
     const handle = await directory.getFileHandle("project.json");
     const previousText = await (await handle.getFile()).text();
+    requireValidProjectText(previousText, "VJ1_EXISTING_PROJECT_JSON_INVALID");
     return { handle, previousText, created: false };
   } catch (error) {
     if (!isNotFoundError(error)) throw error;

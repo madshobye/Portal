@@ -1,5 +1,5 @@
 import { materializeProjectNodeDefinition, nodeDefinitionEditorTemplate } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
-import { NODE_GRAPH_AUTHORING_TARGETS, nodeDefinitionPlaceableInGraph, nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=canonical-effect-params-1";
+import { NODE_GRAPH_AUTHORING_TARGETS, nodeDefinitionPlaceableInGraph, nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=typed-media-render-process-1";
 import { emptyNote, esc, icon } from "./template-utils.js";
 import { railListSectionTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-card-type-icons-1";
 
@@ -66,8 +66,6 @@ export function nodeLibraryStudioTemplate(state, nodePackage) {
   );
   const applicationProjectProgram = target.kind === "project-group" && target.group.id === "vj1.application.program";
   const authoringTarget = nodeGraphAuthoringTarget(target);
-  const specializedVisualProgram = target.kind === "definition" &&
-    definition.metadata?.visualCompilerHook?.id === "vj1.visual.specialized-compound";
   const nodesEditable = definitionGraphEditable && !!authoringTarget;
   const connectionsEditable = definitionGraphEditable && (
     nodesEditable || routeProjectProgram || applicationProjectProgram
@@ -104,7 +102,7 @@ export function nodeLibraryStudioTemplate(state, nodePackage) {
         parametersEditable: definitionGraphEditable && (
           target.kind === "definition" || visualProjectProgram
         ),
-        providersEditable: nodesEditable || specializedVisualProgram,
+        providersEditable: nodesEditable,
         publicInterfaceEditable: target.kind === "definition" && definition.metadata?.projectOwned === true,
         layoutEditable: true,
         visualProgram: authoringTarget === NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
@@ -393,7 +391,6 @@ export function nodeGraphAuthoringTarget(target) {
   }
   if (definition.implementation?.executionModel === "native-composite") return "";
   const hookId = definition.metadata?.visualCompilerHook?.id;
-  if (hookId === "vj1.visual.specialized-compound") return "";
   if (definition.compiler?.target === "scene-3d") return NODE_GRAPH_AUTHORING_TARGETS.SCENE_3D;
   if (hookId === "vj1.visual.compound") return NODE_GRAPH_AUTHORING_TARGETS.VISUAL;
   return definition.implementation?.executionModel === "graph"

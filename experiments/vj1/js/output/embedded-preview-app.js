@@ -1,6 +1,6 @@
 import { VJ1 } from "../constants.js";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
-import { OutputRenderer } from "./output-renderer.js?v=mesh-pattern-node-authority-1";
+import { OutputRenderer } from "./output-renderer.js?v=mesh-geometry-detail-2";
 import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderPresentationFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
@@ -54,10 +54,24 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let canvasFitSignature = "";
   const thumbnailObjectUrls = new Map();
   const thumbnailUrlLease = createThumbnailUrlLease();
+  const unsubscribeMediaLibrary = mediaLibrary?.subscribe?.(() => {
+    // File availability is a resource event, not project-state topology.
+    // Wake and reconcile the retained media owner as discovery batches arrive
+    // instead of waiting for an unrelated catalog/state render.
+    importMediaFilesIfChanged(true);
+  }) || (() => {});
 
-  function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state }) {
+  function mount({ host: nextHost, stage: nextStage, hud: nextHud, mode, state, activation = "full" }) {
+    const sameMount = !!renderer &&
+      host === nextHost &&
+      stage === nextStage &&
+      hud === nextHud;
     const modeChanged = !!renderer && pendingMode !== mode;
     const stageChanged = !!canvas && stage !== nextStage;
+    if (sameMount && !modeChanged && !stageChanged) {
+      setState(state, mode, { activation });
+      return;
+    }
     host = nextHost;
     stage = nextStage;
     hud = nextHud;
@@ -72,7 +86,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     observeCurrentStage();
     if (canvas && stage) canvas.parent(stage);
     if (renderer) {
-      renderer.setInstalledNodePackages(projectService?.getInstalledNodePackages?.() || []);
+      renderer.visualNodeRuntime.setInstalledPackages(projectService?.getInstalledNodePackages?.() || []);
       const needsSettledReveal = modeChanged || stageChanged || canvasElementIsHidden();
       renderer.mode = pendingMode;
       renderer.hud = hud;
@@ -80,19 +94,19 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       const resized = resizeToStage({ forceFit: modeChanged || stageChanged });
       if (!resized) renderer.setState(previewSizedState(), { normalized: true });
       importMediaFilesIfChanged();
-      renderer.setCalibrate(pendingMode === "preview" && pendingState.global.calibrating);
+      renderer.mappingRuntime.setCalibrate(pendingMode === "preview" && pendingState.global.calibrating);
       scheduleSettledResize({ revealAfterDraw: needsSettledReveal });
     }
     if (!started) start();
   }
 
-  function setState(state, mode = pendingMode) {
+  function setState(state, mode = pendingMode, { activation = "full" } = {}) {
     wakePreviewPresentation();
     pendingMode = mode;
     pendingState = preserveActiveRetimedTransition(state || {});
     applyPreviewFrameRate();
     if (!renderer) return;
-    renderer.setInstalledNodePackages(projectService?.getInstalledNodePackages?.() || []);
+    renderer.visualNodeRuntime.setInstalledPackages(projectService?.getInstalledNodePackages?.() || []);
     renderer.mode = pendingMode;
     if (shouldPrepareEmbeddedLiveState(pendingState, renderer.state)) {
       preparedLiveState = previewSizedState();
@@ -102,19 +116,22 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       return;
     }
     clearPreparedLiveState();
-    const resized = resizeToStage();
-    if (!resized) renderer.setState(previewSizedState(), { normalized: true });
+    const resized = resizeToStage({ activation });
+    if (!resized) {
+      const nextPreviewState = previewSizedState();
+      activateRendererState(nextPreviewState, activation);
+    }
     importMediaFilesIfChanged();
   }
 
   function applyLivePatches(patches = []) {
     wakePreviewPresentation();
-    return renderer?.applyLivePatches(patches);
+    return renderer?.livePatchRuntime.applyLive(patches);
   }
 
   function applyRenderPatches(patches = []) {
     wakePreviewPresentation();
-    return renderer?.applyRenderPatches(patches);
+    return renderer?.livePatchRuntime.apply(patches);
   }
 
   function setViewport(ui = {}) {
@@ -134,21 +151,21 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       render: pendingState.render || {},
     });
     wakePreviewPresentation();
-    return renderer?.setPreviewViewport(resolvedViewport) || false;
+    return renderer?.presentationGeometry?.setViewport(resolvedViewport) || false;
   }
 
   function setInstalledNodePackages(packages = []) {
-    if (!renderer?.setInstalledNodePackages(packages)) return false;
+    if (!renderer?.visualNodeRuntime.setInstalledPackages(packages)) return false;
     wakePreviewPresentation();
     return true;
   }
 
   function command(name, payload = {}) {
     wakePreviewPresentation();
-    if (name === "set-calibrate") renderer?.setCalibrate(!!payload.calibrating);
-    if (name === "reset-mapping") renderer?.resetMapping(payload.surfaceId);
-    if (name === "export-mapping") renderer?.exportMapping();
-    if (name === "schedule") renderer?.schedule(payload);
+    if (name === "set-calibrate") renderer?.mappingRuntime.setCalibrate(!!payload.calibrating);
+    if (name === "reset-mapping") renderer?.mappingRuntime.reset(payload.surfaceId);
+    if (name === "export-mapping") renderer?.mappingRuntime.export();
+    if (name === "schedule") renderer?.frameRuntime.schedule(payload);
   }
 
   function pause() {
@@ -192,6 +209,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     viewportController = null;
     thumbnailUrlLease.release();
     thumbnailObjectUrls.clear();
+    unsubscribeMediaLibrary();
   }
 
   function start() {
@@ -289,7 +307,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       layoutSettleActive ||
       revealCanvasAfterDraw ||
       preparedLiveState ||
-      renderer?.presentationFrameMode?.() !== "on-change" ||
+      renderer?.frameRuntime.presentationMode() !== "on-change" ||
       typeof noLoop !== "function"
     ) return;
     idleSuspended = true;
@@ -342,7 +360,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       event.preventDefault();
       pointerActive = true;
       activePointerId = event.pointerId;
-      renderer?.setThumbnailInteractionActive?.(true);
+      renderer?.thumbnailRuntime?.setInteractionActive?.(true);
       element.setPointerCapture?.(event.pointerId);
       const position = point(event);
       renderer?.mousePressed?.(position.x, position.y);
@@ -361,7 +379,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       activePointerId = null;
       element.releasePointerCapture?.(event.pointerId);
       renderer?.mouseReleased?.();
-      renderer?.setThumbnailInteractionActive?.(false);
+      renderer?.thumbnailRuntime?.setInteractionActive?.(false);
     };
     element.addEventListener("pointerdown", onPointerDown);
     element.addEventListener("pointermove", onPointerMove);
@@ -374,11 +392,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       element.removeEventListener("pointercancel", finishPointer);
       pointerActive = false;
       activePointerId = null;
-      renderer?.setThumbnailInteractionActive?.(false);
+      renderer?.thumbnailRuntime?.setInteractionActive?.(false);
     };
   }
 
-  function resizeToStage({ forceFit = false } = {}) {
+  function resizeToStage({ forceFit = false, activation = "full" } = {}) {
     if (!canvas || !stage) return false;
     wakePreviewPresentation();
     const size = stageSize();
@@ -391,8 +409,31 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     canvasHeight = logical.height;
     resizeCanvas(logical.width, logical.height);
     fitCanvasToStageIfChanged(size, logical, true);
-    renderer?.setState(previewSizedState(size), { normalized: true });
+    const nextPreviewState = previewSizedState(size);
+    activateRendererState(nextPreviewState, activation);
+    renderer?.resize?.();
     return true;
+  }
+
+  function activateRendererState(nextState, activation = "full") {
+    if (!renderer) return;
+    if (activation === "ui") {
+      renderer.setUiState(nextState, { normalized: true });
+      return;
+    }
+    if (activation === "mapping") {
+      renderer.setMappingState(nextState, { normalized: true });
+      return;
+    }
+    if (activation === "projection") {
+      renderer.setProjectionState(nextState, { normalized: true });
+      return;
+    }
+    if (activation === "assets") {
+      renderer.setAssetState(nextState, { normalized: true });
+      return;
+    }
+    renderer.setState(nextState, { normalized: true });
   }
 
   function fitCanvasToStageIfChanged(size, logical, force = false) {
@@ -629,15 +670,15 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
 
   function activatePreparedLiveStateIfReady() {
     if (!renderer || !preparedLiveState) return false;
-    const status = renderer.prepareOutputState(preparedLiveState, { requireMedia: true });
+    const status = renderer.readinessRuntime.prepare(preparedLiveState, { requireMedia: true });
     if (status.errorIds.size) {
       const signature = Array.from(status.errorIds).sort().join("|");
       if (signature !== preparedLiveErrorSignature) {
         preparedLiveErrorSignature = signature;
         console.error("[VJ1_LIVE_PREVIEW_PREPARE_FAILED]", {
           sceneId: previewSceneId(preparedLiveState),
-          mediaIds: Array.from(status.errorIds),
-          message: "Keeping the current Scene because requested media failed to load",
+          resourceIds: Array.from(status.errorIds),
+          message: "Keeping the current Scene because a requested resource failed to load",
         });
       }
       return false;
@@ -648,7 +689,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     activeRetimedTransitionSceneId = activeRetimedTransition ? previewSceneId(state) : "";
     preparedLiveState = null;
     preparedLiveErrorSignature = "";
-    renderer.clearPreparedOutputState();
+    renderer.readinessRuntime.clearPrepared();
     renderer.setState(state, { normalized: true });
     return true;
   }
@@ -656,7 +697,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   function clearPreparedLiveState() {
     preparedLiveState = null;
     preparedLiveErrorSignature = "";
-    renderer?.clearPreparedOutputState?.();
+    renderer?.readinessRuntime?.clearPrepared?.();
   }
 
   function preserveActiveRetimedTransition(state) {
@@ -688,7 +729,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       onPanStart: () => {
         pointerActive = false;
         activePointerId = null;
-        renderer?.setThumbnailInteractionActive?.(false);
+        renderer?.thumbnailRuntime?.setInteractionActive?.(false);
       },
     });
     viewportController.stage = stage;
@@ -792,7 +833,13 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
         component.thumbnail = thumbnail;
         updated = true;
       }
-    }, "component-thumbnail");
+    }, {
+      reason: "component-thumbnail",
+      projection: {
+        kind: "component-thumbnails",
+        entries: [{ componentId, surfaceId, url: thumbnail }],
+      },
+    });
     return { updated };
   }
 

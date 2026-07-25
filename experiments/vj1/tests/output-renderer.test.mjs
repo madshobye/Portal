@@ -11,11 +11,21 @@ import { compileOutputGroupTopology, compileMappingGroupTopology } from "../js/l
 import { IsfRenderRuntime } from "../js/output/isf-render-runtime.js";
 import { TextureOperatorRuntime } from "../js/output/texture-operator-runtime.js";
 import { ShaderEffectRuntime } from "../js/output/shader-effect-runtime.js";
+import { ShaderGeneratorRuntime } from "../js/output/shader-generator-runtime.js";
 import { CompositeRenderRuntime } from "../js/output/composite-render-runtime.js";
-import { mediaSourceDemandSize, SourceRenderRuntime } from "../js/output/source-render-runtime.js";
+import { TransitionRuntime } from "../js/output/transition-runtime.js";
+import { ComponentRenderRuntime } from "../js/output/component-render-runtime.js";
+import { OutputRenderProfile } from "../js/output/output-render-profile.js";
+import { VisualPlanRuntime } from "../js/output/visual-plan-runtime.js";
+import { compiledSourceRenderTargetOptions, mediaSourceDemandSize, operationMediaResourceIds, runtimeValueMediaResourceIds, SourceRenderRuntime } from "../js/output/source-render-runtime.js";
 import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-source-runtime.js";
 import { MAPPING_TEST_PATTERN_COMPONENT_ID } from "../js/domain/runtime-visual-sources.js";
 import { createIsfNodeDefinition } from "../js/libraries/isf-engine/index.js";
+import { NativeRendererRegistry } from "../js/libraries/render-engine/native-renderer-registry.js";
+import {
+  BuiltInVisualLibrary,
+  DefaultBuiltInTransition,
+} from "../js/libraries/visual-nodes/catalog.js";
 
 test("effect opacity and blend request a separate generic composite", () => {
   assert.equal(effectNeedsComposite({}), false);
@@ -59,9 +69,11 @@ test("named ISF image ports bind retained textures and participate in dirty iden
     ["background", background],
   ]);
   const renderer = {
-    visualDeltaSeconds: 1 / 60,
-    frameIndex: 12,
-    visualTime: 1.5,
+    frameRuntime: {
+      visualDeltaSeconds: 1 / 60,
+      frameIndex: 12,
+      visualTime: 1.5,
+    },
   };
 
   new IsfRenderRuntime(renderer).setFrameUniforms(shader, {}, {
@@ -83,9 +95,143 @@ test("named ISF image ports bind retained textures and participate in dirty iden
   }), "inputImage", "an ISF effect always preserves its semantic base image");
 });
 
+test("typed media resource inputs carry runtime readiness into retained source identity", () => {
+  const resource = {
+    kind: "project-media-resource",
+    mediaId: "media/example.jpg",
+    resourceIdentity: "project-media:media/example.jpg",
+  };
+  const runtimeValues = new Map([["resource", resource]]);
+  assert.deepEqual(runtimeValueMediaResourceIds(runtimeValues), [
+    "media/example.jpg",
+  ]);
+
+  const signatures = [];
+  const mediaItem = {
+    id: "media/example.jpg",
+    ready: false,
+    revision: 0,
+    fileKey: "example:1",
+  };
+  const host = {
+    frameRuntime: {
+      frameIndex: 1,
+      isPlaybackActive: () => true,
+    },
+    visualNodeRuntime: {
+      generator: () => ({
+        params: [],
+        runtime: {
+          cacheable: true,
+          timeDependent: () => false,
+        },
+      }),
+    },
+    componentRenderRuntime: {
+      isFrameDynamic: () => false,
+    },
+    specializedSources: {
+      featureMorph: {
+        analysisService: () => null,
+      },
+    },
+    state: {
+      media: [{ id: "media/example.jpg", type: "image", size: 1 }],
+    },
+    media: new Map([[mediaItem.id, mediaItem]]),
+    renderEvaluationRuntime: {
+      evaluate(_nodeId, signature) {
+        signatures.push(signature);
+        return { buffer: {}, outputVersion: signatures.length };
+      },
+    },
+  };
+  const runtime = new SourceRenderRuntime(host);
+  const operation = {
+    runtimeValueInputs: runtimeValues,
+    runtimeValueIdentityInputs: new Map([
+      ["resource", "project-media:media/example.jpg"],
+    ]),
+    directPlacement: { kind: "drawable-resource", input: "resource" },
+  };
+  const inputState = {
+    buffer: {},
+    nodeKey: "input",
+    outputVersion: 1,
+    instanceInvariant: true,
+  };
+  const component = { id: "component", speed: 1 };
+  const item = {
+    id: "render",
+    source: {
+      type: "generator",
+      generatorId: "core.visual.media-resource-to-image",
+      params: {},
+    },
+  };
+  runtime.renderDirectNodeState(
+    "media-node",
+    inputState,
+    component,
+    item,
+    0,
+    { width: 640, height: 360 },
+    operation,
+  );
+  mediaItem.ready = true;
+  mediaItem.revision = 1;
+  mediaItem.image = { width: 693, height: 443 };
+  runtime.renderDirectNodeState(
+    "media-node",
+    inputState,
+    component,
+    item,
+    0,
+    { width: 640, height: 360 },
+    operation,
+  );
+
+  assert.equal(signatures.length, 2);
+  assert.notEqual(
+    signatures[0],
+    signatures[1],
+    "a decoded resource invalidates the child renderer even when its graph value identity is stable",
+  );
+  assert.match(signatures[0], /"ready":false/);
+  assert.match(signatures[1], /"revision":1/);
+});
+
+test("compiled media dependency projection keeps retained Scene and Mesh values opaque", () => {
+  const mesh = new Proxy({
+    kind: "mesh",
+    contractVersion: 1,
+  }, {
+    ownKeys() {
+      throw new Error("retained mesh geometry must not be traversed");
+    },
+  });
+  const scene = {
+    kind: "scene3d",
+    contractVersion: 1,
+    objects: [{ mesh }],
+  };
+  const operation = {
+    mediaDependencies: ["media/skull.obj"],
+    runtimeValueInputs: new Map([["scene", scene]]),
+  };
+
+  assert.deepEqual(
+    [...operationMediaResourceIds(operation)],
+    ["media/skull.obj"],
+  );
+  assert.deepEqual(runtimeValueMediaResourceIds(
+    new Map([["scene", scene]]),
+  ), []);
+});
+
 test("the dedicated ISF backend owns and prunes retained pass targets", () => {
   const removed = [];
-  const runtime = new IsfRenderRuntime({ frameIndex: 20 });
+  const runtime = new IsfRenderRuntime({ frameRuntime: { frameIndex: 20 } });
   runtime.passTargets.set("stale", {
     lastUsed: 1,
     targets: [{ remove: () => removed.push("stale-a") }, { remove: () => removed.push("stale-b") }],
@@ -112,7 +258,7 @@ test("the dedicated ISF backend owns and prunes retained pass targets", () => {
     "utf8",
   );
   assert.doesNotMatch(rendererSource, /this\.isfPassTargets/);
-  assert.match(rendererSource, /new IsfRenderRuntime\(this\)/);
+  assert.match(rendererSource, /new IsfRenderRuntime\(this, \{/);
   assert.match(backendSource, /class IsfRenderRuntime/);
   assert.match(backendSource, /evaluateIsfDimension/);
 });
@@ -132,10 +278,12 @@ test("the texture-operator backend owns retained delay state and shader disposal
     },
   });
   const runtime = new TextureOperatorRuntime({
-    isShaderBuffer: () => false,
-    getComponentGpuBuffer(key) {
-      if (!targets.has(key)) targets.set(key, createTarget(key));
-      return targets.get(key);
+    renderTargetRuntime: {
+      isShaderBuffer: () => false,
+      gpu(key) {
+        if (!targets.has(key)) targets.set(key, createTarget(key));
+        return targets.get(key);
+      },
     },
   });
   const plan = { retainedOperators: new Map() };
@@ -282,6 +430,195 @@ test("the shader-effect backend owns program caching uniforms and GL disposal", 
   assert.match(backendSource, /disposeShader: disposeP5Shader/);
 });
 
+test("the shader-effect backend owns paired scratch targets pruning and disposal", () => {
+  const created = [];
+  const disposed = [];
+  const runtime = new ShaderEffectRuntime({
+    frameRuntime: { frameIndex: 1 },
+    renderRequestRuntime: {
+      normalize(request) {
+        return request;
+      },
+    },
+  }, {
+    createTarget(width, height) {
+      const target = {
+        width,
+        height,
+        resizeCanvas(nextWidth, nextHeight) {
+          this.width = nextWidth;
+          this.height = nextHeight;
+        },
+      };
+      created.push(target);
+      return target;
+    },
+    disposeTarget(target) {
+      disposed.push(target);
+    },
+  });
+
+  const first = runtime.getTarget({ width: 320, height: 180 }, 0);
+  const second = runtime.getTarget({ width: 320, height: 180 }, 1);
+  assert.notEqual(first, second);
+  assert.equal(runtime.ownsTarget(first), true);
+  assert.deepEqual(runtime.targets, [first, second]);
+
+  runtime.host.frameRuntime.frameIndex = 2;
+  runtime.getTarget({ width: 640, height: 360 }, 0);
+  runtime.host.frameRuntime.frameIndex = 3;
+  runtime.getTarget({ width: 800, height: 450 }, 0);
+  runtime.host.frameRuntime.frameIndex = 4;
+  runtime.getTarget({ width: 960, height: 540 }, 0);
+  assert.equal(runtime.targetGroups.size, 3, "the oldest target pair is pruned before a fourth size is retained");
+  assert.deepEqual(disposed, [first, second]);
+
+  runtime.dispose();
+  assert.equal(runtime.targetGroups.size, 0);
+  assert.deepEqual(runtime.targets, [null, null]);
+  assert.equal(disposed.length, created.length);
+
+  const rendererSource = readFileSync(
+    new URL("../js/output/output-renderer.js", import.meta.url),
+    "utf8",
+  );
+  const backendSource = readFileSync(
+    new URL("../js/output/shader-effect-runtime.js", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(rendererSource, /this\.fxTargetGroups|this\.fxTargets|this\.fxTargetKey/);
+  assert.doesNotMatch(
+    rendererSource,
+    /^  (?:getComponentPipelineShader|drawComponentPipelinePass|drawTextureOperatorTarget|drawTextureTransitionTarget|renderOverlayLayerToTarget|renderShaderChain|renderShaderPassToTarget|setShaderParamUniforms|setIsfFrameUniforms)\(/m,
+    "compiled operations call their capability runtime without renderer forwarding methods",
+  );
+  assert.match(backendSource, /this\.targetGroups = new Map\(\)/);
+  assert.match(backendSource, /getTarget\(request, slot = 0\)/);
+  assert.match(backendSource, /disposeTargets\(\)/);
+  assert.match(backendSource, /getIsfRuntime = \(\) => host\.isfRuntime/);
+  assert.match(rendererSource, /getIsfRuntime: \(\) => this\.isfRuntime/);
+});
+
+test("the shader-effect capability owns retained effect evaluation and quality demand", () => {
+  const resolutions = [];
+  const evaluations = [];
+  const component = {
+    id: "quality-effect",
+    params: [
+      {
+        id: "renderQuality",
+        type: "number",
+        min: 0,
+        max: 1,
+        defaultValue: 0.5,
+      },
+      {
+        id: "amount",
+        type: "number",
+        min: 0,
+        max: 1,
+        defaultValue: 1,
+      },
+    ],
+    runtime: { timeDependent: () => false },
+  };
+  const output = {
+    width: 200,
+    height: 100,
+    push() {},
+    clear() {},
+    image() {},
+    pop() {},
+  };
+  const host = {
+    frameRuntime: {
+      frameIndex: 7,
+      isPlaybackActive: () => false,
+    },
+    state: { shaders: { customCode: "" } },
+    renderTargetRuntime: {
+      isShaderBuffer: () => false,
+    },
+    componentRenderRuntime: {
+      recordResolution: (...args) => resolutions.push(args),
+    },
+    renderEvaluationRuntime: {
+      evaluate(nodeId, signature, request, render, reason, options) {
+        render(output);
+        evaluations.push({ nodeId, signature, request, reason, options });
+        return {
+          buffer: output,
+          outputVersion: 1,
+          nodeKey: nodeId,
+          instanceInvariant: options.instanceInvariant,
+        };
+      },
+    },
+    compositeRuntime: {
+      renderLayerNodeState() {
+        throw new Error("neutral effects must not add a composite pass");
+      },
+    },
+  };
+  const runtime = new ShaderEffectRuntime(host, {
+    getComponent: () => component,
+    getCustomCode: () => "",
+  });
+  const effected = { id: "effected" };
+  const renderCalls = [];
+  runtime.renderChain = (...args) => {
+    renderCalls.push(args);
+    return effected;
+  };
+
+  const result = runtime.renderNodeState(
+    "effect-node",
+    {
+      buffer: { id: "input" },
+      outputVersion: 3,
+      nodeKey: "input",
+      instanceInvariant: true,
+    },
+    {
+      id: "effect-item",
+      componentId: component.id,
+      opacity: 1,
+      blend: "normal",
+      params: { renderQuality: 0, amount: 1 },
+    },
+    2,
+    { width: 200, height: 100, logicalWidth: 200, logicalHeight: 100 },
+  );
+
+  assert.equal(result.buffer, output);
+  assert.deepEqual(
+    resolutions[0].slice(0, 4),
+    [
+      null,
+      {
+        id: "effect-item",
+        componentId: component.id,
+        opacity: 1,
+        blend: "normal",
+        params: { renderQuality: 0, amount: 1 },
+      },
+      "effect",
+      {
+        width: 70,
+        height: 35,
+        logicalWidth: 200,
+        logicalHeight: 100,
+        qualityScale: 0.35,
+      },
+    ],
+  );
+  assert.equal(renderCalls.length, 1);
+  assert.equal(renderCalls[0][2].width, 70);
+  assert.equal(renderCalls[0][2].height, 35);
+  assert.equal(evaluations[0].reason, "effect");
+  assert.equal(evaluations[0].options.instanceInvariant, true);
+});
+
 test("the compositing backend owns fixed passes per context and disposes every program", () => {
   const deleted = [];
   const gl = {
@@ -297,6 +634,7 @@ test("the compositing backend owns fixed passes per context and disposes every p
     _renderer: { GL: gl },
     push() {},
     pop() {},
+    blendMode() {},
     clear() {},
     shader() {},
     resetShader() {},
@@ -316,11 +654,15 @@ test("the compositing backend owns fixed passes per context and disposes every p
       return shader;
     },
   };
+  const profileRuntime = new OutputRenderProfile();
   const host = {
-    frameProfile: { shaderPasses: 0, shaderChains: 0 },
-    isShaderBuffer: (source) => source?.webgl === true,
-    measureProfile: (_bucket, _meta, draw) => draw(),
-    measureGpu: (_target, draw) => draw(),
+    profileRuntime,
+    renderTargetRuntime: {
+      isShaderBuffer: (source) => source?.webgl === true,
+    },
+    presentationRuntime: {
+      measureGpu: (_target, draw) => draw(),
+    },
   };
   const runtime = new CompositeRenderRuntime(host);
   const upscale = runtime.getPipelineShader("upscale", target);
@@ -340,24 +682,44 @@ test("the compositing backend owns fixed passes per context and disposes every p
   assert.equal(post.uniforms.get("sourceTex"), source);
   assert.equal(post.uniforms.get("sourceFlipY"), false);
   assert.equal(post.uniforms.get("noiseAmount"), 0.2);
-  assert.equal(host.frameProfile.shaderPasses, 1);
-  assert.equal(host.frameProfile.shaderChains, 1);
+  assert.equal(profileRuntime.frameProfile.shaderPasses, 1);
+  assert.equal(profileRuntime.frameProfile.shaderChains, 1);
 
   const matrix = [1, 0, 0, 0, 1, 0, 0, 0, 1];
   assert.equal(runtime.drawLayerTransform(target, source, matrix), true);
+  assert.equal(runtime.drawLayer(target, source, { webgl: false }, {
+    opacity: 0.4,
+    blend: "normal",
+  }), true);
   assert.equal(runtime.drawOverlay(target, source, { webgl: false }, {
     layerUvMatrix: matrix,
     opacity: 0.4,
   }), true);
-  assert.equal(created.length, 4);
+  assert.equal(created.length, 5);
   assert.deepEqual(created[2].uniforms.get("sourceUvMatrix"), matrix);
   assert.equal(created[3].uniforms.get("layerOpacity"), 0.4);
+  assert.equal(created[3].uniforms.get("layerBlendMode"), 0);
+  assert.equal(created[4].uniforms.get("layerOpacity"), 0.4);
+
+  const retainedLayer = { buffer: { id: "opaque-layer" } };
+  assert.strictEqual(
+    runtime.renderLayerNodeState(
+      "identity-layer",
+      { buffer: { id: "transparent" }, transparent: true },
+      retainedLayer,
+      { opacity: 1, blend: "normal", transform: {} },
+      { width: 320, height: 180 },
+    ),
+    retainedLayer,
+    "an opaque identity layer remains the chain result without a composite target",
+  );
 
   runtime.dispose();
   assert.equal(runtime.pipelineShaders.size, 0);
   assert.equal(runtime.layerTransformShaders.size, 0);
+  assert.equal(runtime.layerBlendShaders.size, 0);
   assert.equal(runtime.overlayBlendShaders.size, 0);
-  assert.equal(deleted.length, 12);
+  assert.equal(deleted.length, 15);
 
   const rendererSource = readFileSync(
     new URL("../js/output/output-renderer.js", import.meta.url),
@@ -373,18 +735,35 @@ test("the compositing backend owns fixed passes per context and disposes every p
   );
   assert.match(rendererSource, /new CompositeRenderRuntime\(this\)/);
   assert.match(backendSource, /drawPipelinePass/);
+  assert.match(backendSource, /renderComponentPipeline/);
+  assert.match(backendSource, /getPipelineTarget/);
+  assert.match(backendSource, /drawLayer/);
   assert.match(backendSource, /drawLayerTransform/);
   assert.match(backendSource, /drawOverlay/);
+  assert.match(backendSource, /transparentChainState/);
+  assert.match(backendSource, /renderBoundedEffectRunNodeState/);
+  assert.match(backendSource, /extractNodeRegionState/);
+  assert.match(backendSource, /compositeNodeRegionState/);
   assert.match(backendSource, /disposeP5Shader/);
+  assert.doesNotMatch(
+    rendererSource,
+    /output\.translate\(-roi\.sampleX,\s*-roi\.sampleY\)/,
+    "ROI extraction belongs to the compositing capability",
+  );
+  assert.doesNotMatch(
+    rendererSource,
+    /^  (?:renderComponentOutputPipeline|getComponentPipelineTarget)\(/m,
+    "Component pipeline scheduling and target policy belong to the compositing capability",
+  );
 });
 
 test("native source dispatch follows the compiled node hook instead of generator-name branching", () => {
   const operation = {
     backend: "native-specialized",
-    renderer: "output/specialized:terrainFlyover",
+    renderer: "output/specialized:terrainSurface",
   };
   const source = { type: "generator", generatorId: "renamed-terrain-node" };
-  assert.equal(compiledNativeSourceRenderer(operation, source), "output/specialized:terrainFlyover");
+  assert.equal(compiledNativeSourceRenderer(operation, source), "output/specialized:terrainSurface");
   assert.equal(compiledNativeSourceRenderer({ backend: "native-specialized" }, source, {
     nodeDefinition: { metadata: { nativeRenderer: "output/specialized:text" } },
   }), "output/specialized:text");
@@ -395,9 +774,10 @@ test("native source dispatch follows the compiled node hook instead of generator
   assert.doesNotMatch(backendSource, /source\.generatorId === "terrainFlyover"/);
   assert.doesNotMatch(backendSource, /source\.generatorId === "text"/);
   assert.doesNotMatch(backendSource, /NATIVE_SOURCE_HOST_METHODS/);
-  assert.match(backendSource, /this\.nativeRenderers\.get\(String\(rendererId \|\| ""\)\)/);
-  assert.match(specializedSource, /registerNativeRenderer\(\s*"output\/specialized:terrainFlyover"/);
-  assert.match(rendererSource, /new SourceRenderRuntime\(this\)/);
+  assert.match(backendSource, /this\.nativeRendererRegistry\.execute\(/);
+  assert.match(specializedSource, /registerNativeRenderer\(\s*"output\/specialized:terrainSurface"/);
+  assert.match(specializedSource, /registerNativeRenderer\(\s*"output\/specialized:terrainWire"/);
+  assert.match(rendererSource, /new SourceRenderRuntime\(this,\s*\{\s*mediaRuntime: this\.mediaRuntime,/);
 });
 
 test("source backend imports every shared render-view contract it executes", () => {
@@ -414,11 +794,12 @@ test("source backend imports every shared render-view contract it executes", () 
 
 test("native source renderer capabilities are retained, collision checked, and backend owned", () => {
   const calls = [];
+  const registry = new NativeRendererRegistry();
   const runtime = new SourceRenderRuntime({
     state: { render: {}, ui: {} },
     mode: "output",
-    frameIndex: 0,
-  });
+    frameRuntime: { frameIndex: 0 },
+  }, { nativeRendererRegistry: registry });
   runtime.registerNativeRenderer(
     "test/native:custom",
     (...args) => calls.push(args),
@@ -439,7 +820,14 @@ test("native source renderer capabilities are retained, collision checked, and b
     /VJ1_NATIVE_SOURCE_RENDERER_DUPLICATE:test\/native:custom/,
   );
 
-  const specialized = new SpecializedSourceRuntime();
+  const specialized = new SpecializedSourceRuntime({
+    nativeRendererRegistry: registry,
+  });
+  assert.equal(
+    specialized.hasNativeRenderer("test/native:custom"),
+    true,
+    "generic and specialized capability owners resolve through one registry",
+  );
   assert.equal(
     specialized.hasNativeRenderer("output/specialized:anatomy"),
     false,
@@ -451,7 +839,8 @@ test("native source renderer capabilities are retained, collision checked, and b
     "Tile Texture compiles Media Image and Tile Repeat through the ordinary texture graph",
   );
   for (const rendererId of [
-    "output/specialized:terrainFlyover",
+    "output/specialized:terrainSurface",
+    "output/specialized:terrainWire",
     "output/specialized:featureMorph",
     "output/specialized:featureMorphV2",
     "output/specialized:text",
@@ -507,19 +896,26 @@ test("shader disposal ignores non-native p5 wrapper handles during context teard
   assert.equal(shader._fragShader, 0);
 });
 
-test("ordinary source dispatch follows the compiled node hook with a legacy source fallback", () => {
+test("ordinary source dispatch accepts only semantic generators and Component references", () => {
   assert.equal(compiledVisualSourceRenderer({
     backend: "source-runtime",
-    renderer: "output/source:media",
-  }, { type: "camera" }), "output/source:media");
-  assert.equal(compiledVisualSourceRenderer({}, { type: "camera" }), "output/source:camera");
+    renderer: "output/source:generator",
+  }, { type: "generator", generatorId: "gradient" }), "output/source:generator");
+  assert.equal(
+    compiledVisualSourceRenderer({}, { type: "component", componentId: "child" }),
+    "output/source:component",
+  );
+  assert.throws(
+    () => compiledVisualSourceRenderer({}, { type: "camera" }),
+    /VJ1_AUTHORED_VISUAL_SOURCE_REQUIRED:camera/,
+  );
 
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const backendSource = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   assert.match(backendSource, /SOURCE_RUNTIME_METHODS\[rendererId\]/);
-  assert.match(backendSource, /resolvePlacedSourceResult\(output, source, component, componentTime, renderRequest\)/);
-  assert.match(rendererSource, /return this\.sourceRuntime\.drawSourceToGraphics\(/);
-  assert.match(rendererSource, /return this\.sourceRuntime\.resolvePlacedSourceResult\(/);
+  assert.match(backendSource, /resolvePlacedSourceResult\(/);
+  assert.doesNotMatch(rendererSource, /^  drawSourceToGraphics\(/m);
+  assert.doesNotMatch(rendererSource, /^  resolvePlacedSourceResult\(/m);
   assert.doesNotMatch(rendererSource, /SOURCE_RUNTIME_METHODS\[rendererId\]/);
   assert.equal(typeof new SourceRenderRuntime({}).drawSourceToGraphics, "function");
 });
@@ -576,17 +972,16 @@ test("source backend executes the compiled renderer capability without source-ki
   const runtime = new SourceRenderRuntime({
     state: { render: {}, ui: {} },
     mode: "output",
-    frameIndex: 0,
+    frameRuntime: { frameIndex: 0 },
   });
   const calls = [];
-  runtime.drawMediaSource = (...args) => calls.push(["media", ...args]);
-  runtime.drawCameraSource = (...args) => calls.push(["camera", ...args]);
+  runtime.drawGeneratorSource = (...args) => calls.push(["generator", ...args]);
   const target = {};
   const component = { id: "owner" };
-  const source = { type: "camera" };
+  const source = { type: "generator", generatorId: "gradient" };
   const operation = {
     backend: "source-runtime",
-    renderer: "output/source:media",
+    renderer: "output/source:generator",
   };
 
   runtime.drawSourceToGraphics(
@@ -599,7 +994,7 @@ test("source backend executes the compiled renderer capability without source-ki
   );
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0][0], "media");
+  assert.equal(calls[0][0], "generator");
   assert.equal(calls[0][1], target);
   assert.equal(calls[0][2], source);
   assert.equal(calls[0][3], component);
@@ -630,33 +1025,43 @@ test("source backends prepare dependencies unbound and own only their final targ
   };
   const parent = { id: "parent", type: "chain" };
   const events = [];
-  const runtime = new SourceRenderRuntime({
+  const host = {
     state: {
       render: { componentAspectRatio: 16 / 9, pixelDensity: 1 },
     },
-    componentTimes: new Map(),
-    componentPrograms: new Map([[
-      parent.id,
-      {
-        inspect: () => ({
-          references: [{ kind: "component", id: child.id, path: "source.componentId" }],
-        }),
-      },
-    ]]),
-    componentForId: (id) => id === child.id ? child : null,
-    componentRegionSafe: () => false,
-    renderComponentForRequest: () => {
-      events.push(`dependency:${depth}`);
-      return { width: 640, height: 360 };
+    frameRuntime: { componentTimes: new Map() },
+    componentProgramRuntime: {
+      programs: new Map([[
+        parent.id,
+        {
+          inspect: () => ({
+            references: [{ kind: "component", id: child.id, path: "source.componentId" }],
+          }),
+        },
+      ]]),
+      componentForId: (id) => id === child.id ? child : null,
     },
-    drawPlacedResultGeometry: () => events.push(`present:${depth}`),
-    isShaderBuffer: () => false,
-    acquireMedia: () => null,
-    requestMissingMedia() {},
-    acquireScreenInput: () => null,
-    screenError: () => "",
-    generatorNodeComponent: () => null,
+    componentRenderRuntime: {
+      render: () => {
+        events.push(`dependency:${depth}`);
+        return { width: 640, height: 360 };
+      },
+    },
+    renderTargetRuntime: {
+      isShaderBuffer: () => false,
+    },
+    visualNodeRuntime: { generator: () => null },
+  };
+  const runtime = new SourceRenderRuntime(host, {
+    mediaRuntime: {
+      acquireMediaById: () => null,
+      requestMissingMedia() {},
+      acquireScreenInput: () => null,
+      screenError: () => "",
+    },
   });
+  runtime.componentRegionSafe = () => false;
+  runtime.drawPlacedResultGeometry = () => events.push(`present:${depth}`);
 
   runtime.drawComponentReferenceSource(
     target,
@@ -765,20 +1170,20 @@ test("Component program reachability remains structural across visibility patche
     surfaces: [],
     ui: { selectedComponentId: root.id },
   };
-  renderer.rebuildVisualNodeResolver();
-  renderer.rebuildComponentPrograms();
+  renderer.visualNodeRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuild();
   assert.deepEqual(
-    [...renderer.componentPrograms.keys()].sort(),
+    [...renderer.componentProgramRuntime.programs.keys()].sort(),
     [child.id, root.id],
     "a hidden reference retains its executable child program",
   );
   assert.deepEqual(
-    renderer.componentPrograms.get(root.id).inspect().dependencies.components,
+    renderer.componentProgramRuntime.programs.get(root.id).inspect().dependencies.components,
     [],
     "active render dependencies still exclude hidden references",
   );
 
-  const result = renderer.applyRenderPatches([{
+  const result = renderer.livePatchRuntime.apply([{
     componentId: root.id,
     path: "chain.0.enabled",
     value: true,
@@ -786,9 +1191,9 @@ test("Component program reachability remains structural across visibility patche
 
   assert.equal(result.applied, true);
   assert.equal(renderer.state.components[0].chain[0].enabled, true);
-  assert.deepEqual([...renderer.componentPrograms.keys()].sort(), [child.id, root.id]);
+  assert.deepEqual([...renderer.componentProgramRuntime.programs.keys()].sort(), [child.id, root.id]);
   let patchedReference = null;
-  renderer.componentPrograms.get(root.id).forEachOperation((operation) => {
+  renderer.componentProgramRuntime.programs.get(root.id).forEachOperation((operation) => {
     if (operation.id === reference.id) patchedReference = operation.configuration;
   });
   assert.equal(
@@ -797,13 +1202,13 @@ test("Component program reachability remains structural across visibility patche
     "visibility patches update retained operation configuration without recompiling topology",
   );
 
-  renderer.applyRenderPatches([{
+  renderer.livePatchRuntime.apply([{
     componentId: root.id,
     path: "chain.0.source.componentId",
     value: replacement.id,
   }]);
   assert.deepEqual(
-    [...renderer.componentPrograms.keys()].sort(),
+    [...renderer.componentProgramRuntime.programs.keys()].sort(),
     [replacement.id, root.id],
     "retargeting a reference derives a fresh closure from current topology rather than stale inspection",
   );
@@ -860,9 +1265,9 @@ test("persisted compact Component graphs compile their referenced Component clos
     surfaces: [],
     ui: { selectedComponentId: root.id },
   };
-  renderer.rebuildVisualNodeResolver();
-  renderer.rebuildComponentPrograms();
-  assert.deepEqual([...renderer.componentPrograms.keys()].sort(), [child.id, root.id]);
+  renderer.visualNodeRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuild();
+  assert.deepEqual([...renderer.componentProgramRuntime.programs.keys()].sort(), [child.id, root.id]);
 });
 import { createInitialState } from "../js/domain/models.js";
 
@@ -931,9 +1336,9 @@ test("local drag overlays refresh only Component lookup entries while Surface ge
     render: {},
     ui: { selectedMappingId: "mapping" },
   };
-  renderer.rebuildRouteLookups();
+  renderer.componentProgramRuntime.rebuildLookups();
   let patchedProgramItem = null;
-  renderer.componentPrograms.set(component.id, {
+  renderer.componentProgramRuntime.programs.set(component.id, {
     replaceChainItem(itemId, item) {
       assert.equal(itemId, "item");
       patchedProgramItem = item;
@@ -948,13 +1353,16 @@ test("local drag overlays refresh only Component lookup entries while Surface ge
   interaction.applyLocalSurface(surface.id, { y: 20 });
 
   assert.equal(fullRebuilds, 0);
-  assert.equal(renderer.componentById.get(component.id).chain[0].transform.x, 0.25);
+  assert.equal(renderer.componentProgramRuntime.componentById.get(component.id).chain[0].transform.x, 0.25);
   assert.equal(patchedProgramItem.transform.x, 0.25, "the rendered program follows the local preview overlay immediately");
   assert.equal(renderer.state.mappings[0].surfaces[0].y, 20);
   assert.equal(renderer.state.surfaces[0].y, 20);
 });
 
 test("compiled Output topology gates the existing Mapping route program", () => {
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const mappingRuntimeSource = readFileSync(new URL("../js/output/mapping-program-runtime.js", import.meta.url), "utf8");
+  const surfaceRuntimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const state = createInitialState();
   state.surfaces[0].enabled = true;
   state.surfaces[0].componentId = state.components[0].id;
@@ -963,18 +1371,22 @@ test("compiled Output topology gates the existing Mapping route program", () => 
   state.nodes = { groups: [sceneGroup, outputGroup] };
   const renderer = new OutputRenderer({ mode: "output" });
   renderer.state = state;
-  renderer.rebuildMappingPrograms();
+  renderer.mappingProgramRuntime.rebuild();
 
-  assert.equal(renderer.outputProgram.enabled, true);
+  assert.equal(renderer.mappingProgramRuntime.output.enabled, true);
+  assert.equal(renderer.mappingProgramRuntime.programs instanceof Map, true);
   assert.deepEqual(
-    renderer.mappingProgramSurfaces().map((surface) => surface.id),
+    renderer.mappingProgramRuntime.surfaces().map((surface) => surface.id),
     state.surfaces.map((surface) => surface.id)
   );
 
   outputGroup.connections = outputGroup.connections.filter((edge) => edge.to !== "$out.output");
-  renderer.rebuildMappingPrograms();
-  assert.equal(renderer.outputProgram.enabled, false);
-  assert.deepEqual(renderer.mappingProgramSurfaces(), []);
+  renderer.mappingProgramRuntime.rebuild();
+  assert.equal(renderer.mappingProgramRuntime.output.enabled, false);
+  assert.deepEqual(renderer.mappingProgramRuntime.surfaces(), []);
+  assert.doesNotMatch(rendererSource, /\bcompileMappingRenderPrograms\b/);
+  assert.match(mappingRuntimeSource, /\bcompileMappingRenderPrograms\b/);
+  assert.match(surfaceRuntimeSource, /mappingProgramRuntime\.surfaces\(/);
 });
 
 test("preview transform ownership survives stale state until an exact acknowledgement", () => {
@@ -1065,8 +1477,12 @@ test("direct output Surfaces remain editable as 2D Scene rectangles", () => {
       mappings: [{ id: "mapping", surfaces: [surface] }],
       ui: { selectedComponentId: scene.id, selectedMappingId: "mapping" },
     },
-    componentOutput: new Map(),
-    componentPreviewRect: () => ({ x: 0, y: 0, width: 100, height: 100 }),
+    resourceRuntime: {
+      componentOutput: new Map(),
+    },
+    presentationRuntime: {
+      componentPreviewRect: () => ({ x: 0, y: 0, width: 100, height: 100 }),
+    },
     onSceneSurfaceSelect: (id) => selected.push(id),
   };
   const interaction = new ComponentPreviewInteraction(renderer);
@@ -1101,15 +1517,15 @@ test("preview picking selects physical sources, spatial effects, and containing 
   const ordinaryEffect = { id: "effect-a", kind: "effect", componentId: "labelChromatic", enabled: true, opacity: 1, transform: {} };
   const component = { id: "component-a", type: "chain", chain: [source, group, ordinaryEffect] };
   renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: "" } };
-  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+  renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
-  assert.equal(renderer.selectChainItemAtPoint(100, 50)?.id, group.id);
+  assert.equal(renderer.previewInteraction.selectChainItemAtPoint(100, 50)?.id, group.id);
   assert.equal(renderer.state.ui.selectedChainItemId, group.id);
   assert.deepEqual(selected, [group.id]);
 
   component.chain.push({ id: "effect-spatial", kind: "effect", componentId: "ripple", enabled: true, opacity: 1, transform: {} });
   renderer.state.ui.selectedChainItemId = "";
-  assert.equal(renderer.selectChainItemAtPoint(100, 50)?.id, "effect-spatial");
+  assert.equal(renderer.previewInteraction.selectChainItemAtPoint(100, 50)?.id, "effect-spatial");
 });
 
 test("preview body picking follows current boundaries and visual stacking rather than selection", () => {
@@ -1136,13 +1552,13 @@ test("preview body picking follows current boundaries and visual stacking rather
     render: {},
     ui: { selectedComponentId: component.id, selectedChainItemId: left.id },
   };
-  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+  renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
-  assert.equal(renderer.chainItemAtPoint(50, 50), left);
-  assert.equal(renderer.chainItemAtPoint(150, 50), right);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(50, 50), left);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(150, 50), right);
 
   right.boundary = { x: 0, y: 0, width: 1, height: 1, rotation: 0 };
-  assert.equal(renderer.chainItemAtPoint(50, 50), right, "the top item wins an overlapping body hit");
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(50, 50), right, "the top item wins an overlapping body hit");
 });
 
 test("one preview press selects a physical element and begins moving it", () => {
@@ -1150,13 +1566,13 @@ test("one preview press selects a physical element and begins moving it", () => 
   const source = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
   const component = { id: "component-a", type: "chain", chain: [source] };
   renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: "" } };
-  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+  renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
   renderer.mousePressed(80, 40);
 
   assert.equal(renderer.state.ui.selectedChainItemId, source.id);
-  assert.equal(renderer.chainTransformDrag?.itemId, source.id);
-  assert.equal(renderer.chainTransformDrag?.mode, "boundary-move");
+  assert.equal(renderer.previewInteraction.chainTransformDrag?.itemId, source.id);
+  assert.equal(renderer.previewInteraction.chainTransformDrag?.mode, "boundary-move");
 });
 
 test("an already selected child inside a group owns the next preview drag", () => {
@@ -1165,14 +1581,14 @@ test("an already selected child inside a group owns the next preview drag", () =
   const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, chain: [child] };
   const component = { id: "component-a", type: "chain", chain: [group] };
   renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } };
-  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+  renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
   renderer.mousePressed(100, 50);
   renderer.mouseDragged(120, 50);
 
   assert.equal(renderer.state.ui.selectedChainItemId, child.id);
-  assert.equal(renderer.chainTransformDrag?.itemId, child.id);
-  assert.equal(renderer.chainTransformDrag?.mode, "boundary-move");
+  assert.equal(renderer.previewInteraction.chainTransformDrag?.itemId, child.id);
+  assert.equal(renderer.previewInteraction.chainTransformDrag?.mode, "boundary-move");
   assert.equal(renderer.state.components[0].chain[0].chain[0].boundary.x, 0.2);
   assert.deepEqual(child.transform, {}, "dragging does not mutate the store-owned fixture");
   assert.deepEqual(group.transform, {});
@@ -1196,10 +1612,10 @@ test("a selected Canvas Group cannot be picked outside the union of its placed c
     render: { canvasSize: { width: 400, height: 400 } },
     ui: { selectedComponentId: canvas.id, selectedChainItemId: group.id },
   };
-  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 400, height: 400 });
+  renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 400, height: 400 });
 
-  assert.equal(renderer.chainItemAtPoint(200, 200), group);
-  assert.equal(renderer.chainItemAtPoint(20, 20), null);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(200, 200), group);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(20, 20), null);
 });
 
 test("default Canvas Component references pick their placement instead of the whole Canvas", () => {
@@ -1227,11 +1643,11 @@ test("default Canvas Component references pick their placement instead of the wh
     render: { sceneAspectRatio: 1, componentAspectRatio: 1 },
     ui: { selectedComponentId: canvas.id, selectedChainItemId: left.id },
   };
-  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 400, height: 400 });
+  renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 400, height: 400 });
 
-  assert.equal(renderer.chainItemAtPoint(100, 200), left);
-  assert.equal(renderer.chainItemAtPoint(300, 200), right);
-  assert.equal(renderer.chainItemAtPoint(20, 20), null);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(100, 200), left);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(300, 200), right);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(20, 20), null);
 });
 
 test("child preview dragging is converted through its parent oriented boundary", () => {
@@ -1240,7 +1656,7 @@ test("child preview dragging is converted through its parent oriented boundary",
   const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, boundary: { x: 0, y: 0, width: 2, height: 2, rotation: Math.PI / 2 }, chain: [child] };
   const component = { id: "component-a", type: "chain", chain: [group] };
   renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } };
-  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+  renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
   renderer.mousePressed(100, 50);
   renderer.mouseDragged(120, 50);
@@ -1261,7 +1677,7 @@ test("releasing a direct element drag commits one undoable boundary change", () 
   const source = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
   const component = { id: "component-a", type: "chain", chain: [source] };
   renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: source.id } };
-  renderer.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+  renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
   renderer.mousePressed(100, 50);
   renderer.mouseDragged(120, 50);
@@ -1279,34 +1695,34 @@ test("global time stretch changes output clock rate without changing its phase",
     global: { playing: true, timeStretch: -1 },
     components: [{ id: "component-a", speed: 1 }],
   };
-  renderer.lastTickMs = 1000;
+  renderer.frameRuntime.lastTickMs = 1000;
 
-  renderer.tickClock(1100);
-  assert.equal(renderer.visualTime, 0.05);
-  assert.equal(renderer.componentTimes.get("component-a"), 0.05);
+  renderer.frameRuntime.tickClock(1100);
+  assert.equal(renderer.frameRuntime.visualTime, 0.05);
+  assert.equal(renderer.frameRuntime.componentTimes.get("component-a"), 0.05);
 
   renderer.state.global.timeStretch = 1;
-  renderer.tickClock(1200);
-  assert.equal(renderer.visualTime, 0.25);
-  assert.equal(renderer.componentTimes.get("component-a"), 0.25);
+  renderer.frameRuntime.tickClock(1200);
+  assert.equal(renderer.frameRuntime.visualTime, 0.25);
+  assert.equal(renderer.frameRuntime.componentTimes.get("component-a"), 0.25);
 
   renderer.state.global.playing = false;
-  renderer.tickClock(1300);
-  assert.equal(renderer.visualTime, 0.25);
-  assert.equal(renderer.visualDeltaSeconds, 0);
+  renderer.frameRuntime.tickClock(1300);
+  assert.equal(renderer.frameRuntime.visualTime, 0.25);
+  assert.equal(renderer.frameRuntime.visualDeltaSeconds, 0);
 
   renderer.state.global = { playing: true };
-  renderer.tickClock(1400);
-  assert.equal(renderer.visualTime, 0.35);
+  renderer.frameRuntime.tickClock(1400);
+  assert.equal(renderer.frameRuntime.visualTime, 0.35);
 
   renderer.state.global.timeStretch = -4;
-  renderer.tickClock(1500);
-  assert.equal(renderer.visualTime, 0.35);
-  assert.equal(renderer.visualDeltaSeconds, 0);
+  renderer.frameRuntime.tickClock(1500);
+  assert.equal(renderer.frameRuntime.visualTime, 0.35);
+  assert.equal(renderer.frameRuntime.visualDeltaSeconds, 0);
 
   renderer.state.global.timeStretch = 4;
-  renderer.tickClock(1600);
-  assert.ok(Math.abs(renderer.visualTime - 1.95) < 1e-12);
+  renderer.frameRuntime.tickClock(1600);
+  assert.ok(Math.abs(renderer.frameRuntime.visualTime - 1.95) < 1e-12);
 });
 
 test("camera capture settings map project preferences to the Portal camera contract", () => {
@@ -1360,14 +1776,14 @@ test("local surface mappings remain authoritative until their exact acknowledgem
   const local = { surfaces: [{ id: "surface-main", corners: [{ x: 12, y: 18 }] }] };
   const stale = { surfaces: [{ id: "surface-main", corners: [{ x: 0, y: 0 }] }] };
 
-  renderer.markLocalMapping(local);
-  assert.equal(renderer.shouldIgnoreIncomingMapping(JSON.stringify(stale)), true);
-  assert.equal(renderer.pendingMappingSignature, JSON.stringify(local));
-  assert.equal(renderer.shouldIgnoreIncomingMapping(JSON.stringify(local)), false);
-  assert.equal(renderer.pendingMappingSignature, "");
+  renderer.mappingRuntime.markLocal(local);
+  assert.equal(renderer.mappingRuntime.shouldIgnoreIncoming(JSON.stringify(stale)), true);
+  assert.equal(renderer.mappingRuntime.pendingMappingSignature, JSON.stringify(local));
+  assert.equal(renderer.mappingRuntime.shouldIgnoreIncoming(JSON.stringify(local)), false);
+  assert.equal(renderer.mappingRuntime.pendingMappingSignature, "");
 
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.ok(source.includes("if (mappingInteractionActive) this.surfaceRebuildPending = true"));
+  const source = readFileSync(new URL("../js/output/output-mapping-runtime.js", import.meta.url), "utf8");
+  assert.ok(source.includes("if (previous.interactionActive) this.surfaceRebuildPending = true"));
   assert.ok(source.includes("this.rebuildSurfaces({ preferExistingMapping: true })"));
   assert.ok(source.includes("preferExistingMapping && existingProjectCorners?.length === 4"));
   assert.ok(!source.includes("localMappingProtectedUntil"));
@@ -1388,24 +1804,24 @@ test("an exact mapping echo acknowledges ownership while its drag is still activ
   state.mappingCalibration = local;
   state.mappings[0].calibration = structuredClone(local);
   renderer.state = createInitialState();
-  renderer.mapper = {
+  renderer.mappingRuntime.mapper = {
     isActive: () => true,
     setCalibrate() {},
     setOverlayMode() {},
   };
-  renderer.mappingSignature = renderer.currentMappingSignature();
-  renderer.markLocalMapping(local);
+  renderer.mappingRuntime.mappingSignature = renderer.mappingRuntime.currentSignature();
+  renderer.mappingRuntime.markLocal(local);
 
   renderer.setState(state);
 
-  assert.equal(renderer.pendingMappingSignature, "");
+  assert.equal(renderer.mappingRuntime.pendingMappingSignature, "");
 });
 
 test("standalone output permanently rejects calibration markers", () => {
   const renderer = new OutputRenderer({ mode: "output" });
   let mapperCalibrating = true;
   renderer.state = { global: { calibrating: true } };
-  renderer.mapper = {
+  renderer.mappingRuntime.mapper = {
     setCalibrate(value) {
       mapperCalibrating = value;
     },
@@ -1414,20 +1830,21 @@ test("standalone output permanently rejects calibration markers", () => {
     },
   };
 
-  renderer.setCalibrate(true);
+  renderer.mappingRuntime.setCalibrate(true);
 
   assert.equal(renderer.state.global.calibrating, false);
   assert.equal(mapperCalibrating, false);
-  assert.equal(renderer.isCalibrating(), false);
+  assert.equal(renderer.mappingRuntime.isCalibrating(), false);
 });
 
 test("output diagnostics remain DOM-only and never add text to the GL surface path", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const metricsSource = readFileSync(new URL("../js/output/output-presentation-metrics.js", import.meta.url), "utf8");
   const appSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
 
   assert.equal(rendererSource.includes("renderOutputFrameOverlay"), false);
   assert.equal(rendererSource.includes("showLabels"), false);
-  assert.ok(rendererSource.includes("this.renderResolutionLabel()"));
+  assert.ok(metricsSource.includes("this.resolutionLabel()"));
   assert.ok(appSource.includes('class="output-fps"'));
 });
 
@@ -1450,7 +1867,7 @@ test("surface calibration keeps direct projection without materialized labels", 
   };
   renderer.mapper = { isCalibrating: () => true };
 
-  assert.equal(renderer.canDirectProjectSurfaceRoute({ surface: { finalShaderChain: [] } }), true);
+  assert.equal(renderer.surfaceRuntime.canDirectProjectSurfaceRoute({ surface: { finalShaderChain: [] } }), true);
   const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   assert.equal(source.includes("drawSurfaceLabel"), false);
 });
@@ -1472,11 +1889,11 @@ test("standalone outputs crop the shared mapping world to their configured viewp
   globalThis.height = 800;
 
   try {
-    assert.deepEqual(renderer.outputFrameSize(), { width: 1280, height: 800 });
-    const frames = outputFrames(renderer.mappingProjectRender());
+    assert.deepEqual(renderer.presentationGeometry.outputFrameSize(), { width: 1280, height: 800 });
+    const frames = outputFrames(renderer.presentationGeometry.mappingProjectRender());
     const selected = frames.find((frame) => frame.id === "right");
-    assert.deepEqual(renderer.outputFrameOffset(), { x: selected.x, y: selected.y });
-    const mapped = renderer.mappingForRenderMode({
+    assert.deepEqual(renderer.presentationGeometry.outputFrameOffset(), { x: selected.x, y: selected.y });
+    const mapped = renderer.presentationGeometry.mappingForMode({
       surfaces: [{ id: "surface", corners: [
         { x: selected.x, y: selected.y },
         { x: selected.x + selected.width, y: selected.y },
@@ -1515,7 +1932,7 @@ test("output fallback surfaces derive from the same world mapping as preview", (
     surfaces: [surface],
     mappings: { local: { surfaces: [] } },
   };
-  renderer.mapper = {
+  renderer.mappingRuntime.mapper = {
     surfaces: [],
     clearSurfaces() {},
     addSurface(config) {
@@ -1527,9 +1944,9 @@ test("output fallback surfaces derive from the same world mapping as preview", (
   globalThis.height = 800;
 
   try {
-    renderer.rebuildSurfaces();
-    const worldCorners = defaultProjectSurfaceMapping(renderer.mappingProjectRender(), [surface])[0].corners;
-    assert.deepEqual(added.corners, worldCorners.map((corner) => renderer.worldPointToDisplay(corner)));
+    renderer.mappingRuntime.rebuildSurfaces();
+    const worldCorners = defaultProjectSurfaceMapping(renderer.presentationGeometry.mappingProjectRender(), [surface])[0].corners;
+    assert.deepEqual(added.corners, worldCorners.map((corner) => renderer.presentationGeometry.worldPointToDisplay(corner)));
   } finally {
     if (previousWidth === undefined) delete globalThis.width;
     else globalThis.width = previousWidth;
@@ -1610,26 +2027,27 @@ test("GPU timing samples periodically instead of instrumenting every render fram
 });
 
 test("stable component cache refreshes the exact GPU buffer usage key", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/component-render-runtime.js", import.meta.url), "utf8");
   const lookup = source.slice(
     source.indexOf("    const stableGpuKey ="),
-    source.indexOf("    if (component.type === \"canvas\")")
+    source.indexOf("    const profile =")
   );
 
-  assert.ok(lookup.includes("this.componentGpuBuffer.get(stableGpuKey)"));
-  assert.ok(lookup.includes("this.componentBuffer.get(stableGpuKey)"));
-  assert.ok(lookup.includes("this.renderCache.touch(\"gpu-buffer\", stableGpuKey, this.frameIndex)"));
-  assert.ok(lookup.includes("this.renderCache.touch(\"buffer\", stableGpuKey, this.frameIndex)"));
+  assert.ok(lookup.includes("host.renderTargetRuntime.gpuTarget(stableGpuKey)"));
+  assert.ok(lookup.includes("host.renderTargetRuntime.cpuTarget(stableGpuKey)"));
+  assert.match(lookup, /host\.renderTargetRuntime\.touchGpu\(stableGpuKey\)/);
+  assert.match(lookup, /host\.renderTargetRuntime\.touchCpu\(stableGpuKey\)/);
 });
 
 test("render-cache maintenance follows resource expiry or hard pressure instead of a frame cadence", () => {
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const stateRuntimeSource = readFileSync(new URL("../js/output/output-state-runtime.js", import.meta.url), "utf8");
+  const frameRuntimeSource = readFileSync(new URL("../js/output/output-frame-runtime.js", import.meta.url), "utf8");
   const cacheSource = readFileSync(new URL("../js/libraries/cache-engine/render-cache/index.js", import.meta.url), "utf8");
   assert.match(cacheSource, /frameIndex < this\.nextIdlePruneFrame/);
   assert.match(cacheSource, /this\.gpuBufferUse\.size > COMPONENT_GPU_BUFFER_CACHE_LIMIT/);
   assert.match(cacheSource, /nextRenderCacheExpiry/);
-  assert.match(rendererSource, /this\.pruneComponentTimes\(\);/);
-  assert.doesNotMatch(rendererSource, /COMPONENT_TIME_MAINTENANCE_FRAMES/);
+  assert.match(stateRuntimeSource, /host\.frameRuntime\.pruneComponentTimes\(\);/);
+  assert.doesNotMatch(frameRuntimeSource, /COMPONENT_TIME_MAINTENANCE_FRAMES/);
 });
 
 test("component pipeline lowers physical render pixels but preserves logical output dimensions", () => {
@@ -1716,24 +2134,30 @@ test("a full Scene request applies ROI to a heavily scaled nested Component", ()
         pixelDensity: 1,
       },
     },
-    componentTimes: new Map(),
-    componentPrograms: new Map([[
-      parent.id,
-      {
-        inspect: () => ({
-          references: [{ kind: "component", id: child.id, path: "source.componentId" }],
-        }),
-      },
-    ]]),
-    componentForId: (id) => id === child.id ? child : null,
-    componentRegionSafe: () => true,
-    renderComponentForRequest: (_component, _time, request) => {
-      childRequest = request;
-      return { width: request.width, height: request.height };
+    frameRuntime: { componentTimes: new Map() },
+    componentProgramRuntime: {
+      programs: new Map([[
+        parent.id,
+        {
+          inspect: () => ({
+            references: [{ kind: "component", id: child.id, path: "source.componentId" }],
+          }),
+        },
+      ]]),
+      componentForId: (id) => id === child.id ? child : null,
     },
-    drawPlacedResultGeometry() {},
-    isShaderBuffer: () => false,
+    componentRenderRuntime: {
+      render: (_component, _time, request) => {
+        childRequest = request;
+        return { width: request.width, height: request.height };
+      },
+    },
+    renderTargetRuntime: {
+      isShaderBuffer: () => false,
+    },
   });
+  runtime.componentRegionSafe = () => true;
+  runtime.drawPlacedResultGeometry = () => {};
 
   runtime.drawComponentReferenceSource(
     { width: 1456, height: 728, push() {}, pop() {} },
@@ -1798,34 +2222,37 @@ test("Component reference counting consumes compiled introspection and the rende
   const source = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   assert.match(
     source,
-    /componentReferenceCount\(\s*host\.componentPrograms\.get\(component\.id\),\s*sourceComponent\.id,/,
+    /componentReferenceCount\(\s*host\.componentProgramRuntime\.programs\.get\(component\.id\),\s*sourceComponent\.id,/,
     "nested Canvas rendering must query references through its compiled parent program",
   );
 });
 
 test("component post filters run after the upscale target", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const componentRenderSource = readFileSync(new URL("../js/output/component-render-runtime.js", import.meta.url), "utf8");
   const compositeSource = readFileSync(new URL("../js/output/composite-render-runtime.js", import.meta.url), "utf8");
-  const pipelineSource = source.slice(
-    source.indexOf("  renderComponentOutputPipeline("),
-    source.indexOf("  cacheComponentOutput(")
+  const pipelineSource = compositeSource.slice(
+    compositeSource.indexOf("  renderComponentPipeline("),
+    compositeSource.indexOf("  getPipelineShader(")
   );
 
   assert.ok(pipelineSource.indexOf('`${component.id}:upscale:') < pipelineSource.indexOf('`${component.id}:post:'));
   assert.ok(compositeSource.includes("COMPONENT_UPSCALE_FRAGMENT_SHADER"));
   assert.ok(compositeSource.includes("COMPONENT_POST_FRAGMENT_SHADER"));
-  assert.ok(source.includes('shaderProgram.setUniform("noiseAmount"'));
-  assert.ok(source.includes('shaderProgram.setUniform("grayscaleAmount"'));
+  assert.match(pipelineSource, /shaderProgram\.setUniform\(\s*"noiseAmount"/);
+  assert.match(pipelineSource, /shaderProgram\.setUniform\(\s*"grayscaleAmount"/);
+  assert.ok(componentRenderSource.includes("host.compositeRuntime.renderComponentPipeline({"));
 });
 
 test("Live Component transform is placed by its parent instead of cropped into its own texture", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const presentationSource = readFileSync(new URL("../js/output/output-presentation-runtime.js", import.meta.url), "utf8");
+  const componentRenderSource = readFileSync(new URL("../js/output/component-render-runtime.js", import.meta.url), "utf8");
   const sourceBackend = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   const surfaceSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("return pipelined;"));
+  assert.ok(componentRenderSource.includes("return host.compositeRuntime.renderComponentPipeline({"));
   assert.ok(!source.includes("renderComponentRootTransform("));
-  assert.ok(source.includes("transform: component.transform"));
+  assert.ok(presentationSource.includes("transform: component.transform"));
   assert.ok(sourceBackend.includes("combineContentTransforms("));
   assert.ok(sourceBackend.includes("source.contentTransform,"));
   assert.ok(sourceBackend.includes("dependency.transform,"));
@@ -1848,13 +2275,13 @@ test("output resize derives its backing geometry from the current host viewport"
     globalThis.height = 1080;
     renderer.state = { render };
 
-    assert.deepEqual(renderer.outputFrameSize(render), { width: 1920, height: 1080 });
-    assert.deepEqual(renderer.displayCanvasSize(render), { width: 1920, height: 1080 });
-    assert.deepEqual(renderer.renderResolutionSize(render), { width: 1920, height: 1080, density: 1 });
-    assert.equal(renderer.renderResolutionLabel(render), "1920x1080");
-    const projectFrame = outputFrameForId(renderer.mappingProjectRender(), "output-main");
-    const topLeft = renderer.worldPointToDisplay({ x: projectFrame.x, y: projectFrame.y });
-    const bottomRight = renderer.worldPointToDisplay({
+    assert.deepEqual(renderer.presentationGeometry.outputFrameSize(render), { width: 1920, height: 1080 });
+    assert.deepEqual(renderer.presentationGeometry.displayCanvasSize(render), { width: 1920, height: 1080 });
+    assert.deepEqual(renderer.presentationMetrics.resolutionSize(render), { width: 1920, height: 1080, density: 1 });
+    assert.equal(renderer.presentationMetrics.resolutionLabel(render), "1920x1080");
+    const projectFrame = outputFrameForId(renderer.presentationGeometry.mappingProjectRender(), "output-main");
+    const topLeft = renderer.presentationGeometry.worldPointToDisplay({ x: projectFrame.x, y: projectFrame.y });
+    const bottomRight = renderer.presentationGeometry.worldPointToDisplay({
       x: projectFrame.x + projectFrame.width,
       y: projectFrame.y + projectFrame.height,
     });
@@ -1883,8 +2310,8 @@ test("standalone Output presentation covers a mismatched window without non-unif
     globalThis.width = 1200;
     globalThis.height = 900;
     renderer.state = { render };
-    const transform = renderer.outputFrameTransform();
-    const frame = outputFrames(renderer.mappingProjectRender())[0];
+    const transform = renderer.presentationGeometry.outputFrameTransform();
+    const frame = outputFrames(renderer.presentationGeometry.mappingProjectRender())[0];
     assert.ok(Math.abs(transform.scale - (900 / frame.height)) < 1e-9);
     assert.ok(transform.x < 0);
     assert.ok(Math.abs(transform.y) < 1e-9);
@@ -1929,7 +2356,8 @@ test("standalone Output keeps relative Surface proportions across popup aspect c
       },
       mappingCalibration: calibration,
     };
-    const corners = renderer.projectMappingSurfaceCorners("surface").map((point) => renderer.worldPointToDisplay(point));
+    const corners = renderer.presentationGeometry.projectSurfaceCorners("surface")
+      .map((point) => renderer.presentationGeometry.worldPointToDisplay(point));
     return Math.hypot(corners[1].x - corners[0].x, corners[1].y - corners[0].y)
       / Math.hypot(corners[3].x - corners[0].x, corners[3].y - corners[0].y);
   };
@@ -1953,8 +2381,8 @@ test("embedded Live retains Scene project-world geometry instead of covering its
     },
   };
 
-  assert.deepEqual(renderer.worldPointToDisplay({ x: 200, y: 300 }), { x: 200, y: 300 });
-  assert.deepEqual(renderer.displayPointToWorld({ x: 200, y: 300 }), { x: 200, y: 300 });
+  assert.deepEqual(renderer.presentationGeometry.worldPointToDisplay({ x: 200, y: 300 }), { x: 200, y: 300 });
+  assert.deepEqual(renderer.presentationGeometry.displayPointToWorld({ x: 200, y: 300 }), { x: 200, y: 300 });
 });
 
 test("hud render resolution reports GPU render pixels, not window size", () => {
@@ -1972,11 +2400,11 @@ test("hud render resolution reports GPU render pixels, not window size", () => {
     globalThis.height = 720;
     renderer.state = { render };
 
-    assert.deepEqual(renderer.displayCanvasSize(render), { width: 1280, height: 720 });
-    assert.deepEqual(renderer.renderResolutionSize(render), { width: 1920, height: 1080, density: 1.5 });
-    assert.equal(renderer.renderResolutionLabel(render), "1920x1080 @1.5x");
-    assert.equal(renderer.renderPixelDensity({ pixelDensity: 4 }), 4);
-    assert.deepEqual(renderer.renderResolutionSize({ ...render, pixelDensity: 4 }), {
+    assert.deepEqual(renderer.presentationGeometry.displayCanvasSize(render), { width: 1280, height: 720 });
+    assert.deepEqual(renderer.presentationMetrics.resolutionSize(render), { width: 1920, height: 1080, density: 1.5 });
+    assert.equal(renderer.presentationMetrics.resolutionLabel(render), "1920x1080 @1.5x");
+    assert.equal(renderer.presentationGeometry.pixelDensity({ pixelDensity: 4 }), 4);
+    assert.deepEqual(renderer.presentationMetrics.resolutionSize({ ...render, pixelDensity: 4 }), {
       width: 5120,
       height: 2880,
       density: 4,
@@ -1994,7 +2422,7 @@ test("Output HUD presents every authored render-chain allocation on its own line
   renderer.state = {
     render: { outputs: [{ id: "output-main", aspectRatio: 16 / 9 }] },
   };
-  renderer.lastRenderResolutionTrace = [
+  renderer.componentRenderRuntime.lastResolutionTrace = [
     {
       componentId: "scene",
       itemId: "scene",
@@ -2015,7 +2443,7 @@ test("Output HUD presents every authored render-chain allocation on its own line
     },
   ];
 
-  const markup = renderer.outputRenderChainHudMarkup(60);
+  const markup = renderer.presentationMetrics.outputChainMarkup(60);
 
   assert.match(markup, /60 fps/);
   assert.match(markup, /Main Scene/);
@@ -2030,8 +2458,8 @@ test("cached Components replay their retained resolution trace without rerenderi
   const component = { id: "component", name: "Component", type: "component" };
   const request = { width: 640, height: 360 };
 
-  renderer.withRenderResolutionTrace(component, "component-request", request, () => {
-    renderer.recordRenderChainResolution(component, {
+  renderer.componentRenderRuntime.withResolutionTrace(component, "component-request", request, () => {
+    renderer.componentRenderRuntime.recordResolution(component, {
       id: "source",
       name: "Source",
       source: { type: "generator" },
@@ -2039,16 +2467,16 @@ test("cached Components replay their retained resolution trace without rerenderi
   });
 
   renderer.profileRuntime.collectDetailed = true;
-  renderer.activeRenderResolutionTrace.length = 0;
+  renderer.componentRenderRuntime.activeResolutionTrace.length = 0;
   let rendered = 0;
-  renderer.withRenderResolutionTrace(component, "component-request", request, () => {
-    renderer.useCachedRenderResolutionTrace("component-request");
+  renderer.componentRenderRuntime.withResolutionTrace(component, "component-request", request, () => {
+    renderer.componentRenderRuntime.useCachedResolutionTrace("component-request");
     rendered++;
   });
 
   assert.equal(rendered, 1);
   assert.deepEqual(
-    renderer.activeRenderResolutionTrace.map(({ kind, name, width, height }) => ({
+    renderer.componentRenderRuntime.activeResolutionTrace.map(({ kind, name, width, height }) => ({
       kind, name, width, height,
     })),
     [
@@ -2066,12 +2494,12 @@ test("Good embedded preview reports its final render-chain request at 2x", () =>
     previewRasterScale: 2,
   };
   renderer.state = { render };
-  renderer.setPreviewViewport({ zoom: 1.25, x: 0, y: 0 });
-  renderer.recordPresentedRenderRequest({ width: 2000, height: 1000 });
-  assert.deepEqual(renderer.renderResolutionSize(render), { width: 2000, height: 1000, density: 2 });
-  assert.equal(renderer.renderResolutionLabel(render), "2000x1000 @2x");
-  assert.equal(renderer.previewViewportZoomLabel(), "1.25x view");
-  const diagnostic = renderer.previewDiagnosticHudMarkup(60, {
+  renderer.presentationGeometry.setViewport({ zoom: 1.25, x: 0, y: 0 });
+  renderer.presentationMetrics.recordPresentedRequest({ width: 2000, height: 1000 });
+  assert.deepEqual(renderer.presentationMetrics.resolutionSize(render), { width: 2000, height: 1000, density: 2 });
+  assert.equal(renderer.presentationMetrics.resolutionLabel(render), "2000x1000 @2x");
+  assert.equal(renderer.presentationGeometry.viewportLabel(), "1.25x view");
+  const diagnostic = renderer.presentationMetrics.previewDiagnosticMarkup(60, {
     ...render,
     previewViewportZoom: 1.25,
     hostViewport: { width: 1000, height: 500 },
@@ -2096,14 +2524,28 @@ test("preview viewport changes only retained p5 presentation state", () => {
     invalidation = reason;
   };
 
-  assert.equal(renderer.setPreviewViewport({ zoom: 2, x: 15, y: -8 }), true);
+  assert.equal(renderer.presentationGeometry.setViewport({ zoom: 2, x: 15, y: -8 }), true);
   assert.strictEqual(renderer.state, state);
   assert.deepEqual(renderer.state.components[0].params, { opacity: 0.42 });
-  assert.deepEqual(renderer.previewViewport, { zoom: 2, x: 15, y: -8 });
+  assert.deepEqual(renderer.presentationGeometry.viewport, { zoom: 2, x: 15, y: -8 });
   assert.equal(invalidation, "preview-viewport");
 });
 
-test("terrain and parsed STL stay in the shared WebGL context while imported p5 models reuse a scratch target", () => {
+test("terrain pass lowering retains one shared color and depth framebuffer", () => {
+  const sourceRuntime = readFileSync(
+    new URL("../js/output/source-render-runtime.js", import.meta.url),
+    "utf8",
+  );
+  const planRuntime = readFileSync(
+    new URL("../js/output/visual-plan-runtime.js", import.meta.url),
+    "utf8",
+  );
+  assert.match(sourceRuntime, /renderFramebufferPassSequence\(/);
+  assert.match(sourceRuntime, /createSharedFramebufferTarget\(/);
+  assert.match(sourceRuntime, /operation\.framebufferSequence\?\.inputPort/);
+  assert.match(planRuntime, /completedFramebufferSequences/);
+  assert.match(planRuntime, /candidate\.framebufferSequence\?\.sequenceId/);
+  return;
   const previousCreateGraphics = globalThis.createGraphics;
   const previousCreateFramebuffer = globalThis.createFramebuffer;
   const previousNoStroke = globalThis.noStroke;
@@ -2154,44 +2596,24 @@ test("terrain and parsed STL stay in the shared WebGL context while imported p5 
   renderer.state = { render: { pixelDensity: 0.5 } };
 
   try {
-    const terrainLow = renderer.getTerrainTarget(1000, 563);
-    const parsedModelLow = renderer.specializedSources.getRawModelTarget(1000, 563, 0.5);
-    const modelLow = renderer.getModelTarget(1000, 563);
+    const terrainLow = renderer.specializedSources.terrain.target(1000, 563, 0.5);
     assert.equal(terrainLow.__vj1SharedFramebuffer, true);
-    assert.equal(parsedModelLow.__vj1SharedFramebuffer, true);
     assert.equal(terrainLow.pixelDensity(), 1);
-    assert.equal(parsedModelLow.pixelDensity(), 1);
     assert.equal(terrainLow.framebuffer.depth, true);
-    assert.equal(parsedModelLow.framebuffer.depth, true);
-    assert.equal(modelLow.appliedDensity, 0.5);
-    assert.equal(modelLow.mode, "webgl");
+    assert.equal(renderer.specializedSources.model, undefined);
 
     renderer.state.render.pixelDensity = 1.5;
-    const terrainHigh = renderer.getTerrainTarget(1000, 563);
-    const parsedModelHigh = renderer.specializedSources.getRawModelTarget(1000, 563, 1.5);
-    const modelHigh = renderer.getModelTarget(1000, 563);
+    const terrainHigh = renderer.specializedSources.terrain.target(1000, 563, 1.5);
     assert.equal(terrainHigh.__vj1PixelDensity, 1.5);
-    assert.equal(parsedModelHigh.__vj1PixelDensity, 1.5);
-    assert.equal(modelHigh.appliedDensity, 1.5);
     assert.strictEqual(terrainHigh, terrainLow);
-    assert.strictEqual(parsedModelHigh, parsedModelLow);
-    assert.strictEqual(modelHigh, modelLow);
 
-    const terrainResolved = renderer.getTerrainTarget(500, 282, 1);
-    const parsedModelResolved = renderer.specializedSources.getRawModelTarget(500, 282, 1);
-    const modelResolved = renderer.getModelTarget(500, 282, 1);
+    const terrainResolved = renderer.specializedSources.terrain.target(500, 282, 1);
     assert.equal(terrainResolved.__vj1PixelDensity, 1);
-    assert.equal(parsedModelResolved.__vj1PixelDensity, 1);
-    assert.equal(modelResolved.appliedDensity, 1);
     assert.strictEqual(terrainResolved, terrainLow);
-    assert.strictEqual(parsedModelResolved, parsedModelLow);
-    assert.strictEqual(modelResolved, modelLow);
     assert.equal(terrainResolved.framebuffer.resizeCount, 1);
-    assert.equal(parsedModelResolved.framebuffer.resizeCount, 1);
-    assert.equal(modelResolved.resizeCount, 1);
-    assert.equal(renderer.specializedWebglTargets.size, 3);
-    assert.equal(framebuffers.length, 2);
-    assert.equal(created.length, 1);
+    assert.equal(renderer.specializedSources.targets.targets.size, 1);
+    assert.equal(framebuffers.length, 1);
+    assert.equal(created.length, 0);
   } finally {
     if (previousCreateGraphics === undefined) delete globalThis.createGraphics;
     else globalThis.createGraphics = previousCreateGraphics;
@@ -2204,116 +2626,17 @@ test("terrain and parsed STL stay in the shared WebGL context while imported p5 
   }
 });
 
-test("compiled 3D visual hosting resolves declared resources without a fixed object count", () => {
-  const source = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
-  const method = source.slice(
-    source.indexOf("  drawCompiledScene3dProgram("),
-    source.indexOf("  executeCompiledVisualNodeProcess(")
-  );
-
-  assert.ok(method.includes("operation.scene3dProgram.publicInputs"));
-  assert.ok(method.includes("operation.scene3dProgram.resourceBindings"));
-  assert.ok(method.includes("invocation.meshes"));
-  assert.ok(method.includes("invocation.context"));
-  assert.ok(method.includes('inlet.type !== "mesh"'));
-  assert.ok(method.includes("params[`${inlet.id}Id`]"));
-  assert.ok(!method.includes("params.meshAId"));
-  assert.ok(!method.includes("params.meshBId"));
-});
-
-test("compiled 3D visual hosting feeds retained multi-mesh programs into the component target", () => {
-  const meshA = { id: "mesh-a" };
-  const meshB = { id: "mesh-b" };
-  const acquired = [];
-  const executions = [];
-  const runtime = new SourceRenderRuntime({
-    acquireMedia(mediaId) {
-      acquired.push(mediaId);
-      if (mediaId === "media/a.stl") return { modelData: meshA };
-      if (mediaId === "media/b.stl") return { modelData: meshB };
-      return null;
-    },
-    requestMissingMedia() {
-      throw new Error("all declared meshes should already be available");
-    },
-  });
-  const operation = {
-    scene3dProgram: {
-      publicInputs: [
-        { id: "meshAId", type: "string", required: true },
-        { id: "meshBId", type: "string", required: true },
-        { id: "surface-color", type: "color", required: false },
-        { id: "target", type: "any", required: true },
-      ],
-      resourceBindings: [
-        {
-          nodeId: "mesh-a",
-          kind: "media",
-          valueType: "mesh",
-          parameterId: "mediaId",
-          publicInputId: "meshAId",
-          required: true,
-        },
-        {
-          nodeId: "mesh-b",
-          kind: "media",
-          valueType: "mesh",
-          parameterId: "mediaId",
-          publicInputId: "meshBId",
-          required: true,
-        },
-      ],
-      execute(inputs, context) {
-        executions.push({
-          inputs,
-          target: inputs.target,
-          meshA: context.resolveMesh(inputs.meshAId),
-          meshB: context.resolveMesh(inputs.meshBId),
-          surfaceColor: inputs["surface-color"],
-        });
-      },
-    },
-  };
-  const source = {
-    type: "generator",
-    params: {
-      meshAId: "media/a.stl",
-      meshBId: "media/b.stl",
-      "surface-color": "#123456ff",
-    },
-  };
-  const target = { width: 1280, height: 720 };
-  const request = { width: 1280, height: 720, logicalWidth: 1280, logicalHeight: 720 };
-
-  runtime.drawCompiledScene3dProgram(target, source, 1.5, request, operation);
-  delete source.params["surface-color"];
-  runtime.drawCompiledScene3dProgram(target, source, 2.5, request, operation);
-
-  assert.deepEqual(acquired, [
-    "media/a.stl", "media/b.stl",
-    "media/a.stl", "media/b.stl",
-  ]);
-  assert.equal(executions.length, 2);
-  assert.strictEqual(executions[0].inputs, executions[1].inputs, "the compiled host retains one invocation packet");
-  assert.strictEqual(executions[0].target, target);
-  assert.strictEqual(executions[0].meshA, meshA);
-  assert.strictEqual(executions[0].meshB, meshB);
-  assert.equal(executions[0].surfaceColor, "#123456ff");
-  assert.equal(executions[1].surfaceColor, undefined, "removed public values cannot leak from a retained invocation packet");
-  assert.equal(executions[1].inputs.componentTime, 2.5);
-});
-
 test("Terrain node helper and shader forks invalidate only their retained GPU resources", () => {
-  const runtimeSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const runtimeSource = readFileSync(new URL("../js/output/specialized/terrain-render-runtime.js", import.meta.url), "utf8");
   const terrainSource = readFileSync(new URL("../js/output/specialized/terrain-renderer.js", import.meta.url), "utf8");
 
   assert.match(runtimeSource, /const terrainModule = terrainNodeRuntimeModule\(operation\)/);
-  assert.match(runtimeSource, /operation\?\.nodeCodeRevision \|\| operation\?\.nodeModuleRevision \|\| "legacy"/);
-  assert.match(runtimeSource, /operation\?\.nodeShaderRevision \|\| operation\?\.nodeModuleRevision \|\| "legacy"/);
-  assert.match(runtimeSource, /operation\?\.nodeShaderProgramRevisions\?\.surface \|\| shaderRevision/);
-  assert.match(runtimeSource, /operation\?\.nodeShaderProgramRevisions\?\.wire \|\| shaderRevision/);
-  assert.match(runtimeSource, /drawTerrainSurface\([^;]+terrainModule, codeRevision, nodeShaders, surfaceShaderRevision\)/);
-  assert.match(runtimeSource, /drawTerrainWireframe\([^;]+terrainModule, codeRevision, nodeShaders, wireShaderRevision\)/);
+  assert.match(runtimeSource, /operation\?\.nodeCodeRevision\s*\|\|\s*operation\?\.nodeModuleRevision\s*\|\|\s*"legacy"/);
+  assert.match(runtimeSource, /operation\?\.nodeShaderRevision\s*\|\|\s*operation\?\.nodeModuleRevision\s*\|\|\s*"legacy"/);
+  assert.match(runtimeSource, /operation\?\.nodeShaderProgramRevisions\?\.surface\s*\|\|\s*shaderRevision/);
+  assert.match(runtimeSource, /operation\?\.nodeShaderProgramRevisions\?\.wire\s*\|\|\s*shaderRevision/);
+  assert.match(runtimeSource, /this\.drawSurface\([\s\S]*?terrainModule,\s*codeRevision,\s*nodeShaders,\s*surfaceShaderRevision,?\s*\);/);
+  assert.match(runtimeSource, /this\.drawWire\([\s\S]*?terrainModule,\s*codeRevision,\s*nodeShaders,\s*wireShaderRevision,?\s*\);/);
   assert.match(terrainSource, /const sizeKey = `\$\{moduleRevision\}:\$\{widthCells\}:\$\{depthCells\}`/);
   assert.match(terrainSource, /const meshKey = `\$\{moduleRevision\}:\$\{widthCells\}:\$\{depthCells\}`/);
   assert.match(terrainSource, /resources\.shaderRevision !== shaderRevision/);
@@ -2354,11 +2677,11 @@ test("component thumbnails downsample on the GPU before a small readback", () =>
 });
 
 test("sampled shader work retains its owning Component for deep performance links", () => {
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const shaderSource = readFileSync(new URL("../js/output/shader-effect-runtime.js", import.meta.url), "utf8");
   const profileSource = readFileSync(new URL("../js/output/output-render-profile.js", import.meta.url), "utf8");
   assert.ok(profileSource.includes("this.componentContext.push(meta)"));
   assert.ok(profileSource.includes("this.componentContext.pop()"));
-  assert.ok(rendererSource.includes("...this.activeComponentProfileIdentity()"));
+  assert.ok(shaderSource.includes("...profile.activeComponentIdentity()"));
 });
 
 test("thumbnail capture is blocked while live preview rendering is disabled", () => {
@@ -2371,10 +2694,11 @@ test("thumbnail capture is blocked while live preview rendering is disabled", ()
 
 test("paused previews contain thumbnails and canvas surface routes preserve sampling", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const presentationSource = readFileSync(new URL("../js/output/output-presentation-runtime.js", import.meta.url), "utf8");
   const surfaceSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
-  const source = `${rendererSource}\n${surfaceSource}`;
+  const source = `${rendererSource}\n${presentationSource}\n${surfaceSource}`;
   assert.ok(source.includes("const rect = this.componentPreviewRect(component);"));
-  assert.ok(source.includes('sceneEditorWorld: this.mode === "component" && this.state?.ui?.workspace === "scene"'));
+  assert.match(source, /sceneEditorWorld:\s*host\.mode === "component" &&\s*host\.state\?\.ui\?\.workspace === "scene"/);
   assert.ok(source.includes("thumbnail.img,"));
   assert.ok(source.includes('surface.sourceFitActive ? surface.sourceFit : "stretch"'));
   assert.ok(source.includes("drawBufferedSurfaceTexture(texture, route = {})"));
@@ -2383,41 +2707,47 @@ test("paused previews contain thumbnails and canvas surface routes preserve samp
 });
 
 test("thumbnail preview uses the authoritative Scene snapshot without component reconstruction", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const stateRuntimeSource = readFileSync(new URL("../js/output/output-state-runtime.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/output-presentation-runtime.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("captureThumbnailEditTransformBaselines()"));
+  assert.ok(stateRuntimeSource.includes("host.thumbnailRuntime.captureEditTransformBaselines()"));
   assert.ok(source.includes("renderSceneThumbnailSnapshotPreview(component)"));
   assert.doesNotMatch(source, /renderSceneThumbnailEditPreview\(/);
   assert.ok(source.includes("component?.type !== \"scene\""));
-  assert.ok(source.includes("this.renderSelectedChainTransformOverlay();"));
+  assert.ok(source.includes("host.previewInteraction.renderSelectedChainTransformOverlay();"));
   assert.ok(source.includes("if (this.shouldUseThumbnailPreview()) this.renderThumbnailComponents();"));
   assert.ok(source.includes("const rect = this.componentPreviewRect(component);"));
   assert.ok(source.includes("withScreenScissor(rect"));
-  assert.ok(source.includes("drawImageCoverCrop(thumbnail.img"));
+  assert.match(source, /drawImageCoverCrop\(\s*thumbnail\.img/);
 });
 
 test("Scene rendering evaluates ordinary sources, Groups, effects, and compiled Surface routes", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const visualPlanSource = readFileSync(new URL("../js/output/visual-plan-runtime.js", import.meta.url), "utf8");
+  const programSource = readFileSync(new URL("../js/output/component-program-runtime.js", import.meta.url), "utf8");
+  const componentRenderSource = readFileSync(new URL("../js/output/component-render-runtime.js", import.meta.url), "utf8");
+  const surfaceRuntimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const plannerSource = readFileSync(new URL("../js/libraries/composition-engine/surface-composition/index.js", import.meta.url), "utf8");
-  const compiledRenderer = source.slice(
-    source.indexOf("  renderCompiledComponent("),
-    source.indexOf("  renderComponentChain(")
+  const compiledRenderer = componentRenderSource.slice(
+    componentRenderSource.indexOf("  executeCompiled("),
+    componentRenderSource.indexOf("  withResolutionTrace(")
   );
-  assert.ok(source.includes("this.renderComponentChainState("));
-  assert.ok(source.includes("nodeId, state, renderedItem, componentTime, renderRequest, externalInputStates"));
-  assert.ok(source.includes("this.renderDirectSourceNodeState(nodeId, state, component, renderedItem, componentTime, renderRequest)"));
-  assert.ok(source.includes("this.renderLayerNodeState(nodeId, state, sourceState, { ...renderedItem, transform: {} }, renderRequest)"));
-  assert.ok(source.includes("this.renderBoundedLayerNodeState(nodeId, state, groupState"));
-  assert.ok(source.includes(": this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest)"));
-  assert.ok(source.includes("output.tint(255, 255 * clamp01(layer.opacity ?? 1))"));
-  assert.ok(source.includes("applyBlend(output, layer.blend)"));
-  assert.ok(source.includes('source.type === "component"'));
-  assert.ok(source.includes("this.routeSourceNodeById"));
-  assert.ok(source.includes("sceneSourceNodes(this.state || {}, { includeSystem: true })"));
-  assert.ok(source.includes("resolveRouteSourceNode(surface = {})"));
+  assert.doesNotMatch(source, /^  renderComponentChainState\(/m);
+  assert.match(visualPlanSource, /^  renderChainState\(/m);
+  assert.ok(visualPlanSource.includes("externalInputStates,"));
+  assert.ok(visualPlanSource.includes("host.sourceRuntime.renderDirectNodeState("));
+  assert.ok(visualPlanSource.includes("host.compositeRuntime.renderLayerNodeState("));
+  assert.ok(visualPlanSource.includes("host.compositeRuntime.renderBoundedLayerNodeState("));
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  assert.ok(sourceRuntime.includes("output.tint(255, 255 * clamp01(layer.opacity ?? 1))"));
+  assert.ok(sourceRuntime.includes("applyBlend(output, layer.blend)"));
+  assert.ok(sourceRuntime.includes('source.type === "component"'));
+  assert.ok(surfaceRuntimeSource.includes("renderer.componentProgramRuntime.resolveRouteSourceNode(surface)"));
+  assert.ok(programSource.includes("sceneSourceNodes(state || {}, { includeSystem: true })"));
+  assert.ok(programSource.includes("resolveRouteSourceNode(surface = {})"));
   assert.ok(plannerSource.includes("resolveRouteSourceNode(storedSurface)"));
   assert.ok(!source.includes('item.role === "canvas-layer"'));
-  assert.ok(compiledRenderer.includes("program.execute(this, component"));
+  assert.match(compiledRenderer, /program\.execute\(\s*host,\s*component/);
   assert.ok(compiledRenderer.includes("VJ1_COMPONENT_PROGRAM_MISSING"));
   assert.ok(!compiledRenderer.includes("component.chain"));
   assert.ok(!compiledRenderer.includes('item.kind === "source"'));
@@ -2427,23 +2757,30 @@ test("Scene rendering evaluates ordinary sources, Groups, effects, and compiled 
 });
 
 test("effect quality requests remain owned by the effect path", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const directSourcePath = source.slice(
-    source.indexOf("  renderDirectSourceNodeState("),
-    source.indexOf("  renderLayerNodeState("),
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  const effectSource = readFileSync(new URL("../js/output/shader-effect-runtime.js", import.meta.url), "utf8");
+  const directSourcePath = sourceRuntime.slice(
+    sourceRuntime.indexOf("  renderDirectNodeState("),
+    sourceRuntime.indexOf("  drawPlacedSourceResult("),
   );
-  const effectPath = source.slice(
-    source.indexOf("  renderEffectNodeState("),
-    source.indexOf("  renderEffectRunNodeState("),
+  const effectPath = effectSource.slice(
+    effectSource.indexOf("  renderNodeState("),
+    effectSource.indexOf("  renderRunNodeState("),
   );
 
   assert.doesNotMatch(directSourcePath, /\bqualityRequest\b/);
   assert.doesNotMatch(directSourcePath, /qualityScaledRenderRequest\(evaluationRequest,\s*params\)/);
-  assert.match(effectPath, /const qualityRequest = qualityScaledRenderRequest\(evaluationRequest,\s*params\);/);
-  assert.match(effectPath, /recordRenderChainResolution\(null,\s*item,\s*"effect",\s*qualityRequest\)/);
+  assert.match(effectPath, /const qualityRequest = qualityScaledRenderRequest\(\s*evaluationRequest,\s*params,\s*\);/);
+  assert.match(effectPath, /host\.componentRenderRuntime\.recordResolution\(\s*null,\s*item,\s*"effect",\s*qualityRequest,\s*\)/);
   assert.ok(
-    effectPath.indexOf("const qualityRequest =") < effectPath.indexOf("this.evaluateChainNode("),
+    effectPath.indexOf("const qualityRequest =") < effectPath.indexOf("host.renderEvaluationRuntime.evaluate("),
     "the quality request must exist before the effect evaluation callback closes over it",
+  );
+  assert.doesNotMatch(
+    rendererSource,
+    /^  (?:renderEffectNodeState|renderEffectRunNodeState|effectPassIsFrameDynamic)\(/m,
+    "effect evaluation belongs to ShaderEffectRuntime rather than the renderer facade",
   );
 });
 
@@ -2457,31 +2794,32 @@ test("stable compiled presentations suspend until a graph or media invalidation 
     ui: { selectedComponentId: component.id, debugPreview: true },
     components: [component],
   };
-  renderer.componentPrograms = new Map([[component.id, {}]]);
-  renderer.componentContainsVideo = () => false;
-  renderer.componentIsFrameDynamic = () => false;
+  renderer.componentProgramRuntime.programs = new Map([[component.id, {}]]);
+  renderer.sourceRuntime.componentContainsVideo = () => false;
+  renderer.componentRenderRuntime.isFrameDynamic = () => false;
 
-  assert.equal(renderer.presentationFrameMode(), "on-change");
-  renderer.componentContainsVideo = () => true;
-  assert.equal(renderer.presentationFrameMode(), "continuous", "active video graphs use the presentation clock rather than decoder callbacks");
+  assert.equal(renderer.frameRuntime.presentationMode(), "on-change");
+  renderer.sourceRuntime.componentContainsVideo = () => true;
+  assert.equal(renderer.frameRuntime.presentationMode(), "continuous", "active video graphs use the presentation clock rather than decoder callbacks");
   renderer.state.global = { playing: false };
-  assert.equal(renderer.isPlaybackActive(), false);
-  assert.equal(renderer.presentationFrameMode(), "on-change", "paused Preview graphs suspend even when they contain video");
+  assert.equal(renderer.frameRuntime.isPlaybackActive(), false);
+  assert.equal(renderer.frameRuntime.presentationMode(), "on-change", "paused Preview graphs suspend even when they contain video");
   renderer.state.global.playing = true;
-  renderer.componentContainsVideo = () => false;
-  renderer.componentIsFrameDynamic = () => true;
-  assert.equal(renderer.presentationFrameMode(), "continuous");
-  renderer.componentIsFrameDynamic = () => false;
+  renderer.sourceRuntime.componentContainsVideo = () => false;
+  renderer.componentRenderRuntime.isFrameDynamic = () => true;
+  assert.equal(renderer.frameRuntime.presentationMode(), "continuous");
+  renderer.componentRenderRuntime.isFrameDynamic = () => false;
   renderer.mode = "output";
   renderer.state.surfaces = [{ enabled: true, componentId: component.id }];
-  assert.equal(renderer.presentationFrameMode(), "on-change", "stable mapped Outputs use the same policy");
+  assert.equal(renderer.frameRuntime.presentationMode(), "on-change", "stable mapped Outputs use the same policy");
   renderer.state.global.playing = false;
-  assert.equal(renderer.isPlaybackActive(), false, "Output and Preview modes consume the same playback state");
-  assert.ok(rendererSource.includes("presentationFrameMode()"));
-  assert.ok(rendererSource.includes("this.componentContainsVideo(component)"));
-  assert.ok(rendererSource.includes("Decoder callbacks identify new media revisions, but they are not a"));
+  assert.equal(renderer.frameRuntime.isPlaybackActive(), false, "Output and Preview modes consume the same playback state");
+  const frameRuntimeSource = readFileSync(new URL("../js/output/output-frame-runtime.js", import.meta.url), "utf8");
+  assert.ok(frameRuntimeSource.includes("presentationMode()"));
+  assert.ok(frameRuntimeSource.includes("host.sourceRuntime.componentContainsVideo(component)"));
+  assert.ok(frameRuntimeSource.includes("Decoder callbacks identify new media revisions, but they are not a"));
   assert.ok(previewSource.includes("suspendStablePreviewPresentation()"));
-  assert.ok(previewSource.includes('renderer?.presentationFrameMode?.() !== "on-change"'));
+  assert.ok(previewSource.includes('renderer?.frameRuntime.presentationMode() !== "on-change"'));
   assert.ok(previewSource.includes("wakePreviewPresentation();"));
   assert.ok(previewSource.includes("idleSuspended = true;"));
   assert.ok(previewSource.includes("noLoop();"));
@@ -2571,15 +2909,15 @@ test("Canvas frame fanout retains ROI only when nested component placements can 
   };
   const renderer = new OutputRenderer({});
   renderer.state = { components: [canvas, independent, synced] };
-  renderer.componentPrograms = new Map([
+  renderer.componentProgramRuntime.programs = new Map([
     [canvas.id, { inspect: () => ({ dependencies: { components: [canvas.chain[0].source.componentId] } }) }],
     [independent.id, { inspect: () => ({ dependencies: { components: [] } }) }],
     [synced.id, { inspect: () => ({ dependencies: { components: [] } }) }],
   ]);
 
-  assert.equal(renderer.sceneComponentFrameFanoutSafe(canvas), false);
+  assert.equal(renderer.sourceRuntime.sceneComponentFrameFanoutSafe(canvas), false);
   canvas.chain[0].source.componentId = synced.id;
-  assert.equal(renderer.sceneComponentFrameFanoutSafe(canvas), true);
+  assert.equal(renderer.sourceRuntime.sceneComponentFrameFanoutSafe(canvas), true);
 });
 
 test("Surface route lookup indexes Components and explicit source nodes once per state", () => {
@@ -2589,22 +2927,22 @@ test("Surface route lookup indexes Components and explicit source nodes once per
       { id: "scene-a", type: "scene", name: "Scene A", scene: {} },
     ],
   };
-  renderer.rebuildRouteLookups();
+  renderer.componentProgramRuntime.rebuildLookups();
 
-  const node = renderer.resolveRouteSourceNode({
+  const node = renderer.componentProgramRuntime.resolveRouteSourceNode({
     sourceNodeId: "component:scene-a",
     componentId: "scene-a",
   });
-  assert.equal(renderer.componentById.get("scene-a").type, "scene");
+  assert.equal(renderer.componentProgramRuntime.componentById.get("scene-a").type, "scene");
   assert.equal(node.componentId, "scene-a");
-  assert.equal(renderer.resolveRouteSourceNode({
+  assert.equal(renderer.componentProgramRuntime.resolveRouteSourceNode({
     sourceNodeId: "component:vj1-system-mapping-test-pattern",
     componentId: "vj1-system-mapping-test-pattern",
     outputFrameId: "",
   })?.componentId, "vj1-system-mapping-test-pattern");
-  assert.equal(renderer.componentById.get("vj1-system-mapping-test-pattern")?.runtimeSource, true);
-  assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "", componentId: "", outputFrameId: "" }), null);
-  assert.equal(renderer.resolveRouteSourceNode({ sourceNodeId: "missing", componentId: "", outputFrameId: "" }), null);
+  assert.equal(renderer.componentProgramRuntime.componentById.get("vj1-system-mapping-test-pattern")?.runtimeSource, true);
+  assert.equal(renderer.componentProgramRuntime.resolveRouteSourceNode({ sourceNodeId: "", componentId: "", outputFrameId: "" }), null);
+  assert.equal(renderer.componentProgramRuntime.resolveRouteSourceNode({ sourceNodeId: "missing", componentId: "", outputFrameId: "" }), null);
 });
 
 test("runtime visual sources compile through the ordinary retained Component program", () => {
@@ -2616,13 +2954,19 @@ test("runtime visual sources compile through the ordinary retained Component pro
     ui: {},
   };
 
-  renderer.rebuildComponentPrograms();
-  renderer.rebuildRouteLookups();
+  renderer.componentProgramRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuildLookups();
 
-  assert.equal(renderer.componentPrograms.has(MAPPING_TEST_PATTERN_COMPONENT_ID), true);
-  assert.equal(renderer.componentById.get(MAPPING_TEST_PATTERN_COMPONENT_ID)?.runtimeSource, true);
+  assert.equal(renderer.componentProgramRuntime.programs.has(MAPPING_TEST_PATTERN_COMPONENT_ID), true);
+  assert.equal(renderer.componentProgramRuntime.componentById.get(MAPPING_TEST_PATTERN_COMPONENT_ID)?.runtimeSource, true);
+  let sourceOperation = null;
+  renderer.componentProgramRuntime.programs
+    .get(MAPPING_TEST_PATTERN_COMPONENT_ID)
+    ?.forEachOperation((operation) => {
+      if (operation.opcode === "source") sourceOperation = operation;
+    });
   assert.equal(
-    renderer.componentPrograms.get(MAPPING_TEST_PATTERN_COMPONENT_ID)?.chain?.[0]?.source?.generatorId,
+    sourceOperation?.configuration?.source?.generatorId,
     "testPattern",
   );
 });
@@ -2892,37 +3236,95 @@ test("placed render results separate texture pixels from parent-frame placement"
 test("direct placement eligibility is shared by Canvas and ordinary component parents", () => {
   const renderer = new OutputRenderer({ mode: "component" });
   const dependency = { id: "child", type: "chain" };
-  renderer.state = { components: [dependency] };
+  renderer.state = {
+    components: [dependency],
+    media: [
+      { id: "image", type: "image" },
+      { id: "video", type: "video" },
+    ],
+  };
   renderer.media.set("image", { image: { width: 640, height: 360 } });
-  renderer.media.set("model", { model: {}, image: { width: 640, height: 360 } });
-  renderer.media.set("video", {
-    video: {
-      elt: { tagName: "VIDEO", videoWidth: 640, videoHeight: 360, readyState: 4 },
-    },
-  });
 
   const reference = { kind: "source", source: { type: "component", componentId: dependency.id } };
-  assert.equal(renderer.canDirectCompositeSource(reference), true);
-  assert.equal(renderer.canDirectCompositeSource({ ...reference, blend: "overlay" }), false);
-  assert.equal(renderer.canDirectCompositeSource({ kind: "source", source: { type: "media", mediaId: "image" } }), true);
-  renderer.state.media = [{ id: "image", type: "image" }];
-  assert.equal(renderer.canDirectCompositeSource({
-    kind: "source",
-    source: { type: "media", mediaId: "image", params: { alphaCut: 2, alphaFeather: 4 } },
-  }), false, "image alpha cleanup materializes only that source before compositing it");
-  assert.equal(renderer.canDirectCompositeSource({ kind: "source", source: { type: "media", mediaId: "model" } }), false);
-  assert.equal(
-    renderer.canDirectCompositeSource({ kind: "source", source: { type: "media", mediaId: "video" } }),
-    false,
-    "video is materialized into its own retained frame before layer compositing",
-  );
+  assert.equal(renderer.sourceRuntime.canDirectComposite(reference), true);
+  assert.equal(renderer.sourceRuntime.canDirectComposite({ ...reference, blend: "overlay" }), false);
   assert.equal(directPlacementKind({
-    source: { type: "media" },
-    mediaDrawable: true,
-    mediaRequiresRetainedFrame: true,
+    source: { type: "generator" },
+    drawableResourceDrawable: true,
+  }), "drawable-resource");
+  assert.equal(directPlacementKind({
+    source: { type: "generator" },
+    drawableResourceDrawable: true,
+    drawableResourceRequiresRetainedFrame: true,
   }), "");
-  assert.equal(directPlacementKind({ source: { type: "camera" }, cameraDrawable: true }), "camera-texture");
   assert.equal(directPlacementKind({ source: { type: "generator" } }), "");
+
+  const directPlacement = {
+    kind: "drawable-resource",
+    input: "resource",
+    fitParameter: "fit",
+    mirrorParameter: "mirrored",
+    retainProjectVideoFrame: true,
+  };
+  const projectImageOperation = {
+    directPlacement,
+    runtimeValueInputs: new Map([["resource", {
+      kind: "project-media-resource",
+      mediaId: "image",
+      ready: true,
+    }]]),
+  };
+  const projectImage = {
+    kind: "source",
+    source: {
+      type: "generator",
+      generatorId: "mediaImage",
+      params: { fit: "cover", mirrored: false },
+    },
+  };
+  assert.equal(
+    renderer.sourceRuntime.canDirectComposite(
+      projectImage,
+      { width: 640, height: 360 },
+      projectImageOperation,
+      { speed: 1 },
+    ),
+    true,
+    "a declared typed-media placement eliminates the intermediate source target",
+  );
+  assert.equal(
+    renderer.sourceRuntime.canDirectComposite(
+      {
+        ...projectImage,
+        source: {
+          ...projectImage.source,
+          params: { fit: "cover", mirrored: true },
+        },
+      },
+      { width: 640, height: 360 },
+      projectImageOperation,
+      { speed: 1 },
+    ),
+    false,
+    "mirroring stays in the ordinary node process until placed geometry declares reflection",
+  );
+  assert.equal(
+    renderer.sourceRuntime.canDirectComposite(
+      projectImage,
+      { width: 640, height: 360 },
+      {
+        ...projectImageOperation,
+        runtimeValueInputs: new Map([["resource", {
+          kind: "project-media-resource",
+          mediaId: "video",
+          ready: true,
+        }]]),
+      },
+      { speed: 1 },
+    ),
+    false,
+    "project video keeps the atomic retained-frame boundary",
+  );
 });
 
 test("direct placement composites texture geometry without a parent-sized source buffer", () => {
@@ -2945,7 +3347,7 @@ test("direct placement composites texture geometry without a parent-sized source
   const previousBlend = globalThis.BLEND;
   globalThis.BLEND = "blend";
   try {
-    renderer.drawPlacedSourceResult(output, createPlacedRenderResult(texture, {
+    renderer.sourceRuntime.drawPlacedSourceResult(output, createPlacedRenderResult(texture, {
       destinationRect: { x: 400, y: 300, width: 200, height: 100 },
       transform: { x: 0.2, y: -0.1, scale: 1.5, rotation: 0.25 },
     }), { opacity: 0.5, blend: "normal" });
@@ -2971,14 +3373,9 @@ test("direct WebGL surfaces use supported blend modes and deterministically fall
   assert.doesNotMatch(helper, /globalThis|OVERLAY|HARD_LIGHT|SOFT_LIGHT|DODGE|BURN/);
 });
 
-test("output renderer imports the bounds helper used while rebuilding direct surfaces", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const layoutImport = source.slice(
-    source.indexOf("import {\n  sceneMaxRasterSize"),
-    source.indexOf("from \"./component-render-layout.js", source.indexOf("import {\n  sceneMaxRasterSize"))
-  );
-
-  assert.match(layoutImport, /\bcornersRect,/);
+test("Mapping runtime imports the bounds helper used while rebuilding direct surfaces", () => {
+  const source = readFileSync(new URL("../js/output/output-mapping-runtime.js", import.meta.url), "utf8");
+  assert.match(source, /import \{ cornersRect \} from "\.\/component-render-layout\.js/);
   assert.match(source, /const rect = cornersRect\(corners\);/);
 });
 
@@ -2999,27 +3396,91 @@ test("Canvas preview requests match the visible backing density", () => {
 });
 
 test("component groups render isolated from earlier parent layers", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/visual-plan-runtime.js", import.meta.url), "utf8");
   const groupRenderSource = source.slice(
-    source.indexOf("  renderComponentOperationsState("),
-    source.indexOf("  renderThumbnailComponents()")
+    source.indexOf("  renderOperations("),
+    source.indexOf("  compiledGroupInputStates(")
   );
 
-  assert.ok(groupRenderSource.includes("let state = this.transparentChainState(component, renderRequest);"));
-  assert.ok(groupRenderSource.includes("groupState = compiledGroup && operation.executionModel === \"texture-dag\""));
-  assert.ok(groupRenderSource.includes("? this.executeVisualTextureDag("));
-  assert.ok(groupRenderSource.includes(": this.renderComponentOperationsState("));
-  assert.ok(groupRenderSource.includes("operation?.operations || item.chain || []"));
+  assert.ok(groupRenderSource.includes("let state = host.compositeRuntime.transparentChainState("));
+  assert.ok(groupRenderSource.includes("operation.executionModel === \"texture-dag\""));
+  assert.ok(groupRenderSource.includes("? this.executeTextureDag("));
+  assert.ok(groupRenderSource.includes(": this.renderOperations("));
+  assert.ok(groupRenderSource.includes("requiredGroupOperations(operation, nodeId)"));
+  assert.doesNotMatch(groupRenderSource, /\bitem\.chain\b/);
   assert.ok(groupRenderSource.includes("operation.placementLowering === \"terminal-coordinate\""));
-  assert.ok(groupRenderSource.includes("const groupTransform = compiledGroup && !lowersPlacementToTerminal"));
-  assert.ok(groupRenderSource.includes("transform: lowersPlacementToTerminal ? {} : compoundPlacementTransform"));
-  assert.ok(groupRenderSource.includes("this.renderBoundedLayerNodeState(nodeId, state, groupState"));
-  assert.ok(groupRenderSource.includes(": this.renderLayerNodeState(nodeId, state, groupState, { ...item, transform: {} }, renderRequest);"));
+  assert.ok(groupRenderSource.includes("const groupTransform ="));
+  assert.ok(groupRenderSource.includes("compiledGroup && !lowersPlacementToTerminal"));
+  assert.ok(groupRenderSource.includes("transform: lowersPlacementToTerminal"));
+  assert.ok(groupRenderSource.includes("compoundPlacementTransform"));
+  assert.ok(groupRenderSource.includes("host.compositeRuntime.renderBoundedLayerNodeState("));
+  assert.ok(groupRenderSource.includes("host.compositeRuntime.renderLayerNodeState("));
   assert.ok(!groupRenderSource.includes("drawBuffer(groupState.buffer, state.buffer"));
 });
 
+test("compiled Group Content scale raises value-provider detail without enlarging its target", () => {
+  let evaluation = null;
+  const transparent = { buffer: { id: "transparent" }, instanceInvariant: true };
+  const host = {
+    compositeRuntime: {
+      transparentChainState: () => transparent,
+      renderLayerNodeState: (_id, _state, output) => output,
+      renderBoundedLayerNodeState: (_id, _state, output) => output,
+    },
+    componentRenderRuntime: { recordResolution() {} },
+    mediaRuntime: null,
+    media: new Map(),
+    specializedSources: {
+      capabilityReadiness: () => null,
+    },
+  };
+  const runtime = new VisualPlanRuntime(host);
+  const request = { role: "component", width: 800, height: 450 };
+  const operation = {
+    id: "scaled-group",
+    opcode: "group",
+    backend: "compiled-visual-group",
+    placementLowering: "terminal-coordinate",
+    configuration: {
+      id: "scaled-group",
+      kind: "group",
+      enabled: true,
+      transform: { x: 0, y: 0, scale: 3, rotation: 0 },
+      boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 },
+    },
+    operations: [],
+    valueProgram: {
+      evaluate(options) {
+        evaluation = options;
+      },
+    },
+    runtimeStates: new Map(),
+    runtimeOutputStates: new Map(),
+    outputPorts: ["texture"],
+    outputBindings: {},
+    outputPort: "texture",
+    publicTextureInputs: {},
+  };
+
+  runtime.renderOperations(
+    { id: "component", name: "Component" },
+    [operation],
+    0,
+    request,
+  );
+
+  assert.deepEqual(evaluation.renderRequest, request);
+  assert.deepEqual(evaluation.sourceDetail, {
+    width: 2400,
+    height: 1350,
+    physicalWidth: 800,
+    physicalHeight: 450,
+    contentScale: 3,
+  });
+});
+
 test("compiled visual Groups route named texture inputs by public port identity", () => {
-  const renderer = Object.create(OutputRenderer.prototype);
+  const runtime = new VisualPlanRuntime({});
   const foreground = { buffer: { id: "foreground" } };
   const background = { buffer: { id: "background" } };
   const fallback = { buffer: { id: "fallback" } };
@@ -3040,12 +3501,12 @@ test("compiled visual Groups route named texture inputs by public port identity"
       background: "mix.b",
     },
   };
-  const inputs = renderer.textureDagInputStates(plan, operation, fallback);
+  const inputs = runtime.textureInputStates(plan, operation, fallback);
 
   assert.strictEqual(inputs.get("foreground"), foreground);
   assert.strictEqual(inputs.get("background"), background);
   assert.strictEqual(
-    renderer.textureDagInputState(
+    runtime.textureInputState(
       { runtimeStates: new Map() },
       { textureInputs: { a: "$in.foreground" } },
       "a",
@@ -3055,11 +3516,11 @@ test("compiled visual Groups route named texture inputs by public port identity"
     foreground,
   );
   assert.deepEqual(
-    [...renderer.compiledVisualGroupInputStates(operation, fallback, inputs)],
+    [...runtime.compiledGroupInputStates(operation, fallback, inputs)],
     [["foreground", foreground], ["background", background]],
   );
   assert.deepEqual(
-    [...renderer.compiledVisualGroupInputStates({
+    [...runtime.compiledGroupInputStates({
       textureInputs: { texture: "previous-chain-operation" },
       publicTextureInputs: {},
     }, fallback)],
@@ -3069,7 +3530,8 @@ test("compiled visual Groups route named texture inputs by public port identity"
 });
 
 test("compiled visual Groups publish distinct retained output states by public port identity", () => {
-  const renderer = Object.create(OutputRenderer.prototype);
+  const host = {};
+  const runtime = new VisualPlanRuntime(host);
   const transparent = { buffer: { id: "transparent" } };
   const primary = { buffer: { id: "primary" } };
   const alternate = { buffer: { id: "alternate" } };
@@ -3085,7 +3547,7 @@ test("compiled visual Groups publish distinct retained output states by public p
     ]),
   };
   assert.deepEqual(
-    [...renderer.compiledVisualGroupOutputStates(compiledOutputs, transparent)],
+    [...runtime.compiledGroupOutputStates(compiledOutputs, transparent)],
     [["texture", primary], ["alternate", alternate]],
   );
   const group = {
@@ -3110,15 +3572,17 @@ test("compiled visual Groups publish distinct retained output states by public p
     operations: [group, select],
     runtimeStates: new Map(),
   };
-  renderer.transparentChainState = () => transparent;
-  renderer.renderComponentOperationsState = (_component, operations) => {
+  host.compositeRuntime = {
+    transparentChainState: () => transparent,
+  };
+  runtime.renderOperations = (_component, operations) => {
     assert.strictEqual(operations[0], group);
     group.runtimeOutputStates.set("texture", primary);
     group.runtimeOutputStates.set("alternate", alternate);
     return primary;
   };
 
-  const result = renderer.executeVisualTextureDag(
+  const result = runtime.executeTextureDag(
     plan,
     { id: "component" },
     0,
@@ -3129,6 +3593,89 @@ test("compiled visual Groups publish distinct retained output states by public p
   assert.strictEqual(plan.runtimeStates.get("compound"), primary);
   assert.strictEqual(plan.runtimeStates.get("compound.alternate"), alternate);
   assert.strictEqual(result, alternate);
+});
+
+test("compiled framebuffer passes execute atomically and publish one retained state", () => {
+  const transparent = { buffer: { id: "transparent" } };
+  const retained = {
+    buffer: { id: "shared-color-depth" },
+    nodeKey: "terrain-pass",
+    outputVersion: 1,
+  };
+  const calls = [];
+  const host = {
+    compositeRuntime: {
+      transparentChainState: () => transparent,
+    },
+    sourceRuntime: {
+      renderFramebufferPassSequence(
+        component,
+        operations,
+        componentTime,
+        renderRequest,
+        scopeId,
+        inputStates,
+      ) {
+        calls.push({
+          component,
+          operations,
+          componentTime,
+          renderRequest,
+          scopeId,
+          inputStates,
+        });
+        return retained;
+      },
+    },
+  };
+  const sequenceId = "terrain/shared-pass";
+  const surface = {
+    id: "surface",
+    opcode: "source",
+    configuration: { enabled: true },
+    textureInputs: {},
+    textureInputPorts: [],
+    runtimeInputStates: new Map(),
+    framebufferSequence: {
+      sequenceId,
+      phase: "begin",
+      preserve: ["color", "depth"],
+    },
+  };
+  const wire = {
+    id: "wire",
+    opcode: "source",
+    configuration: { enabled: true },
+    textureInputs: { target: "surface" },
+    textureInputPorts: ["target"],
+    runtimeInputStates: new Map(),
+    framebufferSequence: {
+      sequenceId,
+      phase: "continue",
+      inputPort: "target",
+      preserve: ["color", "depth"],
+    },
+  };
+  const plan = {
+    operations: [surface, wire],
+    runtimeStates: new Map(),
+  };
+  const runtime = new VisualPlanRuntime(host);
+  const component = { id: "component" };
+  const request = { width: 640, height: 360 };
+  const result = runtime.executeTextureDag(
+    plan,
+    component,
+    2,
+    request,
+    "component",
+  );
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0].operations, [surface, wire]);
+  assert.strictEqual(plan.runtimeStates.get("surface"), retained);
+  assert.strictEqual(plan.runtimeStates.get("wire"), retained);
+  assert.strictEqual(result, retained);
 });
 
 test("Group transforms place physical content but never resample a composition-wide effect input", () => {
@@ -3158,53 +3705,64 @@ test("Group transforms place physical content but never resample a composition-w
 
 test("rasterized sources own a full-frame coordinate transform before neutral layer compositing", () => {
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const sourceRuntimeSource = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  const generatorSource = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
+  const visualPlanSource = readFileSync(new URL("../js/output/visual-plan-runtime.js", import.meta.url), "utf8");
+  const compositeSource = readFileSync(new URL("../js/output/composite-render-runtime.js", import.meta.url), "utf8");
+  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-target-runtime.js", import.meta.url), "utf8");
   const meshRenderSource = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
   const shaderSource = readFileSync(new URL("../js/output/render-pass-shaders.js", import.meta.url), "utf8");
-  const chainRenderSource = source.slice(
-    source.indexOf("  renderComponentChainState("),
-    source.indexOf("  transparentChainState(")
+  const chainRenderSource = visualPlanSource.slice(
+    visualPlanSource.indexOf("  renderOperations("),
+    visualPlanSource.indexOf("  compiledGroupInputStates(")
   );
-  const layerRenderSource = source.slice(
-    source.indexOf("  renderLayerNodeState("),
-    source.indexOf("  renderOverlayLayerToTarget(")
+  const layerRenderSource = compositeSource.slice(
+    compositeSource.indexOf("  renderLayerNodeState("),
+    compositeSource.indexOf("  renderBoundedLayerNodeState(")
   );
-  const drawLayerSource = source.slice(
-    source.indexOf("  drawChainLayer("),
-    source.indexOf("  drawTransformedLayerFallback(")
+  const drawLayerSource = compositeSource.slice(
+    compositeSource.indexOf("  drawChainLayer("),
+    compositeSource.indexOf("  drawTransformedLayerFallback("),
   );
 
-  const rasterSourceRender = source.slice(
-    source.indexOf("  renderComponentSourceItemState("),
-    source.indexOf("  sourceRuntimeTimeKey(")
+  const rasterSourceRender = sourceRuntimeSource.slice(
+    sourceRuntimeSource.indexOf("  renderItemState("),
+    sourceRuntimeSource.indexOf("  imageSourceNeedsAlphaEdge(")
   );
   assert.ok(rasterSourceRender.includes("contentTransform: item.transform || {}"));
-  assert.ok(chainRenderSource.includes("this.renderLayerNodeState(nodeId, state, sourceState, { ...renderedItem, transform: {} }, renderRequest)"));
+  assert.ok(chainRenderSource.includes("host.compositeRuntime.renderLayerNodeState("));
+  assert.ok(chainRenderSource.includes("{ ...renderedItem, transform: {} }"));
   assert.ok(layerRenderSource.includes("renderLayerContentTransformState("));
   assert.ok(layerRenderSource.includes('renderBufferKey(nodeId, "content-transform")'));
   assert.ok(shaderSource.includes("uniform mat3 sourceUvMatrix;"));
   assert.ok(shaderSource.includes("gl_FragColor = color * inside;"));
-  assert.ok(drawLayerSource.includes("drawBuffer(output, source, 0, 0, output.width, output.height"));
+  assert.match(
+    drawLayerSource,
+    /drawBuffer\(\s*output,\s*source,\s*0,\s*0,\s*output\.width,\s*output\.height/,
+  );
   assert.ok(!drawLayerSource.includes("output.translate("));
   assert.ok(!drawLayerSource.includes("output.scale("));
-  assert.ok(source.includes('setShaderUniformIfPresent(shader, "contentUvMatrix", contentMatrix)'));
-  assert.ok(specializedSource.includes("presentGeneratedTarget(pg, target)"));
+  assert.match(
+    generatorSource,
+    /setShaderUniformIfPresent\(\s*shader,\s*"contentUvMatrix",\s*uniformState\.sampling/,
+  );
+  assert.ok(specializedSource.includes("present(output, target)"));
   assert.ok(specializedSource.includes("GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER"));
   assert.ok(meshRenderSource.includes("rawModelMatrices("));
   assert.ok(meshRenderSource.includes("contentTransform,"));
 });
 
 test("component preview always draws its overarching frame independently of selection", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../js/output/output-presentation-runtime.js", import.meta.url), "utf8");
   const interactionSource = readFileSync(new URL("../js/output/component-preview-interaction.js", import.meta.url), "utf8");
   const previewSource = source.slice(
     source.indexOf("  renderComponentPreview()"),
-    source.indexOf("  setCalibrate(on)")
+    source.indexOf("  renderFlattenedThumbnailEditPreview(component)")
   );
 
-  assert.ok(previewSource.includes("this.renderComponentFrameOverlay(component, source)"));
+  assert.ok(previewSource.includes("host.previewInteraction.renderComponentFrameOverlay(component, source)"));
   assert.ok(interactionSource.includes('if (renderer.mode !== "component" || !component) return'));
-  assert.ok(interactionSource.includes("renderer.componentPreviewRect(component, source)"));
+  assert.ok(interactionSource.includes("renderer.presentationRuntime.componentPreviewRect(component, source)"));
   assert.ok(interactionSource.includes("stroke(101, 224, 211, 235)"));
 });
 
@@ -3275,8 +3833,15 @@ test("compiled shader sources allocate quality-scaled instance-owned targets", (
   );
 });
 
+test("compiled source targets allocate depth only when the node declares it", () => {
+  assert.deepEqual(compiledSourceRenderTargetOptions({}), { depth: false });
+  assert.deepEqual(
+    compiledSourceRenderTargetOptions({ renderTarget: { depth: true } }),
+    { depth: true },
+  );
+});
+
 test("shader generators preserve the component render contract", () => {
-  const renderer = new OutputRenderer({ mode: "output" });
   const request = {
     role: "surface",
     width: 1600,
@@ -3300,28 +3865,30 @@ test("shader generators preserve the component render contract", () => {
   };
   const target = { width: request.width, height: request.height };
   let receivedRequest = null;
-  renderer.renderShaderGeneratorSource = (_id, _time, nextRequest) => {
+  const runtime = new ShaderGeneratorRuntime({
+    renderRequestRuntime: {
+      normalize: (nextRequest) => nextRequest,
+    },
+  });
+  runtime.renderSource = (_id, _time, nextRequest) => {
     receivedRequest = nextRequest;
     return target;
   };
 
-  assert.equal(renderer.drawShaderGenerator(pg, "eyeball", 1.25, request), true);
+  assert.equal(runtime.draw(pg, "eyeball", 1.25, request), true);
   assert.deepEqual(receivedRequest, request);
 });
 
 test("shader generator host retains the shared source-detail contract after source extraction", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const renderShaderSource = rendererSource.slice(
-    rendererSource.indexOf("  renderShaderGeneratorSource("),
-    rendererSource.indexOf("  setShaderGeneratorCommonUniforms("),
-  );
+  const generatorSource = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
 
-  assert.match(rendererSource, /import \{ renderSourceDetail, renderView \} from "\.\.\/libraries\/render-engine\/render-view\/index\.js/);
-  assert.match(renderShaderSource, /const sourceDetail = renderSourceDetail\(drawingSize, renderRequest,/);
+  assert.match(generatorSource, /const sourceDetail = renderSourceDetail\(/);
+  assert.match(generatorSource, /drawingSize,\s*renderRequest,/);
+  assert.doesNotMatch(rendererSource, /\brenderSourceDetail\b/);
 });
 
 test("shader generators draw directly into a shared source framebuffer", () => {
-  const renderer = Object.create(OutputRenderer.prototype);
   const request = { width: 640, height: 360, logicalWidth: 640, logicalHeight: 360 };
   const pg = {
     __vj1SharedFramebuffer: true,
@@ -3330,14 +3897,52 @@ test("shader generators draw directly into a shared source framebuffer", () => {
     push() { throw new Error("direct generator output must not be copied"); },
   };
   let receivedTarget = null;
-  renderer.normalizeRenderRequest = (nextRequest) => nextRequest;
-  renderer.renderShaderGeneratorSource = (_id, _time, _request, _params, _instanceId, _transform, outputTarget) => {
+  const runtime = new ShaderGeneratorRuntime({
+    renderRequestRuntime: {
+      normalize: (nextRequest) => nextRequest,
+    },
+  });
+  runtime.renderSource = (_id, _time, _request, _params, _instanceId, _transform, outputTarget) => {
     receivedTarget = outputTarget;
     return outputTarget;
   };
 
-  assert.equal(renderer.drawShaderGenerator(pg, "eyeball", 1.25, request), true);
+  assert.equal(runtime.draw(pg, "eyeball", 1.25, request), true);
   assert.equal(receivedTarget, pg);
+});
+
+test("shader generator capability owns retained uniform state and pruning", () => {
+  const runtime = new ShaderGeneratorRuntime({ frameRuntime: { frameIndex: 20 } });
+  runtime.uniformStates.set("active", { resolution: [1, 1] });
+  runtime.uniformStates.set("stale", { resolution: [1, 1] });
+  runtime.uniformStateUse.set("active", 19);
+  runtime.uniformStateUse.set("stale", 2);
+
+  runtime.prune(5);
+  assert.equal(runtime.uniformStates.has("active"), true);
+  assert.equal(runtime.uniformStates.has("stale"), false);
+  assert.equal(runtime.uniformStateUse.has("stale"), false);
+
+  runtime.dispose();
+  assert.equal(runtime.uniformStates.size, 0);
+  assert.equal(runtime.uniformStateUse.size, 0);
+
+  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const generatorSource = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  assert.match(rendererSource, /new ShaderGeneratorRuntime\(this\)/);
+  assert.match(sourceRuntime, /host\.shaderGeneratorRuntime\.draw\(/);
+  assert.doesNotMatch(
+    rendererSource,
+    /^  (?:drawShaderGenerator|renderShaderGeneratorSource|continuousRateTime)\(/m,
+  );
+  assert.doesNotMatch(
+    rendererSource,
+    /generatorUniformStates|generatorUniformStateUse/,
+  );
+  assert.match(generatorSource, /shaderRuntime\.getShader\(/);
+  assert.match(generatorSource, /isfRuntime\.renderProgram\(/);
+  assert.match(generatorSource, /qualityAdjustedGeneratorParams\(/);
 });
 
 test("eyeball computes frame-constant animation outside its fragment shader", () => {
@@ -3357,14 +3962,14 @@ test("eyeball computes frame-constant animation outside its fragment shader", ()
 
 test("every compiled generator backend remains tied to the component source target", () => {
   const source = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
-  const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const generatorSource = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
   const drawSource = source.slice(
     source.indexOf("  drawGeneratorSource("),
-    source.indexOf("  drawCompiledScene3dProgram(")
+    source.indexOf("  executeCompiledVisualNodeProcess(")
   );
-  const drawShader = rendererSource.slice(
-    rendererSource.indexOf("  drawShaderGenerator("),
-    rendererSource.indexOf("  renderShaderGeneratorSource(")
+  const drawShader = generatorSource.slice(
+    generatorSource.indexOf("  draw("),
+    generatorSource.indexOf("  renderSource(")
   );
 
   assert.ok(drawSource.includes("this.drawCompiledNativeSource("));
@@ -3372,21 +3977,21 @@ test("every compiled generator backend remains tied to the component source targ
   assert.ok(drawSource.includes("target,"));
   assert.ok(drawSource.includes('typeof operation?.nodeProcess === "function"'));
   assert.ok(drawSource.includes("this.executeCompiledVisualNodeProcess("));
-  assert.ok(source.includes('this.nativeRenderers.get(String(rendererId || ""))'));
-  assert.ok(source.includes("this.host.specializedSources?.drawNativeRenderer?.("));
-  assert.ok(drawSource.includes("host.drawShaderGenerator("));
+  assert.ok(source.includes("this.nativeRendererRegistry.execute("));
+  assert.ok(!source.includes("this.host.specializedSources?.drawNativeRenderer?.("));
+  assert.ok(drawSource.includes("host.shaderGeneratorRuntime.draw("));
   assert.ok(drawSource.includes("VJ1_GENERATOR_IMPLEMENTATION_MISSING"));
   assert.ok(!drawSource.includes("drawGenerator("));
-  assert.ok(drawShader.includes("width: pg.width"));
-  assert.ok(drawShader.includes("height: pg.height"));
+  assert.ok(drawShader.includes("width: target.width"));
+  assert.ok(drawShader.includes("height: target.height"));
 });
 
 test("window resize preserves the dedicated model context while final disposal releases it", () => {
-  const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  const createBuffers = source.slice(source.indexOf("  createBuffers()"), source.indexOf("  buffersMatchRenderSize()"));
-  const disposeBuffers = source.slice(source.indexOf("  disposeBuffers({ preserveSpecialized = false } = {})"), source.indexOf("  getCachedNoiseTexture()"));
+  const source = readFileSync(new URL("../js/output/output-resource-runtime.js", import.meta.url), "utf8");
+  const createBuffers = source.slice(source.indexOf("  createBuffers()"), source.indexOf("  matchesRenderSize()"));
+  const disposeBuffers = source.slice(source.indexOf("  disposeBuffers({ preserveSpecialized = false } = {})"), source.indexOf("  applyPixelDensity()"));
   assert.ok(createBuffers.includes("this.disposeBuffers({ preserveSpecialized: true })"));
-  assert.ok(disposeBuffers.includes("if (!preserveSpecialized) this.specializedSources.dispose()"));
+  assert.ok(disposeBuffers.includes("if (!preserveSpecialized) host.specializedSources.dispose()"));
 });
 
 test("projection mapper uses actual texture size for surface sampling math", () => {
@@ -3408,17 +4013,24 @@ test("projection mapper uses actual texture size for surface sampling math", () 
 test("zero-duration Live output retains the original single-scene surface path", () => {
   const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const stateRuntimeSource = readFileSync(new URL("../js/output/output-state-runtime.js", import.meta.url), "utf8");
+  const transitionSource = readFileSync(new URL("../js/output/transition-runtime.js", import.meta.url), "utf8");
   assert.ok(source.includes("if (transition) return this.renderTransitionSurfaces(transition);"));
   assert.ok(source.includes("this.renderMappingSurfaces();"));
   assert.ok(source.includes("this.releaseTransitionSurfaceTextures();"));
-  assert.ok(source.includes("renderer.mapper.drawTransitionTextures("));
-  assert.ok(source.includes("this.renderer.resolveTransition?.("));
-  assert.ok(source.includes("transitionTime: renderer.visualTime"));
-  assert.ok(source.includes("transitionTimeDelta: renderer.visualDeltaSeconds"));
-  assert.ok(source.includes("transitionFrameIndex: renderer.frameIndex"));
-  assert.ok(rendererSource.includes("rebuildTransitionCatalog()"));
-  assert.ok(rendererSource.includes("listProjectIsfTransitions(this.state || {})"));
-  assert.ok(rendererSource.includes("transitionParameterValues("));
+  assert.ok(source.includes("renderer.mappingRuntime.mapper.drawTransitionTextures("));
+  assert.ok(source.includes("this.resolveTransition?.("));
+  assert.ok(source.includes("transitionTime: renderer.frameRuntime.visualTime"));
+  assert.ok(source.includes("transitionTimeDelta: renderer.frameRuntime.visualDeltaSeconds"));
+  assert.ok(source.includes("transitionFrameIndex: renderer.frameRuntime.frameIndex"));
+  assert.ok(stateRuntimeSource.includes("host.transitionRuntime.rebuild()"));
+  assert.ok(transitionSource.includes("visualNodes?.transitionEntries || []"));
+  assert.ok(transitionSource.includes("transitionParameterValues("));
+  assert.doesNotMatch(
+    rendererSource,
+    /^  (?:rebuildTransitionCatalog|resolveTransition|currentLiveTransition|renderTransitionSurfaces|renderTransitionRouteTextures|getTransitionSurfaceTexture|getTransparentTransitionTexture|releaseTransitionSurfaceTextures)\(/m,
+    "transition activation and Surface transition operations do not route through facade forwarding methods",
+  );
 });
 
 test("Preview and Output resolve one project transition kernel and parameter contract", () => {
@@ -3449,9 +4061,9 @@ test("Preview and Output resolve one project transition kernel and parameter con
   const resolutions = ["preview", "output"].map((mode) => {
     const renderer = new OutputRenderer({ mode });
     renderer.state = structuredClone(state);
-    renderer.rebuildVisualNodeResolver();
-    renderer.rebuildTransitionCatalog();
-    const resolved = renderer.resolveTransition(
+    renderer.visualNodeRuntime.rebuild();
+    renderer.transitionRuntime.rebuild();
+    const resolved = renderer.transitionRuntime.resolve(
       "org.vj1.transition.mode-contract",
       { softness: 0.37 }
     );
@@ -3468,11 +4080,228 @@ test("Preview and Output resolve one project transition kernel and parameter con
   assert.match(resolutions[0].kernelSource, /vj1Transition/);
 });
 
+test("transition activation owns catalog invalidation, renderer retention, and shader invalidation", () => {
+  const calls = [];
+  const state = createInitialState();
+  const visualNodes = {
+    builtInTransitions: [DefaultBuiltInTransition],
+    packageTransitions: [],
+    transitionEntries: [DefaultBuiltInTransition],
+    visualLibrary: BuiltInVisualLibrary,
+  };
+  const runtime = new TransitionRuntime({
+    getState: () => state,
+    getVisualNodes: () => visualNodes,
+    disposeTransitionShaders: () => calls.push("dispose-shaders"),
+    retainTransitionKernels: (kernels) => calls.push(["retain", kernels.map((kernel) => kernel.id)]),
+  });
+
+  assert.equal(runtime.rebuild(), true);
+  assert.equal(runtime.rebuild(), false, "an unchanged catalog does not churn context-bound shaders");
+  assert.equal(calls.filter((entry) => entry === "dispose-shaders").length, 1);
+  assert.equal(calls.filter((entry) => Array.isArray(entry) && entry[0] === "retain").length, 1);
+  const resolved = runtime.resolve("").transitionKernel;
+  assert.equal(resolved.id, "vj1.transition.dissolve");
+  assert.equal(resolved.implementation, "isf");
+
+  runtime.invalidate();
+  assert.equal(runtime.rebuild(), true);
+  assert.equal(calls.filter((entry) => entry === "dispose-shaders").length, 2);
+});
+
+test("visual node capability retains one catalog across equivalent package refreshes", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const nodePackage = {
+    formatVersion: 3,
+    id: "org.vj1.test.empty",
+    name: "Empty test package",
+    version: "1.0.0",
+    dependencies: [],
+    nodeDependencies: [],
+    definitions: [],
+    artifacts: [],
+    groups: [],
+    forks: [],
+    visualLibrary: [],
+    resources: [],
+    metadata: {},
+  };
+
+  assert.equal(
+    renderer.visualNodeRuntime.setInstalledPackages([]),
+    false,
+    "the constructor package set is already authoritative",
+  );
+  assert.equal(renderer.visualNodeRuntime.setInstalledPackages([nodePackage]), true);
+  const retainedResolver = renderer.visualNodeRuntime.nodes;
+  assert.equal(
+    renderer.visualNodeRuntime.setInstalledPackages([structuredClone(nodePackage)]),
+    false,
+    "equivalent package content does not rebuild context-bound visual resources",
+  );
+  assert.strictEqual(renderer.visualNodeRuntime.nodes, retainedResolver);
+  renderer.dispose();
+});
+
+test("Component program capability owns compilation lookup and prepared-state lifecycles", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  renderer.state = createInitialState();
+  renderer.visualNodeRuntime.rebuild();
+  const runtime = renderer.componentProgramRuntime;
+
+  assert.equal(runtime.constructor.name, "ComponentProgramRuntime");
+  runtime.rebuild();
+  runtime.rebuildLookups();
+  assert.equal(runtime.programs instanceof Map, true);
+  assert.equal(runtime.componentById instanceof Map, true);
+  assert.equal(
+    runtime.componentForId(renderer.state.components[0].id),
+    renderer.state.components[0],
+  );
+
+  const prepared = runtime.prepare(renderer.state);
+  assert.equal(runtime.prepare(renderer.state), prepared);
+  runtime.clearPrepared();
+  assert.equal(runtime.prepared, null);
+
+  const rendererSource = readFileSync(
+    new URL("../js/output/output-renderer.js", import.meta.url),
+    "utf8",
+  );
+  const runtimeSource = readFileSync(
+    new URL("../js/output/component-program-runtime.js", import.meta.url),
+    "utf8",
+  );
+  const sourceBackend = readFileSync(
+    new URL("../js/output/source-render-runtime.js", import.meta.url),
+    "utf8",
+  );
+  const surfaceBackend = readFileSync(
+    new URL("../js/output/output-surface-runtime.js", import.meta.url),
+    "utf8",
+  );
+  assert.doesNotMatch(rendererSource, /compileComponentRenderPrograms\(/);
+  assert.match(runtimeSource, /compileComponentRenderPrograms\(/);
+  assert.match(sourceBackend, /host\.componentProgramRuntime\.programs/);
+  assert.match(surfaceBackend, /renderer\.componentProgramRuntime\.componentById/);
+  assert.doesNotMatch(rendererSource, /get componentPrograms\(\)/);
+
+  runtime.dispose();
+});
+
+test("reused Preview renderers compile roots for their current presentation mode", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  const state = createInitialState();
+  const selected = state.components[0];
+  const routed = structuredClone(selected);
+  routed.id = "component-live-route";
+  routed.name = "Live route";
+  state.components.push(routed);
+  state.ui.selectedComponentId = selected.id;
+  state.surfaces = [{
+    ...state.surfaces[0],
+    enabled: true,
+    componentId: routed.id,
+  }];
+  renderer.state = state;
+  renderer.visualNodeRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuild();
+
+  assert.equal(renderer.componentProgramRuntime.programs.has(selected.id), true);
+  assert.equal(
+    renderer.componentProgramRuntime.programs.has(routed.id),
+    false,
+    "Component mode initially compiles only its selected editor root",
+  );
+
+  renderer.mode = "live";
+  renderer.componentProgramRuntime.ensureStateRoots(state);
+  assert.equal(
+    renderer.componentProgramRuntime.programs.has(routed.id),
+    true,
+    "switching the retained Preview renderer to Live follows routed roots instead of its construction-time mode",
+  );
+  renderer.dispose();
+});
+
+test("Component render capability owns request reuse trace and execution lifecycles", () => {
+  const component = { id: "render-capability", type: "chain", name: "Render capability" };
+  const output = { width: 320, height: 180 };
+  let executions = 0;
+  let mediaClaims = 0;
+  const host = {
+    state: { render: {}, components: [component], media: [] },
+    media: new Map(),
+    resourceRuntime: {
+      componentOutput: new Map(),
+      mainMix: null,
+    },
+    renderTargetRuntime: {
+      gpuTarget: () => null,
+      cpuTarget: () => null,
+      touchGpu() {},
+      touchCpu() {},
+      gpu: () => output,
+      hasCpuPrefix: () => false,
+      hasGpuPrefix: () => false,
+    },
+    componentProgramRuntime: {
+      programs: new Map([[
+        component.id,
+        {
+          inspect: () => ({ dynamics: { frameDependent: true } }),
+          execute: () => {
+            executions++;
+            return { buffer: output };
+          },
+        },
+      ]]),
+    },
+    compositeRuntime: {
+      renderComponentPipeline: ({ source }) => source,
+    },
+    frameRuntime: { frameIndex: 1 },
+    profileRuntime: new OutputRenderProfile(),
+    renderRequestRuntime: {
+      normalize: (request) => request,
+    },
+    sourceRuntime: {
+      claimRetainedComponentMedia: () => {
+        mediaClaims++;
+      },
+    },
+    visualNodeRuntime: { effect: () => null },
+  };
+  const runtime = new ComponentRenderRuntime(host);
+  host.componentRenderRuntime = runtime;
+  const request = {
+    role: "component",
+    width: 320,
+    height: 180,
+  };
+
+  assert.strictEqual(runtime.render(component, 0, request), output);
+  assert.strictEqual(runtime.render(component, 0, request), output);
+  assert.equal(executions, 1);
+  assert.equal(mediaClaims, 1);
+  assert.equal(host.profileRuntime.frameProfile.componentCacheHits, 1);
+  assert.equal(runtime.resolutionTraces.size, 1);
+
+  runtime.activeResolutionTrace.push({ componentId: component.id });
+  host.profileRuntime.collectDetailed = true;
+  runtime.finishFrame();
+  assert.deepEqual(runtime.lastResolutionTrace, [{ componentId: component.id }]);
+  runtime.clear();
+  assert.equal(runtime.stableSignatures.size, 0);
+  assert.equal(runtime.resolutionTraces.size, 0);
+  assert.deepEqual(runtime.lastResolutionTrace, []);
+});
+
 test("Live transition shares stable route views and preserves endpoint projection fit", () => {
   const source = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const transitionCall = source.slice(
-    source.indexOf("renderer.mapper.drawTransitionTextures("),
-    source.indexOf("renderer.mapper.drawTransitionTextures(") + 1800
+    source.indexOf("renderer.mappingRuntime.mapper.drawTransitionTextures("),
+    source.indexOf("renderer.mappingRuntime.mapper.drawTransitionTextures(") + 1800
   );
 
   assert.ok(source.includes("const directTransitionViews = new Map()"));

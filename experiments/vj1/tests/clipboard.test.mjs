@@ -193,7 +193,11 @@ test("pasted media becomes a source only for chain destinations", () => {
   assert.equal(library.pasted, false);
   assert.equal(component.chain.length, 2);
   assert.equal(chain.pasted, true);
-  assert.equal(component.chain[1].source.mediaId, "media/image.png");
+  assert.deepEqual(component.chain[1].source, {
+    type: "generator",
+    generatorId: "mediaImage",
+    params: { mediaId: "media/image.png" },
+  });
 
   const listTarget = pasteClipboardPayload(
     state,
@@ -201,5 +205,102 @@ test("pasted media becomes a source only for chain destinations", () => {
     { kind: "component-list", itemId: component.id }
   );
   assert.equal(listTarget.pasted, true);
-  assert.equal(component.chain[2].source.mediaId, "media/second.png");
+  assert.equal(component.chain[2].source.generatorId, "mediaImage");
+  assert.equal(component.chain[2].source.params.mediaId, "media/second.png");
+});
+
+test("clipboard import canonicalizes legacy direct media recursively", () => {
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  state.components = [component];
+  state.media = [
+    { id: "media/clip.bin", type: "video" },
+    { id: "media/head.bin", type: "model" },
+  ];
+  const group = createComponentGroup(0);
+  group.chain = [
+    createComponentLayer(0, {
+      type: "media",
+      mediaId: "media/clip.bin",
+      start: 1.5,
+      end: 4,
+      speed: 0.75,
+      params: { fit: "cover" },
+    }),
+    createComponentLayer(1, {
+      type: "media",
+      mediaId: "media/head.bin",
+    }),
+  ];
+  group.chain[0].source = {
+    type: "media",
+    mediaId: "media/clip.bin",
+    start: 1.5,
+    end: 4,
+    speed: 0.75,
+    params: { fit: "cover" },
+  };
+  group.chain[1].source = {
+    type: "media",
+    mediaId: "media/head.bin",
+  };
+
+  const result = pasteClipboardPayload(
+    state,
+    { kind: "chain-item", value: group },
+    { kind: "chain", componentId: component.id },
+  );
+  const pasted = component.chain.at(-1);
+
+  assert.equal(result.pasted, true);
+  assert.equal(pasted.chain[0].source.type, "generator");
+  assert.equal(pasted.chain[0].source.generatorId, "mediaImage");
+  assert.deepEqual({
+    fit: pasted.chain[0].source.params.fit,
+    mediaId: pasted.chain[0].source.params.mediaId,
+    start: pasted.chain[0].source.params.start,
+    end: pasted.chain[0].source.params.end,
+    speed: pasted.chain[0].source.params.speed,
+  }, {
+    fit: "cover",
+    mediaId: "media/clip.bin",
+    start: 1.5,
+    end: 4,
+    speed: 0.75,
+  });
+  assert.equal(pasted.chain[1].source.type, "generator");
+  assert.equal(pasted.chain[1].source.generatorId, "modelMedia");
+  assert.equal(pasted.chain[1].source.params.mediaId, "media/head.bin");
+});
+
+test("clipboard import canonicalizes legacy Camera and Black recursively", () => {
+  const state = createInitialState();
+  const component = createDefaultComponent(0);
+  state.components = [component];
+  const group = createComponentGroup(0);
+  group.chain = [
+    createComponentLayer(0, {
+      type: "camera",
+      instanceId: "camera-instance",
+      params: { fit: "contain" },
+    }),
+    createComponentLayer(1, {
+      type: "black",
+      instanceId: "black-instance",
+    }),
+  ];
+
+  const result = pasteClipboardPayload(
+    state,
+    { kind: "chain-item", value: group },
+    { kind: "chain", componentId: component.id },
+  );
+  const pasted = component.chain.at(-1);
+
+  assert.equal(result.pasted, true);
+  assert.equal(pasted.chain[0].source.type, "generator");
+  assert.equal(pasted.chain[0].source.generatorId, "cameraInput");
+  assert.equal(pasted.chain[0].source.params.fit, "contain");
+  assert.equal(pasted.chain[1].source.type, "generator");
+  assert.equal(pasted.chain[1].source.generatorId, "black");
 });

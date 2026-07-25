@@ -5,7 +5,7 @@ import {
   NODE_IMPLEMENTATION_KINDS,
   NODE_PART_KINDS,
 } from "../../../node-engine/node-definition.js";
-import { TextMaskProviderType } from "../../shared/specialized-compound-types.js";
+import { TextMaskProviderType } from "../../shared/visual-stage-types.js";
 import {
   TEXT_GENERATOR_FRAGMENT_SHADER,
   TEXT_GENERATOR_VERTEX_SHADER,
@@ -18,7 +18,7 @@ export const TextMaskToImageNode = defineNode({
   description: "Applies fill, outline, and background styling to a connected retained text mask.",
   implementation: {
     kind: NODE_IMPLEMENTATION_KINDS.NATIVE,
-    compiler: "vj1.visual.specialized-compound",
+    compiler: "vj1.visual.native-source",
     kernel: "text-mask",
   },
   inlets: {
@@ -55,13 +55,13 @@ export const TextMaskToImageNode = defineNode({
     "retained-render-target",
     "text",
     "text-render-kernel",
-    "specialized-visual-stage",
+    "visual-stage",
     "graph-placeable",
     "compiled-only",
   ],
   presentation: {
-    catalogs: ["node-graph", "text", "image", "render", "specialized-visual"],
-    placeableOn: ["native-visual-graph"],
+    catalogs: ["node-graph", "text", "image", "render", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
     previewOutput: "texture",
   },
   metadata: {

@@ -48,6 +48,57 @@ void main() {
   gl_FragColor = vec4(outRgb, outAlpha);
 }`;
 
+export const LAYER_BLEND_FRAGMENT_SHADER = `
+precision mediump float;
+uniform sampler2D baseTex;
+uniform sampler2D layerTex;
+uniform bool baseFlipY;
+uniform bool layerFlipY;
+uniform float layerOpacity;
+uniform int layerBlendMode;
+varying vec2 vTexCoord;
+
+vec2 sourceUv(vec2 uv, bool flipY) {
+  return flipY ? vec2(uv.x, 1.0 - uv.y) : uv;
+}
+
+vec3 straightColor(vec4 color) {
+  return color.a > 0.0001 ? color.rgb / color.a : vec3(0.0);
+}
+
+vec3 blendColor(vec3 base, vec3 layer, int mode) {
+  if (mode == 1) return min(base + layer, vec3(1.0));
+  if (mode == 2) return base * layer;
+  if (mode == 3) return 1.0 - (1.0 - base) * (1.0 - layer);
+  if (mode == 4) return min(base, layer);
+  if (mode == 5) return max(base, layer);
+  if (mode == 6) return abs(base - layer);
+  if (mode == 7) return base + layer - 2.0 * base * layer;
+  return layer;
+}
+
+void main() {
+  vec4 base = texture2D(baseTex, sourceUv(vTexCoord, baseFlipY));
+  vec4 layer = texture2D(layerTex, sourceUv(vTexCoord, layerFlipY));
+  layer *= clamp(layerOpacity, 0.0, 1.0);
+  if (layerBlendMode == 8) {
+    gl_FragColor = base * (1.0 - layer.a);
+    return;
+  }
+  if (layerBlendMode == 0) {
+    gl_FragColor = layer + base * (1.0 - layer.a);
+    return;
+  }
+  vec3 baseStraight = straightColor(base);
+  vec3 layerStraight = straightColor(layer);
+  vec3 blended = blendColor(baseStraight, layerStraight, layerBlendMode);
+  float outAlpha = layer.a + base.a * (1.0 - layer.a);
+  vec3 outRgb = base.rgb * (1.0 - layer.a) +
+    layer.rgb * (1.0 - base.a) +
+    blended * base.a * layer.a;
+  gl_FragColor = vec4(clamp(outRgb, 0.0, outAlpha), outAlpha);
+}`;
+
 export const LAYER_TRANSFORM_FRAGMENT_SHADER = `
 precision mediump float;
 uniform sampler2D sourceTex;

@@ -15,12 +15,14 @@ import { meshPatternNodeShaderSource } from "../js/output/specialized/mesh-patte
 import { createVj1NodePackage } from "../js/app-node-package.js";
 import { compileComponentRenderPrograms } from "../js/libraries/composition-engine/index.js";
 import {
-  specializedCompoundEvaluatedStageSettings,
   TerrainBiomeMaterialProviderNode,
   TerrainHeightFieldGeometryProviderNode,
 } from "../js/libraries/visual-nodes/index.js";
 
-const compiled = Object.freeze({ nativeCompoundProgram: {} });
+const compiled = Object.freeze({
+  backend: "native-specialized",
+  compilerHook: { id: "vj1.visual.native-source" },
+});
 
 test("compiled specialized Groups never substitute host JavaScript for missing child modules", () => {
   assert.throws(
@@ -68,7 +70,7 @@ test("legacy direct hosts retain their explicit compatibility artifacts", () => 
 });
 
 test("compiled resource providers remain authoritative over outer compatibility parameters", () => {
-  const compiledOperation = { nativeCompoundProgram: {} };
+  const compiledOperation = { backend: "native-specialized" };
   const legacyOperation = {};
 
   assert.equal(
@@ -87,65 +89,19 @@ test("compiled resource providers remain authoritative over outer compatibility 
   );
 });
 
-test("compiled stage settings come only from the evaluated graph", () => {
-  assert.throws(
-    () => specializedCompoundEvaluatedStageSettings(
-      { nativeCompoundProgram: {} },
-      { stageInputs: () => null },
-      "render",
-      { amount: 0.75 },
-    ),
-    /SPECIALIZED_COMPOUND_STAGE_SETTINGS_MISSING:render/,
-  );
-  assert.deepEqual(
-    specializedCompoundEvaluatedStageSettings(
-      {},
-      null,
-      "render",
-      { amount: 0.75 },
-    ),
-    { amount: 0.75 },
-  );
-});
-
 test("compiled Feature Morph requires settings from its connected analysis provider", () => {
   const runtime = new SpecializedSourceRuntime();
   const operation = {
-    nativeCompoundProgram: {
-      stages: [
-        { id: "image-a", parameters: {} },
-        { id: "image-b", parameters: {} },
-        { id: "analysis", parameters: {} },
-        { id: "render", parameters: {} },
-      ],
-      nativeKernel() {
-        return {
-          id: "render",
-          inputBindings: {
-            imageA: { stageId: "image-a", portId: "image" },
-            imageB: { stageId: "image-b", portId: "image" },
-            analysis: { stageId: "analysis", portId: "analysis" },
-          },
-        };
-      },
-      evaluateGraph() {
-        return {
-          stageInput(_stageId, portId) {
-            if (portId === "imageA") return { kind: "media-image-resource", mediaId: "a.png" };
-            if (portId === "imageB") return { kind: "media-image-resource", mediaId: "b.png" };
-            if (portId === "analysis") return { kind: "feature-morph-analysis", providerId: "superpoint" };
-            return null;
-          },
-          stageInputs() {
-            return { settings: {} };
-          },
-        };
-      },
-    },
+    backend: "native-specialized",
+    runtimeValueInputs: new Map([
+      ["imageA", { kind: "project-media-resource", mediaKind: "image", mediaId: "a.png" }],
+      ["imageB", { kind: "project-media-resource", mediaKind: "image", mediaId: "b.png" }],
+      ["analysis", { kind: "feature-morph-analysis", providerId: "superpoint" }],
+    ]),
   };
 
   assert.throws(
-    () => runtime.drawFeatureMorph({}, { params: { imageAId: "outer-a.png", imageBId: "outer-b.png" } }, 0, {}, operation),
+    () => runtime.featureMorph.draw({}, { params: { imageAId: "outer-a.png", imageBId: "outer-b.png" } }, 0, {}, operation),
     /FEATURE_MORPH_ANALYSIS_SETTINGS_MISSING:analysis/,
   );
   runtime.dispose();

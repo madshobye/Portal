@@ -10,6 +10,12 @@ import {
   transitionKernelUniformValues,
   textureTransitionFragmentShaderSource,
 } from "../js/libraries/transition-engine/index.js";
+import {
+  DefaultBuiltInTransition,
+} from "../js/libraries/visual-nodes/catalog.js";
+import {
+  VjMapper,
+} from "../js/libraries/mapping-engine/mapping-engine/index.js";
 
 test("transition kernels are reusable typed artifacts with host and authored uniforms", () => {
   const kernel = defineTransitionKernel({
@@ -101,6 +107,43 @@ test("transition catalogs retain Dissolve as the fallback and reject accidental 
     code: "id-collision",
     id: DissolveTransitionKernel.id,
   }]);
+});
+
+test("the normal Dissolve catalog path is the file-backed ISF kernel", () => {
+  const catalog = createTransitionCatalog([DefaultBuiltInTransition]);
+  const resolved = catalog.get("");
+
+  assert.equal(resolved.id, DissolveTransitionKernel.id);
+  assert.equal(resolved.version, DissolveTransitionKernel.version);
+  assert.equal(resolved.origin.kind, "built-in");
+  assert.equal(resolved.kernel.implementation, "isf");
+  assert.notStrictEqual(
+    resolved.kernel,
+    DissolveTransitionKernel,
+    "the native kernel is not the normal catalog implementation",
+  );
+  assert.match(
+    textureTransitionFragmentShaderSource(resolved.kernel),
+    /vj1Transition\(startColor, endColor, uv, clamp\(uTransition/,
+  );
+  assert.deepEqual(catalog.diagnostics, []);
+});
+
+test("the mapper retains native Dissolve only beside active kernels as its emergency fallback", () => {
+  const mapper = new VjMapper();
+  const nativeKey = `${transitionKernelCacheKey(DissolveTransitionKernel)}:plain`;
+  const fileBackedKey =
+    `${transitionKernelCacheKey(DefaultBuiltInTransition.kernel)}:plain`;
+  const staleKey = "stale:transition:plain";
+  mapper.transitionShaders.set(nativeKey, {});
+  mapper.transitionShaders.set(fileBackedKey, {});
+  mapper.transitionShaders.set(staleKey, {});
+
+  mapper.retainTransitionKernels([DefaultBuiltInTransition.kernel]);
+
+  assert.equal(mapper.transitionShaders.has(nativeKey), true);
+  assert.equal(mapper.transitionShaders.has(fileBackedKey), true);
+  assert.equal(mapper.transitionShaders.has(staleKey), false);
 });
 
 test("transition catalogs require an explicit replacement before overriding a built-in", () => {

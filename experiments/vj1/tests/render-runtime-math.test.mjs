@@ -83,7 +83,9 @@ test("generator definitions own phase-rate and quality-derived work budgets", ()
 
 test("output renderer imports runtime policy instead of defining it", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const frameRuntimeSource = readFileSync(new URL("../js/output/output-frame-runtime.js", import.meta.url), "utf8");
   const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  const generatorRuntime = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
   const runtimeMathSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
   assert.match(rendererSource, /from "\.\/render-runtime-math\.js\?v=[^"]+"/);
@@ -91,15 +93,18 @@ test("output renderer imports runtime policy instead of defining it", () => {
   assert.doesNotMatch(rendererSource, /function eyeballFrameUniforms\(/);
   assert.doesNotMatch(rendererSource, /function globalVisualTimeScale\(/);
   assert.doesNotMatch(rendererSource, /function effectTransformUniforms\(/);
-  assert.match(rendererSource, /globalVisualTimeScale, qualityAdjustedGeneratorParams/);
+  assert.match(frameRuntimeSource, /globalVisualTimeScale/);
+  assert.match(generatorRuntime, /qualityAdjustedGeneratorParams/);
   assert.doesNotMatch(runtimeMathSource, /QUALITY_ADJUSTED_GENERATORS|generatorId ===/);
-  assert.match(sourceRuntime, /componentInstanceTime,\s*instanceTime,\s*qualityScaledRenderRequest/);
+  assert.match(sourceRuntime, /\bcomponentInstanceTime\b/);
+  assert.match(sourceRuntime, /\binstanceTime\b/);
+  assert.match(sourceRuntime, /\bqualityScaledRenderRequest\b/);
   assert.doesNotMatch(sourceRuntime, /function instanceTime\(/);
 });
 
 test("timing nodes own phase continuity without changing direct render calls", () => {
   const runtimeSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
-  const specializedSource = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const generatorSource = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
   const first = nodeAdvanceRateClock(null, 10, 1);
 
   assert.deepEqual(nodeAdvanceRateClock(first, 11, 2), { baseTime: 11, time: 12 });
@@ -108,6 +113,7 @@ test("timing nodes own phase continuity without changing direct render calls", (
   assert.equal(InstanceTimeNode.capabilities.includes("live-fast-path"), true);
   assert.match(runtimeSource, /export \{ advanceRateClock, componentInstanceTime, globalVisualTimeScale, instanceTime \} from "\.\.\/libraries\/timing-engine\/index\.js"/);
   assert.doesNotMatch(runtimeSource, /function advanceRateClock|function instanceTimeOffset/);
-  assert.match(specializedSource, /from "\.\.\/\.\.\/libraries\/timing-engine\/index\.js"/);
-  assert.doesNotMatch(specializedSource, /new NodeInstance\(/);
+  assert.match(generatorSource, /from "\.\.\/libraries\/timing-engine\/index\.js"/);
+  assert.match(generatorSource, /this\.rateClocks = new Map\(\)/);
+  assert.doesNotMatch(generatorSource, /new NodeInstance\(/);
 });

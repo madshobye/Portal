@@ -1,6 +1,6 @@
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=surface-terminology-1";
 import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=render-core-contract-1";
-import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
+import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=premultiplied-alpha-5";
 export { meshPatternPalette } from "../../libraries/visual-nodes/generators/mesh-patterns/palette.js?v=node-program-hooks-15";
 import { compileRawShader, linkSpecializedProgram } from "../../libraries/render-engine/raw-webgl-utils.js";
 import {
@@ -93,10 +93,7 @@ export class MeshPatternRenderer {
     const drawMode = String(renderParams.drawMode || "fill + wire");
     const drawFill = pass === "fill" && drawMode !== "wire" && resources.fillCount > 0;
     const drawWire = pass === "wire" && drawMode !== "fill" && resources.wireCount > 0;
-    const palette = materialValue.palette;
-    if (!Array.isArray(palette) || palette.length !== 4) {
-      throw new Error(`MESH_PATTERN_MATERIAL_PALETTE_MISSING:${operation?.id || pass}`);
-    }
+    const palette = meshPatternPassPalette(pass, materialValue, operation);
     const placement = contentTransformUvMatrices(source.contentTransform).placement;
     const render = () => drawMeshPasses(gl, context, resources, {
       topologyParams,
@@ -156,6 +153,14 @@ export class MeshPatternRenderer {
     for (const [gl, context] of this.contexts) disposeContext(gl, context);
     this.contexts.clear();
   }
+}
+
+export function meshPatternPassPalette(pass, materialValue = {}, operation = {}) {
+  const palette = materialValue.palette;
+  if (pass === "fill" && (!Array.isArray(palette) || palette.length !== 4)) {
+    throw new Error(`MESH_PATTERN_MATERIAL_PALETTE_MISSING:${operation?.id || pass}`);
+  }
+  return Array.isArray(palette) ? palette : [];
 }
 
 

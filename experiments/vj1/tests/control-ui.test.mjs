@@ -5,17 +5,25 @@ import { readFileSync } from "node:fs";
 import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-utils.js";
 import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "../js/control/picker-view.js";
 import { settingsModalTemplate } from "../js/control/settings-view.js";
-import { createInitialState } from "../js/domain/models.js";
+import { createInitialState, createSceneComponent } from "../js/domain/models.js";
+import { liveProjectionRailTemplate } from "../js/control/project-rail-view.js";
 import { previewFitSignature, previewRasterDensity, retimeEmbeddedLiveTransition, shouldPrepareEmbeddedLiveState } from "../js/output/embedded-preview-app.js";
-import { isPointerInteractionNode, rememberScrollPositions, restoreScrollPositions } from "../js/control/dom-utils.js";
+import {
+  isPointerInteractionNode,
+  rememberScrollPositions,
+  rememberViewControlStates,
+  restoreScrollPositions,
+  restoreViewControlStates,
+} from "../js/control/dom-utils.js";
 import { panelTemplate, railListSectionTemplate, scrollRegionTemplate } from "../js/control/view-primitives.js";
 import { applyOptimisticToggleIntent, boundaryFromScaleInput, isBoundaryScaleInput } from "../js/control/input-controller.js";
 import { activeRenderCost, activeWorkMetric, performanceHealthStep, rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
 import { nextPickerFilter, sourceForCatalogMedia } from "../js/control/modal-controller.js";
-import { mediaSourceParams } from "../js/control/source-control-schema.js";
 import { mediaDisplayName, mediaPickerCardTemplate } from "../js/control/media-view.js";
+import { componentSelectedChainSettingsTemplate } from "../js/control/component-view.js";
+import { getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
 
-test("model catalog media enters Components through the editable Model Media Group", () => {
+test("catalog media enters Components through editable typed media Groups", () => {
   const state = {
     media: [
       { id: "media/skull.bin", type: "model" },
@@ -33,8 +41,9 @@ test("model catalog media enters Components through the editable Model Media Gro
     params: { mediaId: "media/direct.obj" },
   });
   assert.deepEqual(sourceForCatalogMedia("media/photo.png", state), {
-    type: "media",
-    mediaId: "media/photo.png",
+    type: "generator",
+    generatorId: "mediaImage",
+    params: { mediaId: "media/photo.png" },
   });
 });
 
@@ -42,6 +51,22 @@ test("Live exposes placement controls only for Components that own placement", (
   const source = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   assert.ok(source.includes("${liveComponentPlacementControlsTemplate(view?.transform, component.id)}"));
   assert.match(source, /const placementControls = component\.type === "scene" \? "" : `/);
+});
+
+test("Live Surface eyes render authored row visibility rather than fallback-route availability", () => {
+  const state = createInitialState();
+  const scene = createSceneComponent(0, state.components[0].id);
+  state.components.push(scene);
+  state.ui.live.selectedSceneId = scene.id;
+  state.ui.live.selectedComponentId = scene.id;
+  state.ui.live.sceneMappingVisible = false;
+  const surface = state.mappings[0].surfaces
+    .find((candidate) => candidate.destination?.type !== "direct" && candidate.enabled !== false);
+
+  const html = liveProjectionRailTemplate(state);
+  assert.ok(surface);
+  assert.match(html, new RegExp(`aria-label="Hide ${surface.name}"`));
+  assert.doesNotMatch(html, new RegExp(`aria-label="Show ${surface.name}"`));
 });
 
 test("inspector parameter views survive template replacement", () => {
@@ -84,6 +109,36 @@ test("keyed list scroll survives template replacement without entering project s
   assert.equal(componentList.scrollTop, 184);
   assert.equal(componentList.scrollLeft, 3);
   assert.equal(frameList.scrollTop, 72);
+});
+
+test("keyed ephemeral controls survive template replacement without entering project state", () => {
+  const states = new Map();
+  const componentFilter = {
+    dataset: { viewStateKey: "catalog-filter:component" },
+    value: "noise",
+    checked: false,
+  };
+  const existingScope = {
+    matches: () => false,
+    querySelectorAll: () => [componentFilter],
+  };
+  rememberViewControlStates(existingScope, states);
+
+  const replacementFilter = {
+    dataset: { viewStateKey: "catalog-filter:component" },
+    value: "",
+    checked: false,
+  };
+  restoreViewControlStates({
+    matches: () => false,
+    querySelectorAll: () => [replacementFilter],
+  }, states);
+
+  assert.deepEqual(states.get("catalog-filter:component"), {
+    value: "noise",
+    checked: false,
+  });
+  assert.equal(replacementFilter.value, "noise");
 });
 
 test("rapid toggles preserve commanded user truth before render acknowledgement", () => {
@@ -266,6 +321,42 @@ test("source chooser exposes category filters and model sources lock it to 3D", 
   assert.match(index, /style\.css\?v=[^"']+/);
 });
 
+test("new Live Camera elements enter through the reusable camera Group", () => {
+  const state = {
+    components: [{ id: "owner", type: "component", name: "Owner", chain: [] }],
+    media: [],
+  };
+  const sourcePicker = sourceChoicePickerTemplate(
+    state,
+    { path: "target.source" },
+    { getFile: () => null },
+  );
+  const elementPicker = elementPickerTemplate(
+    state,
+    { componentId: "owner" },
+    { getFile: () => null },
+  );
+  const modalSource = readFileSync(
+    new URL("../js/control/modal-controller.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(sourcePicker, /data-pick-source-camera/);
+  assert.match(elementPicker, /data-add-element-camera/);
+  assert.match(
+    modalSource,
+    /data-pick-source-camera[\s\S]*?type:\s*"generator",[\s\S]*?generatorId:\s*"cameraInput"/,
+  );
+  assert.match(
+    modalSource,
+    /data-add-element-camera[\s\S]*?type:\s*"generator",[\s\S]*?generatorId:\s*"cameraInput"/,
+  );
+  assert.doesNotMatch(
+    modalSource,
+    /data-(?:pick-source|add-element)-camera[\s\S]{0,180}?type:\s*"camera"/,
+  );
+});
+
 test("picker filters behave as exclusive tabs and selecting the active tab restores the full list", () => {
   assert.equal(nextPickerFilter("all", "image"), "image");
   assert.equal(nextPickerFilter("image", "video"), "video");
@@ -353,7 +444,7 @@ test("range params render their label and value above a full-width slider", () =
   assert.match(styleSource, /\.range-value::before \{[\s\S]*?content: "\(";/);
   assert.match(styleSource, /\.range-value::after \{[\s\S]*?content: "\)";/);
   assert.match(styleSource, /\.chain-param-view-tab \{[\s\S]*?grid-row: 1;/);
-  assert.match(styleSource, /\.chain-param-view-tab \{[\s\S]*?display: flex;[\s\S]*?align-items: center;[\s\S]*?justify-content: center;[\s\S]*?min-height: 24px;[\s\S]*?padding: 3px 7px;[\s\S]*?font-size: 11px;[\s\S]*?line-height: 1;/);
+  assert.match(styleSource, /\.inspector-view-option \{[\s\S]*?display: flex;[\s\S]*?align-items: center;[\s\S]*?justify-content: center;[\s\S]*?min-height: 24px;[\s\S]*?padding: 3px 7px;[\s\S]*?font-size: 11px;[\s\S]*?line-height: 1;/);
   assert.match(styleSource, /\.chain-param-list \{[\s\S]*?align-self: start;[\s\S]*?align-content: start;/);
   assert.match(styleSource, /\.chain-param-view-panel \{[\s\S]*?align-content: start;[\s\S]*?padding: var\(--section-inset\);[\s\S]*?border-radius: var\(--radius-section-inner\);[\s\S]*?background: var\(--panel-2\);/);
   assert.match(styleSource, /:root \{[\s\S]*?--param-section-bottom-inset: 10px;/);
@@ -550,6 +641,7 @@ test("selection rerenders preserve every keyed catalog and chain viewport", () =
   assert.ok(pickerSource.includes('data-scroll-region data-scroll-key="source-picker-results"'));
   assert.ok(pickerSource.includes('data-scroll-region data-scroll-key="element-picker-results"'));
   assert.match(domSource, /rememberScrollPositions\(node, scrollPositions\);[\s\S]*?node\.innerHTML = next;[\s\S]*?restoreScrollPositions\(node, scrollPositions\);/);
+  assert.match(domSource, /rememberViewControlStates\(node, viewControlStates\);[\s\S]*?node\.innerHTML = next;[\s\S]*?restoreViewControlStates\(node, viewControlStates\);/);
 });
 
 test("scroll region primitive gives every rerendered viewport a stable identity", () => {
@@ -608,11 +700,15 @@ test("render-chain and Surface rows share the compact list density", () => {
   const sceneSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
 
   assert.match(styleSource, /\.component-chain-list \{[\s\S]*?gap: 3px;[\s\S]*?align-content: start;/);
-  assert.match(styleSource, /\.compact-list-row \{[\s\S]*?--text-list-leading-size: 27px;[\s\S]*?min-height: 34px;/);
-  assert.match(styleSource, /\.compact-list-row \.enable-toggle,[\s\S]*?\.compact-list-row \.text-list-static-icon,[\s\S]*?height: 28px;[\s\S]*?min-height: 28px;/);
+  assert.match(styleSource, /:root \{[\s\S]*?--text-list-row-height: 34px;[\s\S]*?--text-list-control-height: 28px;/);
+  assert.match(styleSource, /\.text-list-item \{[\s\S]*?min-height: var\(--text-list-row-height\);/);
+  assert.match(styleSource, /\.text-list-item \.enable-toggle,[\s\S]*?height: var\(--text-list-control-height\);[\s\S]*?min-height: var\(--text-list-control-height\);/);
+  assert.match(styleSource, /\.compact-list-row \{[\s\S]*?--text-list-leading-size: 27px;/);
+  assert.doesNotMatch(styleSource, /\.text-list-item \{[^}]*min-height: 42px;/);
+  assert.doesNotMatch(styleSource, /\.compact-list-row \{[^}]*min-height: 34px;/);
   assert.match(componentSource, /rowClass: "chain-item-row compact-list-row"/);
   assert.match(sceneSource, /function mappingSurfacePillTemplate[\s\S]*?rowClass: "list-row compact-list-row"/);
-  assert.match(controllerSource, /state\.surfaces[\s\S]*?mappingSurfacePillTemplate\(surface, state\)/);
+  assert.match(controllerSource, /state\.surfaces[\s\S]*?mappingSurfacePillTemplate\(surface, state(?:,\s*\{[\s\S]*?\})?\)/);
   assert.match(styleSource, /\.chain-group-drop-zone \{[\s\S]*?min-height: 14px;/);
 });
 
@@ -778,6 +874,11 @@ test("Live scenes expose separate scene-transition and parameter-fade durations"
   assert.ok(source.includes('data-update="ui.live.paramFadeDuration"'));
   assert.ok(source.includes('data-update="ui.live.transitionId"'));
   assert.ok(source.includes("transitionParameterControls"));
+  assert.ok(source.includes("listBuiltInTransitionEntries()"));
+  assert.ok(source.includes("createTransitionCatalog("));
+  assert.ok(source.includes("transitionEntries || ["));
+  assert.ok(source.includes("DefaultBuiltInTransition.id"));
+  assert.ok(!source.includes("DissolveTransitionKernel"));
   assert.ok(source.includes('min="0" max="10" step="0.1"'));
   assert.ok(models.includes("transitionDuration: startup ? 1.2 : 0"));
   assert.ok(models.includes("paramFadeDuration: startup ? 0.9 : 0"));
@@ -891,6 +992,77 @@ test("Live program selection reconciles outside the originating click event", ()
   );
 });
 
+test("Live output-matrix selection and Mapping eyes use scoped projection activation", async () => {
+  const { isMappingSurfaceVisibilityReason, previewActivationForContext } = await import(
+    "../js/control/preview-state-activation.js"
+  );
+
+  assert.equal(
+    isMappingSurfaceVisibilityReason("toggle:mappings.0.surfaces.2.enabled"),
+    true,
+  );
+  assert.equal(
+    previewActivationForContext({
+      reason: "toggle:mappings.0.surfaces.2.enabled",
+      change: { scope: "project" },
+    }),
+    "mapping",
+    "a Surface eye changes reachability but not visual programs or resources",
+  );
+  assert.equal(
+    previewActivationForContext({
+      reason: "live:preview-surface",
+      change: { scope: "ui" },
+    }),
+    "projection",
+    "Scene Mapping and projected output rows have different derived surface programs and reachability",
+  );
+  assert.equal(
+    previewActivationForContext({
+      reason: "preview-fit-frame",
+      change: { scope: "ui" },
+    }),
+    "ui",
+    "ordinary navigation must retain compiled Mapping geometry",
+  );
+  assert.equal(
+    previewActivationForContext({
+      reason: "live:scene",
+      change: { scope: "live" },
+    }),
+    "full",
+    "a Scene change still activates the newly compiled visual endpoint",
+  );
+});
+
+test("Surface eyes commit visibility and selection once and rebuild only their projection", () => {
+  const inputSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
+  const shellSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
+  const outputSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
+
+  assert.match(
+    inputSource,
+    /button\.dataset\.toggleSelectAction === "data-select-surface"[\s\S]*?draft\.ui\.selectedSurfaceId = button\.dataset\.toggleSelectId[\s\S]*?return;/,
+  );
+  assert.match(
+    shellSource,
+    /projection: "mapping-surface-visibility"[\s\S]*?function renderMappingSurfaceVisibilityChange[\s\S]*?updatePreviewState\(state, "mapping"\)/,
+  );
+  assert.match(
+    shellSource,
+    /context\.reason === "live:surface-visibility"[\s\S]*?\["live-projection-rail"[\s\S]*?updatePreviewState\(state, "projection"\)/,
+  );
+  assert.match(
+    bridgeSource,
+    /reason === "live:surface-visibility"[\s\S]*?\? "projection"[\s\S]*?: "full"/,
+  );
+  assert.match(
+    outputSource,
+    /activation === "projection"[\s\S]*?renderer\?\.setProjectionState\(runtimeState, \{ normalized: true \}\)/,
+  );
+});
+
 test("Live parameter commits preserve inspector DOM identity and preview-owned drags avoid state echo", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
@@ -933,19 +1105,26 @@ test("preview navigation bypasses full renderer state replacement and hover does
   const setViewportSource = preview.slice(viewportStart, viewportEnd);
 
   assert.match(controller, /change\.scope === "ui" && previewViewportReasons\.has\(reason\)[\s\S]*?embeddedPreview\.setViewport\(state\.ui\);[\s\S]*?return;/);
-  assert.match(setViewportSource, /renderer\?\.setPreviewViewport\(resolvedViewport\)/);
+  assert.match(setViewportSource, /renderer\?\.presentationGeometry\?\.setViewport\(resolvedViewport\)/);
   assert.doesNotMatch(setViewportSource, /renderer\?\.setState/);
   assert.match(preview, /const onPointerMove = \(event\) => \{\s*if \(!pointerActive \|\| event\.pointerId !== activePointerId\) return;\s*wakePreviewPresentation\(\)/);
 });
 
 test("Mapping preview draws an editor-only output frame without another render target", () => {
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
-  assert.match(renderer, /renderMappingFrameOverlay\(\)/);
-  assert.match(renderer, /this\.mode !== "preview" \|\| this\.state\?\.ui\?\.workspace !== "mapping"/);
-  assert.match(renderer, /renderSelectedDirectOutputFrameOverlay\(surfaceId\)/);
-  assert.match(renderer, /outputFramesForIds\(/);
-  assert.match(renderer, /drawOutputFrameBoundaries\(frames/);
-  assert.doesNotMatch(renderer, /renderMappingFrameOverlay[\s\S]{0,900}createGraphics\(/);
+  const presentation = readFileSync(new URL("../js/output/output-presentation-runtime.js", import.meta.url), "utf8");
+  assert.match(renderer, /this\.presentationRuntime = new OutputPresentationRuntime\(this\)/);
+  assert.match(presentation, /renderMappingFrameOverlay\(\)/);
+  assert.match(presentation, /isMappingProjectionPresentation\(host\)/);
+  assert.match(
+    presentation,
+    /host\.mode === "live"[\s\S]*?host\.state\?\.livePreviewPresentation === "mapping"/,
+    "Live Output and Surface rows reuse Mapping's projected output-frame presentation",
+  );
+  assert.match(presentation, /renderSelectedDirectOutputFrameOverlay\(surfaceId\)/);
+  assert.match(presentation, /outputFramesForIds\(/);
+  assert.match(presentation, /drawOutputFrameBoundaries\(\s*frames/);
+  assert.doesNotMatch(presentation, /renderMappingFrameOverlay[\s\S]{0,900}createGraphics\(/);
 });
 
 test("Live Scene Mapping Surface guides are a route-patched zero-buffer node", () => {
@@ -956,7 +1135,7 @@ test("Live Scene Mapping Surface guides are a route-patched zero-buffer node", (
   assert.match(surfaceRuntime, /drawSurfaceRouteView\(view, route\);[\s\S]*?drawLiveMonitorGuideNodes\(route\)/);
   assert.match(surfaceRuntime, /drawGuidePaths\(\[\[[\s\S]*?color: \[84, 228, 212, 184\]/);
   assert.match(surfaceRuntime, /SceneSurfaceGuideNode\.process/);
-  assert.match(surfaceRuntime, /renderer\.mapper\.drawGuidePaths\(paths, route\.mapped\.mapperSurface\)/);
+  assert.match(surfaceRuntime, /renderer\.mappingRuntime\.mapper\.drawGuidePaths\(paths, route\.mapped\.mapperSurface\)/);
   assert.doesNotMatch(surfaceRuntime, /route\.component\?\.type !== "scene"/);
   assert.match(guideNode, /Output Surfaces are useful authored guides/);
   assert.match(guideNode, /"zero-buffer"/);
@@ -1060,13 +1239,13 @@ test("preview resolution controls reserve invariant space while labels and metri
 test("preview scaling diagnostics reuse the dormant geometry and detailed HUD probes", () => {
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const embedded = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
-  const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const metrics = readFileSync(new URL("../js/output/output-presentation-metrics.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.match(controller, /data-preview-diagnostics/);
   assert.match(embedded, /pendingState\?\.ui\?\.previewDiagnostics === true/);
   assert.match(embedded, /classList\?\.toggle\("is-geometry-diagnostic", enabled\)/);
-  assert.match(renderer, /this\.previewDiagnosticHudMarkup\(fps\)/);
+  assert.match(metrics, /this\.previewDiagnosticMarkup\(fps\)/);
   assert.match(style, /\.embedded-preview-stage canvas\.is-geometry-diagnostic \{[\s\S]*?border: 2px solid #ff4fa3;/);
   assert.doesNotMatch(style, /\.output-stage canvas \{[\s\S]*?outline:/);
 });
@@ -1096,6 +1275,41 @@ test("compact text lists share one full-width item generator", () => {
   assert.match(style, /\.chain-group-children \{[\s\S]*?padding-left: 6px;[\s\S]*?border-left: 2px solid var\(--line-strong\);/);
   assert.match(style, /\.chain-group-drop-zone \{[\s\S]*?border: 1px dashed var\(--line-strong\);/);
   assert.match(style, /\.chain-group-drop-zone\.is-drop-target \{[\s\S]*?border-color: rgba\(255, 255, 255, 0\.55\);[\s\S]*?background: rgba\(255, 255, 255, 0\.06\);/);
+});
+
+test("Live and parameter inspector view tabs share one compact geometry contract", () => {
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const mappingSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
+  const projectRailSource = readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(componentSource, /class="chain-param-view-tab inspector-view-option"/);
+  assert.match(mappingSource, /class="live-component-view-tab inspector-view-option/);
+  assert.match(mappingSource, /class="chain-param-view-tab inspector-view-option"/);
+  assert.match(projectRailSource, /class="live-component-view-tab inspector-view-option/);
+  assert.match(
+    style,
+    /\.inspector-view-option \{[\s\S]*?min-height: 24px;[\s\S]*?padding: 3px 7px;[\s\S]*?font-size: 11px;[\s\S]*?line-height: 1;/,
+  );
+  assert.doesNotMatch(style, /\.live-component-view-tab \{[\s\S]*?min-height: 32px;/);
+});
+
+test("Component and Live compound controls share one parameter-group primitive", () => {
+  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
+  const mappingSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
+  const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
+  const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
+
+  assert.match(parameterSource, /export function parameterGroupTemplate\(/);
+  assert.match(parameterSource, /class="parameter-control-group/);
+  assert.match(componentSource, /parameterGroupTemplate\(\s*section\.label,/);
+  assert.match(mappingSource, /parameterGroupTemplate\(item\.name \|\| "Group",/);
+  assert.match(mappingSource, /parameterGroupTemplate\(label,/);
+  assert.doesNotMatch(mappingSource, /live-significant-group/);
+  assert.match(
+    style,
+    /\.parameter-control-group \{[\s\S]*?display: grid;[\s\S]*?gap: var\(--param-stack-gap\);/,
+  );
 });
 
 test("Mapping and Output text lists share one darker inset section box", () => {
@@ -1298,6 +1512,7 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const outputSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
+  const controlSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.ok(appSource.includes("function sendScrubState()"));
   assert.ok(appSource.includes("requestAnimationFrame"));
@@ -1315,10 +1530,25 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(previewSource.includes("pendingState?.ui?.outputWindowOpen"));
   assert.ok(!previewSource.includes('outputWindowOpen && pendingState?.ui?.workspace !== "live"'));
   assert.ok(previewSource.includes('renderer.setState(previewSizedState(), { normalized: true });'));
+  assert.ok(previewSource.includes('renderer.setUiState(nextState, { normalized: true })'));
+  assert.ok(previewSource.includes('renderer.setMappingState(nextState, { normalized: true })'));
+  assert.ok(previewSource.includes('renderer.setProjectionState(nextState, { normalized: true })'));
+  assert.ok(previewSource.includes('renderer.setAssetState(nextState, { normalized: true })'));
+  const activationSource = readFileSync(new URL("../js/control/preview-state-activation.js", import.meta.url), "utf8");
+  assert.ok(activationSource.includes('if (context.reason === "live:preview-surface") return "projection"'));
+  assert.ok(activationSource.includes('if (context.change?.scope === "ui") return "ui"'));
+  assert.ok(activationSource.includes('context.change?.scope === "assets"'));
+  assert.ok(activationSource.includes('context.change?.projection?.kind === "asset-catalog"'));
+  assert.ok(activationSource.includes('context.change?.topic === "scene-surface"'));
   assert.ok(rendererSource.includes('setState(nextState, { normalized = false } = {})'));
+  assert.ok(rendererSource.includes('setUiState(nextState, { normalized = false } = {})'));
+  assert.ok(rendererSource.includes('setProjectionState(nextState, { normalized = false } = {})'));
+  assert.ok(rendererSource.includes('setAssetState(nextState, { normalized = false } = {})'));
+  assert.ok(appSource.includes('bridge.sendState(null, { activation: "assets" })'));
   assert.ok(outputSource.includes('renderer?.setState(runtimeState, { normalized: true });'));
-  assert.ok(outputSource.includes("renderer.applyLivePatches(patches)"));
-  assert.ok(previewSource.includes("renderer?.applyLivePatches(patches)"));
+  assert.ok(outputSource.includes('renderer?.setAssetState(runtimeState, { normalized: true });'));
+  assert.ok(outputSource.includes("renderer.livePatchRuntime.applyLive(patches)"));
+  assert.ok(previewSource.includes("renderer?.livePatchRuntime.applyLive(patches)"));
 });
 
 test("parameter context menus are delegated across inspector replacements", () => {
@@ -1362,8 +1592,10 @@ test("studio scrubs patch previews without replacing their complete state", () =
   assert.ok(controllerSource.includes("componentRenderPatchesForChange(state, change)"));
   assert.ok(controllerSource.includes("embeddedPreview.applyRenderPatches(renderPatches)?.applied"));
   assert.ok(controllerSource.includes("if (!patchedLivePreview && !patchedStudioPreview"));
+  assert.ok(controllerSource.includes("previewPatched: patchedLivePreview || patchedStudioPreview"));
+  assert.ok(controllerSource.includes("if (!context.previewPatched) renderPreview(state, context)"));
   assert.ok(controllerSource.includes('if (change.topic === "mapping-state")'));
-  assert.ok(controllerSource.includes('if (change.phase !== "scrub") renderPreview(state)'));
+  assert.ok(controllerSource.includes('if (change.phase !== "scrub") renderPreview(state, { reason, change })'));
 });
 
 test("multiple configured outputs have individual popup actions", () => {
@@ -1384,10 +1616,11 @@ test("the debug button controls only the DOM output HUD, never surface labels", 
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const metricsSource = readFileSync(new URL("../js/output/output-presentation-metrics.js", import.meta.url), "utf8");
   assert.ok(shellSource.includes('id="toggle-output-hud"'));
   assert.ok(controllerSource.includes('draft.global.showHud = draft.global.showHud === false'));
-  assert.ok(rendererSource.includes('this.hud.classList.toggle("is-hidden", !this.state.global.showHud)'));
-  assert.ok(rendererSource.includes("this.renderResolutionLabel()"));
+  assert.ok(metricsSource.includes('host.hud.classList.toggle("is-hidden", !host.state.global.showHud)'));
+  assert.ok(metricsSource.includes("this.resolutionLabel()"));
   assert.ok(!rendererSource.includes("renderOutputFrameOverlay"));
   assert.ok(!controllerSource.includes("showLabels"));
 });
@@ -1397,6 +1630,9 @@ test("topbar combines renderer health and fixed-width output fps", () => {
   const shellSource = readFileSync(new URL("../js/control/shell-view.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const frameRuntimeSource = readFileSync(new URL("../js/output/output-frame-runtime.js", import.meta.url), "utf8");
+  const presentationRuntimeSource = readFileSync(new URL("../js/output/output-presentation-runtime.js", import.meta.url), "utf8");
+  const metricsSource = readFileSync(new URL("../js/output/output-presentation-metrics.js", import.meta.url), "utf8");
   const gpuTimerSource = readFileSync(new URL("../js/output/gpu-timer-tracker.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
   const performanceSessionSource = readFileSync(new URL("../js/control/control-performance-session.js", import.meta.url), "utf8");
@@ -1439,8 +1675,10 @@ test("topbar combines renderer health and fixed-width output fps", () => {
   assert.ok(!controllerSource.includes("combined sampled CPU"));
   assert.ok(gpuTimerSource.includes('getExtension("EXT_disjoint_timer_query_webgl2")'));
   assert.ok(gpuTimerSource.includes('getExtension("EXT_disjoint_timer_query")'));
-  assert.ok(rendererSource.includes("this.pruneRenderCaches();\n    this.gpuTimer.sealFrame"));
-  assert.ok(rendererSource.includes("gpuSupported: this.gpuTimer.supported"));
+  assert.doesNotMatch(frameRuntimeSource, /gpuTimer/);
+  assert.ok(presentationRuntimeSource.includes("this.gpuTimer.poll(host.frameRuntime.frameIndex)"));
+  assert.ok(presentationRuntimeSource.includes("this.gpuTimer.sealFrame(host.frameRuntime.frameIndex)"));
+  assert.ok(metricsSource.includes("gpuSupported: gpuTimer.supported"));
   assert.ok(previewSource.includes("runtimeMetrics.previewGpuMs = metrics.gpuMs || 0"));
   assert.ok(shellSource.includes('id="performance-summary"'));
   assert.ok(shellSource.includes('id="performance-analyze"'));
@@ -1451,7 +1689,7 @@ test("topbar combines renderer health and fixed-width output fps", () => {
   assert.ok(!controllerSource.includes("CPU rows can overlap because a component includes its child passes"));
   assert.ok(performanceSessionSource.includes('PerformanceObserver.supportedEntryTypes?.includes("longtask")'));
   assert.ok(performanceSessionSource.includes("session.host.uiRenderMs"));
-  assert.ok(controllerSource.includes("analyzeVj1Project(state, { runtimeSamples: samples })"));
+  assert.ok(controllerSource.includes("resolveNodeDefinition: (node) =>"));
   assert.ok(controllerSource.includes("globalThis.__vj1LastProfileReport = report"));
   assert.ok(controllerSource.includes("downloadPerformanceProfile(report"));
   assert.ok(controllerSource.includes("showPerformanceResults(report)"));
@@ -1628,14 +1866,16 @@ test("referenced Components share one capture-phase deep edit command with a ret
 test("performance overviews show the owning Component thumbnail without renderer-side image work", () => {
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const renderer = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
+  const shaderRuntime = readFileSync(new URL("../js/output/shader-effect-runtime.js", import.meta.url), "utf8");
+  const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   const style = readFileSync(new URL("../style.css", import.meta.url), "utf8");
 
   assert.ok(controller.includes("function performanceComponentThumbnail(state, componentId, className)"));
   assert.ok(controller.includes('"performance-hotspot-thumbnail"'));
   assert.ok(controller.includes('"performance-analysis-thumbnail"'));
   assert.ok(controller.includes("chainItemId: item.chainItemId"));
-  assert.ok(renderer.includes('chainItemId: pass.instanceId || ""'));
-  assert.ok(renderer.includes('chainItemId: item.id || source.instanceId || ""'));
+  assert.ok(shaderRuntime.includes('chainItemId: pass.instanceId || ""'));
+  assert.ok(sourceRuntime.includes('chainItemId: item.id || source.instanceId || ""'));
   assert.ok(controller.includes('!refs.performanceSummary.classList.contains("is-hidden") && !shouldDeferRender()'));
   assert.match(style, /\.performance-hotspot-list li\.has-thumbnail\.has-edit \{[\s\S]*?40px minmax\(0, 1fr\) auto 22px;/);
   assert.match(style, /\.performance-pass-cell \{[\s\S]*?display: flex;/);
@@ -1669,6 +1909,8 @@ test("empty project start shows one folder action and disables project views", (
   assert.ok(controllerSource.includes("No project open"));
   assert.ok(controllerSource.includes("button.disabled = !hasProject;"));
   assert.ok(controllerSource.includes("hasOpenProject(state)"));
+  assert.match(controllerSource, /projectService\.hasOpenFolder\?\.\(\)/);
+  assert.match(controllerSource, /Read-only recovery from Output/);
   assert.ok(controllerSource.includes('class="studio-stage project-empty-stage"'));
   assert.ok(!controllerSource.includes("Project first"));
   assert.ok(!controllerSource.includes("data-import-files>${icon"));
@@ -1678,26 +1920,26 @@ test("empty project start shows one folder action and disables project views", (
 });
 
 test("3d model controls use full-width slider rows", () => {
-  const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const schemaSource = readFileSync(new URL("../js/control/source-control-schema.js", import.meta.url), "utf8");
   const styleSource = readFileSync(new URL("../style.css", import.meta.url), "utf8");
-  const modelControls = componentSource.slice(
-    componentSource.indexOf("function modelSourceControlsTemplate"),
-    componentSource.indexOf("function generatorParamControlsTemplate")
-  );
+  const state = createInitialState();
+  const component = state.components.find((item) => item.type !== "scene");
+  const item = component.chain[0];
+  item.source = {
+    type: "generator",
+    generatorId: "modelMedia",
+    params: { mediaId: "media/head.stl" },
+  };
+  state.media.push({ id: "media/head.stl", type: "model" });
+  state.ui.selectedChainItemId = item.id;
+  const modelControls = componentSelectedChainSettingsTemplate(component, state);
 
-  assert.ok(modelControls.includes("model-param-list"));
-  assert.ok(modelControls.includes("MODEL_SOURCE_PARAMS"));
-  assert.ok(modelControls.includes("componentParamViews"));
-  assert.ok(modelControls.includes("paramControlsTemplate"));
-  assert.ok(schemaSource.includes("Depth scale"));
-  assert.ok(schemaSource.includes("Visible depth"));
-  assert.ok(schemaSource.includes("Focal length (mm)"));
-  assert.ok(schemaSource.includes("Wire thickness"));
-  assert.ok(schemaSource.includes("Edge angle"));
-  assert.ok(schemaSource.includes("Edge budget"));
-  assert.ok(!modelControls.includes("field-pair"));
-  assert.ok(!modelControls.includes("<span>3D model</span>"));
+  assert.match(modelControls, /<span>Depth scale<\/span>/);
+  assert.match(modelControls, /<span>Visible depth<\/span>/);
+  assert.match(modelControls, /<span>Focal length \(mm\)<\/span>/);
+  assert.match(modelControls, /<span>Wire thickness<\/span>/);
+  assert.match(modelControls, /<span>Edge angle<\/span>/);
+  assert.match(modelControls, /<span>Edge budget<\/span>/);
+  assert.doesNotMatch(modelControls, /field-pair/);
   assert.ok(styleSource.includes(".model-param-list"));
   assert.doesNotMatch(
     styleSource,
@@ -1726,26 +1968,23 @@ test("seed params stay internal and are not rendered as sliders", () => {
 });
 
 test("selected generators omit the redundant source chooser", () => {
-  const source = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const picker = source.slice(source.indexOf("function sourcePickerTemplate("), source.indexOf("function mediaSourceControlsTemplate("));
+  const state = createInitialState();
+  const component = state.components.find((item) => item.type !== "scene");
+  state.ui.selectedChainItemId = component.chain[0].id;
+  const html = componentSelectedChainSettingsTemplate(component, state);
 
-  assert.match(picker, /source\.type === "generator" \|\| paramView !== "primary" \? "" : `<div class="field">/);
-  assert.match(picker, /source\.type === "generator" \? generatorParamControlsTemplate/);
+  assert.doesNotMatch(html, /Choose source/);
+  assert.doesNotMatch(html, /data-open-source-picker/);
+  assert.match(html, /chain-param-list/);
 });
 
-test("media source controls derive image-only alpha controls from the shared schema", () => {
-  const source = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
-  const mediaControls = source.slice(
-    source.indexOf("function mediaSourceControlsTemplate("),
-    source.indexOf("function sourceTitle(")
-  );
-
-  const imageIds = mediaSourceParams({ type: "media", mediaId: "still.png" }).map((param) => param.id);
-  const videoIds = mediaSourceParams({ type: "media", mediaId: "clip.mp4" }).map((param) => param.id);
-  assert.deepEqual(imageIds, ["renderQuality", "fit", "alphaCut", "alphaFeather"]);
-  assert.deepEqual(videoIds, ["renderQuality", "fit"]);
-  assert.match(mediaControls, /params: mediaSourceParams\(source, media\)/);
-  assert.match(mediaControls, /pathFor: \(param\) => `\$\{base\}\.params\.\$\{param\.id\}`/);
+test("Project Media owns alpha controls in its semantic node definition", () => {
+  const component = getGeneratorComponent("mediaImage");
+  const ids = component.params.map((param) => param.id);
+  assert.ok(ids.includes("alphaCut"));
+  assert.ok(ids.includes("alphaFeather"));
+  assert.equal(component.params.find((param) => param.id === "alphaCut").label, "Cut edge");
+  assert.equal(component.params.find((param) => param.id === "alphaFeather").label, "Feather");
 });
 
 test("inspector dropdowns share compact slider-like styling without an orange focus ring", () => {

@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import {
   COMPONENT_POST_FRAGMENT_SHADER,
   COMPONENT_UPSCALE_FRAGMENT_SHADER,
+  LAYER_BLEND_FRAGMENT_SHADER,
   LAYER_TRANSFORM_FRAGMENT_SHADER,
   OVERLAY_BLEND_FRAGMENT_SHADER,
   RENDER_PASS_VERTEX_SHADER,
@@ -15,6 +16,8 @@ test("shared render-pass shaders expose their required pipeline contracts", () =
   assert.match(RENDER_PASS_VERTEX_SHADER, /attribute vec2 aTexCoord/);
   assert.match(OVERLAY_BLEND_FRAGMENT_SHADER, /uniform mat3 layerUvMatrix/);
   assert.match(OVERLAY_BLEND_FRAGMENT_SHADER, /vec3 overlayColor/);
+  assert.match(LAYER_BLEND_FRAGMENT_SHADER, /layer \+ base \* \(1\.0 - layer\.a\)/);
+  assert.match(LAYER_BLEND_FRAGMENT_SHADER, /uniform int layerBlendMode/);
   assert.match(LAYER_TRANSFORM_FRAGMENT_SHADER, /uniform mat3 sourceUvMatrix/);
   assert.match(COMPONENT_UPSCALE_FRAGMENT_SHADER, /uniform vec2 sourceResolution/);
   assert.match(COMPONENT_POST_FRAGMENT_SHADER, /uniform float noiseAmount/);
@@ -28,7 +31,7 @@ test("output renderer delegates imported fixed passes without owning inline GLSL
   const compositeSource = readFileSync(new URL("../js/output/composite-render-runtime.js", import.meta.url), "utf8");
 
   assert.ok(rendererSource.includes("new CompositeRenderRuntime(this)"));
-  assert.ok(compositeSource.includes('from "./render-pass-shaders.js?v=texture-dag-1"'));
+  assert.ok(compositeSource.includes('from "./render-pass-shaders.js?v=premultiplied-alpha-5"'));
   assert.doesNotMatch(rendererSource, /const OVERLAY_BLEND_VERTEX_SHADER\s*=\s*`/);
   assert.doesNotMatch(rendererSource, /const COMPONENT_POST_FRAGMENT_SHADER\s*=\s*`/);
   assert.doesNotMatch(compositeSource, /const OVERLAY_BLEND_VERTEX_SHADER\s*=\s*`/);

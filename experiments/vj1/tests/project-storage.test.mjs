@@ -56,6 +56,51 @@ test("asset discovery never opens revisions or unrelated cache files", async () 
   ]);
 });
 
+test("asset discovery publishes ordered batches before the authoritative traversal completes", async () => {
+  const calls = [];
+  const batches = [];
+  const root = new FakeDirectoryHandle("project", {
+    media: new FakeDirectoryHandle("media", {
+      "one.png": new FakeFileHandle("one.png", calls),
+      "two.png": new FakeFileHandle("two.png", calls),
+      "three.png": new FakeFileHandle("three.png", calls),
+    }),
+  });
+
+  const files = await collectProjectAssetFiles(root, {
+    yieldEvery: 1000,
+    batchSize: 2,
+    onBatch(batch, progress) {
+      batches.push({
+        paths: batch.map((file) => file.relativePath),
+        ...progress,
+      });
+    },
+  });
+
+  assert.deepEqual(batches, [
+    {
+      paths: ["media/one.png", "media/two.png"],
+      discovered: 2,
+      complete: false,
+    },
+    {
+      paths: ["media/three.png"],
+      discovered: 3,
+      complete: false,
+    },
+    {
+      paths: [],
+      discovered: 3,
+      complete: true,
+    },
+  ]);
+  assert.deepEqual(
+    files.map((file) => file.relativePath),
+    ["media/one.png", "media/two.png", "media/three.png"],
+  );
+});
+
 test("thumbnail cache names round-trip ids and cache URLs apply to components", () => {
   const filename = componentThumbnailFilename("component / a", "surface:1", "png");
   assert.deepEqual(parseComponentThumbnailFilename(filename), {

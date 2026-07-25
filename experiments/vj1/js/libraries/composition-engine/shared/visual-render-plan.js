@@ -1,10 +1,11 @@
-import { compileVisualControlProgram, setCompiledVisualParameter } from "./visual-control-program.js?v=canonical-effect-params-1";
-import { compileVisualValueProgram } from "./visual-value-program.js";
+import { compileVisualControlProgram, setCompiledVisualParameter } from "./visual-control-program.js?v=async-media-dirty-1";
+import { compileVisualValueProgram } from "./visual-value-program.js?v=retained-value-signal-1";
 import {
   defineVisualNodeContract,
   VISUAL_ALLOCATION_MODES,
   VISUAL_COORDINATE_SPACES,
   VISUAL_ROI_MODES,
+  VISUAL_TRANSFORM_DOMAINS,
   visualContractsCompatible,
 } from "../../render-engine/visual-node-contract.js";
 import {
@@ -13,17 +14,8 @@ import {
   revisionRenderInvalidation,
   runtimePolicyRenderInvalidation,
   stableRenderInvalidation,
-} from "../../render-engine/invalidation/index.js";
+} from "../../render-engine/invalidation/index.js?v=compiled-invalidation-composition-1";
 import { visitVisualParameterReferences } from "../../visual-nodes/shared/parameter-references.js";
-import {
-  compileScene3dProgram,
-  MeshRenderNode,
-  Scene3dNodeDefinitions,
-} from "../../mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
-import {
-  compileSpecializedCompoundProgram,
-  SPECIALIZED_COMPOUND_VISUAL_COMPILER_HOOK,
-} from "../../visual-nodes/shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
 
 export const VISUAL_RENDER_OPCODES = Object.freeze({
   SOURCE: "source",
@@ -45,8 +37,6 @@ export const VISUAL_COMPILER_HOOKS = Object.freeze({
   GROUP: "vj1.visual.layer-group",
   TEXTURE_OPERATOR: "vj1.visual.texture-operator",
   COMPOUND: "vj1.visual.compound",
-  SCENE_3D: "vj1.visual.scene-3d-program",
-  SPECIALIZED_COMPOUND: SPECIALIZED_COMPOUND_VISUAL_COMPILER_HOOK,
 });
 
 export function defineVisualNodeCompilerHook({ id, compile } = {}) {
@@ -77,17 +67,41 @@ export class VisualNodeCompilerHookRegistry {
 
 const sourceHook = (id, backend) => defineVisualNodeCompilerHook({
   id,
-  compile: (node, { configuration, path, hook, definition }) => operation(VISUAL_RENDER_OPCODES.SOURCE, node, configuration, path, {
+  compile: (node, {
+    configuration,
+    path,
+    hook,
+    definition,
+    nativeModuleDefinitions,
+  }) => operation(VISUAL_RENDER_OPCODES.SOURCE, node, configuration, path, {
     backend,
     compilerHook: hook,
     runtimePolicy: definition?.metadata?.runtimePolicy || null,
     renderInvalidation: definition?.metadata?.renderInvalidation || null,
+    directPlacement: definition?.metadata?.directPlacement || null,
+    renderTarget: visualRenderTargetRequirements(definition, hook),
     ...(hook.renderer ? { renderer: hook.renderer } : {}),
+    ...(hook.nativeKernel || definition?.metadata?.nativeKernel
+      ? { nativeKernel: hook.nativeKernel || definition.metadata.nativeKernel }
+      : {}),
     ...(hook.allocationStable !== undefined ? { allocationStable: hook.allocationStable === true } : {}),
     ...(hook.contract ? { contract: hook.contract } : {}),
-    ...visualNativeModuleFields(definition),
+    ...(hook.framebufferPass
+      ? { framebufferPass: Object.freeze({ ...hook.framebufferPass }) }
+      : {}),
+    ...visualNativeModuleFields(definition, nativeModuleDefinitions),
   }),
 });
+
+function visualRenderTargetRequirements(definition = {}, hook = {}) {
+  const declared = {
+    ...(definition?.metadata?.renderTarget || {}),
+    ...(hook?.renderTarget || {}),
+  };
+  return Object.freeze({
+    depth: declared.depth === true,
+  });
+}
 
 const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
   sourceHook(VISUAL_COMPILER_HOOKS.SOURCE, "source-runtime"),
@@ -142,7 +156,7 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
         path,
       );
       const connections = compoundVisualConnections(definition, graph, path, selectedOutputs);
-      const operations = compileChildren({
+      const childOperations = compileChildren({
         nodes: graph.nodes || [],
         connections,
       }, {
@@ -151,27 +165,67 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
           .map((child) => child.configuration)
           .filter(Boolean),
       }, path);
-      const controlProgram = compileVisualControlProgram({
+      const operations = compileFramebufferPassSequences(
+        childOperations,
+        selectedOutputs,
+        path,
+      );
+      // Resource providers are value nodes, while retained render caches belong
+      // to their downstream render operations. Project the provider dependency
+      // through the typed-value graph before compiling the programs that bind
+      // to those operations. This makes a resource revision invalidate its
+      // exact render consumer without rebuilding the visual graph.
+      const dependencyControlProgram = compileVisualControlProgram({
         id: `${path}.controls`,
         nodes: graph.nodes || [],
         connections,
       }, operations, { resolveDefinition });
-      const valueProgram = compileVisualValueProgram({
+      const dependencyValueProgram = compileVisualValueProgram({
         id: `${path}.values`,
         nodes: graph.nodes || [],
         connections,
       }, operations, { resolveDefinition });
-      const placementLowering = compoundPlacementLowering(operations, selectedOutputs);
+      const dependencyPublicBindings = compileCompoundPublicParameterBindings(
+        definition,
+        operations,
+        dependencyControlProgram,
+        dependencyValueProgram,
+        path,
+      );
+      const boundOperations = projectValueDependencies(
+        operations,
+        dependencyValueProgram,
+        {
+          publicParameterBindings: dependencyPublicBindings,
+          params:
+            configuration?.source?.params ||
+            configuration?.params ||
+            {},
+        },
+      );
+      dependencyControlProgram.dispose?.();
+      dependencyValueProgram.dispose();
+      const controlProgram = compileVisualControlProgram({
+        id: `${path}.controls`,
+        nodes: graph.nodes || [],
+        connections,
+      }, boundOperations, { resolveDefinition });
+      const valueProgram = compileVisualValueProgram({
+        id: `${path}.values`,
+        nodes: graph.nodes || [],
+        connections,
+      }, boundOperations, { resolveDefinition });
+      const placementLowering = compoundPlacementLowering(boundOperations, selectedOutputs);
       const compiled = operation(VISUAL_RENDER_OPCODES.GROUP, node, configuration, path, {
         backend: "compiled-visual-group",
         compilerHook: hook,
         ...(hook.contract ? { contract: hook.contract } : {}),
         runtimePolicy: definition.metadata?.runtimePolicy || null,
         renderInvalidation: definition.metadata?.renderInvalidation || null,
-        operations,
+        operations: boundOperations,
         executionModel: selectedOutputs.length > 1
           ? "texture-dag"
-          : visualExecutionModel(operations),
+          : visualExecutionModel(boundOperations),
         placementLowering,
         runtimeStates: new Map(),
         retainedOperators: new Map(),
@@ -185,7 +239,7 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
         ]))),
         publicParameterBindings: compileCompoundPublicParameterBindings(
           definition,
-          operations,
+          boundOperations,
           controlProgram,
           valueProgram,
           path,
@@ -213,63 +267,192 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
       });
     },
   }),
-  defineVisualNodeCompilerHook({
-    id: VISUAL_COMPILER_HOOKS.SCENE_3D,
-    compile: (node, { configuration, definition, path, hook, resolveDefinition }) => {
-      if (!definition) throw new Error(`VISUAL_SCENE_3D_DEFINITION_MISSING:${path}`);
-      const builtIns = new Map([...Scene3dNodeDefinitions, MeshRenderNode].map((item) => [item.id, item]));
-      const registry = {
-        get(id, version = "") {
-          const builtIn = builtIns.get(String(id || ""));
-          if (builtIn && (!version || builtIn.version === version)) return builtIn;
-          const resolved = typeof resolveDefinition === "function"
-            ? resolveDefinition({ nodeId: id, nodeVersion: version, id })
-            : null;
-          if (!resolved) throw new Error(`SCENE_3D_NODE_NOT_REGISTERED:${id}:${version || "latest"}`);
-          return resolved;
-        },
-      };
-      return operation(VISUAL_RENDER_OPCODES.SOURCE, node, configuration, path, {
-        backend: "scene-3d-program",
-        renderer: hook.renderer || "output/specialized:scene3d-program",
-        compilerHook: hook,
-        ...(hook.contract ? { contract: hook.contract } : {}),
-        allocationStable: true,
-        scene3dProgram: compileScene3dProgram(definition, { registry }),
-        runtimePolicy: definition.metadata?.runtimePolicy || null,
-        renderInvalidation: definition.metadata?.renderInvalidation || null,
-      });
-    },
-  }),
-  defineVisualNodeCompilerHook({
-    id: VISUAL_COMPILER_HOOKS.SPECIALIZED_COMPOUND,
-    compile: (node, { configuration, definition, path, hook, resolveDefinition }) => {
-      if (!definition) throw new Error(`VISUAL_SPECIALIZED_COMPOUND_DEFINITION_MISSING:${path}`);
-      const nativeCompoundProgram = compileSpecializedCompoundProgram(definition, { resolveDefinition });
-      let nativeModuleFields;
-      try {
-        nativeModuleFields = visualNativeModuleFields(
-          definition,
-          nativeCompoundProgram.nativeModuleDefinitions,
-        );
-      } catch (error) {
-        nativeCompoundProgram.dispose();
-        throw error;
-      }
-      return operation(VISUAL_RENDER_OPCODES.SOURCE, node, configuration, path, {
-        backend: "native-specialized-compound",
-        renderer: hook.renderer || definition.metadata?.nativeRenderer,
-        compilerHook: hook,
-        ...(hook.contract ? { contract: hook.contract } : {}),
-        allocationStable: true,
-        nativeCompoundProgram,
-        runtimePolicy: definition.metadata?.runtimePolicy || null,
-        renderInvalidation: definition.metadata?.renderInvalidation || null,
-        ...nativeModuleFields,
-      });
-    },
-  }),
 ]);
+
+function projectValueDependencies(
+  operations = [],
+  valueProgram = null,
+  {
+    publicParameterBindings = [],
+    params = {},
+  } = {},
+) {
+  if (!valueProgram?.steps?.length || !valueProgram?.bindings?.length) {
+    return operations;
+  }
+  const mediaByStep = new Map();
+  const invalidationByStep = new Map();
+  const externalRequirementsByStep = new Map();
+  for (const step of valueProgram.steps) {
+    const media = new Set();
+    const upstreamInvalidations = [];
+    const externalRequirements = new Map();
+    if (step.externalResolver) {
+      mergeExternalRequirement(externalRequirements, {
+        kind: "capability",
+        id: step.externalResolver.capability,
+        lifecycle: step.externalResolver.lifecycle,
+        asynchronous: true,
+        invalidation: step.externalResolver.invalidation,
+        sourceStepIds: [step.id],
+      });
+    }
+    for (const input of step.inputs || []) {
+      for (const id of mediaByStep.get(input.sourceStepId) || []) media.add(id);
+      const upstream = invalidationByStep.get(input.sourceStepId);
+      if (upstream) upstreamInvalidations.push(upstream);
+      for (
+        const requirement of
+        externalRequirementsByStep.get(input.sourceStepId)?.values?.() || []
+      ) {
+        mergeExternalRequirement(externalRequirements, requirement);
+      }
+    }
+    for (const dependency of step.resourceDependencies || []) {
+      if (dependency.kind !== "media") continue;
+      const publicBinding = publicParameterBindings.find((binding) =>
+        binding.controlStep === step &&
+        binding.targetParameterId === dependency.parameterId
+      );
+      const id = String(publicBinding
+        ? params?.[publicBinding.parameterId] || ""
+        : step.parameters?.[dependency.parameterId] || "");
+      if (id) media.add(id);
+    }
+    mediaByStep.set(step.id, media);
+    externalRequirementsByStep.set(step.id, externalRequirements);
+    invalidationByStep.set(
+      step.id,
+      mergeRenderInvalidations(
+        upstreamInvalidations,
+        step.frameDynamic === true
+          ? frameRenderInvalidation(step.id, "value-frame")
+          : revisionRenderInvalidation(step.id, "value-revision"),
+      ),
+    );
+  }
+  const mediaByOperation = new Map();
+  const invalidationByOperation = new Map();
+  const externalRequirementsByOperation = new Map();
+  for (const binding of valueProgram.bindings) {
+    const target = String(binding.operation?.id || "");
+    if (!target) continue;
+    const media = mediaByOperation.get(target) || new Set();
+    for (const id of mediaByStep.get(binding.sourceStepId) || []) media.add(id);
+    mediaByOperation.set(target, media);
+    invalidationByOperation.set(
+      target,
+      mergeRenderInvalidations(
+        invalidationByOperation.get(target),
+        invalidationByStep.get(binding.sourceStepId),
+      ),
+    );
+    const externalRequirements =
+      externalRequirementsByOperation.get(target) || new Map();
+    for (
+      const requirement of
+      externalRequirementsByStep.get(binding.sourceStepId)?.values?.() || []
+    ) {
+      mergeExternalRequirement(externalRequirements, requirement);
+    }
+    externalRequirementsByOperation.set(target, externalRequirements);
+  }
+  return operations.map((operation) => {
+    const id = String(operation.id || "");
+    const projectedMedia = mediaByOperation.get(id);
+    const projectedInvalidation = invalidationByOperation.get(id);
+    const projectedExternalRequirements = Object.freeze(
+      [...(externalRequirementsByOperation.get(id)?.values?.() || [])]
+        .map((requirement) => Object.freeze({
+          ...requirement,
+          sourceStepIds: Object.freeze([
+            ...new Set(requirement.sourceStepIds || []),
+          ].sort()),
+        })),
+    );
+    if (
+      !projectedMedia?.size &&
+      !projectedInvalidation &&
+      !projectedExternalRequirements.length
+    ) return operation;
+    return Object.freeze({
+      ...operation,
+      externalResourceDependent:
+        operation.externalResourceDependent === true ||
+        projectedExternalRequirements.length > 0,
+      ...(projectedExternalRequirements.length
+        ? {
+            externalResourceRequirements:
+              projectedExternalRequirements,
+          }
+        : {}),
+      ...(projectedMedia?.size
+        ? {
+            mediaDependencies: Object.freeze([
+              ...new Set([
+                ...(operation.mediaDependencies || []),
+                ...projectedMedia,
+              ]),
+            ].sort()),
+          }
+        : {}),
+      ...(projectedInvalidation
+        ? {
+            renderInvalidation: mergeRenderInvalidations(
+              declaredRenderInvalidation(operation.renderInvalidation),
+              projectedInvalidation,
+            ),
+          }
+        : {}),
+    });
+  });
+}
+
+function mergeExternalRequirement(requirements, requirement = {}) {
+  const id = String(requirement.id || "");
+  if (!id) return;
+  const current = requirements.get(id);
+  requirements.set(id, {
+    kind: String(requirement.kind || current?.kind || "capability"),
+    id,
+    lifecycle: String(
+      requirement.lifecycle || current?.lifecycle || "",
+    ),
+    asynchronous:
+      requirement.asynchronous === true ||
+      current?.asynchronous === true,
+    invalidation: String(
+      requirement.invalidation || current?.invalidation || "",
+    ),
+    sourceStepIds: [
+      ...new Set([
+        ...(current?.sourceStepIds || []),
+        ...(requirement.sourceStepIds || []),
+      ]),
+    ],
+  });
+}
+
+function declaredRenderInvalidation(invalidation = null) {
+  if (invalidation?.mode === "frame") {
+    return frameRenderInvalidation(
+      invalidation.key ?? null,
+      invalidation.reason || "declared-frame",
+    );
+  }
+  if (
+    invalidation?.mode === "revision" ||
+    invalidation?.mode === "dependency"
+  ) {
+    return revisionRenderInvalidation(
+      invalidation.key ?? null,
+      invalidation.reason || "declared-revision",
+    );
+  }
+  return stableRenderInvalidation(
+    invalidation?.reason || "declared-stable",
+  );
+}
 
 function compoundPlacementLowering(operations = [], selectedOutputs = []) {
   if (operations.length !== 1 || selectedOutputs.length !== 1) return "compound-output";
@@ -278,7 +461,12 @@ function compoundPlacementLowering(operations = [], selectedOutputs = []) {
   const ordinaryProceduralShader = terminal.opcode === VISUAL_RENDER_OPCODES.SOURCE &&
     terminal.backend === "shader-generator" &&
     terminal.compilerHook?.shaderInterface === "fragment";
-  return ordinaryProceduralShader && outputNodeId === terminal.id
+  const declaredRenderProcess = terminal.opcode === VISUAL_RENDER_OPCODES.SOURCE &&
+    typeof terminal.nodeProcess === "function" &&
+    !!terminal.nodeProcessContextFormat &&
+    terminal.contract?.transform?.domain === VISUAL_TRANSFORM_DOMAINS.CONTENT;
+  return (ordinaryProceduralShader || declaredRenderProcess) &&
+    outputNodeId === terminal.id
     ? "terminal-coordinate"
     : "compound-output";
 }
@@ -413,6 +601,7 @@ export class VisualRenderPlanIntrospection {
     const effects = new Set();
     const references = [];
     let camera = false;
+    const screenInputs = new Set();
     const invalidations = [];
     if ((this.plan.controlProgram?.steps || []).some(controlStepIsFrameDynamic)) {
       invalidations.push(frameRenderInvalidation(null, "control-program"));
@@ -441,17 +630,27 @@ export class VisualRenderPlanIntrospection {
       if (source.type === "component" && source.componentId) {
         components.add(String(source.componentId));
         references.push(reference("component", source.componentId, record.id, "source.componentId"));
-      } else if (source.type === "media" && source.mediaId) {
-        media.add(String(source.mediaId));
-        references.push(reference("media", source.mediaId, record.id, "source.mediaId"));
-      } else if (source.type === "camera") {
-        camera = true;
-        references.push(reference("camera", "default", record.id, "source.type"));
       } else if (source.type === "generator") {
         generators.add(String(source.generatorId || ""));
       }
-      collectParameterReferences(source.params, record.id, media, components, references);
-      collectScene3dResourceReferences(record.operation, source.params, record.id, media, references);
+      const typedResources = collectValueResourceReferences(
+        record.operation,
+        source.params,
+        record.id,
+        media,
+        references,
+      );
+      if (typedResources.camera) camera = true;
+      for (const inputId of typedResources.screenInputs) screenInputs.add(inputId);
+      collectParameterReferences(
+        source.params,
+        record.id,
+        media,
+        components,
+        references,
+        "source.params",
+        typedResources.handledPaths,
+      );
       invalidations.push(operationRenderInvalidation(record.operation));
     }
     const invalidation = mergeRenderInvalidations(invalidations);
@@ -464,6 +663,25 @@ export class VisualRenderPlanIntrospection {
         ...inspection,
       })] : [];
     });
+    const controlPrograms = [
+      {
+        operationId: this.plan.id || "root",
+        path: "",
+        program: this.plan.controlProgram,
+      },
+      ...records.map(({ operation, path }) => ({
+        operationId: operation.id,
+        path,
+        program: operation.controlProgram,
+      })),
+    ].flatMap(({ operationId, path, program }) => {
+      const inspection = program?.inspect?.();
+      return inspection?.steps?.length ? [Object.freeze({
+        operationId,
+        path,
+        ...inspection,
+      })] : [];
+    });
     const externalValueRequirements = valuePrograms.flatMap((program) =>
       (program.externalResolvers || []).map((resolver) => Object.freeze({
         kind: "capability",
@@ -471,6 +689,19 @@ export class VisualRenderPlanIntrospection {
         lifecycle: resolver.lifecycle,
         asynchronous: true,
       })));
+    const controlSignalRequirements = uniqueControlSignalRequirements(
+      controlPrograms.flatMap((program) => program.requirements || []),
+    );
+    for (const requirement of controlSignalRequirements) {
+      references.push(reference(
+        "control-signal",
+        requirement.endpoint
+          ? `${requirement.signalKind}:${requirement.endpoint}:${requirement.address}`
+          : `${requirement.signalKind}:${requirement.address}`,
+        this.plan.id,
+        "controlProgram",
+      ));
+    }
     return Object.freeze({
       format: this.format,
       executionModel: this.plan.executionModel,
@@ -482,12 +713,16 @@ export class VisualRenderPlanIntrospection {
       mediaDemand: Object.freeze({
         ids: Object.freeze([...media].sort()),
         camera,
+        screenInputs: Object.freeze([...screenInputs].sort()),
       }),
       readiness: Object.freeze({
         requirements: Object.freeze([
           ...[...media].sort().map((id) => Object.freeze({ kind: "media", id })),
           ...(camera ? [Object.freeze({ kind: "camera", id: "default" })] : []),
+          ...[...screenInputs].sort().map((id) =>
+            Object.freeze({ kind: "screen-input", id })),
           ...externalValueRequirements,
+          ...controlSignalRequirements,
         ]),
       }),
       dynamics: Object.freeze({
@@ -503,13 +738,14 @@ export class VisualRenderPlanIntrospection {
       }),
       references: Object.freeze(references),
       valuePrograms: Object.freeze(valuePrograms),
+      controlPrograms: Object.freeze(controlPrograms),
       editableItems: Object.freeze(records.map(({ operation, path }) => Object.freeze({
         id: operation.id,
         nodeId: operation.nodeId,
         path,
         opcode: operation.opcode,
         backend: operation.backend,
-        activation: operation.nativeCompoundProgram || operation.scene3dProgram ? "recompile" : "live",
+        activation: operation.opcode === VISUAL_RENDER_OPCODES.GROUP ? "recompile" : "live",
       }))),
       operations: Object.freeze(records.map(({ operation, path }) => Object.freeze({
         id: operation.id,
@@ -519,6 +755,8 @@ export class VisualRenderPlanIntrospection {
         renderer: operation.renderer || "",
         enabled: operation.configuration?.enabled !== false,
         contract: operation.contract,
+        directPlacement: operation.directPlacement || null,
+        renderProcessContext: operation.nodeProcessContextFormat || "",
       }))),
       catalogKinds: Object.freeze({
         generators: Object.freeze([...generators].filter(Boolean).sort()),
@@ -552,13 +790,17 @@ function compileOperations(nodes, connections, currentChain, path, hooks, diagno
     const configuration = configurationById.get(String(node.id || "")) || node.configuration
       || (compilerHook?.id === VISUAL_COMPILER_HOOKS.TEXTURE_OPERATOR
         ? textureOperatorConfiguration(node, definition, compilerHook)
-        : compilerHook?.id === VISUAL_COMPILER_HOOKS.SCENE_3D
-          ? scene3dSourceConfiguration(node, definition)
-          : null);
+        : null);
     if (!configuration) throw new Error(`VISUAL_RENDER_CONFIGURATION_MISSING:${path}:${node.id}`);
     const compiled = hooks.compile(effectiveNode, {
       configuration,
       definition,
+      nativeModuleDefinitions: nativeValueDefinitionsForOperation(
+        node.id,
+        nodes,
+        connections,
+        resolveDefinition,
+      ),
       resolveDefinition,
       textureOutputPorts: connectedTextureOutputPorts(node.id, connections),
       path: `${path}/${node.id}`,
@@ -576,17 +818,200 @@ function compileOperations(nodes, connections, currentChain, path, hooks, diagno
     if (compilerHook?.id === VISUAL_COMPILER_HOOKS.TEXTURE_OPERATOR) {
       validateTextureOperatorInputs(node, definition, textureInputs, path);
     }
+    const mediaDependencies = compiledOperationMediaDependencies(
+      compiled,
+      configuration,
+      node.id,
+    );
     return Object.freeze({
       ...compiled,
       textureInputs: Object.freeze(textureInputs),
       textureInputPorts: Object.freeze(Object.keys(textureInputs)),
+      mediaDependencies,
       // Runtime values are written into this retained map by the optimized
       // texture-DAG executor. Graph topology never becomes per-frame packets.
       runtimeInputStates: new Map(),
       runtimeValueInputs: new Map(),
       runtimeValueIdentityInputs: new Map(),
+      // Host-resolved asynchronous values publish their revision into this
+      // retained map before the consuming render operation is evaluated.
+      // The map keeps capability resolution out of source-specific code and
+      // avoids rebuilding graph packets in the frame loop.
+      runtimeExternalRevisionInputs: new Map(),
     });
   });
+}
+
+function compiledOperationMediaDependencies(
+  operation = {},
+  configuration = {},
+  operationId = "",
+) {
+  const media = new Set();
+  const components = new Set();
+  const references = [];
+  const params = configuration?.source?.params || {};
+  const typedResources = collectValueResourceReferences(
+    operation,
+    params,
+    operationId,
+    media,
+    references,
+  );
+  collectParameterReferences(
+    params,
+    operationId,
+    media,
+    components,
+    references,
+    "source.params",
+    typedResources.handledPaths,
+  );
+  return Object.freeze([...media].sort());
+}
+
+// Some retained GPU passes must continue on the exact framebuffer produced by
+// their input so color and depth attachments remain authoritative. Lower that
+// relationship explicitly instead of hiding it inside a monolithic renderer.
+// The destructive alias is only legal for a linear, private edge.
+function compileFramebufferPassSequences(
+  operations = [],
+  selectedOutputs = [],
+  path = "",
+) {
+  const byId = new Map(operations.map((operation) => [operation.id, operation]));
+  const consumers = new Map();
+  for (const operation of operations) {
+    for (const sourceValueId of Object.values(operation.textureInputs || {})) {
+      if (!sourceValueId || isExternalTextureSource(sourceValueId)) continue;
+      const sourceId = endpointNode(sourceValueId);
+      const list = consumers.get(sourceId) || [];
+      list.push(operation.id);
+      consumers.set(sourceId, list);
+    }
+  }
+  const publicOutputNodes = new Set(
+    selectedOutputs.map((output) => endpointNode(output.endpoint)),
+  );
+  const sequenceByOperation = new Map();
+  const preserveBySequence = new Map();
+  for (const continuation of operations) {
+    const declaration = continuation.framebufferPass;
+    if (!declaration) continue;
+    const inputPort = String(declaration.input || "");
+    const sourceValueId = continuation.textureInputs?.[inputPort];
+    const sourceId = endpointNode(sourceValueId);
+    const source = byId.get(sourceId);
+    if (!inputPort || !sourceValueId) {
+      throw new Error(
+        `VISUAL_FRAMEBUFFER_PASS_INPUT_REQUIRED:${path}:${continuation.id}:${inputPort || "missing"}`,
+      );
+    }
+    if (!source) {
+      throw new Error(
+        `VISUAL_FRAMEBUFFER_PASS_SOURCE_MISSING:${path}:${continuation.id}:${sourceId || "missing"}`,
+      );
+    }
+    if (
+      (consumers.get(sourceId) || []).length !== 1 ||
+      publicOutputNodes.has(sourceId)
+    ) {
+      throw new Error(
+        `VISUAL_FRAMEBUFFER_PASS_ALIAS_UNSAFE:${path}:${sourceId}`,
+      );
+    }
+    if (
+      source.opcode !== VISUAL_RENDER_OPCODES.SOURCE ||
+      continuation.opcode !== VISUAL_RENDER_OPCODES.SOURCE
+    ) {
+      throw new Error(
+        `VISUAL_FRAMEBUFFER_PASS_SOURCE_UNSUPPORTED:${path}:${sourceId}:${continuation.id}`,
+      );
+    }
+    const inherited = sequenceByOperation.get(sourceId);
+    const sequenceId =
+      inherited?.sequenceId ||
+      `${path}/framebuffer-pass/${sourceId}`;
+    if (!inherited) {
+      sequenceByOperation.set(sourceId, {
+        sequenceId,
+        phase: "begin",
+      });
+    }
+    sequenceByOperation.set(continuation.id, {
+      sequenceId,
+      phase: "continue",
+      inputPort,
+    });
+    const preserve = preserveBySequence.get(sequenceId) || new Set();
+    for (const attachment of (
+      Array.isArray(declaration.preserve)
+        ? declaration.preserve
+        : ["color", "depth"]
+    )) {
+      preserve.add(String(attachment));
+    }
+    preserveBySequence.set(sequenceId, preserve);
+  }
+  return operations.map((operation) => {
+    const framebufferSequence = sequenceByOperation.get(operation.id);
+    const preserve = framebufferSequence
+      ? preserveBySequence.get(framebufferSequence.sequenceId)
+      : null;
+    return framebufferSequence
+      ? Object.freeze({
+          ...operation,
+          framebufferSequence: Object.freeze({
+            ...framebufferSequence,
+            preserve: Object.freeze(
+              preserve?.size
+                ? [...preserve]
+                : ["color", "depth"],
+            ),
+          }),
+        })
+      : operation;
+  });
+}
+
+function nativeValueDefinitionsForOperation(
+  operationId,
+  nodes,
+  connections,
+  resolveDefinition,
+) {
+  if (typeof resolveDefinition !== "function") return [];
+  const byId = new Map((nodes || []).map((node) => [String(node.id || ""), node]));
+  const incoming = new Map();
+  for (const edge of connections || []) {
+    if (
+      edge.type === "texture" ||
+      isTextureEndpoint(edge.from) ||
+      isTextureEndpoint(edge.to) ||
+      String(edge.to || "").includes(".$parameter.")
+    ) continue;
+    const source = endpointNode(edge.from);
+    const target = endpointNode(edge.to);
+    if (!source || !target || !byId.has(source) || !byId.has(target)) continue;
+    const list = incoming.get(target) || [];
+    list.push(source);
+    incoming.set(target, list);
+  }
+  const ordered = [];
+  const visited = new Set();
+  const visit = (id) => {
+    for (const sourceId of incoming.get(id) || []) {
+      if (visited.has(sourceId)) continue;
+      visited.add(sourceId);
+      visit(sourceId);
+      const node = byId.get(sourceId);
+      if (node?.role !== "value") continue;
+      const definition = resolveDefinition(node);
+      if (definition) ordered.push(definition);
+    }
+  };
+  visit(String(operationId || ""));
+  return ordered;
 }
 
 function orderedRenderNodes(nodes, connections, path, diagnostics) {
@@ -638,7 +1063,18 @@ function orderedRenderNodes(nodes, connections, path, diagnostics) {
 }
 
 function operationConfiguration(operation) {
-  if (operation.opcode !== VISUAL_RENDER_OPCODES.GROUP) return operation.configuration;
+  // Only an authored Layer Group projects child elements back into the
+  // Component/Scene chain. Compiled visual compounds are one public node:
+  // their child operations are an editable implementation graph, not legacy
+  // chain items. Exposing those private operations here made the compatibility
+  // projection differ from its sanitized authored form, so a later edit could
+  // be rejected as a conflicting graph change.
+  if (
+    operation.opcode !== VISUAL_RENDER_OPCODES.GROUP ||
+    operation.backend !== "layer-group"
+  ) {
+    return operation.configuration;
+  }
   return {
     ...operation.configuration,
     chain: (operation.operations || []).map(operationConfiguration),
@@ -659,6 +1095,43 @@ function operation(opcode, node, configuration, path, additions = {}) {
 
 function normalizeOperationContract(operation, diagnostics) {
   let contract = defineVisualNodeContract(operation.contract || {});
+  const nested = operation.opcode === VISUAL_RENDER_OPCODES.GROUP
+    ? compileVisualContractPasses(operation.operations || [], diagnostics)
+    : operation.operations;
+  if (operation.opcode === VISUAL_RENDER_OPCODES.GROUP && nested?.length) {
+    const nestedDemand = nested.reduce(
+      (demand, child) =>
+        mergeRoiDemand(demand, child.lowering?.inputDemand),
+      null,
+    );
+    const declaredDemand = {
+      mode: contract.roi.mode,
+      halo: contract.roi.halo,
+      coordinateSpace: contract.roi.coordinateSpace,
+      mapping: contract.roi.inputMapping,
+    };
+    const compoundDemand = mergeRoiDemand(
+      declaredDemand,
+      nestedDemand,
+    );
+    contract = defineVisualNodeContract({
+      ...contract,
+      roi: {
+        mode: compoundDemand.mode,
+        halo: compoundDemand.halo,
+        coordinateSpace: compoundDemand.coordinateSpace,
+        inputMapping:
+          compoundDemand.mapping || contract.roi.inputMapping,
+        pixelEquivalentToFullFrame: true,
+      },
+      allocation: {
+        mode:
+          compoundDemand.mode === VISUAL_ROI_MODES.FULL_FRAME
+            ? VISUAL_ALLOCATION_MODES.FULL_FRAME
+            : contract.allocation.mode,
+      },
+    });
+  }
   if (contract.roi.mode !== VISUAL_ROI_MODES.FULL_FRAME && !contract.roi.pixelEquivalentToFullFrame) {
     diagnostics.push(Object.freeze({
       code: "VISUAL_CONTRACT_ROI_ESCALATED",
@@ -675,9 +1148,6 @@ function normalizeOperationContract(operation, diagnostics) {
       allocation: { mode: VISUAL_ALLOCATION_MODES.FULL_FRAME },
     });
   }
-  const nested = operation.opcode === VISUAL_RENDER_OPCODES.GROUP
-    ? compileVisualContractPasses(operation.operations || [], diagnostics)
-    : operation.operations;
   return Object.freeze({
     ...operation,
     contract,
@@ -719,6 +1189,7 @@ function operationInputDemand(contract, outputDemand) {
       halo: 0,
       coordinateSpace: VISUAL_COORDINATE_SPACES.FULL_FRAME,
       mapping: contract.roi.inputMapping,
+      mapping: contract.roi.inputMapping,
     });
   }
   if (contract.roi.mode === VISUAL_ROI_MODES.PROJECTIVE) {
@@ -742,11 +1213,16 @@ function operationInputDemand(contract, outputDemand) {
 
 function mergeRoiDemand(current, incoming) {
   if (!current) return incoming;
+  if (!incoming) return current;
   if (current.mode === VISUAL_ROI_MODES.FULL_FRAME || incoming.mode === VISUAL_ROI_MODES.FULL_FRAME) {
     return Object.freeze({
       mode: VISUAL_ROI_MODES.FULL_FRAME,
       halo: 0,
       coordinateSpace: VISUAL_COORDINATE_SPACES.FULL_FRAME,
+      mapping:
+        current.mode === VISUAL_ROI_MODES.FULL_FRAME
+          ? current.mapping
+          : incoming.mapping,
     });
   }
   const projective = current.mode === VISUAL_ROI_MODES.PROJECTIVE || incoming.mode === VISUAL_ROI_MODES.PROJECTIVE;
@@ -759,6 +1235,9 @@ function mergeRoiDemand(current, incoming) {
         : VISUAL_ROI_MODES.LOCAL,
     halo,
     coordinateSpace: projective ? VISUAL_COORDINATE_SPACES.PROJECTIVE : incoming.coordinateSpace,
+    mapping:
+      incoming.mapping ||
+      current.mapping,
   });
 }
 
@@ -807,7 +1286,22 @@ function compileCompoundPublicParameterBindings(definition, operations, controlP
         if (!target && !controlStep) {
           throw new Error(`VISUAL_COMPOUND_PUBLIC_TARGET_MISSING:${path}:${binding.nodeId || "missing"}`);
         }
-        if (controlStep && !Object.hasOwn(controlStep.parameters || {}, targetParameterId)) {
+        const controlParameter =
+          controlStep &&
+          Object.hasOwn(controlStep.parameters || {}, targetParameterId);
+        const controlInput =
+          controlStep &&
+          !controlParameter &&
+          Object.hasOwn(controlStep.inlets || {}, targetParameterId);
+        if (controlInput && (controlStep.inputs || []).some(
+          (input) => input.targetPortId === targetParameterId
+        )) {
+          throw new Error(
+            `VISUAL_COMPOUND_PUBLIC_CONTROL_INLET_CONNECTED:${path}:` +
+            `${binding.nodeId || "missing"}.${targetParameterId || "missing"}`
+          );
+        }
+        if (controlStep && !controlParameter && !controlInput) {
           if (compoundProviderAlternativeAllowsDifferentParameters(
             definition,
             binding.nodeId,
@@ -825,6 +1319,7 @@ function compileCompoundPublicParameterBindings(definition, operations, controlP
               parameterId,
               controlStep,
               targetParameterId,
+              ...(controlInput ? { controlInput: true } : {}),
             }
           : {
               parameterId,
@@ -856,13 +1351,28 @@ function synchronizeCompoundPublicParameters(operation, definition = null) {
 
 function disposeVisualOperations(operations) {
   for (const operation of operations || []) {
-    operation.scene3dProgram?.dispose?.();
-    operation.nativeCompoundProgram?.dispose?.();
+    try {
+      operation.nodeProcessDispose?.({
+        state: operation.nodeProcessState,
+        output: operation.nodeProcessOutput,
+      });
+    } catch {}
+    if (operation.nodeProcessState) {
+      for (const key of Object.keys(operation.nodeProcessState)) {
+        delete operation.nodeProcessState[key];
+      }
+    }
+    if (operation.nodeProcessOutput) {
+      for (const key of Object.keys(operation.nodeProcessOutput)) {
+        delete operation.nodeProcessOutput[key];
+      }
+    }
     operation.valueProgram?.dispose?.();
     operation.runtimeStates?.clear?.();
     operation.runtimeInputStates?.clear?.();
     operation.runtimeValueInputs?.clear?.();
     operation.runtimeValueIdentityInputs?.clear?.();
+    operation.runtimeExternalRevisionInputs?.clear?.();
     operation.runtimeOutputStates?.clear?.();
     operation.retainedOperators?.clear?.();
     if (operation.operations?.length) disposeVisualOperations(operation.operations);
@@ -893,46 +1403,60 @@ function operationIsFrameDynamic(operation) {
 function operationRenderInvalidation(operation) {
   const configuration = operation.configuration || {};
   const source = configuration.source || {};
+  const invalidations = [];
   if ((operation.controlProgram?.steps || []).some(controlStepIsFrameDynamic)) {
-    return frameRenderInvalidation(null, "compound-control-program");
+    invalidations.push(
+      frameRenderInvalidation(null, "compound-control-program"),
+    );
   }
-  if ((operation.valueProgram?.steps || []).some((step) => step.frameDynamic === true)) {
-    return frameRenderInvalidation(null, "compound-value-program");
-  }
-  if (source.type === "camera") return frameRenderInvalidation(null, "camera");
-  if (source.type === "media") {
-    const params = source.params || configuration.params || {};
-    if (
-      Math.abs(Number(params.spinX) || 0) > 0.0001 ||
-      Math.abs(Number(params.spinY) || 0) > 0.0001 ||
-      Math.abs(Number(params.spinZ) || 0) > 0.0001
-    ) return frameRenderInvalidation(null, "media-transform-time");
-    return revisionRenderInvalidation(source.mediaId || null, "media-revision");
+  const valueSteps = operation.valueProgram?.steps || [];
+  if (valueSteps.some((step) => step.frameDynamic === true)) {
+    invalidations.push(
+      frameRenderInvalidation(null, "compound-value-program"),
+    );
+  } else if (valueSteps.length) {
+    invalidations.push(
+      revisionRenderInvalidation(null, "compound-value-program"),
+    );
   }
   if (source.type === "component") {
-    return revisionRenderInvalidation(source.componentId || null, "component-revision");
+    invalidations.push(
+      revisionRenderInvalidation(
+        source.componentId || null,
+        "component-revision",
+      ),
+    );
   }
   if (operation.renderInvalidation?.mode === "frame") {
-    return frameRenderInvalidation(
-      operation.renderInvalidation.key ?? null,
-      operation.renderInvalidation.reason || "declared-frame",
+    invalidations.push(
+      frameRenderInvalidation(
+        operation.renderInvalidation.key ?? null,
+        operation.renderInvalidation.reason || "declared-frame",
+      ),
+    );
+  } else if (operation.renderInvalidation?.mode === "revision") {
+    invalidations.push(
+      revisionRenderInvalidation(
+        operation.renderInvalidation.key ?? null,
+        operation.renderInvalidation.reason || "declared-revision",
+      ),
     );
   }
-  if (operation.renderInvalidation?.mode === "revision") {
-    return revisionRenderInvalidation(
-      operation.renderInvalidation.key ?? null,
-      operation.renderInvalidation.reason || "declared-revision",
-    );
-  }
-  const policyInvalidation = runtimePolicyRenderInvalidation(
-    operation.runtimePolicy,
-    source.params || configuration.params || {},
+  invalidations.push(
+    runtimePolicyRenderInvalidation(
+      operation.runtimePolicy,
+      source.params || configuration.params || {},
+    ),
   );
-  if (policyInvalidation.mode !== "stable") return policyInvalidation;
   if (operation.opcode === VISUAL_RENDER_OPCODES.FEEDBACK || operation.opcode === VISUAL_RENDER_OPCODES.DELAY) {
-    return frameRenderInvalidation(null, "retained-feedback");
+    invalidations.push(
+      frameRenderInvalidation(null, "retained-feedback"),
+    );
   }
-  return stableRenderInvalidation("operation-stable");
+  return mergeRenderInvalidations(
+    ...invalidations,
+    stableRenderInvalidation("operation-stable"),
+  );
 }
 
 function controlStepIsFrameDynamic(step) {
@@ -949,8 +1473,17 @@ function controlStepIsFrameDynamic(step) {
   ].includes(String(step?.nodeId || ""));
 }
 
-function collectParameterReferences(params, operationId, media, components, references, path = "source.params") {
+function collectParameterReferences(
+  params,
+  operationId,
+  media,
+  components,
+  references,
+  path = "source.params",
+  ignoredPaths = null,
+) {
   visitVisualParameterReferences(params, ({ kind, id, path: referencePath }) => {
+    if (ignoredPaths?.has(referencePath)) return;
     if (kind === "component") {
       components.add(id);
       references.push(reference("component", id, operationId, referencePath));
@@ -961,23 +1494,61 @@ function collectParameterReferences(params, operationId, media, components, refe
   }, path);
 }
 
-function collectScene3dResourceReferences(operation, params, operationId, media, references) {
-  for (const binding of operation?.scene3dProgram?.resourceBindings || []) {
-    if (binding.kind !== "media") continue;
-    const id = String(binding.publicInputId
-      ? params?.[binding.publicInputId] || ""
-      : binding.staticId || "");
-    if (!id) continue;
-    media.add(id);
-    references.push(reference(
-      binding.valueType === "mesh" ? "media-mesh" : "media",
-      id,
-      operationId,
-      binding.publicInputId
-        ? `source.params.${binding.publicInputId}`
-        : `scene3d.${binding.nodeId}.${binding.parameterId}`,
-    ));
+function collectValueResourceReferences(operation, params, operationId, media, references) {
+  const handledPaths = new Set();
+  const screenInputs = new Set();
+  let camera = false;
+  for (const step of operation?.valueProgram?.steps || []) {
+    for (const dependency of step.resourceDependencies || []) {
+      if (dependency.kind === "camera") {
+        const id = String(dependency.id || "default");
+        camera = true;
+        references.push(reference(
+          "camera",
+          id,
+          operationId,
+          `values.${step.instanceId}`,
+        ));
+        continue;
+      }
+      const publicBinding = (operation.publicParameterBindings || []).find((binding) =>
+        binding.controlStep === step &&
+        binding.targetParameterId === dependency.parameterId
+      );
+      const publicParameterId = publicBinding?.parameterId || "";
+      const id = String(publicParameterId
+        ? params?.[publicParameterId] || ""
+        : step.parameters?.[dependency.parameterId] || "");
+      if (!id) continue;
+      const path = publicParameterId
+        ? `source.params.${publicParameterId}`
+        : `values.${step.instanceId}.${dependency.parameterId}`;
+      handledPaths.add(path);
+      if (dependency.kind === "screen-input") {
+        screenInputs.add(id);
+        references.push(reference(
+          "screen-input",
+          id,
+          operationId,
+          path,
+        ));
+        continue;
+      }
+      if (dependency.kind !== "media") continue;
+      media.add(id);
+      references.push(reference(
+        dependency.valueType === "mesh" ? "media-mesh" : "media",
+        id,
+        operationId,
+        path,
+      ));
+    }
   }
+  return Object.freeze({
+    handledPaths,
+    camera,
+    screenInputs: Object.freeze([...screenInputs]),
+  });
 }
 
 function reference(kind, id, operationId, path) {
@@ -987,6 +1558,32 @@ function reference(kind, id, operationId, path) {
     operationId: String(operationId || ""),
     path: String(path || ""),
   });
+}
+
+function uniqueControlSignalRequirements(requirements = []) {
+  const unique = new Map();
+  for (const requirement of requirements) {
+    const signalKind = String(requirement?.signalKind || "");
+    const address = String(requirement?.address || "");
+    const endpoint = String(requirement?.endpoint || "");
+    if (!signalKind || !address) continue;
+    const key = endpoint
+      ? `${signalKind}:${endpoint}:${address}`
+      : `${signalKind}:${address}`;
+    if (!unique.has(key)) {
+      unique.set(key, Object.freeze({
+        kind: "control-signal",
+        signalKind,
+        address,
+        ...(endpoint ? { endpoint } : {}),
+        required: requirement.required === true,
+      }));
+    }
+  }
+  return Object.freeze([...unique.values()].sort((left, right) =>
+    `${left.signalKind}:${left.endpoint || ""}:${left.address}`.localeCompare(
+      `${right.signalKind}:${right.endpoint || ""}:${right.address}`,
+    )));
 }
 
 function fallbackHookId(node) {
@@ -1015,6 +1612,7 @@ function textureInputBindings(nodeId, connections) {
   for (const edge of connections || []) {
     if (
       endpointNode(edge.to) !== String(nodeId || "") ||
+      edge.semantic === "composition" ||
       !(edge.type === "texture" || isTextureEndpoint(edge.from) || isTextureEndpoint(edge.to))
     ) continue;
     const sourceNodeId = endpointNode(edge.from);
@@ -1095,7 +1693,11 @@ function compoundPublicTextureInputs(definition, graph, path) {
     const inlet = definition.inlets?.[publicId];
     if (!inlet) throw new Error(`VISUAL_COMPOUND_PUBLIC_INPUT_MISSING:${path}:${publicId}`);
     if (inlet.type?.type !== "texture") {
-      throw new Error(`VISUAL_COMPOUND_PUBLIC_INPUT_TYPE_UNSUPPORTED:${path}:${publicId}:${inlet.type?.type || "unknown"}`);
+      const parameterBinding = String(endpoint || "").includes(".$parameter.");
+      if (parameterBinding) continue;
+      throw new Error(
+        `VISUAL_COMPOUND_PUBLIC_VALUE_INPUT_UNSUPPORTED:${path}:${publicId}:${inlet.type?.type || "unknown"}`,
+      );
     }
     result[publicId] = String(endpoint || "");
   }
@@ -1162,25 +1764,6 @@ function textureOperatorConfiguration(node, definition, hook) {
   };
 }
 
-function scene3dSourceConfiguration(node, definition) {
-  const params = Object.fromEntries(Object.entries(definition?.parameters || {}).flatMap(([id, parameter]) =>
-    parameter.defaultValue === undefined ? [] : [[id, parameter.defaultValue]]));
-  Object.assign(params, node.parameters || {}, node.configuration?.source?.params || {});
-  return {
-    id: String(node.id || ""),
-    kind: "source",
-    enabled: node.configuration?.enabled !== false,
-    source: {
-      type: "generator",
-      generatorId: "scene3d-program",
-      params,
-    },
-    transform: node.configuration?.transform || {},
-    opacity: node.configuration?.opacity ?? 1,
-    blend: node.configuration?.blend || "normal",
-  };
-}
-
 function validateTextureOperatorInputs(node, definition, textureInputs, path) {
   for (const [id, inlet] of Object.entries(definition?.inlets || {})) {
     if (inlet.type?.type !== "texture" || inlet.required !== true) continue;
@@ -1240,11 +1823,20 @@ function visualNativeModuleFields(definition = {}, nativeModuleDefinitions = [])
     nodeShaderProgramRevisions: Object.freeze(Object.fromEntries(
       [...shaderPrograms].map(([program, sources]) => [program, visualSourceRevision(sources.join("\u0001"))])
     )),
+    nodeProcessContextFormat: String(
+      definition.metadata?.renderProcessContext || "",
+    ),
     ...(definition.metadata.nodeOwnedNativeProcess && typeof definition.process === "function"
       ? {
           nodeProcess: definition.process,
           nodeProcessId: `${definition.id}@${definition.version}`,
           nodeProcessRevision: revision,
+          nodeProcessState: {},
+          nodeProcessOutput: {},
+          nodeProcessDispose:
+            typeof definition.execution?.dispose === "function"
+              ? definition.execution.dispose
+              : null,
         }
       : {}),
   };

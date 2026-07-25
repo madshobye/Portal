@@ -57,6 +57,11 @@ export class CompiledScene3dProgram {
     for (const step of this.steps) {
       const values = step.inputValues;
       for (const id of step.parameterIds) values[id] = step.parameters[id];
+      if (step.hostTimeInput) {
+        values.componentTime = Number(
+          context.renderProcess?.time ?? context.componentTime,
+        ) || 0;
+      }
       for (const edge of step.inputs) {
         const value = edge.sourceNodeId === "$in"
           ? publicInputValue(inputs, this.publicInputDefaults, edge.sourcePortId)
@@ -123,6 +128,10 @@ function compileStep(node, graph, registry, group) {
     throw new Error(`SCENE_3D_NODE_NOT_LIVE_SAFE:${node.id}`);
   }
   const inputs = incomingEdges(node.id, graph, group);
+  const hostTimeInput =
+    !!definition.inlets?.componentTime &&
+    node.parameters?.componentTime === undefined &&
+    !inputs.some((edge) => edge.targetPortId === "componentTime");
   const parameters = Object.fromEntries(Object.entries(definition.parameters || {}).flatMap(([id, parameter]) =>
     parameter.defaultValue === undefined ? [] : [[id, parameter.defaultValue]]));
   const inputValues = {};
@@ -162,6 +171,7 @@ function compileStep(node, graph, registry, group) {
     outputValues,
     hasOutput: false,
     trigger: definition.execution?.trigger || "manual",
+    hostTimeInput,
     processContext: {
       state,
       parameters,

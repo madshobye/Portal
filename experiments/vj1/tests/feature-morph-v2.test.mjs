@@ -8,7 +8,7 @@ import {
   getGeneratorNodeComponent as getGeneratorComponent,
   MediaImageResourceNode,
   MobileNetMorphAnalysisNode,
-  SpecializedCompoundStageNodeDefinitions,
+  VisualStageNodeDefinitions,
   SuperPointMorphAnalysisNode,
 } from "../js/libraries/visual-nodes/index.js";
 import { compileVisualRenderPlan } from "../js/libraries/composition-engine/shared/visual-render-plan.js";
@@ -33,7 +33,7 @@ import {
 
 function compileFeatureMorphV2Plan(definition, parameters = {}) {
   const definitions = new Map([
-    ...SpecializedCompoundStageNodeDefinitions,
+    ...VisualStageNodeDefinitions,
     definition,
   ].map((item) => [item.id, item]));
   const configuration = {
@@ -314,9 +314,11 @@ test("MobileNet runtime status rejects analysis from replaced image files", () =
 });
 
 test("MobileNet analysis waits for slider scrubbing to settle", async () => {
+  const invalidations = [];
   const service = new MobileNetMorphPairService({
     cache: { load: async () => null, save: async () => {} },
     debounceMs: 15,
+    onInvalidate: (reason) => invalidations.push(reason),
   });
   const analyses = [];
   service.resolvePair = async (params) => {
@@ -341,26 +343,30 @@ test("MobileNet analysis waits for slider scrubbing to settle", async () => {
   assert.deepEqual(analyses, [0.2]);
   assert.equal(first.status, "error");
   assert.equal(second.status, "ready");
+  assert.ok(invalidations.includes("feature-morph-analysis-loading"));
+  assert.ok(invalidations.includes("feature-morph-analysis-superseded"));
+  assert.ok(invalidations.includes("feature-morph-analysis-ready"));
+  service.dispose();
 });
 
 test("Feature Morph V2 remains dynamic only while media or MobileNet analysis is pending", () => {
   const renderer = new OutputRenderer({ mode: "component" });
   let analysisStatus = "idle";
-  renderer.mobileNetMorphPairs = { status: () => analysisStatus, externalKey: () => analysisStatus };
+  renderer.specializedSources.featureMorph.mobileNetMorphPairs = { status: () => analysisStatus, externalKey: () => analysisStatus };
   const source = createGeneratorSource("featureMorphV2", {
     imageAId: "image-a",
     imageBId: "image-b",
     autoSpeed: 0,
   });
 
-  assert.equal(renderer.sourceIsFrameDynamic(source), true);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true);
   renderer.media.set("image-a", { ready: true });
   renderer.media.set("image-b", { ready: true });
-  assert.equal(renderer.sourceIsFrameDynamic(source), true);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true);
   analysisStatus = "ready";
-  assert.equal(renderer.sourceIsFrameDynamic(source), false);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), false);
   source.params.autoSpeed = 1;
-  assert.equal(renderer.sourceIsFrameDynamic(source), true);
+  assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true);
 });
 
 test("Feature Morph V2 uses CDN MobileNet and the shared compiled morph renderer", () => {

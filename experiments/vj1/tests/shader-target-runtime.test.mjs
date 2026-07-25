@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   chainItemToShaderPass,
+  drawShaderTarget,
   effectNeedsComposite,
   effectParamNumber,
   nextFxTargetSlot,
@@ -53,4 +54,36 @@ test("shader target runtime updates dynamic uniforms without allocating cached a
     width: 1920,
     height: 1080,
   });
+});
+
+test("shader targets replace complete premultiplied output and restore normal blending", () => {
+  const calls = [];
+  const target = {
+    push() { calls.push("push"); },
+    pop() { calls.push("pop"); },
+    blendMode(mode) { calls.push(`blend:${mode}`); },
+  };
+  const previousReplace = globalThis.REPLACE;
+  const previousBlend = globalThis.BLEND;
+  globalThis.REPLACE = "replace";
+  globalThis.BLEND = "normal";
+  try {
+    const result = drawShaderTarget(target, () => {
+      calls.push("draw");
+      return "complete";
+    });
+    assert.equal(result, "complete");
+    assert.deepEqual(calls, [
+      "push",
+      "blend:replace",
+      "draw",
+      "blend:normal",
+      "pop",
+    ]);
+  } finally {
+    if (previousReplace === undefined) delete globalThis.REPLACE;
+    else globalThis.REPLACE = previousReplace;
+    if (previousBlend === undefined) delete globalThis.BLEND;
+    else globalThis.BLEND = previousBlend;
+  }
 });

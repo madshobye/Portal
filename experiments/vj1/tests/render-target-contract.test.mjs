@@ -7,13 +7,18 @@ import {
   registerRenderTarget,
   renderTargetDescriptor,
   renderTargetNeedsPresentationFlip,
+  renderTargetNeedsShaderSampleFlip,
   RENDER_TARGET_KIND,
   RENDER_TEXTURE_ORIENTATION,
   withRenderTarget2D,
-} from "../js/output/render-target-contract.js";
+} from "../js/output/render-target-contract.js?v=source-target-ownership-1";
 import { contentTransformRawWebglPlacement } from "../js/output/content-coordinate-space.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
-import { boundedSampleRect } from "../js/output/render-draw-utils.js";
+import {
+  boundedSampleRect,
+  drawSampleRect,
+  renderTargetImageGeometry,
+} from "../js/output/render-draw-utils.js";
 
 test("render targets carry explicit logical size orientation and p5 safety", () => {
   const target = { width: 640, height: 360 };
@@ -37,6 +42,62 @@ test("render targets carry explicit logical size orientation and p5 safety", () 
   assert.equal(isDirectP5ImageSourceSafe(target), false);
   markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.topLeft);
   assert.equal(renderTargetNeedsPresentationFlip(target), false);
+});
+
+test("one orientation contract drives shader sampling and sampled p5 presentation", () => {
+  const ordinary = { width: 100, height: 80 };
+  assert.equal(
+    renderTargetNeedsShaderSampleFlip(ordinary, false),
+    true,
+    "ordinary uploaded images retain the host texture upload inversion",
+  );
+  assert.equal(
+    renderTargetNeedsShaderSampleFlip(ordinary, true),
+    false,
+    "top-left retained shader targets require no semantic inversion",
+  );
+
+  const raw = { width: 100, height: 80 };
+  markRenderTargetOrientation(raw, RENDER_TEXTURE_ORIENTATION.bottomLeft);
+  assert.equal(
+    renderTargetNeedsShaderSampleFlip(raw, true),
+    true,
+    "raw WebGL storage is normalized when sampled by another shader",
+  );
+  assert.equal(
+    renderTargetNeedsShaderSampleFlip(raw, false),
+    false,
+    "the semantic raw flip cancels an ordinary upload flip",
+  );
+
+  assert.deepEqual(
+    renderTargetImageGeometry(
+      raw,
+      { x: 2, y: 3, width: 40, height: 60 },
+      { x: 10, y: 5, width: 20, height: 30 },
+    ),
+    {
+      flipped: true,
+      destination: { x: 2, y: 63, width: 40, height: -60 },
+      sample: { x: 10, y: 45, width: 20, height: 30 },
+    },
+  );
+
+  const calls = [];
+  drawSampleRect(
+    {
+      width: 40,
+      height: 60,
+      image: (...args) => calls.push(args),
+    },
+    raw,
+    { x: 10, y: 5, width: 20, height: 30 },
+    2,
+    3,
+    40,
+    60,
+  );
+  assert.deepEqual(calls, [[raw, 2, 63, 40, -60, 10, 45, 20, 30]]);
 });
 
 test("immediate 2D target ownership is balanced around the final draw", () => {
@@ -110,8 +171,8 @@ test("mapped and direct surfaces share one reversible world-to-output transform"
       },
     };
     const world = { x: 82, y: 31 };
-    const display = renderer.worldPointToDisplay(world);
-    const restored = renderer.displayPointToWorld(display);
+    const display = renderer.presentationGeometry.worldPointToDisplay(world);
+    const restored = renderer.presentationGeometry.displayPointToWorld(display);
     assert.ok(Math.abs(restored.x - world.x) < 1e-9);
     assert.ok(Math.abs(restored.y - world.y) < 1e-9);
   } finally {

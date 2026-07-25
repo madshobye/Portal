@@ -1,13 +1,12 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes } from "../domain/models.js?v=surface-terminology-1";
-import { liveProgramComponentIds } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
+import { createLiveComponentView, sceneSourceNodes, sourceBackedMediaId } from "../domain/models.js?v=live-output-matrix-contract-3";
+import { liveProgramComponentIds } from "../domain/scene-routing.js?v=live-output-matrix-contract-3";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
+import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=async-media-dirty-1";
 import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=derived-media-element-names-1";
+import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=inspector-view-option-parameter-control-group-1";
 import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js?v=explicit-surface-visibility-direct-output-independence-1";
-import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlTemplate, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=canonical-effect-params-1";
-import { mediaSourceParams } from "./source-control-schema.js?v=source-param-schema-1";
+import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, parameterGroupTemplate, paramControlTemplate, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=parameter-control-group-1";
 import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=param-select-1";
 import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
 import { componentCardBarTemplate, deepEditButtonTemplate, elementListTemplate, emptyStateTemplate, enableToggleButton, panelTemplate, railListSectionTemplate, scrollRegionTemplate, selectablePillTemplate, textListItemTemplate, titleInputTemplate } from "./view-primitives.js?v=shared-live-element-row-1";
@@ -16,13 +15,15 @@ import { UI_ICONS } from "./ui-icons.js";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
-export function mappingSurfacePillTemplate(surface, state) {
+export function mappingSurfacePillTemplate(surface, state, {
+  selected = state.ui.selectedSurfaceId === surface.id,
+} = {}) {
   const mappingSurface = getMappingSurfaceView(surface, state);
   const enabled = surface.enabled !== false;
   const direct = surface.destination?.type === "direct";
   return selectablePillTemplate({
     rowClass: "list-row compact-list-row",
-    selected: state.ui.selectedSurfaceId === surface.id,
+    selected,
     action: "data-select-surface",
     id: surface.id,
     iconName: enabled ? (direct ? "desktop_windows" : "crop_free") : "hide_source",
@@ -73,7 +74,7 @@ export function mappingSurfaceTemplate(surface, state, catalog = {}) {
   `;
 }
 
-export function mappingSurfaceSectionTemplate(state) {
+export function mappingSurfaceSectionTemplate(state, { renderSelection = true } = {}) {
   const mapping = getSelectedMapping(state);
   if (!mapping) {
     return railListSectionTemplate({
@@ -102,7 +103,9 @@ export function mappingSurfaceSectionTemplate(state) {
         className: "mapping-test-pattern-button",
       })}
     </div>`,
-    content: `${sceneMappingOutputPillTemplate(state)}${state.surfaces.map((surface) => mappingSurfacePillTemplate(surface, state)).join("")}`,
+    content: `${sceneMappingOutputPillTemplate(state)}${state.surfaces.map((surface) => mappingSurfacePillTemplate(surface, state, {
+      selected: renderSelection && state.ui.selectedSurfaceId === surface.id,
+    })).join("")}`,
     emptyText: "Add a surface",
     className: "mapping-surface-rail-section",
     listClassName: "surface-pills",
@@ -111,8 +114,9 @@ export function mappingSurfaceSectionTemplate(state) {
   });
 }
 
-export function mappingPillTemplate(mapping, state) {
-  const selected = state.ui.selectedMappingId === mapping.id;
+export function mappingPillTemplate(mapping, state, {
+  selected = state.ui.selectedMappingId === mapping.id,
+} = {}) {
   return `<div data-component-filter-card="${esc(mapping.name.toLowerCase())}">${textListItemTemplate({
     rowClass: "mapping-text-row compact-list-row",
     selected,
@@ -255,7 +259,7 @@ function significantChainControls(chain, options) {
     }) : "";
     if (item.kind === "group") {
       const own = transformControls || compositeControls
-        ? `<div class="live-significant-group"><span>${esc(item.name || "Group")}</span>${compositeControls}${transformControls}</div>`
+        ? parameterGroupTemplate(item.name || "Group", `${compositeControls}${transformControls}`)
         : "";
       return `${own}${nested}`;
     }
@@ -292,7 +296,7 @@ function significantChainControls(chain, options) {
     const label = item.kind === "source"
       ? sourceChainItemDisplayName(item, mediaItem, referencedComponent, state)
       : item.name || item.componentId || "Effect";
-    return `<div class="live-significant-group"><span>${esc(label)}</span>${contentControls}${compositeControls}${transformControls}</div>`;
+    return parameterGroupTemplate(label, `${contentControls}${compositeControls}${transformControls}`);
   }).join("");
 }
 
@@ -324,8 +328,8 @@ function liveComponentTemplate(component, view, selectedElement, state, componen
         ${deepEditButtonTemplate(component.id, { className: "header-edit-button", label: `Edit ${component.name}` })}
       </header>
       <div class="live-component-view-tabs" role="group" aria-label="Live Component view">
-        <button type="button" class="live-component-view-tab ${componentView === "controls" ? "is-selected" : ""}" data-live-component-view="controls" aria-pressed="${componentView === "controls"}">${icon("tune")} Controls${publishedControlCount ? ` (${publishedControlCount})` : ""}</button>
-        <button type="button" class="live-component-view-tab ${componentView === "elements" ? "is-selected" : ""}" data-live-component-view="elements" aria-pressed="${componentView === "elements"}">${icon(UI_ICONS.group)} Elements</button>
+        <button type="button" class="live-component-view-tab inspector-view-option ${componentView === "controls" ? "is-selected" : ""}" data-live-component-view="controls" aria-pressed="${componentView === "controls"}">${icon("tune")} Controls${publishedControlCount ? ` (${publishedControlCount})` : ""}</button>
+        <button type="button" class="live-component-view-tab inspector-view-option ${componentView === "elements" ? "is-selected" : ""}" data-live-component-view="elements" aria-pressed="${componentView === "elements"}">${icon(UI_ICONS.group)} Elements</button>
       </div>
       ${componentView === "controls"
         ? liveComponentControlsTemplate(component, view, state)
@@ -421,7 +425,7 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
       <div class="chain-param-views" style="--param-view-count: ${views.length};">
         ${views.map((view, index) => `<div class="chain-param-view-option">
           <input class="chain-param-view-input" type="radio" name="${esc(tabName)}" id="${esc(tabName)}-${view.id}" ${index === 0 ? "checked" : ""} />
-          <label class="chain-param-view-tab" for="${esc(tabName)}-${view.id}">${view.label}</label>
+          <label class="chain-param-view-tab inspector-view-option" for="${esc(tabName)}-${view.id}">${view.label}</label>
           ${scrollRegionTemplate(`live-chain-params:${componentId}:${item.id}:${view.id}`, view.html, { className: `chain-param-view-panel chain-param-view-${view.id}` })}
         </div>`).join("")}
       </div>
@@ -436,7 +440,7 @@ function liveChainItemContentTemplate(item, componentId, path, paramView = "prim
     return params.length ? liveShaderParamControlsTemplate(component, item, componentId, path, params) : "";
   }
   if (item.kind === "group") return "";
-  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
+  const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(item.source)) || null;
   const params = sourceLiveParams(item.source || {}, media, state);
   const viewParams = componentParamViews({ params })[paramView] || [];
   if (paramView === "details") return viewParams.length ? liveSourceParamControlsTemplate(item, componentId, path, viewParams) : "";
@@ -482,7 +486,7 @@ function firstLiveChainItem(chain, base = "chain") {
 function liveChainItemLabel(item, state = {}) {
   if (item.kind === "effect") return visualEffectComponent(state, item.componentId)?.name || item.componentId;
   if (item.kind === "group") return item.name || "Group";
-  const media = state.media?.find((entry) => entry.id === item.source?.mediaId) || null;
+  const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(item.source)) || null;
   const component = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
   return sourceChainItemDisplayName(item, media, component, state);
 }
@@ -514,9 +518,8 @@ function liveSourceParamControlsTemplate(item, componentId, itemPath, params = [
   `;
 }
 
-function sourceLiveParams(source = {}, media = null, state = {}) {
+function sourceLiveParams(source = {}, _media = null, state = {}) {
   if (source.type === "generator") return visualGeneratorComponent(state, source.generatorId)?.params || [];
-  if (source.type === "media") return mediaSourceParams(source, media);
   return [];
 }
 

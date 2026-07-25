@@ -1,11 +1,10 @@
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentFromNodeDefinition, getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
+import { componentFromNodeDefinition, getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=project-media-contain-1";
 import { materializeProjectNodeDefinition } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { generatorIcon } from "./picker-view.js?v=picker-filter-tabs-shared-ui-icons-1";
-import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=canonical-effect-params-1";
-import { isModelMediaSource, isVideoMediaSource, mediaSourceParams, MODEL_SOURCE_PARAMS } from "./source-control-schema.js?v=source-param-schema-1";
+import { generatorIcon } from "./picker-view.js?v=project-media-contain-1";
+import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, parameterGroupTemplate, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=parameter-control-group-1";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=param-select-1";
 import { deepEditButtonTemplate, editableSectionTitleTemplate, elementListTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js?v=shared-element-list-1";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
@@ -14,7 +13,7 @@ import { UI_ICONS } from "./ui-icons.js";
 import {
   isAutomaticMediaSourceName,
   sourceBackedMediaId,
-} from "../domain/models.js?v=surface-terminology-1";
+} from "../domain/models.js?v=project-media-contain-1";
 
 
 export function sceneInspectorTemplate(component, state) {
@@ -88,12 +87,11 @@ export function componentSelectedChainSettingsTemplate(component, state, { nodeE
 
 export function sourceIcon(source = {}) {
   if (source.type === "component") return UI_ICONS.component;
-  if (source.type === "generator") return source.generatorId === "modelMedia"
-    ? "deployed_code"
-    : generatorIcon(source.generatorId);
-  if (source.type === "media") return isModelMediaSource(source) ? "deployed_code" : "perm_media";
-  if (source.type === "camera") return "photo_camera";
-  if (source.type === "black") return "radio_button_unchecked";
+  if (source.type === "generator") {
+    if (source.generatorId === "modelMedia") return "deployed_code";
+    if (source.generatorId === "mediaImage") return "perm_media";
+    return generatorIcon(source.generatorId);
+  }
   return sourceTypeIcon(source.type || "generator");
 }
 
@@ -107,8 +105,6 @@ export function sourceChainItemDisplayName(item = {}, media = null, component = 
   }
   return item.name;
 }
-
-export { isModelMediaSource } from "./source-control-schema.js?v=source-param-schema-1";
 
 export function formatTrimTime(value) {
   const safe = Math.max(0, Number(value) || 0);
@@ -247,7 +243,7 @@ function selectedChainItemTemplate(item, component, state, base, nodeEditorHtml 
       ${views.map((view, index) => `
         <div class="chain-param-view-option">
           <input class="chain-param-view-input" type="radio" name="${esc(tabName)}" id="${esc(tabName)}-${view.id}" ${index === 0 ? "checked" : ""} />
-          <label class="chain-param-view-tab" for="${esc(tabName)}-${view.id}">${view.label}</label>
+          <label class="chain-param-view-tab inspector-view-option" for="${esc(tabName)}-${view.id}">${view.label}</label>
           ${scrollRegionTemplate(`chain-params:${component.id}:${item.id}:${view.id}`, view.html, { className: `chain-param-view-panel chain-param-view-${view.id}` })}
         </div>
       `).join("")}
@@ -309,8 +305,6 @@ function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = 
     if (item.source?.type === "generator") {
       const generator = visualGeneratorComponent(state, item.source.generatorId);
       if (!componentParamViews(generator).details.length) return "";
-    } else if (item.source?.type === "media") {
-      if (!componentParamViews({ params: mediaSourceParams(item.source, media) }).details.length) return "";
     } else return "";
     return `<section class="chain-item-editor">${sourcePickerTemplate(item, state, base, "details")}</section>`;
   }
@@ -378,61 +372,21 @@ function sourcePickerTemplate(item, state, base, paramView = "primary") {
   const media = state.media.find((item) => item.id === sourceBackedMediaId(source));
   return `
     <div class="source-section">
-      ${source.type === "generator" || paramView !== "primary" ? "" : `<div class="field">
-        <span>Source</span>
-        ${source.type === "media" ? mediaChoiceButtonTemplate(media || { id: source.mediaId }, {
-          path: `${base}.source`,
-        }) : `<button type="button" class="source-choice-button" data-open-source-choice="${esc(`${base}.source`)}">
-          ${icon(sourceIcon(source))}
-          <span>
-            <strong>${esc(sourceTitle(source, media, null, state))}</strong>
-            <small>${esc(sourceSubtitle(source, media))}</small>
-          </span>
-          ${icon("chevron_right")}
-        </button>`}
-      </div>`}
       ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source, state, paramView) : ""}
-      ${source.type === "media" && !isModelMediaSource(source, media) ? mediaSourceControlsTemplate(`${base}.source`, source, media, paramView) : ""}
-      ${paramView === "primary" && source.type === "media" && isVideoMediaSource(source, media) ? videoSourceControlsTemplate(`${base}.source`, source, media) : ""}
-      ${source.type === "media" && isModelMediaSource(source, media) ? modelSourceControlsTemplate(`${base}.source`, source, paramView) : ""}
-      ${paramView === "primary" && source.type === "camera" ? `<div class="soft-note">Using the portal camera feed.</div>` : ""}
-      ${paramView === "primary" && source.type === "black" ? `<div class="soft-note">Black source selected.</div>` : ""}
     </div>
   `;
-}
-
-function mediaSourceControlsTemplate(base, source = {}, media = null, paramView = "primary") {
-  const definition = { params: mediaSourceParams(source, media) };
-  const params = componentParamViews(definition)[paramView] || [];
-  if (!params.length) return "";
-  return `<div class="chain-param-list">${paramControlsTemplate(params, {
-    pathFor: (param) => `${base}.params.${param.id}`,
-    valueFor: (param) => paramCurrentValue(definition, { params: source.params || {} }, param),
-  })}</div>`;
 }
 
 function sourceTitle(source = {}, media = null, component = null, state = null) {
   if (source.type === "component") return component?.name || source.componentId || "Component";
   if (source.type === "generator") {
-    if (source.generatorId === "modelMedia") {
+    if (source.generatorId === "modelMedia" || source.generatorId === "mediaImage") {
       return mediaDisplayName(media || { id: sourceBackedMediaId(source) });
     }
     const generator = visualGeneratorComponent(state, source.generatorId);
     return generator?.label || generator?.name || source.generatorId;
   }
-  if (source.type === "media") return mediaDisplayName(media || { id: source.mediaId });
-  if (source.type === "camera") return "Live camera";
-  if (source.type === "black") return "Black";
   return "Choose source";
-}
-
-function sourceSubtitle(source = {}, media = null) {
-  if (source.type === "component") return "Component reference";
-  if (source.type === "generator") return source.generatorId === "modelMedia" ? "3D model" : "Generator";
-  if (source.type === "media") return media?.type === "model" || isModelMediaSource(source) ? "3D model" : media?.type ? `Media ${media.type}` : "Media";
-  if (source.type === "camera") return "Portal camera feed";
-  if (source.type === "black") return "Empty black source";
-  return "Source";
 }
 
 function chainItemLabel(item = {}, media = null, component = null, state = null) {
@@ -523,24 +477,13 @@ export function videoTrimValues(source = {}, media = null) {
   };
 }
 
-function modelSourceControlsTemplate(base, source = {}, paramView = "primary") {
-  const params = source.params || {};
-  const viewParams = componentParamViews({ params: MODEL_SOURCE_PARAMS })[paramView] || [];
-  if (!viewParams.length) return "";
-  return `
-    <div class="model-source-controls">
-      <div class="model-param-list">${paramControlsTemplate(viewParams, {
-        pathFor: (param) => `${base}.params.${param.id}`,
-        valueFor: (param) => paramCurrentValue({ params: MODEL_SOURCE_PARAMS }, { params }, param),
-      })}</div>
-    </div>
-  `;
-}
-
 function generatorParamControlsTemplate(base, source = {}, state = {}, paramView = "primary") {
   const component = visualGeneratorComponent(state, source.generatorId);
   if (!component?.params?.length) return "";
-  const params = componentParamViews(component)[paramView] || [];
+  const params = (componentParamViews(component)[paramView] || []).filter(
+    (param) => component.id !== "mediaImage" ||
+      !["start", "end", "speed"].includes(param.id)
+  );
   if (!params.length) return "";
   const projectedControls = generatorControlProjectionTemplate(component, params, base, source, state);
   const mediaControls = component.id === "featureMorph" || component.id === "featureMorphV2"
@@ -550,6 +493,10 @@ function generatorParamControlsTemplate(base, source = {}, state = {}, paramView
       } : {})
     : component.id === "tileTexture"
       ? generatorImageMediaControlTemplate(base, source, state, { emptyDetail: "Tileable texture" })
+      : "";
+  const projectMediaControls =
+    paramView === "primary" && component.id === "mediaImage"
+      ? projectMediaVideoControlsTemplate(base, source, state)
       : "";
   return `
     <div class="chain-param-list">
@@ -563,8 +510,24 @@ function generatorParamControlsTemplate(base, source = {}, state = {}, paramView
           path
         ),
       })}
+      ${projectMediaControls}
     </div>
   `;
+}
+
+function projectMediaVideoControlsTemplate(base, source = {}, state = {}) {
+  const mediaId = String(source.params?.mediaId || "");
+  const media = (state.media || []).find(
+    (item) => String(item.id || "") === mediaId
+  );
+  if (media?.type !== "video" && !/\.(?:mp4|m4v|mov|webm|ogv)$/i.test(mediaId)) {
+    return "";
+  }
+  return videoSourceControlsTemplate(
+    `${base}.params`,
+    source.params || {},
+    media,
+  );
 }
 
 function generatorControlProjectionTemplate(component, visibleParams, base, source, state) {
@@ -577,12 +540,11 @@ function generatorControlProjectionTemplate(component, visibleParams, base, sour
       .map((control) => byId.get(control.parameterId))
       .filter(Boolean);
     if (!params.length) return "";
-    return `
-      <section class="compound-control-section" data-control-section="${esc(section.id)}">
-        <div class="ui-subsection-header"><span>${esc(section.label)}</span></div>
-        ${projectedGroupParamControlsTemplate(params, component, base, source, state)}
-      </section>
-    `;
+    return parameterGroupTemplate(
+      section.label,
+      projectedGroupParamControlsTemplate(params, component, base, source, state),
+      { id: section.id },
+    );
   }).join("");
 }
 

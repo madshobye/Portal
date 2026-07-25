@@ -216,13 +216,12 @@ export function materializeLiveProgramSurfaceRoutes(state = {}, target = null, m
     const index = routeState.surfaces.findIndex((surface) => String(surface.id) === String(surfaceId));
     if (index >= 0) routeState.surfaces[index] = { ...routeState.surfaces[index], enabled: visible !== false };
   }
-  // Scene Mapping owns the Overall source binding. Hiding it must detach that
-  // binding from every unpatched Surface; otherwise an enabled direct output
-  // keeps rendering the hidden Scene after its explicit patch is removed.
-  // Surface visibility remains independent: direct outputs and explicit
-  // visibility overrides keep their enabled state, but stay transparent until
-  // they receive their own patch. Re-enabling Scene Mapping rematerializes the
-  // retained Overall selection through the normal compiler path.
+  // IMPORTANT — Scene Mapping is the source of fallback/indirect routes, not a
+  // master visibility flag for the matrix rows. Hiding it detaches its Overall
+  // source from every unpatched destination, while explicit Direct/Surface
+  // mounts stay intact and each row retains its own authored visibility state.
+  // This distinction lets Scene Mapping be switched back on without rewriting
+  // surfaceVisibility, and prevents its eye control from toggling a Surface.
   if (live.sceneMappingVisible === false) {
     routeState.surfaces = routeState.surfaces.map((surface) => {
       const surfaceId = String(surface.id || "");

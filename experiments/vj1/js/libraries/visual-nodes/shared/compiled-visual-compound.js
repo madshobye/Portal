@@ -13,6 +13,13 @@ export function defineCompiledVisualCompound(component, {
   if (!base) throw new Error("COMPILED_VISUAL_COMPOUND_DEFINITION_MISSING");
   const outputEndpoint = String(output || "");
   if (!outputEndpoint) throw new Error(`COMPILED_VISUAL_COMPOUND_OUTPUT_MISSING:${base.id}`);
+  const childNodeDefinitions = Object.freeze(nodes.map((entry) => {
+    const definition = entry.component?.nodeDefinition || entry.definition;
+    if (!definition) {
+      throw new Error(`COMPILED_VISUAL_CHILD_DEFINITION_MISSING:${entry.id || "unknown"}`);
+    }
+    return definition;
+  }));
   const childNodes = nodes.map((entry) => compiledVisualChildNode(entry));
   const { nativeRenderer: _nativeRenderer, ...baseMetadata } = base.metadata || {};
   const definition = defineNodeGroup({
@@ -56,6 +63,7 @@ export function defineCompiledVisualCompound(component, {
     },
   });
   return componentFromNodeDefinition(component, definition, {
+    childNodeDefinitions,
     renderAuthority: "compiled-graph",
   });
 }
@@ -82,7 +90,13 @@ function compiledVisualChildNode(entry = {}) {
     parameter.defaultValue === undefined ? [] : [[parameterId, parameter.defaultValue]]));
   Object.assign(parameters, entry.parameters || {});
   const kind = String(definition.metadata?.visualKind || "");
-  if (entry.role === "control" || definition.capabilities?.includes("controller")) {
+  // An explicit compound role is authoritative. Some reusable motion
+  // providers are controllers in a standalone control graph but produce a
+  // retained typed value when wired into a visual Group.
+  if (
+    entry.role === "control" ||
+    (!entry.role && definition.capabilities?.includes("controller"))
+  ) {
     return {
       id,
       type: definition.id,
@@ -106,7 +120,12 @@ function compiledVisualChildNode(entry = {}) {
   }
   if (entry.role === "renderer") {
     const renderer = String(definition.metadata?.nativeRenderer || "");
-    if (!renderer) throw new Error(`COMPILED_VISUAL_RENDERER_CAPABILITY_MISSING:${definition.id}`);
+    const directProcess =
+      definition.metadata?.nodeOwnedNativeProcess === true &&
+      typeof definition.process === "function";
+    if (!renderer && !directProcess) {
+      throw new Error(`COMPILED_VISUAL_RENDERER_CAPABILITY_MISSING:${definition.id}`);
+    }
     return {
       id,
       type: definition.id,
@@ -130,10 +149,15 @@ function compiledVisualChildNode(entry = {}) {
         },
       },
       compilerHook: {
-        id: "vj1.visual.native-source",
-        renderer,
+        id: directProcess
+          ? "vj1.visual.source"
+          : "vj1.visual.native-source",
+        ...(renderer ? { renderer } : {}),
         allocationStable: definition.metadata?.allocationStable === true,
         contract: definition.metadata?.visualContract,
+        ...(definition.metadata?.framebufferPass
+          ? { framebufferPass: definition.metadata.framebufferPass }
+          : {}),
       },
     };
   }

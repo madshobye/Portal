@@ -65,6 +65,24 @@ export function renderTargetNeedsPresentationFlip(target, destinationOrientation
   return renderTargetDescriptor(target).orientation !== normalizeRenderTextureOrientation(destinationOrientation);
 }
 
+// Shader samplers have one storage-level inversion for ordinary uploaded
+// images and no inversion for retained shader/framebuffer textures. Raw WebGL
+// targets add their declared semantic orientation on top of that storage
+// convention. Keep the XOR at this boundary so individual shader backends do
+// not reinterpret orientation independently.
+export function renderTargetNeedsShaderSampleFlip(
+  target,
+  sourceIsShaderBuffer = false,
+  destinationOrientation = RENDER_TEXTURE_ORIENTATION.topLeft,
+) {
+  const storageFlip = !sourceIsShaderBuffer;
+  const semanticFlip = renderTargetNeedsPresentationFlip(
+    target,
+    destinationOrientation,
+  );
+  return storageFlip !== semanticFlip;
+}
+
 export function isDirectP5ImageSourceSafe(target) {
   return renderTargetDescriptor(target).directP5ImageSafe === true;
 }

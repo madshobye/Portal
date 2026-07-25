@@ -11,8 +11,8 @@ import {
 import {
   listEffectNodeComponents,
   listGeneratorNodeComponents,
-  SpecializedCompoundStageNodeDefinitions,
-} from "./libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
+  VisualStageNodeDefinitions,
+} from "./libraries/visual-nodes/index.js?v=mesh-geometry-detail-2";
 import {
   AudioControlInputNode,
   ComponentTimeControlNode,
@@ -32,7 +32,7 @@ import {
   ValueControlNode,
   Vector2ControlNode,
   Vector3ControlNode,
-} from "./libraries/control-engine/index.js?v=architecture-r2-2";
+} from "./libraries/control-engine/index.js?v=async-media-dirty-1";
 import { CacheEngineNode } from "./libraries/cache-engine/index.js";
 import { DataStoreNode } from "./libraries/data-store/index.js";
 import { DiagnosticsEngineNode } from "./libraries/diagnostics-engine/index.js";
@@ -41,7 +41,7 @@ import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./librarie
 import { NestedNoiseMotionNode, OrbitMotionNode } from "./libraries/motion-engine/index.js";
 import { TerrainFlightControllerNode } from "./libraries/terrain-engine/index.js?v=semantic-terrain-contract-4";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
-import { SceneSurfaceGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=mesh-pattern-node-authority-1";
+import { SceneSurfaceGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
 import {
   COMPONENT_PROGRAM_GENERATOR,
   ComponentProgramNode,
@@ -52,7 +52,7 @@ import {
   compileVisualRenderPlan,
   componentProgramInstances,
   reconcileComponentGroupTopology,
-} from "./libraries/composition-engine/index.js?v=mesh-pattern-node-authority-1";
+} from "./libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
 import {
   MAPPING_PROGRAM_GENERATOR,
   OutputProgramNode,
@@ -62,7 +62,7 @@ import {
   compileMappingGroupTopology,
   compileReachableProgramGraph,
   mappingProgramInstances,
-} from "./libraries/composition-engine/index.js?v=mesh-pattern-node-authority-1";
+} from "./libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
 import {
   APPLICATION_PROGRAM_GENERATOR,
   ApplicationProgramRuntime,
@@ -70,13 +70,13 @@ import {
   applicationProgramInstances,
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
-} from "./libraries/composition-engine/index.js?v=mesh-pattern-node-authority-1";
+} from "./libraries/composition-engine/index.js?v=mesh-geometry-detail-2";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
 import { RenderDemandNode } from "./libraries/render-engine/index.js";
-import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
+import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=mesh-geometry-detail-2";
 import {
   Convert3dFileToImageGroup,
   ComposableScene3dGroup,
@@ -89,7 +89,7 @@ import {
   Scene3dNodeDefinitions,
   StlParserNode,
   compileScene3dProgram,
-} from "./libraries/mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
+} from "./libraries/mesh-engine/index.js?v=mesh-geometry-detail-2";
 import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js?v=named-image-inputs-1";
 
 const ProjectComponentNode = semanticProjectNode("vj1.project.component", "Component", "A task-oriented visual program composed from reusable nodes.", "texture");
@@ -142,7 +142,7 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   MediaInputLifecycleNode,
   RenderDemandNode,
   VisualNodeDefinitionNode,
-  ...SpecializedCompoundStageNodeDefinitions,
+  ...VisualStageNodeDefinitions,
   Detect3dFormatNode,
   StlParserNode,
   ObjParserNode,
@@ -356,7 +356,7 @@ export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] 
   const topologyDefinitions = new Map([
     ...visualDefinitions,
     ...projectVisualDefinitions,
-    ...SpecializedCompoundStageNodeDefinitions,
+    ...VisualStageNodeDefinitions,
     ...Scene3dNodeDefinitions,
     TerrainFlightControllerNode,
     RenderDemandNode,
@@ -394,7 +394,7 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
   const topologyDefinitions = new Map([
     ...visualDefinitions,
     ...projectVisualDefinitions,
-    ...SpecializedCompoundStageNodeDefinitions,
+    ...VisualStageNodeDefinitions,
     ...Scene3dNodeDefinitions,
     TerrainFlightControllerNode,
     RenderDemandNode,

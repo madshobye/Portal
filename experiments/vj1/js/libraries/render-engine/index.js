@@ -6,6 +6,8 @@ export * from "./relative-geometry.js";
 export * from "./render-target-lifetime.js";
 export * from "./fit-geometry/index.js";
 export * from "./render-view/index.js";
+export * from "./render-process-context.js";
+export * from "./native-renderer-registry.js";
 export * from "./roi/index.js";
 export * from "./visual-node-contract.js";
 export * from "./render-demand/index.js";

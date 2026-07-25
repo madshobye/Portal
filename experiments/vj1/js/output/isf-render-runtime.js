@@ -3,7 +3,7 @@ import { evaluateIsfDimension } from "../libraries/isf-engine/index.js?v=named-i
 import {
   createSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=isf-runtime-1";
+} from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
 import {
   applyShaderTarget,
   clearShaderTarget,
@@ -13,7 +13,7 @@ import {
   enumUniform,
   resetShaderTarget,
   setShaderUniformIfPresent,
-} from "./shader-target-runtime.js?v=canonical-effect-params-1";
+} from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
 
 const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
 
@@ -21,8 +21,11 @@ const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
 // topology and the Output renderer decides when an operation runs; this class
 // owns only ISF resources and the already-compiled GPU execution contract.
 export class IsfRenderRuntime {
-  constructor(host) {
+  constructor(host, {
+    setShaderParams = (...args) => host.shaderEffectRuntime.setParamUniforms(...args),
+  } = {}) {
     this.host = host;
+    this.setShaderParams = setShaderParams;
     this.passTargets = new Map();
     this.targetTextures = new Map();
     this.dateUniform = [0, 0, 0, 0];
@@ -50,7 +53,7 @@ export class IsfRenderRuntime {
   }
 
   prune(maxIdleFrames = 600) {
-    const frameIndex = Math.max(0, Number(this.host.frameIndex) || 0);
+    const frameIndex = Math.max(0, Number(this.host.frameRuntime.frameIndex) || 0);
     for (const [key, entry] of this.passTargets) {
       if (frameIndex - entry.lastUsed <= maxIdleFrames) continue;
       for (const target of entry.targets) disposeGraphics(target);
@@ -105,11 +108,11 @@ export class IsfRenderRuntime {
         height: heightPx,
         float: !!pass.float,
         current: 0,
-        lastUsed: Math.max(0, Number(this.host.frameIndex) || 0),
+        lastUsed: Math.max(0, Number(this.host.frameRuntime.frameIndex) || 0),
       };
       this.passTargets.set(key, entry);
     }
-    entry.lastUsed = Math.max(0, Number(this.host.frameIndex) || 0);
+    entry.lastUsed = Math.max(0, Number(this.host.frameRuntime.frameIndex) || 0);
     return entry;
   }
 
@@ -210,7 +213,10 @@ export class IsfRenderRuntime {
           useContentTransform ? 1 : 0,
         );
         if (effectTransform) {
-          this.host.setEffectInfrastructureUniforms(shader, effectTransform);
+          this.host.shaderEffectRuntime.setInfrastructureUniforms(
+            shader,
+            effectTransform,
+          );
         }
         this.setFrameUniforms(shader, component, {
           input,
@@ -223,19 +229,20 @@ export class IsfRenderRuntime {
           sourceDetail: finalPass ? sourceDetail : null,
         });
         setShaderUniformIfPresent(shader, "vj1IsfFinalPass", finalPass);
-        this.host.setShaderParamUniforms(shader, component, params, {
+        this.setShaderParams(shader, component, params, {
           onlyPresent: true,
         });
         drawShaderTargetRect(destination, widthPx, heightPx);
         resetShaderTarget(destination);
       });
-      this.host.measureShaderPass(
+      this.host.shaderEffectRuntime.measurePass(
         { id: component.id, instanceId },
         component,
         passRequest,
         {
           handoff: false,
-          sourceIsShaderBuffer: this.host.isShaderBuffer(input),
+          sourceIsShaderBuffer:
+            this.host.renderTargetRuntime.isShaderBuffer(input),
           targetSlot: -1,
         },
         destination,
@@ -287,14 +294,14 @@ export class IsfRenderRuntime {
     setShaderUniformIfPresent(
       shader,
       "TIME",
-      timeSeconds === undefined ? this.host.visualTime : timeSeconds,
+      timeSeconds === undefined ? this.host.frameRuntime.visualTime : timeSeconds,
     );
     setShaderUniformIfPresent(
       shader,
       "TIMEDELTA",
-      this.host.visualDeltaSeconds,
+      this.host.frameRuntime.visualDeltaSeconds,
     );
-    setShaderUniformIfPresent(shader, "FRAMEINDEX", this.host.frameIndex);
+    setShaderUniformIfPresent(shader, "FRAMEINDEX", this.host.frameRuntime.frameIndex);
     setShaderUniformIfPresent(shader, "PASSINDEX", passIndex);
     setShaderUniformIfPresent(shader, "DATE", date);
     setShaderUniformIfPresent(

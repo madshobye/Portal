@@ -1,7 +1,7 @@
 import { createProjectIsfVisualLibraryLayer } from "../isf-engine/index.js?v=named-image-inputs-1";
 import { projectNodePackageVisualLibraryLayers } from "../node-engine/node-package.js?v=project-group-authoring-compiler-transport-1";
 import { resolveVisualLibrary } from "../visual-library/index.js";
-import { BuiltInVisualLibraryLayer } from "./catalog.js?v=mesh-pattern-node-authority-1";
+import { BuiltInVisualLibraryLayer } from "./catalog.js?v=compiled-capability-revision-1";
 
 // Built-in, installed, and project assets share one logical catalog without
 // copying immutable library resources into the project folder.

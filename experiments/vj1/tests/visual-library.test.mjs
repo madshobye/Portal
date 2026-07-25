@@ -7,13 +7,21 @@ import {
   VISUAL_LIBRARY_LAYER_KINDS,
 } from "../js/libraries/visual-library/index.js";
 import {
+  BuiltInIsfRepository,
+  loadBuiltInIsfRepository,
+} from "../js/libraries/visual-library/built-in-isf-repository.js";
+import {
   BuiltInVisualLibrary,
   BuiltInVisualLibraryLayer,
+  DefaultBuiltInTransition,
   listBuiltInVisualArtifacts,
 } from "../js/libraries/visual-nodes/catalog.js";
 import { createIsfNodeDefinition } from "../js/libraries/isf-engine/index.js";
 import { resolveProjectVisualLibrary } from "../js/libraries/visual-nodes/project-visual-library.js";
-import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/project-visual-node-resolver.js";
+import {
+  createProjectVisualNodeResolver,
+  resolveProjectVisualTransitionEntries,
+} from "../js/libraries/visual-nodes/project-visual-node-resolver.js";
 import {
   defineNode,
   defineNodePackage,
@@ -98,7 +106,141 @@ test("the static built-in catalog is projected into the common visual-library mo
   assert.equal(typeof noise?.implementation.nodeId, "string");
   const dissolve = listBuiltInVisualArtifacts({ artifactType: "transition" })[0];
   assert.equal(dissolve?.id, "vj1.transition.dissolve");
+  assert.equal(dissolve?.implementation.format, "isf");
+  assert.equal(
+    dissolve?.implementation.resourceId,
+    "shaders/transitions/dissolve.fs",
+  );
+  assert.equal(
+    dissolve?.implementation.transitionKernelId,
+    "vj1.transition.dissolve",
+  );
   assert.equal(dissolve?.capabilities.includes("direct-mapper-pass"), true);
+  assert.strictEqual(DefaultBuiltInTransition.kernel.implementation, "isf");
+});
+
+test("the built-in proving set is file-backed ISF with stable node identity and explicit lowering", () => {
+  assert.equal(BuiltInIsfRepository.id, BuiltInVisualLibraryLayer.id);
+  assert.equal(BuiltInIsfRepository.records.length, 5);
+  const black = BuiltInIsfRepository.records.find((record) => record.visualId === "black");
+  const invert = BuiltInIsfRepository.records.find((record) => record.visualId === "invert");
+  const gray = BuiltInIsfRepository.records.find((record) => record.visualId === "gray");
+  const threshold = BuiltInIsfRepository.records.find((record) => record.visualId === "threshold");
+  const dissolve = BuiltInIsfRepository.records.find(
+    (record) => record.visualId === "vj1.transition.dissolve",
+  );
+  const artifacts = listBuiltInVisualArtifacts();
+  const blackArtifact = artifacts.find((item) => item.implementation.visualId === "black");
+  const invertArtifact = artifacts.find((item) => item.implementation.visualId === "invert");
+  const grayArtifact = artifacts.find((item) => item.implementation.visualId === "gray");
+  const thresholdArtifact = artifacts.find((item) => item.implementation.visualId === "threshold");
+
+  assert.equal(black?.definition.id, "vj1.visual.generator.black");
+  assert.equal(black?.definition.metadata.builtInAssetDefinition, true);
+  assert.equal(black?.definition.parts[0].language, "isf");
+  assert.match(black?.definition.parts[0].source || "", /"LOWERING": "fragment-generator"/);
+  assert.equal(black?.component.type, "fragment");
+  assert.equal(invert?.definition.id, "vj1.visual.effect.invert");
+  assert.equal(invert?.component.fusible, true);
+  assert.equal(invert?.component.sampling, "local");
+  assert.match(invert?.component.code || "", /vec4 runEffect/);
+  assert.equal(gray?.definition.id, "vj1.visual.effect.gray");
+  assert.equal(gray?.component.fusible, true);
+  assert.equal(gray?.component.sampling, "local");
+  assert.match(gray?.definition.parts[0].source || "", /float luminance/);
+  assert.equal(threshold?.definition.id, "vj1.visual.effect.threshold");
+  assert.equal(threshold?.component.fusible, true);
+  assert.equal(
+    threshold?.component.params.find((param) => param.id === "cutoff")?.defaultValue,
+    0.5,
+  );
+  assert.equal(
+    dissolve?.definition.id,
+    "vj1.visual.transition.vj1.transition.dissolve",
+  );
+  assert.equal(dissolve?.definition.version, "0.1.0");
+  assert.equal(dissolve?.component, null);
+  assert.equal(dissolve?.transition.id, "vj1.transition.dissolve");
+  assert.equal(dissolve?.transition.version, "1.0.0");
+  assert.equal(dissolve?.transition.kernel.implementation, "isf");
+  assert.strictEqual(dissolve?.transition.definition, dissolve?.definition);
+  assert.equal(
+    dissolve?.transition.resource,
+    "shaders/transitions/dissolve.fs",
+  );
+  assert.equal(dissolve?.resource, "shaders/transitions/dissolve.fs");
+  assert.deepEqual(
+    [blackArtifact, invertArtifact, grayArtifact, thresholdArtifact].map((item) => ({
+      format: item?.implementation.format,
+      resourceId: item?.implementation.resourceId,
+      lowering: item?.implementation.lowering,
+    })),
+    [
+      {
+        format: "isf",
+        resourceId: "shaders/generators/black.fs",
+        lowering: "fragment-generator",
+      },
+      {
+        format: "isf",
+        resourceId: "shaders/effects/invert.fs",
+        lowering: "local-effect",
+      },
+      {
+        format: "isf",
+        resourceId: "shaders/effects/gray.fs",
+        lowering: "local-effect",
+      },
+      {
+        format: "isf",
+        resourceId: "shaders/effects/threshold.fs",
+        lowering: "local-effect",
+      },
+    ],
+  );
+});
+
+test("built-in repository manifests fail closed when header identity or version diverges", async () => {
+  const manifestUrl = new URL("https://example.test/visual-library.json");
+  const manifest = {
+    formatVersion: 1,
+    id: "test.visuals",
+    version: "1.0.0",
+    artifacts: [{
+      id: "vj1.visual.generator.expected",
+      visualId: "expected",
+      version: "1.0.0",
+      name: "Expected",
+      artifactType: "generator",
+      resource: "shaders/expected.fs",
+    }],
+  };
+  const shader = `/*{
+    "ISFVSN": "2.0",
+    "LABEL": "Expected",
+    "VJ1": {
+      "ID": "different",
+      "VERSION": "2.0.0",
+      "LOWERING": "fragment-generator"
+    },
+    "INPUTS": []
+  }*/
+  void main() { gl_FragColor = vec4(0.0); }`;
+  const readText = async (url) =>
+    url.pathname.endsWith("visual-library.json")
+      ? JSON.stringify(manifest)
+      : shader;
+
+  await assert.rejects(
+    loadBuiltInIsfRepository({ manifestUrl, readText }),
+    /BUILT_IN_VISUAL_NODE_ID_MISMATCH/,
+  );
+  manifest.artifacts[0].id = "vj1.visual.generator.different";
+  manifest.artifacts[0].visualId = "different";
+  await assert.rejects(
+    loadBuiltInIsfRepository({ manifestUrl, readText }),
+    /BUILT_IN_VISUAL_NODE_VERSION_MISMATCH/,
+  );
 });
 
 test("project ISF transitions join the same layered catalog without becoming effects", () => {
@@ -123,6 +265,69 @@ test("project ISF transitions join the same layered catalog without becoming eff
   assert.equal(transition.implementation.format, "isf");
   assert.equal(transition.origin.kind, "project");
   assert.equal(library.list({ artifactType: "effect" }).some((item) => item.id === transition.id), false);
+});
+
+test("installed transitions join the same active transition entries used by runtime and editor", () => {
+  const definition = createIsfNodeDefinition({
+    path: "shaders/transitions/package-wipe.fs",
+    origin: "package",
+    source: `/*{
+      "ISFVSN": "2.0",
+      "LABEL": "Package Wipe",
+      "VJ1": { "ID": "org.example.transition.package-wipe", "VERSION": "1.0.0" },
+      "INPUTS": [
+        { "NAME": "startImage", "TYPE": "image" },
+        { "NAME": "endImage", "TYPE": "image" },
+        { "NAME": "progress", "TYPE": "float" }
+      ]
+    }*/
+    void main() {
+      gl_FragColor = mix(
+        IMG_THIS_NORM_PIXEL(startImage),
+        IMG_THIS_NORM_PIXEL(endImage),
+        step(isf_FragNormCoord.x, progress)
+      );
+    }`,
+  });
+  const nodePackage = defineNodePackage({
+    id: "org.example.transition-library",
+    version: "1.0.0",
+    definitions: [definition],
+    resources: [{
+      id: "shaders/transitions/package-wipe.fs",
+      kind: "shader",
+      path: "shaders/transitions/package-wipe.fs",
+    }],
+    visualLibrary: [{
+      id: "org.example.transition.package-wipe",
+      version: "1.0.0",
+      name: "Package Wipe",
+      artifactType: "transition",
+      implementation: {
+        format: "isf",
+        nodeId: definition.id,
+        nodeVersion: definition.version,
+        resourceId: "shaders/transitions/package-wipe.fs",
+      },
+    }],
+  });
+  const installation = installNodePackageIntoProject(nodePackage, {});
+  const state = { nodes: installation.project };
+  const entries = resolveProjectVisualTransitionEntries(state, {
+    installedPackages: [nodePackage],
+  });
+  const resolver = createProjectVisualNodeResolver(state, {
+    installedPackages: [nodePackage],
+  });
+
+  assert.deepEqual(
+    entries.map((entry) => entry.id),
+    ["vj1.transition.dissolve", "org.example.transition.package-wipe"],
+  );
+  assert.strictEqual(resolver.transitionEntries[1].kernel, entries[1].kernel);
+  assert.equal(entries[1].origin.kind, "installed");
+  assert.equal(entries[1].origin.id, nodePackage.id);
+  assert.equal(entries[1].kernel.implementation, "isf");
 });
 
 test("runtime visual resolution follows the layered library instead of bypassing it with static maps", () => {

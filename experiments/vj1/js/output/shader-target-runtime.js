@@ -1,7 +1,7 @@
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=gc-allocation-1";
 import { isIdentityTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
-import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=render-diagnostics-1";
+import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
 import { renderView } from "../libraries/render-engine/render-view/index.js";
 import { disposeRenderTarget } from "../libraries/render-engine/render-target-lifetime.js";
 
@@ -99,16 +99,24 @@ export function drawShaderTarget(target, draw) {
       push();
       try {
         noStroke();
+        // Shader passes produce the complete destination pixel in VJ1's
+        // premultiplied-alpha format. Replace the target value atomically;
+        // blending here would apply alpha twice and inherit state from the
+        // backend that happened to draw immediately before this pass.
+        blendMode(globalThis.REPLACE ?? "replace");
         return draw();
       } finally {
+        blendMode(globalThis.BLEND ?? "source-over");
         pop();
       }
     });
   }
   target.push();
   try {
+    target.blendMode(globalThis.REPLACE ?? "replace");
     return draw();
   } finally {
+    target.blendMode(globalThis.BLEND ?? "source-over");
     target.pop();
   }
 }

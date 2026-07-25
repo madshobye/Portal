@@ -6,7 +6,7 @@ import {
 import {
   FeatureMorphAnalysisType,
   MediaImageResourceType,
-} from "../../shared/specialized-compound-types.js";
+} from "../../shared/visual-stage-types.js";
 import {
   buildFeatureMorphField,
   buildFeatureMorphMesh,
@@ -142,14 +142,15 @@ function featureMorphAnalysisNode({
       "image-analysis",
       "host-resolved-async-value",
       "retained-resource-request",
+      "retained-value-provider",
       `${providerId}-analysis`,
-      "specialized-visual-provider",
-      "specialized-visual-stage",
+      "visual-value-provider",
+      "visual-stage",
       "graph-placeable",
     ],
     presentation: {
-      catalogs: ["node-graph", "image", "analysis", "ai", "specialized-visual"],
-      placeableOn: ["node-graph", "native-visual-graph"],
+      catalogs: ["node-graph", "image", "analysis", "ai", "visual-stage"],
+      placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
     },
     metadata: {
       nativeArtifactRequirements: {

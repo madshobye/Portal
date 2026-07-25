@@ -16,9 +16,9 @@ import {
   sanitizeState,
   syncSurfaceProportionsFromMapping,
   uid,
-} from "./domain/models.js?v=package-content-lock-1";
-import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=explicit-direct-surface-hierarchy-1";
-import { firstEnabledLiveSurfaceId } from "./domain/live-ui-state.js?v=scene-mapping-default-selection-1";
+} from "./domain/models.js?v=live-output-matrix-contract-3";
+import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=live-output-matrix-contract-3";
+import { firstEnabledLiveSurfaceId, liveSurfaceVisible } from "./domain/live-ui-state.js?v=live-output-matrix-contract-3";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";
@@ -27,7 +27,7 @@ import { sceneLogicalSize } from "./domain/render-settings.js?v=surface-terminol
 import { nextCatalogMarker } from "./domain/catalog-marker.js?v=catalog-marker-four-state-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
 import { copyComponentAsScene, pasteClipboardPayload } from "./domain/clipboard.js?v=canvas-global-resolution-1";
-import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
+import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-output-matrix-contract-3";
 import { ObservableDataStore } from "./libraries/data-store/data-store/index.js";
 
 export function createAppState(initial = null, { prepareState = null, classifyChange = createChangeEvent } = {}) {
@@ -132,7 +132,15 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     const components = state.components.slice();
     components[index] = component;
     state = { ...state, components };
-    emit({ reason: "component-thumbnail", scope: "derived", history: "none" });
+    emit({
+      reason: "component-thumbnail",
+      scope: "derived",
+      history: "none",
+      projection: {
+        kind: "component-thumbnails",
+        entries: [{ componentId, surfaceId, url: thumbnail }],
+      },
+    });
     return { updated: true, previous };
   }
 
@@ -508,6 +516,13 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         ui.live ||= {};
         ui.live.previewSurfaceId = requested;
         ui.live.inspectedComponentId = "";
+        ui.previewViewports ||= {};
+        // Projection selection changes the view of the retained Preview
+        // canvas; it never substitutes a second canvas or rewrites the routed
+        // output program. Re-enter the shared frame fit so an old manual
+        // pan/zoom from another matrix cell cannot make the selected output
+        // appear to be a different render.
+        ui.previewViewports.live = { zoom: 1, x: 0, y: 0, fit: "frame" };
         // Surface selection chooses a patch destination, not a source. Clear
         // the pending source so moving through the projection matrix cannot
         // accidentally reapply the previously selected Scene or Component.
@@ -542,11 +557,9 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
         }, "live:surface-visibility");
         return true;
       }
-      if (!mapping.surfaces?.some((surface) => String(surface.id) === surfaceId)) return false;
-      const routeState = compileLiveProjectionProgram(current).currentRoutes;
-      const currentRoute = routeState.surfaces?.find((surface) => String(surface.id) === surfaceId);
-      if (!currentRoute) return false;
-      const visible = currentRoute.enabled === false;
+      const surface = mapping.surfaces?.find((candidate) => String(candidate.id) === surfaceId);
+      if (!surface) return false;
+      const visible = !liveSurfaceVisible(surface, current.ui.live);
       updateLive((draft) => {
         draft.ui.live.surfaceVisibility ||= {};
         draft.ui.live.surfaceVisibility[surfaceId] = visible;

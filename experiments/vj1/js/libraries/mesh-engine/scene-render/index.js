@@ -3,8 +3,28 @@ import {
   releaseMeshRenderCacheOwner,
   renderMeshNodeProcess,
   retainMeshRenderCacheOwner,
-} from "../mesh-render/index.js";
+} from "../mesh-render/index.js?v=mesh-geometry-detail-2";
 import { Scene3dType } from "../scene-types.js";
+import { defineVisualNodeContract } from "../../render-engine/visual-node-contract.js";
+import {
+  createVisualRenderProcessContext,
+  updateVisualRenderProcessContext,
+  VISUAL_RENDER_PROCESS_CONTEXT_FORMAT,
+  visualRenderProcessContext,
+} from "../../render-engine/render-process-context.js?v=mesh-geometry-detail-2";
+import { withOwnedRawWebGlState } from "../../render-engine/raw-webgl-state.js?v=mesh-geometry-detail-2";
+
+const SCENE_TO_IMAGE_VISUAL_CONTRACT = defineVisualNodeContract({
+  transform: { domain: "content" },
+  roi: {
+    mode: "projective",
+    coordinateSpace: "projective",
+    inputMapping: "sub-frustum",
+    pixelEquivalentToFullFrame: true,
+  },
+  allocation: { mode: "retained" },
+  alpha: { input: "premultiplied", output: "premultiplied" },
+});
 
 export const SceneToImageNode = defineNode({
   id: "core.scene3d.render",
@@ -14,10 +34,7 @@ export const SceneToImageNode = defineNode({
   implementation: NODE_IMPLEMENTATION_KINDS.SHADER,
   inlets: {
     scene: { type: Scene3dType, required: true },
-    target: { type: "any", required: true },
-    componentTime: { type: "number", defaultValue: 0 },
-    viewport: { type: "viewport", optional: true },
-    contentTransform: { type: "transform2d", defaultValue: {} },
+    resourceStatus: { type: "resource-status", required: false },
   },
   outlets: {
     image: { type: "image", optional: true },
@@ -39,13 +56,27 @@ export const SceneToImageNode = defineNode({
     "multi-object-3d",
     "gpu",
     "graph-placeable",
+    "render-operation",
     "live-fast-path",
     "composable-render-operation",
   ],
   presentation: {
-    catalogs: ["graph", "mesh", "render", "scene-3d"],
-    placeableOn: ["node-graph"],
-    previewOutput: "image",
+    catalogs: ["graph", "mesh", "render", "scene-3d", "visual"],
+    placeableOn: ["visual-graph", "node-graph"],
+    previewOutput: "texture",
+  },
+  metadata: {
+    nodeOwnedNativeModule: true,
+    nodeOwnedNativeProcess: true,
+    renderProcessContext: VISUAL_RENDER_PROCESS_CONTEXT_FORMAT,
+    renderTarget: { depth: true },
+    allocationStable: true,
+    allocationStableDirectPath: true,
+    visualContract: SCENE_TO_IMAGE_VISUAL_CONTRACT,
+    nativeArtifactRequirements: {
+      moduleExports: ["sceneToImageNodeProcess"],
+      shaders: [],
+    },
   },
   parts: [{
     id: "scene-render-lowering",
@@ -63,16 +94,44 @@ export const SceneToImageNode = defineNode({
     retainMeshRenderCacheOwner,
     releaseMeshRenderCacheOwner,
   },
+  moduleExports: {
+    sceneToImageNodeProcess,
+  },
   process: sceneToImageNodeProcess,
 });
 
-export function sceneToImageNodeProcess(inputs = {}, { state = {}, output = null } = {}) {
-  const target = inputs.target;
-  const scene = inputs.scene;
+export function sceneToImageNodeProcess(inputs = {}, context = {}) {
+  const {
+    state = {},
+    output = null,
+  } = context;
+  const renderProcess = visualRenderProcessContext(context);
+  const target = renderProcess.target;
+  const scene =
+    inputs.scene ||
+    inputs.runtimeValues?.get?.("scene") ||
+    null;
+  const resourceStatus =
+    inputs.resourceStatus ||
+    inputs.runtimeValues?.get?.("resourceStatus") ||
+    null;
+  const componentTime = renderProcess.time;
+  const viewport = renderProcess.view || renderProcess.request;
+  const contentTransform = renderProcess.contentTransform || {};
   const nodeOutput = output || state.nodeOutput || (state.nodeOutput = {
     image: null,
     texture: null,
   });
+  if (!target) throw new Error("SCENE_TO_IMAGE_TARGET_REQUIRED");
+  if (!scene || resourceStatus?.ready === false) {
+    const label = resourceStatus?.error
+      ? `3D model error: ${resourceStatus.error}`
+      : resourceStatus?.label || "Prepare 3D mesh";
+    context.drawStandby?.(target, label, { forceVisible: true });
+    nodeOutput.image = target;
+    nodeOutput.texture = target;
+    return nodeOutput;
+  }
   const objectStates = state.objectStates || (state.objectStates = new Map());
   const meshCacheOwners = state.meshCacheOwners || (state.meshCacheOwners = new Map());
   const activeObjectIds = state.activeObjectIds || (state.activeObjectIds = new Set());
@@ -80,40 +139,57 @@ export function sceneToImageNodeProcess(inputs = {}, { state = {}, output = null
   activeObjectIds.clear();
   activeMeshes.clear();
 
-  target?.clear?.();
-  const background = scene?.background;
-  if (Number(background?.[3]) > 0) {
-    target?.background?.(background[0], background[1], background[2], background[3]);
-  }
+  const drawScene = () => withOwnedRawWebGlState(target, () => {
+    // The retained source/framebuffer-pass owner clears its target before
+    // invoking compiled render nodes. Standalone callers may still request a
+    // clear explicitly through the render-process contract. Never clear both:
+    // large color+depth targets made that duplicate ownership a dominant cost.
+    if (renderProcess.clear) target?.clear?.();
+    const background = scene?.background;
+    if (Number(background?.[3]) > 0) {
+      target?.background?.(background[0], background[1], background[2], background[3]);
+    }
 
-  for (const object of scene?.objects || []) {
-    if (!object?.visible || !object.mesh) continue;
-    const objectId = String(object.id || `object-${activeObjectIds.size}`);
-    activeObjectIds.add(objectId);
-    activeMeshes.add(object.mesh);
-    let renderState = objectStates.get(objectId);
-    if (!renderState) {
-      renderState = {};
-      objectStates.set(objectId, renderState);
+    for (const object of scene?.objects || []) {
+      if (!object?.visible || !object.mesh) continue;
+      const objectId = String(object.id || `object-${activeObjectIds.size}`);
+      activeObjectIds.add(objectId);
+      activeMeshes.add(object.mesh);
+      let renderState = objectStates.get(objectId);
+      if (!renderState) {
+        renderState = {};
+        objectStates.set(objectId, renderState);
+      }
+      let cacheOwner = meshCacheOwners.get(object.mesh);
+      if (!cacheOwner) {
+        cacheOwner = retainMeshRenderCacheOwner(object.mesh);
+        meshCacheOwners.set(object.mesh, cacheOwner);
+      }
+      const objectRenderProcess =
+        renderState.renderProcess ||
+        (renderState.renderProcess = createVisualRenderProcessContext());
+      updateVisualRenderProcessContext(objectRenderProcess, {
+        target,
+        time: componentTime,
+        request: renderProcess.request,
+        view: viewport,
+        contentTransform,
+        cacheOwner,
+        clear: false,
+      });
+      renderMeshNodeProcess({
+        mesh: object.mesh,
+        material: object.material,
+        transform: object.transform,
+        camera: scene.camera,
+      }, {
+        state: renderState,
+        renderProcess: objectRenderProcess,
+        renderHost: context.renderHost,
+      });
     }
-    let cacheOwner = meshCacheOwners.get(object.mesh);
-    if (!cacheOwner) {
-      cacheOwner = retainMeshRenderCacheOwner(object.mesh);
-      meshCacheOwners.set(object.mesh, cacheOwner);
-    }
-    renderMeshNodeProcess({
-      mesh: object.mesh,
-      material: object.material,
-      transform: object.transform,
-      camera: scene.camera,
-      target,
-      cacheOwner,
-      componentTime: inputs.componentTime,
-      viewport: inputs.viewport,
-      contentTransform: inputs.contentTransform,
-      clear: false,
-    }, { state: renderState });
-  }
+  });
+  drawScene();
 
   for (const objectId of objectStates.keys()) {
     if (!activeObjectIds.has(objectId)) objectStates.delete(objectId);

@@ -1,12 +1,12 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=surface-terminology-1";
+import { sanitizeState } from "../domain/models.js?v=live-output-matrix-contract-3";
 import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
 import {
   createOutputBridge,
   OUTPUT_BRIDGE_PROTOCOL_VERSION,
-} from "../services/output-bridge-service.js?v=package-content-lock-1";
-import { OutputRenderer } from "./output-renderer.js?v=mesh-pattern-node-authority-1";
+} from "../services/output-bridge-service.js?v=live-surface-visibility-projection-1";
+import { OutputRenderer } from "./output-renderer.js?v=mesh-geometry-detail-2";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=output-one-1";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
@@ -144,9 +144,9 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
 
   window.keyPressed = function keyPressed() {
     wakeOutputPresentation();
-    if (key === "c" || key === "C") renderer?.setCalibrate(!renderer.isCalibrating());
-    if (key === "s" || key === "S") renderer?.saveMapping();
-    if (key === "l" || key === "L") renderer?.loadMapping();
+    if (key === "c" || key === "C") renderer?.mappingRuntime.setCalibrate(!renderer.mappingRuntime.isCalibrating());
+    if (key === "s" || key === "S") renderer?.mappingRuntime.save();
+    if (key === "l" || key === "L") renderer?.mappingRuntime.load();
   };
 
   window.mousePressed = function mousePressed() {
@@ -200,7 +200,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     if (
       outputIdleSuspended ||
       preparedState ||
-      renderer?.presentationFrameMode?.() !== "on-change" ||
+      renderer?.frameRuntime.presentationMode() !== "on-change" ||
       typeof noLoop !== "function"
     ) return;
     outputIdleSuspended = true;
@@ -223,6 +223,11 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       if (revision < receivedRevision) return;
       if (shouldHoldCurrentOutputState(state, acceptedState)) return;
       receivedRevision = revision;
+      if (renderer && ["assets", "projection"].includes(meta.activation)) {
+        clearPreparedState();
+        acceptOutputState(state, revision, meta.transport, meta.activation);
+        return;
+      }
       if (renderer && shouldPrepareLiveSceneState(state, acceptedState, mode)) {
         preparedState = state;
         preparedFromState = transitionTerminalState(acceptedState);
@@ -254,7 +259,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       const result = preparedState
         ? applyLiveRenderPatches(preparedState, patches)
         : renderer
-          ? renderer.applyLivePatches(patches)
+          ? renderer.livePatchRuntime.applyLive(patches)
           : applyLiveRenderPatches(acceptedState, patches);
       if (!result.applied) {
         requestLivePatchResync("path", { failedPatch: result.failedPatch });
@@ -282,7 +287,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
         const importedPackages = (packages || []).map((nodePackage) => importNodePackage(nodePackage));
         assertNodePackageTransportLock(importedPackages, packageLock);
         installedNodePackages = importedPackages;
-        renderer?.setInstalledNodePackages(installedNodePackages);
+        renderer?.visualNodeRuntime.setInstalledPackages(installedNodePackages);
       } catch (error) {
         console.error("[VJ1_NODE_PACKAGE_TRANSPORT_INVALID]", {
           fallback: "retain the previously validated package set",
@@ -324,11 +329,11 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
         acceptedState = nextState;
         renderer?.setState(outputSizedState(nextState, outputSize(nextState, mode), mode, outputId), { normalized: true });
       }
-      if (command === "set-calibrate") renderer?.setCalibrate(!!payload.calibrating);
-      if (command === "save-mapping") renderer?.saveMapping();
-      if (command === "reset-mapping") renderer?.resetMapping(payload.surfaceId);
-      if (command === "export-mapping") renderer?.exportMapping();
-      if (command === "schedule") renderer?.schedule(payload);
+      if (command === "set-calibrate") renderer?.mappingRuntime.setCalibrate(!!payload.calibrating);
+      if (command === "save-mapping") renderer?.mappingRuntime.save();
+      if (command === "reset-mapping") renderer?.mappingRuntime.reset(payload.surfaceId);
+      if (command === "export-mapping") renderer?.mappingRuntime.export();
+      if (command === "schedule") renderer?.frameRuntime.schedule(payload);
     },
   });
   diagnosticForwarder = forwardDiagnosticsToBridge(diagnostics, bridge);
@@ -341,15 +346,15 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
 
   function activatePreparedStateIfReady() {
     if (!renderer || !preparedState) return false;
-    const status = renderer.prepareOutputState(preparedState);
+    const status = renderer.readinessRuntime.prepare(preparedState);
     if (status.errorIds.size) {
       const signature = Array.from(status.errorIds).sort().join("|");
       if (signature !== prepareErrorSignature) {
         prepareErrorSignature = signature;
         console.error("[VJ1_SCENE_PREPARE_FAILED]", {
           sceneId: outputSceneId(preparedState),
-          mediaIds: Array.from(status.errorIds),
-          message: "Activating the requested Scene without a transition so its media failure remains visible",
+          resourceIds: Array.from(status.errorIds),
+          message: "Activating the requested Scene without a transition so its resource failure remains visible",
         });
       }
       // The requested Live Scene is user truth. The previous Scene must not
@@ -373,7 +378,12 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     return true;
   }
 
-  function acceptOutputState(state, revision, transportMeta = null) {
+  function acceptOutputState(
+    state,
+    revision,
+    transportMeta = null,
+    activation = "full",
+  ) {
     pendingState = state;
     acceptedState = state;
     acceptedRevision = revision;
@@ -383,7 +393,15 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     const runtimeState = outputSizedState(state, outputSize(state, mode), mode, outputId);
     pendingState = runtimeState;
     acceptedState = runtimeState;
-    renderer?.setState(runtimeState, { normalized: true });
+    if (activation === "assets") {
+      renderer?.setAssetState(runtimeState, { normalized: true });
+    } else if (activation === "projection") {
+      // A Live Surface eye replaces only the compiled route projection. Keep
+      // visual programs, media, GPU resources, and the output canvas intact.
+      renderer?.setProjectionState(runtimeState, { normalized: true });
+    } else {
+      renderer?.setState(runtimeState, { normalized: true });
+    }
     bridge?.markTransportApplied(transportMeta);
   }
 
@@ -393,7 +411,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     preparedRevision = 0;
     preparedTransportMeta = null;
     prepareErrorSignature = "";
-    renderer?.clearPreparedOutputState?.();
+    renderer?.readinessRuntime?.clearPrepared?.();
   }
 
   if (fixtureUrl) {
@@ -639,7 +657,7 @@ async function prepareFixtureRuntimeState(fixtureState = {}) {
   // standalone fixture has no control process, so perform that one-time graph
   // materialization here. This dynamic import stays outside normal output
   // startup and cannot add node-catalog work to the render frame.
-  const { createVj1NodePackage } = await import("../app-node-package.js?v=mesh-pattern-node-authority-1");
+  const { createVj1NodePackage } = await import("../app-node-package.js?v=mesh-geometry-detail-2");
   return createVj1NodePackage().prepareProjectState(withBindings);
 }
 

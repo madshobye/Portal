@@ -7,7 +7,13 @@ import {
   MESH_PATTERN_FAMILIES,
   meshPatternTopologySignature,
 } from "../js/output/specialized/mesh-pattern-algorithms.js";
-import { MeshPatternRenderer, meshPatternNodeShaderSource, meshPatternPalette } from "../js/output/specialized/mesh-pattern-renderer.js";
+import {
+  MeshPatternRenderer,
+  meshPatternNodeShaderSource,
+  meshPatternPalette,
+  meshPatternPassPalette,
+} from "../js/output/specialized/mesh-pattern-renderer.js";
+import { MeshPatternRuntime } from "../js/output/specialized/mesh-pattern-runtime.js";
 import {
   createGeneratorSource,
   getGeneratorNodeComponent,
@@ -26,6 +32,10 @@ import {
 import { createVj1NodePackage } from "../js/app-node-package.js";
 import { compileComponentRenderPrograms } from "../js/libraries/composition-engine/index.js";
 import { compileScene3dProgram } from "../js/libraries/mesh-engine/index.js";
+import {
+  createVisualRenderProcessContext,
+  updateVisualRenderProcessContext,
+} from "../js/libraries/render-engine/index.js";
 import {
   NODE_GRAPH_AUTHORING_TARGETS,
   nodeDefinitionPlaceableInGraph,
@@ -104,7 +114,7 @@ test("mesh palette returns four GPU-ready colors for every harmony", () => {
   assert.deepEqual(pair[1], pair[3]);
 });
 
-test("Mesh Pattern providers are placeable in the Scene3D node editor", () => {
+test("Mesh Pattern providers and render passes are placeable in their compatible node editors", () => {
   for (const definition of [
     MeshPatternTopologyProviderNode,
     MeshPatternFillMaterialProviderNode,
@@ -116,12 +126,29 @@ test("Mesh Pattern providers are placeable in the Scene3D node editor", () => {
       `${definition.id} must remain available to Scene3D authoring`,
     );
   }
+  for (const definition of [
+    MeshPatternTopologyProviderNode,
+    MeshPatternFillMaterialProviderNode,
+    MeshPatternWireMaterialProviderNode,
+    MeshPatternFillToImageNode,
+    MeshPatternWireToImageNode,
+  ]) {
+    assert.equal(
+      nodeDefinitionPlaceableInGraph(
+        definition,
+        NODE_GRAPH_AUTHORING_TARGETS.VISUAL,
+      ),
+      true,
+      `${definition.id} must be available to visual Group authoring`,
+    );
+  }
 });
 
 test("Mesh Patterns compiles reusable providers and retained GPU passes without a parent renderer", () => {
   const component = getGeneratorNodeComponent("meshPatterns");
   const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
   const runtime = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
+  const passRuntime = readFileSync(new URL("../js/output/specialized/mesh-pattern-runtime.js", import.meta.url), "utf8");
   const meshRenderer = readFileSync(new URL("../js/output/specialized/mesh-pattern-renderer.js", import.meta.url), "utf8");
   const algorithms = readFileSync(new URL("../js/libraries/visual-nodes/generators/mesh-patterns/runtime.js", import.meta.url), "utf8");
 
@@ -154,13 +181,30 @@ test("Mesh Patterns compiles reusable providers and retained GPU passes without 
     },
   ]);
   assert.deepEqual(operation.operations[1].textureInputs, { target: "fill-render" });
+  assert.equal(
+    operation.operations[0].framebufferSequence.sequenceId,
+    operation.operations[1].framebufferSequence.sequenceId,
+  );
+  assert.deepEqual(operation.operations[0].framebufferSequence, {
+    sequenceId: operation.operations[1].framebufferSequence.sequenceId,
+    phase: "begin",
+    preserve: ["color"],
+  });
+  assert.deepEqual(operation.operations[1].framebufferSequence, {
+    sequenceId: operation.operations[0].framebufferSequence.sequenceId,
+    phase: "continue",
+    inputPort: "target",
+    preserve: ["color"],
+  });
   assert.equal(Object.keys(operation.operations[0].nodeShaders).includes("mesh-pattern-fill-fragment"), true);
   assert.equal(Object.keys(operation.operations[1].nodeShaders).includes("mesh-pattern-wire-fragment"), true);
   assert.doesNotMatch(sourceRuntime, /NATIVE_SOURCE_HOST_METHODS/);
   assert.doesNotMatch(runtime, /registerNativeRenderer\(\s*"output\/specialized:meshPatterns"/);
   assert.match(runtime, /registerNativeRenderer\(\s*"output\/specialized:meshPatternFill"/);
   assert.match(runtime, /registerNativeRenderer\(\s*"output\/specialized:meshPatternWire"/);
-  assert.match(runtime, /this\.meshPatterns\.drawPass\(/);
+  assert.match(passRuntime, /this\.renderer\.drawPass\(/);
+  assert.match(passRuntime, /input && input !== output/);
+  assert.match(passRuntime, /continuesFramebuffer \|\| !!input/);
   assert.match(meshRenderer, /this\.contexts = new Map\(\)/);
   assert.match(meshRenderer, /gl\.bufferData\(gl\.ARRAY_BUFFER, topology\.fillVertices, gl\.STATIC_DRAW\)/);
   assert.match(meshRenderer, /gl\.drawArrays\(gl\.TRIANGLES/);
@@ -192,6 +236,64 @@ test("retained Mesh Pattern passes reject missing typed provider values", () => 
       { id: "fill", runtimeValueInputs: new Map() },
     ),
     /MESH_PATTERN_VALUE_INPUT_MISSING:fill:topology,material/,
+  );
+});
+
+test("Mesh Pattern wire continues on the shared framebuffer without copying its own target", () => {
+  const runtime = new MeshPatternRuntime();
+  const calls = [];
+  runtime.renderer = {
+    drawPass(...args) {
+      calls.push(args);
+      return true;
+    },
+    dispose() {},
+  };
+  const output = {
+    width: 640,
+    height: 360,
+    push() {},
+    pop() {},
+    image() {
+      throw new Error("shared framebuffer continuation must not copy itself");
+    },
+  };
+  runtime.draw(
+    output,
+    "wire",
+    {},
+    0,
+    { width: 640, height: 360 },
+    {
+      runtimeInputStates: new Map([["target", { buffer: output }]]),
+      framebufferSequence: {
+        sequenceId: "mesh-pattern/shared",
+        phase: "continue",
+        inputPort: "target",
+        preserve: ["color"],
+      },
+    },
+  );
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0][6], { preserveTarget: true });
+});
+
+test("Mesh Pattern pass requirements follow the connected material type", () => {
+  assert.deepEqual(
+    meshPatternPassPalette("wire", {
+      providerId: "mesh-pattern-wire",
+      settings: { wireColor: "#ffffffff" },
+    }, { id: "wire-render" }),
+    [],
+    "wire rendering does not invent a fill-palette requirement",
+  );
+  assert.throws(
+    () => meshPatternPassPalette("fill", {
+      providerId: "mesh-pattern-fill",
+      settings: {},
+    }, { id: "fill-render" }),
+    /MESH_PATTERN_MATERIAL_PALETTE_MISSING:fill-render/,
   );
 });
 
@@ -285,8 +387,6 @@ test("Mesh Pattern canonical outputs compile through the ordinary Scene3D graph"
     compiler: { id: "vj1.scene-3d.direct-program", target: "scene-3d" },
     graphEditable: true,
     inlets: {
-      target: { type: "any", required: true },
-      componentTime: { type: "number", defaultValue: 0 },
       aspect: { type: "number", defaultValue: 1 },
     },
     outlets: { texture: { type: "texture" } },
@@ -306,15 +406,18 @@ test("Mesh Pattern canonical outputs compile through the ordinary Scene3D graph"
       { from: "scene.scene", to: "render.scene", type: "scene3d" },
     ],
     publicInlets: {
-      target: "render.target",
-      componentTime: "render.componentTime",
       aspect: "topology.aspect",
     },
     publicOutlets: { texture: "render.texture" },
   });
   const program = compileScene3dProgram(definition, { registry: packageRoot.registry });
   const target = { clearCalls: 0, clear() { this.clearCalls += 1; } };
-  const result = program.execute({ target, componentTime: 0, aspect: 1.4 });
+  const result = program.execute({ aspect: 1.4 }, {
+    renderProcess: updateVisualRenderProcessContext(
+      createVisualRenderProcessContext(),
+      { target, time: 0 },
+    ),
+  });
 
   assert.equal(program.format, "vj1.scene-3d-program@1");
   assert.deepEqual(

@@ -1,6 +1,6 @@
 import { uid } from "../domain/models.js?v=surface-terminology-1";
 import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
-import { createModelPreviewUrl } from "../libraries/mesh-engine/convert-3d-file-to-image/index.js";
+import { createModelPreviewUrl } from "../libraries/mesh-engine/convert-3d-file-to-image/index.js?v=async-media-dirty-1";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
@@ -12,6 +12,25 @@ export function createMediaLibrary() {
   const sourceRevisions = new Map();
   const renditions = new Map();
   const previewUrls = new Map();
+  const listeners = new Set();
+  let publishSuspended = 0;
+
+  function publish(reason = "media-library") {
+    if (publishSuspended > 0) return;
+    const snapshot = getAllFiles();
+    for (const listener of listeners) listener(snapshot, reason);
+  }
+
+  function getAllFiles() {
+    return Array.from(files.entries()).map(([id, file]) => ({
+      id,
+      file,
+      sourceRevision: sourceRevisions.get(id) || mediaSourceRevision(file),
+      renditions: Array.from(renditions.values())
+        .filter((entry) => entry.mediaId === id && entry.sourceRevision === (sourceRevisions.get(id) || mediaSourceRevision(file)))
+        .map((entry) => ({ ...entry })),
+    }));
+  }
 
   function releasePreviewUrl(id) {
     const entry = previewUrls.get(id);
@@ -37,7 +56,7 @@ export function createMediaLibrary() {
     };
   }
 
-  return {
+  const api = {
     async importFiles(fileList) {
       const incoming = Array.from(fileList || []);
       const media = [];
@@ -55,9 +74,18 @@ export function createMediaLibrary() {
           if (parsed) renditions.set(parsed.key, { ...parsed, file });
         } else if (isMediaFile(path)) {
           const meta = getMeta(file, path);
-          if (files.get(meta.id) !== file) releasePreviewUrl(meta.id);
+          const nextRevision =
+            entry?.sourceRevision || mediaSourceRevision(file);
+          const previousRevision = sourceRevisions.get(meta.id) || "";
+          if (
+            files.get(meta.id) !== file &&
+            previousRevision &&
+            previousRevision !== nextRevision
+          ) {
+            releasePreviewUrl(meta.id);
+          }
           files.set(meta.id, file);
-          sourceRevisions.set(meta.id, entry?.sourceRevision || mediaSourceRevision(file));
+          sourceRevisions.set(meta.id, nextRevision);
           media.push(meta);
           importedFiles.push(file);
           const sourceRevision = sourceRevisions.get(meta.id);
@@ -73,7 +101,46 @@ export function createMediaLibrary() {
           shaders.push({ path, name: path.split("/").pop() || path, code: await file.text() });
         }
       }
+      if (incoming.length) publish("import");
       return { media, shaders, files: importedFiles };
+    },
+    async replaceFiles(fileList) {
+      const incoming = Array.from(fileList || []);
+      const sourceIds = new Set();
+      const renditionKeys = new Set();
+      for (const entry of incoming) {
+        const file = entry?.file || entry;
+        if (!file) continue;
+        const path = entry?.id || file.relativePath || file.webkitRelativePath || file.name || "";
+        if (isMediaRenditionPath(path)) {
+          const parsed = parseMediaRenditionPath(path);
+          if (parsed?.key) renditionKeys.add(parsed.key);
+        } else if (isMediaFile(path)) {
+          sourceIds.add(path);
+        }
+      }
+
+      publishSuspended++;
+      let imported;
+      try {
+        imported = await api.importFiles(incoming);
+        for (const id of Array.from(files.keys())) {
+          if (sourceIds.has(id)) continue;
+          releasePreviewUrl(id);
+          files.delete(id);
+          sourceRevisions.delete(id);
+          for (const [key, rendition] of renditions) {
+            if (rendition.mediaId === id) renditions.delete(key);
+          }
+        }
+        for (const key of Array.from(renditions.keys())) {
+          if (!renditionKeys.has(key)) renditions.delete(key);
+        }
+      } finally {
+        publishSuspended--;
+      }
+      publish("replace");
+      return imported;
     },
     getFile(id) {
       return files.get(id) || null;
@@ -86,6 +153,7 @@ export function createMediaLibrary() {
       for (const [key, entry] of renditions) {
         if (entry.mediaId === id) renditions.delete(key);
       }
+      if (removed) publish("remove");
       return removed;
     },
     acquirePreviewUrl(id) {
@@ -117,14 +185,12 @@ export function createMediaLibrary() {
     releasePreviewUrl,
     releasePreviewUrls,
     getAllFiles() {
-      return Array.from(files.entries()).map(([id, file]) => ({
-        id,
-        file,
-        sourceRevision: sourceRevisions.get(id) || mediaSourceRevision(file),
-        renditions: Array.from(renditions.values())
-          .filter((entry) => entry.mediaId === id && entry.sourceRevision === (sourceRevisions.get(id) || mediaSourceRevision(file)))
-          .map((entry) => ({ ...entry })),
-      }));
+      return getAllFiles();
+    },
+    subscribe(listener) {
+      if (typeof listener !== "function") return () => {};
+      listeners.add(listener);
+      return () => listeners.delete(listener);
     },
     getRendition(key) {
       return renditions.get(key)?.file || null;
@@ -140,12 +206,15 @@ export function createMediaLibrary() {
         .map((entry) => ({ ...entry }));
     },
     clear() {
+      const changed = files.size > 0 || sourceRevisions.size > 0 || renditions.size > 0;
       releasePreviewUrls();
       files.clear();
       sourceRevisions.clear();
       renditions.clear();
+      if (changed) publish("clear");
     },
   };
+  return api;
 }
 
 export async function collectFilesFromDirectory(dirHandle, prefix = "") {
@@ -174,24 +243,77 @@ export async function collectFilesFromDirectory(dirHandle, prefix = "") {
 // Project discovery deliberately traverses only user asset roots. Revisions
 // and cache data are owned by their services and must never be part of a media
 // inventory. Root-level supported files remain valid for small projects.
-export async function collectProjectAssetFiles(dirHandle, { yieldEvery = 64 } = {}) {
+export async function collectProjectAssetFiles(
+  dirHandle,
+  {
+    yieldEvery = 64,
+    batchSize = 32,
+    onBatch = null,
+  } = {},
+) {
   const files = [];
+  const pending = [];
   const counter = { value: 0 };
-  await collectAllowedDirectory(dirHandle, "", files, counter, yieldEvery, true);
+  const publishBatch = async () => {
+    if (!pending.length || typeof onBatch !== "function") return;
+    const batch = pending.splice(0, pending.length);
+    await onBatch(batch, {
+      discovered: files.length,
+      complete: false,
+    });
+  };
+  await collectAllowedDirectory(
+    dirHandle,
+    "",
+    files,
+    counter,
+    yieldEvery,
+    true,
+    async (file) => {
+      pending.push(file);
+      if (pending.length >= Math.max(1, Number(batchSize) || 1)) {
+        await publishBatch();
+      }
+    },
+  );
+  await publishBatch();
+  if (typeof onBatch === "function") {
+    await onBatch([], {
+      discovered: files.length,
+      complete: true,
+    });
+  }
   return files;
 }
 
-async function collectAllowedDirectory(dirHandle, prefix, files, counter, yieldEvery, root = false) {
+async function collectAllowedDirectory(
+  dirHandle,
+  prefix,
+  files,
+  counter,
+  yieldEvery,
+  root = false,
+  onFile = null,
+) {
   for await (const [name, handle] of dirHandle.entries()) {
     const path = prefix ? `${prefix}/${name}` : name;
     if (handle.kind === "file") {
       if ((root || prefix === "media" || prefix.startsWith("media/") || prefix === "shaders" || prefix.startsWith("shaders/"))
           && (isMediaFile(path) || isShaderFile(path))) {
-        await appendReadableFile(handle, path, files);
+        const file = await appendReadableFile(handle, path, files);
+        if (file) await onFile?.(file);
       }
     } else if (handle.kind === "directory") {
       if (root && !["media", "shaders"].includes(name)) continue;
-      await collectAllowedDirectory(handle, path, files, counter, yieldEvery, false);
+      await collectAllowedDirectory(
+        handle,
+        path,
+        files,
+        counter,
+        yieldEvery,
+        false,
+        onFile,
+      );
     }
     if (++counter.value % yieldEvery === 0) await cooperativeYield();
   }
@@ -202,8 +324,10 @@ async function appendReadableFile(handle, path, files) {
     const file = await handle.getFile();
     Object.defineProperty(file, "relativePath", { value: path, configurable: true });
     files.push(file);
+    return file;
   } catch (error) {
     console.warn("[VJ1_MEDIA_FILE_SKIPPED]", { path, fallback: "omit unreadable file from library", message: error?.message || String(error) });
+    return null;
   }
 }
 

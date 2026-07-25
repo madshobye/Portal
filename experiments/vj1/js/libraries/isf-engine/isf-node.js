@@ -8,7 +8,11 @@ import {
   textureInlet,
   textureOutlet,
 } from "../visual-nodes/shared/component-schema.js";
-import { componentFromNodeDefinition } from "../visual-nodes/shared/visual-node-factory.js";
+import {
+  componentFromNodeDefinition,
+  defineEffectNode,
+  defineGeneratorNode,
+} from "../visual-nodes/shared/visual-node-factory.js";
 import {
   defineVisualLibraryLayer,
   VISUAL_IMPLEMENTATION_FORMATS,
@@ -18,7 +22,11 @@ import {
   defineVisualNodeContract,
   VISUAL_TRANSFORM_DOMAINS,
 } from "../render-engine/visual-node-contract.js";
-import { compileIsfFragmentSource, compileIsfTransitionKernel } from "./isf-compiler.js?v=isf-coordinates-1";
+import {
+  compileIsfFragmentSource,
+  compileIsfOptimizedFragmentSource,
+  compileIsfTransitionKernel,
+} from "./isf-compiler.js?v=async-media-dirty-1";
 import { parseIsfDocument, sourceHash } from "./isf-document.js?v=isf-coordinates-1";
 
 const projectComponentCache = new WeakMap();
@@ -31,7 +39,11 @@ export function createIsfVisualComponent({ path = "", source = "" } = {}) {
   return materializeIsfNodeDefinition(createIsfNodeDefinition({ path, source }));
 }
 
-export function createIsfNodeDefinition({ path = "", source = "" } = {}) {
+export function createIsfNodeDefinition({
+  path = "",
+  source = "",
+  origin = "project",
+} = {}) {
   const document = parseIsfDocument(source, { path });
   const visualKind = document.kind;
   const declaredId = String(document.metadata?.VJ1?.ID || "").trim();
@@ -92,7 +104,8 @@ export function createIsfNodeDefinition({ path = "", source = "" } = {}) {
       ...isfVisualExecutionMetadata(base),
       isf: isfMetadata(document),
       projectAssetPath: String(path || ""),
-      projectLocalDefinition: true,
+      projectLocalDefinition: origin === "project",
+      builtInAssetDefinition: origin === "built-in",
     },
   });
   // The .fs/.frag file is the base authority. project.json stores only
@@ -109,6 +122,18 @@ export function materializeIsfNodeDefinition(definition = {}) {
     throw new Error(`VJ1_ISF_TRANSITION_NOT_COMPONENT:${document.path || document.name}`);
   }
   assertComponentInputSupport(document);
+  const optimizedLowering = String(
+    document.metadata?.VJ1?.LOWERING ||
+    definition.metadata?.optimizedIsfLowering ||
+    "",
+  );
+  if (optimizedLowering) {
+    return materializeOptimizedIsfComponent(
+      definition,
+      document,
+      optimizedLowering,
+    );
+  }
   const visualKind = document.kind;
   const params = isfParameters(document, visualKind);
   const base = {
@@ -145,6 +170,85 @@ export function materializeIsfNodeDefinition(definition = {}) {
     shaderInterface: "isf",
     isf: document,
     renderAuthority: "project-isf-node",
+  });
+}
+
+function materializeOptimizedIsfComponent(
+  definition,
+  document,
+  lowering,
+) {
+  const visualKind = document.kind;
+  if (!["generator", "effect"].includes(visualKind)) {
+    throw new Error(
+      `VJ1_ISF_OPTIMIZED_KIND_UNSUPPORTED:${document.path || document.name}:${visualKind}`,
+    );
+  }
+  const code = compileIsfOptimizedFragmentSource(document, { lowering });
+  const manifest = {
+    id: definition.metadata?.visualId || definition.id,
+    name: definition.name || document.name,
+    description: definition.description || document.description,
+    category: document.categories[0] || "ISF",
+    params: isfParameters(document, visualKind),
+    runtime: {
+      cacheable: !document.dynamic,
+      timeDependent: () => document.dynamic,
+      roi: { mode: "local", halo: 0, coordinateSpace: "boundary" },
+    },
+  };
+  const optimized = visualKind === "effect"
+    ? defineEffectNode({
+      ...manifest,
+      code,
+      sampling: "local",
+      spatial: false,
+      transformSource: true,
+      fusible: true,
+      requiresBaseSample: true,
+    })
+    : defineGeneratorNode(manifest, {
+      id: `${definition.id}.optimized`,
+      name: `${document.name} optimized ISF lowering`,
+      type: "fragment",
+      code,
+    });
+  const loweredDefinition = defineNode({
+    ...optimized.nodeDefinition,
+    id: definition.id,
+    version: definition.version,
+    implementation: {
+      kind: NODE_IMPLEMENTATION_KINDS.SHADER,
+      language: "isf",
+    },
+    parts: definition.parts,
+    metadata: {
+      ...optimized.nodeDefinition.metadata,
+      visualFamily: "isf",
+      sourceFormat: "isf",
+      optimizedIsfLowering: lowering,
+      isf: definition.metadata?.isf,
+      projectAssetPath: definition.metadata?.projectAssetPath || "",
+      projectLocalDefinition:
+        definition.metadata?.projectLocalDefinition === true,
+      builtInAssetDefinition:
+        definition.metadata?.builtInAssetDefinition === true,
+    },
+  });
+  const persistentDefinition = Object.freeze({
+    ...loweredDefinition,
+    persistence: definition.persistence,
+  });
+  return Object.freeze({
+    ...optimized,
+    nodeDefinition: persistentDefinition,
+    code,
+    type: visualKind === "effect" ? "effect" : "fragment",
+    shaderInterface: visualKind === "effect" ? "effect" : "fragment",
+    isf: document,
+    renderAuthority: definition.metadata?.builtInAssetDefinition
+      ? "built-in-isf-lowered"
+      : "project-isf-lowered",
   });
 }
 
@@ -368,7 +472,17 @@ export function looksLikeIsfSource(source = "") {
 
 function isfParameters(document, visualKind) {
   const params = [];
-  if (visualKind === "effect") params.push(createNumberParam("amount", "Effect strength", { min: 0, max: 1, step: 0.01, defaultValue: 1 }));
+  if (
+    visualKind === "effect" &&
+    !document.inputs.some((input) => input.name === "amount")
+  ) {
+    params.push(createNumberParam("amount", "Effect strength", {
+      min: 0,
+      max: 1,
+      step: 0.01,
+      defaultValue: 1,
+    }));
+  }
   for (const input of document.inputs) {
     if (["image", "audio", "audioFFT"].includes(input.type)) continue;
     if (visualKind === "transition" && input.name === "progress") continue;

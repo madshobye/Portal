@@ -3,15 +3,17 @@ import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   AnatomyGeometryProviderNode,
   ModelFitCameraNode,
-} from "../../shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
-import { defineScene3dVisualCompound } from "../../shared/scene3d-visual-compound.js?v=anatomy-scene3d-1";
-import { AnatomyMotionTransform3dNode } from "../../providers/anatomy-motion-transform/index.js?v=anatomy-scene3d-1";
+} from "../../shared/visual-stage-nodes.js?v=mesh-geometry-detail-2";
+import {
+  defineCompiledVisualCompound,
+} from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
+import { AnatomyMotionTransform3dNode } from "../../providers/anatomy-motion-transform/index.js?v=compiled-capability-revision-1";
 import { AnatomyMaterialPaletteNode } from "../../providers/anatomy-material-palette/index.js?v=anatomy-scene3d-1";
 import {
   MeshCollectionObjects3dNode,
   Scene3dNode,
   SceneToImageNode,
-} from "../../../mesh-engine/index.js?v=scene3d-reusable-procedural-mesh-10";
+} from "../../../mesh-engine/index.js?v=mesh-geometry-detail-2";
 
 const manifest = Object.freeze({
     id: "anatomy",
@@ -51,15 +53,15 @@ const manifest = Object.freeze({
 
 const NativeVisualComponent = defineGeneratorNode(manifest);
 
-export const VisualComponent = defineScene3dVisualCompound(NativeVisualComponent, {
+export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponent, {
   nodes: [
-    { id: "geometry", type: AnatomyGeometryProviderNode.id, parameters: { providerId: "low-poly-anatomy" } },
-    { id: "motion", type: AnatomyMotionTransform3dNode.id },
-    { id: "materials", type: AnatomyMaterialPaletteNode.id },
-    { id: "objects", type: MeshCollectionObjects3dNode.id },
-    { id: "camera", type: ModelFitCameraNode.id, parameters: { fieldOfView: Math.PI / 3 } },
-    { id: "scene", type: Scene3dNode.id },
-    { id: "render", type: SceneToImageNode.id },
+    { id: "geometry", definition: AnatomyGeometryProviderNode, role: "value", parameters: { providerId: "low-poly-anatomy" } },
+    { id: "motion", definition: AnatomyMotionTransform3dNode, role: "value" },
+    { id: "materials", definition: AnatomyMaterialPaletteNode, role: "value" },
+    { id: "objects", definition: MeshCollectionObjects3dNode, role: "value" },
+    { id: "camera", definition: ModelFitCameraNode, role: "value", parameters: { fieldOfView: Math.PI / 3 } },
+    { id: "scene", definition: Scene3dNode, role: "value" },
+    { id: "render", definition: SceneToImageNode, role: "renderer" },
   ],
   connections: [
     { from: "geometry.collection", to: "motion.collection", type: "mesh-collection" },
@@ -70,18 +72,19 @@ export const VisualComponent = defineScene3dVisualCompound(NativeVisualComponent
     { from: "objects.objects", to: "scene.objects", type: "list<object3d>" },
     { from: "camera.camera", to: "scene.camera", type: "camera3d" },
     { from: "scene.scene", to: "render.scene", type: "scene3d" },
-    { from: "$in.componentTime", to: "render.componentTime", type: "number" },
   ],
-  controlBindings: {
+  output: "render.texture",
+  parameterBindings: {
     geometry: ["part", "detail", "depth", "expression", "mouthOpen", "brow", "eyeSquint", "fingerBend", "limbBend", "renderQuality"],
     motion: [
+      "part",
       "modelScale",
       "rotationX", "rotationY", "rotationZ", "spinX", "spinY", "spinZ",
       "heartPulse",
     ],
     materials: ["renderMode", "surfaceColor", "wireColor", "wireThickness"],
   },
-  controlPresentation: {
+  parameterPresentation: {
     geometry: { label: "Geometry", order: 10 },
     motion: { label: "Transform", order: 20 },
     materials: { label: "Material", order: 30 },

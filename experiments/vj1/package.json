@@ -4,6 +4,8 @@
     "test": "node --test tests/*.test.mjs",
     "test:metrics": "node --test tests/component-metrics.test.mjs",
     "test:render": "node --test tests/render-geometry.test.mjs",
-    "metrics": "node tests/metrics-runner.mjs"
+    "metrics": "node tests/metrics-runner.mjs",
+    "stress:url": "node -e \"console.log('http://127.0.0.1:8082/experiments/vj1/tests/browser/runtime-stress.html?duration=8000')\"",
+    "test:browser-media:url": "node -e \"console.log('http://127.0.0.1:8082/experiments/vj1/tests/browser/async-media-dirty.html')\""
   }
 }

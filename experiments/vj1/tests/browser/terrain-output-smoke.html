@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Terrain Output Smoke</title>
+    <style>
+      body {
+        margin: 0;
+        background: #08090b;
+        color: #eef2ef;
+        font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      pre {
+        margin: 16px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <pre id="terrain-output-results">initializing...</pre>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <script type="module">
+      import {
+        OutputRenderer,
+      } from "../../js/output/output-renderer.js?v=standby-local-diagnostic-1";
+
+      const resultElement = document.querySelector("#terrain-output-results");
+
+      window.addEventListener("error", (event) => reportFailure(
+        event.error?.stack || event.message || "TERRAIN_OUTPUT_SCRIPT_ERROR",
+      ));
+      window.addEventListener("unhandledrejection", (event) => reportFailure(
+        event.reason?.stack || event.reason?.message || String(event.reason || "TERRAIN_OUTPUT_REJECTION"),
+      ));
+
+      function reportFailure(error) {
+        resultElement.textContent = JSON.stringify({ ok: false, error }, null, 2);
+        document.documentElement.dataset.status = "error";
+      }
+
+      globalThis.setup = async () => {
+        let renderer = null;
+        try {
+          createCanvas(192, 108, WEBGL);
+          pixelDensity(1);
+          noLoop();
+          const fixture = await fetch("../fixtures/terrain-flyover.json")
+            .then((response) => response.json());
+          fixture.render = {
+            ...(fixture.render || {}),
+            frameWidth: 192,
+            frameHeight: 108,
+            compositionTexture: { width: 192, height: 108 },
+            pixelDensity: 1,
+            previewRasterScale: 1,
+          };
+          fixture.ui = {
+            ...(fixture.ui || {}),
+            debugPreview: true,
+          };
+          renderer = new OutputRenderer({
+            mode: "component",
+            requestPresentationFrame() {},
+          });
+          await renderer.setup(fixture);
+          renderer.draw();
+          const componentTargets = [...renderer.resourceRuntime.componentOutput]
+            .map(([key, target]) => [key, summarizeTarget(target)]);
+          const sourceTargets = [...renderer.resourceRuntime.componentSource]
+            .map(([key, target]) => [key, summarizeTarget(target)]);
+          const result = {
+            ok:
+              componentTargets.some(([, target]) => target.nonTransparent > 0) &&
+              sourceTargets.some(([, target]) => target.nonTransparent > 0),
+            selectedComponentId: renderer.state?.ui?.selectedComponentId || "",
+            components: (renderer.state?.components || []).map((component) => ({
+              id: component.id,
+              name: component.name,
+              type: component.type,
+            })),
+            componentTargets,
+            sourceTargets,
+            mainMix: summarizeTarget(renderer.resourceRuntime.mainMix),
+            canvas: summarizeCanvas(),
+          };
+          resultElement.textContent = JSON.stringify(result, null, 2);
+          document.documentElement.dataset.status = result.ok ? "ok" : "failed";
+        } catch (error) {
+          reportFailure(error?.stack || error?.message || String(error));
+        } finally {
+          renderer?.dispose?.();
+        }
+      };
+
+      function summarizeTarget(target) {
+        const framebuffer = target?.framebuffer;
+        if (!framebuffer?.loadPixels) {
+          return {
+            kind: target?.constructor?.name || typeof target,
+            width: target?.width || 0,
+            height: target?.height || 0,
+            readable: false,
+          };
+        }
+        framebuffer.loadPixels();
+        return summarizePixels(
+          framebuffer.pixels,
+          framebuffer.width,
+          framebuffer.height,
+          target?.constructor?.name || "framebuffer",
+        );
+      }
+
+      function summarizeCanvas() {
+        loadPixels();
+        return summarizePixels(
+          pixels,
+          globalThis.width,
+          globalThis.height,
+          "canvas",
+        );
+      }
+
+      function summarizePixels(pixels, width, height, kind) {
+        let nonTransparent = 0;
+        let nonBlack = 0;
+        let red = 0;
+        let green = 0;
+        let blue = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+          if (pixels[index + 3] > 0) nonTransparent++;
+          if (pixels[index] || pixels[index + 1] || pixels[index + 2]) nonBlack++;
+          red += pixels[index];
+          green += pixels[index + 1];
+          blue += pixels[index + 2];
+        }
+        const count = Math.max(1, pixels.length / 4);
+        return {
+          kind,
+          width,
+          height,
+          nonTransparent,
+          nonBlack,
+          averageRgb: [
+            Math.round(red / count),
+            Math.round(green / count),
+            Math.round(blue / count),
+          ],
+          firstBandRgb: averageBand(pixels, width, height, 0, 0.2),
+          lastBandRgb: averageBand(pixels, width, height, 0.8, 1),
+        };
+      }
+
+      function averageBand(pixels, width, height, startRatio, endRatio) {
+        const startRow = Math.max(0, Math.floor(height * startRatio));
+        const endRow = Math.min(height, Math.ceil(height * endRatio));
+        let red = 0;
+        let green = 0;
+        let blue = 0;
+        let count = 0;
+        for (let y = startRow; y < endRow; y++) {
+          for (let x = 0; x < width; x++) {
+            const index = (y * width + x) * 4;
+            red += pixels[index];
+            green += pixels[index + 1];
+            blue += pixels[index + 2];
+            count++;
+          }
+        }
+        return [
+          Math.round(red / Math.max(1, count)),
+          Math.round(green / Math.max(1, count)),
+          Math.round(blue / Math.max(1, count)),
+        ];
+      }
+
+      new p5();
+    </script>
+  </body>
+</html>

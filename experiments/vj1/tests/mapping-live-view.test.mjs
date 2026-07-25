@@ -413,11 +413,17 @@ test("image source schema automatically exposes cut and feather in Live and publ
   const component = state.components[0];
   const source = component.chain[0];
   source.source = {
-    type: "media",
-    mediaId: "media/cutout.png",
-    params: { renderQuality: 0.5, fit: "contain", alphaCut: 2, alphaFeather: 4 },
+    type: "generator",
+    generatorId: "mediaImage",
+    params: {
+      mediaId: "media/cutout.png",
+      renderQuality: 0.5,
+      fit: "contain",
+      alphaCut: 2,
+      alphaFeather: 4,
+    },
   };
-  state.media.push({ id: source.source.mediaId, name: "cutout.png", type: "image" });
+  state.media.push({ id: source.source.params.mediaId, name: "cutout.png", type: "image" });
   mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
   mapping.surfaces[0].componentId = component.id;
   state.ui.live.selectedComponentId = component.id;

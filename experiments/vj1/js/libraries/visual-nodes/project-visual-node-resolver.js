@@ -2,16 +2,18 @@ import { materializeProjectNodeFork } from "../node-engine/node-editor.js";
 import { resolveProjectNodePackages } from "../node-engine/node-package.js?v=project-group-authoring-compiler-transport-1";
 import {
   componentFromNodeDefinition,
+  listBuiltInTransitionEntries,
   listEffectNodeComponents,
   listGeneratorNodeComponents,
-} from "./catalog.js?v=mesh-pattern-node-authority-1";
+} from "./catalog.js?v=compiled-capability-revision-1";
 import {
   isIsfNodeDefinition,
+  listProjectIsfTransitions,
   listProjectIsfVisualComponents,
   materializeIsfNodeDefinition,
   materializeIsfTransitionDefinition,
 } from "../isf-engine/index.js?v=named-image-inputs-1";
-import { resolveProjectVisualLibrary } from "./project-visual-library.js?v=installed-package-layers-compiler-transport-1";
+import { resolveProjectVisualLibrary } from "./project-visual-library.js?v=compiled-capability-revision-1";
 
 export function createProjectVisualNodeResolver(state = {}, {
   coreDefinitions = [],
@@ -30,6 +32,16 @@ export function createProjectVisualNodeResolver(state = {}, {
     installedPackages,
     visualLibrary,
   );
+  const builtInTransitions = listBuiltInTransitionEntries();
+  const projectTransitions = listProjectIsfTransitions(state);
+  const transitionEntries = activeTransitionEntries(
+    [
+      ...builtInTransitions,
+      ...packageTransitions,
+      ...projectTransitions,
+    ],
+    visualLibrary,
+  );
   const allComponents = [
     ...listGeneratorNodeComponents(),
     ...listEffectNodeComponents(),
@@ -37,12 +49,26 @@ export function createProjectVisualNodeResolver(state = {}, {
     ...projectIsfComponents,
   ];
   const componentByNodeId = new Map(allComponents.map((component) => [component.nodeDefinition.id, component]));
+  // Built-in compound Groups publish the exact executable definitions of
+  // their children. Resolve that closure directly instead of requiring a
+  // second manually synchronized registry for every compound implementation.
+  // Installed/project Groups still resolve their versioned dependencies from
+  // their package or project definition layers below.
+  const compoundChildDefinitionByNodeId = new Map(allComponents.flatMap((component) =>
+    (component.childNodeDefinitions || []).map((definition) => [
+      String(definition?.id || ""),
+      definition,
+    ])
+  ).filter(([id, definition]) => id && definition));
   const projectDefinitionByNodeId = new Map((state?.nodes?.definitions || [])
     .filter((definition) => definition?.persistence !== "package" && definition?.id)
     .map((definition) => [String(definition.id), definition]));
-  const coreDefinitionByNodeId = new Map(Array.from(coreDefinitions || [])
-    .filter((definition) => definition?.id)
-    .map((definition) => [String(definition.id), definition]));
+  const coreDefinitionByNodeId = new Map([
+    ...Array.from(coreDefinitions || [])
+      .filter((definition) => definition?.id)
+      .map((definition) => [String(definition.id), definition]),
+    ...compoundChildDefinitionByNodeId,
+  ]);
   const artifactByVisualKey = new Map(visualLibrary.list()
     .filter((artifact) => artifact.artifactType === "generator" || artifact.artifactType === "effect")
     .map((artifact) => [
@@ -117,11 +143,55 @@ export function createProjectVisualNodeResolver(state = {}, {
     definition: resolveDefinition,
     activeForks,
     projectIsfComponents,
+    builtInTransitions,
     packageComponents,
     packageTransitions,
+    projectTransitions,
+    transitionEntries,
     visualLibrary,
     diagnostics: visualLibrary.diagnostics,
   });
+}
+
+export function resolveProjectVisualTransitionEntries(state = {}, {
+  installedLayers = [],
+  installedPackages = [],
+} = {}) {
+  const visualLibrary = resolveProjectVisualLibrary(state, {
+    installedLayers,
+    installedPackages,
+  });
+  return activeTransitionEntries([
+    ...listBuiltInTransitionEntries(),
+    ...materializeInstalledPackageTransitions(
+      state,
+      installedPackages,
+      visualLibrary,
+    ),
+    ...listProjectIsfTransitions(state),
+  ], visualLibrary);
+}
+
+function activeTransitionEntries(entries, visualLibrary) {
+  const artifacts = new Map(
+    visualLibrary.list({ artifactType: "transition" })
+      .map((artifact) => [artifact.id, artifact]),
+  );
+  return Object.freeze(entries.filter((entry) =>
+    transitionEntryMatchesArtifact(entry, artifacts.get(entry.id))
+  ));
+}
+
+function transitionEntryMatchesArtifact(entry, artifact) {
+  if (!entry || !artifact || entry.id !== artifact.id) return false;
+  if (entry.origin?.kind !== artifact.origin?.kind) return false;
+  if (artifact.origin.kind === "installed") {
+    return entry.origin.id === artifact.origin.id;
+  }
+  if (artifact.origin.kind === "project") {
+    return entry.origin.path === artifact.origin.path;
+  }
+  return true;
 }
 
 function materializeInstalledPackageTransitions(state, installedPackages, visualLibrary) {

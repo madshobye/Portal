@@ -1,6 +1,7 @@
 import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
-import { screenCaptureService } from "./screen-capture-service.js?v=screen-input-registry-1";
+import { screenCaptureService } from "./screen-capture-service.js?v=async-media-dirty-1";
 import { MediaInputLifecycle } from "../libraries/media-engine/media-input-lifecycle/index.js";
+import { isDrawableMedia } from "./media-utils.js?v=runtime-diagnostics-1";
 
 const CAMERA_RETRY_MS = 3000;
 const CAMERA_IDLE_GRACE_MS = 750;
@@ -56,6 +57,45 @@ export class SharedInputRuntime {
       console.warn("[VJ1_SCREEN_CAPTURE_UNAVAILABLE]", { inputId, status: service.status, message });
     }
     return null;
+  }
+
+  cameraStatus({ acquire = true } = {}) {
+    const resource = acquire ? this.acquireCamera() : this.camera.resource;
+    if (isDrawableMedia(resource)) {
+      return Object.freeze({
+        kind: "camera",
+        id: "default",
+        state: "ready",
+        error: "",
+      });
+    }
+    return Object.freeze({
+      kind: "camera",
+      id: "default",
+      state: this.camera.error ? "error" : "pending",
+      error: String(this.camera.error || ""),
+    });
+  }
+
+  screenStatus(inputId = "", { acquire = true } = {}) {
+    const id = String(inputId || "");
+    const service = screenCaptureService();
+    const resource = acquire ? this.acquireScreen(id) : service.videoFor(id);
+    if (isDrawableMedia(resource)) {
+      return Object.freeze({
+        kind: "screen-input",
+        id,
+        state: "ready",
+        error: "",
+      });
+    }
+    const pending = service.status === "requesting";
+    return Object.freeze({
+      kind: "screen-input",
+      id,
+      state: pending ? "pending" : "error",
+      error: pending ? "" : this.screenError(id),
+    });
   }
 
   endFrame() {

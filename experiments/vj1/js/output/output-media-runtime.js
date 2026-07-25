@@ -4,9 +4,10 @@ import { graphicsToPngBlob } from "./thumbnail-utils.js?v=canvas-global-resoluti
 import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
 import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "../libraries/mesh-engine/mesh-render/index.js";
 import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
-import { SharedInputRuntime } from "./shared-input-runtime.js?v=screen-input-registry-1";
+import { SharedInputRuntime } from "./shared-input-runtime.js?v=async-media-dirty-1";
+import { frameSize } from "./render-geometry.js?v=output-one-1";
 
-export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=screen-input-registry-1";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=async-media-dirty-1";
 
 let videoFrameCallbackFailureReported = false;
 let rasterDecodeApiFallbackReported = false;
@@ -105,6 +106,54 @@ export class OutputMediaRuntime {
     return this.inputRuntime.acquireScreen(inputId);
   }
 
+  resourceReadiness(requirement = {}) {
+    const kind = String(requirement.kind || "");
+    if (kind === "camera") return this.inputRuntime.cameraStatus();
+    if (kind === "screen-input") {
+      return this.inputRuntime.screenStatus(String(requirement.id || ""));
+    }
+    return null;
+  }
+
+  acquireDrawableResource(descriptor = null, width = 0, { playback = null } = {}) {
+    if (descriptor?.kind === "screen-input-resource") {
+      return this.acquireScreenInput(String(descriptor.inputId || ""));
+    }
+    if (descriptor?.kind === "camera-input-resource") {
+      return this.acquireCameraInput();
+    }
+    if (descriptor?.kind === "project-media-resource") {
+      const mediaId = String(descriptor.mediaId || "");
+      const item = mediaId
+        ? this.acquireMediaById(mediaId, {
+            width,
+            playback: playback || {
+              start: descriptor.start,
+              end: descriptor.end,
+              speed: descriptor.speed,
+            },
+          })
+        : null;
+      if (!item && mediaId) this.requestMissingMedia(mediaId);
+      return item?.video || item?.image || item?.drawable || item || null;
+    }
+    return descriptor?.drawable || null;
+  }
+
+  drawableResourceError(descriptor = null) {
+    if (descriptor?.kind === "screen-input-resource") {
+      return this.screenError(String(descriptor.inputId || ""));
+    }
+    if (descriptor?.kind === "camera-input-resource") {
+      return this.cameraError || "";
+    }
+    if (descriptor?.kind === "project-media-resource") {
+      const item = this.media.get(String(descriptor.mediaId || ""));
+      return item?.loadError || item?.imageError || "";
+    }
+    return "";
+  }
+
   releaseCameraInput() {
     this.inputRuntime.releaseCamera();
   }
@@ -133,12 +182,35 @@ export class OutputMediaRuntime {
 
   acquireMedia(item, { playback = null, width = 0 } = {}) {
     if (!item) return null;
-    item.lastMediaUse = ++this.mediaUseSerial;
-    this.activeMediaItems.add(item);
+    this.retainMedia(item);
     recordImageDemand(item, width);
     ensureMediaRuntimeItemLoaded(item, { width: item.imageDemandWidth || width });
     if (isVideoRuntimeItem(item) && item.video && playback) this.claimVideoPlayback(item.video, playback);
     return item;
+  }
+
+  // A retained render result still owns its source resource even when the
+  // source node itself does not execute this frame. Renewing that lease must
+  // be separate from decoding: cache hits keep images, videos, and meshes
+  // resident without manufacturing work for resources that were never drawn.
+  retainMedia(item) {
+    if (!item) return null;
+    item.lastMediaUse = ++this.mediaUseSerial;
+    item.inactiveFrameCount = 0;
+    this.activeMediaItems.add(item);
+    return item;
+  }
+
+  retainMediaById(mediaId) {
+    return this.retainMedia(this.media.get(String(mediaId || "")));
+  }
+
+  acquireMediaById(mediaId, options = {}) {
+    const defaultWidth = frameSize(this.getRenderSettings() || {}).width;
+    return this.acquireMedia(this.media.get(mediaId), {
+      ...options,
+      width: Math.max(1, Number(options.width) || defaultWidth),
+    });
   }
 
   claimVideoPlayback(video, options = {}) {
@@ -333,6 +405,7 @@ function loadMediaItem(item, request = {}) {
     item.loadError = "";
     item.loadStatus = "";
     item.revision++;
+    item.onInvalidate?.("media-ready", item);
     return true;
   };
   const markError = (error, fallback) => {
@@ -344,6 +417,7 @@ function loadMediaItem(item, request = {}) {
     item.loadError = message;
     item.loadStatus = "";
     item.revision++;
+    item.onInvalidate?.("media-error", item);
     console.error("[VJ1_MEDIA_LOAD_FAILED]", {
       id: item.id,
       fileKey: item.fileKey,
@@ -435,6 +509,7 @@ function loadRasterImage(item, request, lifecycle) {
     return;
   }
   if (item.file?.slice) {
+    item.loadStatus = "reading raster metadata";
     readRasterDimensions(item.file).then((dimensions) => {
       if (!lifecycle.isCurrent()) return;
       if (!dimensions) {
@@ -465,6 +540,7 @@ function loadRasterImage(item, request, lifecycle) {
 }
 
 function decodeRasterVariant(item, resizeWidth, lifecycle) {
+  item.loadStatus = "decoding raster bitmap";
   globalThis.createImageBitmap(item.file, {
     resizeWidth,
     resizeQuality: "high",
@@ -501,6 +577,7 @@ function decodeRasterVariant(item, resizeWidth, lifecycle) {
 
 function loadRasterImageFromUrl(item, lifecycle) {
   if (!item.url) item.url = URL.createObjectURL(item.file);
+  item.loadStatus = "decoding raster URL";
   loadImage(item.url, (image) => {
     if (!lifecycle.isCurrent()) return;
     replaceRuntimeImage(item, image);
@@ -522,17 +599,21 @@ function isVideoRuntimeItem(item) {
 function ensureVideoRuntimeItemLoaded(item) {
   if (!isVideoRuntimeItem(item) || item.loading || item.video) return item?.video || null;
   item.loading = true;
+  item.loadStatus = "loading video metadata";
   const loadToken = ++item.loadToken;
   const isCurrent = () => item.loadToken === loadToken;
   let element = null;
   item.url = URL.createObjectURL(item.file);
   const markReady = () => {
     if (!isCurrent()) return false;
+    const changed = !item.ready || !!item.loadError;
     item.loading = false;
-    if (!item.ready || item.loadError) item.revision++;
+    if (changed) item.revision++;
     item.ready = true;
     item.loadError = "";
+    item.loadStatus = "";
     publishVideoDuration(item, element, isCurrent);
+    if (changed) item.onInvalidate?.("media-ready", item);
     return true;
   };
   const markError = (error) => {
@@ -541,7 +622,9 @@ function ensureVideoRuntimeItemLoaded(item) {
     const message = error?.message || String(error || "video load failed");
     item.ready = false;
     item.loadError = message;
+    item.loadStatus = "";
     item.revision++;
+    item.onInvalidate?.("media-error", item);
     console.error("[VJ1_MEDIA_LOAD_FAILED]", {
       id: item.id,
       fileKey: item.fileKey,
@@ -617,6 +700,7 @@ function ensurePersistedRenditionLoaded(item, key) {
       // this bump, an asynchronously decoded persisted rendition could remain
       // invisible behind the base-image cache indefinitely.
       item.revision++;
+      item.onInvalidate?.("media-rendition-ready", item);
     },
     () => releaseRenditionUrl(item, key, url)
   );

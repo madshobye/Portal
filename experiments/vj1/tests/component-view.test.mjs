@@ -135,17 +135,16 @@ test("effects separate shader strength from generic compositing controls", () =>
   assert.ok(html.indexOf("chain-param-view-general") < html.indexOf("<span>Render quality</span>"), "effect render quality is owned by General");
 });
 
-test("persistent and Live source editors share one media-model control schema", () => {
+test("persistent and Live source editors project the same semantic generator definitions", () => {
   const componentView = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const sceneLiveView = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
-  const schema = readFileSync(new URL("../js/control/source-control-schema.js", import.meta.url), "utf8");
 
-  assert.match(componentView, /from "\.\/source-control-schema\.js\?v=[^"]+"/);
-  assert.match(sceneLiveView, /from "\.\/source-control-schema\.js\?v=[^"]+"/);
-  assert.match(schema, /export const MODEL_SOURCE_PARAMS/);
-  assert.doesNotMatch(sceneLiveView, /const MODEL_SOURCE_PARAMS =/);
-  assert.match(componentView, /chainParamViewDefinitions\(content, details,/);
-  assert.match(sceneLiveView, /chainParamViewDefinitions\(/);
+  assert.match(componentView, /componentParamViews\(component\)/);
+  assert.match(sceneLiveView, /componentParamViews\(\{ params \}\)/);
+  assert.match(componentView, /visualGeneratorComponent\(state, source\.generatorId\)/);
+  assert.match(sceneLiveView, /visualGeneratorComponent\(state, source\.generatorId\)\?\.params/);
+  assert.doesNotMatch(componentView, /source-control-schema/);
+  assert.doesNotMatch(sceneLiveView, /source-control-schema/);
 });
 
 test("STL sources expose the same Primary Details and General views in Component editing", () => {
@@ -153,17 +152,19 @@ test("STL sources expose the same Primary Details and General views in Component
   const component = state.components.find((item) => item.type !== "scene");
   const source = component.chain[0];
   source.source = {
-    type: "media",
-    mediaId: "media/sculpture.stl",
+    type: "generator",
+    generatorId: "modelMedia",
     params: {
+      mediaId: "media/sculpture.stl",
       renderMode: "surfaceWire",
       rotationX: 0.4,
       modelScale: 2,
       pointBudget: 12000,
+      geometryDetail: 0.75,
       renderQuality: 0.75,
     },
   };
-  state.media.push({ id: source.source.mediaId, name: "sculpture.stl", type: "model" });
+  state.media.push({ id: source.source.params.mediaId, name: "sculpture.stl", type: "model" });
   state.ui.selectedChainItemId = source.id;
 
   const html = componentSelectedChainSettingsTemplate(component, state);
@@ -173,6 +174,8 @@ test("STL sources expose the same Primary Details and General views in Component
   assert.match(html, />General<\/label>/);
   assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.rotationX"/);
   assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.modelScale"/);
+  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.geometryDetail"/);
+  assert.match(html, />Geometry detail</);
   assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.renderQuality"/);
   assert.match(html, /data-update="components\.0\.chain\.0\.transform\.scale"/);
 });

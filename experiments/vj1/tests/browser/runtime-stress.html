@@ -1,0 +1,559 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Runtime Stress</title>
+    <style>
+      body {
+        margin: 0;
+        background: #08090b;
+        color: #eef2ef;
+        font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      main {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        padding: 16px;
+      }
+
+      canvas {
+        width: 100%;
+        border: 1px solid #30343a;
+        background: transparent;
+      }
+
+      pre {
+        grid-column: 1 / -1;
+        margin: 0;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <canvas id="output-a" width="192" height="108"></canvas>
+      <canvas id="output-b" width="192" height="108"></canvas>
+      <pre id="runtime-stress-results">initializing...</pre>
+    </main>
+    <script>
+      const resultElement = document.querySelector("#runtime-stress-results");
+      window.addEventListener("error", (event) => reportFailure(
+        event.error?.stack || event.message || "BROWSER_STRESS_SCRIPT_ERROR",
+      ));
+      window.addEventListener("unhandledrejection", (event) => reportFailure(
+        event.reason?.stack || event.reason?.message || String(event.reason || "BROWSER_STRESS_REJECTION"),
+      ));
+
+      function reportFailure(error) {
+        resultElement.textContent = JSON.stringify({ ok: false, error }, null, 2);
+        document.documentElement.dataset.status = "error";
+      }
+    </script>
+    <script type="module">
+      import {
+        acceptVideoDecodedFrame,
+        isDrawableMedia,
+        pauseVideoPlayback,
+        syncVideoPlayback,
+      } from "../../js/output/media-utils.js?v=decoded-frame-drawability-1";
+      import {
+        textureTransitionFragmentShaderSource,
+      } from "../../js/libraries/transition-engine/index.js";
+
+      const requestedDurationMs = Math.max(
+        3000,
+        Math.min(60000, Number(new URL(location.href).searchParams.get("duration")) || 8000),
+      );
+      const resourceCounts = {
+        shadersCreated: 0,
+        shadersDeleted: 0,
+        programsCreated: 0,
+        programsDeleted: 0,
+        texturesCreated: 0,
+        texturesDeleted: 0,
+        buffersCreated: 0,
+        buffersDeleted: 0,
+      };
+      const testErrors = [];
+      let completed = false;
+
+      try {
+        resultElement.textContent = "recording deterministic test video...";
+        const testVideo = await recordTestVideo();
+        const objectUrl = URL.createObjectURL(testVideo.blob);
+        const decoders = await Promise.all([
+          createDecoder("decoder-a", objectUrl, { start: 0.12, end: 0.72, speed: 1 }),
+          createDecoder("decoder-b", objectUrl, { start: 0.22, end: 0.82, speed: 1.2 }),
+        ]);
+        const owners = [
+          createOutputOwner(document.querySelector("#output-a"), "output-a"),
+          createOutputOwner(document.querySelector("#output-b"), "output-b"),
+        ];
+        const startedAt = performance.now();
+        const frameIntervals = [];
+        let previousFrameAt = startedAt;
+        let frameCount = 0;
+        let contextRecoveryRequested = false;
+
+        resultElement.textContent = "running sustained decoder / transition / resize / context stress...";
+        await new Promise((resolve) => {
+          const frame = (now) => {
+            if (completed) return resolve();
+            frameIntervals.push(now - previousFrameAt);
+            previousFrameAt = now;
+            frameCount++;
+
+            for (const decoder of decoders) {
+              const before = Number(decoder.element.currentTime) || 0;
+              syncVideoPlayback(decoder.wrapper, decoder.playback);
+              const after = Number(decoder.element.currentTime) || 0;
+              decoder.lastObservedPlaybackRate = Number(decoder.element.playbackRate) || 0;
+              if (before > decoder.playback.end - 0.15 && after < decoder.playback.start + 0.15) {
+                decoder.loopSeeks++;
+              }
+            }
+
+            if (frameCount % 45 === 0) {
+              const expanded = Math.floor(frameCount / 45) % 2 === 0;
+              owners[0].resize(expanded ? 224 : 176, expanded ? 126 : 99);
+              owners[1].resize(expanded ? 160 : 208, expanded ? 90 : 117);
+            }
+
+            if (!contextRecoveryRequested && now - startedAt > requestedDurationMs * 0.42) {
+              contextRecoveryRequested = owners[1].requestContextRecovery();
+            }
+
+            const progress = ((now - startedAt) % 1000) / 1000;
+            owners[0].render(decoders[0].retainedCanvas, decoders[1].retainedCanvas, progress);
+            owners[1].render(decoders[1].retainedCanvas, decoders[0].retainedCanvas, 1 - progress);
+
+            if (now - startedAt >= requestedDurationMs) {
+              completed = true;
+              resolve();
+              return;
+            }
+            requestAnimationFrame(frame);
+          };
+          requestAnimationFrame(frame);
+        });
+
+        for (const decoder of decoders) disposeDecoder(decoder);
+        for (const owner of owners) owner.dispose();
+        URL.revokeObjectURL(objectUrl);
+        testVideo.stream.getTracks().forEach((track) => track.stop());
+
+        const resourcesBalanced =
+          resourceCounts.shadersCreated === resourceCounts.shadersDeleted &&
+          resourceCounts.programsCreated === resourceCounts.programsDeleted &&
+          resourceCounts.texturesCreated === resourceCounts.texturesDeleted &&
+          resourceCounts.buffersCreated === resourceCounts.buffersDeleted;
+        const sortedIntervals = frameIntervals.slice(1).sort((a, b) => a - b);
+        const p95IntervalMs = percentile(sortedIntervals, 0.95);
+        const visible = document.visibilityState === "visible";
+        const minimumFrames = visible
+          ? Math.max(30, requestedDurationMs / 1000 * 20)
+          : Math.max(3, requestedDurationMs / 1000);
+        const decoderCorrect = decoders.every((decoder) =>
+          decoder.decodedFrames > 3 &&
+          decoder.acceptedFrames > 3 &&
+          decoder.loopSeeks >= 2 &&
+          decoder.blackAcceptedFrames === 0 &&
+          decoder.callbackErrors.length === 0
+        );
+        const ownersCorrect = owners.every((owner) =>
+          owner.frames > 3 &&
+          owner.glErrors.length === 0 &&
+          owner.contextsRestored === owner.contextsLost
+        );
+        const independentPlayback =
+          Math.abs(decoders[0].lastObservedPlaybackRate - decoders[1].lastObservedPlaybackRate) > 0.1 &&
+          decoders[0].element !== decoders[1].element;
+        const ok =
+          frameCount >= minimumFrames &&
+          decoderCorrect &&
+          ownersCorrect &&
+          independentPlayback &&
+          resourcesBalanced &&
+          testErrors.length === 0;
+        const result = {
+          ok,
+          durationMs: Math.round(performance.now() - startedAt),
+          source: {
+            width: testVideo.width,
+            height: testVideo.height,
+            encodedBytes: testVideo.blob.size,
+          },
+          visibility: document.visibilityState,
+          frames: frameCount,
+          p95IntervalMs: rounded(p95IntervalMs),
+          maxIntervalMs: rounded(sortedIntervals.at(-1) || 0),
+          decoders: decoders.map((decoder) => ({
+            id: decoder.id,
+            decodedFrames: decoder.decodedFrames,
+            acceptedFrames: decoder.acceptedFrames,
+            rejectedFrames: decoder.rejectedFrames,
+            blackAcceptedFrames: decoder.blackAcceptedFrames,
+            loopSeeks: decoder.loopSeeks,
+            playbackRate: decoder.lastObservedPlaybackRate,
+            callbackErrors: decoder.callbackErrors,
+          })),
+          outputs: owners.map((owner) => ({
+            id: owner.id,
+            frames: owner.frames,
+            resizes: owner.resizes,
+            contextsLost: owner.contextsLost,
+            contextsRestored: owner.contextsRestored,
+            contextRecoverySupported: owner.contextRecoverySupported,
+            glErrors: owner.glErrors,
+          })),
+          independentPlayback,
+          resources: {
+            ...resourceCounts,
+            balanced: resourcesBalanced,
+          },
+          errors: testErrors,
+        };
+        resultElement.textContent = JSON.stringify(result, null, 2);
+        document.documentElement.dataset.status = ok ? "ok" : "failed";
+      } catch (error) {
+        reportFailure(error?.stack || error?.message || String(error));
+      }
+
+      async function recordTestVideo() {
+        if (typeof MediaRecorder !== "function") throw new Error("MEDIA_RECORDER_UNAVAILABLE");
+        const canvas = document.createElement("canvas");
+        canvas.width = 640;
+        canvas.height = 360;
+        const context = canvas.getContext("2d", { alpha: false });
+        const stream = canvas.captureStream(30);
+        const mimeType = [
+          "video/webm;codecs=vp9",
+          "video/webm;codecs=vp8",
+          "video/webm",
+        ].find((candidate) => MediaRecorder.isTypeSupported(candidate));
+        if (!mimeType) throw new Error("WEBM_RECORDING_UNAVAILABLE");
+        const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 2000000 });
+        const chunks = [];
+        recorder.addEventListener("dataavailable", (event) => {
+          if (event.data?.size) chunks.push(event.data);
+        });
+        const stopped = new Promise((resolve, reject) => {
+          recorder.addEventListener("stop", resolve, { once: true });
+          recorder.addEventListener("error", (event) => reject(event.error || new Error("MEDIA_RECORDER_FAILED")), { once: true });
+        });
+        recorder.start(100);
+        const startedAt = performance.now();
+        await new Promise((resolve) => {
+          const draw = (now) => {
+            const phase = (now - startedAt) / 1000;
+            context.fillStyle = `hsl(${(phase * 220) % 360} 75% 55%)`;
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = "rgb(240 240 240)";
+            context.fillRect(
+              8 + Math.round((Math.sin(phase * 8) * 0.5 + 0.5) * 56),
+              16,
+              18,
+              18,
+            );
+            if (now - startedAt >= 1250) {
+              resolve();
+              return;
+            }
+            requestAnimationFrame(draw);
+          };
+          requestAnimationFrame(draw);
+        });
+        recorder.stop();
+        await stopped;
+        return {
+          blob: new Blob(chunks, { type: mimeType }),
+          stream,
+          width: canvas.width,
+          height: canvas.height,
+        };
+      }
+
+      async function createDecoder(id, objectUrl, playback) {
+        const element = document.createElement("video");
+        element.id = id;
+        element.muted = true;
+        element.playsInline = true;
+        element.preload = "auto";
+        element.src = objectUrl;
+        document.body.append(element);
+        element.style.display = "none";
+        await waitForMedia(element, "loadeddata");
+        const wrapper = {
+          elt: element,
+          speed(value) {
+            element.playbackRate = value;
+          },
+          pause() {
+            element.pause();
+          },
+        };
+        const retainedCanvas = document.createElement("canvas");
+        retainedCanvas.width = element.videoWidth;
+        retainedCanvas.height = element.videoHeight;
+        const retainedContext = retainedCanvas.getContext("2d", { willReadFrequently: true });
+        const decoder = {
+          id,
+          element,
+          wrapper,
+          playback,
+          retainedCanvas,
+          retainedContext,
+          callbackId: null,
+          callbackErrors: [],
+          decodedFrames: 0,
+          acceptedFrames: 0,
+          rejectedFrames: 0,
+          blackAcceptedFrames: 0,
+          loopSeeks: 0,
+          lastObservedPlaybackRate: Number(element.playbackRate) || 0,
+        };
+        const onFrame = (_now, metadata = {}) => {
+          decoder.decodedFrames++;
+          try {
+            if (acceptVideoDecodedFrame(element, Number(metadata.mediaTime))) {
+              retainedContext.drawImage(element, 0, 0, retainedCanvas.width, retainedCanvas.height);
+              decoder.acceptedFrames++;
+              if (retainedFrameIsBlack(retainedContext, retainedCanvas)) {
+                decoder.blackAcceptedFrames++;
+              }
+            } else {
+              decoder.rejectedFrames++;
+            }
+            decoder.callbackId = element.requestVideoFrameCallback(onFrame);
+          } catch (error) {
+            decoder.callbackErrors.push(error?.message || String(error));
+          }
+        };
+        decoder.callbackId = element.requestVideoFrameCallback(onFrame);
+        syncVideoPlayback(wrapper, playback);
+        return decoder;
+      }
+
+      function disposeDecoder(decoder) {
+        if (decoder.callbackId != null) {
+          decoder.element.cancelVideoFrameCallback(decoder.callbackId);
+        }
+        pauseVideoPlayback(decoder.wrapper);
+        decoder.element.removeAttribute("src");
+        decoder.element.load();
+        decoder.element.remove();
+      }
+
+      function retainedFrameIsBlack(context, canvas) {
+        const x = Math.max(0, Math.floor(canvas.width / 2) - 2);
+        const y = Math.max(0, Math.floor(canvas.height / 2) - 2);
+        const pixels = context.getImageData(x, y, 4, 4).data;
+        let energy = 0;
+        for (let index = 0; index < pixels.length; index += 4) {
+          energy += pixels[index] + pixels[index + 1] + pixels[index + 2];
+        }
+        return energy / (pixels.length / 4) < 24;
+      }
+
+      function createOutputOwner(canvas, id) {
+        const attributes = {
+          alpha: true,
+          antialias: false,
+          depth: false,
+          premultipliedAlpha: true,
+          preserveDrawingBuffer: false,
+        };
+        const gl = canvas.getContext("webgl", attributes);
+        if (!gl) throw new Error(`WEBGL_CONTEXT_UNAVAILABLE:${id}`);
+        const owner = {
+          id,
+          canvas,
+          gl,
+          attributes,
+          resources: null,
+          frames: 0,
+          resizes: 0,
+          contextsLost: 0,
+          contextsRestored: 0,
+          contextRecoverySupported: false,
+          glErrors: [],
+          contextLost: false,
+          rebuild() {
+            this.resources = createTransitionResources(this.gl);
+          },
+          resize(width, height) {
+            if (canvas.width === width && canvas.height === height) return;
+            canvas.width = width;
+            canvas.height = height;
+            this.resizes++;
+          },
+          render(fromCanvas, toCanvas, progress) {
+            if (this.contextLost || !this.resources) return;
+            renderTransition(this.gl, this.resources, fromCanvas, toCanvas, progress, canvas.width, canvas.height);
+            this.frames++;
+            const error = this.gl.getError();
+            if (error !== this.gl.NO_ERROR) this.glErrors.push(error);
+          },
+          requestContextRecovery() {
+            const extension = this.gl.getExtension("WEBGL_lose_context");
+            this.contextRecoverySupported = !!extension;
+            if (!extension) return false;
+            disposeTransitionResources(this.gl, this.resources);
+            this.resources = null;
+            extension.loseContext();
+            setTimeout(() => extension.restoreContext(), 120);
+            return true;
+          },
+          dispose() {
+            disposeTransitionResources(this.gl, this.resources);
+            this.resources = null;
+          },
+        };
+        canvas.addEventListener("webglcontextlost", (event) => {
+          event.preventDefault();
+          owner.contextLost = true;
+          owner.contextsLost++;
+        });
+        canvas.addEventListener("webglcontextrestored", () => {
+          owner.contextLost = false;
+          owner.contextsRestored++;
+          owner.rebuild();
+        });
+        owner.rebuild();
+        return owner;
+      }
+
+      function createTransitionResources(gl) {
+        const vertexSource = `
+          attribute vec2 aPosition;
+          varying vec2 vTexCoord;
+          void main() {
+            vTexCoord = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.0, 1.0);
+          }
+        `;
+        const fragmentSource = textureTransitionFragmentShaderSource();
+        const vertexShader = compileShader(gl, gl.VERTEX_SHADER, vertexSource);
+        const fragmentShader = compileShader(gl, gl.FRAGMENT_SHADER, fragmentSource);
+        const program = gl.createProgram();
+        resourceCounts.programsCreated++;
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          throw new Error(`STRESS_TRANSITION_LINK_FAILED:${gl.getProgramInfoLog(program) || "unknown"}`);
+        }
+        const buffer = gl.createBuffer();
+        resourceCounts.buffersCreated++;
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+          -1, -1,
+           1, -1,
+          -1,  1,
+           1,  1,
+        ]), gl.STATIC_DRAW);
+        return {
+          program,
+          vertexShader,
+          fragmentShader,
+          buffer,
+          fromTexture: createTexture(gl),
+          toTexture: createTexture(gl),
+        };
+      }
+
+      function compileShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        resourceCounts.shadersCreated++;
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+          throw new Error(`STRESS_SHADER_COMPILE_FAILED:${gl.getShaderInfoLog(shader) || "unknown"}`);
+        }
+        return shader;
+      }
+
+      function createTexture(gl) {
+        const texture = gl.createTexture();
+        resourceCounts.texturesCreated++;
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        return texture;
+      }
+
+      function renderTransition(gl, resources, fromCanvas, toCanvas, progress, width, height) {
+        gl.viewport(0, 0, width, height);
+        gl.useProgram(resources.program);
+        gl.bindBuffer(gl.ARRAY_BUFFER, resources.buffer);
+        const position = gl.getAttribLocation(resources.program, "aPosition");
+        gl.enableVertexAttribArray(position);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+        uploadTexture(gl, resources.fromTexture, fromCanvas, 0);
+        uploadTexture(gl, resources.toTexture, toCanvas, 1);
+        gl.uniform1i(gl.getUniformLocation(resources.program, "fromTex"), 0);
+        gl.uniform1i(gl.getUniformLocation(resources.program, "toTex"), 1);
+        gl.uniform4f(gl.getUniformLocation(resources.program, "uFromSourceRect"), 0, 0, 1, 1);
+        gl.uniform4f(gl.getUniformLocation(resources.program, "uToSourceRect"), 0, 0, 1, 1);
+        gl.uniform1f(gl.getUniformLocation(resources.program, "uFromOpacity"), 1);
+        gl.uniform1f(gl.getUniformLocation(resources.program, "uToOpacity"), 1);
+        gl.uniform1f(gl.getUniformLocation(resources.program, "uTransition"), progress);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      }
+
+      function uploadTexture(gl, texture, source, unit) {
+        gl.activeTexture(gl.TEXTURE0 + unit);
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, source);
+      }
+
+      function disposeTransitionResources(gl, resources) {
+        if (!resources) return;
+        gl.deleteTexture(resources.fromTexture);
+        gl.deleteTexture(resources.toTexture);
+        resourceCounts.texturesDeleted += 2;
+        gl.deleteBuffer(resources.buffer);
+        resourceCounts.buffersDeleted++;
+        gl.deleteProgram(resources.program);
+        resourceCounts.programsDeleted++;
+        gl.deleteShader(resources.vertexShader);
+        gl.deleteShader(resources.fragmentShader);
+        resourceCounts.shadersDeleted += 2;
+      }
+
+      function waitForMedia(element, eventName) {
+        if (eventName === "loadeddata" && isDrawableMedia(element)) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+          const cleanup = () => {
+            element.removeEventListener(eventName, onReady);
+            element.removeEventListener("error", onError);
+          };
+          const onReady = () => {
+            cleanup();
+            resolve();
+          };
+          const onError = () => {
+            cleanup();
+            reject(new Error(`VIDEO_DECODE_FAILED:${element.error?.message || element.error?.code || "unknown"}`));
+          };
+          element.addEventListener(eventName, onReady, { once: true });
+          element.addEventListener("error", onError, { once: true });
+        });
+      }
+
+      function percentile(values, amount) {
+        if (!values.length) return 0;
+        return values[Math.min(values.length - 1, Math.max(0, Math.ceil(values.length * amount) - 1))];
+      }
+
+      function rounded(value) {
+        return Math.round((Number(value) || 0) * 10) / 10;
+      }
+    </script>
+  </body>
+</html>

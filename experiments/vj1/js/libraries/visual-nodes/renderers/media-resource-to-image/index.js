@@ -5,18 +5,14 @@ import {
   NODE_IMPLEMENTATION_KINDS,
   NODE_PART_KINDS,
 } from "../../../node-engine/node-definition.js";
-import { DrawableMediaResourceType } from "../../shared/specialized-compound-types.js";
+import { DrawableMediaResourceType } from "../../shared/visual-stage-types.js";
 
 export const MediaResourceToImageNode = defineNode({
   id: "core.visual.media-resource-to-image",
   name: "Media Resource to Image",
   version: "0.1.0",
   description: "Fits and optionally mirrors a connected host-resolved drawable media resource into the current retained image target.",
-  implementation: {
-    kind: NODE_IMPLEMENTATION_KINDS.NATIVE,
-    compiler: "vj1.visual.specialized-compound",
-    kernel: "media-resource-fit",
-  },
+  implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: {
     resource: { type: DrawableMediaResourceType, required: true },
   },
@@ -42,48 +38,70 @@ export const MediaResourceToImageNode = defineNode({
     roi: { mode: "local", mapping: "content-transform" },
   },
   authoring: {
-    activation: NODE_EDIT_ACTIVATION.READ_ONLY,
-    reason: "Browser media acquisition and the p5 target are host-bound; resource selection, fit, mirroring, and graph composition remain editable.",
+    activation: NODE_EDIT_ACTIVATION.RECOMPILE,
+    reason: "The host supplies drawable resources and the retained target; this node owns the editable fit and presentation process.",
   },
   capabilities: [
     "render-operation",
     "media-fit",
     "live-media",
-    "specialized-visual-stage",
+    "typed-media-renderer",
     "graph-placeable",
     "compiled-only",
   ],
   presentation: {
-    catalogs: ["node-graph", "media", "live", "image", "render", "specialized-visual"],
-    placeableOn: ["native-visual-graph"],
+    catalogs: ["node-graph", "media", "live", "image", "render", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
     previewOutput: "texture",
   },
   metadata: {
-    nativeKernel: "media-resource-fit",
-    nativeRenderer: "output/specialized:screenShare",
     nodeOwnedNativeModule: true,
+    nodeOwnedNativeProcess: true,
     allocationStable: true,
-    renderInvalidation: {
-      mode: "frame",
-      reason: "screen-input-frame",
-    },
+    allocationStableDirectPath: true,
+    directPlacement: Object.freeze({
+      kind: "drawable-resource",
+      input: "resource",
+      fitParameter: "fit",
+      mirrorParameter: "mirrored",
+      retainProjectVideoFrame: true,
+    }),
     nativeArtifactRequirements: {
-      moduleExports: ["drawMediaResourceToImage"],
+      moduleExports: [
+        "drawMediaResourceToImage",
+        "mediaResourceToImageProcess",
+      ],
       shaders: [],
     },
   },
-  parts: [{
-    id: "media-resource-fit-module",
-    name: "Media resource fit and mirror algorithm",
-    kind: NODE_PART_KINDS.JAVASCRIPT,
-    language: "javascript",
-    editable: true,
-    module: import.meta.url,
-    exports: ["drawMediaResourceToImage"],
-    source: drawMediaResourceToImage.toString(),
-  }],
+  parts: [
+    {
+      id: "media-resource-fit-module",
+      name: "Media resource fit and mirror algorithm",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      exports: ["drawMediaResourceToImage"],
+      source: drawMediaResourceToImage.toString(),
+    },
+    {
+      id: "media-resource-to-image-process",
+      name: "Typed media resource render process",
+      kind: NODE_PART_KINDS.JAVASCRIPT,
+      language: "javascript",
+      editable: true,
+      module: import.meta.url,
+      entry: "process",
+      exports: ["mediaResourceToImageProcess"],
+      dependsOn: ["media-resource-fit-module"],
+      source: mediaResourceToImageProcess.toString(),
+    },
+  ],
+  process: mediaResourceToImageProcess,
   moduleExports: {
     drawMediaResourceToImage,
+    mediaResourceToImageProcess,
   },
 });
 
@@ -96,4 +114,39 @@ export function drawMediaResourceToImage(target, media, params = {}, drawMediaFi
   }
   drawMediaFit(target, media, 0, 0, view.width, view.height, fit);
   target.pop();
+}
+
+export function mediaResourceToImageProcess(
+  {
+    params = {},
+    runtimeValues = null,
+    resource = null,
+  } = {},
+  context = {},
+) {
+  const descriptor =
+    resource ||
+    runtimeValues?.get?.("resource") ||
+    null;
+  const media = context.acquireDrawableResource(
+    descriptor,
+    Number(context.renderView?.width) || Number(context.target?.width) || 0,
+  );
+  const error = context.drawableResourceError(descriptor);
+  if (!media || context.isDrawableMedia?.(media) !== true) {
+    context.drawStandby?.(
+      context.target,
+      error || "media resource unavailable",
+      { forceVisible: true },
+    );
+    return context.target || null;
+  }
+  drawMediaResourceToImage(
+    context.target,
+    media,
+    params,
+    context.drawMediaFit,
+    context.renderView || context.target,
+  );
+  return context.target || null;
 }

@@ -384,20 +384,37 @@ test("materialized shader nodes execute from their node-owned shader and paramet
 });
 
 test("native calibration generators own executable editable JavaScript render modules", () => {
-  for (const id of ["black", "checker"]) {
-    const definition = getGeneratorComponent(id).nodeDefinition;
-    assert.equal(definition.metadata.nodeOwnedNativeProcess, true);
-    assert.equal(definition.implementation.kind, "code");
-    assert.ok(definition.parts.some((part) => part.kind === NODE_PART_KINDS.JAVASCRIPT && part.editable));
-    assert.equal(typeof compileJavaScriptNodeModule(definition.parts, definition).process, "function");
-  }
-
-  const definition = getGeneratorComponent("black").nodeDefinition;
+  const definition = getGeneratorComponent("checker").nodeDefinition;
+  assert.equal(definition.metadata.nodeOwnedNativeProcess, true);
+  assert.equal(definition.implementation.kind, "code");
+  assert.ok(definition.parts.some((part) => part.kind === NODE_PART_KINDS.JAVASCRIPT && part.editable));
+  assert.equal(typeof compileJavaScriptNodeModule(definition.parts, definition).process, "function");
   const compiled = compileJavaScriptNodeModule(definition.parts, definition);
-  const calls = [];
-  const target = { background: (value) => calls.push(value) };
+  const calls = { fills: 0, rects: 0 };
+  const target = {
+    width: 100,
+    height: 100,
+    noStroke() {},
+    fill() { calls.fills += 1; },
+    rect() { calls.rects += 1; },
+  };
   assert.strictEqual(compiled.process({}, { target }), target);
-  assert.deepEqual(calls, [0]);
+  assert.equal(calls.fills > 0, true);
+  assert.equal(calls.rects, calls.fills);
+});
+
+test("portable calibration generators remain editable ISF while compiling to a direct fragment kernel", () => {
+  const component = getGeneratorComponent("black");
+  const definition = component.nodeDefinition;
+
+  assert.equal(definition.implementation.kind, "shader");
+  assert.equal(definition.implementation.language, "isf");
+  assert.equal(definition.metadata.builtInAssetDefinition, true);
+  assert.equal(definition.metadata.optimizedIsfLowering, "fragment-generator");
+  assert.equal(component.renderAuthority, "built-in-isf-lowered");
+  assert.equal(component.type, "fragment");
+  assert.match(definition.parts[0].source, /"LOWERING": "fragment-generator"/);
+  assert.match(component.code, /gl_FragColor = vec4\(0\.0, 0\.0, 0\.0, 1\.0\)/);
 });
 
 test("procedural 2D generators expose editable JS programs compiled to node-owned shaders", () => {
@@ -428,16 +445,18 @@ test("project-local shader forks become the visual resolver authority", () => {
   assert.equal(resolved.code, editedSource);
   assert.equal(resolved.projectForkId, fork.id);
   assert.equal(resolved.renderAuthority, "project-node-fork");
-  assert.equal(resolver.effect("invert").renderAuthority, "node-definition");
+  assert.equal(resolver.effect("invert").renderAuthority, "built-in-isf-lowered");
+  assert.equal(resolver.effect("gray").renderAuthority, "built-in-isf-lowered");
+  assert.equal(resolver.effect("threshold").renderAuthority, "built-in-isf-lowered");
 });
 
 test("project-local native JavaScript forks become the compiled node process", () => {
-  const base = getGeneratorComponent("black").nodeDefinition;
+  const base = getGeneratorComponent("checker").nodeDefinition;
   const fork = createProjectNodeFork(base, {
-    forkId: "black-project",
+    forkId: "checker-project",
     overrides: {
-      parts: base.parts.map((part) => part.id === "black-algorithm"
-        ? { ...part, source: "function drawBlackNode(pg) { pg.background(7); }" }
+      parts: base.parts.map((part) => part.id === "checker-algorithm"
+        ? { ...part, source: "function drawCheckerNode(pg) { pg.background(7); }" }
         : part),
     },
   });

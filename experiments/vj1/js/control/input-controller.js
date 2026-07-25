@@ -1,5 +1,5 @@
 import { bindReorderList } from "./reorder-list.js";
-import { formatTrimTime, roundTrimTime } from "./component-view.js?v=derived-media-element-names-1";
+import { formatTrimTime, roundTrimTime } from "./component-view.js?v=inspector-view-option-parameter-control-group-1";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
 import { createLiveRenderPatch } from "../domain/live-render-patch.js?v=live-param-patch-1";
 import { bindMarkdownEditors } from "./markdown-editor.js?v=text-style-controls-1";
@@ -464,7 +464,16 @@ export function createInputController({
     store.update((draft) => {
       setByPath(draft, path, nextValue);
       syncMappingEdits(draft, path);
+      // A Mapping Surface eye also selects its row. Commit that UI focus in
+      // the same transaction: emitting a second `select-surface` command made
+      // one click schedule two control rebuilds and two preview activations.
+      if (button.dataset.toggleSelectAction === "data-select-surface" &&
+          button.dataset.toggleSelectId) {
+        draft.ui.selectedSurfaceId = button.dataset.toggleSelectId;
+        if (draft.ui.workspace === "scene") draft.ui.sceneInspectorTarget = "surface";
+      }
     }, reason);
+    if (button.dataset.toggleSelectAction === "data-select-surface") return;
     selectToggleTarget(button);
   }
 

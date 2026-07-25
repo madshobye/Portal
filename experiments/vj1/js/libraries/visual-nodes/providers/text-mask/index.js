@@ -4,7 +4,7 @@ import {
   NODE_IMPLEMENTATION_KINDS,
   NODE_PART_KINDS,
 } from "../../../node-engine/node-definition.js";
-import { TextMaskProviderType } from "../../shared/specialized-compound-types.js";
+import { TextMaskProviderType } from "../../shared/visual-stage-types.js";
 import {
   createTextMask,
   FONT_FAMILIES,
@@ -84,13 +84,14 @@ export const TextMaskProviderNode = defineNode({
     "text-layout",
     "text-mask",
     "image-resource",
-    "specialized-visual-provider",
-    "specialized-visual-stage",
+    "retained-value-provider",
+    "visual-value-provider",
+    "visual-stage",
     "graph-placeable",
   ],
   presentation: {
-    catalogs: ["node-graph", "text", "image", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "text", "image", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
     previewOutput: "mask",
   },
   parts: [

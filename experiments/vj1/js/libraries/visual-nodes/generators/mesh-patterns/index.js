@@ -7,8 +7,8 @@ import {
   MeshPatternTopologyProviderNode,
   MeshPatternWireMaterialProviderNode,
   MeshPatternWireToImageNode,
-} from "../../shared/specialized-compound.js?v=mesh-pattern-node-authority-1";
-import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
+} from "../../shared/visual-stage-nodes.js?v=mesh-geometry-detail-2";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
 const manifest = Object.freeze({
     id: "meshPatterns",
     name: "2D Mesh Patterns",

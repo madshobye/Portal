@@ -7,7 +7,7 @@ import {
   createMaterial3d,
   Material3dType,
 } from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
-import { VisualMaterialProviderType } from "../../shared/specialized-compound-types.js";
+import { VisualMaterialProviderType } from "../../shared/visual-stage-types.js";
 import {
   TERRAIN_WIRE_FRAGMENT_SHADER,
   TERRAIN_WIRE_VERTEX_SHADER,
@@ -35,10 +35,18 @@ export const TerrainWireMaterialProviderNode = defineNode({
     sceneMaterial: { type: Material3dType },
   },
   execution: { trigger: "input-change", domain: "main", pure: true, asynchronous: false },
-  capabilities: ["material", "wireframe", "terrain", "scene-3d", "specialized-visual-stage", "graph-placeable"],
+  capabilities: [
+    "material",
+    "wireframe",
+    "terrain",
+    "scene-3d",
+    "retained-value-provider",
+    "visual-stage",
+    "graph-placeable",
+  ],
   presentation: {
-    catalogs: ["node-graph", "material", "terrain", "scene-3d", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "material", "terrain", "scene-3d", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
   },
   metadata: {
     nativeArtifactRequirements: {
@@ -88,6 +96,7 @@ export function terrainWireMaterialProviderProcess(inputs = {}, { state = {}, ou
   descriptor.kind = "material";
   descriptor.providerId = providerId;
   descriptor.settings = settings;
+  descriptor.runtimeSettings = { wireColor, wireWidth };
   descriptor.enabled = inputs.enabled !== false;
   descriptor.sceneMaterial = state.sceneMaterial;
   result.sceneMaterial = state.sceneMaterial;

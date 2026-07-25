@@ -14,7 +14,7 @@ export const TerrainFlightControllerNode = defineNode({
   description: "Produces phase-continuous flight and terrain sampling state independently from mesh rendering.",
   implementation: NODE_IMPLEMENTATION_KINDS.CODE,
   inlets: {
-    componentTime: { type: "number", required: true },
+    componentTime: { type: "number", required: true, defaultValue: 0 },
     flightSpeed: { type: "number", defaultValue: 0.65 },
     turn: { type: "number", defaultValue: 0 },
     altitude: { type: "number", defaultValue: 2.5 },
@@ -22,8 +22,20 @@ export const TerrainFlightControllerNode = defineNode({
   },
   outlets: { flight: { type: TerrainFlightStateType } },
   execution: { trigger: "frame", domain: "main", stateful: true, asynchronous: false },
-  capabilities: ["terrain", "timing", "motion", "controller", "graph-placeable", "live-fast-path"],
-  presentation: { catalogs: ["graph", "terrain", "motion"], placeableOn: ["node-graph"], previewOutput: "flight" },
+  capabilities: [
+    "terrain",
+    "timing",
+    "motion",
+    "controller",
+    "retained-value-provider",
+    "graph-placeable",
+    "live-fast-path",
+  ],
+  presentation: {
+    catalogs: ["graph", "terrain", "motion"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
+    previewOutput: "flight",
+  },
   parts: [{
     id: "terrain-flight-controller",
     name: "Terrain flight controller",

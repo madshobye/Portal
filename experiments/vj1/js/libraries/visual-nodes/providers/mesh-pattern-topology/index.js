@@ -13,7 +13,7 @@ import {
   createMeshCollection,
   MeshCollectionType,
 } from "../../../mesh-engine/mesh-collection/index.js?v=mesh-collection-1";
-import { TopologyProviderType } from "../../shared/specialized-compound-types.js";
+import { TopologyProviderType } from "../../shared/visual-stage-types.js";
 
 const TOPOLOGY_SETTING_IDS = Object.freeze([
   "pattern",
@@ -67,12 +67,13 @@ export const MeshPatternTopologyProviderNode = defineNode({
     "mesh-source",
     "mesh-collection",
     "scene-3d",
-    "specialized-visual-stage",
+    "retained-value-provider",
+    "visual-stage",
     "graph-placeable",
   ],
   presentation: {
-    catalogs: ["node-graph", "mesh-pattern", "topology", "mesh", "scene-3d", "specialized-visual"],
-    placeableOn: ["node-graph", "native-visual-graph"],
+    catalogs: ["node-graph", "mesh-pattern", "topology", "mesh", "scene-3d", "visual-stage"],
+    placeableOn: ["visual-graph", "node-graph", "native-visual-graph"],
   },
   parts: [
     {

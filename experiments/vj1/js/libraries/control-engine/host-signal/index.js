@@ -14,6 +14,7 @@ export const OscControlInputNode = hostSignalNode({
   name: "OSC Input",
   kind: "osc",
   address: "/vj1/value",
+  endpoint: "",
   description: "Reads an OSC address from the host control-signal adapter.",
   capabilities: ["osc-control"],
 });
@@ -25,6 +26,7 @@ export const AudioControlInputNode = hostSignalNode({
   address: "level",
   description: "Reads an analyzed audio feature such as level, beat, or a frequency band from the host adapter.",
   capabilities: ["audio-control"],
+  frameDynamic: true,
 });
 
 export const HostControlInputNode = hostSignalNode({
@@ -37,10 +39,20 @@ export const HostControlInputNode = hostSignalNode({
 });
 
 export function hostSignalControlProcess(
-  { kind = "control", address = "value", fallback = 0 } = {},
+  {
+    kind = "control",
+    address = "value",
+    endpoint = "",
+    fallback = 0,
+  } = {},
   { renderRequest = null, output = {}, state = {} } = {},
 ) {
-  const signal = resolveHostControlSignal(renderRequest?.controlSignals, String(kind), String(address));
+  const signal = resolveHostControlSignal(
+    renderRequest?.controlSignals,
+    String(kind),
+    String(address),
+    { endpoint: String(endpoint || "") },
+  );
   const available = signal !== undefined;
   const record = signal && typeof signal === "object" && !Array.isArray(signal) ? signal : null;
   const value = available ? (record && "value" in record ? record.value : signal) : fallback;
@@ -55,16 +67,27 @@ export function hostSignalControlProcess(
   return output;
 }
 
-export function resolveHostControlSignal(signals, kind, address) {
+export function resolveHostControlSignal(signals, kind, address, options = {}) {
   if (!signals) return undefined;
-  if (typeof signals.resolve === "function") return signals.resolve(kind, address);
+  if (typeof signals.resolve === "function") {
+    return signals.resolve(kind, address, options);
+  }
   const bank = signals instanceof Map ? signals.get(kind) : signals[kind];
   if (!bank) return undefined;
   if (bank instanceof Map) return bank.get(address);
   return typeof bank === "object" ? bank[address] : undefined;
 }
 
-function hostSignalNode({ id, name, kind, address, description, capabilities = [] }) {
+function hostSignalNode({
+  id,
+  name,
+  kind,
+  address,
+  description,
+  capabilities = [],
+  frameDynamic = false,
+  endpoint,
+}) {
   return defineNode({
     id,
     name,
@@ -78,6 +101,15 @@ function hostSignalNode({ id, name, kind, address, description, capabilities = [
         editor: { type: "select" },
       },
       address: { type: "string", defaultValue: address, editor: { type: "text" } },
+      ...(endpoint !== undefined
+        ? {
+            endpoint: {
+              type: "string",
+              defaultValue: endpoint,
+              editor: { type: "text" },
+            },
+          }
+        : {}),
       fallback: { type: "any", defaultValue: 0, editor: { type: "input" } },
     },
     outlets: {
@@ -86,12 +118,30 @@ function hostSignalNode({ id, name, kind, address, description, capabilities = [
       event: { type: "event" },
       available: { type: "boolean" },
     },
-    execution: { trigger: "frame", domain: "main", stateful: true, asynchronous: false },
+    // MIDI, OSC, and application controls advance when their retained host
+    // signal revision changes. Audio analysis is the deliberate exception:
+    // its adapter produces a continuous feature stream on the frame clock.
+    execution: {
+      trigger: frameDynamic ? "frame" : "input-change",
+      domain: "main",
+      stateful: false,
+      asynchronous: false,
+    },
     capabilities: [...capabilities, "control-signal", "graph-placeable", "live-fast-path"],
     presentation: {
       catalogs: ["controls", "graph"],
       placeableOn: ["control-canvas", "node-graph"],
       previewOutput: "number",
+    },
+    metadata: {
+      controlSignalDependency: {
+        kindParameterId: "kind",
+        addressParameterId: "address",
+        ...(endpoint !== undefined
+          ? { endpointParameterId: "endpoint" }
+          : {}),
+        required: false,
+      },
     },
     parts: [{
       id: "host-signal-process",

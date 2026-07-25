@@ -11,11 +11,13 @@ import {
   getGeneratorNodeComponent,
 } from "../js/libraries/visual-nodes/index.js";
 
-test("Low Poly Anatomy is an editable Scene3D compound rather than a parent-owned renderer", () => {
+test("Low Poly Anatomy is an ordinary editable visual Group rather than a parent-owned renderer", () => {
   const definition = getGeneratorNodeComponent("anatomy").nodeDefinition;
   const graph = definition.parts.find((part) => part.kind === "graph");
 
-  assert.equal(definition.metadata.visualCompilerHook.id, "vj1.visual.scene-3d-program");
+  assert.equal(definition.metadata.visualCompilerHook.id, "vj1.visual.compound");
+  assert.equal(definition.metadata.nativeRenderer, "");
+  assert.equal(definition.metadata.renderAuthority, "compiled-graph");
   assert.equal(definition.metadata.nativeCompound, undefined);
   assert.deepEqual(definition.parts.map((part) => part.id), ["graph"]);
   assert.equal(graph.editable, true);

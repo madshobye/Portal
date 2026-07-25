@@ -11,6 +11,10 @@ import { ObjParserNode } from "../obj-parser/index.js";
 import { Parse3dObjectGroup } from "../parse-3d-object/index.js";
 import { Prepare3dAssetGroup } from "../prepare-3d-asset/index.js";
 import { StlParserNode } from "../stl-parser/index.js";
+import {
+  createVisualRenderProcessContext,
+  updateVisualRenderProcessContext,
+} from "../../render-engine/render-process-context.js";
 
 export const Convert3dFileToImageGroup = defineNodeGroup({
   id: "core.mesh.convert-3d-file-to-image",
@@ -26,10 +30,6 @@ export const Convert3dFileToImageGroup = defineNodeGroup({
     source: { type: "any", required: true },
     name: { type: "string", optional: true, defaultValue: "" },
     format: { type: { type: "enum", values: ["", "stl", "obj"] }, optional: true, defaultValue: "" },
-    target: { type: "any", optional: true },
-    cacheOwner: { type: "any", optional: true },
-    viewport: { type: "any", optional: true },
-    contentTransform: { type: "transform2d", optional: true },
     rasterImage: { type: optionalType(RasterImageType), optional: true },
   },
   parameters: {
@@ -63,12 +63,12 @@ export const Convert3dFileToImageGroup = defineNodeGroup({
     { from: "resize.frame", to: "$out.image", when: { imageKind: "raster" } },
     { from: "render.result.image", to: "$out.image", when: { imageKind: "svg" } },
   ],
-  publicInlets: { source: "prepare.source", name: "prepare.name", format: "prepare.format", target: "render.target" },
+  publicInlets: { source: "prepare.source", name: "prepare.name", format: "prepare.format" },
   publicOutlets: { mesh: "prepare.mesh", image: ["render.result.image", "resize.frame"], format: "prepare.format" },
   program: convert3dFileToImageProgram,
 });
 
-async function convert3dFileToImageProgram(inputs = {}, { run }) {
+async function convert3dFileToImageProgram(inputs = {}, { run, renderProcess = null }) {
   const thumbnail = inputs.profile === "thumbnail";
   const prepared = await run("prepare", {
     source: inputs.source,
@@ -86,11 +86,8 @@ async function convert3dFileToImageProgram(inputs = {}, { run }) {
   });
   const rendered = await run("render", {
     mesh: prepared.mesh,
-    target: inputs.target,
-    cacheOwner: inputs.cacheOwner,
-    viewport: inputs.viewport,
-    contentTransform: inputs.contentTransform,
   }, {
+    ...(renderProcess ? { renderProcess } : {}),
     parameters: {
       backend: thumbnail ? "svg" : "webgl",
       renderMode: inputs.renderMode || "surface",
@@ -106,7 +103,7 @@ async function convert3dFileToImageProgram(inputs = {}, { run }) {
     }
     const resized = await run("resize", {
       image: inputs.rasterImage,
-      transform: inputs.contentTransform,
+      transform: renderProcess?.contentTransform,
     }, {
       executionClass: "bounded",
       parameters: { width: inputs.width, height: inputs.height, fit: inputs.fit },
@@ -143,7 +140,22 @@ export async function convert3dFileToImage(inputs = {}) {
     },
   });
   try {
-    return await instance.run(inputs);
+    const renderProcess = inputs.target
+      ? updateVisualRenderProcessContext(createVisualRenderProcessContext(), {
+          target: inputs.target,
+          time: inputs.componentTime,
+          request: inputs.renderRequest || inputs.viewport,
+          view: inputs.viewport,
+          contentTransform: inputs.contentTransform,
+          cacheOwner: inputs.cacheOwner,
+        })
+      : null;
+    return await instance.run({
+      source: inputs.source,
+      name: inputs.name,
+      format: inputs.format,
+      rasterImage: inputs.rasterImage,
+    }, renderProcess ? { renderProcess } : {});
   } finally {
     instance.dispose();
   }

@@ -1,7 +1,7 @@
 import {
   materializeLiveProgramSurfaceRoutes,
   rebaseSurfaceRouteProgram,
-} from "./scene-routing.js?v=explicit-direct-surface-hierarchy-1";
+} from "./scene-routing.js?v=live-output-matrix-contract-3";
 
 const EMPTY_ROUTES = Object.freeze({ surfaces: Object.freeze([]) });
 

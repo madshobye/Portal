@@ -35,11 +35,14 @@ import {
   migrateProjectV31ToV32,
   migrateProjectV32ToV33,
   migrateProjectV33ToV34,
+  migrateProjectV34ToV35,
+  migrateProjectV35ToV36,
+  migrateProjectV36ToV37,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 34);
+  assert.equal(CURRENT_PROJECT_VERSION, 37);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -780,6 +783,351 @@ test("v33 to v34 replaces persisted Frame terminology without aliases", () => {
   assert.equal(migrated.nodes.pins[0].nodeId, "core.composition.scene-surface-guides");
   assert.equal(migrated.nodes.groups[0].nodes[0].nodeId, "core.composition.scene-surface-guides");
   assert.equal(input.nodes.pins[0].nodeId, "core.composition.scene-frame-guides");
+});
+
+test("v34 to v35 migrates direct media in chains and graph authority to editable Groups", () => {
+  const imageSource = {
+    type: "media",
+    mediaId: "media/photo.png",
+    start: 1,
+    end: 8,
+    speed: 1.5,
+    contentTransform: { x: 0.1, y: -0.2, scale: 1.25, rotation: 0 },
+    params: {
+      fit: "cover",
+      alphaCut: 2,
+      alphaFeather: 4,
+      renderQuality: 0.75,
+    },
+  };
+  const input = {
+    version: 34,
+    media: [
+      { id: "media/photo.png", type: "image" },
+      { id: "media/clip.bin", type: "video" },
+      { id: "media/skull.bin", type: "model" },
+    ],
+    components: [{
+      id: "component-a",
+      chain: [{
+        id: "group-a",
+        kind: "group",
+        chain: [{
+          id: "image",
+          kind: "source",
+          source: imageSource,
+        }],
+      }],
+    }],
+    nodes: {
+      groups: [{
+        id: "vj1.component.component-a",
+        nodes: [{
+          id: "video",
+          nodeId: "core.composition.visual-source",
+          nodeVersion: "0.1.0",
+          role: "source",
+          parameters: {},
+          compilerHook: { id: "vj1.visual.source", renderer: "output/source:media" },
+          configuration: {
+            id: "video",
+            kind: "source",
+            source: {
+              type: "media",
+              mediaId: "media/clip.bin",
+              start: 2,
+              end: 9,
+              speed: 0.5,
+              params: { fit: "contain" },
+            },
+          },
+        }, {
+          id: "nested",
+          role: "group",
+          nodes: [{
+            id: "model",
+            nodeId: "core.composition.visual-source",
+            role: "source",
+            configuration: {
+              id: "model",
+              kind: "source",
+              source: {
+                type: "media",
+                mediaId: "media/skull.bin",
+              },
+            },
+          }],
+        }],
+      }],
+    },
+    ui: {
+      live: {
+        sceneSnapshot: {
+          media: [{ id: "media/live.mov", type: "video" }],
+          components: [{
+            id: "live-component",
+            chain: [{
+              id: "live-video",
+              kind: "source",
+              source: { type: "media", mediaId: "media/live.mov" },
+            }],
+          }],
+          nodes: { groups: [] },
+        },
+      },
+    },
+  };
+  const migrated = migrateProjectV34ToV35(input);
+  const image = migrated.components[0].chain[0].chain[0].source;
+  const videoNode = migrated.nodes.groups[0].nodes[0];
+  const modelNode = migrated.nodes.groups[0].nodes[1].nodes[0];
+  const liveVideo =
+    migrated.ui.live.sceneSnapshot.components[0].chain[0].source;
+
+  assert.deepEqual(image, {
+    type: "generator",
+    generatorId: "mediaImage",
+    contentTransform: imageSource.contentTransform,
+    params: {
+      fit: "cover",
+      alphaCut: 2,
+      alphaFeather: 4,
+      renderQuality: 0.75,
+      mediaId: "media/photo.png",
+      start: 1,
+      end: 8,
+      speed: 1.5,
+    },
+  });
+  assert.equal(videoNode.nodeId, "vj1.visual.generator.mediaImage");
+  assert.equal(videoNode.configuration.source.generatorId, "mediaImage");
+  assert.deepEqual(videoNode.configuration.source.params, {
+    fit: "contain",
+    mediaId: "media/clip.bin",
+    start: 2,
+    end: 9,
+    speed: 0.5,
+  });
+  assert.equal(Object.hasOwn(videoNode, "compilerHook"), false);
+  assert.equal(modelNode.nodeId, "vj1.visual.generator.modelMedia");
+  assert.equal(modelNode.configuration.source.generatorId, "modelMedia");
+  assert.deepEqual(modelNode.configuration.source.params, {
+    mediaId: "media/skull.bin",
+  });
+  assert.equal(liveVideo.generatorId, "mediaImage");
+  assert.equal(input.components[0].chain[0].chain[0].source.type, "media");
+  assert.equal(
+    input.nodes.groups[0].nodes[0].nodeId,
+    "core.composition.visual-source",
+    "migration does not mutate graph authority",
+  );
+});
+
+test("v35 to v36 migrates host-shaped Camera and Black sources to semantic generators", () => {
+  const input = {
+    version: 35,
+    components: [{
+      id: "component-a",
+      chain: [{
+        id: "camera",
+        kind: "source",
+        source: {
+          type: "camera",
+          instanceId: "camera-instance",
+          params: { fit: "cover" },
+        },
+      }, {
+        id: "nested",
+        kind: "group",
+        chain: [{
+          id: "black",
+          kind: "source",
+          source: { type: "black", instanceId: "black-instance" },
+        }],
+      }],
+    }],
+    nodes: {
+      groups: [{
+        id: "vj1.component.component-a",
+        nodes: [{
+          id: "camera",
+          nodeId: "core.composition.visual-source",
+          compilerHook: { id: "vj1.visual.source", renderer: "output/source:camera" },
+          configuration: {
+            id: "camera",
+            kind: "source",
+            source: { type: "camera", params: { fit: "contain" } },
+          },
+        }, {
+          id: "black",
+          nodeId: "core.composition.visual-source",
+          configuration: {
+            id: "black",
+            kind: "source",
+            source: { type: "black" },
+          },
+        }],
+      }],
+    },
+    ui: {
+      live: {
+        sceneSnapshot: {
+          components: [{
+            id: "live-component",
+            chain: [{
+              id: "live-camera",
+              kind: "source",
+              source: { type: "camera" },
+            }],
+          }],
+          nodes: { groups: [] },
+        },
+      },
+    },
+  };
+
+  const migrated = migrateProjectV35ToV36(input);
+  assert.deepEqual(migrated.components[0].chain[0].source, {
+    type: "generator",
+    generatorId: "cameraInput",
+    instanceId: "camera-instance",
+    params: { fit: "cover" },
+  });
+  assert.deepEqual(migrated.components[0].chain[1].chain[0].source, {
+    type: "generator",
+    generatorId: "black",
+    instanceId: "black-instance",
+    params: {},
+  });
+  const [cameraNode, blackNode] = migrated.nodes.groups[0].nodes;
+  assert.equal(cameraNode.nodeId, "vj1.visual.generator.cameraInput");
+  assert.equal(cameraNode.compilerHook, undefined);
+  assert.equal(cameraNode.configuration.source.generatorId, "cameraInput");
+  assert.equal(cameraNode.parameters.fit, "contain");
+  assert.equal(blackNode.nodeId, "vj1.visual.generator.black");
+  assert.equal(blackNode.configuration.source.generatorId, "black");
+  assert.equal(
+    migrated.ui.live.sceneSnapshot.components[0].chain[0].source.generatorId,
+    "cameraInput",
+  );
+  assert.equal(input.components[0].chain[0].source.type, "camera");
+});
+
+test("v36 to v37 restores contain for Project Media across chains, graphs, and Live snapshots", () => {
+  const mediaSource = {
+    type: "generator",
+    generatorId: "mediaImage",
+    params: { mediaId: "media/photo.png", fit: "stretch" },
+  };
+  const input = {
+    version: 36,
+    components: [{
+      id: "component-a",
+      chain: [{
+        id: "nested",
+        kind: "group",
+        chain: [{
+          id: "media-stretch",
+          kind: "source",
+          source: mediaSource,
+        }, {
+          id: "media-cover",
+          kind: "source",
+          source: {
+            type: "generator",
+            generatorId: "mediaImage",
+            params: { mediaId: "media/cover.png", fit: "cover" },
+          },
+        }, {
+          id: "model-stretch",
+          kind: "source",
+          source: {
+            type: "generator",
+            generatorId: "modelMedia",
+            params: { mediaId: "media/model.stl", fit: "stretch" },
+          },
+        }],
+      }],
+    }],
+    nodes: {
+      groups: [{
+        id: "vj1.component.component-a",
+        nodes: [{
+          id: "media-node",
+          nodeId: "vj1.visual.generator.mediaImage",
+          parameters: { mediaId: "media/photo.png", fit: "stretch" },
+          configuration: {
+            kind: "source",
+            source: mediaSource,
+          },
+          nodes: [{
+            id: "nested-media",
+            nodeId: "vj1.visual.generator.mediaImage",
+            parameters: { fit: "stretch" },
+            configuration: {
+              kind: "source",
+              source: mediaSource,
+            },
+          }, {
+            id: "nested-media:param:fit",
+            nodeId: "core.control.value",
+            targetNodeId: "nested-media",
+            targetParameterId: "fit",
+            parameters: { value: "stretch" },
+          }],
+        }, {
+          id: "media-node:param:fit",
+          nodeId: "core.control.value",
+          targetNodeId: "media-node",
+          targetParameterId: "fit",
+          parameters: { value: "stretch" },
+        }, {
+          id: "unrelated:param:fit",
+          nodeId: "core.control.value",
+          targetNodeId: "unrelated",
+          targetParameterId: "fit",
+          parameters: { value: "stretch" },
+        }],
+      }],
+    },
+    ui: {
+      live: {
+        sceneSnapshot: {
+          components: [{
+            id: "live-component",
+            chain: [{
+              id: "live-media",
+              kind: "source",
+              source: mediaSource,
+            }],
+          }],
+          nodes: { groups: [] },
+        },
+      },
+    },
+  };
+
+  const migrated = migrateProjectV36ToV37(input);
+  const [stretch, cover, model] = migrated.components[0].chain[0].chain;
+  const [mediaNode, mediaControl, unrelatedControl] = migrated.nodes.groups[0].nodes;
+  const [nestedMedia, nestedControl] = mediaNode.nodes;
+
+  assert.equal(stretch.source.params.fit, "contain");
+  assert.equal(cover.source.params.fit, "cover");
+  assert.equal(model.source.params.fit, "stretch");
+  assert.equal(mediaNode.parameters.fit, "contain");
+  assert.equal(mediaNode.configuration.source.params.fit, "contain");
+  assert.equal(mediaControl.parameters.value, "contain");
+  assert.equal(nestedMedia.parameters.fit, "contain");
+  assert.equal(nestedMedia.configuration.source.params.fit, "contain");
+  assert.equal(nestedControl.parameters.value, "contain");
+  assert.equal(unrelatedControl.parameters.value, "stretch");
+  assert.equal(
+    migrated.ui.live.sceneSnapshot.components[0].chain[0].source.params.fit,
+    "contain",
+  );
+  assert.equal(input.components[0].chain[0].chain[0].source.params.fit, "stretch");
+  assert.equal(input.nodes.groups[0].nodes[0].parameters.fit, "stretch");
 });
 
 test("migration runner applies every adjacent step in order", () => {

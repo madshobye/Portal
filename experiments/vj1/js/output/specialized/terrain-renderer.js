@@ -1,4 +1,4 @@
-import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=render-diagnostics-1";
+import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=premultiplied-alpha-5";
 import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=surface-terminology-1";
 import { normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
 import { compileRawShader, linkSpecializedProgram } from "../../libraries/render-engine/raw-webgl-utils.js";
@@ -8,7 +8,7 @@ import {
   captureRawWebGlAttributes,
   disposeRawWebGlVertexArray,
   restoreRawWebGlState,
-} from "../../libraries/render-engine/raw-webgl-state.js";
+} from "../../libraries/render-engine/raw-webgl-state.js?v=mesh-geometry-detail-2";
 import {
   TerrainNodeModuleExports,
 } from "./terrain-mesh.js?v=shared-terrain-grid-math-16";

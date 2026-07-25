@@ -1,4 +1,4 @@
-import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=package-content-lock-1";
+import { CURRENT_PROJECT_VERSION } from "../domain/project-migrations.js?v=project-media-contain-1";
 import { normalizeOutputName } from "../domain/render-settings.js?v=surface-terminology-1";
 import { authoredSurfaceFields } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
 import { serializeNodeProjectData } from "../libraries/node-engine/node-project.js?v=package-content-lock-1";

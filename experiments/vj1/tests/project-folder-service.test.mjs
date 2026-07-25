@@ -6,6 +6,8 @@ import {
   buildProjectPayload,
   COLD_BACKUP_INTERVAL,
   COLD_BACKUP_ROOT,
+  createProjectFolderService,
+  loadedProjectPersistenceSignature,
   nextColdBackupRevision,
   projectFileForSave,
   projectHistorySignature,
@@ -19,6 +21,10 @@ import {
   prepareProjectSave,
 } from "../js/services/project-save-preparation.js";
 import { CURRENT_PROJECT_VERSION } from "../js/domain/project-migrations.js";
+import { createAppState } from "../js/app-state.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
+import { createInitialState } from "../js/domain/models.js";
+import { createMediaLibrary } from "../js/services/media-library-service.js";
 
 test("project lookup distinguishes a missing project from an unreadable existing project", async () => {
   const existingHandle = {
@@ -158,6 +164,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes("preserveMediaCatalog && Array.isArray(projectData.media)"));
   assert.ok(source.includes(": mergeMediaCatalogMarkers(imported.media, projectData.media)"));
   assert.ok(source.includes("draft.media = mergeMediaCatalogMarkers(imported.media, draft.media)"));
+  assert.match(source, /reason: "project-refresh-assets",[\s\S]*?scope: "assets",[\s\S]*?projection: \{ kind: "asset-catalog" \}/);
   assert.ok(source.includes("previewQuality: projectUi?.previewQuality || currentUi.previewQuality"));
   assert.ok(source.includes("previewViewports: projectUi?.previewViewports || currentUi.previewViewports"));
   assert.ok(source.includes("previewDiagnostics: projectUi?.previewDiagnostics ?? currentUi.previewDiagnostics"));
@@ -264,8 +271,28 @@ test("project structure and cached thumbnails load before the media-library trav
 
   assert.ok(loadDirectory.indexOf("await loadProject") < loadDirectory.indexOf("collectProjectAssetFiles"));
   assert.ok(loadDirectory.includes("preserveMediaCatalog: true"));
-  assert.ok(loadDirectory.indexOf("collectProjectAssetFiles") < loadDirectory.indexOf("mediaLibrary.importFiles"));
-  assert.ok(loadDirectory.indexOf("mediaLibrary.importFiles") < loadDirectory.indexOf("refreshProjectAssets"));
+  assert.match(loadDirectory, /collectProjectAssetFiles\(dirHandle,\s*\{[\s\S]*onBatch:/);
+  assert.ok(loadDirectory.indexOf("mediaLibrary.importFiles(batch)") < loadDirectory.indexOf("refreshProjectAssets"));
+  assert.ok(
+    loadDirectory.indexOf("bridge.sendMediaFiles(mediaLibrary.getAllFiles())") <
+      loadDirectory.indexOf("derivedAssets.loadIndexedRenditions"),
+    "primary media is published before derived rendition cache loading",
+  );
+  assert.match(
+    loadDirectory,
+    /bridge\.sendMediaFiles\(mediaLibrary\.getAllFiles\(\)\)[\s\S]*refreshProjectAssets/,
+    "complete cumulative media snapshots publish while discovery is still in progress",
+  );
+  assert.match(
+    loadDirectory,
+    /preserveRecoveredResources[\s\S]*recoveredFolderName === String\(dirHandle\?\.name \|\| ""\)/,
+    "same-project resources recovered from Output survive until folder discovery reconciles them",
+  );
+  assert.match(
+    loadDirectory,
+    /mediaLibrary\.replaceFiles\(\[\.\.\.files, \.\.\.renditionFiles\]\)/,
+    "completed discovery atomically reconciles the authoritative folder snapshot",
+  );
 
   const loadProject = source.slice(
     source.indexOf("  async function loadProject"),
@@ -276,6 +303,17 @@ test("project structure and cached thumbnails load before the media-library trav
   assert.match(loadProject, /project-thumbnail-cache-batch/);
   assert.match(loadProject, /kind: "component-thumbnails"/);
   assert.match(loadProject, /entries: entries\.map/);
+
+  const refreshFolder = source.slice(
+    source.indexOf("  async function refreshFolder"),
+    source.indexOf("\n  async function loadDirectory", source.indexOf("  async function refreshFolder")),
+  );
+  assert.match(refreshFolder, /mediaLibrary\.replaceFiles/);
+  assert.doesNotMatch(
+    refreshFolder,
+    /mediaLibrary\.clear/,
+    "refresh never publishes an empty resource set between two valid folder snapshots",
+  );
 });
 
 test("media import publishes known files without rescanning or replacing live project state", () => {
@@ -484,11 +522,433 @@ test("project save preparer delegates projection and signatures to its worker", 
   preparer.dispose();
 });
 
+test("a silent save worker cannot hold every later project transaction forever", async () => {
+  let terminated = false;
+  class SilentWorker {
+    postMessage() {}
+    terminate() { terminated = true; }
+  }
+  const warnings = [];
+  const preparer = createProjectSavePreparer({
+    WorkerClass: SilentWorker,
+    workerUrl: new URL("https://example.test/silent-project-save-worker.js"),
+    requestTimeoutMs: 5,
+    onFallback: (error) => warnings.push(error.message),
+  });
+  const state = {
+    project: {},
+    ui: { live: {} },
+    global: {},
+    render: { outputs: [] },
+    scheduler: {},
+    nodes: {},
+    media: [],
+    components: [],
+    mappings: [],
+    shaders: {},
+  };
+
+  const prepared = await preparer.prepareState(state, "2026-07-23T12:00:00.000Z");
+  assert.equal(JSON.parse(prepared.json).version, CURRENT_PROJECT_VERSION);
+  assert.equal(terminated, true);
+  assert.deepEqual(warnings, ["VJ1_PROJECT_SAVE_PREPARATION_TIMEOUT:5"]);
+  preparer.dispose();
+});
+
 test("undo and redo reload project state without rescanning assets", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   const reload = source.slice(source.indexOf("  async function reloadProjectFromDisk"), source.indexOf("\n  async function refreshHistoryState", source.indexOf("  async function reloadProjectFromDisk")));
   assert.doesNotMatch(reload, /collectProjectAssetFiles|mediaLibrary\.clear|sendMediaFiles/);
   assert.match(reload, /store\.getState\(\)\.media/);
+});
+
+test("an authored edit is saved as one undoable transaction and redo restores it", async () => {
+  const project = new ProjectMemoryDirectory("undo-project");
+  const initial = createInitialState();
+  initial.project.name = "Before";
+  initial.components = [];
+  const projectFile = await project.getFileHandle("project.json", { create: true });
+  projectFile.value = JSON.stringify(buildProjectPayload(initial, "2026-07-25T00:00:00.000Z"));
+
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  globalThis.window = {
+    showDirectoryPicker: async () => project,
+    addEventListener() {},
+  };
+  globalThis.document = {
+    visibilityState: "visible",
+    addEventListener() {},
+  };
+
+  const nodePackage = createVj1NodePackage();
+  const store = createAppState(createInitialState(), {
+    prepareState: nodePackage.prepareProjectState,
+  });
+  const mediaLibrary = createMediaLibrary();
+  const bridge = {
+    sendMediaFiles() {},
+    sendNodePackages() {},
+    sendState() {},
+  };
+  const service = createProjectFolderService({ mediaLibrary, store, bridge });
+  const unsubscribe = store.subscribe((state, _reason, change) => {
+    service.scheduleAutoSave(change, { state });
+  });
+
+  try {
+    const opened = await service.openFolder();
+    assert.equal(opened.loaded, true);
+    assert.equal(store.getState().project.name, "Before");
+
+    store.update((draft) => {
+      draft.project.name = "After";
+    }, "update:project-name");
+    await service.flushAutoSave();
+
+    assert.equal(JSON.parse(projectFile.value).project.name, "After");
+    assert.deepEqual(service.getHistoryState(), { canUndo: true, canRedo: false });
+
+    assert.equal(await service.undoProject(), true);
+    assert.equal(store.getState().project.name, "Before");
+    assert.equal(JSON.parse(projectFile.value).project.name, "Before");
+    assert.deepEqual(service.getHistoryState(), { canUndo: false, canRedo: true });
+
+    assert.equal(await service.redoProject(), true);
+    assert.equal(store.getState().project.name, "After");
+    assert.equal(JSON.parse(projectFile.value).project.name, "After");
+    assert.deepEqual(service.getHistoryState(), { canUndo: true, canRedo: false });
+  } finally {
+    unsubscribe();
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+  }
+});
+
+test("an invalid history revision cannot truncate project.json or consume the recovery entry", async () => {
+  const project = new ProjectMemoryDirectory("invalid-undo-project");
+  const initial = createInitialState();
+  initial.project.name = "Still valid";
+  initial.components = [];
+  const originalText = JSON.stringify(buildProjectPayload(initial, "2026-07-25T00:00:00.000Z"));
+  const projectFile = await project.getFileHandle("project.json", { create: true });
+  projectFile.value = originalText;
+  const revisions = await project.getDirectoryHandle("revisions", { create: true });
+  const invalidRevision = await revisions.getFileHandle(
+    "project-before-9999-12-31T23-59-59-999Z-invalid.json",
+    { create: true },
+  );
+  invalidRevision.value = "";
+
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  globalThis.window = {
+    showDirectoryPicker: async () => project,
+    addEventListener() {},
+  };
+  globalThis.document = {
+    visibilityState: "visible",
+    addEventListener() {},
+  };
+
+  const nodePackage = createVj1NodePackage();
+  const store = createAppState(createInitialState(), {
+    prepareState: nodePackage.prepareProjectState,
+  });
+  const service = createProjectFolderService({
+    mediaLibrary: createMediaLibrary(),
+    store,
+    bridge: {
+      sendMediaFiles() {},
+      sendNodePackages() {},
+      sendState() {},
+    },
+  });
+
+  try {
+    assert.equal((await service.openFolder()).loaded, true);
+    await assert.rejects(
+      service.undoProject(),
+      /VJ1_PROJECT_UNDO_REVISION_INVALID:EMPTY/,
+    );
+    assert.equal(projectFile.value, originalText);
+    assert.equal(JSON.parse(projectFile.value).project.name, "Still valid");
+    assert.deepEqual(service.getHistoryState(), { canUndo: true, canRedo: false });
+    assert.equal(revisions.files.has(invalidRevision.name), true);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+  }
+});
+
+test("a newer complete project snapshot supersedes an obsolete failed autosave", async () => {
+  const project = new ProjectMemoryDirectory("autosave-recovery-project");
+  const nodePackage = createVj1NodePackage();
+  const initial = nodePackage.prepareProjectState(createInitialState());
+  initial.project.name = "Before";
+  const projectFile = await project.getFileHandle("project.json", { create: true });
+  projectFile.value = JSON.stringify(buildProjectPayload(initial, "2026-07-25T00:00:00.000Z"));
+
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  globalThis.window = {
+    showDirectoryPicker: async () => project,
+    addEventListener() {},
+  };
+  globalThis.document = {
+    visibilityState: "visible",
+    addEventListener() {},
+  };
+
+  const store = createAppState(createInitialState(), {
+    prepareState: nodePackage.prepareProjectState,
+  });
+  const service = createProjectFolderService({
+    mediaLibrary: createMediaLibrary(),
+    store,
+    bridge: {
+      sendMediaFiles() {},
+      sendNodePackages() {},
+      sendState() {},
+    },
+  });
+
+  try {
+    assert.equal((await service.openFolder()).loaded, true);
+
+    const obsolete = store.getState();
+    obsolete.nodes = { ...obsolete.nodes, authority: "node-graph", groups: [] };
+    service.scheduleAutoSave("update:obsolete-invalid-graph", { state: obsolete });
+    assert.equal(await service.flushAutoSave(), false);
+    assert.match(store.getState().project.warnings[0], /VJ1_PROJECT_COMPONENT_GRAPH_MISSING/);
+
+    const current = store.getState();
+    current.project.name = "After";
+    service.scheduleAutoSave("update:project-name", { state: current });
+    assert.equal(await service.flushAutoSave(), true);
+    assert.equal(JSON.parse(projectFile.value).project.name, "After");
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+  }
+});
+
+test("a graph-authoritative v34 project migrates, saves, edits, undoes, and redoes as v37", async () => {
+  const project = new ProjectMemoryDirectory("v34-migration-project");
+  const nodePackage = createVj1NodePackage();
+  const current = nodePackage.prepareProjectState(createInitialState());
+  const component = current.components.find((entry) => entry.chain?.length);
+  const chainItem = component.chain[0];
+  const payload = buildProjectPayload(current, "2026-07-25T00:00:00.000Z");
+  payload.version = 34;
+  payload.media = [{ id: "media/photo.png", name: "photo.png", path: "media/photo.png", type: "image", size: 1 }];
+  const group = payload.nodes.groups.find((entry) => entry.id === `vj1.component.${component.id}`);
+  const sourceNode = group.nodes.find((node) => node.id === chainItem.id);
+  Object.assign(sourceNode, {
+    nodeId: "core.composition.visual-source",
+    nodeVersion: "0.1.0",
+    role: "source",
+    compilerHook: { id: "vj1.visual.source", renderer: "output/source:media" },
+    configuration: {
+      id: chainItem.id,
+      kind: "source",
+      enabled: true,
+      source: {
+        type: "media",
+        mediaId: "media/photo.png",
+        params: { fit: "cover" },
+      },
+    },
+  });
+
+  const projectFile = await project.getFileHandle("project.json", { create: true });
+  projectFile.value = JSON.stringify(payload);
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  globalThis.window = {
+    showDirectoryPicker: async () => project,
+    addEventListener() {},
+  };
+  globalThis.document = {
+    visibilityState: "visible",
+    addEventListener() {},
+  };
+
+  const store = createAppState(createInitialState(), {
+    prepareState: nodePackage.prepareProjectState,
+  });
+  const service = createProjectFolderService({
+    mediaLibrary: createMediaLibrary(),
+    store,
+    bridge: {
+      sendMediaFiles() {},
+      sendNodePackages() {},
+      sendState() {},
+    },
+  });
+  const unsubscribe = store.subscribe((state, _reason, change) => {
+    service.scheduleAutoSave(change, { state });
+  });
+
+  try {
+    assert.equal((await service.openFolder()).loaded, true);
+    assert.equal(await service.flushAutoSave(), true);
+    const migrated = JSON.parse(projectFile.value);
+    assert.equal(migrated.version, CURRENT_PROJECT_VERSION);
+    const migratedNode = migrated.nodes.groups
+      .find((entry) => entry.id === `vj1.component.${component.id}`)
+      .nodes.find((node) => node.id === chainItem.id);
+    assert.equal(migratedNode.nodeId, "vj1.visual.generator.mediaImage");
+    assert.equal(migratedNode.configuration.source.generatorId, "mediaImage");
+    assert.equal(migratedNode.configuration.source.params.mediaId, "media/photo.png");
+
+    store.update((draft) => {
+      draft.components.find((entry) => entry.id === component.id)
+        .chain.find((item) => item.id === chainItem.id).enabled = false;
+    }, "toggle:component-element");
+    assert.equal(await service.flushAutoSave(), true);
+    assert.equal(JSON.parse(projectFile.value).nodes.groups
+      .find((entry) => entry.id === `vj1.component.${component.id}`)
+      .nodes.find((node) => node.id === chainItem.id).configuration.enabled, false);
+
+    assert.equal(await service.undoProject(), true);
+    assert.equal(store.getState().components.find((entry) => entry.id === component.id)
+      .chain.find((item) => item.id === chainItem.id).enabled, true);
+    assert.equal(await service.redoProject(), true);
+    assert.equal(store.getState().components.find((entry) => entry.id === component.id)
+      .chain.find((item) => item.id === chainItem.id).enabled, false);
+  } finally {
+    unsubscribe();
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+  }
+});
+
+test("opening an old project persists its migration even when asset discovery changes nothing", async () => {
+  const project = new ProjectMemoryDirectory("migration-with-stable-assets");
+  const nodePackage = createVj1NodePackage();
+  const current = nodePackage.prepareProjectState(createInitialState());
+  const payload = buildProjectPayload(current, "2026-07-25T00:00:00.000Z");
+  payload.version = 34;
+  payload.media = [];
+
+  const projectFile = await project.getFileHandle("project.json", { create: true });
+  projectFile.value = JSON.stringify(payload);
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  globalThis.window = {
+    showDirectoryPicker: async () => project,
+    addEventListener() {},
+  };
+  globalThis.document = {
+    visibilityState: "visible",
+    addEventListener() {},
+  };
+
+  const store = createAppState(createInitialState(), {
+    prepareState: nodePackage.prepareProjectState,
+  });
+  const service = createProjectFolderService({
+    mediaLibrary: createMediaLibrary(),
+    store,
+    bridge: {
+      sendMediaFiles() {},
+      sendNodePackages() {},
+      sendState() {},
+    },
+  });
+
+  try {
+    assert.equal((await service.openFolder()).loaded, true);
+    assert.equal(
+      await service.flushAutoSave(),
+      true,
+      "the migrated in-memory representation has not yet been saved",
+    );
+    assert.equal(JSON.parse(projectFile.value).version, CURRENT_PROJECT_VERSION);
+  } finally {
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+  }
+});
+
+test("a migrated in-memory project is not marked persisted before its write closes", () => {
+  const state = createVj1NodePackage().prepareProjectState(createInitialState());
+  assert.equal(loadedProjectPersistenceSignature(state, "2026-07-25T00:00:00.000Z", {
+    requiresSave: true,
+  }), "");
+  assert.notEqual(loadedProjectPersistenceSignature(state, "2026-07-25T00:00:00.000Z"), "");
+});
+
+test("graph-authoritative visibility and placement edits survive a fresh project load", async () => {
+  const project = new ProjectMemoryDirectory("component-persistence-project");
+  const nodePackage = createVj1NodePackage();
+  const initial = nodePackage.prepareProjectState(createInitialState());
+  const componentId = initial.components[0].id;
+  const chainItemId = initial.components[0].chain[0].id;
+  const projectFile = await project.getFileHandle("project.json", { create: true });
+  projectFile.value = JSON.stringify(buildProjectPayload(initial, "2026-07-25T00:00:00.000Z"));
+
+  const previousWindow = globalThis.window;
+  const previousDocument = globalThis.document;
+  globalThis.window = {
+    showDirectoryPicker: async () => project,
+    addEventListener() {},
+  };
+  globalThis.document = {
+    visibilityState: "visible",
+    addEventListener() {},
+  };
+
+  const createSession = () => {
+    const store = createAppState(createInitialState(), {
+      prepareState: nodePackage.prepareProjectState,
+    });
+    const service = createProjectFolderService({
+      mediaLibrary: createMediaLibrary(),
+      store,
+      bridge: {
+        sendMediaFiles() {},
+        sendNodePackages() {},
+        sendState() {},
+      },
+    });
+    const unsubscribe = store.subscribe((state, _reason, change) => {
+      service.scheduleAutoSave(change, { state });
+    });
+    return { service, store, unsubscribe };
+  };
+
+  const first = createSession();
+  let second = null;
+  try {
+    assert.equal((await first.service.openFolder()).loaded, true);
+    first.store.update((draft) => {
+      const component = draft.components.find((entry) => entry.id === componentId);
+      const item = component.chain.find((entry) => entry.id === chainItemId);
+      item.enabled = false;
+      item.boundary = { ...item.boundary, x: 0.2, y: -0.15, width: 0.55, height: 0.7 };
+    }, "update:chain-boundary");
+    await first.service.flushAutoSave();
+
+    second = createSession();
+    assert.equal((await second.service.openFolder()).loaded, true);
+    const component = second.store.getState().components.find((entry) => entry.id === componentId);
+    const item = component.chain.find((entry) => entry.id === chainItemId);
+    assert.equal(item.enabled, false);
+    assert.deepEqual(item.boundary, {
+      x: 0.2,
+      y: -0.15,
+      width: 0.55,
+      height: 0.7,
+      rotation: 0,
+    });
+  } finally {
+    first.unsubscribe();
+    second?.unsubscribe();
+    globalThis.window = previousWindow;
+    globalThis.document = previousDocument;
+  }
 });
 
 test("rendition cache uses a bounded manifest instead of directory enumeration", () => {
@@ -498,3 +958,92 @@ test("rendition cache uses a bounded manifest instead of directory enumeration",
   assert.match(loadIndex, /getFileHandle\(this\.renditionIndexFilename\)/);
   assert.doesNotMatch(loadIndex, /\.entries\(\)|\.values\(\)/);
 });
+
+class ProjectMemoryDirectory {
+  constructor(name) {
+    this.kind = "directory";
+    this.name = name;
+    this.directories = new Map();
+    this.files = new Map();
+  }
+
+  async getDirectoryHandle(name, { create = false } = {}) {
+    if (!this.directories.has(name)) {
+      if (!create) throw projectNotFound();
+      this.directories.set(name, new ProjectMemoryDirectory(name));
+    }
+    return this.directories.get(name);
+  }
+
+  async getFileHandle(name, { create = false } = {}) {
+    if (!this.files.has(name)) {
+      if (!create) throw projectNotFound();
+      this.files.set(name, new ProjectMemoryFile(name));
+    }
+    return this.files.get(name);
+  }
+
+  async removeEntry(name) {
+    if (!this.files.delete(name) && !this.directories.delete(name)) throw projectNotFound();
+  }
+
+  async *entries() {
+    for (const [name, file] of this.files) yield [name, file];
+    for (const [name, directory] of this.directories) yield [name, directory];
+  }
+
+  async *values() {
+    for await (const [, handle] of this.entries()) yield handle;
+  }
+}
+
+class ProjectMemoryFile {
+  constructor(name) {
+    this.kind = "file";
+    this.name = name;
+    this.value = "";
+  }
+
+  async createWritable({ keepExistingData = false } = {}) {
+    let pendingValue = keepExistingData ? this.value : "";
+    return {
+      write: async (value) => {
+        if (value?.type === "write") {
+          const position = Math.max(0, Number(value.position) || 0);
+          const data = String(value.data ?? "");
+          pendingValue = String(pendingValue).slice(0, position) +
+            data +
+            String(pendingValue).slice(position + data.length);
+        } else {
+          pendingValue = value;
+        }
+      },
+      truncate: async (size) => {
+        const bytes = new TextEncoder().encode(String(pendingValue));
+        pendingValue = new TextDecoder().decode(
+          bytes.slice(0, Math.max(0, Number(size) || 0)),
+        );
+      },
+      close: async () => {
+        this.value = pendingValue;
+      },
+      abort: async () => {},
+    };
+  }
+
+  async getFile() {
+    const value = this.value;
+    return {
+      name: this.name,
+      size: typeof value === "string" ? value.length : value?.size || 0,
+      lastModified: 1,
+      async text() {
+        return typeof value === "string" ? value : await value.text();
+      },
+    };
+  }
+}
+
+function projectNotFound() {
+  return Object.assign(new Error("Not found"), { name: "NotFoundError" });
+}

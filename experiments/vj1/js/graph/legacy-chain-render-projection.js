@@ -1,6 +1,18 @@
-import { createVisualNode, normalizeParamValues, paramValue, textureInlet, textureOutlet, textureRenderContract } from "../libraries/visual-nodes/shared/component-schema.js";
-import { getEffectNodeComponent as getShaderComponent, getGeneratorNodeComponent as getGeneratorComponent } from "../libraries/visual-nodes/index.js?v=mesh-pattern-node-authority-1";
+import {
+  createVisualNode,
+  textureInlet,
+  textureOutlet,
+  textureRenderContract,
+} from "../libraries/visual-nodes/shared/component-schema.js";
+import {
+  getEffectNodeComponent as getShaderComponent,
+  getGeneratorNodeComponent as getGeneratorComponent,
+} from "../libraries/visual-nodes/index.js?v=compiled-capability-revision-1";
+import { passParams } from "./shader-scheduler.js?v=compiled-capability-revision-1";
 
+// Explicit compatibility projection for pre-graph tests and migrations. Output
+// and Preview never import this module; production rendering compiles the saved
+// visual Group through component-program-compiler instead.
 export function compileComponentPatch(component = {}, renderRequest = {}, resolvers = {}) {
   const request = normalizePatchRenderRequest(renderRequest);
   const outputId = `${component.id || "component"}:output`;
@@ -11,7 +23,9 @@ export function compileComponentPatch(component = {}, renderRequest = {}, resolv
     kind: "output",
     role: "output",
     enabled: true,
-    inlets: graph.outputInlets.length ? graph.outputInlets : [textureInlet("texture", "Texture")],
+    inlets: graph.outputInlets.length
+      ? graph.outputInlets
+      : [textureInlet("texture", "Texture")],
     outlets: [textureOutlet("texture", "Texture")],
     params: {},
     render: textureRenderContract(),
@@ -25,45 +39,14 @@ export function compileComponentPatch(component = {}, renderRequest = {}, resolv
     },
     scheduler: "frame",
   };
-  const nodes = [...graph.nodes, outputNode];
   return {
     id: `${component.id || "component"}:patch`,
     type: graph.branchCount > 1 ? "layered-component" : "linear-component",
-    mode: "hardconfigured",
+    mode: "legacy-chain-projection",
     renderRequest: request,
     branches: graph.branches,
-    nodes,
+    nodes: [...graph.nodes, outputNode],
     edges: graph.edges,
-  };
-}
-
-function graphForComponentChain(component, request, outputId, resolvers) {
-  const chain = (component.chain || []).filter((item) => item.enabled !== false);
-  const nodes = chain
-    .map((item, index) => chainNodeForItem(component, item, index, resolvers))
-    // File-backed visual definitions are derived after the lightweight
-    // project snapshot. Until they arrive, a source contributes transparent
-    // content and an effect is pass-through, represented by no graph node.
-    .filter(Boolean)
-    .map((node) => withRenderRequest(node, request));
-  const edges = [];
-  for (let index = 0; index < nodes.length - 1; index++) {
-    edges.push(textureEdge(nodes[index].id, nodes[index + 1].id));
-  }
-  if (nodes.length) edges.push(textureEdge(nodes[nodes.length - 1].id, outputId, "texture", "texture"));
-
-  return {
-    nodes,
-    edges,
-    outputInlets: [textureInlet("texture", "Texture")],
-    branchCount: 1,
-    branches: nodes.length ? [{
-      index: 1,
-      inletId: "texture",
-      sourceNodeId: nodes[0]?.id || "",
-      terminalNodeId: nodes[nodes.length - 1]?.id || "",
-      layer: null,
-    }] : [],
   };
 }
 
@@ -78,6 +61,39 @@ export function flattenComponentChain(chain = []) {
     flat.push(item);
   }
   return flat;
+}
+
+function graphForComponentChain(component, request, outputId, resolvers) {
+  const chain = (component.chain || []).filter((item) => item.enabled !== false);
+  const nodes = chain
+    .map((item, index) => chainNodeForItem(component, item, index, resolvers))
+    .filter(Boolean)
+    .map((node) => withRenderRequest(node, request));
+  const edges = [];
+  for (let index = 0; index < nodes.length - 1; index++) {
+    edges.push(textureEdge(nodes[index].id, nodes[index + 1].id));
+  }
+  if (nodes.length) {
+    edges.push(textureEdge(
+      nodes[nodes.length - 1].id,
+      outputId,
+      "texture",
+      "texture",
+    ));
+  }
+  return {
+    nodes,
+    edges,
+    outputInlets: [textureInlet("texture", "Texture")],
+    branchCount: 1,
+    branches: nodes.length ? [{
+      index: 1,
+      inletId: "texture",
+      sourceNodeId: nodes[0]?.id || "",
+      terminalNodeId: nodes[nodes.length - 1]?.id || "",
+      layer: null,
+    }] : [],
+  };
 }
 
 function textureEdge(fromId, toId, outletId = "texture", inletId = "texture") {
@@ -104,9 +120,7 @@ function chainNodeForItem(component, item, index, resolvers = {}) {
       id: `${component.id || "component"}:group:${index}:${item.id}`,
       role: "group",
       enabled: item.enabled !== false,
-      params: {
-        items: flattenComponentChain(item.chain || []).length,
-      },
+      params: { items: flattenComponentChain(item.chain || []).length },
       state: {
         group: {
           id: item.id,
@@ -117,7 +131,10 @@ function chainNodeForItem(component, item, index, resolvers = {}) {
       },
     });
   }
-  const sourceComponent = sourceComponentFor(item.source, resolvers.getGeneratorComponent);
+  const sourceComponent = sourceComponentFor(
+    item.source,
+    resolvers.getGeneratorComponent,
+  );
   if (!sourceComponent) return null;
   return createVisualNode(sourceComponent, {
     id: `${sourceComponent.id || "component"}:source:${index}:${item.id}`,
@@ -146,80 +163,6 @@ function groupComponentFor() {
   };
 }
 
-export function compileShaderSchedule(chain = [], { getEffectComponent = getShaderComponent } = {}) {
-  return (chain || [])
-    .map((pass, index) => {
-      const component = getEffectComponent(pass.id);
-      if (!component) return null;
-      const params = passParams(component, pass);
-      return {
-        index,
-        id: `shader:${index}:${pass.id}`,
-        component,
-        node: createVisualNode(component, {
-          id: `shader:${index}:${pass.id}`,
-          role: "effect",
-          enabled: pass.enabled !== false,
-          params,
-        }),
-        pass: {
-          ...pass,
-          enabled: pass.enabled !== false,
-          params,
-          amount: Number(paramValue(component, params, "amount", 0)) || 0,
-        },
-      };
-    })
-    .filter((job) => job?.pass.enabled);
-}
-
-export function fuseLocalShaderSchedule(schedule = []) {
-  const fused = [];
-  let run = [];
-  const flush = () => {
-    if (run.length === 1) fused.push(run[0]);
-    else if (run.length > 1) {
-      fused.push({
-        fused: true,
-        jobs: run,
-        component: { name: run.map((job) => job.component.name).join(" + "), sampling: "local" },
-        pass: {
-          id: `fused:${run.map((job) => job.pass.id).join("+")}`,
-          amount: 1,
-          params: {},
-        },
-      });
-    }
-    run = [];
-  };
-  for (const job of schedule || []) {
-    if (isFusibleShaderJob(job)) run.push(job);
-    else {
-      flush();
-      fused.push(job);
-    }
-  }
-  flush();
-  return fused;
-}
-
-export function isFusibleShaderJob(job) {
-  if (!job?.component?.fusible || job.pass?.amount <= 0.0001) return false;
-  if ((job.pass?.blend || "normal") !== "normal" || Math.abs((job.pass?.opacity ?? 1) - 1) > 0.0001) return false;
-  const transform = job.pass?.transform || {};
-  return Math.abs(Number(transform.x) || 0) < 1e-9 &&
-    Math.abs(Number(transform.y) || 0) < 1e-9 &&
-    Math.abs((Number(transform.scale) || 1) - 1) < 1e-9 &&
-    Math.abs(Number(transform.rotation) || 0) < 1e-9;
-}
-
-export function passParams(component, pass = {}) {
-  return normalizeParamValues(
-    component,
-    pass.params && typeof pass.params === "object" ? pass.params : {},
-  );
-}
-
 function normalizePatchRenderRequest(request = {}) {
   const width = Math.max(1, Math.floor(Number(request.width) || 1));
   const height = Math.max(1, Math.floor(Number(request.height) || 1));
@@ -241,9 +184,18 @@ function withRenderRequest(node, request) {
   };
 }
 
-function effectNodeForPass(ownerComponent, pass, index, getEffectComponent = getShaderComponent) {
+function effectNodeForPass(
+  ownerComponent,
+  pass,
+  index,
+  getEffectComponent = getShaderComponent,
+) {
   let effectComponent = null;
-  try { effectComponent = getEffectComponent(pass.id); } catch { return null; }
+  try {
+    effectComponent = getEffectComponent(pass.id);
+  } catch {
+    return null;
+  }
   if (!effectComponent) return null;
   return createVisualNode(effectComponent, {
     id: `${ownerComponent.id || "component"}:effect:${index}:${pass.id}`,
@@ -267,7 +219,11 @@ function effectNodeForPass(ownerComponent, pass, index, getEffectComponent = get
 
 function sourceComponentFor(source = {}, resolveGenerator = getGeneratorComponent) {
   if (source.type === "generator") {
-    try { return resolveGenerator(source.generatorId); } catch { return null; }
+    try {
+      return resolveGenerator(source.generatorId);
+    } catch {
+      return null;
+    }
   }
   return {
     id: `source.${source.type || "black"}`,
@@ -283,22 +239,13 @@ function sourceComponentFor(source = {}, resolveGenerator = getGeneratorComponen
 }
 
 function sourceParams(source = {}) {
-  if (source.type === "generator") {
-    return {
-      generatorId: source.generatorId,
-      ...(source.params && typeof source.params === "object" ? source.params : {}),
-    };
-  }
-  if (source.type === "media") {
-    return {
-      mediaId: source.mediaId || "",
-      start: Math.max(0, Number(source.start) || 0),
-      end: Math.max(0, Number(source.end) || 0),
-      speed: Math.max(0, Number(source.speed) || 1),
-      ...(source.params && typeof source.params === "object" ? source.params : {}),
-    };
-  }
-  return {};
+  if (source.type !== "generator") return {};
+  return {
+    generatorId: source.generatorId,
+    ...(source.params && typeof source.params === "object"
+      ? source.params
+      : {}),
+  };
 }
 
 function layerStateForItem(item = {}) {
@@ -308,15 +255,5 @@ function layerStateForItem(item = {}) {
     opacity: item.opacity ?? 1,
     blend: item.blend || "normal",
     transform: item.transform || {},
-  };
-}
-
-function defaultLayerState(id = "source") {
-  return {
-    id,
-    name: "Source",
-    opacity: 1,
-    blend: "normal",
-    transform: {},
   };
 }

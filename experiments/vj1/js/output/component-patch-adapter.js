@@ -1,26 +1,4 @@
-import { flattenComponentChain } from "../graph/render-scheduler.js?v=canonical-effect-params-1";
 import { isIdentityTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
-
-export function isSourceNode(node = {}) {
-  return node.role === "source" || node.kind === "source" || node.kind === "generator";
-}
-
-export function isEffectNode(node = {}) {
-  return node.role === "effect" || node.kind === "effect";
-}
-
-export function nodesInComponentChainOrder(component = {}, patch = {}) {
-  const nodes = (patch.nodes || []).filter((node) => isSourceNode(node) || isEffectNode(node));
-  if (!Array.isArray(component.chain) || !component.chain.length) return nodes;
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  return flattenComponentChain(component.chain)
-    .map((item, index) => {
-      if (item.kind === "source") return nodeById.get(`${component.id || "component"}:source:${index}:${item.id}`);
-      if (item.kind === "effect") return nodeById.get(`${component.id || "component"}:effect:${index}:${item.componentId}`);
-      return null;
-    })
-    .filter(Boolean);
-}
 
 export function patchLayerForNode(node = {}) {
   const layer = node.state?.layer || {};
