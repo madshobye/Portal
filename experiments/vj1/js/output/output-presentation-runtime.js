@@ -47,6 +47,11 @@ export class OutputPresentationRuntime {
 
   drawFrame() {
     const host = this.host;
+    host.recordSignal(
+      host.mode === "output" ? "outputPresentations" : "previewPresentations",
+      1,
+      host.mode,
+    );
     this.gpuTimer.poll(host.frameRuntime.frameIndex);
     host.frameRuntime.begin(performance.now());
     host.readinessRuntime.refresh();

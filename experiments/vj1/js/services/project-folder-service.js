@@ -14,13 +14,13 @@ import {
 import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=project-media-contain-1";
 import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
 import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=project-media-contain-1";
-import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
+import { createChangeEvent } from "../libraries/state-engine/state-command/index.js?v=structural-world-state-2";
 import { isHistoryReason } from "./project-history-policy.js?v=project-storage-1";
 import { buildProjectPayload } from "./project-serializer.js?v=project-media-contain-1";
 import {
   createProjectSavePreparer,
   projectPayloadSignature,
-} from "./project-save-preparation.js?v=autosave-worker-timeout-1";
+} from "./project-save-preparation.js?v=project-save-worker-ready-1";
 import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
 import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
 import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js?v=autosave-snapshot-recovery-1";
@@ -347,7 +347,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     return true;
   }
 
-  async function loadProject(reason = "project-load", imported = { media: [], shaders: [] }, directorySig = "", { preserveMediaCatalog = false } = {}) {
+  async function loadProject(
+    reason = "project-load",
+    imported = { media: [], shaders: [] },
+    directorySig = "",
+    { preserveMediaCatalog = false, preserveEditorUi = false } = {},
+  ) {
     if (!dirHandle) return;
     let data;
     let embeddedThumbnails = [];
@@ -407,6 +412,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       ? store.getState()
       : createInitialState({ startupTemplate: true });
     const currentUi = currentState.ui;
+    // History revisions contain editor preferences because project.json is
+    // also the reload checkpoint, but UI is intentionally absent from the
+    // history signature. Undo/redo must therefore retain the editor's current
+    // projection rather than resurrecting whichever selection happened to be
+    // checkpointed with the historical authored state.
+    const restoredProjectUi = preserveEditorUi ? {} : projectUi;
     const loadHandle = dirHandle;
     const loadGeneration = projectGeneration;
     const sameProject = loadedProjectHandle === loadHandle;
@@ -424,17 +435,17 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       components,
       ui: {
         ...currentUi,
-        selectedMappingId: projectUi?.selectedMappingId || currentUi.selectedMappingId,
-        selectedSurfaceId: projectUi?.selectedSurfaceId || currentUi.selectedSurfaceId,
-        selectedComponentId: projectUi?.selectedComponentId || currentUi.selectedComponentId,
-        selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId,
-        workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds,
-        catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes,
-        previewQuality: projectUi?.previewQuality || currentUi.previewQuality,
-        previewViewports: projectUi?.previewViewports || currentUi.previewViewports,
-        previewDiagnostics: projectUi?.previewDiagnostics ?? currentUi.previewDiagnostics,
-        mappingTestPattern: projectUi?.mappingTestPattern ?? currentUi.mappingTestPattern,
-        live: restoreProjectLiveUi(currentUi.live, projectUi?.live),
+        selectedMappingId: restoredProjectUi?.selectedMappingId || currentUi.selectedMappingId,
+        selectedSurfaceId: restoredProjectUi?.selectedSurfaceId || currentUi.selectedSurfaceId,
+        selectedComponentId: restoredProjectUi?.selectedComponentId || currentUi.selectedComponentId,
+        selectedChainItemId: restoredProjectUi?.selectedChainItemId || currentUi.selectedChainItemId,
+        workspaceSelectionIds: restoredProjectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds,
+        catalogSortModes: restoredProjectUi?.catalogSortModes || currentUi.catalogSortModes,
+        previewQuality: restoredProjectUi?.previewQuality || currentUi.previewQuality,
+        previewViewports: restoredProjectUi?.previewViewports || currentUi.previewViewports,
+        previewDiagnostics: restoredProjectUi?.previewDiagnostics ?? currentUi.previewDiagnostics,
+        mappingTestPattern: restoredProjectUi?.mappingTestPattern ?? currentUi.mappingTestPattern,
+        live: restoreProjectLiveUi(currentUi.live, restoredProjectUi?.live),
       },
       project: {
         ...currentState.project,
@@ -894,7 +905,9 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     // Undo/redo changes project.json only. The current media-library snapshot
     // remains authoritative and must not trigger another filesystem traversal.
     const imported = { media: store.getState().media || [], shaders: [] };
-    const loaded = await loadProject(reason, imported, lastDirectorySignature);
+    const loaded = await loadProject(reason, imported, lastDirectorySignature, {
+      preserveEditorUi: true,
+    });
     if (!loaded) return false;
     await refreshHistoryState();
     bridge.sendState();

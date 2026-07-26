@@ -1,12 +1,12 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=live-output-matrix-contract-3";
-import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=render-state-patch-1";
+import { sanitizeState } from "../domain/models.js?v=structural-world-state-2";
+import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=structural-world-state-2";
 import { renderMaxFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
 import {
   createOutputBridge,
   OUTPUT_BRIDGE_PROTOCOL_VERSION,
-} from "../services/output-bridge-service.js?v=live-surface-visibility-projection-1";
-import { OutputRenderer } from "./output-renderer.js?v=node-roi-placement-shader-program-lifetime-1";
+} from "../services/output-bridge-service.js?v=signal-transport-boundary-1";
+import { OutputRenderer } from "./output-renderer.js?v=signal-load-observability-1";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
 import { frameSize } from "./render-geometry.js?v=output-one-1";
 import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
@@ -256,6 +256,14 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
         requestLivePatchResync("revision", { baseRevision, revision, acceptedRevision, receivedRevision });
         return;
       }
+      const replacesSurfaceProjection = patches.some((patch) =>
+        patch?.target === "state" && patch?.path === "surfaces"
+      );
+      // A route projection is current matrix truth rather than a parameter
+      // update for a queued Scene. Match projection-state activation: cancel
+      // any older prepared endpoint and apply the complete route program to
+      // the active renderer atomically.
+      if (replacesSurfaceProjection) clearPreparedState();
       const result = preparedState
         ? applyLiveRenderPatches(preparedState, patches)
         : renderer

@@ -31,123 +31,18 @@
 
 #Inbox
 
-toggling visibility of surfaces either in mapping view or in live view is heavy as if a lot of processing are reacting to it.
-
-live output window does not seem to like showing feature morph it newer transitions to it. this may have something to do with the need to load the library etc. feature morph has a tendency to reanalyse images at different scales which i dont think it needs to. also feature morph two has this problem. it however seems to be a bug because when one transitions away from a scene with feature morph then it does the transition with it. so a flag that says that it is loaded is newer set. that is the first problem.
-
-undo does not give a consistent result. undo should only capture user changes such that pressing it results in an undo of the user action. after 3 to 6 clicks on undo the undo happened but then the selected component was reset such that the view i was in was lost. also this error appeared: portal.js?v=adaptive-component-demand-29:407 ## https://learn.hobye.dk/portal v:1.172
-portal.js?v=adaptive-component-demand-29:408 http://127.0.0.1:8082/P1/
-[Violation] 'pointerup' handler took <N>ms
-[Violation] 'pointerup' handler took <N>ms
-[Violation] 'pointerup' handler took <N>ms
-[Violation] 'pointerup' handler took <N>ms
-[Violation] 'pointerup' handler took <N>ms
-index.js:37 [VJ1_AUTOSAVE_WORKER_UNAVAILABLE] {fallback: 'prepare project saves on the main thread', message: 'VJ1_PROJECT_SAVE_PREPARATION_TIMEOUT:5000'}
-vj1DiagnosticConsole @ index.js:37
-wrapped @ portal.js?v=adaptive-component-demand-29:56
-defaultFallbackWarning @ project-save-preparation.js?v=autosave-worker-timeout-1:153
-reportFallback @ project-save-preparation.js?v=autosave-worker-timeout-1:55
-retireWorker @ project-save-preparation.js?v=autosave-worker-timeout-1:69
-(anonymous) @ project-save-preparation.js?v=autosave-worker-timeout-1:116
-setTimeout
-(anonymous) @ project-save-preparation.js?v=autosave-worker-timeout-1:114
-request @ project-save-preparation.js?v=autosave-worker-timeout-1:113
-prepareState @ project-save-preparation.js?v=autosave-worker-timeout-1:136
-flushAutoSave @ project-folder-service.js?v=project-history-transaction-1:728
-(anonymous) @ project-folder-service.js?v=project-history-transaction-1:707
-setTimeout
-scheduleAutoSave @ project-folder-service.js?v=project-history-transaction-1:705
-(anonymous) @ app.js?v=live-output-projection-1:138
-emit @ index.js?v=compiler-template-authority-1:198
-(anonymous) @ app.js?v=live-output-projection-1:198
-publish @ index.js:19
-emit @ app-state.js?v=live-output-projection-1:43
-replace @ app-state.js?v=live-output-projection-1:61
-update @ app-state.js?v=live-output-projection-1:78
-commitChainBoundary @ embedded-preview-app.js?v=live-output-projection-1:901
-updateChainBoundary @ embedded-preview-app.js?v=live-output-projection-1:889
-mouseReleased @ component-preview-interaction.js?v=output-resource-runtime-capability-1:259
-mouseReleased @ output-renderer.js?v=live-output-projection-1:304
-finishPointer @ embedded-preview-app.js?v=live-output-projection-1:381
-project-save-preparation.js?v=autosave-worker-timeout-1:114 [Violation] 'setTimeout' handler took 92ms
-project-save-preparation.js?v=autosave-worker-timeout-1:114 [Violation] 'setTimeout' handler took 51ms
-p5.js:17642 Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
-loadPixels @ p5.js:17642
-textMaskImage @ text-render-runtime.js?v=visual-stage-authority-1:242
-draw @ text-render-runtime.js?v=visual-stage-authority-1:144
-(anonymous) @ specialized-source-runtime.js?v=standby-local-diagnostic-1:121
-execute @ native-renderer-registry.js:32
-drawCompiledNativeSource @ source-render-runtime.js?v=standby-local-diagnostic-1:1864
-drawGeneratorSource @ source-render-runtime.js?v=standby-local-diagnostic-1:1735
-drawSourceToGraphics @ source-render-runtime.js?v=standby-local-diagnostic-1:1608
-safeDrawSourceToGraphics @ source-render-runtime.js?v=standby-local-diagnostic-1:1560
-runtime.evaluate.frame @ source-render-runtime.js?v=standby-local-diagnostic-1:1021
-evaluate @ render-node-contract.js:160
-renderItemState @ source-render-runtime.js?v=standby-local-diagnostic-1:1013
-(anonymous) @ visual-plan-runtime.js?v=source-detail-value-1:603
-measure @ output-render-profile.js?v=profiling-capability-1:20
-measureOperation @ source-render-runtime.js?v=standby-local-diagnostic-1:268
-renderOperations @ visual-plan-runtime.js?v=source-detail-value-1:598
-renderOperations @ visual-plan-runtime.js?v=source-detail-value-1:855
-execute @ visual-plan-runtime.js?v=source-detail-value-1:128
-execute @ component-program-compiler.js?v=compiled-capability-revision-1:341
-executeCompiled @ component-render-runtime.js?v=compiled-capability-revision-1:193
-(anonymous) @ component-render-runtime.js?v=compiled-capability-revision-1:153
-measureComponent @ output-render-profile.js?v=profiling-capability-1:30
-renderResolved @ component-render-runtime.js?v=compiled-capability-revision-1:152
-(anonymous) @ component-render-runtime.js?v=compiled-capability-revision-1:70
-withResolutionTrace @ component-render-runtime.js?v=compiled-capability-revision-1:216
-render @ component-render-runtime.js?v=compiled-capability-revision-1:69
-renderComponents @ output-presentation-runtime.js?v=live-output-projection-1:276
-drawFrame @ output-presentation-runtime.js?v=live-output-projection-1:62
-draw @ output-presentation-runtime.js?v=live-output-projection-1:40
-draw @ output-renderer.js?v=live-output-projection-1:289
-draw @ embedded-preview-app.js?v=live-output-projection-1:285
-(anonymous) @ portal.js?v=adaptive-component-demand-29:424
-
 Terrain Flyover's default camera/placement starts with the ground plane outside the intended Component framing.
 
-moving an element should not rebuild the complete Component or Scene. Media/resource readiness must invalidate its exact consumer independently; movement making an element appear is evidence that the narrower invalidation is still missing.
 
 video or other asynchronous media must continue rendering without moving another element. movement must never be the signal that makes a ready resource visible.
 
 short looping videos in comp74 sometimes shows video unavaliable in their loops as if the cache reloads them or something. also sometimes there also frames without a video e.g. just alpha which also makes it blink like the black streen. at least keep the last frame while video restarts in a loop.
 
-
-
-this error appeared could not recreate it: 2026-07-25T07:12:28.467Z ERROR Unhandled promise rejection Error: VJ1_COMPONENT_PROGRAM_MISSING:component-mrpqijce-u192u
-Error: VJ1_COMPONENT_PROGRAM_MISSING:component-mrpqijce-u192u
-    at ComponentRenderRuntime.executeCompiled (http://127.0.0.1:8082/experiments/vj1/js/output/component-render-runtime.js?v=typed-value-invalidation-1:186:13)
-    at http://127.0.0.1:8082/experiments/vj1/js/output/component-render-runtime.js?v=typed-value-invalidation-1:153:27
-    at OutputRenderProfile.measureComponent (http://127.0.0.1:8082/experiments/vj1/js/output/output-render-profile.js?v=profiling-capability-1:30:39)
-    at ComponentRenderRuntime.renderResolved (http://127.0.0.1:8082/experiments/vj1/js/output/component-render-runtime.js?v=typed-value-invalidation-1:152:40)
-    at http://127.0.0.1:8082/experiments/vj1/js/output/component-render-runtime.js?v=typed-value-invalidation-1:70:12
-    at ComponentRenderRuntime.withResolutionTrace (http://127.0.0.1:8082/experiments/vj1/js/output/component-render-runtime.js?v=typed-value-invalidation-1:235:16)
-    at ComponentRenderRuntime.render (http://127.0.0.1:8082/experiments/vj1/js/output/component-render-runtime.js?v=typed-value-invalidation-1:69:17)
-    at OutputSurfaceRuntime.drawSurfaceRoute (http://127.0.0.1:8082/experiments/vj1/js/output/output-surface-runtime.js?v=typed-value-invalidation-1:768:41)
-    at http://127.0.0.1:8082/experiments/vj1/js/output/output-surface-runtime.js?v=typed-value-invalidation-1:368:16
-    at OutputSurfaceRuntime.withRenderState (http://127.0.0.1:8082/experiments/vj1/js/output/output-surface-runtime.js?v=typed-value-invalidation-1:424:14) [promise]
-
-this one seems to be recurring in live view and often connected to heart stl file comp 46: O ERROR output output-main • console
-IVJ1_SCENE_PREPARE_FAILED] {
-"sceneId": "component-mrso7ya8-dvzqz",
-"resourcelds": [
-"screen-input: screen-56bec00b-2e01-466b-a8c6-8928fdc4d828"
-07:08:43 PM
-"message": "Activating the requested Scene without a transition so its resource failure remains visible"
-}
-
-another in live view: ERROR output output-main • console
-IVJ1_SCENE_PREPARE_FAILED] {
-"sceneId": "component-mrso7ya8-dvzqz",
-"resourcelds": [
-"screen-input: screen-56bec00b-2e01-466b-a8c6-8928fdc4d828"
-07:14:25 PM
-"message": "Activating the requested Scene without a transition so its resource failure
-
 The scaling architecture has a bug in which x and y for scaling boundary and content is not relative to the scaling. e.g it makes sense to have a slider going from -2 to 2 if the scale is 1 but it should also make sense if the scale is larger so some intermediary math is needed here.
 
-shift refresh - hard refresh - on the vj tab takes forever to reload and sometimes it fails with just a black page or a message about time took too long. we need to look a possible optimization at least there should be some kind of loading bar that shows a progress or something and it should not timeout. also having a live output window open can make it go stuck so it newer goes beyond the black screen (i think that might be one major issue). we need a test for this because it has been a recurring problem.
+shift refresh - hard refresh - on the vj tab takes forever to reload and sometimes it fails with just a black page or a message about time took too long. also having a live output window open can make it go stuck so it newer goes beyond the black screen (i think that might be one major issue). we need a test for this because it has been a recurring problem. this probably relates to the many many js files it has to laod as well.
+
+in mapping view the surfaces for different mappings seems to bleed over so it is in practice only one mapping where surfaces can be mapped others does not have handles in preview - it might be as simple as a preview state that is not tied correctly to the different mappings i am not sure.
 
 
 In liveview the scaling and general boundary info is not shown in the list of a canvas. it should be similar to a component.
@@ -156,22 +51,75 @@ refresh reset the live output selection it should keep the current selection thi
 
 changing params live view and possibly also other places has become laggy in the output window. does the diff based transport still run or has it been replaced with full refresh of project for every change? Are there noise in the background with many workers doing a lot of busywork? I suspect both. Verify both and fix it. this is a recurring problem so do make unit tests for it.
 
+**Transport verified; the remaining Live startup/routing work stays open.**
+Continuous Live parameter scrubs use the revisioned patch channel and coalesce
+before crossing to Output. In the profile with an Output window open, nine
+scrubs plus one ordinary Live update produced one patch packet containing one
+patch—not nine project snapshots. Two complete state packets corresponded to
+Live target/projection changes, which alter routing reachability rather than a
+single visual parameter. Unit coverage now fails if a committed Component
+placement sends any project snapshot. Opening Output still produced a separate
+resource/activation burst with high event-loop lag and memory growth; that is
+not explained by parameter transport and remains part of this inbox item.
+
 previously we had a solution in which clicking a new component or scene in live view while a transition was happening would result in it being armed for the next transition can that come back but only if it is a transition involving the current output window. e.g. if another output window is selected it should not wait for the other one.
 
 there is a bug where the bounding box of a component that is placed in a scene is not its own bounding box but the bounding box of the current scene. e.g. if a component is a square the inserted component does not maintain that shape. it should and it should not be a copy of params because one should be able to change the shape of the component and then it should be updated naturally without multiple params stored other places in the system. Further more i would like for elements to have the same feature of being either portrait, landscape or square independent of its components or scene. if this is possible to impliment in an elegent way plaese do so.
 
+surfaces e.g. the recording frames in scene view should be visible as grey all the time but only active and selectable when a surface has been selected. here this should deselect and element in the render chain and vice versa. aim is to remove the current trap in which one want to grap something and the accidentally moves ronder of the frames. they should be considered a calibration and thus not something that should be accidentally moved.
 
 verify that we have not introduced a large overhead of constant recompile of node structures or merging of models everytime some changes or a new frame is rendered. I would like for some how to have a visuel marker that counts some event and data flow e.g. per frame or something so i can also keep an eye on it. e.g. it could be another circel with the other circel and a part of the general profiler. it is important to catch signalling regressions that result in complex rerenders and cache updates. I do not know exactly what to measure but an arbitrary summary of certain key point in the system so at least it is noticed when it goes off the roof randomly or can detect patterns like mouse movement over at preview results in rerendering of massive amount of elements.
 
-another observation - canv 5 has always been the heaviest to compute because it does a lot of individual renders of the same komponents which it should. but the fps seems noticiably slower now than usual. is something is going on there. normally it would be around 45 fps in output window 25-30.
+**Implemented and browser verified.** A fourth top-bar health circle and the
+Performance panel now report a rolling one-second Signal load across authored
+transactions, render invalidations/wakeups, graph recompiles, resource
+revisions, cache invalidations, cache hits, and Preview/Output presentations.
+The counter is instrumented at the shared state, compiler, resource, cache, and
+presentation boundaries rather than in individual controls. Expected throughput
+such as successful cache hits and ordinary presentation frames remains visible
+but does not increase pressure; this makes unexpected coordination churn stand
+out without treating video or a 60 fps Output as an authored edit. Ten-second
+analysis and its downloaded report include category averages, peak pressure,
+and the exact causes of compile/invalidation pressure. Intermediate scrub
+samples remain visible as redraw/wakeup activity but one completed drag counts
+as one authored transaction, matching undo and persistence semantics.
+Browser verification showed an active 60 fps Output producing roughly 649 cache
+hits and 59 presentations per second while transactions, recompiles, wakeups,
+resource revisions, and cache invalidations remained zero. Source coherence
+revision 167 and the complete 1,340-test suite cover the implementation.
+When a retained Component has no new work, the Performance panel now clears its
+previous hotspot rows and reports that it is waiting for an active renderer
+sample. A disabled compiled Group is skipped before value evaluation and before
+any child source renderer; focused coverage explicitly proves that a disabled
+3D compound cannot execute Scene-to-Image work.
 
-**Root regression repaired; fresh browser profiling is still required before moving this item to Done. The July 20 and July 25 profiles contain the same five authored Comp 33 renders and ten shader passes, with no second context, larger request, lost cache reuse, or per-frame graph compilation. The newer run nevertheless fell from about 42 FPS to 16 FPS while its shader allocations were smaller. The migrated shader host coupled two unrelated lifetimes: exceeding three size-keyed scratch framebuffer pairs pruned a framebuffer and also cleared every program in their shared WebGL context. Canv 5 cycles through enough distinct regional sizes to trigger that path during normal frames, repeatedly recompiling Cellular Circles, Eyeball, and the shared effects. Scratch allocation eviction now retains shared-context programs; explicit shader invalidation and renderer disposal still clear them. A compile-count regression test exercises four target sizes and proves one compilation, and the complete suite passes (1,319/1,319). Resolution, ROI, shader math, and the five distinct renders are unchanged.**
+The 10-second image-drag profile
+`2026-07-25T23-30-30-813Z-mappertest.profile.json` confirms that movement itself
+is narrow: 384 pointer samples caused only two control-UI renders, no long
+tasks, 3.1 ms p95 event-loop lag, and no broad cache invalidation. Preview
+rendering averaged 58.6 fps, 1.8 ms CPU, and 1.43 ms GPU. The original report
+incorrectly classified every scrub sample as an authored transaction; that
+diagnostic boundary is now corrected. A fresh profile will identify the cause
+of any remaining compile through its recorded reason instead of requiring a
+guess.
+
+
 
 The loading media with the checkerboard and the text. i suggest we refactor to an alpha bg and then just an icon for the type of item missing or loading. in cases like morph where there is progress there could still be text.
 
 it would be nice if search in thumbnail lists would also search for keywords from the generators e.g. "blur" would show all components with blur effect or if one has an image names heart.png then both png and heart would show it.
 
 it would be nice if seed and time could sync up between live view preview and output window such that the animations were in sync. it causes a bit of confusion sometimes that they are wastly different.
+
+changing draw mode on a stl object does not affect the preview output. it seems like the param is not connected. changing in composition works fine. it seems to be all params for stl render that is not connected this seems odd because i assume this is a generic abstraction. e.g. other elements in liveviews params works fine. the params from stl generator is clearly connection to output window so this is only affected in the preview window of live view
+
+svg elements params does not seems to have an effect in live preview when changed. cut edge and feather does not seem to work for svg.
+
+images: feather and cut edge only seems to work for window output not in the liveview preview. a pattern starts to emerge where most params in live view is not wired out to the preview output. this seems odd since i assume that it is the same wiring for live preiview and widnow out.
+
+the overall refresh of changing params. making elements visible or invisible all seems to be not snappy as if it is a full rerender everytime.
+
+there is a strange bug in which fit for images is affected by whether there is another image on top of them (next in the chain). then they resort to fit and does do cover or stretch.does not seem to happen with an effect but there may be other things like generators which does the same.
 
 how close are we to important the isf shader library into the app as base shaders to use for different things? ISF has this repository https://github.com/Vidvox/ISF-Files/tree/master/ISF and I would like to import ideally all of them. Some use a vertex shader i think? and they have different porpuses. i assume the simple shaders is not a problem. but i would also like for the shaders that are e.g. transitions to be imported and used as transitions. i suggest that we create a transition generator that can be inserted in the chain. The concept would be the following: when a isf transition is inserted it be becomes an element that can contain children like a group and maybe two coloumns such that one can create two list underneath it for each transition. I would like for there also to be a mode where it can transition between what come before the isf shader and what is inside its group. either there should be a toggle as a param or a logic based on whether both coloumns has been filled out. Similarly sound should be implimented so it is compatible with isf. I suggest that we create some settings in input sources for sound and that we have a basic fft library to create fft textures (i think isf has this logic right?). be aware that the current version of p5 v2 does not seems to have a strong sound implimentation and i suggest that we bypas p5 and use tone js instead https://tonejs.github.io/ 
 
@@ -221,7 +169,21 @@ the screen sharing interface in settings should have human id system. e.g. scree
 I would be good to be able to have the option for multiple webcams. e.g. that one can add more than one. they should have human ids webcam 1, 2... and with the possibility to rename. in the webcam input generator one should be able to select one them from the list. if the webcam is not in the list anymore then it should pick the first that is connected. if it is in the list but not active then it should just show a black screen.
 
 
+
+**Root regression repaired; fresh browser profiling is still required before moving this item to Done. The July 20 and July 25 profiles contain the same five authored Comp 33 renders and ten shader passes, with no second context, larger request, lost cache reuse, or per-frame graph compilation. The newer run nevertheless fell from about 42 FPS to 16 FPS while its shader allocations were smaller. The migrated shader host coupled two unrelated lifetimes: exceeding three size-keyed scratch framebuffer pairs pruned a framebuffer and also cleared every program in their shared WebGL context. Canv 5 cycles through enough distinct regional sizes to trigger that path during normal frames, repeatedly recompiling Cellular Circles, Eyeball, and the shared effects. Scratch allocation eviction now retains shared-context programs; explicit shader invalidation and renderer disposal still clear them. A compile-count regression test exercises four target sizes and proves one compilation, and the complete suite passes (1,319/1,319). Resolution, ROI, shader math, and the five distinct renders are unchanged.**
+
+
 #Done
+
+another observation - canv 5 has always been the heaviest to compute because it does a lot of individual renders of the same komponents which it should. but the fps seems noticiably slower now than usual. is something is going on there. normally it would be around 45 fps in output window 25-30.
+
+
+
+we need to look a possible optimization at least there should be some kind of loading bar that shows a progress or something and it should not timeout.
+
+live output window does not seem to like showing feature morph it newer transitions to it. this may have something to do with the need to load the library etc. feature morph has a tendency to reanalyse images at different scales which i dont think it needs to. also feature morph two has this problem. it however seems to be a bug because when one transitions away from a scene with feature morph then it does the transition with it. so a flag that says that it is loaded is newer set. that is the first problem.
+
+**Regression repaired at the prepared-program readiness boundary. An incoming Live scene can now evaluate its pure retained-value graph before its first render, construct the exact Feature Morph analysis request, and start that retained request while the transition waits. Readiness polling observes the same request and cannot restart it. Analysis identity remains based on image fingerprints, analysis parameters, provider code, and algorithm revision—not Preview or Output dimensions—so scale changes do not trigger reanalysis. Morph and Morph V2 share this capability path. Focused first-render tests and the complete suite pass (1,320/1,320); a clean Live browser transition remains the final visual confirmation.**
 
 moving a image partly outside its components boundary make the image scale to roi instead of to its own bounds. still.
 
@@ -334,3 +296,93 @@ i can see that you have defaulted media loading to stretch. this is the most dea
 When searching / filtering and selecting an element the search dissappears instead of staying.
 
 **Regression repaired in the shared DOM projection boundary. Opt-in ephemeral controls now carry stable view-state keys whose values survive surrounding template replacement without entering authored project state or overriding parameter inputs. Component, Scene, Mapping, and Live catalog filters use scoped keys, and restored queries are reapplied immediately to their cards. Browser verification covers selection and workspace reconstruction.**
+
+
+undo does not give a consistent result. undo should only capture user changes such that pressing it results in an undo of the user action. after 3 to 6 clicks on undo the undo happened but then the selected component was reset such that the view i was in was lost. also this error appeared: portal.js?v=adaptive-component-demand-29:407 ## https://learn.hobye.dk/portal v:1.172
+portal.js?v=adaptive-component-demand-29:408 http://127.0.0.1:8082/P1/
+[Violation] 'pointerup' handler took <N>ms
+[Violation] 'pointerup' handler took <N>ms
+[Violation] 'pointerup' handler took <N>ms
+[Violation] 'pointerup' handler took <N>ms
+[Violation] 'pointerup' handler took <N>ms
+index.js:37 [VJ1_AUTOSAVE_WORKER_UNAVAILABLE] {fallback: 'prepare project saves on the main thread', message: 'VJ1_PROJECT_SAVE_PREPARATION_TIMEOUT:5000'}
+vj1DiagnosticConsole @ index.js:37
+wrapped @ portal.js?v=adaptive-component-demand-29:56
+defaultFallbackWarning @ project-save-preparation.js?v=autosave-worker-timeout-1:153
+reportFallback @ project-save-preparation.js?v=autosave-worker-timeout-1:55
+retireWorker @ project-save-preparation.js?v=autosave-worker-timeout-1:69
+(anonymous) @ project-save-preparation.js?v=autosave-worker-timeout-1:116
+setTimeout
+(anonymous) @ project-save-preparation.js?v=autosave-worker-timeout-1:114
+request @ project-save-preparation.js?v=autosave-worker-timeout-1:113
+prepareState @ project-save-preparation.js?v=autosave-worker-timeout-1:136
+flushAutoSave @ project-folder-service.js?v=project-history-transaction-1:728
+(anonymous) @ project-folder-service.js?v=project-history-transaction-1:707
+setTimeout
+scheduleAutoSave @ project-folder-service.js?v=project-history-transaction-1:705
+(anonymous) @ app.js?v=live-output-projection-1:138
+emit @ index.js?v=compiler-template-authority-1:198
+(anonymous) @ app.js?v=live-output-projection-1:198
+publish @ index.js:19
+emit @ app-state.js?v=live-output-projection-1:43
+replace @ app-state.js?v=live-output-projection-1:61
+update @ app-state.js?v=live-output-projection-1:78
+commitChainBoundary @ embedded-preview-app.js?v=live-output-projection-1:901
+updateChainBoundary @ embedded-preview-app.js?v=live-output-projection-1:889
+mouseReleased @ component-preview-interaction.js?v=output-resource-runtime-capability-1:259
+mouseReleased @ output-renderer.js?v=live-output-projection-1:304
+finishPointer @ embedded-preview-app.js?v=live-output-projection-1:381
+project-save-preparation.js?v=autosave-worker-timeout-1:114 [Violation] 'setTimeout' handler took 92ms
+project-save-preparation.js?v=autosave-worker-timeout-1:114 [Violation] 'setTimeout' handler took 51ms
+p5.js:17642 Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
+loadPixels @ p5.js:17642
+textMaskImage @ text-render-runtime.js?v=visual-stage-authority-1:242
+draw @ text-render-runtime.js?v=visual-stage-authority-1:144
+(anonymous) @ specialized-source-runtime.js?v=standby-local-diagnostic-1:121
+execute @ native-renderer-registry.js:32
+drawCompiledNativeSource @ source-render-runtime.js?v=standby-local-diagnostic-1:1864
+drawGeneratorSource @ source-render-runtime.js?v=standby-local-diagnostic-1:1735
+drawSourceToGraphics @ source-render-runtime.js?v=standby-local-diagnostic-1:1608
+safeDrawSourceToGraphics @ source-render-runtime.js?v=standby-local-diagnostic-1:1560
+runtime.evaluate.frame @ source-render-runtime.js?v=standby-local-diagnostic-1:1021
+evaluate @ render-node-contract.js:160
+renderItemState @ source-render-runtime.js?v=standby-local-diagnostic-1:1013
+(anonymous) @ visual-plan-runtime.js?v=source-detail-value-1:603
+measure @ output-render-profile.js?v=profiling-capability-1:20
+measureOperation @ source-render-runtime.js?v=standby-local-diagnostic-1:268
+renderOperations @ visual-plan-runtime.js?v=source-detail-value-1:598
+renderOperations @ visual-plan-runtime.js?v=source-detail-value-1:855
+execute @ visual-plan-runtime.js?v=source-detail-value-1:128
+execute @ component-program-compiler.js?v=compiled-capability-revision-1:341
+executeCompiled @ component-render-runtime.js?v=compiled-capability-revision-1:193
+(anonymous) @ component-render-runtime.js?v=compiled-capability-revision-1:153
+measureComponent @ output-render-profile.js?v=profiling-capability-1:30
+renderResolved @ component-render-runtime.js?v=compiled-capability-revision-1:152
+(anonymous) @ component-render-runtime.js?v=compiled-capability-revision-1:70
+withResolutionTrace @ component-render-runtime.js?v=compiled-capability-revision-1:216
+render @ component-render-runtime.js?v=compiled-capability-revision-1:69
+renderComponents @ output-presentation-runtime.js?v=live-output-projection-1:276
+drawFrame @ output-presentation-runtime.js?v=live-output-projection-1:62
+draw @ output-presentation-runtime.js?v=live-output-projection-1:40
+draw @ output-renderer.js?v=live-output-projection-1:289
+draw @ embedded-preview-app.js?v=live-output-projection-1:285
+(anonymous) @ portal.js?v=adaptive-component-demand-29:424
+
+**The undo/view-loss portion is repaired at the transaction boundary, while the separate save-worker timeout remains open for a real project-folder browser reproduction. All `select-*` changes are now non-history editor projections, Mapping selection explicitly publishes UI scope, and undo/redo preserves the current editor UI while restoring authored project state. An end-to-end save → select another Component → undo → redo test proves one authored transaction and stable editor selection. Complete suite: 1,321/1,321.**
+toggling visibility of surfaces either in mapping view or in live view is heavy as if a lot of processing are reacting to it.
+
+
+moving an element should not rebuild the complete Component or Scene. Media/resource readiness must invalidate its exact consumer independently; movement making an element appear is evidence that the narrower invalidation is still missing.
+
+**The movement/commit regression is repaired at the retained-patch scheduler
+boundary.** Preview already applied each placement patch correctly, but the
+control scheduler discarded its `previewPatched` context when a DOM update was
+deferred until pointer release. The final value-identical commit then replaced
+the complete Preview state and rebuilt Component and Mapping programs. Deferred
+renders now retain their activation context, and an accepted retained patch
+remains authoritative through the final commit. One placement commit is locked
+to one patch packet and zero project snapshots. Source revision 167 passed all
+1,340 tests; repeated browser dragging then settled at zero graph compiles and
+zero cache invalidations, with only ordinary Preview presentations and cache
+hits. Media/resource readiness remains independently responsible for waking its
+exact consumer; movement is not a readiness signal.

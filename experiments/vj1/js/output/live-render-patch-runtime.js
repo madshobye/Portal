@@ -3,7 +3,7 @@ import {
   interpolatedLiveRenderValue,
   isInterpolableLiveRenderPath,
   resolveLiveRenderPatches,
-} from "../domain/live-render-patch.js?v=render-state-patch-1";
+} from "../domain/live-render-patch.js?v=surface-projection-patch-1";
 
 export function renderPatchChangesProgramReachability(patch = {}) {
   if (patch?.target === "state") return false;
@@ -71,6 +71,17 @@ export class LiveRenderPatchRuntime {
         if (!mappingInteractionActive && !ignoreIncomingMapping) {
           mapping.applyProject(signature);
         }
+      }
+      if (result.statePaths.includes("surfaces")) {
+        // Live Surface eyes replace only the derived route program. Retain
+        // visual programs and GPU resources, but materialize roots that may
+        // become reachable when Scene Mapping is switched back on and rebuild
+        // the Mapping lookup atomically against the new route array.
+        const previousMappingState = host.mappingRuntime.captureState();
+        host.componentProgramRuntime.ensureStateRoots(host.state);
+        host.mappingProgramRuntime.rebuild(host.state);
+        host.componentProgramRuntime.rebuildLookups(host.state);
+        host.mappingRuntime.reconcileState(previousMappingState);
       }
       return result;
     }

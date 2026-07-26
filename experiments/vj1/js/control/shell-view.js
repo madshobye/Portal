@@ -52,6 +52,7 @@ export function shellTemplate() {
                 <span id="render-cost-dot" class="performance-health-dot health-0"></span>
                 <span id="cpu-time-dot" class="performance-health-dot health-0"></span>
                 <span id="gpu-time-dot" class="performance-health-dot is-unknown"></span>
+                <span id="signal-load-dot" class="performance-health-dot health-0"></span>
               </span>
               <span id="output-status" class="performance-output-status"><span id="output-status-text">-</span></span>
             </button>
@@ -85,6 +86,7 @@ export function collectRefs(root) {
     renderCostDot: root.querySelector("#render-cost-dot"),
     cpuTimeDot: root.querySelector("#cpu-time-dot"),
     gpuTimeDot: root.querySelector("#gpu-time-dot"),
+    signalLoadDot: root.querySelector("#signal-load-dot"),
     performanceSummary: root.querySelector("#performance-summary"),
     performanceSummaryContent: root.querySelector("#performance-summary-content"),
     performanceAnalyze: root.querySelector("#performance-analyze"),

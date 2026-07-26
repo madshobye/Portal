@@ -191,6 +191,9 @@ Hard invariants:
 9. Dirty mode is compiled. Stable graphs sleep; revision-driven graphs wake for
    authored/resource changes; frame-driven graphs run only for declared time,
    feedback, capture, camera, audio, or similar dependencies.
+   Disabled operations are excluded before retained-value evaluation or child
+   execution. Historical profiler samples must not imply that sleeping or
+   disabled operations are currently running.
 10. Resources are retained and owned. Avoid readbacks, cross-context uploads,
     extra WebGL contexts, and unnecessary full-frame/ping-pong targets.
 11. Preview and Output use the same Surface, transition, ROI, demand, and
@@ -303,6 +306,18 @@ Capabilities communicate through explicit injected contracts. Do not restore
 renderer forwarding methods, duplicate maps, source-name policy, or alternate
 resource registries.
 
+Signal load is a shared architectural diagnostic, not a collection of UI
+counters. `metrics/signal-load-meter.js` measures rolling one-second activity at
+the state-publication, invalidation, compiler, resource, retained-cache, and
+presentation boundaries. Keep authored transactions, wakeups, recompiles,
+resource revisions, cache invalidations/hits, and Preview/Output presentations
+separate. Presentations and successful cache reuse are visible throughput but
+must not increase pressure. Intermediate scrub samples are wakeup throughput
+inside one editor gesture; only its commit is an authored transaction. The
+ten-second report retains pressure reasons so unexpected compiles or
+invalidations can be traced to their shared boundary. New execution paths must
+join these shared boundaries rather than add per-feature instrumentation.
+
 Compiled readiness is shared by media files, camera, screen inputs, meshes,
 control signals, and external analysis. Resource/capability owners publish
 ready, pending, and error states. Feature Morph readiness belongs to its analysis
@@ -314,6 +329,10 @@ Mapping/Output only; catalog refresh updates retained resources without
 recompilation; executable library changes rebuild visual/transition and reachable
 Component programs. Structural visibility/reference changes rebuild reachability
 atomically. Parameters, transforms, and ROI use compact retained patches.
+Once Preview accepts such a patch, that retained program is authoritative
+through pointer release and any deferred control-DOM reconciliation. Scheduling
+must preserve the patch activation context; a final value-identical commit must
+not replace complete Preview state or recompile Component/Mapping programs.
 
 Persistence and transport rules:
 
@@ -324,8 +343,10 @@ Persistence and transport rules:
   generated instances, DOM/p5 objects, thumbnails, or runtime resources.
 - Autosave snapshots immutable project truth before asynchronous serialization;
   UI/runtime updates do not autosave.
-- Control and Output transport is revisioned. Stale clients and incoherent
-  source revisions fail closed.
+- Control and Output transport is revisioned. Parameter, transform, boundary,
+  and other retained configuration changes cross as compact patches; complete
+  state is reserved for restore/resync and topology or routing-reachability
+  changes. Stale clients and incoherent source revisions fail closed.
 - File/object URLs, decoders, captures, models, buffers, programs, and targets
   have explicit release ownership.
 - Canonical state must remain structured-cloneable.
@@ -369,6 +390,9 @@ optimized lowering, and remove an old host only after measured equivalence.
   `output-presentation-runtime.js`, and `specialized/`.
 - Persistence/transport: `js/services/project-serializer.js`,
   `project-folder-service.js`, `output-bridge-service.js`.
+- Diagnostics: `js/metrics/signal-load-meter.js`,
+  `js/control/control-performance-session.js`,
+  `js/output/output-presentation-metrics.js`.
 - Editor: `js/control/node-graph-canvas.js`, `mapping-live-view.js`,
   `control-shell-controller.js`, `style.css`.
 - Architecture tests: `tests/architecture-boundaries.test.mjs`,
@@ -391,7 +415,7 @@ shaders, transitions and endpoint equivalence, ROI crop equivalence, ordinary
 and retained-value Groups, semantic 3D, aggregate CPU/Overall metrics, resource
 revisions, and balanced GPU/browser resources.
 
-At source coherence revision **158**, semantic sources, typed
+At source coherence revision **167**, semantic sources, typed
 resource/capability readiness, progressive primary-media restore, aggregate
 metrics, atomic retained framebuffer passes, and the complete browser import
 chain share one cache identity. A retained render result renews the lifetime of
@@ -402,7 +426,10 @@ specialized child values; native terminal operations remain explicit optimized
 backends rather than hidden parent programs. Output scheduling, signatures,
 dependency/media state, and thumbnails consume compiled-program APIs; raw
 Component chains are limited to migration and explicit editor projections. The
-automated suite passes **1,312 tests**.
+automated suite passes **1,340 tests**. The top-bar Signal load indicator and
+ten-second report expose state, invalidation, compile, resource, cache, and
+presentation rates without classifying ordinary presentation or cache reuse as
+coordination pressure.
 
 The reusable `tests/browser/runtime-stress.html` harness passes two concurrent
 640×360 clients for 20 seconds at 60 fps: no accepted black frames or WebGL

@@ -97,6 +97,7 @@ export function createInputController({
       button.addEventListener("click", () => {
         const path = button.dataset.setPath;
         const value = button.dataset.setValueType === "number" ? Number(button.dataset.setValue) : button.dataset.setValue;
+        if (commitComponentValues([{ path, value }], `update:${path}`)) return;
         store.update((draft) => setByPath(draft, path, value), `update:${path}`);
       });
     });
@@ -360,16 +361,28 @@ export function createInputController({
 
   function updatePathFromInput(input, reason) {
     const path = input.dataset.update;
+    const value = readInputValue(input);
+    if (isBoundaryScaleInput(input, path)) {
+      const boundary = boundaryFromScaleInput(input, value);
+      const widthPath = path.replace(/\.scale$/, ".width");
+      const heightPath = path.replace(/\.scale$/, ".height");
+      if (commitComponentValues([
+        { path: widthPath, value: boundary.width },
+        { path: heightPath, value: boundary.height },
+      ], reason)) return;
+    } else if (commitComponentValues([{ path, value }], reason)) {
+      return;
+    }
     store.update((draft) => {
       if (isBoundaryScaleInput(input, path)) {
-        const boundary = boundaryFromScaleInput(input, readInputValue(input));
+        const boundary = boundaryFromScaleInput(input, value);
         setByPath(draft, path.replace(/\.scale$/, ".width"), boundary.width);
         setByPath(draft, path.replace(/\.scale$/, ".height"), boundary.height);
         syncMappingEdits(draft, path.replace(/\.scale$/, ".width"));
         return;
       }
       const setter = path.includes(".source.params.") ? setByPathCreate : setByPath;
-      setter(draft, path, readInputValue(input));
+      setter(draft, path, value);
       syncMappingEdits(draft, path);
     }, reason);
   }
@@ -389,6 +402,8 @@ export function createInputController({
     if (!path) return;
     const value = colorValueFromControl(control);
     const componentId = control.dataset.liveComponentId;
+    if (control.dataset.colorMode !== "live" &&
+        commitComponentValues([{ path, value }], reason)) return;
     updateLiveAware(control.dataset.colorMode === "live", (draft) => {
       if (control.dataset.colorMode === "live") {
         setLiveOverride(draft, componentId, path, value);
@@ -417,9 +432,15 @@ export function createInputController({
     endInput.value = String(end);
     syncVideoTrimControl(control, start, end, max);
     const keepImplicitEnd = control.dataset.videoTrimImplicitEnd === "true" && activeRole !== "end";
+    const startValue = roundTrimTime(start);
+    const endValue = keepImplicitEnd ? 0 : roundTrimTime(end);
+    if (commitComponentValues([
+      { path: startPath, value: startValue },
+      { path: endPath, value: endValue },
+    ], reason)) return;
     store.update((draft) => {
-      setByPath(draft, startPath, roundTrimTime(start));
-      setByPath(draft, endPath, keepImplicitEnd ? 0 : roundTrimTime(end));
+      setByPath(draft, startPath, startValue);
+      setByPath(draft, endPath, endValue);
     }, reason);
   }
 
@@ -442,6 +463,10 @@ export function createInputController({
     maxInput.value = String(maxValue);
     syncParamRangeControl(control, minValue, maxValue);
     const componentId = minInput.dataset.liveComponentId;
+    if (!minInput.dataset.liveUpdate && commitComponentValues([
+      { path: minPath, value: minValue },
+      { path: maxPath, value: maxValue },
+    ], reason)) return;
     updateLiveAware(!!minInput.dataset.liveUpdate, (draft) => {
       if (minInput.dataset.liveUpdate) {
         setLiveOverride(draft, componentId, minPath, minValue);
@@ -461,6 +486,24 @@ export function createInputController({
     const path = button.dataset.togglePath;
     if (!path) return;
     const nextValue = applyOptimisticToggleIntent(button);
+    const mappingSurfaceVisibility = /^mappings\.(\d+)\.surfaces\.(\d+)\.enabled$/.exec(path);
+    if (mappingSurfaceVisibility && typeof store.setMappingSurfaceVisibility === "function") {
+      const current = getState();
+      const mapping = current.mappings?.[Number(mappingSurfaceVisibility[1])];
+      const surface = mapping?.surfaces?.[Number(mappingSurfaceVisibility[2])];
+      if (mapping && surface) {
+        store.setMappingSurfaceVisibility(mapping.id, surface.id, nextValue, reason);
+        return;
+      }
+    }
+    if (path.startsWith("components.") && typeof store.setComponentValue === "function") {
+      const handled = store.setComponentValue(path, nextValue, {
+        reason,
+        selectAction: button.dataset.toggleSelectAction || "",
+        selectId: button.dataset.toggleSelectId || "",
+      });
+      if (handled) return;
+    }
     store.update((draft) => {
       setByPath(draft, path, nextValue);
       syncMappingEdits(draft, path);
@@ -475,6 +518,15 @@ export function createInputController({
     }, reason);
     if (button.dataset.toggleSelectAction === "data-select-surface") return;
     selectToggleTarget(button);
+  }
+
+  function commitComponentValues(entries, reason, options = {}) {
+    if (typeof store.setComponentValues !== "function" ||
+        !entries.length ||
+        entries.some((entry) => !String(entry?.path || "").startsWith("components."))) {
+      return false;
+    }
+    return store.setComponentValues(entries, { reason, ...options }) === true;
   }
 
   function updateLivePathFromInput(input, reason) {

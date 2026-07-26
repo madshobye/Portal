@@ -98,19 +98,45 @@ export class FeatureMorphRuntime {
     let pending = false;
     let error = "";
     const revisions = [];
+    const evaluatedPrograms = new Set();
     const requiredSteps = new Set(
       requirement?.sourceStepIds || [],
     );
     visitOperations(program, (operation) => {
-      for (const step of operation?.valueProgram?.steps || []) {
-        if (step.externalResolver?.capability !== "feature-morph-analysis") continue;
-        if (requiredSteps.size && !requiredSteps.has(step.id)) continue;
+      const valueProgram = operation?.valueProgram;
+      const analysisSteps = (valueProgram?.steps || []).filter((step) => {
+        if (step.externalResolver?.capability !== "feature-morph-analysis") return false;
+        if (requiredSteps.size && !requiredSteps.has(step.id)) return false;
+        return true;
+      });
+      if (
+        analysisSteps.some((step) => !step.outputValues?.analysis) &&
+        !evaluatedPrograms.has(valueProgram)
+      ) {
+        evaluatedPrograms.add(valueProgram);
+        try {
+          // Prepared Live programs have not rendered yet. Evaluate their pure
+          // retained-value graph once so the host capability can see and own
+          // the analysis request before deciding whether the Scene is ready.
+          // This does not render a frame or make readiness depend on preview
+          // resolution.
+          valueProgram.evaluate({
+            componentTime: 0,
+            timestamp: 0,
+            renderRequest: null,
+          });
+        } catch (valueError) {
+          error ||= valueError?.message || String(valueError);
+        }
+      }
+      for (const step of analysisSteps) {
         found = true;
         const resourceId = `${operation.id || "operation"}/${step.id || "analysis"}`;
         const analysis = step.outputValues?.analysis;
         const providerId = String(analysis?.providerId || "");
-        const service = this.analysisService(providerId);
-        if (!analysis || !service) {
+        const provider = this.analysisProvider(providerId);
+        const service = provider?.service?.() || null;
+        if (!analysis || !provider || !service) {
           pending = true;
           revisions.push(`${resourceId}:unavailable:${providerId || "missing"}`);
           if (analysis && !service) {
@@ -139,11 +165,43 @@ export class FeatureMorphRuntime {
           revisions.push(`${resourceId}:media-pending`);
           continue;
         }
+        const consumer = featureMorphAnalysisConsumer(
+          operation,
+          step.id,
+        );
+        const nodeModule = this.connectedRuntimeModule(
+          consumer,
+          analysis,
+          {
+            requireAnalysis:
+              provider.requireAnalysisModule === true,
+          },
+        );
         const media = {
           imageAFile: imageA.file,
           imageBFile: imageB.file,
+          nodeModule,
+          algorithmRevision: String(
+            consumer?.nodeCodeRevision ||
+            consumer?.nodeModuleRevision ||
+            "legacy",
+          ),
         };
-        const state = service.status(settings, media);
+        let state = service.status(settings, media);
+        if (state === "idle" && typeof service.request === "function") {
+          try {
+            const entry = service.request(
+              settings,
+              imageA.image,
+              imageB.image,
+              media,
+            );
+            state = entry?.status || service.status(settings, media);
+          } catch (requestError) {
+            state = "error";
+            error ||= requestError?.message || String(requestError);
+          }
+        }
         revisions.push(
           `${resourceId}:${service.externalKey?.(settings, media) || state}`,
         );
@@ -434,6 +492,26 @@ function visitOperations(program, visitor) {
     for (const child of operation.operations || []) visit(child);
   };
   visit(program);
+}
+
+function featureMorphAnalysisConsumer(operation, stepId) {
+  let match = null;
+  const visit = (candidate) => {
+    if (!candidate || match) return;
+    if (
+      (candidate.externalResourceRequirements || []).some(
+        (requirement) =>
+          requirement.id === "feature-morph-analysis" &&
+          (requirement.sourceStepIds || []).includes(stepId),
+      )
+    ) {
+      match = candidate;
+      return;
+    }
+    for (const child of candidate.operations || []) visit(child);
+  };
+  visit(operation);
+  return match || operation;
 }
 
 function featureMorphFlowImage(field = {}) {

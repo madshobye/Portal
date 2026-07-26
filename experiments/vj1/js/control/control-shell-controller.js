@@ -1,14 +1,14 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=live-output-matrix-contract-3";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=structural-world-state-2";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js?v=component-transport-patch-1";
 import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=node-roi-placement-shader-program-lifetime-1";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=signal-load-observability-1";
 import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=cursor-anchored-zoom-1";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=compiled-capability-revision-1";
 import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=scroll-region-1";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=workspace-icons-1-unified-playback-surface-mapping-icon-shared-ui-icons-topbar-order-1";
+import { collectRefs, shellTemplate } from "./shell-view.js?v=signal-load-observability-1";
 import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
 import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=inspector-view-option-parameter-control-group-1";
 import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=live-output-matrix-contract-3";
@@ -18,7 +18,7 @@ import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=d
 import { createClipboardController } from "./clipboard-controller.js?v=scene-live-audit-1";
 import { createModalController } from "./modal-controller.js?v=parameter-control-group-1";
 import { createInputController } from "./input-controller.js?v=inspector-view-option-parameter-control-group-1";
-import { createControlPerformanceSession } from "./control-performance-session.js?v=control-performance-session-1";
+import { createControlPerformanceSession } from "./control-performance-session.js?v=signal-load-observability-2";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-counter-1";
 import { createControlRenderDiagnostics } from "./control-render-diagnostics.js?v=control-ui-long-render-1";
 import { componentTypeIcon, UI_ICONS } from "./ui-icons.js";
@@ -29,7 +29,11 @@ import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=typed-media-render
 import {
   resolveProjectVisualTransitionEntries,
 } from "../libraries/visual-nodes/project-visual-node-resolver.js?v=async-media-dirty-1";
-import { isMappingSurfaceVisibilityReason, previewActivationForContext } from "./preview-state-activation.js?v=live-output-matrix-contract-3";
+import { isMappingSurfaceVisibilityReason, previewActivationForContext } from "./preview-state-activation.js?v=scoped-component-transaction-1";
+import {
+  mergeSignalLoadSnapshots,
+  signalLoadMeter,
+} from "../metrics/signal-load-meter.js";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -70,6 +74,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let renderFrame = 0;
   let renderPending = false;
   let deferredRenderState = null;
+  let deferredRenderContext = null;
   let deferredRenderTimer = 0;
   let liveTransitionRefreshTimer = 0;
   let liveTransitionNodes = null;
@@ -79,6 +84,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   let activeCatalogViewKey = "";
   let deepEditReturnContext = null;
   const performanceHotspotSmoother = createRuntimeHotspotSmoother();
+  const controlSignalMeter = signalLoadMeter("control");
+  let signalRefreshTimer = 0;
   let performanceHotspotComponentScope = "";
   const previewLayoutQuery = typeof window !== "undefined" && typeof window.matchMedia === "function"
     ? window.matchMedia("(max-width: 860px)")
@@ -151,6 +158,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   const performanceSession = createControlPerformanceSession({
     getState: () => latestState,
     metricForState: performanceMetricForState,
+    signalForState: (state) => activeSignalLoad(state, controlSignalMeter.snapshot()),
     analyze: (state, samples) => analyzeVj1Project(state, {
       runtimeSamples: samples,
       resolveNodeDefinition: (node) => {
@@ -180,6 +188,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState, { reason: "preview-layout" }));
     restorePreviewPreference();
     scheduleLiveTransitionRefresh(latestState);
+    if (!signalRefreshTimer) {
+      signalRefreshTimer = globalThis.setInterval(() => renderTopbar(latestState), 1000);
+    }
     store.subscribe((state, reason, change) => {
       latestState = state;
       if (state.nodes?.definitions !== editorProjectDefinitions) {
@@ -268,17 +279,17 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         scheduleRenderNow(state, { force: true, reason, change });
         return;
       }
-      if (currentWorkspace(state) === "mapping" && isMappingSurfaceVisibilityReason(reason)) {
-        // The clicked eye is patched optimistically and its selection is part
-        // of the same transaction. Only the inspector focus and compiled
-        // Mapping projection can have changed; rebuilding catalogs, studio
-        // structure, and the Preview DOM here made one eye click unnecessarily
-        // expensive.
+      const controlInvalidation = change.controlInvalidation;
+      if (
+        controlInvalidation &&
+        (!controlInvalidation.requiresRenderPatch || patchedLivePreview || patchedStudioPreview)
+      ) {
         scheduleRenderNow(state, {
           force: true,
           reason,
           change,
-          projection: "mapping-surface-visibility",
+          projection: "control-invalidation",
+          invalidation: controlInvalidation,
         });
         return;
       }
@@ -323,15 +334,23 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
 
   function scheduleRender(state, context = {}) {
     if (shouldDeferRender()) {
-      deferRender(state);
+      deferRender(state, context);
       return;
     }
     scheduleRenderNow(state, context);
   }
 
-  function scheduleRenderNow(state, { force = false, reason = "", change = null, projection = "shell" } = {}) {
+  function scheduleRenderNow(state, {
+    force = false,
+    reason = "",
+    change = null,
+    projection = "shell",
+    invalidation = null,
+    previewPatched = false,
+  } = {}) {
     if (force) {
       deferredRenderState = null;
+      deferredRenderContext = null;
       renderPending = false;
       if (deferredRenderTimer) clearTimeout(deferredRenderTimer);
       deferredRenderTimer = 0;
@@ -340,25 +359,35 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     renderFrame = requestAnimationFrame(() => {
       renderFrame = 0;
       if (!force && shouldDeferRender()) {
-        deferRender(latestState);
+        deferRender(latestState, {
+          reason,
+          change,
+          projection,
+          invalidation,
+          previewPatched,
+        });
         return;
       }
       // A queued frame is only a request to render. Its captured snapshot is
       // not an authority: rapid scrubs/toggles may have advanced the store
       // before this callback runs.
       if (projection === "live-program") renderLiveProgramChange(latestState, { reason, change });
-      else if (projection === "mapping-surface-visibility") {
-        renderMappingSurfaceVisibilityChange(latestState, { reason, change });
+      else if (projection === "control-invalidation") {
+        renderControlInvalidation(latestState, { reason, change }, invalidation);
       }
-      else render(latestState, { reason, change });
+      else render(latestState, { reason, change, previewPatched });
     });
   }
 
-  function deferRender(state) {
+  function deferRender(state, context = {}) {
     deferredRenderState = state;
+    deferredRenderContext = context;
     renderPending = true;
     renderTopbar(state);
-    updatePreviewState(state);
+    // A retained patch remains authoritative while the DOM rebuild waits for
+    // pointerup/focusout. Replacing Preview state here would turn the final
+    // (often value-identical) drag commit into a Component + Mapping recompile.
+    if (!context.previewPatched) updatePreviewState(state);
     scheduleDeferredRenderFlush();
   }
 
@@ -376,9 +405,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     // Pointerup/focusout schedules the next attempt. Do not poll while a user
     // is holding a control or editing text.
     if (shouldDeferRender()) return;
+    const context = deferredRenderContext || {};
     deferredRenderState = null;
+    deferredRenderContext = null;
     renderPending = false;
-    scheduleRenderNow(latestState, { reason: "deferred-interaction-flush" });
+    scheduleRenderNow(latestState, {
+      ...context,
+      reason: context.reason || "deferred-interaction-flush",
+    });
   }
 
   function render(state, context = {}) {
@@ -422,12 +456,27 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     ]);
   }
 
-  function renderMappingSurfaceVisibilityChange(state, context = {}) {
-    renderMeasuredControlPhases(state, context, [
-      ["project-selection", () => patchProjectRailSelection(state)],
-      ["inspector", () => renderInspector(state)],
-      ["preview", () => updatePreviewState(state, "mapping")],
-    ]);
+  function renderControlInvalidation(state, context = {}, invalidation = {}) {
+    const regionRenderers = {
+      "topbar": () => renderTopbar(state),
+      "project-rail": () => renderProjectRail(state),
+      "project-selection": () => patchProjectRailSelection(state),
+      "live-projection-rail": () => renderLiveProjectionRail(state),
+      "inspector": () => renderInspector(state),
+      "studio": () => renderStudio(state),
+      "modals": () => modals.render(state),
+    };
+    const operations = [...new Set(invalidation.regions || [])]
+      .filter((region) => regionRenderers[region])
+      .map((region) => [region, regionRenderers[region]]);
+    if (invalidation.preview === "mapping") {
+      operations.push(["preview", () => updatePreviewState(state, "mapping")]);
+    } else if (invalidation.preview === "projection") {
+      operations.push(["preview", () => updatePreviewState(state, "projection")]);
+    } else if (invalidation.preview === "render") {
+      operations.push(["preview", () => renderPreview(state, context)]);
+    }
+    renderMeasuredControlPhases(state, context, operations);
   }
 
   function renderMeasuredControlPhases(state, context, operations) {
@@ -682,6 +731,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const displayTotalMs = smoothed.totalMs;
     const renderCost = activeRenderCost(state);
     const outputConnected = Number(state.metrics?.clients) > 0;
+    const signalLoad = activeSignalLoad(state, controlSignalMeter.snapshot());
     const cacheHits = profiles.reduce((sum, profile) => sum + Math.max(0, Number(profile.componentCacheHits) || 0) + Math.max(0, Number(profile.stageCacheHits) || 0), 0);
     const cacheRenders = profiles.reduce((sum, profile) => sum + Math.max(0, Number(profile.componentRenders) || 0) + Math.max(0, Number(profile.stageRenders) || 0), 0);
     const rows = hotspots.length
@@ -702,7 +752,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         ${performanceReadoutTemplate("open_in_new", "Output", outputConnected ? `${Math.round(outputFps)} fps` : "—")}
         ${performanceReadoutTemplate("cached", "Cache reuse", String(cacheHits))}
         ${performanceReadoutTemplate("refresh", "Renders", String(cacheRenders))}
+        ${performanceReadoutTemplate("vital_signs", "Signal load", `${Math.round(signalLoad.totalPerSecond)}/s`)}
       </div>
+      ${signalLoadBreakdownTemplate(signalLoad)}
       <ol class="performance-hotspot-list" data-scroll-region data-scroll-key="performance-hotspots">${rows}</ol>
     `);
     refs.performanceAnalyze.disabled = performanceSession.isActive();
@@ -715,6 +767,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const cacheHits = (runtimeProfile.componentCacheHitsAvg || 0) + (runtimeProfile.stageCacheHitsAvg || 0);
     const cacheRenders = (runtimeProfile.componentRendersAvg || 0) + (runtimeProfile.stageRendersAvg || 0);
     const cacheReusePercent = cacheHits + cacheRenders > 0 ? cacheHits / (cacheHits + cacheRenders) * 100 : 0;
+    const signalCategories = host.signalCategoriesPerSecondAvg || {};
     const hotspots = runtime.profile?.hotPasses || [];
     const hotspotRows = hotspots.length
       ? hotspots.slice(0, 12).map((item, index) => {
@@ -748,7 +801,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
             <div><small>Main-thread blocks</small><strong>${host.longTaskCount || 0}</strong></div>
             <div><small>Event-loop lag p95</small><strong>${formatTimeMs(host.eventLoopLagMsP95)}</strong></div>
             <div><small>Render cache reuse</small><strong>${formatPercent(cacheReusePercent)}</strong></div>
+            <div><small>Signal pressure avg</small><strong>${formatNumber(host.signalPressurePerSecondAvg, 1)}/s</strong></div>
           </div>
+          <div class="performance-results-section"><h3>Signal flow</h3><p>Per-second architectural activity. Presentations and cache hits are throughput and do not increase the pressure light.</p>${signalCategoryListTemplate(signalCategories)}${host.signalTopPressureReasonsPerSecondAvg?.length ? `<p>Top pressure causes</p><ul>${host.signalTopPressureReasonsPerSecondAvg.slice(0, 12).map((item) => `<li>${esc(item.reason)} · ${formatNumber(item.count, 1)}/s</li>`).join("")}</ul>` : ""}</div>
           <div class="performance-results-section">
             <h3>Attributed CPU hotspots</h3>
             <p>Average, p95, and maximum duration for the bounded diagnostic pass samples. Component rows include their child work.</p>
@@ -880,13 +935,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setClass(refs.renderCost, "is-active", performanceSession.isActive());
     const profileSeconds = performanceSession.remainingSeconds();
     const workMetric = activeWorkMetric(state, outputFps);
+    const signalLoad = activeSignalLoad(state, controlSignalMeter.snapshot());
     const frameInterval = frameTimeFromFps(workMetric.fps);
     setPerformanceHealthDot(refs.renderCostDot, renderCost);
     setPerformanceHealthDot(refs.cpuTimeDot, frameInterval > 0 ? workMetric.cpuMs / frameInterval : 0);
     setPerformanceHealthDot(refs.gpuTimeDot, frameInterval > 0 ? workMetric.gpuMs / frameInterval : 0, workMetric.gpuSupported);
+    setPerformanceHealthDot(refs.signalLoadDot, signalLoad.pressure);
     const healthTitle = performanceSession.isActive()
       ? `Profiling rendering… ${profileSeconds} second${profileSeconds === 1 ? "" : "s"} remaining`
-      : `Overall ${formatRenderCost(renderCost)} · CPU ${formatTimeMs(workMetric.cpuMs)} · GPU ${workMetric.gpuSupported ? formatTimeMs(workMetric.gpuMs) : "unavailable"} · Output ${outputConnected ? `${Math.round(outputFps)} fps` : "closed"}`;
+      : `Overall ${formatRenderCost(renderCost)} · CPU ${formatTimeMs(workMetric.cpuMs)} · GPU ${workMetric.gpuSupported ? formatTimeMs(workMetric.gpuMs) : "unavailable"} · Signals ${Math.round(signalLoad.totalPerSecond)}/s · Output ${outputConnected ? `${Math.round(outputFps)} fps` : "closed"}`;
     refs.renderCost.title = healthTitle;
     refs.renderCost.setAttribute("aria-label", healthTitle);
     // Output metrics may arrive between pointerdown and click. Preserve the
@@ -1965,6 +2022,34 @@ function performanceReadoutTemplate(iconName, label, value) {
   return `<span class="performance-health-readout">${icon(iconName)}<span><small>${esc(label)}</small><strong>${esc(value)}</strong></span></span>`;
 }
 
+function signalLoadBreakdownTemplate(signalLoad = {}) {
+  const categories = signalLoad.categories || {};
+  return `
+    <div class="performance-signal-breakdown">
+      <strong>Signal flow per second</strong>
+      ${signalCategoryListTemplate(categories)}
+      ${signalLoad.topReasons?.length
+        ? `<small>Top: ${signalLoad.topReasons.slice(0, 3).map((item) => `${esc(item.reason)} ${Math.round(item.count)}`).join(" · ")}</small>`
+        : ""}
+    </div>`;
+}
+
+function signalCategoryListTemplate(categories = {}) {
+  const rows = [
+    ["Authored transactions", "transactions"],
+    ["Render wakeups", "invalidations"],
+    ["Graph compiles", "compiles"],
+    ["Resource revisions", "resourceRevisions"],
+    ["Cache invalidations", "cacheInvalidations"],
+    ["Cache hits", "cacheHits"],
+    ["Preview presentations", "previewPresentations"],
+    ["Output presentations", "outputPresentations"],
+  ];
+  return `<ul class="performance-signal-list">${rows.map(([label, category]) =>
+    `<li><span>${esc(label)}</span><strong>${formatNumber(categories[category], 1)}/s</strong></li>`
+  ).join("")}</ul>`;
+}
+
 export function performanceHealthStep(load) {
   const value = Math.max(0, Number(load) || 0);
   for (let index = 0; index < performanceHealthThresholds.length; index++) {
@@ -1990,6 +2075,14 @@ export function activeRenderCost(state) {
   const previewCost = Number(state.metrics.previewRenderCost);
   if (state.ui?.debugPreview && Number(state.metrics.previewFps) > 0 && Number.isFinite(previewCost)) total += Math.max(0, previewCost);
   return total;
+}
+
+export function activeSignalLoad(state, controlSnapshot = null) {
+  return mergeSignalLoadSnapshots(
+    controlSnapshot,
+    state?.ui?.debugPreview ? state?.metrics?.previewSignalLoad : null,
+    Number(state?.metrics?.clients) > 0 ? state?.metrics?.signalLoad : null,
+  );
 }
 
 export function activeWorkMetric(state, outputFps = 0) {

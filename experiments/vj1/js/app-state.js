@@ -10,40 +10,75 @@ import {
   createComponentLayer,
   createInitialState,
   createLiveRenderState,
+  mappingPreviewSurfaceRoutes,
   materializeLiveSurfacePatchRoute,
   createEmptyMappingFromState,
   createMappingFromState,
   sanitizeState,
   syncSurfaceProportionsFromMapping,
   uid,
-} from "./domain/models.js?v=live-output-matrix-contract-3";
+} from "./domain/models.js?v=signal-load-observability-1";
 import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=live-output-matrix-contract-3";
 import { firstEnabledLiveSurfaceId, liveSurfaceVisible } from "./domain/live-ui-state.js?v=live-output-matrix-contract-3";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
 import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
 import { WORKSPACES } from "./constants.js";
-import { createChangeEvent } from "./libraries/state-engine/state-command/index.js";
+import { createChangeEvent } from "./libraries/state-engine/state-command/index.js?v=structural-world-state-2";
 import { sceneLogicalSize } from "./domain/render-settings.js?v=surface-terminology-1";
 import { nextCatalogMarker } from "./domain/catalog-marker.js?v=catalog-marker-four-state-1";
 import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
 import { copyComponentAsScene, pasteClipboardPayload } from "./domain/clipboard.js?v=canvas-global-resolution-1";
 import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-output-matrix-contract-3";
-import { ObservableDataStore } from "./libraries/data-store/data-store/index.js";
+import {
+  materializeStructuralTree,
+  ObservableDataStore,
+  produceStructuralShare,
+} from "./libraries/data-store/data-store/index.js?v=structural-world-state-2";
+import { signalLoadMeter } from "./metrics/signal-load-meter.js";
 
-export function createAppState(initial = null, { prepareState = null, classifyChange = createChangeEvent } = {}) {
+export function createAppState(initial = null, {
+  prepareState = null,
+  prepareChange = null,
+  classifyChange = createChangeEvent,
+} = {}) {
   const normalizeState = (value) => {
     const normalized = sanitizeState(value);
     return typeof prepareState === "function" ? prepareState(normalized) : normalized;
   };
   let state = normalizeState(initial || createInitialState());
-  const dataStore = new ObservableDataStore(state, { clone });
+  // The application owns one immutable world root. Commands path-copy the
+  // branches they change and publication shares that root with read-only
+  // consumers. Full detached copies are explicit snapshot boundaries only.
+  const dataStore = new ObservableDataStore(state, {
+    clone,
+    publication: "reference",
+  });
   let pendingEditBaseline = null;
+  const authoredSignalMeter = signalLoadMeter("control");
   function emit(change = "change") {
-    const event = classifyChange(change);
+    // Commands may collect render patches while their recipe is operating on
+    // the copy-on-write draft. The authored world is finalized before
+    // publication, but those small side-channel values are not part of that
+    // world tree and can otherwise retain transaction Proxies. Materialize the
+    // event once at the transaction boundary so Preview, Output transport,
+    // history, and diagnostics all observe the same plain-data command.
+    const event = classifyChange(materializeStructuralTree(change));
+    // Scrub/edit samples are intermediate values inside one authored gesture.
+    // Count the completed command once; render invalidations retain the
+    // per-sample cadence needed to diagnose an expensive drag.
+    if ((event.scope === "project" || event.scope === "live") && event.phase === "commit") {
+      authoredSignalMeter.record("transactions", 1, event.reason);
+    } else if (event.scope === "assets") {
+      authoredSignalMeter.record("resourceRevisions", 1, event.reason);
+    }
     dataStore.publish(state, event);
   }
 
   function getState() {
+    return dataStore.current();
+  }
+
+  function snapshotState() {
     return dataStore.snapshot(state);
   }
 
@@ -63,26 +98,41 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
 
   function update(recipe, change = "update") {
     const event = classifyChange(change);
+    const transactionBaseline = pendingEditBaseline || state;
+    const next = produceStructuralShare(state, recipe);
+    if (next === state && !pendingEditBaseline) return false;
     if (event.scope === "project" && (event.phase === "scrub" || event.phase === "edit")) {
-      // A gesture is one transaction. Preserve a single pre-gesture baseline
-      // for activity/Live reconciliation, but do not deep-clone, sanitize, and
-      // stable-diff the complete project for every pointer/keyboard sample.
-      pendingEditBaseline ||= getState();
-      recipe(state);
-      projectSelectedMapping(state);
+      // A gesture is one transaction. Preserve the immutable pre-gesture root
+      // while each sample path-copies only the branch it changes.
+      pendingEditBaseline ||= state;
+      state = projectMappingProjectionForChangedSelection(state, next);
       emit(event);
-      return;
+      return true;
     }
-    const draft = getState();
-    recipe(draft);
-    replace(draft, change);
+    pendingEditBaseline = null;
+    let committed = projectMappingProjectionForChangedSelection(state, next);
+    if (event.scope === "project") {
+      committed = stampChangedOwners(transactionBaseline, committed);
+      committed = produceStructuralShare(committed, (draft) => {
+        reconcileLiveOverridesWithPersistentEdits(transactionBaseline, draft);
+      });
+      if (typeof prepareChange === "function") {
+        committed = prepareChange(transactionBaseline, committed, event);
+      }
+    }
+    state = committed;
+    emit(event);
+    return true;
   }
 
   function updateUi(recipe, change = "ui-update") {
-    const ui = clone(state.ui);
-    recipe(ui);
-    state = { ...state, ui };
-    emit({ reason: change, scope: "ui" });
+    state = produceStructuralShare(state, (draft) => recipe(draft.ui));
+    const supplied = change && typeof change === "object" ? change : { reason: change };
+    emit({
+      ...supplied,
+      reason: String(supplied.reason || "ui-update"),
+      scope: "ui",
+    });
   }
 
   function updateRuntime(recipe, change = "runtime-update") {
@@ -93,9 +143,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
   }
 
   function updateDerived(recipe, change = "derived-update") {
-    const draft = getState();
-    recipe(draft);
-    state = draft;
+    state = produceStructuralShare(state, recipe);
     const supplied = change && typeof change === "object" ? change : { reason: change };
     emit({
       ...supplied,
@@ -145,9 +193,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
   }
 
   function updateLive(recipe, change = "live:update") {
-    const draft = { ...state, ui: clone(state.ui) };
-    recipe(draft);
-    state = draft;
+    state = produceStructuralShare(state, recipe);
     const supplied = change && typeof change === "object" ? change : { reason: change };
     emit({ ...supplied, scope: "live" });
   }
@@ -180,6 +226,7 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
 
   return {
     getState,
+    snapshotState,
     getMetrics,
     replace,
     update,
@@ -193,17 +240,36 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     subscribe,
     cycleCatalogMarker(kind, id) {
       const collection = kind === "media" ? "media" : kind === "mapping" ? "mappings" : "components";
-      if (!(state[collection] || []).some((item) => item.id === id)) return false;
-      update((draft) => {
-        const item = (draft[collection] || []).find((entry) => entry.id === id);
-        if (item) item.catalogMarker = nextCatalogMarker(item.catalogMarker);
-      }, `catalog-marker:${kind}`);
+      const index = (state[collection] || []).findIndex((item) => item.id === id);
+      if (index < 0) return false;
+      const previousItem = state[collection][index];
+      const item = {
+        ...previousItem,
+        catalogMarker: nextCatalogMarker(previousItem.catalogMarker),
+      };
+      if (collection === "components") {
+        item.activity = { ...(previousItem.activity || {}) };
+        stampChangedProjectItems(
+          { components: [previousItem] },
+          { components: [item] },
+        );
+      }
+      const items = state[collection].slice();
+      items[index] = item;
+      state = { ...state, [collection]: items };
+      pendingEditBaseline = null;
+      emit({
+        reason: `catalog-marker:${kind}`,
+        scope: "project",
+        changedPaths: [`${collection}.${index}.catalogMarker`],
+      });
       return true;
     },
     pasteClipboard(payload, target) {
-      const draft = getState();
-      const result = pasteClipboardPayload(draft, payload, target);
-      if (result.pasted) replace(draft, "paste");
+      let result = { pasted: false, reason: "empty" };
+      update((draft) => {
+        result = pasteClipboardPayload(draft, payload, target);
+      }, "paste");
       return result;
     },
     selectSurface(id) {
@@ -211,7 +277,154 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       updateUi((ui) => {
         ui.selectedSurfaceId = id;
         if (ui.workspace === "scene") ui.sceneInspectorTarget = "surface";
-      }, "select-surface");
+      }, {
+        reason: "select-surface",
+        changedPaths: ["ui.selectedSurfaceId"],
+      });
+    },
+    setMappingSurfaceVisibility(mappingId, surfaceId, visible, reason = "") {
+      const mappingIndex = state.mappings.findIndex((mapping) =>
+        String(mapping.id) === String(mappingId)
+      );
+      const previousMapping = state.mappings[mappingIndex];
+      const surfaceIndex = previousMapping?.surfaces?.findIndex((surface) =>
+        String(surface.id) === String(surfaceId)
+      ) ?? -1;
+      const previousSurface = previousMapping?.surfaces?.[surfaceIndex];
+      if (mappingIndex < 0 || surfaceIndex < 0 || !previousSurface) return false;
+      const nextSurface = {
+        ...previousSurface,
+        enabled: visible !== false,
+        activity: { ...(previousSurface.activity || {}) },
+      };
+      const nextMapping = {
+        ...previousMapping,
+        surfaces: previousMapping.surfaces.slice(),
+      };
+      nextMapping.surfaces[surfaceIndex] = nextSurface;
+      // Activity stamping is scoped to the one authored Surface. The generic
+      // project update path compares every Component and Mapping item, which
+      // made a one-bit eye command proportional to the entire project.
+      stampChangedProjectItems(
+        { mappings: [{ id: previousMapping.id, surfaces: [previousSurface] }] },
+        { mappings: [{ id: nextMapping.id, surfaces: [nextSurface] }] },
+      );
+      const mappings = state.mappings.slice();
+      mappings[mappingIndex] = nextMapping;
+      const previous = state;
+      const next = {
+        ...state,
+        mappings,
+        ui: {
+          ...state.ui,
+          selectedSurfaceId: String(surfaceId),
+        },
+      };
+      if (String(state.ui?.selectedMappingId || "") === String(nextMapping.id)) {
+        projectSelectedMapping(next, nextMapping);
+      }
+      state = typeof prepareChange === "function"
+        ? prepareChange(previous, next, classifyChange({
+          reason: reason || `toggle:mappings.${mappingIndex}.surfaces.${surfaceIndex}.enabled`,
+          scope: "project",
+        }))
+        : next;
+      pendingEditBaseline = null;
+      const changeReason = reason ||
+        `toggle:mappings.${mappingIndex}.surfaces.${surfaceIndex}.enabled`;
+      emit({
+        reason: changeReason,
+        scope: "project",
+        changedPaths: [`mappings.${mappingIndex}.surfaces.${surfaceIndex}.enabled`],
+        renderPatches: [{
+          target: "state",
+          path: "surfaces",
+          value: mappingPreviewSurfaceRoutes(next, nextMapping),
+        }],
+      });
+      return true;
+    },
+    setComponentValues(entries = [], {
+      reason = "",
+      selectAction = "",
+      selectId = "",
+    } = {}) {
+      const normalizedEntries = entries.map((entry) => {
+        const match = /^components\.(\d+)\.(.+)$/.exec(String(entry?.path || ""));
+        return match ? {
+          componentIndex: Number(match[1]),
+          relativePath: match[2],
+          value: entry.value,
+        } : null;
+      });
+      const componentIndex = normalizedEntries[0]?.componentIndex;
+      const previousComponent = state.components?.[componentIndex];
+      if (
+        !normalizedEntries.length ||
+        normalizedEntries.some((entry) => !entry || entry.componentIndex !== componentIndex) ||
+        !previousComponent
+      ) return false;
+      let nextComponent = previousComponent;
+      for (const entry of normalizedEntries) {
+        nextComponent = copyPathWithValue(
+          nextComponent,
+          entry.relativePath,
+          entry.value,
+          { createMissing: true },
+        );
+        if (!nextComponent) return false;
+      }
+      nextComponent.activity = { ...(previousComponent.activity || {}) };
+      // Stamp only the affected Component. Inspector controls already produce
+      // normalized authored values; whole-project normalization and stable
+      // comparison make a local parameter command proportional to unrelated
+      // media and Components without adding correctness.
+      stampChangedProjectItems(
+        { components: [previousComponent] },
+        { components: [nextComponent] },
+      );
+      const components = state.components.slice();
+      components[componentIndex] = nextComponent;
+      const ui = clone(state.ui);
+      if (selectAction === "chain-item" && selectId) {
+        ui.selectedChainItemId = String(selectId);
+        if (ui.workspace === "scene") ui.sceneInspectorTarget = "element";
+      } else if (selectAction === "data-select-component" && selectId) {
+        ui.selectedComponentId = String(selectId);
+      }
+      const previous = state;
+      const next = { ...state, components, ui };
+      state = typeof prepareChange === "function"
+        ? prepareChange(previous, next, classifyChange({
+          reason: reason || `update:components.${componentIndex}.${normalizedEntries[0].relativePath}`,
+          scope: "project",
+        }))
+        : next;
+      reconcileLiveOverridesWithPersistentEdits(previous, state);
+      pendingEditBaseline = null;
+      emit({
+        reason: reason || `update:components.${componentIndex}.${normalizedEntries[0].relativePath}`,
+        scope: "project",
+        changedPaths: normalizedEntries.map((entry) =>
+          `components.${componentIndex}.${entry.relativePath}`
+        ),
+        renderPatches: normalizedEntries.filter((entry) =>
+          !["activity", "thumbnail", "name", "catalogMarker"].includes(
+            String(entry.relativePath).split(".")[0]
+          )
+        ).map((entry) => ({
+          componentId: String(previousComponent.id),
+          path: entry.relativePath,
+          value: entry.value,
+        })),
+      });
+      return true;
+    },
+    setComponentValue(path, value, options = {}) {
+      return this.setComponentValues([{ path, value }], options);
+    },
+    setComponentToggle(path, value, options = {}) {
+      return this.setComponentValues([{ path, value }], options);
     },
     selectComponent(id) {
       const index = state.components.findIndex((component) => component.id === id);
@@ -231,7 +444,11 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       state = { ...state, components, ui };
       // Selection is local to the editor. It is still autosaved so recent-use
       // sorting survives reload, but it must not rebuild a Live render state.
-      emit({ reason: "select-component", scope: "ui" });
+      emit({
+        reason: "select-component",
+        scope: "ui",
+        changedPaths: ["ui.selectedComponentId"],
+      });
     },
     setWorkspace(workspace) {
       const targetWorkspace = WORKSPACES.includes(workspace) ? workspace : "scene";
@@ -321,7 +538,10 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
       updateUi((ui) => {
         ui.selectedChainItemId = id;
         if (ui.workspace === "scene") ui.sceneInspectorTarget = "element";
-      }, "select-chain-item");
+      }, {
+        reason: "select-chain-item",
+        changedPaths: ["ui.selectedChainItemId"],
+      });
     },
     removeChainItem(componentId, itemId) {
       update((draft) => {
@@ -452,7 +672,14 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
     selectMapping(id) {
       const current = getState();
       const scene = current.mappings.find((item) => String(item.id) === String(id));
-      if (scene) replace(applyMappingForEditing(current, scene), "select-mapping");
+      if (!scene) return;
+      // Mapping selection changes the editor's projected Surface view, not
+      // the authored Mapping. Publishing it as a project commit used to create
+      // invisible undo entries and synchronize a non-authoritative projection
+      // to Output.
+      state = applyMappingForEditing(current, scene);
+      pendingEditBaseline = null;
+      emit({ reason: "select-mapping", scope: "ui", history: "none" });
     },
     selectLiveScene(id) {
       updateLive((draft) => {
@@ -645,6 +872,78 @@ export function createAppState(initial = null, { prepareState = null, classifyCh
   };
 }
 
+function projectMappingProjectionForChangedSelection(previous, next) {
+  if (next.ui?.workspace !== "mapping") return next;
+  const selectedId = String(next.ui?.selectedMappingId || "");
+  const previousMapping = previous.mappings?.find((item) => String(item.id) === selectedId);
+  const nextMapping = next.mappings?.find((item) => String(item.id) === selectedId);
+  if (previousMapping === nextMapping) return next;
+  return produceStructuralShare(next, (draft) => {
+    const mapping = draft.mappings?.find((item) => String(item.id) === selectedId);
+    projectSelectedMapping(draft, mapping);
+  });
+}
+
+function stampChangedOwners(previous, next) {
+  const previousComponents = new Map(
+    (previous.components || []).map((component) => [String(component.id), component])
+  );
+  const changedComponents = (next.components || []).flatMap((component, index) => {
+    const before = previousComponents.get(String(component.id));
+    return before === component ? [] : [{ before, index }];
+  });
+  const previousMappings = new Map(
+    (previous.mappings || []).map((mapping) => [String(mapping.id), mapping])
+  );
+  const changedSurfaces = [];
+  for (let mappingIndex = 0; mappingIndex < (next.mappings || []).length; mappingIndex++) {
+    const mapping = next.mappings[mappingIndex];
+    const beforeMapping = previousMappings.get(String(mapping.id));
+    if (beforeMapping === mapping) continue;
+    const previousSurfaces = new Map(
+      (beforeMapping?.surfaces || []).map((surface) => [String(surface.id), surface])
+    );
+    for (let surfaceIndex = 0; surfaceIndex < (mapping.surfaces || []).length; surfaceIndex++) {
+      const surface = mapping.surfaces[surfaceIndex];
+      const before = previousSurfaces.get(String(surface.id));
+      if (before !== surface) changedSurfaces.push({
+        before,
+        mappingId: mapping.id,
+        mappingIndex,
+        surfaceIndex,
+      });
+    }
+  }
+  if (!changedComponents.length && !changedSurfaces.length) return next;
+  const timestamp = new Date().toISOString();
+  return produceStructuralShare(next, (draft) => {
+    for (const { before, index } of changedComponents) {
+      stampChangedProjectItems(
+        { components: before ? [before] : [] },
+        { components: [draft.components[index]] },
+        timestamp,
+      );
+    }
+    for (const entry of changedSurfaces) {
+      stampChangedProjectItems(
+        {
+          mappings: [{
+            id: entry.mappingId,
+            surfaces: entry.before ? [entry.before] : [],
+          }],
+        },
+        {
+          mappings: [{
+            id: entry.mappingId,
+            surfaces: [draft.mappings[entry.mappingIndex].surfaces[entry.surfaceIndex]],
+          }],
+        },
+        timestamp,
+      );
+    }
+  });
+}
+
 function rememberWorkspaceComponent(draft, workspace, component) {
   if (workspace !== "component" && workspace !== "scene") return;
   if (!component || (workspace === "scene") !== (component.type === "scene")) return;
@@ -719,6 +1018,35 @@ function scheduleLiveRouteTransition(state, previousRoutes, routeTargetId = "", 
         durationMs,
       }
     : null;
+}
+
+function copyPathWithValue(target, path, value, { createMissing = false } = {}) {
+  const parts = String(path || "").split(".").filter(Boolean).map((part) =>
+    /^\d+$/.test(part) ? Number(part) : part
+  );
+  if (!parts.length || parts.some((part) =>
+    ["__proto__", "prototype", "constructor"].includes(String(part))
+  )) return null;
+  const copy = Array.isArray(target) ? target.slice() : { ...target };
+  let sourceCursor = target;
+  let copyCursor = copy;
+  for (let index = 0; index < parts.length - 1; index++) {
+    const part = parts[index];
+    let sourceChild = sourceCursor?.[part];
+    if ((!sourceChild || typeof sourceChild !== "object") && createMissing) {
+      sourceChild = typeof parts[index + 1] === "number" ? [] : {};
+    }
+    if (!sourceChild || typeof sourceChild !== "object") return null;
+    const copyChild = Array.isArray(sourceChild) ? sourceChild.slice() : { ...sourceChild };
+    copyCursor[part] = copyChild;
+    sourceCursor = sourceChild;
+    copyCursor = copyChild;
+  }
+  const leaf = parts.at(-1);
+  if (!sourceCursor || typeof sourceCursor !== "object") return null;
+  if (!createMissing && !(leaf in sourceCursor)) return null;
+  copyCursor[leaf] = value;
+  return copy;
 }
 
 function reconcileLiveOverridesWithPersistentEdits(previous, next) {

@@ -23,3 +23,7 @@ export function previewActivationForContext(context = {}) {
 export function isMappingSurfaceVisibilityReason(reason = "") {
   return /^toggle:mappings\.\d+\.surfaces\.\d+\.enabled$/.test(String(reason));
 }
+
+export function isComponentElementVisibilityReason(reason = "") {
+  return /^toggle:components\.\d+\.chain\..+\.enabled$/.test(String(reason));
+}

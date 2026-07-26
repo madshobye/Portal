@@ -1,8 +1,10 @@
 import { VJ1 } from "../constants.js";
 import { createOutputTransportProfiler, transportTimestampMs } from "./output-transport-profiler.js?v=output-transport-profile-1";
 import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
-import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js?v=render-patch-coalescing-1";
+import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js?v=signal-transport-boundary-1";
 import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
+import { createRenderStatePatch } from "../domain/live-render-patch.js?v=structural-world-state-2";
+import { materializeStructuralTree } from "../libraries/data-store/data-store/index.js?v=structural-world-state-2";
 
 export const OUTPUT_BRIDGE_PROTOCOL_VERSION = 1;
 
@@ -290,15 +292,20 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
   function acceptStateChange(_state, reason, change = {}) {
     if (change.scope !== "live") return;
     if (!Array.isArray(change.livePatches) || !change.livePatches.length) {
-      // Surface eyes change only the derived output-route projection. They
-      // still need an atomic projected snapshot because one Scene Mapping
-      // toggle can alter several fallback routes, but receivers must not treat
-      // that snapshot as a new visual/component/resource program.
-      sendState(null, {
-        activation: reason === "live:surface-visibility"
-          ? "projection"
-          : "full",
-      });
+      if (reason === "live:surface-visibility") {
+        // One eye can alter several fallback routes, so send the complete
+        // derived Surface program as one revisioned value. Do not serialize
+        // the complete project: Components, media, definitions, and resources
+        // are unchanged and can be hundreds of times larger than this route
+        // projection.
+        const projected = store.getLiveRenderState?.() || _state || {};
+        queueLivePatches([
+          createRenderStatePatch("surfaces", projected.surfaces || []),
+        ]);
+        flushLivePatches();
+      } else {
+        sendState();
+      }
       return;
     }
     queueLivePatches(change.livePatches);
@@ -332,7 +339,10 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
   }
 
   function queueLivePatches(patches) {
-    liveSynchronization.queue(patches);
+    // BroadcastChannel is a structured-clone boundary. Patches are small, so
+    // detach only this transport packet—not the project—from any draft-backed
+    // object a caller may have collected inside an authoring transaction.
+    liveSynchronization.queue(materializeStructuralTree(patches));
   }
 
   function scheduleLivePatches() {

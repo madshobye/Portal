@@ -1,11 +1,35 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
+import {
+  createDraft,
+  finalizeDraft,
+  finalizeValue,
+  isDraftable,
+  materializeStructuralTree,
+  materializeStructuralValue,
+  prepareCopy,
+  produceStructuralShare,
+} from "./structural-sharing.js?v=structural-world-state-2";
+
+export {
+  materializeStructuralValue,
+  materializeStructuralTree,
+  produceStructuralShare,
+} from "./structural-sharing.js?v=structural-world-state-2";
 
 export class ObservableDataStore {
-  constructor(initialValue, { clone = structuredCloneValue } = {}) {
+  constructor(initialValue, {
+    clone = structuredCloneValue,
+    publication = "snapshot",
+  } = {}) {
     this.value = initialValue;
     this.clone = clone;
+    this.publication = publication === "reference" ? "reference" : "snapshot";
     this.listeners = new Set();
     this.revision = 0;
+  }
+
+  current() {
+    return this.value;
   }
 
   snapshot(value = this.value) {
@@ -15,9 +39,9 @@ export class ObservableDataStore {
   publish(value, event = { reason: "change" }) {
     this.value = value;
     this.revision++;
-    const snapshot = this.snapshot(value);
-    for (const listener of this.listeners) listener(snapshot, event.reason || "change", event);
-    return snapshot;
+    const published = this.publication === "reference" ? value : this.snapshot(value);
+    for (const listener of this.listeners) listener(published, event.reason || "change", event);
+    return published;
   }
 
   replace(value, event = { reason: "replace" }) {
@@ -26,15 +50,16 @@ export class ObservableDataStore {
 
   update(recipe, event = { reason: "update" }) {
     if (typeof recipe !== "function") throw new TypeError("DATA_STORE_RECIPE_REQUIRED");
-    const draft = this.snapshot();
-    recipe(draft);
-    return this.publish(draft, event);
+    return this.publish(produceStructuralShare(this.value, recipe), event);
   }
 
   subscribe(listener, { emitCurrent = true, event = { reason: "init" } } = {}) {
     if (typeof listener !== "function") throw new TypeError("DATA_STORE_LISTENER_REQUIRED");
     this.listeners.add(listener);
-    if (emitCurrent) listener(this.snapshot(), event.reason || "init", event);
+    if (emitCurrent) {
+      const current = this.publication === "reference" ? this.value : this.snapshot();
+      listener(current, event.reason || "init", event);
+    }
     return () => this.listeners.delete(listener);
   }
 
@@ -70,7 +95,17 @@ export const DataStoreNode = defineNode({
     editable: true,
     module: import.meta.url,
     export: "ObservableDataStore",
-    source: [ObservableDataStore, structuredCloneValue].map((value) => value.toString()).join("\n\n"),
+    source: [
+      'const DRAFT_STATE = Symbol("observable-data-store-draft");',
+      ObservableDataStore,
+      produceStructuralShare,
+      createDraft,
+      finalizeDraft,
+      finalizeValue,
+      prepareCopy,
+      isDraftable,
+      structuredCloneValue,
+    ].map((value) => value.toString()).join("\n\n"),
   }],
   process: dataStoreNodeProcess,
 });

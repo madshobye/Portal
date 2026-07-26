@@ -161,6 +161,7 @@ export class OutputPresentationMetrics {
         renderHeight: renderResolution.height,
         renderPixelDensity: renderResolution.density,
         profile: host.profileRuntime.lastFrameProfile,
+        signalLoad: host.signalMeter?.snapshot?.() || null,
         message: host.presentationRuntime.shouldUseThumbnailPreview()
           ? "thumbnail preview"
           : host.mode === "component" ? "component preview" : `${host.mode} rendering`,

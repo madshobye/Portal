@@ -50,11 +50,15 @@ export class LivePatchSynchronizer {
     if (!this.pending.size) return null;
     const packet = {
       baseRevision: this.revision,
-      revision: ++this.revision,
+      revision: this.revision + 1,
       patches: [...this.pending.values()],
     };
     this.pending.clear();
+    // A transport failure must not advance the ordering authority. The failed
+    // packet is consumed exactly once; a later valid packet can then continue
+    // from the last revision the receiver could actually have observed.
     this.onPatch(packet);
+    this.revision = packet.revision;
     return packet;
   }
 

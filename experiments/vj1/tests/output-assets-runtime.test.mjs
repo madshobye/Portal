@@ -20,6 +20,8 @@ import { applyLiveRenderPatches, createLiveRenderPatch, createRenderStatePatch }
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
+import { produceStructuralShare } from "../js/libraries/data-store/data-store/structural-sharing.js";
+import { LivePatchSynchronizer } from "../js/libraries/synchronization-engine/live-patch-synchronizer/index.js";
 
 const protocol = (message) => ({
   ...message,
@@ -1878,7 +1880,7 @@ test("asset catalog state transport declares scoped activation", () => {
   }
 });
 
-test("Live Surface visibility sends one projection snapshot without full receiver activation", () => {
+test("Live Surface visibility sends only the derived route projection", () => {
   const previousBroadcastChannel = globalThis.BroadcastChannel;
   const messages = [];
   globalThis.BroadcastChannel = class {
@@ -1905,9 +1907,11 @@ test("Live Surface visibility sends one projection snapshot without full receive
     bridge.acceptStateChange(state, "live:surface-visibility", {
       scope: "live",
     });
-    const packet = messages.find((message) => message.type === "state");
-    assert.equal(packet.activation, "projection");
-    assert.deepEqual(packet.state.surfaces, state.surfaces);
+    const packet = messages.find((message) => message.type === "live-patch");
+    assert.equal(messages.some((message) => message.type === "state"), false);
+    assert.deepEqual(packet.patches, [
+      createRenderStatePatch("surfaces", state.surfaces),
+    ]);
     bridge.close();
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
@@ -1949,6 +1953,189 @@ test("persistent Component scrubs use the same small revisioned patch transport"
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
     else globalThis.BroadcastChannel = previousBroadcastChannel;
   }
+});
+
+test("committed Component placement sends one patch and never a project snapshot", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  globalThis.BroadcastChannel = class {
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  try {
+    const state = { metrics: { clients: 0, outputs: {} } };
+    const bridge = createControlBridge({
+      subscribeStore: false,
+      store: {
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+    bridge.sendRenderPatches([
+      createLiveRenderPatch("component-a", "chain.0.boundary", {
+        x: 0.25,
+        y: -0.1,
+        width: 0.5,
+        height: 0.5,
+      }),
+    ], { coalesce: false });
+
+    const packets = messages.filter((message) =>
+      message.type === "live-patch" || message.type === "state"
+    );
+    assert.equal(packets.length, 1);
+    assert.equal(packets[0].type, "live-patch");
+    assert.equal(packets[0].patches.length, 1);
+    assert.deepEqual(packets[0].patches[0].value, {
+      x: 0.25,
+      y: -0.1,
+      width: 0.5,
+      height: 0.5,
+    });
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("structurally shared object parameters cross the live patch transport as plain data", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  globalThis.BroadcastChannel = class {
+    postMessage(message) {
+      // Match the browser boundary: BroadcastChannel performs a structured
+      // clone and rejects any transaction Proxy retained in the packet.
+      messages.push(structuredClone(message));
+    }
+    close() {}
+  };
+  try {
+    const base = {
+      metrics: { clients: 0, outputs: {} },
+      components: [{
+        id: "component-a",
+        chain: [{
+          params: {
+            material: Object.freeze({ version: "1.0.0", color: [1, 0, 0] }),
+          },
+        }],
+      }],
+    };
+    const state = produceStructuralShare(base, (draft) => {
+      draft.components[0].chain[0].params = {
+        ...draft.components[0].chain[0].params,
+        material: {
+          ...draft.components[0].chain[0].params.material,
+          color: draft.components[0].chain[0].params.material.color.map((value) => value),
+        },
+      };
+    });
+    const bridge = createControlBridge({
+      store: {
+        subscribe() { return () => {}; },
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+
+    bridge.sendRenderPatches([
+      createLiveRenderPatch(
+        "component-a",
+        "chain.0.params",
+        state.components[0].chain[0].params,
+      ),
+    ], { coalesce: false });
+
+    const packet = messages.find((message) => message.type === "live-patch");
+    assert.deepEqual(packet.patches[0].value.material, {
+      version: "1.0.0",
+      color: [1, 0, 0],
+    });
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("draft-backed render patch values detach at the BroadcastChannel boundary", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  globalThis.BroadcastChannel = class {
+    postMessage(message) { messages.push(structuredClone(message)); }
+    close() {}
+  };
+  try {
+    let transactionValue = null;
+    const state = produceStructuralShare({
+      metrics: { clients: 0, outputs: {} },
+      components: [{
+        id: "component-a",
+        chain: [{ transform: { x: 0, y: 0, scale: 1, rotation: 0 } }],
+      }],
+    }, (draft) => {
+      const item = draft.components[0].chain[0];
+      item.transform = { ...item.transform, x: 0.5 };
+      transactionValue = item.transform;
+    });
+    assert.throws(() => structuredClone(transactionValue), { name: "DataCloneError" });
+
+    const bridge = createControlBridge({
+      store: {
+        subscribe() { return () => {}; },
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+    bridge.sendRenderPatches([{
+      componentId: "component-a",
+      path: "chain.0.transform",
+      value: transactionValue,
+    }]);
+
+    const packet = messages.find((message) => message.type === "live-patch");
+    assert.deepEqual(packet.patches[0].value, {
+      x: 0.5,
+      y: 0,
+      scale: 1,
+      rotation: 0,
+    });
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("a failed patch delivery is consumed once and does not advance transport revision", () => {
+  let attempts = 0;
+  const packets = [];
+  const synchronizer = new LivePatchSynchronizer({
+    onPatch(packet) {
+      attempts++;
+      if (attempts === 1) throw new DOMException("not cloneable", "DataCloneError");
+      packets.push(packet);
+    },
+  });
+  synchronizer.queue([createLiveRenderPatch("component-a", "chain.0.params.amount", 0.25)]);
+  assert.throws(() => synchronizer.flush(), { name: "DataCloneError" });
+  assert.equal(synchronizer.revision, 0);
+  assert.equal(synchronizer.pendingCount, 0);
+  assert.equal(synchronizer.flush(), null);
+
+  synchronizer.queue([createLiveRenderPatch("component-a", "chain.0.params.amount", 0.5)]);
+  const recovered = synchronizer.flush();
+  assert.equal(recovered.baseRevision, 0);
+  assert.equal(recovered.revision, 1);
+  assert.equal(synchronizer.revision, 1);
+  assert.equal(packets.length, 1);
 });
 
 test("mapping scrubs share the patch transport and retain only the latest calibration", async () => {
@@ -2107,9 +2294,11 @@ test("Live render patches mutate only the addressed Component path", () => {
 
 test("render-state patches update only allow-listed continuous renderer roots", () => {
   const originalCalibration = { coordinateSpace: "relative", surfaces: [] };
+  const originalSurfaces = [{ id: "surface-a", enabled: true }];
   const state = {
     components: [],
     mappingCalibration: originalCalibration,
+    surfaces: originalSurfaces,
     global: { blackout: false },
   };
   const nextCalibration = {
@@ -2124,11 +2313,57 @@ test("render-state patches update only allow-listed continuous renderer roots", 
   assert.equal(state.mappingCalibration, nextCalibration);
   assert.deepEqual(state.global, { blackout: false });
 
+  const nextSurfaces = [{ id: "surface-a", enabled: false }];
+  const projected = applyLiveRenderPatches(state, [
+    createRenderStatePatch("surfaces", nextSurfaces),
+  ]);
+  assert.equal(projected.applied, true);
+  assert.deepEqual(projected.statePaths, ["surfaces"]);
+  assert.equal(state.surfaces, nextSurfaces);
+
   const rejected = applyLiveRenderPatches(state, [
     createRenderStatePatch("global", { blackout: true }),
   ]);
   assert.equal(rejected.applied, false);
   assert.deepEqual(state.global, { blackout: false });
+});
+
+test("a route projection patch retains visual programs and rebuilds only Mapping lookups", () => {
+  const renderer = new OutputRenderer({ mode: "output" });
+  const previousState = {
+    components: [],
+    nodes: { groups: [] },
+    frames: [],
+    surfaces: [{ id: "surface-a", enabled: true }],
+    ui: { live: { paramFadeDuration: 0 } },
+  };
+  const nextSurfaces = [{ id: "surface-a", enabled: false }];
+  renderer.state = previousState;
+  const calls = [];
+  renderer.mappingRuntime.captureState = () => {
+    calls.push("capture");
+    return { retained: true };
+  };
+  renderer.componentProgramRuntime.ensureStateRoots = (state) => calls.push(["ensure", state]);
+  renderer.mappingProgramRuntime.rebuild = (state) => calls.push(["mapping", state]);
+  renderer.componentProgramRuntime.rebuildLookups = (state) => calls.push(["lookups", state]);
+  renderer.mappingRuntime.reconcileState = (state) => calls.push(["reconcile", state]);
+
+  const result = renderer.livePatchRuntime.applyLive([
+    createRenderStatePatch("surfaces", nextSurfaces),
+  ]);
+
+  assert.equal(result.applied, true);
+  assert.notStrictEqual(renderer.state, previousState);
+  assert.strictEqual(renderer.state.components, previousState.components);
+  assert.strictEqual(renderer.state.surfaces, nextSurfaces);
+  assert.deepEqual(calls, [
+    "capture",
+    ["ensure", renderer.state],
+    ["mapping", renderer.state],
+    ["lookups", renderer.state],
+    ["reconcile", { retained: true }],
+  ]);
 });
 
 test("Live render patches may author omitted parameter defaults but not structure", () => {

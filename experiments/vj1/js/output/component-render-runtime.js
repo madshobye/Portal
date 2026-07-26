@@ -29,6 +29,7 @@ export class ComponentRenderRuntime {
   }
 
   clear() {
+    this.host.recordSignal?.("cacheInvalidations", 1, "component-render-cache");
     this.stableSignatures.clear();
     this.resolutionTraces.clear();
     this.resolutionTraceStack.length = 0;
@@ -92,6 +93,7 @@ export class ComponentRenderRuntime {
       this.useCachedResolutionTrace(outputKey);
       host.sourceRuntime.claimRetainedComponentMedia(component);
       host.profileRuntime.frameProfile.componentCacheHits++;
+      host.recordSignal?.("cacheHits", 1, "component-frame");
       return cached;
     }
 
@@ -129,6 +131,7 @@ export class ComponentRenderRuntime {
         host.renderTargetRuntime.touchCpu(stableGpuKey);
       }
       host.profileRuntime.frameProfile.componentCacheHits++;
+      host.recordSignal?.("cacheHits", 1, "component-stable");
       this.cacheOutput(component, outputKey, stableCached, outputRequest);
       return stableCached;
     }

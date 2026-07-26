@@ -1,6 +1,6 @@
 const FORBIDDEN_PATH_PARTS = new Set(["__proto__", "prototype", "constructor"]);
 const STRUCTURAL_LIVE_RENDER_ROOTS = new Set(["resolutionScale", "frameShape", "syncInstances"]);
-const RENDER_STATE_ROOTS = new Set(["mappingCalibration"]);
+const RENDER_STATE_ROOTS = new Set(["mappingCalibration", "surfaces"]);
 
 export function createLiveRenderPatch(componentId, path, value) {
   return {
@@ -14,8 +14,10 @@ export function createLiveRenderPatch(componentId, path, value) {
 // The patch transport is shared by every high-frequency render edit. State
 // roots are deliberately allow-listed and root-level: project structure still
 // travels as an ordered full-state snapshot, while continuous renderer-owned
-// values such as mapping calibration can use the same latest-wins protocol as
-// Component parameters.
+// values such as mapping calibration and the derived Live Surface projection
+// can use the same latest-wins protocol as Component parameters. `surfaces`
+// here is the already-materialized render program, not the authored Mapping;
+// the latter still travels through ordered project-state activation.
 export function createRenderStatePatch(path, value) {
   return {
     target: "state",

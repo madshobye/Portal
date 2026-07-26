@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createChangeEvent } from "../js/libraries/state-engine/state-command/index.js";
+import {
+  controlInvalidationForPaths,
+  createChangeEvent,
+} from "../js/libraries/state-engine/state-command/index.js";
 
 test("structural component changes are identified separately from control gestures", () => {
   assert.equal(createChangeEvent("add-component").structural, true);
@@ -30,6 +33,8 @@ test("change events centralize legacy reason phases and topics", () => {
   assert.equal(createChangeEvent("scrub:live").scope, "live");
   assert.equal(createChangeEvent("update:components.0.name").history, "record");
   assert.equal(createChangeEvent("workspace").history, "none");
+  assert.equal(createChangeEvent("select-mapping").history, "none");
+  assert.equal(createChangeEvent("select-chain-item").history, "none");
 });
 
 test("structured change metadata extends the compatibility reason", () => {
@@ -51,4 +56,31 @@ test("project restore classification is shared by state consumers", () => {
   assert.equal(createChangeEvent("project-undo").projectRestore, true);
   assert.equal(createChangeEvent("project-undo").history, "none");
   assert.equal(createChangeEvent("project-autosave").projectRestore, false);
+});
+
+test("control invalidation is derived centrally from semantic changed paths", () => {
+  assert.deepEqual(
+    controlInvalidationForPaths(["components.2.chain.1.enabled"]),
+    {
+      regions: ["inspector"],
+      requiresRenderPatch: true,
+    },
+  );
+  assert.deepEqual(
+    controlInvalidationForPaths(["mappings.0.surfaces.1.enabled"]),
+    {
+      regions: ["project-selection", "inspector"],
+      preview: "mapping",
+    },
+  );
+  assert.deepEqual(
+    createChangeEvent({
+      reason: "toggle:components.2.chain.1.enabled",
+      changedPaths: ["components.2.chain.1.enabled"],
+    }).controlInvalidation,
+    {
+      regions: ["inspector"],
+      requiresRenderPatch: true,
+    },
+  );
 });

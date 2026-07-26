@@ -115,6 +115,76 @@ function compileFeatureMorphPlan(definition, parameters = {}) {
   return { plan, group: plan.operations[0], render: plan.operations[0].operations[0] };
 }
 
+test("prepared Feature Morph programs start one retained analysis before their first render", () => {
+  const images = new Map([
+    ["a.png", {
+      image: { width: 640, height: 480 },
+      file: { name: "a.png", size: 10, lastModified: 1 },
+    }],
+    ["b.png", {
+      image: { width: 640, height: 480 },
+      file: { name: "b.png", size: 20, lastModified: 2 },
+    }],
+  ]);
+  const runtime = new FeatureMorphRuntime({
+    acquireMedia: (id) => images.get(id) || null,
+  });
+  runtime.superPointPairs.dispose();
+  let analysisState = "idle";
+  const requests = [];
+  runtime.superPointPairs = {
+    status: () => analysisState,
+    externalKey: () => `${analysisState}:1`,
+    request: (settings, imageA, imageB, media) => {
+      requests.push({ settings, imageA, imageB, media });
+      analysisState = "loading";
+      return { status: analysisState };
+    },
+    dispose() {},
+  };
+  const { plan, group, render } = compileFeatureMorphPlan(
+    getGeneratorComponent("featureMorph").nodeDefinition,
+    {
+      imageAId: "a.png",
+      imageBId: "b.png",
+      landmarkCount: 88,
+    },
+  );
+  const analysisStep = group.valueProgram.steps.find(
+    (step) =>
+      step.externalResolver?.capability ===
+      "feature-morph-analysis",
+  );
+  assert.equal(
+    analysisStep.outputValues.analysis,
+    undefined,
+    "a newly prepared program has not executed its value graph",
+  );
+
+  assert.equal(runtime.readinessStatus(plan).state, "pending");
+  assert.equal(requests.length, 1);
+  assert.equal(analysisStep.outputValues.analysis.providerId, "superpoint");
+  assert.equal(render.runtimeValueInputs.get("analysis").settings.landmarkCount, 88);
+  assert.strictEqual(requests[0].imageA, images.get("a.png").image);
+  assert.strictEqual(requests[0].imageB, images.get("b.png").image);
+  assert.equal(requests[0].media.algorithmRevision, render.nodeCodeRevision);
+  assert.equal("width" in requests[0].media, false);
+  assert.equal("height" in requests[0].media, false);
+
+  assert.equal(runtime.readinessStatus(plan).state, "pending");
+  assert.equal(
+    requests.length,
+    1,
+    "readiness polling cannot restart analysis or tie it to preview scale",
+  );
+  analysisState = "ready";
+  assert.equal(runtime.readinessStatus(plan).state, "ready");
+  assert.equal(requests.length, 1);
+
+  runtime.dispose();
+  plan.dispose();
+});
+
 test("Feature Morph resources, analysis providers, and renderer are ordinary visual-editor nodes", () => {
   for (const definition of [
     MediaImageResourceNode,

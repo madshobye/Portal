@@ -13,12 +13,14 @@ export class ComponentProgramRuntime {
     getVisualNodes,
     getCoreDefinition,
     getSourceRuntime,
+    onCompile = null,
   }) {
     this.getMode = typeof getMode === "function" ? getMode : () => mode;
     this.getState = getState;
     this.getVisualNodes = getVisualNodes;
     this.getCoreDefinition = getCoreDefinition;
     this.getSourceRuntime = getSourceRuntime;
+    this.onCompile = onCompile;
     this.programs = new Map();
     this.prepared = null;
     this.runtimeComponents = runtimeVisualSourceComponents();
@@ -38,6 +40,7 @@ export class ComponentProgramRuntime {
     disposePrograms(this.programs);
     this.runtimeComponents = runtimeVisualSourceComponents();
     this.programs = this.compile(state, this.runtimeComponents);
+    this.onCompile?.(1, "component-program-rebuild");
     this.validate(this.programs);
     return this.programs;
   }
@@ -55,6 +58,7 @@ export class ComponentProgramRuntime {
       }
       this.programs.set(componentId, program);
     }
+    this.onCompile?.(1, "component-root-materialization");
     return true;
   }
 

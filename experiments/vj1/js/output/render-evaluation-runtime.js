@@ -43,8 +43,12 @@ export class RenderEvaluationRuntime {
       frame: host.frameRuntime.frameIndex,
       dirtyReason,
     });
-    if (!result.rendered) host.profileRuntime.frameProfile.stageCacheHits++;
-    else host.profileRuntime.frameProfile.stageRenders++;
+    if (!result.rendered) {
+      host.profileRuntime.frameProfile.stageCacheHits++;
+      host.recordSignal?.("cacheHits", 1, "render-node");
+    } else {
+      host.profileRuntime.frameProfile.stageRenders++;
+    }
     return {
       buffer: result.output,
       outputVersion: result.outputVersion,

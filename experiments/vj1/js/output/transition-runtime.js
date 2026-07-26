@@ -12,11 +12,13 @@ export class TransitionRuntime {
     getVisualNodes,
     disposeTransitionShaders,
     retainTransitionKernels,
+    onCompile = null,
   }) {
     this.getState = getState;
     this.getVisualNodes = getVisualNodes;
     this.disposeTransitionShaders = disposeTransitionShaders;
     this.retainTransitionKernels = retainTransitionKernels;
+    this.onCompile = onCompile;
     this.catalog = createTransitionCatalog();
     this.signature = "";
   }
@@ -51,6 +53,7 @@ export class TransitionRuntime {
     );
     this.disposeTransitionShaders?.();
     this.retainActiveKernels();
+    this.onCompile?.();
     return true;
   }
 

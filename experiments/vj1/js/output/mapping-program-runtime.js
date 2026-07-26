@@ -8,8 +8,9 @@ import {
 // presentation consumes the resolved program directly; authored Mapping state
 // remains the semantic authority.
 export class MappingProgramRuntime {
-  constructor({ getState }) {
+  constructor({ getState, onCompile = null }) {
     this.getState = getState;
+    this.onCompile = onCompile;
     this.programs = new Map();
     this.output = null;
     this.cache = new WeakMap();
@@ -19,6 +20,7 @@ export class MappingProgramRuntime {
     const groups = state?.nodes?.groups || [];
     this.programs = compileMappingRenderPrograms(state || {}, groups);
     this.output = compileOutputRenderProgram(groups);
+    this.onCompile?.(1, "mapping-program-rebuild");
     if (state && typeof state === "object") {
       this.cache.set(state, {
         mappings: this.programs,
@@ -44,6 +46,7 @@ export class MappingProgramRuntime {
         mappings: compileMappingRenderPrograms(state, groups),
         output: compileOutputRenderProgram(groups),
       };
+      this.onCompile?.(1, "mapping-program-projection");
       this.cache.set(state, compiled);
     }
     return activeMappingProgramSurfaces(

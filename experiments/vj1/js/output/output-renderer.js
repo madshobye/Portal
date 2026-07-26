@@ -6,43 +6,44 @@ import { IsfRenderRuntime } from "./isf-render-runtime.js?v=visual-node-runtime-
 import { TextureOperatorRuntime } from "./texture-operator-runtime.js?v=async-media-dirty-1";
 import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=shader-program-lifetime-1";
 import { ShaderGeneratorRuntime } from "./shader-generator-runtime.js?v=async-media-dirty-1";
-import { RenderEvaluationRuntime } from "./render-evaluation-runtime.js?v=async-media-dirty-1";
+import { RenderEvaluationRuntime } from "./render-evaluation-runtime.js?v=signal-load-observability-1";
 import { RenderTargetRuntime } from "./render-target-runtime.js?v=async-media-dirty-1";
 import { RenderRequestRuntime } from "./render-request-runtime.js?v=render-request-capability-1";
 import { CompositeRenderRuntime } from "./composite-render-runtime.js?v=node-roi-placement-1";
-import { TransitionRuntime } from "./transition-runtime.js?v=transition-capability-1";
+import { TransitionRuntime } from "./transition-runtime.js?v=signal-load-observability-1";
 import {
   ComponentProgramRuntime,
   renderStateComponentProgramRoots,
-} from "./component-program-runtime.js?v=node-roi-placement-1";
+} from "./component-program-runtime.js?v=signal-load-observability-1";
 import {
   ComponentRenderRuntime,
   componentPipelineSourceRequest,
-} from "./component-render-runtime.js?v=compiled-capability-revision-1";
-import { MappingProgramRuntime } from "./mapping-program-runtime.js?v=compiled-capability-revision-1";
+} from "./component-render-runtime.js?v=signal-load-observability-1";
+import { MappingProgramRuntime } from "./mapping-program-runtime.js?v=signal-load-observability-1";
 import {
   VisualPlanRuntime,
   primaryTextureInputPort,
   visualOperationRenderItem,
 } from "./visual-plan-runtime.js?v=node-roi-placement-1";
-import { SourceRenderRuntime } from "./source-render-runtime.js?v=node-roi-placement-1";
+import { SourceRenderRuntime } from "./source-render-runtime.js?v=signal-load-observability-1";
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=output-resource-runtime-capability-1";
 import { OutputRenderProfile } from "./output-render-profile.js?v=profiling-capability-1";
-import { OutputPresentationMetrics } from "./output-presentation-metrics.js?v=async-media-dirty-1";
+import { OutputPresentationMetrics } from "./output-presentation-metrics.js?v=signal-load-observability-1";
 import { PresentationGeometryRuntime } from "./presentation-geometry-runtime.js?v=presentation-geometry-capability-1";
 import { OutputReadinessRuntime } from "./output-readiness-runtime.js?v=async-media-dirty-1";
 import { OutputFrameRuntime } from "./output-frame-runtime.js?v=async-media-dirty-1";
-import { LiveRenderPatchRuntime } from "./live-render-patch-runtime.js?v=output-mapping-runtime-capability-1";
+import { LiveRenderPatchRuntime } from "./live-render-patch-runtime.js?v=structural-world-state-2";
 import { VisualNodeRuntime } from "./visual-node-runtime.js?v=node-roi-placement-1";
 import { OutputMappingRuntime } from "./output-mapping-runtime.js?v=output-resource-runtime-capability-1";
-import { OutputPresentationRuntime } from "./output-presentation-runtime.js?v=live-output-projection-1";
+import { OutputPresentationRuntime } from "./output-presentation-runtime.js?v=signal-load-observability-1";
 import { OutputResourceRuntime } from "./output-resource-runtime.js?v=output-resource-runtime-capability-1";
 import { OutputStateRuntime } from "./output-state-runtime.js?v=live-output-matrix-contract-3";
 import {
   frameSize,
 } from "./render-geometry.js?v=fit-geometry-demand-1";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=standby-local-diagnostic-1";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=structural-world-state-2";
 import { NativeRendererRegistry } from "../libraries/render-engine/native-renderer-registry.js";
+import { signalLoadMeter } from "../metrics/signal-load-meter.js";
 
 export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
 export { parseObjMesh } from "../libraries/mesh-engine/obj-parser/index.js";
@@ -118,6 +119,7 @@ export class OutputRenderer {
     this.onSurfaceSelect = onSurfaceSelect;
     this.onChainItemSelect = onChainItemSelect;
     this.onSceneSurfaceSelect = onSceneSurfaceSelect;
+    this.signalMeter = signalLoadMeter(mode === "output" ? "output" : "preview");
     this.stateRuntime = new OutputStateRuntime(this);
     this.resourceRuntime = new OutputResourceRuntime(this, { font });
     this.presentationGeometry = new PresentationGeometryRuntime(this);
@@ -203,6 +205,7 @@ export class OutputRenderer {
       disposeTransitionShaders: () => this.textureOperatorRuntime.disposeTransitionShaders(),
       retainTransitionKernels: (kernels) =>
         this.mappingRuntime.mapper?.retainTransitionKernels?.(kernels),
+      onCompile: () => this.recordSignal("compiles", 1, "transitions"),
     });
     this.compositeRuntime = new CompositeRenderRuntime(this);
     this.shaderEffectRuntime = new ShaderEffectRuntime(this, {
@@ -225,12 +228,14 @@ export class OutputRenderer {
       getVisualNodes: () => this.visualNodeRuntime.nodes,
       getCoreDefinition: (id) => this.visualNodeRuntime.coreDefinition(id),
       getSourceRuntime: () => this.sourceRuntime,
+      onCompile: (count, reason) => this.recordSignal("compiles", count, reason),
     });
     this.readinessRuntime = new OutputReadinessRuntime(this);
     this.componentRenderRuntime = new ComponentRenderRuntime(this);
     this.visualPlanRuntime = new VisualPlanRuntime(this);
     this.mappingProgramRuntime = new MappingProgramRuntime({
       getState: () => this.state,
+      onCompile: (count, reason) => this.recordSignal("compiles", count, reason),
     });
   }
 
@@ -311,7 +316,15 @@ export class OutputRenderer {
   }
 
   invalidatePresentation(reason = "runtime") {
+    this.recordSignal("invalidations", 1, reason);
+    if (/(media|resource|asset|camera|screen|video|font|morph)/i.test(reason)) {
+      this.recordSignal("resourceRevisions", 1, reason);
+    }
     this.requestPresentationFrame?.(reason);
+  }
+
+  recordSignal(category, count = 1, reason = "") {
+    this.signalMeter?.record(category, count, reason);
   }
 
   resize() {

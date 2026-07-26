@@ -34,7 +34,7 @@ import {
   Vector3ControlNode,
 } from "./libraries/control-engine/index.js?v=async-media-dirty-1";
 import { CacheEngineNode } from "./libraries/cache-engine/index.js";
-import { DataStoreNode } from "./libraries/data-store/index.js";
+import { DataStoreNode } from "./libraries/data-store/index.js?v=structural-world-state-2";
 import { DiagnosticsEngineNode } from "./libraries/diagnostics-engine/index.js";
 import { ImageResizeNode } from "./libraries/image-engine/index.js?v=nested-component-roi-1";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./libraries/timing-engine/index.js";
@@ -204,6 +204,9 @@ export function createVj1NodePackage() {
   const prepareProjectState = (state) => prepareVj1NodeProjectState(state, {
     visualDefinitions,
   });
+  const prepareProjectChange = (previous, next) => prepareVj1NodeProjectChange(previous, next, {
+    visualDefinitions,
+  });
   const applicationProgramForState = (state = {}) => (state?.nodes?.groups || [])
     .find((group) => group.id === applicationProgram.id) || applicationProgram;
   const createApplicationRuntime = ({ group = applicationProgram, ...options } = {}) => {
@@ -300,6 +303,7 @@ export function createVj1NodePackage() {
     projectArtifacts: (state) => createProjectArtifactCatalog(state),
     projectViews: (state) => projectArtifactViews(state),
     prepareProjectState,
+    prepareProjectChange,
     editorContext,
     editorProjection: (definition, options = {}) => nodeEditorProjection(definition, { nodeRegistry: registry, ...options }),
   };
@@ -384,6 +388,138 @@ export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] 
       surfaces: state?.surfaces,
       componentGroups,
     }),
+  };
+}
+
+// Component configuration changes keep the same compiled topology. Reconcile
+// only the changed Component groups and their generated instances so the
+// graph-authoritative save remains current without rebuilding every Component,
+// Mapping, definition, pin, and artifact in the project. Structural topology
+// changes deliberately fall back to the full project compiler.
+export function prepareVj1NodeProjectChange(previous = {}, next = {}, {
+  visualDefinitions = [],
+} = {}) {
+  if (previous === next) return next;
+  if (previous.nodes !== next.nodes) {
+    return prepareVj1NodeProjectState(next, { visualDefinitions });
+  }
+  const previousComponents = previous.components || [];
+  const nextComponents = next.components || [];
+  if (
+    previousComponents.length !== nextComponents.length ||
+    previousComponents.some((component, index) =>
+      String(component?.id || "") !== String(nextComponents[index]?.id || "")
+    )
+  ) {
+    return prepareVj1NodeProjectState(next, { visualDefinitions });
+  }
+  const changedIndexes = nextComponents.flatMap((component, index) =>
+    component === previousComponents[index] ? [] : [index]
+  );
+  const routesChanged = previous.mappings !== next.mappings ||
+    previous.surfaces !== next.surfaces;
+  if (!changedIndexes.length && !routesChanged) return next;
+
+  // prepareChange only receives states that have already passed through
+  // prepareProjectState. Re-normalizing the complete node project here would
+  // deep-copy every definition, group, instance, and package for a one-field
+  // Component edit—the exact whole-world work this incremental boundary
+  // exists to remove.
+  const currentNodes = next.nodes;
+  let reconciled = [];
+  const components = nextComponents.slice();
+  const groupReplacements = new Map();
+  const replacedComponentGroupIds = new Set();
+  if (changedIndexes.length) {
+    const projectVisualDefinitions = listProjectIsfVisualComponents({
+      ...next,
+      nodes: currentNodes,
+    }).map((component) => component.nodeDefinition);
+    const definitions = componentTopologyDefinitionMap({
+      visualDefinitions,
+      projectVisualDefinitions,
+    });
+    const groupsByComponent = new Map(currentNodes.groups
+      .filter((group) => group.generatedBy === COMPONENT_PROGRAM_GENERATOR)
+      .map((group) => [String(group.componentId || ""), group]));
+    reconciled = changedIndexes.map((index) => {
+      const component = nextComponents[index];
+      const existing = groupsByComponent.get(String(component.id || "")) || null;
+      const entry = reconcileComponentGroupTopology(component, existing, { definitions });
+      const group = {
+        ...entry.group,
+        persistence: entry.group.authoredConnections === true ? "project-diff" : "compact",
+      };
+      return { index, existing, component: entry.component, group };
+    });
+    if (reconciled.some(({ existing, group }) =>
+      !existing || componentTopologyShape(existing) !== componentTopologyShape(group)
+    )) {
+      return prepareVj1NodeProjectState(next, { visualDefinitions });
+    }
+    for (const entry of reconciled) {
+      components[entry.index] = entry.component;
+      replacedComponentGroupIds.add(entry.group.id);
+      groupReplacements.set(entry.group.id, entry.group);
+    }
+  }
+
+  let mappingGroups = [];
+  if (routesChanged) {
+    const existingById = new Map(currentNodes.groups.map((group) => [group.id, group]));
+    mappingGroups = [
+      compileMappingGroupTopology({ id: "", name: "Working Mapping" }, next.surfaces),
+      ...(next.mappings || []).map((mapping) =>
+        compileMappingGroupTopology(mapping, next.surfaces)
+      ),
+      compileOutputGroupTopology(),
+    ].map((group) => generatedProgramPersistence(
+      reconcileGeneratedProgramTopology(group, existingById.get(group.id))
+    ));
+    for (const group of mappingGroups) groupReplacements.set(group.id, group);
+  }
+
+  const mappingGroupIds = new Set(mappingGroups.map((group) => group.id));
+  const groups = currentNodes.groups
+    .filter((group) =>
+      !routesChanged ||
+      group.generatedBy !== MAPPING_PROGRAM_GENERATOR ||
+      mappingGroupIds.has(group.id)
+    )
+    .map((group) => groupReplacements.get(group.id) || group);
+  for (const group of mappingGroups) {
+    if (!groups.some((entry) => entry.id === group.id)) groups.push(group);
+  }
+  const instances = currentNodes.instances.filter((instance) => {
+    const id = String(instance.id || "");
+    if ([...replacedComponentGroupIds].some((groupId) => id.startsWith(`${groupId}/`))) {
+      return false;
+    }
+    return !routesChanged || instance.generatedBy !== MAPPING_PROGRAM_GENERATOR;
+  });
+  instances.push(
+    ...reconciled.flatMap(({ group }) => componentProgramInstances(group)),
+    ...mappingProgramInstances(mappingGroups),
+  );
+  const artifacts = currentNodes.artifacts.map((artifact) => {
+    if (artifact.generatedBy !== COMPONENT_PROGRAM_GENERATOR) return artifact;
+    const component = components.find((item) =>
+      artifact.id === `vj1.project.${item.type === "scene" ? "scene" : "component"}.${item.id}`
+    );
+    return component ? {
+      ...artifact,
+      name: component.name || (component.type === "scene" ? "Scene" : "Component"),
+    } : artifact;
+  });
+  return {
+    ...next,
+    components,
+    nodes: {
+      ...currentNodes,
+      groups,
+      instances,
+      artifacts,
+    },
   };
 }
 
@@ -520,6 +656,35 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
       ...componentArtifacts.map((artifact) => ({ ...artifact, persistence: "derived" })),
     ], [{ ...serializeNodeArtifact(ModelPreviewPipelineArtifact), persistence: "package" }], (item) => item.id),
   };
+}
+
+function componentTopologyDefinitionMap({
+  visualDefinitions = [],
+  projectVisualDefinitions = [],
+} = {}) {
+  return new Map([
+    ...visualDefinitions,
+    ...projectVisualDefinitions,
+    ...VisualStageNodeDefinitions,
+    ...Scene3dNodeDefinitions,
+    TerrainFlightControllerNode,
+    RenderDemandNode,
+    LayerGroupNode,
+    VisualSourceNode,
+    ...TextureOperatorNodeDefinitions,
+  ].map((definition) => [definition.id, definition]));
+}
+
+function componentTopologyShape(group = {}) {
+  const nodes = [];
+  const visit = (items = []) => {
+    for (const node of items) {
+      nodes.push(`${node.id}:${node.nodeId}:${node.role || ""}`);
+      visit(node.nodes || []);
+    }
+  };
+  visit(group.nodes || []);
+  return nodes.join("|");
 }
 
 function persistedGroupTopology(definition) {

@@ -44,6 +44,20 @@ test("performance host summary remains bounded and numeric", () => {
     eventLoopLagMs: [0, 5],
     longTasks: [{ durationMs: 12, name: "task" }],
     stateEvents: { update: 2 },
+    signalSamples: [
+      {
+        categories: { compiles: 1, invalidations: 5 },
+        reasons: { "compiles:component-a": 1, "invalidations:drag": 5 },
+        totalPerSecond: 6,
+        pressurePerSecond: 17,
+      },
+      {
+        categories: { compiles: 1, transactions: 1 },
+        reasons: { "compiles:component-a": 1, "transactions:update": 1 },
+        totalPerSecond: 2,
+        pressurePerSecond: 16,
+      },
+    ],
     memoryStartBytes: null,
   });
   assert.equal(summary.uiRenderCount, 2);
@@ -51,4 +65,10 @@ test("performance host summary remains bounded and numeric", () => {
   assert.equal(summary.eventLoopLagMsP95, 5);
   assert.equal(summary.longTaskTotalMs, 12);
   assert.equal(summary.stateEventCount, 2);
+  assert.equal(summary.signalCategoriesPerSecondAvg.compiles, 1);
+  assert.equal(summary.signalReasonsPerSecondAvg["invalidations:drag"], 2.5);
+  assert.deepEqual(summary.signalTopPressureReasonsPerSecondAvg[0], {
+    reason: "invalidations:drag",
+    count: 2.5,
+  });
 });

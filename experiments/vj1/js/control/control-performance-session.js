@@ -7,6 +7,7 @@ const TICK_INTERVAL_MS = 250;
 export function createControlPerformanceSession({
   getState,
   metricForState,
+  signalForState,
   analyze,
   onTick = () => {},
   onComplete = () => {},
@@ -37,12 +38,14 @@ export function createControlPerformanceSession({
         longTasks: [],
         eventLoopLagMs: [],
         stateEvents: {},
+        signalSamples: [],
         expectedTickAt: startedAt + TICK_INTERVAL_MS,
         memoryStartBytes: performanceMemoryBytes(),
       },
     };
     startLongTaskObserver();
     captureSample(getState?.());
+    captureSignal(getState?.());
     onTick();
     timer = globalThis.setInterval(() => {
       if (session) {
@@ -55,6 +58,7 @@ export function createControlPerformanceSession({
         return;
       }
       onTick();
+      captureSignal(getState?.());
     }, TICK_INTERVAL_MS);
     return true;
   }
@@ -68,6 +72,12 @@ export function createControlPerformanceSession({
   function recordUiRender(duration) {
     if (!session) return;
     pushBounded(session.host.uiRenderMs, Math.max(0, Number(duration) || 0), 240);
+  }
+
+  function captureSignal(state) {
+    if (!session) return;
+    const snapshot = signalForState?.(state);
+    if (snapshot) pushBounded(session.host.signalSamples, structuredCloneSafe(snapshot), 80);
   }
 
   function captureSample(state, reason = "active") {
@@ -149,6 +159,28 @@ export function summarizePerformanceHost(host = {}) {
   const stateEvents = Object.entries(host.stateEvents || {})
     .map(([reason, count]) => ({ reason, count: Math.max(0, Number(count) || 0) }))
     .sort((a, b) => b.count - a.count);
+  const signalSamples = (host.signalSamples || []).filter(Boolean);
+  const signalCategories = {};
+  const signalReasons = {};
+  for (const sample of signalSamples) {
+    for (const [category, count] of Object.entries(sample.categories || {})) {
+      signalCategories[category] = (signalCategories[category] || 0) + Math.max(0, Number(count) || 0);
+    }
+    for (const [reason, count] of Object.entries(sample.reasons || {})) {
+      signalReasons[reason] = (signalReasons[reason] || 0) + Math.max(0, Number(count) || 0);
+    }
+  }
+  const signalReasonsPerSecondAvg = Object.fromEntries(
+    Object.entries(signalReasons).map(([reason, count]) => [
+      reason,
+      signalSamples.length ? count / signalSamples.length : 0,
+    ]),
+  );
+  const signalTopPressureReasonsPerSecondAvg = Object.entries(signalReasonsPerSecondAvg)
+    .filter(([reason]) => !/^(cacheHits|previewPresentations|outputPresentations):/.test(reason))
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20);
   const memoryEndBytes = performanceMemoryBytes();
   const memoryStartBytes = host.memoryStartBytes === null || host.memoryStartBytes === undefined
     ? null
@@ -166,6 +198,20 @@ export function summarizePerformanceHost(host = {}) {
     longTasks: longTasks.slice().sort((a, b) => b.durationMs - a.durationMs).slice(0, 20),
     stateEventCount: stateEvents.reduce((sum, item) => sum + item.count, 0),
     topStateEvents: stateEvents.slice(0, 12),
+    signalSampleCount: signalSamples.length,
+    signalPerSecondAvg: averageNumbers(signalSamples.map((sample) => sample.totalPerSecond)),
+    signalPressurePerSecondAvg: averageNumbers(signalSamples.map((sample) => sample.pressurePerSecond)),
+    signalPressurePerSecondMax: signalSamples.length
+      ? Math.max(...signalSamples.map((sample) => Math.max(0, Number(sample.pressurePerSecond) || 0)))
+      : 0,
+    signalCategoriesPerSecondAvg: Object.fromEntries(
+      Object.entries(signalCategories).map(([category, count]) => [
+        category,
+        signalSamples.length ? count / signalSamples.length : 0,
+      ]),
+    ),
+    signalReasonsPerSecondAvg,
+    signalTopPressureReasonsPerSecondAvg,
     memoryStartBytes: Number.isFinite(memoryStartBytes) ? memoryStartBytes : null,
     memoryEndBytes,
     memoryDeltaBytes: Number.isFinite(memoryStartBytes) && Number.isFinite(memoryEndBytes) ? memoryEndBytes - memoryStartBytes : null,

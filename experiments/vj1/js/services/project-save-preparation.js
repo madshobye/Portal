@@ -40,11 +40,12 @@ export function projectPayloadSignature(payload = {}) {
 
 export function createProjectSavePreparer({
   WorkerClass = globalThis.Worker,
-  workerUrl = new URL("./project-save-preparation-worker.js?v=autosave-worker-timeout-1", import.meta.url),
+  workerUrl = new URL("./project-save-preparation-worker.js?v=project-save-worker-ready-1", import.meta.url),
   onFallback = defaultFallbackWarning,
   requestTimeoutMs = 5000,
 } = {}) {
   let worker = null;
+  let workerReady = false;
   let nextRequestId = 0;
   let fallbackReported = false;
   const pending = new Map();
@@ -65,6 +66,7 @@ export function createProjectSavePreparer({
   function retireWorker(error) {
     const active = worker;
     worker = null;
+    workerReady = false;
     try { active?.terminate?.(); } catch {}
     reportFallback(error);
     for (const request of pending.values()) {
@@ -78,6 +80,23 @@ export function createProjectSavePreparer({
     pending.clear();
   }
 
+  function postRequest(active, id, request) {
+    if (!active || active !== worker || request.sent) return;
+    request.sent = true;
+    try {
+      active.postMessage({ id, ...request.task });
+    } catch (error) {
+      pending.delete(id);
+      clearTimeout(request.timeoutId);
+      reportFallback(error);
+      try {
+        request.resolve(local(request.task));
+      } catch (fallbackError) {
+        request.reject(fallbackError);
+      }
+    }
+  }
+
   function ensureWorker() {
     if (worker || typeof WorkerClass !== "function") return worker;
     try {
@@ -87,6 +106,12 @@ export function createProjectSavePreparer({
       });
       worker.onmessage = (event) => {
         const response = event?.data || {};
+        if (response.type === "ready") {
+          if (event.currentTarget && event.currentTarget !== worker) return;
+          workerReady = true;
+          for (const [id, request] of pending) postRequest(worker, id, request);
+          return;
+        }
         const request = pending.get(response.id);
         if (!request) return;
         pending.delete(response.id);
@@ -115,20 +140,9 @@ export function createProjectSavePreparer({
         if (!pending.has(id)) return;
         retireWorker(new Error(`VJ1_PROJECT_SAVE_PREPARATION_TIMEOUT:${Math.max(0, Number(requestTimeoutMs) || 0)}`));
       }, Math.max(0, Number(requestTimeoutMs) || 0));
-      pending.set(id, { resolve, reject, task, timeoutId });
-      try {
-        active.postMessage({ id, ...task });
-      } catch (error) {
-        const request = pending.get(id);
-        pending.delete(id);
-        clearTimeout(request?.timeoutId);
-        reportFallback(error);
-        try {
-          resolve(local(task));
-        } catch (fallbackError) {
-          reject(fallbackError);
-        }
-      }
+      const request = { resolve, reject, task, timeoutId, sent: false };
+      pending.set(id, request);
+      if (workerReady) postRequest(active, id, request);
     });
   }
 
@@ -145,6 +159,7 @@ export function createProjectSavePreparer({
       pending.clear();
       try { worker?.terminate?.(); } catch {}
       worker = null;
+      workerReady = false;
     },
   });
 }

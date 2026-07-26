@@ -3596,6 +3596,64 @@ test("component groups render isolated from earlier parent layers", () => {
   assert.ok(!groupRenderSource.includes("drawBuffer(groupState.buffer, state.buffer"));
 });
 
+test("disabled compiled visual Groups do not evaluate values or child render operations", () => {
+  let valueEvaluations = 0;
+  let sourceRenders = 0;
+  const transparent = {
+    buffer: { id: "transparent" },
+    instanceInvariant: true,
+  };
+  const host = {
+    compositeRuntime: {
+      transparentChainState: () => transparent,
+    },
+    sourceRuntime: {
+      measureOperation: (_component, _item, _request, draw) => draw(),
+      renderItemState: () => {
+        sourceRenders += 1;
+        return transparent;
+      },
+    },
+  };
+  const runtime = new VisualPlanRuntime(host);
+  const disabledGroup = {
+    id: "disabled-compound",
+    opcode: "group",
+    backend: "compiled-visual-group",
+    configuration: {
+      id: "disabled-compound",
+      kind: "group",
+      enabled: false,
+    },
+    operations: [{
+      id: "child-source",
+      opcode: "source",
+      configuration: {
+        id: "child-source",
+        kind: "source",
+        enabled: true,
+        source: { type: "generator", generatorId: "core.scene3d.render" },
+      },
+    }],
+    valueProgram: {
+      evaluate() {
+        valueEvaluations += 1;
+      },
+    },
+  };
+
+  const result = runtime.renderOperations(
+    { id: "component", name: "Component" },
+    [disabledGroup],
+    0,
+    { role: "component", width: 800, height: 450 },
+  );
+
+  assert.strictEqual(result, transparent);
+  assert.equal(valueEvaluations, 0);
+  assert.equal(sourceRenders, 0);
+});
+
 test("compiled Group Content scale raises value-provider detail without enlarging its target", () => {
   let evaluation = null;
   const transparent = { buffer: { id: "transparent" }, instanceInvariant: true };

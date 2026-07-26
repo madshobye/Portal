@@ -33,6 +33,10 @@ import {
   sceneSourceNodes,
 } from "./scene-routing.js?v=live-output-matrix-contract-3";
 import { compileLiveProjectionProgram } from "./live-projection-program.js?v=live-output-matrix-contract-3";
+import {
+  materializeStructuralTree,
+  materializeStructuralValue,
+} from "../libraries/data-store/data-store/structural-sharing.js";
 import { firstEnabledLiveSurfaceId } from "./live-ui-state.js?v=live-output-matrix-contract-3";
 import {
   MAPPING_TEST_PATTERN_COMPONENT_ID,
@@ -484,6 +488,8 @@ export function createInitialState({ startupTemplate = false } = {}) {
       previewGpuSupported: false,
       previewRenderCost: 0,
       previewProfile: null,
+      previewSignalLoad: null,
+      signalLoad: null,
       clients: 0,
       outputs: {},
       message: "No output connected",
@@ -492,9 +498,16 @@ export function createInitialState({ startupTemplate = false } = {}) {
 }
 
 export function clone(value) {
-  return typeof structuredClone === "function"
-    ? structuredClone(value)
-    : JSON.parse(JSON.stringify(value));
+  const cloneable = materializeStructuralValue(value);
+  if (typeof structuredClone !== "function") return JSON.parse(JSON.stringify(cloneable));
+  try {
+    return structuredClone(cloneable);
+  } catch (error) {
+    // A transaction may have constructed a plain retained record containing
+    // nested draft values. Materialize that requested subtree and retry. Real
+    // non-cloneable authored values still fail on the second structuredClone.
+    return structuredClone(materializeStructuralTree(cloneable));
+  }
 }
 
 export function clamp01(value) {
@@ -1538,22 +1551,30 @@ export function applyMappingForEditing(state, mapping) {
   const next = sanitizeState({ ...clone(state), ui: { ...clone(state.ui), selectedMappingId: mapping.id } });
   const selectedMapping = next.mappings?.find((item) => String(item.id) === String(mapping.id)) || null;
   if (!selectedMapping) return next;
-  if (next.ui?.mappingTestPattern !== false) {
-    next.surfaces = selectedMapping.surfaces.map((surface) => ({
+  next.surfaces = mappingPreviewSurfaceRoutes(next, selectedMapping);
+  next.ui.selectedMappingId = mapping.id;
+  return next;
+}
+
+// Materialize only the executable Surface program for Mapping Preview. Keep
+// this separate from applyMappingForEditing so small authored Mapping commands
+// can update Output without cloning and normalizing the complete project.
+export function mappingPreviewSurfaceRoutes(state, mapping) {
+  if (!mapping?.surfaces) return [];
+  if (state.ui?.mappingTestPattern !== false) {
+    return mapping.surfaces.map((surface) => ({
       ...surface,
       sourceNodeId: MAPPING_TEST_PATTERN_SOURCE_NODE_ID,
       componentId: MAPPING_TEST_PATTERN_COMPONENT_ID,
       sceneCrop: false,
       sourceFitActive: false,
     }));
-    return next;
   }
-  const scene = mappingPreviewScene(next);
+  const scene = mappingPreviewScene(state);
   if (scene) {
-    next.surfaces = materializeSceneSurfaceRoutes(next, scene, selectedMapping).surfaces;
+    return materializeSceneSurfaceRoutes(state, scene, mapping).surfaces;
   }
-  next.ui.selectedMappingId = mapping.id;
-  return next;
+  return clone(mapping.surfaces);
 }
 
 export function projectSelectedMapping(state, mapping = null) {

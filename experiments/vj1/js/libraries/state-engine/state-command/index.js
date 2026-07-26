@@ -16,6 +16,8 @@ export function createChangeEvent(change = "change") {
   const scope = supplied.scope || parsed.scope;
   const phase = supplied.phase || parsed.phase;
   const structural = supplied.structural ?? isStructuralChange(reason);
+  const controlInvalidation = supplied.controlInvalidation ??
+    controlInvalidationForPaths(supplied.changedPaths);
   return Object.freeze({
     ...parsed,
     ...supplied,
@@ -25,7 +27,59 @@ export function createChangeEvent(change = "change") {
     scope,
     history: supplied.history || historyPolicy(reason, scope, phase),
     ...(structural ? { structural: true } : {}),
+    ...(controlInvalidation ? { controlInvalidation } : {}),
     projectRestore: supplied.projectRestore ?? parsed.projectRestore,
+  });
+}
+
+export function controlInvalidationForPaths(paths = []) {
+  const regions = new Set();
+  let preview = "";
+  let requiresRenderPatch = false;
+  for (const rawPath of paths || []) {
+    const path = String(rawPath || "");
+    if (!path) continue;
+    if (/^ui\.selectedChainItemId$/.test(path)) {
+      regions.add("inspector");
+      continue;
+    }
+    if (/^ui\.selectedComponentId$/.test(path)) {
+      regions.add("project-rail");
+      regions.add("inspector");
+      preview ||= "render";
+      continue;
+    }
+    if (/^ui\.selectedSurfaceId$/.test(path)) {
+      regions.add("project-selection");
+      regions.add("inspector");
+      preview ||= "render";
+      continue;
+    }
+    if (/^(components|media|mappings)\.\d+\.catalogMarker$/.test(path)) {
+      regions.add("project-rail");
+      continue;
+    }
+    if (/^components\.\d+\.name$/.test(path)) {
+      regions.add("project-rail");
+      regions.add("inspector");
+      continue;
+    }
+    if (/^components\.\d+\./.test(path)) {
+      regions.add("inspector");
+      requiresRenderPatch = true;
+      continue;
+    }
+    if (/^mappings\.\d+\.surfaces\.\d+\.enabled$/.test(path)) {
+      regions.add("project-selection");
+      regions.add("inspector");
+      preview = "mapping";
+    }
+  }
+  if (!regions.size && !preview) return null;
+  return Object.freeze({
+    regions: Object.freeze([...regions]),
+    ...(preview ? { preview } : {}),
+    ...(requiresRenderPatch ? { requiresRenderPatch: true } : {}),
   });
 }
 
@@ -72,7 +126,7 @@ export const StateCommandNode = defineNode({
       module: import.meta.url,
       name: "Change command policy",
       exports: ["createChangeEvent", "StateCommandEngine"],
-      source: [createChangeEvent, StateCommandEngine, isStructuralChange, historyPolicy, parseReason]
+      source: [createChangeEvent, controlInvalidationForPaths, StateCommandEngine, isStructuralChange, historyPolicy, parseReason]
         .map((value) => value.toString()).join("\n\n"),
     },
     {
@@ -103,7 +157,10 @@ function isStructuralChange(reason) {
 function historyPolicy(reason, scope, phase) {
   if (scope !== "project" || phase !== "commit") return "none";
   if (PROJECT_RESTORE_PREFIXES.some((prefix) => reason.startsWith(prefix))) return "none";
-  if (["workspace", "component-thumbnail", "select-component"].includes(reason)) return "none";
+  // Selection chooses an editor projection; it never changes authored
+  // project truth. Keep the prefix rule here as a final boundary even when a
+  // caller has not yet been migrated to emit an explicit UI-scoped event.
+  if (reason.startsWith("select-") || ["workspace", "component-thumbnail"].includes(reason)) return "none";
   return "record";
 }
 

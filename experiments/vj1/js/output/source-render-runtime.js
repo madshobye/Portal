@@ -281,6 +281,7 @@ export class SourceRenderRuntime {
   }
 
   invalidateStructure() {
+    this.host.recordSignal?.("cacheInvalidations", 1, "source-structure");
     this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
   }
@@ -1074,6 +1075,7 @@ export class SourceRenderRuntime {
         sourceMediaIds,
       );
       host.profileRuntime.frameProfile.stageCacheHits++;
+      host.recordSignal?.("cacheHits", 1, "source-stage");
     } else {
       host.profileRuntime.frameProfile.stageRenders++;
     }
@@ -1286,6 +1288,7 @@ export class SourceRenderRuntime {
       host.profileRuntime.frameProfile.stageRenders++;
     } else {
       host.profileRuntime.frameProfile.stageCacheHits++;
+      host.recordSignal?.("cacheHits", 1, "framebuffer-pass");
     }
     return {
       buffer: result.output,

@@ -966,10 +966,10 @@ test("ordinary UI interactions do not wait through a fixed post-click quiet peri
 test("deferred UI frames consume current user truth instead of captured snapshots", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]*?deferRender\(latestState\)[\s\S]*?projection === "live-program"[\s\S]*?render\(latestState, \{ reason, change \}\)/);
-  assert.match(source, /function flushDeferredRender\(\)[\s\S]*?scheduleRenderNow\(latestState, \{ reason: "deferred-interaction-flush" \}\)/);
+  assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]*?deferRender\(latestState, \{[\s\S]*?previewPatched,[\s\S]*?projection === "live-program"[\s\S]*?render\(latestState, \{ reason, change, previewPatched \}\)/);
+  assert.match(source, /function flushDeferredRender\(\)[\s\S]*?const context = deferredRenderContext \|\| \{\}[\s\S]*?scheduleRenderNow\(latestState, \{[\s\S]*?\.\.\.context/);
   assert.match(source, /if \(change\.structural\)[\s\S]*?scheduleRenderNow\(state, \{ force: true, reason, change \}\)/);
-  assert.match(source, /function scheduleRenderNow\(state, \{ force = false, reason = "", change = null, projection = "shell" \} = \{\}\)[\s\S]*?if \(!force && shouldDeferRender\(\)\)/);
+  assert.match(source, /function scheduleRenderNow\(state, \{[\s\S]*?force = false,[\s\S]*?reason = "",[\s\S]*?change = null,[\s\S]*?projection = "shell",[\s\S]*?invalidation = null,[\s\S]*?previewPatched = false,[\s\S]*?\} = \{\}\)[\s\S]*?if \(!force && shouldDeferRender\(\)\)/);
 });
 
 test("Live transitions avoid a second full control-shell rebuild at expiry", () => {
@@ -1046,8 +1046,21 @@ test("Surface eyes commit visibility and selection once and rebuild only their p
     /button\.dataset\.toggleSelectAction === "data-select-surface"[\s\S]*?draft\.ui\.selectedSurfaceId = button\.dataset\.toggleSelectId[\s\S]*?return;/,
   );
   assert.match(
+    inputSource,
+    /store\.setMappingSurfaceVisibility\(mapping\.id, surface\.id, nextValue, reason\)[\s\S]*?return;/,
+  );
+  assert.match(
+    inputSource,
+    /path\.startsWith\("components\."\)[\s\S]*?store\.setComponentValue\(path, nextValue,[\s\S]*?if \(handled\) return;/,
+    "Component and Scene eyes must commit visibility and inspector selection in one scoped transaction",
+  );
+  assert.match(
     shellSource,
-    /projection: "mapping-surface-visibility"[\s\S]*?function renderMappingSurfaceVisibilityChange[\s\S]*?updatePreviewState\(state, "mapping"\)/,
+    /const controlInvalidation = change\.controlInvalidation[\s\S]*?projection: "control-invalidation"[\s\S]*?invalidation: controlInvalidation/,
+  );
+  assert.match(
+    shellSource,
+    /function renderControlInvalidation[\s\S]*?invalidation\.preview === "mapping"[\s\S]*?updatePreviewState\(state, "mapping"\)/,
   );
   assert.match(
     shellSource,
@@ -1055,11 +1068,40 @@ test("Surface eyes commit visibility and selection once and rebuild only their p
   );
   assert.match(
     bridgeSource,
-    /reason === "live:surface-visibility"[\s\S]*?\? "projection"[\s\S]*?: "full"/,
+    /reason === "live:surface-visibility"[\s\S]*?createRenderStatePatch\("surfaces", projected\.surfaces \|\| \[\]\)[\s\S]*?flushLivePatches\(\)/,
   );
   assert.match(
     outputSource,
     /activation === "projection"[\s\S]*?renderer\?\.setProjectionState\(runtimeState, \{ normalized: true \}\)/,
+  );
+});
+
+test("Component and Scene controls retain the render plan and reconcile only their inspector", () => {
+  const shellSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const commandSource = readFileSync(new URL("../js/libraries/state-engine/state-command/index.js", import.meta.url), "utf8");
+  const activationSource = readFileSync(new URL("../js/control/preview-state-activation.js", import.meta.url), "utf8");
+  const patchRuntimeSource = readFileSync(new URL("../js/output/live-render-patch-runtime.js", import.meta.url), "utf8");
+
+  assert.match(
+    activationSource,
+    /isComponentElementVisibilityReason[\s\S]*?\^toggle:components\\\.\\d\+\\\.chain\\\..\+\\\.enabled\$/,
+  );
+  assert.match(
+    commandSource,
+    /function controlInvalidationForPaths[\s\S]*?\^components\\\.\\d\+\\\.[\s\S]*?regions\.add\("inspector"\)[\s\S]*?requiresRenderPatch = true/,
+  );
+  assert.match(
+    shellSource,
+    /controlInvalidation\.requiresRenderPatch \|\| patchedLivePreview \|\| patchedStudioPreview[\s\S]*?projection: "control-invalidation"/,
+  );
+  assert.match(
+    shellSource,
+    /function renderControlInvalidation[\s\S]*?"inspector": \(\) => renderInspector\(state\)/,
+  );
+  assert.match(
+    patchRuntimeSource,
+    /if \(itemField !== "source"\) return false;/,
+    "enabled is configuration, not topology, so it must synchronize the retained program rather than rebuild it",
   );
 });
 
@@ -1580,6 +1622,10 @@ test("opening an output never changes the Live Scene", () => {
   assert.ok(appSource.includes('createRenderStatePatch("mappingCalibration"'));
   assert.ok(!appSource.includes('bridge.command("sync-mapping"'));
   assert.ok(appSource.includes("bridge.sendState();"));
+  assert.match(
+    appSource,
+    /if \(renderPatches\.length\) \{[\s\S]*?bridge\.sendRenderPatches\(renderPatches,[\s\S]*?return;[\s\S]*?bridge\.sendState\(\);/,
+  );
   assert.ok(!appSource.includes("isSceneSurfaceOutputChange(reason)"));
   assert.ok(!appSource.includes("bridge.sendState(store.getRenderState())"));
   assert.ok(!appSource.includes('if (state.ui.workspace === "mapping") return;'));
@@ -1593,6 +1639,11 @@ test("studio scrubs patch previews without replacing their complete state", () =
   assert.ok(controllerSource.includes("embeddedPreview.applyRenderPatches(renderPatches)?.applied"));
   assert.ok(controllerSource.includes("if (!patchedLivePreview && !patchedStudioPreview"));
   assert.ok(controllerSource.includes("previewPatched: patchedLivePreview || patchedStudioPreview"));
+  assert.ok(controllerSource.includes("previewPatched = false"));
+  assert.ok(controllerSource.includes("render(latestState, { reason, change, previewPatched })"));
+  assert.ok(controllerSource.includes("deferRender(state, context)"));
+  assert.ok(controllerSource.includes("if (!context.previewPatched) updatePreviewState(state)"));
+  assert.ok(controllerSource.includes("const context = deferredRenderContext || {}"));
   assert.ok(controllerSource.includes("if (!context.previewPatched) renderPreview(state, context)"));
   assert.ok(controllerSource.includes('if (change.topic === "mapping-state")'));
   assert.ok(controllerSource.includes('if (change.phase !== "scrub") renderPreview(state, { reason, change })'));
@@ -1641,6 +1692,7 @@ test("topbar combines renderer health and fixed-width output fps", () => {
   assert.ok(shellSource.includes('id="render-cost-dot"'));
   assert.ok(shellSource.includes('id="cpu-time-dot"'));
   assert.ok(shellSource.includes('id="gpu-time-dot"'));
+  assert.ok(shellSource.includes('id="signal-load-dot"'));
   assert.ok(shellSource.includes('id="output-status-text">-</span>'));
   assert.match(styleSource, /\.performance-health-button \{[\s\S]*?background: #171717;/);
   assert.match(styleSource, /\.performance-health-button\.is-active \{[\s\S]*?background: var\(--accent-strong\);/);
@@ -1663,6 +1715,7 @@ test("topbar combines renderer health and fixed-width output fps", () => {
   assert.ok(controllerSource.includes("setPerformanceHealthDot(refs.renderCostDot"));
   assert.ok(controllerSource.includes("setPerformanceHealthDot(refs.cpuTimeDot"));
   assert.ok(controllerSource.includes("setPerformanceHealthDot(refs.gpuTimeDot"));
+  assert.ok(controllerSource.includes("setPerformanceHealthDot(refs.signalLoadDot"));
   assert.ok(controllerSource.includes('performanceReadoutTemplate("speed", "Overall"'));
   assert.ok(controllerSource.includes('performanceReadoutTemplate("timer", "CPU"'));
   assert.ok(controllerSource.includes('performanceReadoutTemplate("memory", "GPU"'));
@@ -1670,6 +1723,14 @@ test("topbar combines renderer health and fixed-width output fps", () => {
   assert.match(styleSource, /\.performance-health-readouts \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);[\s\S]*?margin-bottom: 10px;/);
   assert.ok(controllerSource.includes('performanceReadoutTemplate("cached", "Cache reuse"'));
   assert.ok(controllerSource.includes('performanceReadoutTemplate("refresh", "Renders"'));
+  assert.ok(controllerSource.includes('"Signal load"'));
+  assert.ok(controllerSource.includes('"Authored transactions"'));
+  assert.ok(controllerSource.includes('"Render wakeups"'));
+  assert.ok(controllerSource.includes('"Graph compiles"'));
+  assert.ok(controllerSource.includes('"Resource revisions"'));
+  assert.ok(controllerSource.includes('"Cache invalidations"'));
+  assert.ok(controllerSource.includes('"Preview presentations"'));
+  assert.ok(controllerSource.includes('"Output presentations"'));
   assert.ok(!controllerSource.includes("Hot now"));
   assert.ok(controllerSource.includes('smoothed.totalsBySource[item.runtimeSource || "renderer"]'));
   assert.ok(!controllerSource.includes("combined sampled CPU"));

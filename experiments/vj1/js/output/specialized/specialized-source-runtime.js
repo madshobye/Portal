@@ -1,5 +1,5 @@
 import { drawStandby } from "../generators.js?v=standby-local-diagnostic-1";
-import { FeatureMorphRuntime } from "./feature-morph-runtime.js?v=compiled-capability-revision-1";
+import { FeatureMorphRuntime } from "./feature-morph-runtime.js?v=structural-world-state-2";
 import { MeshPatternRuntime } from "./mesh-pattern-runtime.js?v=framebuffer-sequence-1";
 import { SpecializedTargetRuntime } from "./specialized-target-runtime.js?v=async-media-dirty-1";
 import { TerrainRenderRuntime } from "./terrain-render-runtime.js?v=async-media-dirty-1";

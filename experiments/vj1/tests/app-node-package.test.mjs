@@ -1645,6 +1645,7 @@ test("compiled visual compounds stay atomic in the chain projection across repea
   }];
   const store = createAppState(initial, {
     prepareState: packageRoot.prepareProjectState,
+    prepareChange: packageRoot.prepareProjectChange,
   });
 
   const projected = store.getState().components[0].chain[0];
@@ -1672,6 +1673,125 @@ test("compiled visual compounds stay atomic in the chain projection across repea
     assert.equal(component.nodeProjectionSignature, group.projectionSignature);
     assert.equal(Object.hasOwn(component.chain[0], "chain"), false);
   }
+});
+
+test("incremental Component preparation updates only the changed graph program", () => {
+  const packageRoot = createVj1NodePackage();
+  const initial = createInitialState();
+  initial.components[0] = {
+    ...initial.components[0],
+    id: "incremental-component-a",
+    chain: initial.components[0].chain.map((item, index) => ({
+      ...item,
+      id: `incremental-a-${index}`,
+    })),
+  };
+  initial.components.push({
+    ...structuredClone(initial.components[0]),
+    id: "incremental-component-b",
+    name: "Unchanged Component",
+    chain: initial.components[0].chain.map((item, index) => ({
+      ...structuredClone(item),
+      id: `incremental-b-${index}`,
+    })),
+  });
+  const prepared = packageRoot.prepareProjectState(initial);
+  const groupA = prepared.nodes.groups.find((group) =>
+    group.componentId === "incremental-component-a"
+  );
+  const groupB = prepared.nodes.groups.find((group) =>
+    group.componentId === "incremental-component-b"
+  );
+  const mappingGroup = prepared.nodes.groups.find((group) =>
+    group.generatedBy === "vj1-mapping-compiler"
+  );
+  const next = {
+    ...prepared,
+    components: prepared.components.map((component) =>
+      component.id !== "incremental-component-a" ? component : {
+        ...component,
+        chain: component.chain.map((item, index) => index ? item : {
+          ...item,
+          enabled: false,
+          boundary: { ...item.boundary, x: 0.2 },
+        }),
+      }
+    ),
+  };
+  const changed = packageRoot.prepareProjectChange(prepared, next);
+  const changedGroupA = changed.nodes.groups.find((group) =>
+    group.componentId === "incremental-component-a"
+  );
+
+  assert.notStrictEqual(changed.nodes, prepared.nodes);
+  assert.notStrictEqual(changedGroupA, groupA);
+  assert.strictEqual(
+    changed.nodes.groups.find((group) => group.componentId === "incremental-component-b"),
+    groupB,
+    "an unrelated Component graph keeps identity",
+  );
+  assert.strictEqual(
+    changed.nodes.groups.find((group) => group.id === mappingGroup.id),
+    mappingGroup,
+    "Component parameters do not rebuild Mapping programs",
+  );
+  assert.strictEqual(changed.nodes.definitions, prepared.nodes.definitions);
+  assert.strictEqual(changed.nodes.pins, prepared.nodes.pins);
+  assert.equal(
+    changedGroupA.nodes.find((node) => node.id === "incremental-a-0").configuration.enabled,
+    false,
+  );
+  assert.equal(
+    changedGroupA.nodes.find((node) => node.id === "incremental-a-0").configuration.boundary.x,
+    0.2,
+  );
+  const payload = buildProjectPayload(changed, "2026-07-26T00:00:00.000Z");
+  const reloaded = packageRoot.prepareProjectState(payload);
+  assert.equal(reloaded.components[0].chain[0].enabled, false);
+  assert.equal(reloaded.components[0].chain[0].boundary.x, 0.2);
+  assert.doesNotThrow(() => structuredClone(changed));
+});
+
+test("incremental Mapping preparation leaves Component programs untouched", () => {
+  const packageRoot = createVj1NodePackage();
+  const prepared = packageRoot.prepareProjectState(createInitialState());
+  const componentGroups = prepared.nodes.groups.filter((group) =>
+    group.generatedBy === "vj1-component-compiler"
+  );
+  const mapping = prepared.mappings[0];
+  const mappingGroup = prepared.nodes.groups.find((group) =>
+    group.id === `vj1.mapping.${mapping.id}`
+  );
+  const nextMapping = {
+    ...mapping,
+    surfaces: mapping.surfaces.map((surface, index) =>
+      index ? surface : { ...surface, enabled: false }
+    ),
+  };
+  const next = {
+    ...prepared,
+    mappings: prepared.mappings.map((entry) =>
+      entry.id === mapping.id ? nextMapping : entry
+    ),
+  };
+  const changed = packageRoot.prepareProjectChange(prepared, next);
+  const changedMappingGroup = changed.nodes.groups.find((group) =>
+    group.id === mappingGroup.id
+  );
+
+  assert.notStrictEqual(changedMappingGroup, mappingGroup);
+  for (const componentGroup of componentGroups) {
+    assert.strictEqual(
+      changed.nodes.groups.find((group) => group.id === componentGroup.id),
+      componentGroup,
+    );
+  }
+  assert.strictEqual(changed.nodes.definitions, prepared.nodes.definitions);
+  assert.equal(
+    changedMappingGroup.nodes.find((node) => node.surfaceId === mapping.surfaces[0].id)
+      .parameters.enabled,
+    false,
+  );
 });
 
 test("Project Media compiles its typed resource into the declared direct drawable operation", () => {
@@ -1819,7 +1939,10 @@ test("Component compilation retains only the declared root dependency closure", 
 
 test("application state keeps persisted Component groups synchronized after structural edits", () => {
   const packageRoot = createVj1NodePackage();
-  const store = createAppState(createInitialState(), { prepareState: packageRoot.prepareProjectState });
+  const store = createAppState(createInitialState(), {
+    prepareState: packageRoot.prepareProjectState,
+    prepareChange: packageRoot.prepareProjectChange,
+  });
   const before = store.getState();
   assert.equal(before.nodes.groups.filter((group) => group.generatedBy === "vj1-component-compiler").length, before.components.length);
 

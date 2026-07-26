@@ -2,7 +2,7 @@ import {
   inspectProjectTextForSave,
   prepareProjectPayload,
   prepareProjectSave,
-} from "./project-save-preparation.js?v=autosave-worker-timeout-1";
+} from "./project-save-preparation.js?v=project-save-worker-ready-1";
 
 globalThis.onmessage = (event) => {
   const request = event?.data || {};
@@ -21,3 +21,8 @@ globalThis.onmessage = (event) => {
     });
   }
 };
+
+// Module workers may spend time loading their dependency graph before this
+// handler exists. The host must not send save work until this message arrives:
+// an early DedicatedWorker message is not reliably replayed by Chrome.
+globalThis.postMessage({ type: "ready" });

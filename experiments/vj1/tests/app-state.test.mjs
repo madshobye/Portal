@@ -22,9 +22,11 @@ import { compileComponentPatch } from "../js/graph/legacy-chain-render-projectio
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
 import { DataStoreNode, ObservableDataStore } from "../js/libraries/data-store/data-store/index.js";
 import { isMappingProjectionPresentation } from "../js/output/output-presentation-runtime.js";
+import { signalLoadMeter } from "../js/metrics/signal-load-meter.js";
 
-test("one immutable-style state snapshot is shared across subscribers per emission", () => {
+test("one structurally shared world root is published read-only per emission", () => {
   const store = createAppState(createInitialState());
+  const before = store.getState();
   const firstSnapshots = [];
   const secondSnapshots = [];
   store.subscribe((state) => firstSnapshots.push(state));
@@ -34,8 +36,47 @@ test("one immutable-style state snapshot is shared across subscribers per emissi
     draft.ui.selectedChainItemId = "shared-snapshot-test";
   }, "snapshot-test");
 
+  const current = store.getState();
   assert.strictEqual(firstSnapshots.at(-1), secondSnapshots.at(-1));
-  assert.notStrictEqual(firstSnapshots.at(-1), store.getState());
+  assert.strictEqual(firstSnapshots.at(-1), current);
+  assert.notStrictEqual(current, before);
+  assert.notStrictEqual(current.ui, before.ui);
+  assert.strictEqual(current.components, before.components);
+  assert.strictEqual(current.media, before.media);
+  const snapshot = store.snapshotState();
+  assert.deepEqual(snapshot, current);
+  assert.notStrictEqual(snapshot, current);
+  assert.deepEqual(structuredClone(current), current);
+});
+
+test("render patches collected inside a world transaction publish as plain data", () => {
+  const store = createAppState(createInitialState());
+  const renderPatches = [];
+  let observedEvent = null;
+  store.subscribe((_state, _reason, event) => {
+    observedEvent = event;
+  });
+
+  store.update((draft) => {
+    const item = draft.components[0].chain[0];
+    item.transform = { ...item.transform, x: 0.25, y: -0.5 };
+    renderPatches.push({
+      componentId: draft.components[0].id,
+      path: "chain.0.transform",
+      value: item.transform,
+    });
+  }, {
+    reason: "scrub:chain-transform",
+    renderPatches,
+  });
+
+  assert.deepEqual(observedEvent.renderPatches[0].value, {
+    x: 0.25,
+    y: -0.5,
+    scale: 1,
+    rotation: 0,
+  });
+  assert.doesNotThrow(() => structuredClone(observedEvent));
 });
 
 test("observable data store node owns shared snapshot publication", () => {
@@ -93,6 +134,26 @@ test("workspace navigation is a structurally shared UI command, not a project au
   assert.deepEqual(after.media, before.media);
   assert.deepEqual(after.mappings, before.mappings);
   assert.equal(store.setWorkspace("scene"), false, "selecting the active workspace is a no-op");
+});
+
+test("Mapping selection changes only the editor projection", () => {
+  const initial = createInitialState();
+  const mapping = createEmptyMappingFromState(initial, "Mapping 2");
+  initial.mappings.push(mapping);
+  const store = createAppState(initial);
+  const authoredMappings = store.getState().mappings;
+  let emitted = null;
+  const unsubscribe = store.subscribe((_state, reason, change) => {
+    if (reason === "select-mapping") emitted = change;
+  });
+
+  store.selectMapping(mapping.id);
+  unsubscribe();
+
+  assert.equal(store.getState().ui.selectedMappingId, mapping.id);
+  assert.equal(emitted?.scope, "ui");
+  assert.equal(emitted?.history, "none");
+  assert.deepEqual(store.getState().mappings, authoredMappings);
 });
 
 test("Live projection inspection is UI-only and does not reroute the program", () => {
@@ -1770,6 +1831,32 @@ test("app state stamps direct edits but preserves activity imported from disk", 
   store.replace(loaded, "project-load");
   assert.equal(store.getState().components.find((item) => item.id === componentId).activity.updatedAt, importedAt);
 });
+
+test("one scrub gesture is one authored transaction while intermediate samples remain state events", () => {
+  const meter = signalLoadMeter("control");
+  meter.reset();
+  const store = createAppState(createInitialState());
+  const events = [];
+  store.subscribe((_state, _reason, event) => events.push(event));
+
+  store.update((draft) => {
+    draft.components[0].chain[0].boundary.x = 0.1;
+  }, "scrub:chain-boundary");
+  store.update((draft) => {
+    draft.components[0].chain[0].boundary.x = 0.2;
+  }, "scrub:chain-boundary");
+  store.update((draft) => {
+    draft.components[0].chain[0].boundary.x = 0.2;
+  }, "update:chain-boundary");
+
+  assert.deepEqual(events.slice(-3).map((event) => event.phase), ["scrub", "scrub", "commit"]);
+  assert.equal(meter.snapshot().categories.transactions, 1);
+  assert.deepEqual(meter.snapshot().topReasons[0], {
+    reason: "transactions:update:chain-boundary",
+    count: 1,
+  });
+  meter.reset();
+});
 test("derived cache updates do not become project transactions", () => {
   const store = createAppState(createInitialState());
   const events = [];
@@ -1843,4 +1930,93 @@ test("mapping feedback updates only the mapping slice while retaining project hi
   assert.equal(store.getState().ui.mappingStatus, "Mapping saved");
   assert.equal(events.at(-1).topic, "mapping-state");
   assert.equal(events.at(-1).history, "record");
+});
+
+test("Component and Scene visibility toggles are scoped project transactions", () => {
+  const initial = createInitialState();
+  const component = initial.components.find((item) => item.type !== "scene");
+  const scene = createSceneComponent(0);
+  scene.chain.push(createComponentLayer());
+  initial.components.push(scene);
+  component.activity.updatedAt = "2020-01-01T00:00:00.000Z";
+  scene.activity.updatedAt = "2020-01-01T00:00:00.000Z";
+  initial.ui.selectedChainItemId = "";
+  let prepareCount = 0;
+  const store = createAppState(initial, {
+    prepareState(value) {
+      prepareCount++;
+      return value;
+    },
+  });
+  const events = [];
+  store.subscribe((_state, _reason, event) => events.push(event));
+  const componentIndex = store.getState().components.findIndex((item) => item.id === component.id);
+  const sceneIndex = store.getState().components.findIndex((item) => item.id === scene.id);
+
+  assert.equal(store.setComponentToggle(
+    `components.${componentIndex}.chain.0.enabled`,
+    false,
+    {
+      reason: `toggle:components.${componentIndex}.chain.0.enabled`,
+      selectAction: "chain-item",
+      selectId: component.chain[0].id,
+    },
+  ), true);
+  assert.equal(store.setComponentToggle(
+    `components.${sceneIndex}.chain.0.enabled`,
+    false,
+    {
+      reason: `toggle:components.${sceneIndex}.chain.0.enabled`,
+      selectAction: "chain-item",
+      selectId: scene.chain[0].id,
+    },
+  ), true);
+
+  const next = store.getState();
+  assert.equal(next.components[componentIndex].chain[0].enabled, false);
+  assert.equal(next.components[sceneIndex].chain[0].enabled, false);
+  assert.equal(next.ui.selectedChainItemId, scene.chain[0].id);
+  assert.notEqual(next.components[componentIndex].activity.updatedAt, "2020-01-01T00:00:00.000Z");
+  assert.notEqual(next.components[sceneIndex].activity.updatedAt, "2020-01-01T00:00:00.000Z");
+  assert.equal(prepareCount, 1, "an already-normalized boolean toggle must not normalize the complete project again");
+  assert.equal(events.at(-1).scope, "project");
+  assert.equal(events.at(-1).history, "record");
+  assert.equal(events.at(-1).topic, `components.${sceneIndex}.chain.0.enabled`);
+});
+
+test("Mapping Surface visibility commits one scoped route transaction", () => {
+  const initial = createInitialState();
+  const mapping = initial.mappings[0];
+  const surface = mapping.surfaces[0];
+  surface.activity.updatedAt = "2020-01-01T00:00:00.000Z";
+  initial.ui.selectedMappingId = mapping.id;
+  let prepareCount = 0;
+  const store = createAppState(initial, {
+    prepareState(value) {
+      prepareCount++;
+      return value;
+    },
+  });
+  const events = [];
+  store.subscribe((_state, _reason, event) => events.push(event));
+
+  assert.equal(store.setMappingSurfaceVisibility(mapping.id, surface.id, false), true);
+
+  const next = store.getState();
+  const authored = next.mappings[0].surfaces[0];
+  assert.equal(authored.enabled, false);
+  assert.equal(next.ui.selectedSurfaceId, surface.id);
+  assert.notEqual(authored.activity.updatedAt, "2020-01-01T00:00:00.000Z");
+  assert.equal(prepareCount, 1);
+  assert.equal(events.at(-1).scope, "project");
+  assert.equal(events.at(-1).history, "record");
+  assert.deepEqual(events.at(-1).renderPatches, [{
+    target: "state",
+    path: "surfaces",
+    value: events.at(-1).renderPatches[0].value,
+  }]);
+  assert.equal(
+    events.at(-1).renderPatches[0].value.find((item) => item.id === surface.id)?.enabled,
+    false,
+  );
 });

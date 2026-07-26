@@ -23,7 +23,7 @@ import {
 import { CURRENT_PROJECT_VERSION } from "../js/domain/project-migrations.js";
 import { createAppState } from "../js/app-state.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
-import { createInitialState } from "../js/domain/models.js";
+import { createDefaultComponent, createInitialState } from "../js/domain/models.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 
 test("project lookup distinguishes a missing project from an unreadable existing project", async () => {
@@ -158,16 +158,16 @@ test("project payload preserves the selected component chain item", () => {
   assert.equal(payload.surfaces, undefined);
   assert.equal(payload.mappingCalibration, undefined);
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
-  assert.ok(source.includes("selectedChainItemId: projectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
-  assert.ok(source.includes("workspaceSelectionIds: projectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds"));
-  assert.ok(source.includes("catalogSortModes: projectUi?.catalogSortModes || currentUi.catalogSortModes"));
+  assert.ok(source.includes("selectedChainItemId: restoredProjectUi?.selectedChainItemId || currentUi.selectedChainItemId"));
+  assert.ok(source.includes("workspaceSelectionIds: restoredProjectUi?.workspaceSelectionIds || currentUi.workspaceSelectionIds"));
+  assert.ok(source.includes("catalogSortModes: restoredProjectUi?.catalogSortModes || currentUi.catalogSortModes"));
   assert.ok(source.includes("preserveMediaCatalog && Array.isArray(projectData.media)"));
   assert.ok(source.includes(": mergeMediaCatalogMarkers(imported.media, projectData.media)"));
   assert.ok(source.includes("draft.media = mergeMediaCatalogMarkers(imported.media, draft.media)"));
   assert.match(source, /reason: "project-refresh-assets",[\s\S]*?scope: "assets",[\s\S]*?projection: \{ kind: "asset-catalog" \}/);
-  assert.ok(source.includes("previewQuality: projectUi?.previewQuality || currentUi.previewQuality"));
-  assert.ok(source.includes("previewViewports: projectUi?.previewViewports || currentUi.previewViewports"));
-  assert.ok(source.includes("previewDiagnostics: projectUi?.previewDiagnostics ?? currentUi.previewDiagnostics"));
+  assert.ok(source.includes("previewQuality: restoredProjectUi?.previewQuality || currentUi.previewQuality"));
+  assert.ok(source.includes("previewViewports: restoredProjectUi?.previewViewports || currentUi.previewViewports"));
+  assert.ok(source.includes("previewDiagnostics: restoredProjectUi?.previewDiagnostics ?? currentUi.previewDiagnostics"));
   assert.ok(!source.includes("legacyRecordingFrames"));
   assert.ok(source.includes("data = migrateProjectData(data)"));
   assert.ok(source.includes("projectLoadBlocked = true"));
@@ -368,8 +368,9 @@ test("project history signature ignores UI-only save noise", () => {
 
 test("project load restores the Mapping test-pattern preference and selected Surface", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
-  assert.match(source, /selectedSurfaceId: projectUi\?\.selectedSurfaceId \|\| currentUi\.selectedSurfaceId/);
-  assert.match(source, /mappingTestPattern: projectUi\?\.mappingTestPattern \?\? currentUi\.mappingTestPattern/);
+  assert.match(source, /selectedSurfaceId: restoredProjectUi\?\.selectedSurfaceId \|\| currentUi\.selectedSurfaceId/);
+  assert.match(source, /mappingTestPattern: restoredProjectUi\?\.mappingTestPattern \?\? currentUi\.mappingTestPattern/);
+  assert.match(source, /const restoredProjectUi = preserveEditorUi \? \{\} : projectUi/);
 });
 
 test("project payload and undo signature exclude derived thumbnails and activity", () => {
@@ -482,6 +483,10 @@ test("project save preparer delegates projection and signatures to its worker", 
     constructor(url, options) {
       this.url = String(url);
       this.options = options;
+      queueMicrotask(() => this.onmessage?.({
+        currentTarget: this,
+        data: { type: "ready" },
+      }));
     }
 
     postMessage(request) {
@@ -519,6 +524,53 @@ test("project save preparer delegates projection and signatures to its worker", 
   assert.deepEqual(requests, ["prepare-state", "inspect-text"]);
   assert.equal(inspected.historySignature, prepared.historySignature);
   assert.deepEqual(warnings, []);
+  preparer.dispose();
+});
+
+test("project save work waits for the module worker readiness handshake", async () => {
+  let instance = null;
+  const requests = [];
+  class DeferredWorker {
+    constructor() {
+      instance = this;
+    }
+
+    postMessage(request) {
+      requests.push(request.kind);
+      queueMicrotask(() => this.onmessage?.({
+        currentTarget: this,
+        data: {
+          id: request.id,
+          ok: true,
+          result: prepareProjectSave(request.state, request.savedAt),
+        },
+      }));
+    }
+
+    terminate() {}
+  }
+  const preparer = createProjectSavePreparer({
+    WorkerClass: DeferredWorker,
+    workerUrl: new URL("https://example.test/deferred-project-save-worker.js"),
+  });
+  const state = {
+    project: {},
+    ui: { live: {} },
+    global: {},
+    render: { outputs: [] },
+    scheduler: {},
+    nodes: {},
+    media: [],
+    components: [],
+    mappings: [],
+    shaders: {},
+  };
+
+  const prepared = preparer.prepareState(state, "2026-07-23T12:00:00.000Z");
+  assert.deepEqual(requests, [], "the first save message cannot race module-worker startup");
+  instance.onmessage?.({ currentTarget: instance, data: { type: "ready" } });
+  assert.equal(JSON.parse((await prepared).json).version, CURRENT_PROJECT_VERSION);
+  assert.deepEqual(requests, ["prepare-state"]);
   preparer.dispose();
 });
 
@@ -564,9 +616,11 @@ test("undo and redo reload project state without rescanning assets", () => {
 
 test("an authored edit is saved as one undoable transaction and redo restores it", async () => {
   const project = new ProjectMemoryDirectory("undo-project");
-  const initial = createInitialState();
+  const nodePackage = createVj1NodePackage();
+  const initialDraft = createInitialState();
+  initialDraft.components.push(createDefaultComponent(1));
+  const initial = nodePackage.prepareProjectState(initialDraft);
   initial.project.name = "Before";
-  initial.components = [];
   const projectFile = await project.getFileHandle("project.json", { create: true });
   projectFile.value = JSON.stringify(buildProjectPayload(initial, "2026-07-25T00:00:00.000Z"));
 
@@ -581,9 +635,9 @@ test("an authored edit is saved as one undoable transaction and redo restores it
     addEventListener() {},
   };
 
-  const nodePackage = createVj1NodePackage();
   const store = createAppState(createInitialState(), {
     prepareState: nodePackage.prepareProjectState,
+    prepareChange: nodePackage.prepareProjectChange,
   });
   const mediaLibrary = createMediaLibrary();
   const bridge = {
@@ -609,13 +663,19 @@ test("an authored edit is saved as one undoable transaction and redo restores it
     assert.equal(JSON.parse(projectFile.value).project.name, "After");
     assert.deepEqual(service.getHistoryState(), { canUndo: true, canRedo: false });
 
+    const editorSelection = store.getState().components[1];
+    store.selectComponent(editorSelection.id);
+    assert.equal(store.getState().ui.selectedComponentId, editorSelection.id);
+
     assert.equal(await service.undoProject(), true);
     assert.equal(store.getState().project.name, "Before");
+    assert.equal(store.getState().ui.selectedComponentId, editorSelection.id, "undo retains the current editor projection");
     assert.equal(JSON.parse(projectFile.value).project.name, "Before");
     assert.deepEqual(service.getHistoryState(), { canUndo: false, canRedo: true });
 
     assert.equal(await service.redoProject(), true);
     assert.equal(store.getState().project.name, "After");
+    assert.equal(store.getState().ui.selectedComponentId, editorSelection.id, "redo retains the current editor projection");
     assert.equal(JSON.parse(projectFile.value).project.name, "After");
     assert.deepEqual(service.getHistoryState(), { canUndo: true, canRedo: false });
   } finally {
@@ -716,14 +776,16 @@ test("a newer complete project snapshot supersedes an obsolete failed autosave",
   try {
     assert.equal((await service.openFolder()).loaded, true);
 
-    const obsolete = store.getState();
+    const obsolete = store.snapshotState();
     obsolete.nodes = { ...obsolete.nodes, authority: "node-graph", groups: [] };
     service.scheduleAutoSave("update:obsolete-invalid-graph", { state: obsolete });
     assert.equal(await service.flushAutoSave(), false);
     assert.match(store.getState().project.warnings[0], /VJ1_PROJECT_COMPONENT_GRAPH_MISSING/);
 
+    store.update((draft) => {
+      draft.project.name = "After";
+    }, "update:project-name");
     const current = store.getState();
-    current.project.name = "After";
     service.scheduleAutoSave("update:project-name", { state: current });
     assert.equal(await service.flushAutoSave(), true);
     assert.equal(JSON.parse(projectFile.value).project.name, "After");
@@ -776,6 +838,7 @@ test("a graph-authoritative v34 project migrates, saves, edits, undoes, and redo
 
   const store = createAppState(createInitialState(), {
     prepareState: nodePackage.prepareProjectState,
+    prepareChange: nodePackage.prepareProjectChange,
   });
   const service = createProjectFolderService({
     mediaLibrary: createMediaLibrary(),
@@ -903,6 +966,7 @@ test("graph-authoritative visibility and placement edits survive a fresh project
   const createSession = () => {
     const store = createAppState(createInitialState(), {
       prepareState: nodePackage.prepareProjectState,
+      prepareChange: nodePackage.prepareProjectChange,
     });
     const service = createProjectFolderService({
       mediaLibrary: createMediaLibrary(),
