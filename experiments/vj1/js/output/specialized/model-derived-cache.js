@@ -2,10 +2,10 @@ import { loadProjectDirectoryHandle } from "../../services/directory-handle-stor
 
 const CACHE_ROOT = "vj1-cache";
 const CACHE_DIRECTORY = "models";
-// The format includes the automatic LOD policy. V2 adds retained 160k and 250k
-// levels; accepting a V1 cache would make Geometry Detail values above 1
-// silently reuse the former 80k ceiling.
-const CACHE_FORMAT = "meshopt-0.25-qem-v2";
+// The format includes the automatic LOD policy. V3 adds retained surface LODs
+// below 6k; accepting a V2 cache would make the lower Geometry Detail range
+// silently stop at the former floor.
+const CACHE_FORMAT = "meshopt-0.25-qem-v3";
 const MAGIC = new Uint8Array([86, 74, 49, 77, 79, 68, 76, 49]); // VJ1MODL1
 const HEADER_OFFSET = 12;
 

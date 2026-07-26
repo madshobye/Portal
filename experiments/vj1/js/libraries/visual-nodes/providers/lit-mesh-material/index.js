@@ -36,7 +36,6 @@ export const LitMeshMaterialProviderNode = defineNode({
     visibleDepth: { type: "number", defaultValue: 1, allowedRange: [0.02, 1], clamp: true },
     edgeAngle: { type: "number", defaultValue: 35, allowedRange: [0, 180], clamp: true },
     edgeBudget: { type: "number", defaultValue: 20000, allowedRange: [1000, 50000], clamp: true },
-    wireDetail: { type: "number", defaultValue: 0.25, allowedRange: [0, 1], clamp: true },
     renderQuality: { type: "number", defaultValue: 0.5, allowedRange: [0, 1], clamp: true },
   },
   parameters: {
@@ -82,7 +81,6 @@ export function litMeshMaterialProviderProcess(inputs = {}, { state = {}, output
     visibleDepth: setting(settings, inputs, "visibleDepth"),
     edgeAngle: setting(settings, inputs, "edgeAngle"),
     edgeBudget: setting(settings, inputs, "edgeBudget"),
-    wireDetail: setting(settings, inputs, "wireDetail"),
     renderQuality: setting(settings, inputs, "renderQuality"),
     shaderSource: setting(settings, inputs, "shaderSource"),
     uniforms: setting(settings, inputs, "uniforms"),
@@ -126,7 +124,6 @@ function materialSignature(values = {}) {
     values.visibleDepth,
     values.edgeAngle,
     values.edgeBudget,
-    values.wireDetail,
     values.renderQuality,
     values.shaderSource,
     values.uniforms,

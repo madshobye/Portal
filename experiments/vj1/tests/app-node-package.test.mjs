@@ -356,7 +356,11 @@ test("Terrain compiles reusable retained values into two explicit optimized rend
     chain: [{
       id: "terrain-source",
       kind: "source",
-      source: { type: "generator", generatorId: "terrainFlyover", params: {} },
+      source: {
+        type: "generator",
+        generatorId: "terrainFlyover",
+        params: { lakeLevel: -58.7 },
+      },
     }],
   };
   const state = packageRoot.prepareProjectState({ components: [component], nodes: {} });
@@ -437,6 +441,31 @@ test("Terrain compiles reusable retained values into two explicit optimized rend
     surface.runtimeValueInputs.get("geometry"),
     wire.runtimeValueInputs.get("geometry"),
     "one retained geometry value fans out through both authored wires",
+  );
+  assert.equal(
+    surface.runtimeValueInputs.get("geometry").runtimeSettings.lakeLevel,
+    -58.7,
+    "the authored lake level reaches terrain displacement",
+  );
+  assert.equal(
+    surface.runtimeValueInputs.get("material").runtimeSettings.lakeLevel,
+    -58.7,
+    "the same authored lake level reaches biome classification",
+  );
+  setCompiledVisualParameter(operation, "lakeLevel", 24.6);
+  operation.valueProgram.evaluate({
+    componentTime: 2,
+    renderRequest: { width: 1280, height: 720 },
+  });
+  assert.equal(
+    surface.runtimeValueInputs.get("geometry").runtimeSettings.lakeLevel,
+    24.6,
+    "a live lake-level edit updates terrain displacement",
+  );
+  assert.equal(
+    surface.runtimeValueInputs.get("material").runtimeSettings.lakeLevel,
+    24.6,
+    "a live lake-level edit updates biome classification in the same epoch",
   );
   assert.equal(surface.runtimeValueInputs.get("controller").flightTime, 1.3);
   assert.equal(surface.runtimeValueInputs.get("camera").providerId, "terrain-flight-camera");
@@ -1067,11 +1096,12 @@ test("one authored-parameter epoch consistently invalidates raster, SVG, and STL
         source: {
           type: "generator",
           generatorId: "modelMedia",
-          params: {
-            mediaId: "media/example.stl",
-            geometryDetail: 0.5,
-            spinY: 0,
-          },
+        params: {
+          mediaId: "media/example.stl",
+          renderMode: "surface",
+          geometryDetail: 0.5,
+          spinY: 0,
+        },
         },
       },
     ],
@@ -1161,6 +1191,33 @@ test("one authored-parameter epoch consistently invalidates raster, SVG, and STL
   assert.equal(
     operation("model-source").configuration.source.params.geometryDetail,
     0.9,
+  );
+
+  const modelModeEdit = withParam(
+    modelEdit,
+    "model-source",
+    "renderMode",
+    "wireframe",
+  );
+  assert.equal(
+    program.syncProjectedItems(modelModeEdit, ["model-source"]).applied,
+    true,
+  );
+  const modelOperation = operation("model-source");
+  assert.equal(modelOperation.configurationRevision, 2);
+  assert.equal(
+    modelOperation.valueProgram.steps
+      .find((step) => step.instanceId === "lod")
+      .parameters.renderMode,
+    undefined,
+    "draw mode is a render-pass choice and cannot alter the selected mesh LOD",
+  );
+  assert.equal(
+    modelOperation.valueProgram.steps
+      .find((step) => step.instanceId === "material")
+      .parameters.renderMode,
+    "wireframe",
+    "the enum edit reaches the material/render pass",
   );
 });
 
@@ -1422,6 +1479,19 @@ test("Terrain exposes its ordinary editable graph while retaining explicit pass 
       ],
     },
     "one public control may drive several internal compound nodes",
+  );
+  assert.deepEqual(
+    projection.sections
+      .flatMap((section) => section.controls)
+      .find((control) => control.parameterId === "lakeLevel"),
+    {
+      parameterId: "lakeLevel",
+      bindings: [
+        { nodeId: "geometry", parameterId: "lakeLevel" },
+        { nodeId: "surface-material", parameterId: "lakeLevel" },
+      ],
+    },
+    "lake level has one public authority shared by geometry and biome material",
   );
   assert.equal(definition.metadata.renderAuthority, "compiled-graph");
   assert.equal(definition.metadata.nativeRenderer, "");

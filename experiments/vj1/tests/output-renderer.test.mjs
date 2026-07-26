@@ -27,12 +27,101 @@ import {
   BuiltInVisualLibrary,
   DefaultBuiltInTransition,
 } from "../js/libraries/visual-nodes/catalog.js";
+import { VisualComponent as PhotoGradeVisualComponent } from "../js/libraries/visual-nodes/effects/photo-grade/index.js";
 
 test("effect opacity and blend request a separate generic composite", () => {
   assert.equal(effectNeedsComposite({}), false);
   assert.equal(effectNeedsComposite({ opacity: 1, blend: "normal" }), false);
   assert.equal(effectNeedsComposite({ opacity: 0.5, blend: "normal" }), true);
   assert.equal(effectNeedsComposite({ opacity: 1, blend: "screen" }), true);
+});
+
+test("compiled projective renderers preserve Component viewport ROI without legacy generator registration", () => {
+  const component = { id: "component-projective", type: "component" };
+  const operation = {
+    opcode: "source",
+    configuration: {
+      enabled: true,
+      source: {
+        type: "generator",
+        generatorId: "core.scene3d.render",
+      },
+    },
+    contract: {
+      roi: {
+        mode: "projective",
+        inputMapping: "sub-frustum",
+        pixelEquivalentToFullFrame: true,
+      },
+    },
+  };
+  const host = {
+    state: { components: [component] },
+    componentProgramRuntime: {
+      programs: new Map([[
+        component.id,
+        { forEachOperation(visitor) { visitor(operation); } },
+      ]]),
+    },
+    visualNodeRuntime: {
+      generator() {
+        return null;
+      },
+    },
+  };
+  const runtime = new SourceRenderRuntime(host);
+
+  assert.equal(runtime.componentRegionSafe(component), true);
+
+  operation.contract.roi.pixelEquivalentToFullFrame = false;
+  runtime.invalidateStructure();
+  assert.equal(
+    runtime.componentRegionSafe(component),
+    false,
+    "a projective renderer cannot use viewport ROI without an explicit pixel-equivalence guarantee",
+  );
+});
+
+test("parameter-dependent effect ROI follows live values without structural recompilation", () => {
+  const component = { id: "component-photo-grade", type: "scene" };
+  const params = { distort: 0, contrast: 0.4 };
+  const operation = {
+    opcode: "effect",
+    configuration: { enabled: true, params },
+    runtimePolicy: PhotoGradeVisualComponent.runtime,
+    contract: { roi: PhotoGradeVisualComponent.runtime.roi },
+  };
+  const host = {
+    state: { components: [component] },
+    componentProgramRuntime: {
+      programs: new Map([[
+        component.id,
+        { forEachOperation(visitor) { visitor(operation); } },
+      ]]),
+    },
+    visualNodeRuntime: { generator() { return null; } },
+  };
+  const runtime = new SourceRenderRuntime(host);
+
+  assert.equal(
+    runtime.componentRegionSafe(component),
+    true,
+    "ordinary grading is pixel-local in full logical coordinates",
+  );
+
+  params.distort = 0.5;
+  assert.equal(
+    runtime.componentRegionSafe(component),
+    false,
+    "source distortion expands the dependency to the full input immediately",
+  );
+
+  params.distort = 0;
+  assert.equal(
+    runtime.componentRegionSafe(component),
+    true,
+    "returning to local grading restores regional execution without recompiling the graph",
+  );
 });
 
 test("named ISF image ports bind retained textures and participate in dirty identity", () => {
@@ -2063,10 +2152,15 @@ test("standalone output consumes its handshake baseline without requesting dupli
   const appSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
   assert.ok(appSource.includes("await initialStateGate.ready;"));
   const importedFiles = appSource.indexOf("renderer.importFiles(acceptedFiles);");
+  const compiledState = appSource.indexOf("await renderer.setup(", importedFiles);
   const setupEnd = appSource.indexOf("\n  };", importedFiles);
   const setupTail = appSource.slice(importedFiles, setupEnd);
 
   assert.ok(importedFiles >= 0);
+  assert.ok(
+    compiledState > importedFiles,
+    "the Output must install its media baseline before compiling the activating state",
+  );
   assert.ok(setupEnd > importedFiles);
   assert.equal(setupTail.includes("bridge?.requestState();"), false);
   assert.equal(setupTail.includes("bridge?.requestMediaFiles();"), false);

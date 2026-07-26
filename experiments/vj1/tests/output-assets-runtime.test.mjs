@@ -1604,12 +1604,22 @@ test("controller startup never publishes a false empty media snapshot before rec
     );
 
     state = { ...state, project: { folderName: "empty-show" } };
+    const responseStart = messages.length;
     await channel.onmessage({ data: protocol({
       type: "hello",
       clientId: "output-after-project-load",
       sessionId,
     }) });
     assert.deepEqual(messages.find((message) => message.type === "media-files")?.files, []);
+    const baselineTypes = messages
+      .slice(responseStart)
+      .map((message) => message.type)
+      .filter((type) => ["node-packages", "media-files", "state"].includes(type));
+    assert.deepEqual(
+      baselineTypes,
+      ["node-packages", "media-files", "state"],
+      "dependency snapshots must reach a new Output before state activates and compiles them",
+    );
     bridge.close();
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;

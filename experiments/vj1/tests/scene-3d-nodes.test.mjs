@@ -437,7 +437,7 @@ test("model import basis remains an explicit replaceable transform input", () =>
   assert.deepEqual(result.rotation, [0.4, 0.1, Math.PI + 1]);
 });
 
-test("display LOD is a retained semantic mesh operation driven by image demand", () => {
+test("display LOD is a retained semantic mesh operation independent of draw mode", () => {
   const fine = { ...triangleMesh(), triangleCount: 80000 };
   const medium = { ...triangleMesh(), triangleCount: 25000 };
   const coarse = { ...triangleMesh(), triangleCount: 6000 };
@@ -446,8 +446,7 @@ test("display LOD is a retained semantic mesh operation driven by image demand",
   const first = meshDisplayLodProcess({
     mesh,
     viewport: { width: 320, height: 180 },
-    renderMode: "wireframe",
-    wireDetail: 0,
+    geometryDetail: 0.5,
   }, { state });
   const firstMesh = first.mesh;
   const firstTargetTriangles = first.targetTriangles;
@@ -466,7 +465,7 @@ test("display LOD is a retained semantic mesh operation driven by image demand",
   );
   assert.strictEqual(first, second, "frame evaluation mutates one retained result record");
   assert.strictEqual(firstMesh, coarse);
-  assert.equal(firstTargetTriangles, 6000);
+  assert.equal(firstTargetTriangles, 9600);
   assert.strictEqual(second.mesh, fine);
   assert.equal(second.targetTriangles, 80000);
 });

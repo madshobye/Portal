@@ -20,7 +20,6 @@ export const Material3dNode = defineNode({
     uniforms: { type: "record", optional: true, defaultValue: {} },
     edgeAngle: { type: "number", defaultValue: 35, allowedRange: [0, 180], clamp: true },
     edgeBudget: { type: "number", defaultValue: 20000, allowedRange: [1000, 50000], clamp: true },
-    wireDetail: { type: "number", defaultValue: 0.25, allowedRange: [0, 1], clamp: true },
     renderQuality: { type: "number", defaultValue: 0.5, allowedRange: [0, 1], clamp: true },
   },
   parameters: {

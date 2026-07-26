@@ -101,7 +101,7 @@ export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponen
     flight: ["flightSpeed", "turn", "altitude", "terrainScale"],
     geometry: ["mountainHeight", "terrainScale", "lakeLevel", "viewDistance", "globeRadius", "gridWidth", "gridDepth", "gridDensity", "gridScale", "gridJitter"],
     camera: ["pitch", "fieldOfView", "nearClip", "farClip", "lookAhead", "noseFollow"],
-    "surface-material": ["waterColor", "grassColor", "rockColor", "snowColor", "downSlopeColor", "directionColor", "skyColor", "textureGrain", "textureDepth", "colorDirection"],
+    "surface-material": ["waterColor", "grassColor", "rockColor", "snowColor", "downSlopeColor", "directionColor", "skyColor", "textureGrain", "textureDepth", "colorDirection", "lakeLevel"],
     "wire-material": ["wireColor", "wireWidth"],
     "surface-render": ["style", "flightMode", "renderQuality"],
     "wire-render": ["style", "flightMode", "renderQuality"],

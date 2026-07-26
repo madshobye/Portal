@@ -18,15 +18,7 @@ export const MeshDisplayLodNode = defineNode({
   inlets: {
     mesh: { type: MeshType, required: true },
     viewport: { type: "viewport", optional: true },
-    renderMode: {
-      type: {
-        type: "enum",
-        values: ["surface", "points", "wireframe", "surfaceWire", "outline", "surfaceOutline", "xrayOutline"],
-      },
-      defaultValue: "surface",
-    },
     geometryDetail: { type: "number", defaultValue: 0.5, allowedRange: [0, 2], clamp: true },
-    wireDetail: { type: "number", defaultValue: 0.25, allowedRange: [0, 1], clamp: true },
   },
   outlets: {
     mesh: { type: MeshType },
@@ -85,9 +77,7 @@ export function meshDisplayLodProcess(
   const targetTriangles = modelLodTargetTriangles({
     width: viewport.width,
     height: viewport.height,
-    renderMode: inputs.renderMode,
     geometryDetail: inputs.geometryDetail,
-    wireDetail: inputs.wireDetail,
   });
   const result = output || state.output || (state.output = {
     mesh: null,

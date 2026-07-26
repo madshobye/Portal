@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
 import { sceneComponents, ordinaryComponents } from "../js/control/control-selectors.js";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfaceSectionTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate } from "../js/control/mapping-live-view.js";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate } from "../js/control/mapping-live-view.js";
 import { liveProjectionRailTemplate, projectRailTemplate } from "../js/control/project-rail-view.js";
 import { createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js";
 
@@ -68,6 +68,38 @@ test("Mapping Surface rail membership comes from the selected Mapping, not the e
 
   assert.match(html, /Second Surface 0/);
   assert.doesNotMatch(html, new RegExp(`data-select-surface="${first.surfaces[0].id}"`));
+});
+
+test("Mapping Surface eye reflects authored Surface visibility, never Scene Mapping routing", () => {
+  const { state, mapping } = stateWithScene();
+  const authoredSurface = mapping.surfaces.find((surface) => surface.destination?.type !== "direct")
+    || mapping.surfaces[0];
+  authoredSurface.enabled = true;
+  state.ui.live.sceneMappingInLive = false;
+  state.ui.live.sceneMappingVisible = false;
+
+  // `state.surfaces` is an executable projection. It may be disabled when
+  // Scene Mapping has no active route, but it is not the eye's authority.
+  const routedSurface = {
+    ...authoredSurface,
+    enabled: false,
+  };
+  const enabledHtml = mappingSurfacePillTemplate(routedSurface, state);
+  assert.match(enabledHtml, /data-toggle-value="true"/);
+  assert.match(enabledHtml, /data-toggle-enabled-icon="crop_free"/);
+  assert.match(enabledHtml, />crop_free</);
+  assert.doesNotMatch(enabledHtml, />hide_source</);
+
+  authoredSurface.enabled = false;
+  const staleEnabledRoute = {
+    ...authoredSurface,
+    enabled: true,
+  };
+  const disabledHtml = mappingSurfacePillTemplate(staleEnabledRoute, state);
+  assert.match(disabledHtml, /data-toggle-value="false"/);
+  assert.match(disabledHtml, /data-toggle-enabled-icon="crop_free"/);
+  assert.match(disabledHtml, /data-toggle-disabled-icon="hide_source"/);
+  assert.match(disabledHtml, />hide_source</);
 });
 
 test("Live combines independently enabled Scene and Part filters while keeping one on", () => {

@@ -8,6 +8,7 @@ import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvas
 import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js";
 import { createThumbnailUrlLease } from "../services/component-thumbnail-store.js";
 import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js";
+import { applyLiveRenderPatchesImmutable } from "../domain/live-render-patch.js";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
   let host = null;
@@ -126,12 +127,25 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
 
   function applyLivePatches(patches = []) {
     wakePreviewPresentation();
-    return renderer?.livePatchRuntime.applyLive(patches);
+    return applyRetainedPreviewPatches(patches, "live");
   }
 
   function applyRenderPatches(patches = []) {
     wakePreviewPresentation();
-    return renderer?.livePatchRuntime.apply(patches);
+    return applyRetainedPreviewPatches(patches, "render");
+  }
+
+  function applyRetainedPreviewPatches(patches, mode) {
+    if (!renderer || !pendingState) return { applied: false };
+    // Resolve and path-copy before mutating the renderer because pendingState
+    // and renderer.state may still share untouched structural branches.
+    const pendingResult = applyLiveRenderPatchesImmutable(pendingState, patches);
+    if (!pendingResult.applied) return pendingResult;
+    const rendererResult = mode === "live"
+      ? renderer.livePatchRuntime.applyLive(patches)
+      : renderer.livePatchRuntime.apply(patches);
+    if (rendererResult?.applied) pendingState = pendingResult.state;
+    return rendererResult;
   }
 
   function setViewport(ui = {}) {

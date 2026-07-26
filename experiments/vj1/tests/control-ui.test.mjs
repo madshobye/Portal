@@ -1821,7 +1821,7 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(outputSource.includes('renderer?.setState(runtimeState, { normalized: true });'));
   assert.ok(outputSource.includes('renderer?.setAssetState(runtimeState, { normalized: true });'));
   assert.ok(outputSource.includes("renderer.livePatchRuntime.applyLive(patches)"));
-  assert.ok(previewSource.includes("renderer?.livePatchRuntime.applyLive(patches)"));
+  assert.ok(previewSource.includes("renderer.livePatchRuntime.applyLive(patches)"));
 });
 
 test("parameter context menus are delegated across inspector replacements", () => {
@@ -1865,6 +1865,7 @@ test("opening an output never changes the Live Scene", () => {
 
 test("studio scrubs patch previews without replacing their complete state", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
 
   assert.ok(controllerSource.includes("componentRenderPatchesForChange(state, change)"));
   assert.ok(controllerSource.includes("embeddedPreview.applyRenderPatches(renderPatches)?.applied"));
@@ -1878,6 +1879,10 @@ test("studio scrubs patch previews without replacing their complete state", () =
   assert.ok(controllerSource.includes("if (!context.previewPatched) renderPreview(state, context)"));
   assert.ok(controllerSource.includes('if (change.topic === "mapping-state")'));
   assert.ok(controllerSource.includes('if (change.phase !== "scrub") renderPreview(state, { reason, change })'));
+  assert.ok(previewSource.includes("applyLiveRenderPatchesImmutable(pendingState, patches)"));
+  assert.ok(previewSource.includes("pendingState = pendingResult.state"));
+  assert.ok(previewSource.includes('applyRetainedPreviewPatches(patches, "live")'));
+  assert.ok(previewSource.includes('applyRetainedPreviewPatches(patches, "render")'));
 });
 
 test("multiple configured outputs have individual popup actions", () => {

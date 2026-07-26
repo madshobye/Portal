@@ -123,9 +123,12 @@ export function createControlBridge({
         clients.set(clientId, { at: performance.now(), outputId: msg.outputId || "output-main" });
         reportedConflicts.delete(clientId);
         if (isNewClient) {
+          // State is the activation barrier for a newly connected Output.
+          // Publish its dependency snapshots first so the receiver can install
+          // resources before compiling the graph described by that state.
           sendKnownNodePackages();
-          sendState(null, { targetClientId: clientId });
           sendKnownMediaFiles();
+          sendState(null, { targetClientId: clientId });
         }
         return;
       }

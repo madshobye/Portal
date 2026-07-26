@@ -17,7 +17,11 @@ import {
 } from "../js/domain/models.js";
 import { compileLiveProjectionProgram } from "../js/domain/live-projection-program.js";
 import { liveSurfaceVisible } from "../js/domain/live-ui-state.js";
-import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
+import {
+  applyLiveRenderPatches,
+  applyLiveRenderPatchesImmutable,
+  createLiveRenderPatch,
+} from "../js/domain/live-render-patch.js";
 import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
 import { DataStoreNode, ObservableDataStore } from "../js/libraries/data-store/data-store/index.js";
@@ -1120,6 +1124,54 @@ test("Live render baseline materializes every optional slider patch target", () 
   assert.equal(applyLiveRenderPatches(baseline, [
     createLiveRenderPatch(component.id, "transform.typo", 1),
   ]).applied, false, "unknown structural leaves remain invalid");
+});
+
+test("immutable render patches path-copy only affected retained preview state", () => {
+  const state = createInitialState();
+  const firstComponent = state.components[0];
+  firstComponent.chain[0].source.params.renderMode = "surface";
+  const secondComponent = createDefaultComponent(1);
+  secondComponent.id = "unaffected-component";
+  state.components.push(secondComponent);
+  const firstChainItem = firstComponent.chain[0];
+  const originalParams = firstChainItem.source.params;
+
+  const result = applyLiveRenderPatchesImmutable(state, [
+    createLiveRenderPatch(
+      firstComponent.id,
+      "chain.0.source.params.renderMode",
+      "wireframe",
+    ),
+  ]);
+
+  assert.equal(result.applied, true);
+  assert.equal(
+    result.state.components[0].chain[0].source.params.renderMode,
+    "wireframe",
+  );
+  assert.equal(
+    state.components[0].chain[0].source.params.renderMode,
+    "surface",
+    "the retained baseline cannot be mutated by its active renderer",
+  );
+  assert.notStrictEqual(result.state, state);
+  assert.notStrictEqual(result.state.components, state.components);
+  assert.notStrictEqual(result.state.components[0], firstComponent);
+  assert.notStrictEqual(result.state.components[0].chain[0], firstChainItem);
+  assert.notStrictEqual(
+    result.state.components[0].chain[0].source.params,
+    originalParams,
+  );
+  assert.strictEqual(
+    result.state.components[1],
+    secondComponent,
+    "unaffected Components remain structurally shared",
+  );
+  assert.strictEqual(
+    result.state.media,
+    state.media,
+    "unrelated project collections are not cloned",
+  );
 });
 
 test("persistent scrubs retain one baseline and reconcile Live truth on commit", () => {

@@ -7,6 +7,29 @@ const manifest = Object.freeze({
     name: "Photo Grade",
     category: "color",
     runtime: {
+      // Distortion changes which source pixels are sampled and therefore needs
+      // the full input. All other Photo Grade operations are evaluated in the
+      // full logical coordinate space but are pixel-local, so a regional render
+      // is exactly equivalent to cropping the full result.
+      roi: {
+        mode: "full-frame",
+        halo: 0,
+        coordinateSpace: "full-frame",
+        pixelEquivalentToFullFrame: true,
+      },
+      roiForParams: (params = {}) => (Number(params.distort) || 0) > 0.0001
+        ? {
+            mode: "full-frame",
+            halo: 0,
+            coordinateSpace: "full-frame",
+            pixelEquivalentToFullFrame: true,
+          }
+        : {
+            mode: "local",
+            halo: 0,
+            coordinateSpace: "full-frame",
+            pixelEquivalentToFullFrame: true,
+          },
       timeDependent: (params = {}) => params.seedMode !== "fixed" && (
         (Number(params.grain) || 0) > 0.0001 ||
         (Number(params.noise) || 0) > 0.0001 ||

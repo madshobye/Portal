@@ -167,14 +167,18 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
         ? pendingState
         : sanitizeState(pendingState)
       : null;
+    // The controller sends packages and media before state; install the
+    // buffered media before state compilation as well. State is the startup
+    // activation barrier, not a request to compile an incomplete graph that
+    // must later be rescued by another state publication.
+    renderer.importFiles(acceptedFiles);
     await renderer.setup(initialState ? outputSizedState(initialState, outputSize(initialState, mode), mode, outputId) : null, { normalized: true });
     if (acceptedState) {
       acceptedState = renderer.state;
       pendingState = renderer.state;
     }
-    renderer.importFiles(acceptedFiles);
     // The bridge starts before p5 and its registration handshake pushes one
-    // authoritative state/media baseline. Messages received during setup are
+    // authoritative dependency/state baseline. Messages received during setup are
     // buffered above, then installed here. Do not request the same snapshots
     // again: media packets are complete ownership snapshots, so a duplicate
     // pull needlessly reconciles every resource in a large project. The

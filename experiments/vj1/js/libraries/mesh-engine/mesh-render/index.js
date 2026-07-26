@@ -205,7 +205,6 @@ export function renderMeshNodeProcess(inputs = {}, context = {}) {
   params.wireThickness = material?.wireThickness ?? inputs.wireThickness;
   params.edgeAngle = material?.edgeAngle ?? inputs.edgeAngle;
   params.edgeBudget = material?.edgeBudget ?? inputs.edgeBudget;
-  params.wireDetail = material?.wireDetail ?? inputs.wireDetail;
   params.renderQuality = material?.renderQuality ?? inputs.renderQuality;
   params.__sceneTransform = inputs.transform?.kind === "transform3d"
     ? inputs.transform
@@ -355,7 +354,9 @@ function drawRawParsedWire(target, item, params = {}, componentTime = 0, color =
   const passState = beginRawWebGlState(gl, "model-wire");
   let attributeStates = [];
   try {
-    const completeLineBudget = Math.min(75000, modelTriangleCount(mesh) * 3);
+    // Wireframe is a render pass over the LOD selected by Geometry Detail.
+    // Never replace that topology with a separately sampled "wire mesh".
+    const completeLineBudget = modelTriangleCount(mesh) * 3;
     const resources = ensureRawWireResources(gl, item, completeLineBudget, mesh);
     if (!resources?.buffer || !resources.count || !resources.program) return false;
     attributeStates = captureRawWebGlAttributes(gl, passState, [resources.start, resources.end, resources.side, resources.along]);
@@ -579,7 +580,7 @@ function ensureRawWireResources(gl, item, pointBudget = 4000, mesh = item?.model
     programs.wireProgram = createRawWireProgram(gl);
   }
   if (!programs.wireProgram) return null;
-  const budget = boundedBudget(pointBudget);
+  const budget = completeWireBudget(pointBudget);
   const meshKey = meshResourceCacheKey(mesh);
   const key = `thickWire:${meshKey}:${budget}`;
   let buffer = validCachedBuffer(gl, contextResources, key);
@@ -1004,4 +1005,8 @@ function rawModelTargetPixelSize(target) {
 
 function boundedBudget(value) {
   return Math.max(128, Math.min(75000, Math.round(Number(value) || 4000)));
+}
+
+function completeWireBudget(value) {
+  return Math.max(128, Math.round(Number(value) || 4000));
 }

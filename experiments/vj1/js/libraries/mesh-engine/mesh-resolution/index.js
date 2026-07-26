@@ -11,15 +11,15 @@ export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([
   25000,
   12000,
   6000,
+  3000,
+  1500,
+  750,
 ]);
-// Geometry detail is a visual control, not an unrestricted simplifier target.
-// Keep both ends useful across every draw mode: the low end must retain enough
-// topology for coherent outlines, while the high end must not make a filled
-// surface needlessly expensive. Values from 0–1 preserve the established
-// 6k–80k response for saved projects. The extended 1–2 range is reserved for
-// dense meshes that visibly benefit from up to 250k triangles. Surface and
-// outline deliberately share this range and the same selected LOD.
-const MIN_DISPLAY_TRIANGLES = 6000;
+// Geometry detail selects one retained mesh before a render pass is chosen.
+// Surface, wire, outline, and point modes must therefore receive identical
+// topology for the same image demand and authored Geometry Detail value.
+const MIN_DISPLAY_TRIANGLES = 750;
+const DEFAULT_DISPLAY_TRIANGLES = Math.round(Math.sqrt(6000 * 80000));
 const STANDARD_DISPLAY_TRIANGLES = 80000;
 const MAX_DISPLAY_TRIANGLES = 250000;
 
@@ -82,6 +82,7 @@ export const MeshResolutionNode = defineNode({
       ],
       source: [
         `const MIN_DISPLAY_TRIANGLES = ${MIN_DISPLAY_TRIANGLES};
+const DEFAULT_DISPLAY_TRIANGLES = ${DEFAULT_DISPLAY_TRIANGLES};
 const STANDARD_DISPLAY_TRIANGLES = ${STANDARD_DISPLAY_TRIANGLES};
 const MAX_DISPLAY_TRIANGLES = ${MAX_DISPLAY_TRIANGLES};`,
         buildAutomaticModelLods,
@@ -168,10 +169,22 @@ export function selectModelLod(mesh = {}, targetTriangles = Infinity) {
 // meshes instead of spending most of the control range near the maximum.
 export function modelGeometryTriangleBudget(detail = 0.5) {
   const normalized = Math.max(0, Math.min(2, Number(detail) || 0));
-  if (normalized <= 1) {
+  if (normalized <= 0.5) {
     return Math.round(
       MIN_DISPLAY_TRIANGLES *
-      Math.pow(STANDARD_DISPLAY_TRIANGLES / MIN_DISPLAY_TRIANGLES, normalized)
+      Math.pow(
+        DEFAULT_DISPLAY_TRIANGLES / MIN_DISPLAY_TRIANGLES,
+        normalized * 2,
+      )
+    );
+  }
+  if (normalized <= 1) {
+    return Math.round(
+      DEFAULT_DISPLAY_TRIANGLES *
+      Math.pow(
+        STANDARD_DISPLAY_TRIANGLES / DEFAULT_DISPLAY_TRIANGLES,
+        (normalized - 0.5) * 2,
+      )
     );
   }
   return Math.round(
@@ -186,24 +199,15 @@ export function modelGeometryTriangleBudget(detail = 0.5) {
 export function modelLodTargetTriangles({
   width = 1,
   height = 1,
-  renderMode = "surface",
   geometryDetail = 0.5,
-  wireDetail = 0.25,
 } = {}) {
   const pixels = Math.max(1, Number(width) || 1) * Math.max(1, Number(height) || 1);
-  const constructionWire = renderMode === "wireframe" || renderMode === "surfaceWire";
-  let authoredBudget = modelGeometryTriangleBudget(geometryDetail);
-  if (constructionWire) {
-    // Wire detail may request a coarser complete mesh, but it can never exceed
-    // the common Geometry detail cap. This preserves coherent connected lines.
-    authoredBudget = Math.min(
-      authoredBudget,
-      modelGeometryTriangleBudget(wireDetail),
-    );
-  }
-  // Pixel demand can reduce unnecessary geometry for a small ROI, but never
-  // raise it above the authored cap. Outline and surface intentionally share
-  // this mesh LOD; edgeBudget only controls extracted outline edges.
+  const authoredBudget = Math.max(
+    MIN_DISPLAY_TRIANGLES,
+    modelGeometryTriangleBudget(geometryDetail),
+  );
+  // Pixel demand may select a coarser retained LOD for a small ROI, but Draw
+  // Mode and pass-specific budgets have no authority over mesh selection.
   const rasterDemand = Math.max(
     MIN_DISPLAY_TRIANGLES,
     Math.min(MAX_DISPLAY_TRIANGLES, Math.round(pixels / 6)),

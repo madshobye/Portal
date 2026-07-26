@@ -185,6 +185,68 @@ test("standalone output plans its cover crop as an exact viewport ROI", () => {
   assert.equal(metrics.componentRasterPixels, 1422 * 554);
 });
 
+test("standalone output composes host and Component cover crops into one pixel-exact ROI", () => {
+  const state = createInitialState();
+  state.render.componentAspectRatio = 1.5;
+  const component = { ...state.components[0], id: "nested-cover-component" };
+  const surface = {
+    ...state.surfaces[0],
+    id: "nested-cover-surface",
+    enabled: true,
+    componentId: component.id,
+    projectionFit: "cover",
+  };
+  state.components = [component];
+  state.surfaces = [surface];
+  const mapperSurface = {
+    name: surface.id,
+    // A 16:9 Output covers a taller 1223×855 host. These are the resulting
+    // physical Output corners before the 3:2 Component cover is applied.
+    corners: [
+      { x: -148.5, y: 0 },
+      { x: 1371.5, y: 0 },
+      { x: 1371.5, y: 855 },
+      { x: -148.5, y: 855 },
+    ],
+  };
+  const { routes, metrics } = planSurfaceRoutes({
+    state,
+    mapperSurfaces: new Map([[surface.id, { mapperSurface, direct: true }]]),
+    componentById: new Map([[component.id, component]]),
+    viewport: { width: 1223, height: 855 },
+    pixelScale: 1,
+    preserveDirectFootprint: true,
+    allowViewportRegions: true,
+    resolveRouteSourceNode: () => ({
+      id: `component:${component.id}`,
+      componentId: component.id,
+    }),
+    isComponentRegionSafe: () => true,
+  });
+
+  const request = routes[0].componentRequest;
+  assert.equal(request.regionView, true);
+  assert.deepEqual(
+    { width: request.width, height: request.height },
+    { width: 1223, height: 855 },
+  );
+  assert.deepEqual(request.uvRect, [
+    0.09769736842105262,
+    0.078125,
+    0.8046052631578947,
+    0.84375,
+  ]);
+  assert.equal(metrics.componentRasterPixels, 1223 * 855);
+  assert.ok(
+    Math.abs(request.width / request.uvRect[2] - 1520) < 1e-9,
+    "regional width keeps the same virtual full-raster pixel scale",
+  );
+  assert.ok(
+    Math.abs(request.height / request.uvRect[3] - (3040 / 3)) < 1e-9,
+    "regional height keeps the same virtual full-raster pixel scale",
+  );
+});
+
 test("root Content scale uses transformed ROI detail without enlarging Surface allocation", () => {
   const state = createInitialState();
   const component = {
@@ -453,6 +515,114 @@ test("independent Canvas children do not multiply across multiple recording-fram
   assert.equal(routes.length, 2);
   assert.notEqual(routes[0].componentRequest.role, "scene-region");
   assert.strictEqual(routes[0].componentRequest, routes[1].componentRequest);
+});
+
+test("active synchronized Scene frames share one union ROI raster", () => {
+  const state = createInitialState();
+  state.render.sceneWidth = 2000;
+  state.render.sceneHeight = 1000;
+  const scene = {
+    ...state.components[0],
+    id: "scene-union",
+    type: "scene",
+    syncInstances: true,
+    chain: [],
+    canvas: { frameThumbnails: {} },
+  };
+  const surfaces = [
+    {
+      ...state.surfaces[0],
+      id: "surface-left",
+      enabled: true,
+      componentId: scene.id,
+      sourceNodeId: `component:${scene.id}`,
+      sceneCrop: true,
+      x: 0.1,
+      y: 0.2,
+      width: 0.2,
+      height: 0.4,
+    },
+    {
+      ...state.surfaces[0],
+      id: "surface-right",
+      enabled: true,
+      componentId: scene.id,
+      sourceNodeId: `component:${scene.id}`,
+      sceneCrop: true,
+      x: 0.5,
+      y: 0.2,
+      width: 0.2,
+      height: 0.4,
+    },
+    {
+      ...state.surfaces[0],
+      id: "surface-disabled",
+      enabled: false,
+      componentId: scene.id,
+      sourceNodeId: `component:${scene.id}`,
+      sceneCrop: true,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    },
+  ];
+  state.components = [scene];
+  state.surfaces = surfaces;
+  const mapperSurfaces = new Map(surfaces.map((surface) => [surface.id, {
+    direct: false,
+    mapperSurface: {
+      name: surface.id,
+      corners: [
+        { x: 0, y: 0 },
+        { x: 400, y: 0 },
+        { x: 400, y: 300 },
+        { x: 0, y: 300 },
+      ],
+    },
+  }]));
+
+  const { routes, metrics } = planSurfaceRoutes({
+    state,
+    mapperSurfaces,
+    componentById: new Map([[scene.id, scene]]),
+    viewport: { width: 1000, height: 600 },
+    pixelScale: 1,
+    resolveRouteSourceNode: (surface) => ({
+      id: surface.sourceNodeId,
+      componentId: scene.id,
+    }),
+    isComponentRegionSafe: () => true,
+    isComponentFrameFanoutSafe: () => true,
+  });
+
+  assert.equal(routes.length, 2, "disabled destinations do not widen Scene demand");
+  assert.strictEqual(
+    routes[0].componentRequest,
+    routes[1].componentRequest,
+    "the Scene graph executes once for the union of synchronized frame crops",
+  );
+  assert.equal(routes[0].componentRequest.role, "scene-region");
+  assert.deepEqual(routes[0].componentRequest.uvRect, [0.1, 0.2, 0.6, 0.4000000000000001]);
+  assert.deepEqual(
+    {
+      width: routes[0].componentRequest.width,
+      height: routes[0].componentRequest.height,
+    },
+    { width: 1239, height: 464 },
+    "the shared allocation contains only the union at the strictest projection-aware Surface density",
+  );
+  assert.ok(Math.abs(routes[0].presentationUvRect[0]) < 1e-12);
+  assert.ok(Math.abs(routes[0].presentationUvRect[2] - 1 / 3) < 1e-12);
+  assert.ok(Math.abs(routes[0].presentationUvRect[3] - 1) < 1e-12);
+  assert.ok(Math.abs(routes[1].presentationUvRect[0] - 2 / 3) < 1e-12);
+  assert.ok(Math.abs(routes[1].presentationUvRect[2] - 1 / 3) < 1e-12);
+  assert.ok(Math.abs(routes[1].presentationUvRect[3] - 1) < 1e-12);
+  assert.equal(
+    metrics.componentRasterPixels,
+    routes[0].componentRequest.width * routes[0].componentRequest.height,
+    "the shared Scene union allocation is counted once",
+  );
 });
 
 test("surface planner consumes the compiled Scene surface program as routing authority", () => {

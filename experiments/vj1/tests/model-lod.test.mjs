@@ -11,6 +11,7 @@ import {
   simplifyMeshByVertexClustering,
 } from "../js/libraries/mesh-engine/mesh-resolution/index.js";
 import { modelTriangleCount } from "../js/libraries/mesh-engine/mesh-types.js";
+import { buildParsedModelWireLines } from "../js/libraries/mesh-engine/mesh-render-cache.js";
 import { weldedMeshTopology } from "../js/libraries/mesh-engine/meshoptimizer-simplifier.js";
 import {
   deserializeDerivedModel,
@@ -81,7 +82,7 @@ test("automatic model LODs stay within bounded triangle budgets", () => {
 });
 
 test("geometry detail uses a perceptual triangle scale and caps pixel demand", () => {
-  assert.equal(modelGeometryTriangleBudget(0), 6000);
+  assert.equal(modelGeometryTriangleBudget(0), 750);
   assert.equal(modelGeometryTriangleBudget(1), 80000);
   assert.equal(modelGeometryTriangleBudget(2), 250000);
   assert.ok(modelGeometryTriangleBudget(0.5) > 21000);
@@ -103,35 +104,61 @@ test("geometry detail uses a perceptual triangle scale and caps pixel demand", (
   );
 });
 
-test("surface and outline share mesh detail while edge budget controls drawing only", () => {
+test("draw modes and pass budgets never change the selected mesh LOD", () => {
+  const lowDetailRequest = {
+    width: 1920,
+    height: 1080,
+    geometryDetail: 0,
+  };
+  const expectedLowDetail = modelLodTargetTriangles(lowDetailRequest);
+  assert.equal(expectedLowDetail, 750);
+
+  for (const renderMode of [
+    "surface",
+    "points",
+    "wireframe",
+    "surfaceWire",
+    "outline",
+    "surfaceOutline",
+    "xrayOutline",
+  ]) {
+    assert.equal(
+      modelLodTargetTriangles({
+        ...lowDetailRequest,
+        renderMode,
+        wireDetail: 0,
+        pointBudget: 128,
+        edgeBudget: 1000,
+      }),
+      expectedLowDetail,
+      `${renderMode} is only a render pass over the selected mesh`,
+    );
+  }
+
   const request = { width: 1280, height: 720, geometryDetail: 0.5 };
-  assert.equal(
-    modelLodTargetTriangles({ ...request, renderMode: "outline" }),
-    modelLodTargetTriangles({ ...request, renderMode: "surface" }),
-  );
-  assert.equal(
-    modelLodTargetTriangles({ ...request, renderMode: "xrayOutline" }),
-    modelLodTargetTriangles({ ...request, renderMode: "outline" })
-  );
-  assert.equal(
-    modelLodTargetTriangles({ ...request, renderMode: "outline", edgeBudget: 20000 }),
-    modelLodTargetTriangles({ ...request, renderMode: "outline", edgeBudget: 50000 }),
-    "edge extraction budget must not degrade the retained mesh",
-  );
+  const expected = modelLodTargetTriangles(request);
+  for (const renderMode of ["surface", "wireframe", "outline", "points"]) {
+    assert.equal(
+      modelLodTargetTriangles({
+        ...request,
+        renderMode,
+        wireDetail: renderMode === "wireframe" ? 0 : 1,
+        pointBudget: renderMode === "points" ? 128 : 75000,
+        edgeBudget: renderMode === "outline" ? 1000 : 50000,
+      }),
+      expected,
+    );
+  }
 });
 
-test("wire detail selects a complete resolution-independent construction mesh", () => {
-  const common = { width: 1920, height: 1080, renderMode: "wireframe", geometryDetail: 1 };
-  const low = modelLodTargetTriangles({ ...common, wireDetail: 0 });
-  const medium = modelLodTargetTriangles({ ...common, wireDetail: 0.25 });
-  const high = modelLodTargetTriangles({ ...common, wireDetail: 1 });
-  assert.equal(low, 6000);
-  assert.ok(medium > low && medium < high);
-  assert.equal(high, 80000);
+test("wireframe emits every edge of the Geometry Detail LOD without a hidden topology cap", () => {
+  const triangleCount = 26000;
+  const mesh = { positions: new Float32Array(triangleCount * 9) };
+  const lines = buildParsedModelWireLines(mesh, triangleCount * 3);
   assert.equal(
-    medium,
-    modelLodTargetTriangles({ ...common, width: 2560, height: 1440, wireDetail: 0.25 }),
-    "render resolution must not replace the authored wire detail"
+    lines.length / 6,
+    triangleCount * 3,
+    "wire pass must not stop responding above the old 75,000-edge cap",
   );
 });
 

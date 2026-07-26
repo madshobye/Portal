@@ -77,7 +77,6 @@ export function createMaterial3d(value = {}) {
     visibleDepth: clamp(finite(value.visibleDepth, 1), 0.02, 1),
     edgeAngle: clamp(finite(value.edgeAngle, 35), 0, 180),
     edgeBudget: Math.max(1000, Math.round(finite(value.edgeBudget, 20000))),
-    wireDetail: clamp(finite(value.wireDetail, 0.25), 0, 1),
     renderQuality: clamp(finite(value.renderQuality, 0.5), 0, 1),
     shader: Object.freeze({
       source: shaderSource,

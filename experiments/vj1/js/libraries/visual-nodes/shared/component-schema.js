@@ -261,6 +261,23 @@ export function renderQualityScale(values = {}, { minimum = 0.35 } = {}) {
   return minimum + (1 - minimum) * (quality / RENDER_QUALITY_DEFAULT);
 }
 
+function normalizedRuntimeRoi(roi = {}, runtime = {}) {
+  const candidate = roi && typeof roi === "object" ? roi : {};
+  return Object.freeze({
+    mode: ["local", "neighborhood", "full-frame", "projective"].includes(candidate.mode)
+      ? candidate.mode
+      : runtime?.cacheable === false ? "full-frame" : "local",
+    halo: Math.max(0, Number(candidate.halo) || 0),
+    coordinateSpace: ["boundary", "full-frame", "projective"].includes(candidate.coordinateSpace)
+      ? candidate.coordinateSpace
+      : "boundary",
+    ...(candidate.inputMapping != null ? { inputMapping: String(candidate.inputMapping) } : {}),
+    ...(candidate.pixelEquivalentToFullFrame != null
+      ? { pixelEquivalentToFullFrame: candidate.pixelEquivalentToFullFrame !== false }
+      : {}),
+  });
+}
+
 function normalizeRuntimePolicy(runtime = {}) {
   const roi = runtime?.roi && typeof runtime.roi === "object" ? runtime.roi : {};
   return Object.freeze({
@@ -280,20 +297,22 @@ function normalizeRuntimePolicy(runtime = {}) {
       ? runtime.isNeutral
       : () => false,
     rateParam: String(runtime?.rateParam || ""),
-    roi: Object.freeze({
-      mode: ["local", "neighborhood", "full-frame", "projective"].includes(roi.mode)
-        ? roi.mode
-        : runtime?.cacheable === false ? "full-frame" : "local",
-      halo: Math.max(0, Number(roi.halo) || 0),
-      coordinateSpace: ["boundary", "full-frame", "projective"].includes(roi.coordinateSpace)
-        ? roi.coordinateSpace
-        : "boundary",
-      ...(roi.inputMapping != null ? { inputMapping: String(roi.inputMapping) } : {}),
-      ...(roi.pixelEquivalentToFullFrame != null
-        ? { pixelEquivalentToFullFrame: roi.pixelEquivalentToFullFrame !== false }
-        : {}),
-    }),
+    roi: normalizedRuntimeRoi(roi, runtime),
+    roiForParams: typeof runtime?.roiForParams === "function"
+      ? runtime.roiForParams
+      : null,
   });
+}
+
+// Static compiler contracts remain conservative. Runtime parameter values may
+// narrow that contract only when a visual explicitly declares how its ROI
+// behavior changes. This keeps parameter-dependent effects out of host-specific
+// exception lists while allowing the renderer to retain regional execution.
+export function runtimeRoiContract(runtimePolicy = {}, params = {}, context = {}) {
+  const dynamic = typeof runtimePolicy?.roiForParams === "function"
+    ? runtimePolicy.roiForParams(params, context)
+    : null;
+  return normalizedRuntimeRoi(dynamic || runtimePolicy?.roi || {}, runtimePolicy);
 }
 
 export function normalizeParamValues(component, values = {}) {

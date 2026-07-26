@@ -54,7 +54,6 @@ const manifest = Object.freeze({
     "visibleDepth",
     "focalLength",
     "wireThickness",
-    "wireDetail",
     "edgeAngle",
     "edgeBudget",
     "pointBudget",
@@ -89,7 +88,6 @@ const manifest = Object.freeze({
     createNumberParam("visibleDepth", "Visible depth", { min: 0.02, max: 1, step: 0.01, defaultValue: 1 }),
     createNumberParam("focalLength", "Focal length (mm)", { min: 8, max: 200, step: 0.1, defaultValue: 20.8 }),
     createNumberParam("wireThickness", "Wire thickness", { min: 0.5, max: 12, step: 0.1, defaultValue: 1 }),
-    createNumberParam("wireDetail", "Wire detail", { min: 0, max: 1, step: 0.01, defaultValue: 0.25 }),
     createNumberParam("edgeAngle", "Edge angle", { min: 0, max: 180, step: 1, defaultValue: 35 }),
     createNumberParam("edgeBudget", "Edge budget", { min: 1000, max: 50000, step: 1000, defaultValue: 20000 }),
     createNumberParam("pointBudget", "Point budget", { min: 500, max: 50000, step: 500, defaultValue: 4000 }),
@@ -125,7 +123,7 @@ export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponen
   output: "render.texture",
   parameterBindings: {
     media: ["mediaId"],
-    lod: ["renderMode", "geometryDetail", "wireDetail"],
+    lod: ["geometryDetail"],
     motion: [
       { publicParameterId: "modelScale", targetParameterId: "uniformScale" },
       { publicParameterId: "depth", targetParameterId: "scaleZ" },
@@ -141,7 +139,6 @@ export const VisualComponent = defineCompiledVisualCompound(NativeVisualComponen
       "visibleDepth",
       "edgeAngle",
       "edgeBudget",
-      "wireDetail",
     ],
     camera: ["focalLength"],
   },

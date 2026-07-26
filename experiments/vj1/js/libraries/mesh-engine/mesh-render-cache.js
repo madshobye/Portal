@@ -102,7 +102,7 @@ export function ensureParsedModelPointCloud(item, pointBudget = 4000, mesh = ite
 }
 
 export function ensureParsedModelWireLines(item, lineBudget = 4000, mesh = item?.modelData) {
-  const budget = boundedBudget(lineBudget);
+  const budget = completeWireBudget(lineBudget);
   const key = `wire:${meshResourceCacheKey(mesh)}:${budget}`;
   if (item?.modelWireLines && item.modelWireLinesKey === key) return item.modelWireLines;
   const lines = buildParsedModelWireLines(mesh, budget);
@@ -114,7 +114,7 @@ export function ensureParsedModelWireLines(item, lineBudget = 4000, mesh = item?
 }
 
 export function ensureParsedModelThickWireVertices(item, lineBudget = 4000, mesh = item?.modelData) {
-  const budget = boundedBudget(lineBudget);
+  const budget = completeWireBudget(lineBudget);
   const key = `thickWire:${meshResourceCacheKey(mesh)}:${budget}`;
   if (item?.modelThickWireVertices && item.modelThickWireVerticesKey === key) return item.modelThickWireVertices;
   const vertices = buildParsedModelThickWireVertices(ensureParsedModelWireLines(item, budget, mesh));
@@ -205,7 +205,7 @@ export function buildParsedModelWireLines(mesh, lineBudget = 4000) {
   const triangleCount = modelTriangleCount(mesh);
   if (!triangleCount) return new Float32Array(0);
   const totalEdges = triangleCount * 3;
-  const budget = boundedBudget(lineBudget);
+  const budget = completeWireBudget(lineBudget);
   const stride = Math.max(1, Math.ceil(totalEdges / budget));
   const count = Math.ceil(totalEdges / stride);
   const lines = new Float32Array(count * 6);
@@ -387,4 +387,8 @@ function stableGeometryId(id = "") {
 
 function boundedBudget(value) {
   return Math.max(128, Math.min(75000, Math.round(Number(value) || 4000)));
+}
+
+function completeWireBudget(value) {
+  return Math.max(128, Math.round(Number(value) || 4000));
 }

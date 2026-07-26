@@ -39,6 +39,59 @@ export function applyLiveRenderPatches(state, patches = []) {
   };
 }
 
+// Materialize the same compact patch stream without mutating the retained
+// state tree. Embedded Preview owns both an active renderer state and a
+// pending state used by later resize/layout reconciliation. Updating only the
+// renderer lets that pending state restore stale parameters on the next
+// reconciliation. Path-copying the affected Component/state branches keeps
+// those two authorities coherent without cloning or rebuilding the project.
+export function applyLiveRenderPatchesImmutable(state, patches = []) {
+  const resolution = resolveLiveRenderPatches(state, patches);
+  if (!resolution.applied) return { ...resolution, state };
+
+  let nextState = state;
+  for (const patch of resolution.destinations) {
+    if (patch.targetType === "state") {
+      nextState = copyPatchPath(
+        nextState,
+        livePatchPathParts(patch.path),
+        patch.value,
+      );
+      continue;
+    }
+    const componentIndex = nextState.components.findIndex(
+      (component) => String(component?.id || "") === patch.componentId,
+    );
+    if (componentIndex < 0) {
+      return {
+        applied: false,
+        componentIds: resolution.componentIds,
+        configurationTargets: resolution.configurationTargets,
+        statePaths: resolution.statePaths,
+        destinations: [],
+        failedPatch: patch,
+        state,
+      };
+    }
+    const components = nextState.components.slice();
+    components[componentIndex] = copyPatchPath(
+      components[componentIndex],
+      livePatchPathParts(patch.path),
+      patch.value,
+    );
+    nextState = { ...nextState, components };
+  }
+
+  return {
+    applied: true,
+    componentIds: resolution.componentIds,
+    configurationTargets: resolution.configurationTargets,
+    statePaths: resolution.statePaths,
+    failedPatch: null,
+    state: nextState,
+  };
+}
+
 export function resolveLiveRenderPatches(state, patches = []) {
   if (!state || !Array.isArray(state.components) || !Array.isArray(patches)) {
     return { applied: false, componentIds: [], statePaths: [], destinations: [], failedPatch: null };
@@ -151,4 +204,14 @@ function resolvePatchPath(target, parts) {
 
 function isOptionalParamLeaf(parts) {
   return parts.length >= 2 && parts.at(-2) === "params" && typeof parts.at(-1) === "string";
+}
+
+function copyPatchPath(target, parts, value) {
+  if (!parts.length) return target;
+  const [part, ...rest] = parts;
+  const copy = Array.isArray(target) ? target.slice() : { ...target };
+  copy[part] = rest.length
+    ? copyPatchPath(target[part], rest, value)
+    : value;
+  return copy;
 }

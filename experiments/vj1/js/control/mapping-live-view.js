@@ -17,18 +17,24 @@ const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 export function mappingSurfacePillTemplate(surface, state, {
   selected = state.ui.selectedSurfaceId === surface.id,
 } = {}) {
-  const mappingSurface = getMappingSurfaceView(surface, state);
-  const enabled = surface.enabled !== false;
-  const direct = surface.destination?.type === "direct";
+  // A caller may hold an executable Surface projection from `state.surfaces`.
+  // That projection can be disabled because Scene Mapping is not currently
+  // routed, but the eye in an authoring rail belongs exclusively to the
+  // selected Mapping's Surface. Never derive this UI authority from routing.
+  const authoredSurface = getMappingSurfaceView(surface, state);
+  const enabled = authoredSurface.enabled !== false;
+  const direct = authoredSurface.destination?.type === "direct";
   return selectablePillTemplate({
     rowClass: "list-row compact-list-row",
     selected,
     action: "data-select-surface",
-    id: surface.id,
-    iconName: enabled ? (direct ? "desktop_windows" : "crop_free") : "hide_source",
-    label: surface.name,
+    id: authoredSurface.id,
+    // `selectablePillTemplate` derives the displayed disabled icon from
+    // `toggleValue`; this remains the icon restored when the Surface is shown.
+    iconName: direct ? "desktop_windows" : "crop_free",
+    label: authoredSurface.name,
     meta: "",
-    togglePath: `${pathForSurface(state, surface)}.enabled`,
+    togglePath: `${pathForSurface(state, authoredSurface)}.enabled`,
     toggleValue: enabled,
     removeAction: direct ? "" : "data-remove-surface",
     removeDisabled: false,

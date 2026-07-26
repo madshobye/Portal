@@ -1,4 +1,7 @@
-import { normalizeParamValues } from "../libraries/visual-nodes/shared/component-schema.js";
+import {
+  normalizeParamValues,
+  runtimeRoiContract,
+} from "../libraries/visual-nodes/shared/component-schema.js";
 import { visitVisualParameterReferences } from "../libraries/visual-nodes/shared/parameter-references.js";
 import {
   VISUAL_SOURCE_RENDERERS,
@@ -397,14 +400,17 @@ export class SourceRenderRuntime {
     };
   }
 
-  componentRegionSafe(component = {}, visiting = new Set()) {
+  componentRegionSafetyResult(component = {}, visiting = new Set()) {
     const host = this.host;
-    if (!component?.id || visiting.has(component.id)) return false;
+    if (!component?.id || visiting.has(component.id)) {
+      return { safe: false, dynamic: false };
+    }
     const cached = this.componentRegionSafety.get(component);
-    if (cached !== undefined) return cached;
+    if (cached !== undefined) return { safe: cached, dynamic: false };
     visiting.add(component.id);
     const program = host.componentProgramRuntime.programs.get(component.id);
     let safe = !!program;
+    let dynamic = false;
     program?.forEachOperation((operation) => {
       if (
         !safe ||
@@ -414,9 +420,19 @@ export class SourceRenderRuntime {
         return;
       }
       if (operation.opcode === "effect") {
+        const params =
+          operation.configuration?.source?.params ||
+          operation.configuration?.params ||
+          {};
+        const runtimePolicy = operation.runtimePolicy || {};
+        const roi = runtimeRoiContract(runtimePolicy, params, {
+          component,
+          operation,
+        });
+        dynamic = dynamic || typeof runtimePolicy.roiForParams === "function";
         safe =
-          operation.contract?.roi?.pixelEquivalentToFullFrame === true &&
-          operation.contract?.roi?.mode === "local";
+          roi.pixelEquivalentToFullFrame === true &&
+          roi.mode === "local";
         return;
       }
       if (operation.opcode !== "source") return;
@@ -425,10 +441,24 @@ export class SourceRenderRuntime {
         const dependency = host.state?.components?.find(
           (candidate) => candidate.id === source.componentId,
         );
+        const dependencyResult = dependency && dependency.type !== "scene"
+          ? this.componentRegionSafetyResult(dependency, visiting)
+          : { safe: false, dynamic: false };
+        dynamic = dynamic || dependencyResult.dynamic;
+        safe = !!dependency && dependencyResult.safe;
+      } else if (
+        operation.contract?.roi?.mode === "projective"
+      ) {
+        // A compiled projective renderer (for example Scene3D → Image) is not
+        // a legacy catalog generator. Its compiler contract is the authority:
+        // it can evaluate a viewport ROI through a sub-frustum while remaining
+        // pixel-equivalent to a crop of the full render. Requiring a legacy
+        // generator registration here forced every containing Component back
+        // to its hidden full cover raster, even though the compiled renderer
+        // had already declared and implemented regional evaluation.
         safe =
-          !!dependency &&
-          dependency.type !== "scene" &&
-          this.componentRegionSafe(dependency, visiting);
+          operation.contract.roi.pixelEquivalentToFullFrame === true &&
+          operation.contract.roi.inputMapping === "sub-frustum";
       } else if (
         !["black", "media", "camera", "generator"].includes(source.type)
       ) {
@@ -438,8 +468,12 @@ export class SourceRenderRuntime {
       }
     });
     visiting.delete(component.id);
-    this.componentRegionSafety.set(component, safe);
-    return safe;
+    if (!dynamic) this.componentRegionSafety.set(component, safe);
+    return { safe, dynamic };
+  }
+
+  componentRegionSafe(component = {}, visiting = new Set()) {
+    return this.componentRegionSafetyResult(component, visiting).safe;
   }
 
   sceneComponentRegionSafe(component = {}) {

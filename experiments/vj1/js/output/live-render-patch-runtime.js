@@ -129,32 +129,52 @@ export class LiveRenderPatchRuntime {
     for (const componentId of result.componentIds) {
       host.componentProgramRuntime.refreshLookup(componentId);
     }
-    if (
+    const requiresProgramRebuild =
       patches.some(renderPatchChangesProgramTopology) ||
-      host.componentProgramRuntime.dependencyClosureIsIncomplete(result.componentIds)
-    ) {
+      host.componentProgramRuntime.dependencyClosureIsIncomplete(result.componentIds);
+    if (requiresProgramRebuild) {
       host.componentProgramRuntime.rebuild();
-    } else {
-      let configurationApplied = true;
+    }
+    const synchronizeConfigurationTargets = () => {
+      const missingTargets = [];
       for (const target of result.configurationTargets || []) {
         const synchronized =
           host.componentProgramRuntime.syncConfigurationItems(
             target.componentId,
             target.itemIds,
           );
-        configurationApplied =
-          synchronized.applied && configurationApplied;
+        if (!synchronized.applied) missingTargets.push(target);
       }
-      // A render patch is not successful merely because it reached project
-      // state. Its semantic visual item must also acknowledge the authored
-      // configuration. A missing binding indicates stale/migrated topology;
-      // rebuild once at this shared compiler boundary instead of leaving a
-      // renderer-specific stale image on screen.
-      if (!configurationApplied) {
-        host.componentProgramRuntime.rebuild();
-      }
+      return missingTargets;
+    };
+    let missingTargets = synchronizeConfigurationTargets();
+    // A render patch is not successful merely because it reached project
+    // state. Its semantic visual item must also acknowledge the authored
+    // configuration. A missing binding may be a stale retained program, so
+    // rebuild once at this shared compiler boundary and retry. If the target
+    // is still outside the active program roots, report that honestly:
+    // Embedded Preview will activate its authoritative projection and Output
+    // will request an ordered state resync. Never silently leave one renderer
+    // displaying an older node configuration.
+    if (missingTargets.length && !requiresProgramRebuild) {
+      host.componentProgramRuntime.rebuild();
+      missingTargets = synchronizeConfigurationTargets();
     }
     if (result.componentIds.length) host.thumbnailRuntime.invalidateSelectedComponent();
+    if (missingTargets.length) {
+      const missingComponentIds = new Set(
+        missingTargets.map((target) => String(target.componentId || "")),
+      );
+      return {
+        ...result,
+        applied: false,
+        stateApplied: true,
+        configurationApplied: false,
+        failedPatch: patches.find((patch) =>
+          missingComponentIds.has(String(patch?.componentId || ""))
+        ) || null,
+      };
+    }
     return result;
   }
 
