@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Output Control Ownership</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 16px;
+        background: #08090b;
+        color: #eef2ef;
+        font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      pre { white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <pre id="results">initializing...</pre>
+    <script type="module">
+      import {
+        createControlBridge,
+        createOutputBridge,
+      } from "../../js/services/output-bridge-service.js";
+
+      const params = new URL(location.href).searchParams;
+      const role = params.get("role") || "control";
+      const source = params.get("source") || role;
+      const channelName = params.get("channel") || "vj1-output-control-ownership-smoke";
+      const resultElement = document.querySelector("#results");
+      const state = {
+        source,
+        project: { folderName: "" },
+        metrics: { clients: 0, outputs: {} },
+      };
+      const result = {
+        role,
+        source,
+        channelName,
+        controlId: "",
+        sessionId: "",
+        conflicts: [],
+        installedStates: [],
+        controlSessions: [],
+      };
+      const store = {
+        subscribe() { return () => {}; },
+        getState: () => state,
+        getLiveRenderState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      };
+
+      if (role === "output") {
+        const bridge = createOutputBridge({
+          mode: "output",
+          outputId: "smoke-output",
+          channelName,
+          onState(nextState) {
+            result.installedStates.push(nextState?.source || "");
+            render();
+          },
+          onControlHello({ sessionId }) {
+            result.controlSessions.push(sessionId);
+            render();
+          },
+        });
+        window.bridgeSmoke = {
+          result,
+          close: () => bridge.close(),
+        };
+      } else {
+        const bridge = createControlBridge({
+          store,
+          mediaLibrary: { getAllFiles: () => [] },
+          channelName,
+          diagnostics: {
+            record(level, values) {
+              result.conflicts.push({ level, ...(values?.[0] || {}) });
+              render();
+            },
+          },
+        });
+        result.controlId = bridge.controlId;
+        result.sessionId = bridge.sessionId;
+        window.bridgeSmoke = {
+          result,
+          sendState(nextSource = source) {
+            bridge.sendState({ ...state, source: nextSource });
+          },
+          close: () => bridge.close(),
+        };
+      }
+
+      function render() {
+        resultElement.textContent = JSON.stringify(result, null, 2);
+        document.documentElement.dataset.status = "ready";
+      }
+      render();
+    </script>
+  </body>
+</html>

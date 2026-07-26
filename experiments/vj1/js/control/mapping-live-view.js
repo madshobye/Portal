@@ -211,8 +211,8 @@ export function liveNavigableComponents(scene, state) {
 // selected matrix cell. Include the Overall source and every source currently
 // routed to a Surface, then walk their component graphs. This keeps a custom
 // Surface patch inspectable after the operator moves to another Surface.
-export function liveProgramNavigableComponents(state) {
-  const ids = liveProgramComponentIds(state);
+export function liveProgramNavigableComponents(state, nowMs = Date.now()) {
+  const ids = liveProgramComponentIds(state, nowMs);
   return [...ids]
     .map((id) => state.components?.find((component) => String(component.id) === String(id)))
     .filter((component) => component && !component.systemRole);

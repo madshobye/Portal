@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Alpha Feather Gradient</title>
+  </head>
+  <body>
+    <pre id="alpha-feather-results">initializing...</pre>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <script type="module">
+      import {
+        getEffectNodeComponent,
+      } from "../../js/libraries/visual-nodes/index.js";
+      import { createShaderBuilder } from "../../js/shaders/shader-builder.js";
+
+      const resultElement = document.querySelector("#alpha-feather-results");
+      const resources = [];
+
+      window.addEventListener("error", (event) => reportFailure(
+        event.error?.stack || event.message || "ALPHA_FEATHER_SMOKE_SCRIPT_ERROR",
+      ));
+      window.addEventListener("unhandledrejection", (event) => reportFailure(
+        event.reason?.stack || event.reason?.message || String(event.reason || "ALPHA_FEATHER_SMOKE_REJECTION"),
+      ));
+
+      function reportFailure(error) {
+        resultElement.textContent = JSON.stringify({ ok: false, error }, null, 2);
+        document.documentElement.dataset.status = "error";
+      }
+
+      globalThis.setup = () => {
+        try {
+          createCanvas(16, 16, WEBGL);
+          pixelDensity(1);
+          noLoop();
+          const source = createGraphics(128, 128);
+          const target = createGraphics(128, 128, WEBGL);
+          source.pixelDensity(1);
+          target.pixelDensity(1);
+          resources.push(source, target);
+          source.clear();
+          source.noStroke();
+          source.fill(255);
+          source.circle(64, 64, 80);
+
+          const component = getEffectNodeComponent("alphaFeather");
+          const builder = createShaderBuilder({
+            getComponent: () => component,
+            getCustomCode: () => "",
+          });
+          const shader = builder.getShader({ id: component.id }, target);
+          if (!shader) throw new Error("ALPHA_FEATHER_SHADER_UNAVAILABLE");
+
+          target.push();
+          target.clear();
+          target.noStroke();
+          target.shader(shader);
+          shader.setUniform("tex0", source);
+          shader.setUniform("resolution", [128, 128]);
+          shader.setUniform("renderUvRect", [0, 0, 1, 1]);
+          shader.setUniform("sourceFlipY", false);
+          shader.setUniform("sourceForceOpaque", false);
+          shader.setUniform("time", 0);
+          shader.setUniform("amount", 1);
+          shader.setUniform("renderQuality", 0.5);
+          shader.setUniform("cut", 0);
+          shader.setUniform("feather", 24);
+          shader.setUniform("effectTransform", [0, 0, 1, 0]);
+          shader.setUniform("effectUvMatrix", [
+            1, 0, 0,
+            0, 1, 0,
+            0, 0, 1,
+          ]);
+          shader.setUniform("inverseEffectUvMatrix", [
+            1, 0, 0,
+            0, 1, 0,
+            0, 0, 1,
+          ]);
+          target.rect(-64, -64, 128, 128);
+          target.resetShader();
+          target.pop();
+
+          target.loadPixels();
+          const profile = [];
+          for (let x = 64; x < 108; x++) {
+            profile.push(target.pixels[(64 * 128 + x) * 4 + 3]);
+          }
+          const interior = profile.slice(0, 16);
+          const edge = profile.slice(16, 41);
+          const distinctEdgeValues = new Set(edge).size;
+          const monotonicViolations = edge.reduce(
+            (count, value, index) =>
+              index > 0 && value > edge[index - 1] + 3 ? count + 1 : count,
+            0,
+          );
+          const intermediateValues = edge.filter(
+            (value) => value > 8 && value < 247,
+          ).length;
+          const ok =
+            Math.min(...interior) >= 245 &&
+            distinctEdgeValues >= 10 &&
+            intermediateValues >= 10 &&
+            monotonicViolations === 0 &&
+            profile.at(-1) <= 8;
+          resultElement.textContent = JSON.stringify({
+            ok,
+            distinctEdgeValues,
+            intermediateValues,
+            monotonicViolations,
+            profile,
+          }, null, 2);
+          document.documentElement.dataset.status = ok ? "ok" : "failed";
+          builder.clear();
+        } catch (error) {
+          reportFailure(error?.stack || error?.message || String(error));
+        } finally {
+          for (const resource of resources) resource.remove();
+        }
+      };
+
+      new p5();
+    </script>
+  </body>
+</html>

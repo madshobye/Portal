@@ -6,7 +6,10 @@ import { resetSceneMappingSession } from "../domain/live-ui-state.js";
 import { createRenderStatePatch } from "../domain/live-render-patch.js";
 import { materializeStructuralTree } from "../libraries/data-store/data-store/index.js";
 
-export const OUTPUT_BRIDGE_PROTOCOL_VERSION = 1;
+export const OUTPUT_BRIDGE_PROTOCOL_VERSION = 2;
+const CONTROL_HEARTBEAT_MS = 1000;
+const CONTROL_LEASE_MS = 6500;
+const CONTROL_TAB_ID_KEY = "vj1-output-control-tab-id";
 
 export function recoveredOutputProjectState(recoveredState = {}, localProject = {}) {
   const localWarnings = [...(localProject?.warnings || [])];
@@ -30,11 +33,44 @@ function hasCurrentProtocol(message) {
   return Number(message?.protocolVersion) === OUTPUT_BRIDGE_PROTOCOL_VERSION;
 }
 
-export function createControlBridge({ store, mediaLibrary, diagnostics = null, subscribeStore = true, deferAnnouncement = false }) {
-  const channel = new BroadcastChannel(VJ1.channelName);
+function persistentControlId() {
+  const createId = () => `control-tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  try {
+    const storage = globalThis.sessionStorage;
+    if (!storage?.getItem || !storage?.setItem) return createId();
+    const navigationType = String(
+      globalThis.performance?.getEntriesByType?.("navigation")?.[0]?.type || "",
+    );
+    const existing = String(storage.getItem(CONTROL_TAB_ID_KEY) || "");
+    // sessionStorage can be copied into a duplicated/new tab. Reuse the
+    // identity only for a real reload/history restore; a new tab must be a
+    // distinct contender for the single Output writer.
+    if (existing && ["reload", "back_forward"].includes(navigationType)) return existing;
+    const controlId = createId();
+    storage.setItem(CONTROL_TAB_ID_KEY, controlId);
+    return controlId;
+  } catch {
+    return createId();
+  }
+}
+
+export function createControlBridge({
+  store,
+  mediaLibrary,
+  diagnostics = null,
+  subscribeStore = true,
+  deferAnnouncement = false,
+  controlHeartbeatMs = CONTROL_HEARTBEAT_MS,
+  lifecycleTarget = globalThis,
+  controlId = persistentControlId(),
+  channelName = VJ1.channelName,
+}) {
+  const channel = new BroadcastChannel(channelName);
   const sessionId = `control-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   const clients = new Map();
+  const reportedConflicts = new Map();
   let announced = false;
+  let released = false;
   let recoveryMediaFrame = 0;
   let recoveryMediaTimer = 0;
   let activeRecovery = null;
@@ -70,7 +106,7 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     const msg = event.data || {};
     try {
       if (msg.type === "hello") {
-        if (!announced) return;
+        if (!announced || released) return;
         if (!hasCurrentProtocol(msg)) {
           rejectProtocol(msg);
           return;
@@ -78,14 +114,14 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
         const clientId = String(msg.clientId || "");
         if (!clientId) return;
         if (msg.sessionId !== sessionId) {
-          channel.postMessage(protocolMessage({
-            type: "control-hello",
-            sessionId,
-            targetClientId: clientId,
-          }));
+          clients.delete(clientId);
+          if (!msg.controlId || msg.controlId === controlId) claimOutput(clientId);
+          return;
         }
+        sendControlHeartbeat(clientId);
         const isNewClient = !clients.has(clientId);
         clients.set(clientId, { at: performance.now(), outputId: msg.outputId || "output-main" });
+        reportedConflicts.delete(clientId);
         if (isNewClient) {
           sendKnownNodePackages();
           sendState(null, { targetClientId: clientId });
@@ -95,6 +131,19 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
       }
       if (!hasCurrentProtocol(msg)) {
         if (msg.clientId) rejectProtocol(msg);
+        return;
+      }
+      if (msg.type === "control-conflict" && msg.targetSessionId === sessionId) {
+        const clientId = String(msg.clientId || "");
+        const ownerSessionId = String(msg.ownerSessionId || "");
+        clients.delete(clientId);
+        if (reportedConflicts.get(clientId) === ownerSessionId) return;
+        reportedConflicts.set(clientId, ownerSessionId);
+        diagnostics?.record?.("error", [{
+          code: "VJ1_OUTPUT_CONTROL_CONFLICT",
+          outputId: String(msg.outputId || "output-main"),
+          message: "This Output is controlled by another VJ1 tab. Close that tab or wait for its connection to expire before taking control here.",
+        }], "control · output bridge", 1);
         return;
       }
       const clientId = String(msg.clientId || "");
@@ -185,10 +234,59 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
   function announceControl() {
     if (announced) return false;
     announced = true;
+    released = false;
     clients.clear();
-    channel.postMessage(protocolMessage({ type: "control-hello", sessionId }));
+    claimOutput();
     return true;
   }
+
+  function claimOutput(targetClientId = "") {
+    if (!announced || released) return false;
+    channel.postMessage(protocolMessage({
+      type: "control-hello",
+      controlId,
+      sessionId,
+      targetClientId,
+    }));
+    return true;
+  }
+
+  function sendControlHeartbeat(targetClientId = "") {
+    if (!announced || released) return false;
+    channel.postMessage(protocolMessage({
+      type: "control-heartbeat",
+      controlId,
+      sessionId,
+      targetClientId,
+    }));
+    return true;
+  }
+
+  function relinquishControl(reason = "close") {
+    if (!announced || released) return false;
+    released = true;
+    clients.clear();
+    channel.postMessage(protocolMessage({
+      type: "control-goodbye",
+      controlId,
+      sessionId,
+      reason,
+    }));
+    return true;
+  }
+
+  const handlePageHide = () => relinquishControl("pagehide");
+  const handlePageShow = (event) => {
+    if (!event?.persisted || !announced || !released) return;
+    released = false;
+    claimOutput();
+  };
+  lifecycleTarget?.addEventListener?.("pagehide", handlePageHide);
+  lifecycleTarget?.addEventListener?.("pageshow", handlePageShow);
+  const controlHeartbeat = setInterval(
+    () => sendControlHeartbeat(),
+    Math.max(250, Number(controlHeartbeatMs) || CONTROL_HEARTBEAT_MS),
+  );
 
   function rejectProtocol(message) {
     const clientId = String(message?.clientId || "");
@@ -414,7 +512,10 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
     beginProjectRestore,
     finishProjectRestore,
     command,
+    controlId,
+    sessionId,
     close: () => {
+      relinquishControl("close");
       cancelPendingLivePatches();
       cancelRecoveryMediaSchedule();
       activeRecovery = null;
@@ -423,6 +524,9 @@ export function createControlBridge({ store, mediaLibrary, diagnostics = null, s
       recoveryMediaBlocked = false;
       unsubscribeLiveState?.();
       clearInterval(clientWatchdog);
+      clearInterval(controlHeartbeat);
+      lifecycleTarget?.removeEventListener?.("pagehide", handlePageHide);
+      lifecycleTarget?.removeEventListener?.("pageshow", handlePageShow);
       channel.close();
     },
   };
@@ -449,12 +553,16 @@ export function createOutputBridge({
   onProtocolMismatch,
   mode,
   outputId = "",
+  controlLeaseMs = CONTROL_LEASE_MS,
+  channelName = VJ1.channelName,
 }) {
-  const channel = new BroadcastChannel(VJ1.channelName);
+  const channel = new BroadcastChannel(channelName);
   const clientId = `${mode}-${outputId || "default"}-${Math.random().toString(36).slice(2)}`;
   const transportProfiler = createOutputTransportProfiler();
   const recoveryTimers = new Set();
   let controlSessionId = "";
+  let controlOwnerId = "";
+  let controlSessionSeenAt = 0;
   let pendingLivePatch = null;
   let livePatchScheduled = false;
   let livePatchScheduleToken = 0;
@@ -477,18 +585,58 @@ export function createOutputBridge({
         });
         return;
       }
-      cancelPendingLivePatch();
       const nextSessionId = String(msg.sessionId || "");
-      const changed = !!nextSessionId && nextSessionId !== controlSessionId;
-      if (nextSessionId) controlSessionId = nextSessionId;
-      // A refreshed controller should not wait for the heartbeat before it
-      // discovers this still-running Output.
+      const nextOwnerId = String(msg.controlId || nextSessionId);
+      if (!nextSessionId) return;
+      // Output is a single-writer resource. A second Control may observe it,
+      // but may not reset its compiled state or revision stream while the
+      // current tab's lease is alive.
+      if (
+        controlOwnerId
+        && nextOwnerId !== controlOwnerId
+        && !expireControlLease()
+      ) {
+        rejectCompetingControl(nextSessionId);
+        return;
+      }
+      acceptControlSession(nextSessionId, nextOwnerId);
+      return;
+    }
+    if (msg.type === "control-heartbeat" && (!msg.targetClientId || msg.targetClientId === clientId)) {
+      if (!hasCurrentProtocol(msg)) return;
+      const nextSessionId = String(msg.sessionId || "");
+      const nextOwnerId = String(msg.controlId || nextSessionId);
+      if (!nextSessionId) return;
+      if (nextOwnerId === controlOwnerId && nextSessionId === controlSessionId) {
+        controlSessionSeenAt = performance.now();
+      } else if (
+        !controlOwnerId
+        || nextOwnerId === controlOwnerId
+        || expireControlLease()
+      ) {
+        acceptControlSession(nextSessionId, nextOwnerId);
+      }
+      return;
+    }
+    if (msg.type === "control-goodbye") {
+      const goodbyeOwnerId = String(msg.controlId || msg.sessionId || "");
+      if (
+        !hasCurrentProtocol(msg)
+        || goodbyeOwnerId !== controlOwnerId
+        || msg.sessionId !== controlSessionId
+      ) return;
+      if (msg.reason === "pagehide") beginControlRefreshGrace();
+      else releaseControlSession();
       hello();
-      onControlHello?.({ sessionId: controlSessionId, changed });
       return;
     }
     if (!hasCurrentProtocol(msg)) return;
-    if (msg.sessionId && controlSessionId && msg.sessionId !== controlSessionId) return;
+    if (authoritativeControlMessage(msg.type)) {
+      if (!controlSessionId || msg.sessionId !== controlSessionId) return;
+      controlSessionSeenAt = performance.now();
+    } else if (msg.sessionId && controlSessionId && msg.sessionId !== controlSessionId) {
+      return;
+    }
     if (msg.type === "state" && (!msg.targetClientId || msg.targetClientId === clientId)) {
       const pendingAfterState = takePendingLivePatch();
       const transport = transportProfiler.receive({
@@ -613,7 +761,63 @@ export function createOutputBridge({
   }
 
   function hello() {
-    channel.postMessage(protocolMessage({ type: "hello", clientId, mode, outputId, sessionId: controlSessionId }));
+    expireControlLease();
+    channel.postMessage(protocolMessage({
+      type: "hello",
+      clientId,
+      mode,
+      outputId,
+      controlId: controlOwnerId,
+      sessionId: controlSessionId,
+    }));
+  }
+
+  function acceptControlSession(nextSessionId, nextOwnerId) {
+    cancelPendingLivePatch();
+    const changed = nextSessionId !== controlSessionId;
+    controlOwnerId = nextOwnerId;
+    controlSessionId = nextSessionId;
+    controlSessionSeenAt = performance.now();
+    // A refreshed controller should not wait for the heartbeat before it
+    // discovers this still-running Output.
+    hello();
+    onControlHello?.({ sessionId: controlSessionId, changed });
+  }
+
+  function rejectCompetingControl(nextSessionId) {
+    channel.postMessage(protocolMessage({
+      type: "control-conflict",
+      clientId,
+      outputId,
+      targetSessionId: nextSessionId,
+      ownerSessionId: controlSessionId,
+    }));
+  }
+
+  function releaseControlSession() {
+    cancelPendingLivePatch();
+    controlOwnerId = "";
+    controlSessionId = "";
+    controlSessionSeenAt = 0;
+  }
+
+  function beginControlRefreshGrace() {
+    cancelPendingLivePatch();
+    // Closing and refreshing both dispatch pagehide. Keep the stable tab
+    // identity reserved for one full lease: a refreshed page can reclaim it
+    // immediately, while a genuinely closed tab still releases predictably.
+    controlSessionSeenAt = performance.now();
+  }
+
+  function expireControlLease() {
+    if (!controlOwnerId) return false;
+    if (performance.now() - controlSessionSeenAt <= effectiveControlLeaseMs()) return false;
+    releaseControlSession();
+    return true;
+  }
+
+  function effectiveControlLeaseMs() {
+    return Math.max(1, Number(controlLeaseMs) || CONTROL_LEASE_MS);
   }
 
   function metrics(metrics) {
@@ -730,6 +934,16 @@ function diagnosticOrigin(message) {
   const mode = String(message?.mode || "output");
   const outputId = String(message?.outputId || "");
   return outputId ? `${mode} ${outputId}` : mode;
+}
+
+function authoritativeControlMessage(type) {
+  return [
+    "state",
+    "live-patch",
+    "media-files",
+    "node-packages",
+    "command",
+  ].includes(type);
 }
 
 function activeClientCount(clients) {

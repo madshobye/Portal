@@ -60,6 +60,20 @@ test("project restore classification is shared by state consumers", () => {
 
 test("control invalidation is derived centrally from semantic changed paths", () => {
   assert.deepEqual(
+    controlInvalidationForPaths(["ui.selectedChainItemId"]),
+    {
+      regions: ["inspector"],
+      preview: "ui",
+    },
+  );
+  assert.deepEqual(
+    controlInvalidationForPaths(["ui.selectedSurfaceId", "ui.selectedChainItemId"]),
+    {
+      regions: ["project-selection", "inspector"],
+      preview: "ui",
+    },
+  );
+  assert.deepEqual(
     controlInvalidationForPaths(["components.2.chain.1.enabled"]),
     {
       regions: ["inspector"],

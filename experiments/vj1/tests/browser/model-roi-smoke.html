@@ -15,6 +15,11 @@
       import {
         createSharedFramebufferTarget,
       } from "../../js/output/shared-framebuffer-target.js";
+      import { drawBuffer } from "../../js/output/render-draw-utils.js";
+      import {
+        markRenderTargetOrientation,
+        RENDER_TEXTURE_ORIENTATION,
+      } from "../../js/output/render-target-contract.js";
 
       const resultElement = document.querySelector("#model-roi-results");
       const owners = [];
@@ -38,18 +43,24 @@
           pixelDensity(1);
           noLoop();
           const full = renderView([0, 0, 1, 1], 120);
-          const top = renderView([0, 0, 1, 0.5], 60);
-          const bottom = renderView([0, 0.5, 1, 0.5], 60);
+          const topView = renderView([0, 0, 1, 0.5], 60, true);
+          const bottomView = renderView([0, 0.5, 1, 0.5], 60, true);
+          const top = topView.summary;
+          const bottom = bottomView.summary;
+          const composite = compositeViews(topView.target, bottomView.target);
           const ok =
             full.top.blue > full.bottom.blue &&
             full.bottom.red > full.top.red &&
             top.total.blue > top.total.red * 2 &&
-            bottom.total.red > bottom.total.blue * 2;
+            bottom.total.red > bottom.total.blue * 2 &&
+            composite.top.blue > composite.top.red * 2 &&
+            composite.bottom.red > composite.bottom.blue * 2;
           resultElement.textContent = JSON.stringify({
             ok,
             full,
             top,
             bottom,
+            composite,
           }, null, 2);
           document.documentElement.dataset.status = ok ? "ok" : "failed";
         } catch (error) {
@@ -60,7 +71,7 @@
         }
       };
 
-      function renderView(uvRect, height) {
+      function renderView(uvRect, height, retainTarget = false) {
         const target = createSharedFramebufferTarget(120, height, { depth: true });
         targets.push(target);
         const topMesh = triangleMesh(38);
@@ -109,6 +120,23 @@
             bottomMesh,
           );
         });
+        markRenderTargetOrientation(
+          target,
+          RENDER_TEXTURE_ORIENTATION.bottomLeft,
+        );
+        target.framebuffer.loadPixels();
+        const summary = summarize(target.framebuffer);
+        return retainTarget ? { target, summary } : summary;
+      }
+
+      function compositeViews(top, bottom) {
+        const target = createSharedFramebufferTarget(120, 120);
+        targets.push(target);
+        target.push();
+        target.clear();
+        drawBuffer(target, top, 0, 0, 120, 60);
+        drawBuffer(target, bottom, 0, 60, 120, 60);
+        target.pop();
         target.framebuffer.loadPixels();
         return summarize(target.framebuffer);
       }

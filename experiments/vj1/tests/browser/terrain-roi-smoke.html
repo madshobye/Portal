@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Terrain ROI Contract</title>
+  </head>
+  <body>
+    <pre id="terrain-roi-results">initializing...</pre>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <script type="module">
+      import {
+        disposeTerrainSurfaceResources,
+        drawTerrainSurface,
+      } from "../../js/output/specialized/terrain-renderer.js";
+      import {
+        createSharedFramebufferTarget,
+      } from "../../js/output/shared-framebuffer-target.js";
+      import { drawBuffer } from "../../js/output/render-draw-utils.js";
+      import {
+        markRenderTargetOrientation,
+        RENDER_TEXTURE_ORIENTATION,
+      } from "../../js/output/render-target-contract.js";
+
+      const resultElement = document.querySelector("#terrain-roi-results");
+      const targets = [];
+      const resourceCaches = [];
+
+      window.addEventListener("error", (event) => reportFailure(
+        event.error?.stack || event.message || "TERRAIN_ROI_SMOKE_SCRIPT_ERROR",
+      ));
+      window.addEventListener("unhandledrejection", (event) => reportFailure(
+        event.reason?.stack || event.reason?.message || String(event.reason || "TERRAIN_ROI_SMOKE_REJECTION"),
+      ));
+
+      function reportFailure(error) {
+        resultElement.textContent = JSON.stringify({ ok: false, error }, null, 2);
+        document.documentElement.dataset.status = "error";
+      }
+
+      globalThis.setup = () => {
+        try {
+          createCanvas(160, 160, WEBGL);
+          pixelDensity(1);
+          noLoop();
+          const full = renderTerrain([0, 0, 1, 1], 160);
+          const top = renderTerrain([0, 0, 1, 0.5], 80);
+          const bottom = renderTerrain([0, 0.5, 1, 0.5], 80);
+          const presentedFull = presentTerrainView(full, 160);
+          const presented = compositeTerrainViews(top, bottom);
+          // Raw WebGL storage is bottom-left: the logical top ROI occupies the
+          // second stored half and the logical bottom ROI occupies the first.
+          const topComparison = compareCropToFull(top, full, 80);
+          const bottomComparison = compareCropToFull(bottom, full, 0);
+          const comparison = {
+            changedPixels: topComparison.changedPixels + bottomComparison.changedPixels,
+            pixelCount: topComparison.pixelCount + bottomComparison.pixelCount,
+            maximumChannelDelta: Math.max(
+              topComparison.maximumChannelDelta,
+              bottomComparison.maximumChannelDelta,
+            ),
+          };
+          comparison.changedRatio = comparison.changedPixels / comparison.pixelCount;
+          const presentationComparison = compareTargets(
+            presented,
+            presentedFull,
+          );
+          const ok = comparison.changedPixels <= comparison.pixelCount * 0.02 &&
+            comparison.maximumChannelDelta <= 32 &&
+            presentationComparison.changedPixels <=
+              presentationComparison.pixelCount * 0.02 &&
+            presentationComparison.maximumChannelDelta <= 32;
+          resultElement.textContent = JSON.stringify({
+            ok,
+            comparison,
+            presentationComparison,
+            topComparison,
+            bottomComparison,
+          }, null, 2);
+          document.documentElement.dataset.status = ok ? "ok" : "failed";
+        } catch (error) {
+          reportFailure(error?.stack || error?.message || String(error));
+        } finally {
+          for (const resourceCache of resourceCaches) {
+            for (const [gl, resources] of resourceCache) {
+              disposeTerrainSurfaceResources(gl, resources);
+            }
+          }
+          for (const target of targets) target.remove();
+        }
+      };
+
+      function renderTerrain(uvRect, height) {
+        const target = createSharedFramebufferTarget(160, height, { depth: true });
+        const resourceCache = new Map();
+        targets.push(target);
+        resourceCaches.push(resourceCache);
+        const sky = [108 / 255, 165 / 255, 212 / 255, 1];
+        target.push();
+        target.clear();
+        target.background(108, 165, 212, 255);
+        target.pop();
+        target.drawWebGL(() => {
+          drawTerrainSurface(
+            target,
+            resourceCache,
+            terrainParams(uvRect),
+            2.75,
+            160,
+            160,
+            0,
+            sky,
+          );
+        });
+        markRenderTargetOrientation(target, RENDER_TEXTURE_ORIENTATION.bottomLeft);
+        return target;
+      }
+
+      function compositeTerrainViews(top, bottom) {
+        const target = createSharedFramebufferTarget(160, 160);
+        targets.push(target);
+        target.push();
+        target.clear();
+        drawBuffer(target, top, 0, 0, 160, 80);
+        drawBuffer(target, bottom, 0, 80, 160, 80);
+        target.pop();
+        return target;
+      }
+
+      function presentTerrainView(source, height) {
+        const target = createSharedFramebufferTarget(160, height);
+        targets.push(target);
+        target.push();
+        target.clear();
+        drawBuffer(target, source, 0, 0, 160, height);
+        target.pop();
+        return target;
+      }
+
+      function compareTargets(actual, expected) {
+        actual.framebuffer.loadPixels();
+        expected.framebuffer.loadPixels();
+        let changedPixels = 0;
+        let maximumChannelDelta = 0;
+        let totalChannelDelta = 0;
+        const pixelCount = actual.width * actual.height;
+        for (let offset = 0; offset < pixelCount * 4; offset += 4) {
+          let pixelChanged = false;
+          for (let channel = 0; channel < 4; channel++) {
+            const delta = Math.abs(
+              actual.framebuffer.pixels[offset + channel] -
+              expected.framebuffer.pixels[offset + channel],
+            );
+            maximumChannelDelta = Math.max(maximumChannelDelta, delta);
+            totalChannelDelta += delta;
+            if (delta > 8) pixelChanged = true;
+          }
+          if (pixelChanged) changedPixels++;
+        }
+        return {
+          pixelCount,
+          changedPixels,
+          changedRatio: changedPixels / pixelCount,
+          maximumChannelDelta,
+          meanChannelDelta: totalChannelDelta / (pixelCount * 4),
+        };
+      }
+
+      function compareCropToFull(crop, full, fullStartY) {
+        crop.framebuffer.loadPixels();
+        full.framebuffer.loadPixels();
+        let changedPixels = 0;
+        let maximumChannelDelta = 0;
+        let totalChannelDelta = 0;
+        const width = crop.width;
+        const height = crop.height;
+        const pixelCount = width * height;
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const cropOffset = (y * crop.width + x) * 4;
+            const fullOffset = ((fullStartY + y) * full.width + x) * 4;
+            let pixelChanged = false;
+            for (let channel = 0; channel < 4; channel++) {
+              const delta = Math.abs(
+                crop.framebuffer.pixels[cropOffset + channel] -
+                full.framebuffer.pixels[fullOffset + channel],
+              );
+              maximumChannelDelta = Math.max(maximumChannelDelta, delta);
+              totalChannelDelta += delta;
+              if (delta > 8) pixelChanged = true;
+            }
+            if (pixelChanged) changedPixels++;
+          }
+        }
+        return {
+          pixelCount,
+          changedPixels,
+          changedRatio: changedPixels / pixelCount,
+          maximumChannelDelta,
+          meanChannelDelta: totalChannelDelta / (pixelCount * 4),
+          fullStartY,
+        };
+      }
+
+      function terrainParams(renderUvRect) {
+        return {
+          flightSpeed: 0.65,
+          flightMode: "free",
+          turn: 0,
+          altitude: 2.5,
+          pitch: 0.28,
+          fieldOfView: 60,
+          nearClip: 0.1,
+          farClip: 20000,
+          lookAhead: 14,
+          noseFollow: 1,
+          mountainHeight: 2.4,
+          terrainScale: 0.62,
+          terrainPhase: [0, 0],
+          textureGrain: 0,
+          textureDepth: 0,
+          colorDirection: 0,
+          lakeLevel: -0.12,
+          viewDistance: 0.85,
+          globeRadius: 280,
+          gridWidth: 48,
+          gridDepth: 48,
+          gridDensity: 1,
+          gridScale: 1,
+          gridJitter: 0.62,
+          wireWidth: 0.85,
+          waterColor: "#147bc1ff",
+          grassColor: "#23843bff",
+          rockColor: "#4c4037ff",
+          snowColor: "#e8edf1ff",
+          downSlopeColor: "#202a38aa",
+          directionColor: "#d88a42aa",
+          wireColor: "#f2f5efff",
+          skyColor: "#6ca5d4ff",
+          renderUvRect,
+          contentPlacementMatrix: [
+            1, 0, 0,
+            0, 1, 0,
+            0, 0, 1,
+          ],
+        };
+      }
+
+      new p5();
+    </script>
+  </body>
+</html>

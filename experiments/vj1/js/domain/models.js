@@ -38,6 +38,7 @@ import {
   materializeStructuralValue,
 } from "../libraries/data-store/data-store/structural-sharing.js";
 import { firstEnabledLiveSurfaceId } from "./live-ui-state.js";
+import { applyEditorSelection } from "./editor-selection.js";
 import {
   MAPPING_TEST_PATTERN_COMPONENT_ID,
   MAPPING_TEST_PATTERN_SOURCE_NODE_ID,
@@ -590,6 +591,18 @@ export function sanitizeState(input = {}) {
   next.ui.selectedSurfaceId = next.surfaces.some((surface) => surface.id === next.ui.selectedSurfaceId)
     ? next.ui.selectedSurfaceId
     : next.surfaces[0]?.id || "";
+  if (next.ui.workspace === "scene") {
+    const selectionKind = next.ui.sceneInspectorTarget === "surface"
+      ? "surface"
+      : "element";
+    applyEditorSelection(
+      next.ui,
+      selectionKind,
+      selectionKind === "surface"
+        ? next.ui.selectedSurfaceId
+        : next.ui.selectedChainItemId,
+    );
+  }
   delete next.frames;
   next.ui.mappingTestPattern = next.ui.mappingTestPattern !== false;
   next.ui.live = normalizeLiveUi(next.ui.live, next);

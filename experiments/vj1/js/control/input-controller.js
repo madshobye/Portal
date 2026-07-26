@@ -2,6 +2,7 @@ import { bindReorderList } from "./reorder-list.js";
 import { formatTrimTime, roundTrimTime } from "./component-view.js";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js";
 import { createLiveRenderPatch } from "../domain/live-render-patch.js";
+import { applyEditorSelection } from "../domain/editor-selection.js";
 import { bindMarkdownEditors } from "./markdown-editor.js";
 import { nodeBoundaryWithUniformScale } from "../libraries/render-engine/roi/index.js";
 
@@ -512,8 +513,7 @@ export function createInputController({
       // one click schedule two control rebuilds and two preview activations.
       if (button.dataset.toggleSelectAction === "data-select-surface" &&
           button.dataset.toggleSelectId) {
-        draft.ui.selectedSurfaceId = button.dataset.toggleSelectId;
-        if (draft.ui.workspace === "scene") draft.ui.sceneInspectorTarget = "surface";
+        applyEditorSelection(draft.ui, "surface", button.dataset.toggleSelectId);
       }
     }, reason);
     if (button.dataset.toggleSelectAction === "data-select-surface") return;

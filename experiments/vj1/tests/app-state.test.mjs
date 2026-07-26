@@ -1685,7 +1685,7 @@ test("nested chain items remain selectable after state normalization", () => {
   assert.equal(store.getState().ui.selectedChainItemId, "");
 });
 
-test("Scene inspector follows the most recently selected Surface or element", () => {
+test("Scene has one mutually exclusive Surface-or-element selection", () => {
   const state = createInitialState();
   const scene = createSceneComponent(0, state.components[0].id);
   state.components.push(scene);
@@ -1698,16 +1698,20 @@ test("Scene inspector follows the most recently selected Surface or element", ()
 
   store.selectSurface(surface.id);
   assert.equal(store.getState().ui.sceneInspectorTarget, "surface");
+  assert.equal(store.getState().ui.selectedSurfaceId, surface.id);
+  assert.equal(store.getState().ui.selectedChainItemId, "");
 
-  // The chain item was already selected before the Surface. Selecting the
-  // same item must still return inspector authority to the element.
   store.selectChainItem(scene.chain[0].id);
   assert.equal(store.getState().ui.sceneInspectorTarget, "element");
-  assert.equal(store.getState().ui.selectedSurfaceId, surface.id);
+  assert.equal(store.getState().ui.selectedChainItemId, scene.chain[0].id);
+  assert.equal(store.getState().ui.selectedSurfaceId, "");
 
   store.selectSurface(surface.id);
+  assert.equal(store.getState().ui.selectedChainItemId, "");
   store.selectComponent(scene.id);
   assert.equal(store.getState().ui.sceneInspectorTarget, "element");
+  assert.equal(store.getState().ui.selectedChainItemId, scene.chain[0].id);
+  assert.equal(store.getState().ui.selectedSurfaceId, "");
 });
 
 test("selected nested chain items can be removed through the shared store action", () => {

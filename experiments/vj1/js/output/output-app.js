@@ -44,6 +44,18 @@ export function createOutputInitialStateGate() {
   });
 }
 
+export function shouldSuspendStableOutputPresentation({
+  idleSuspended = false,
+  preparing = false,
+  presentationMode = "continuous",
+  hasPresentedCompleteFrame = false,
+} = {}) {
+  return !idleSuspended &&
+    !preparing &&
+    presentationMode === "on-change" &&
+    hasPresentedCompleteFrame;
+}
+
 export function installOutputApp({ root, mode, diagnostics = null }) {
   const outputId = mode === "output" ? new URL(window.location.href).searchParams.get("outputId") || "" : "";
   document.body.classList.add("output-client");
@@ -231,12 +243,13 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   }
 
   function suspendStableOutputPresentation() {
-    if (
-      outputIdleSuspended ||
-      preparedState ||
-      renderer?.frameRuntime.presentationMode() !== "on-change" ||
-      typeof noLoop !== "function"
-    ) return;
+    if (!shouldSuspendStableOutputPresentation({
+      idleSuspended: outputIdleSuspended,
+      preparing: !!preparedState,
+      presentationMode: renderer?.frameRuntime.presentationMode(),
+      hasPresentedCompleteFrame:
+        renderer?.presentationRuntime.hasPresentedCompleteFrame === true,
+    }) || typeof noLoop !== "function") return;
     outputIdleSuspended = true;
     noLoop();
   }

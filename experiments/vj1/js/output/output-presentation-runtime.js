@@ -14,7 +14,10 @@ import {
   outputFrames,
   outputFramesForIds,
 } from "./render-geometry.js";
-import { renderTargetImageGeometry } from "./render-draw-utils.js";
+import {
+  drawRenderTargetImage,
+  renderTargetImageGeometry,
+} from "./render-draw-utils.js";
 import { unwrapRenderTarget } from "./shared-framebuffer-target.js";
 
 // Owns presentation of already-compiled render results. It may draw the final
@@ -24,6 +27,12 @@ export class OutputPresentationRuntime {
   constructor(host) {
     this.host = host;
     this.gpuTimer = new GpuTimerTracker();
+    // A standalone Output may receive its authoritative project baseline
+    // before media or another retained resource is drawable. Its first p5
+    // frame is then intentionally held. Keep that distinct from a completed
+    // presentation so the on-change host cannot suspend on a still-black
+    // startup canvas. Once one complete frame exists, later holds retain it.
+    this.hasPresentedCompleteFrame = false;
   }
 
   dispose() {
@@ -71,6 +80,7 @@ export class OutputPresentationRuntime {
           this.renderComponentPreview(),
         ),
       );
+      this.hasPresentedCompleteFrame = true;
       this.finishFrame();
       return;
     }
@@ -92,6 +102,7 @@ export class OutputPresentationRuntime {
         if (restoreCalibrate) mapper.setCalibrate(true);
       });
     });
+    this.hasPresentedCompleteFrame = true;
     this.finishFrame();
   }
 
@@ -364,13 +375,7 @@ export class OutputPresentationRuntime {
         width: rect.width,
         height: rect.height,
       });
-      image(
-        unwrapRenderTarget(source),
-        geometry.destination.x,
-        geometry.destination.y,
-        geometry.destination.width,
-        geometry.destination.height,
-      );
+      drawRenderTargetImage(globalThis, source, geometry);
     } else {
       image(
         unwrapRenderTarget(host.resourceRuntime.mainMix),

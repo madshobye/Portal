@@ -15,16 +15,7 @@ export function drawBuffer(pg, source, x, y, width, height, sourceIsWebGL = fals
     { x, y, width, height },
   );
   if (isSharedFramebufferTarget(source)) {
-    pg.push();
-    pg.imageMode(CORNER);
-    pg.image(
-      unwrapRenderTarget(source),
-      geometry.destination.x,
-      geometry.destination.y,
-      geometry.destination.width,
-      geometry.destination.height,
-    );
-    pg.pop();
+    drawRenderTargetImage(pg, source, geometry);
     return;
   }
   if (!sourceIsWebGL) {
@@ -55,6 +46,10 @@ export function drawSampleRect(pg, source, sampleRect = {}, x = 0, y = 0, width 
     sample,
   );
   try {
+    if (isSharedFramebufferTarget(source)) {
+      drawRenderTargetImage(pg, source, geometry);
+      return;
+    }
     pg.image(
       source,
       geometry.destination.x,
@@ -69,6 +64,52 @@ export function drawSampleRect(pg, source, sampleRect = {}, x = 0, y = 0, width 
   } catch (error) {
     reportSampleDrawFailure(source, pg, error);
     throw error;
+  }
+}
+
+/**
+ * Draw geometry returned by renderTargetImageGeometry through p5's image API.
+ *
+ * p5.Framebuffer ignores a negative destination height, so its storage
+ * orientation must be normalized with an explicit matrix transform. Keeping
+ * this at the shared presentation boundary prevents native renderers from
+ * adding their own placement corrections.
+ */
+export function drawRenderTargetImage(pg, source, geometry) {
+  const destination = geometry?.destination || {};
+  const sample = geometry?.sample || null;
+  const drawable = unwrapRenderTarget(source);
+  pg.push();
+  try {
+    pg.imageMode(globalThis.CORNER ?? "corner");
+    if (geometry?.flipped && isSharedFramebufferTarget(source)) {
+      pg.translate(
+        Number(destination.x) || 0,
+        Number(destination.y) || 0,
+      );
+      pg.scale(1, -1);
+      drawP5Image(
+        pg,
+        drawable,
+        0,
+        0,
+        Number(destination.width) || 0,
+        Math.abs(Number(destination.height) || 0),
+        sample,
+      );
+      return;
+    }
+    drawP5Image(
+      pg,
+      drawable,
+      Number(destination.x) || 0,
+      Number(destination.y) || 0,
+      Number(destination.width) || 0,
+      Number(destination.height) || 0,
+      sample,
+    );
+  } finally {
+    pg.pop();
   }
 }
 
@@ -119,6 +160,24 @@ export function renderTargetImageGeometry(
       y: sourceHeight - sample.y - sample.height,
     },
   };
+}
+
+function drawP5Image(pg, drawable, x, y, width, height, sample) {
+  if (!sample) {
+    pg.image(drawable, x, y, width, height);
+    return;
+  }
+  pg.image(
+    drawable,
+    x,
+    y,
+    width,
+    height,
+    sample.x,
+    sample.y,
+    sample.width,
+    sample.height,
+  );
 }
 
 export function boundedSampleRect(source, sampleRect = {}, fallbackWidth = 1, fallbackHeight = 1) {

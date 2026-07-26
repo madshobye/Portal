@@ -41,6 +41,7 @@ export function controlInvalidationForPaths(paths = []) {
     if (!path) continue;
     if (/^ui\.selectedChainItemId$/.test(path)) {
       regions.add("inspector");
+      preview ||= "ui";
       continue;
     }
     if (/^ui\.selectedComponentId$/.test(path)) {
@@ -52,7 +53,7 @@ export function controlInvalidationForPaths(paths = []) {
     if (/^ui\.selectedSurfaceId$/.test(path)) {
       regions.add("project-selection");
       regions.add("inspector");
-      preview ||= "render";
+      preview ||= "ui";
       continue;
     }
     if (/^(components|media|mappings)\.\d+\.catalogMarker$/.test(path)) {

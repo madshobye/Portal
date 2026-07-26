@@ -68,15 +68,128 @@ export function restoreParamViewSelections(scope, selections = new Map()) {
   return selections;
 }
 
+function mergeControlInvalidations(current = {}, next = {}) {
+  const regions = [...new Set([
+    ...(current.regions || []),
+    ...(next.regions || []),
+  ])];
+  const currentPreview = String(current.preview || "");
+  const nextPreview = String(next.preview || "");
+  const preview = !currentPreview
+    ? nextPreview
+    : !nextPreview || currentPreview === nextPreview
+      ? currentPreview
+      : "render";
+  return {
+    regions,
+    ...(preview ? { preview } : {}),
+    ...((current.requiresRenderPatch || next.requiresRenderPatch)
+      ? { requiresRenderPatch: true }
+      : {}),
+  };
+}
+
+// A scheduled shell render is an atomic workspace projection: it reconciles
+// every view-owned region, including regions that only exist in Live. UI
+// selection commands commonly follow a workspace command synchronously. They
+// may add work to that pending frame, but must never replace it with a narrow
+// rail/inspector render and leave DOM owned by the previous workspace behind.
+export function mergeControlRenderRequests(current, next) {
+  if (!current) return next;
+  if (!next) return current;
+
+  const flags = {
+    force: current.force === true || next.force === true,
+    // A complete preview replacement may only be skipped when every merged
+    // request confirms that its preview work was already patched in place.
+    previewPatched: current.previewPatched === true && next.previewPatched === true,
+  };
+  if (current.projection === "shell" || next.projection === "shell") {
+    const owner = current.projection === "shell" ? current : next;
+    return {
+      ...owner,
+      ...flags,
+      projection: "shell",
+      invalidation: null,
+    };
+  }
+  if (current.projection !== next.projection) {
+    return {
+      ...current,
+      ...flags,
+      projection: "shell",
+      invalidation: null,
+    };
+  }
+  if (next.projection === "control-invalidation") {
+    return {
+      ...next,
+      ...flags,
+      invalidation: mergeControlInvalidations(current.invalidation, next.invalidation),
+    };
+  }
+  return { ...next, ...flags };
+}
+
+// A Live transition is renderer-clocked and therefore does not publish
+// authored state on its final frame. The control projection needs exactly one
+// refresh after its deadline. Unrelated state traffic (metrics, autosave,
+// readiness) must not keep cancelling that refresh: in particular, a message
+// received during the small post-deadline grace window must leave the already
+// scheduled callback intact.
+export function createLiveTransitionExpiryScheduler({
+  onExpire = () => {},
+  now = () => Date.now(),
+  schedule = (callback, delayMs) => globalThis.setTimeout(callback, delayMs),
+  cancel = (handle) => globalThis.clearTimeout(handle),
+  graceMs = 20,
+} = {}) {
+  let handle = null;
+  let transitionKey = "";
+
+  const clear = () => {
+    if (handle !== null) cancel(handle);
+    handle = null;
+    transitionKey = "";
+  };
+
+  return Object.freeze({
+    update(transition) {
+      const startedAtMs = Number(transition?.startedAtMs) || 0;
+      const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
+      const expiresAt = startedAtMs + durationMs;
+      const nextKey = transition?.fromSurfaceRoutes && startedAtMs > 0 && durationMs > 0
+        ? `${String(transition.id || "")}|${startedAtMs}|${durationMs}`
+        : "";
+
+      // Preserve the one callback already owned by this exact transition,
+      // even when `now()` has crossed the semantic deadline. It may still be
+      // inside its intentional post-deadline grace interval.
+      if (handle !== null && nextKey && nextKey === transitionKey) return false;
+
+      clear();
+      if (!nextKey || expiresAt <= now()) return false;
+      transitionKey = nextKey;
+      handle = schedule(() => {
+        handle = null;
+        transitionKey = "";
+        onExpire();
+      }, Math.max(0, expiresAt - now()) + Math.max(0, Number(graceMs) || 0));
+      return true;
+    },
+    cancel: clear,
+  });
+}
+
 export function createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics = null, nodePackage = null }) {
   let refs = {};
   let latestState = store.getState();
   let renderFrame = 0;
+  let scheduledRenderRequest = null;
   let renderPending = false;
   let deferredRenderState = null;
   let deferredRenderContext = null;
   let deferredRenderTimer = 0;
-  let liveTransitionRefreshTimer = 0;
   let liveTransitionNodes = null;
   let liveTransitionPackages = null;
   let liveTransitionEntries = Object.freeze([]);
@@ -100,6 +213,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     setStatus,
   });
   const controlRenderDiagnostics = createControlRenderDiagnostics({ diagnostics });
+  const liveTransitionExpiryScheduler = createLiveTransitionExpiryScheduler({
+    onExpire: () => {
+      if (currentWorkspace(latestState) !== "live") return;
+      renderMeasuredControlPhases(latestState, { reason: "live-transition-expired" }, [
+        ["live-projection-rail", () => renderLiveProjectionRail(latestState)],
+        ["inspector", () => renderInspector(latestState)],
+      ]);
+    },
+  });
   const clipboard = createClipboardController({
     root,
     store,
@@ -313,23 +435,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   }
 
   function scheduleLiveTransitionRefresh(state) {
-    if (liveTransitionRefreshTimer) clearTimeout(liveTransitionRefreshTimer);
-    liveTransitionRefreshTimer = 0;
-    const transition = state.ui?.live?.transition;
-    const expiresAt = (Number(transition?.startedAtMs) || 0) + Math.max(0, Number(transition?.durationMs) || 0);
-    if (!transition?.fromSurfaceRoutes || expiresAt <= Date.now()) return;
     // Transition progress is renderer-owned and intentionally does not write
-    // the project store every frame. Refresh the structural Live panels once
-    // at expiry so their route-derived catalogs discard the previous program.
-    liveTransitionRefreshTimer = setTimeout(() => {
-      liveTransitionRefreshTimer = 0;
-      if (currentWorkspace(latestState) === "live") {
-        renderMeasuredControlPhases(latestState, { reason: "live-transition-expired" }, [
-          ["live-projection-rail", () => renderLiveProjectionRail(latestState)],
-          ["inspector", () => renderInspector(latestState)],
-        ]);
-      }
-    }, Math.max(0, expiresAt - Date.now()) + 20);
+    // the project store every frame. The scheduler protects this one expiry
+    // refresh from unrelated state notifications.
+    liveTransitionExpiryScheduler.update(state.ui?.live?.transition);
   }
 
   function scheduleRender(state, context = {}) {
@@ -355,27 +464,36 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       if (deferredRenderTimer) clearTimeout(deferredRenderTimer);
       deferredRenderTimer = 0;
     }
-    if (renderFrame) cancelAnimationFrame(renderFrame);
+    scheduledRenderRequest = mergeControlRenderRequests(scheduledRenderRequest, {
+      force,
+      reason,
+      change,
+      projection,
+      invalidation,
+      previewPatched,
+    });
+    // One frame owns one coherent projection. Later same-frame notifications
+    // merge into this request instead of cancelling it and narrowing its
+    // workspace coverage.
+    if (renderFrame) return;
     renderFrame = requestAnimationFrame(() => {
       renderFrame = 0;
-      if (!force && shouldDeferRender()) {
-        deferRender(latestState, {
-          reason,
-          change,
-          projection,
-          invalidation,
-          previewPatched,
-        });
+      const request = scheduledRenderRequest || {};
+      scheduledRenderRequest = null;
+      if (!request.force && shouldDeferRender()) {
+        deferRender(latestState, request);
         return;
       }
       // A queued frame is only a request to render. Its captured snapshot is
       // not an authority: rapid scrubs/toggles may have advanced the store
       // before this callback runs.
-      if (projection === "live-program") renderLiveProgramChange(latestState, { reason, change });
-      else if (projection === "control-invalidation") {
-        renderControlInvalidation(latestState, { reason, change }, invalidation);
+      if (request.projection === "live-program") {
+        renderLiveProgramChange(latestState, request);
+      } else if (request.projection === "control-invalidation") {
+        renderControlInvalidation(latestState, request, request.invalidation);
+      } else {
+        render(latestState, request);
       }
-      else render(latestState, { reason, change, previewPatched });
     });
   }
 
@@ -469,7 +587,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     const operations = [...new Set(invalidation.regions || [])]
       .filter((region) => regionRenderers[region])
       .map((region) => [region, regionRenderers[region]]);
-    if (invalidation.preview === "mapping") {
+    if (invalidation.preview === "ui") {
+      operations.push(["preview", () => updatePreviewState(state, "ui")]);
+    } else if (invalidation.preview === "mapping") {
       operations.push(["preview", () => updatePreviewState(state, "mapping")]);
     } else if (invalidation.preview === "projection") {
       operations.push(["preview", () => updatePreviewState(state, "projection")]);

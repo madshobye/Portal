@@ -16,6 +16,7 @@ import { contentTransformRawWebglPlacement } from "../js/output/content-coordina
 import { OutputRenderer } from "../js/output/output-renderer.js";
 import {
   boundedSampleRect,
+  drawRenderTargetImage,
   drawSampleRect,
   renderTargetImageGeometry,
 } from "../js/output/render-draw-utils.js";
@@ -98,6 +99,119 @@ test("one orientation contract drives shader sampling and sampled p5 presentatio
     60,
   );
   assert.deepEqual(calls, [[raw, 2, 63, 40, -60, 10, 45, 20, 30]]);
+});
+
+test("p5 framebuffer presentation applies orientation through an explicit transform", () => {
+  const shared = {
+    __vj1SharedFramebuffer: true,
+    framebuffer: { id: "raw-framebuffer" },
+    width: 100,
+    height: 80,
+  };
+  markRenderTargetOrientation(shared, RENDER_TEXTURE_ORIENTATION.bottomLeft);
+
+  assert.equal(
+    renderTargetNeedsPresentationFlip(shared),
+    true,
+    "the raw framebuffer orientation remains available to shader sampling",
+  );
+  assert.deepEqual(
+    renderTargetImageGeometry(
+      shared,
+      { x: 2, y: 3, width: 40, height: 60 },
+      { x: 10, y: 5, width: 20, height: 30 },
+    ),
+    {
+      flipped: true,
+      destination: { x: 2, y: 63, width: 40, height: -60 },
+      sample: { x: 10, y: 45, width: 20, height: 30 },
+    },
+  );
+
+  const calls = [];
+  drawRenderTargetImage(
+    {
+      push: () => calls.push(["push"]),
+      pop: () => calls.push(["pop"]),
+      imageMode: (mode) => calls.push(["imageMode", mode]),
+      translate: (...args) => calls.push(["translate", ...args]),
+      scale: (...args) => calls.push(["scale", ...args]),
+      image: (...args) => calls.push(["image", ...args]),
+    },
+    shared,
+    renderTargetImageGeometry(
+      shared,
+      { x: 2, y: 3, width: 40, height: 60 },
+      { x: 10, y: 5, width: 20, height: 30 },
+    ),
+  );
+  assert.deepEqual(calls, [
+    ["push"],
+    ["imageMode", "corner"],
+    ["translate", 2, 63],
+    ["scale", 1, -1],
+    [
+      "image",
+      shared.framebuffer,
+      0,
+      0,
+      40,
+      60,
+      10,
+      45,
+      20,
+      30,
+    ],
+    ["pop"],
+  ]);
+});
+
+test("sampled shared framebuffers use the same explicit presentation transform", () => {
+  const shared = {
+    __vj1SharedFramebuffer: true,
+    framebuffer: { id: "raw-framebuffer" },
+    width: 100,
+    height: 80,
+  };
+  markRenderTargetOrientation(shared, RENDER_TEXTURE_ORIENTATION.bottomLeft);
+  const calls = [];
+  drawSampleRect(
+    {
+      width: 40,
+      height: 60,
+      push: () => calls.push(["push"]),
+      pop: () => calls.push(["pop"]),
+      imageMode: (mode) => calls.push(["imageMode", mode]),
+      translate: (...args) => calls.push(["translate", ...args]),
+      scale: (...args) => calls.push(["scale", ...args]),
+      image: (...args) => calls.push(["image", ...args]),
+    },
+    shared,
+    { x: 10, y: 5, width: 20, height: 30 },
+    2,
+    3,
+    40,
+    60,
+  );
+  assert.deepEqual(calls, [
+    ["push"],
+    ["imageMode", "corner"],
+    ["translate", 2, 63],
+    ["scale", 1, -1],
+    [
+      "image",
+      shared.framebuffer,
+      0,
+      0,
+      40,
+      60,
+      10,
+      45,
+      20,
+      30,
+    ],
+    ["pop"],
+  ]);
 });
 
 test("immediate 2D target ownership is balanced around the final draw", () => {

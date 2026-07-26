@@ -21,6 +21,7 @@ import {
 } from "./component-render-layout.js";
 import {
   drawBuffer,
+  drawRenderTargetImage,
   drawSampleRect,
   renderTargetImageGeometry,
   withShaderInstancePrefix,
@@ -29,7 +30,6 @@ import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } 
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
-  unwrapRenderTarget,
 } from "./shared-framebuffer-target.js";
 
 export function surfaceRouteOpacity(route = {}) {
@@ -549,7 +549,6 @@ export class OutputSurfaceRuntime {
     const rect = route.mapped?.directRect || cornersRect(route.mapped?.mapperSurface?.corners || []);
     if (!texture || !rect || alpha <= 0) return;
     const fit = directFitRects(texture.width, texture.height, rect, route.surface?.projectionFit || "contain");
-    const drawable = isSharedFramebufferTarget(texture) ? unwrapRenderTarget(texture) : texture;
     const geometry = renderTargetImageGeometry(
       texture,
       {
@@ -566,17 +565,7 @@ export class OutputSurfaceRuntime {
       imageMode(CORNER);
       applyBlendGlobal(surfaceRouteBlend(route));
       tint(255, 255 * clamp01(alpha) * surfaceRouteOpacity(route));
-      image(
-        drawable,
-        geometry.destination.x,
-        geometry.destination.y,
-        geometry.destination.width,
-        geometry.destination.height,
-        geometry.sample.x,
-        geometry.sample.y,
-        geometry.sample.width,
-        geometry.sample.height,
-      );
+      drawRenderTargetImage(globalThis, texture, geometry);
       noTint();
       blendMode(BLEND);
     } finally {

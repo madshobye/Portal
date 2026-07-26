@@ -17,7 +17,7 @@ import {
 } from "../js/control/dom-utils.js";
 import { panelTemplate, railListSectionTemplate, scrollRegionTemplate } from "../js/control/view-primitives.js";
 import { applyOptimisticToggleIntent, boundaryFromScaleInput, isBoundaryScaleInput } from "../js/control/input-controller.js";
-import { activeRenderCost, activeWorkMetric, performanceHealthStep, rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
+import { activeRenderCost, activeWorkMetric, createLiveTransitionExpiryScheduler, mergeControlRenderRequests, performanceHealthStep, rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
 import { nextPickerFilter, sourceForCatalogMedia } from "../js/control/modal-controller.js";
 import { mediaDisplayName, mediaPickerCardTemplate } from "../js/control/media-view.js";
 import { componentSelectedChainSettingsTemplate } from "../js/control/component-view.js";
@@ -1042,6 +1042,82 @@ test("workspace navigation leaves complete shell work outside the click handler"
   );
 });
 
+test("same-frame workspace navigation cannot be narrowed into a mixed editor projection", () => {
+  const workspace = {
+    force: true,
+    reason: "workspace",
+    change: { topic: "workspace" },
+    projection: "shell",
+    invalidation: null,
+    previewPatched: false,
+  };
+  const selection = {
+    force: true,
+    reason: "select-component",
+    change: { topic: "select-component" },
+    projection: "control-invalidation",
+    invalidation: {
+      regions: ["project-rail", "inspector"],
+      preview: "render",
+    },
+    previewPatched: false,
+  };
+
+  assert.deepEqual(mergeControlRenderRequests(workspace, selection), workspace);
+  assert.deepEqual(
+    mergeControlRenderRequests(selection, workspace),
+    workspace,
+    "a full workspace projection also supersedes an earlier targeted selection",
+  );
+});
+
+test("same-frame targeted control work merges without forcing a full shell render", () => {
+  const first = {
+    force: true,
+    reason: "select-component",
+    change: { topic: "select-component" },
+    projection: "control-invalidation",
+    invalidation: { regions: ["project-rail"], preview: "render" },
+    previewPatched: false,
+  };
+  const second = {
+    force: false,
+    reason: "select-chain-item",
+    change: { topic: "select-chain-item" },
+    projection: "control-invalidation",
+    invalidation: { regions: ["inspector"], preview: "ui" },
+    previewPatched: true,
+  };
+
+  assert.deepEqual(mergeControlRenderRequests(first, second), {
+    ...second,
+    force: true,
+    previewPatched: false,
+    invalidation: {
+      regions: ["project-rail", "inspector"],
+      preview: "render",
+    },
+  });
+});
+
+test("different same-frame targeted projections promote to one coherent shell render", () => {
+  const liveProgram = {
+    force: true,
+    reason: "live:target",
+    projection: "live-program",
+    previewPatched: false,
+  };
+  const selection = {
+    force: true,
+    reason: "select-component",
+    projection: "control-invalidation",
+    invalidation: { regions: ["project-rail"] },
+    previewPatched: false,
+  };
+
+  assert.equal(mergeControlRenderRequests(liveProgram, selection).projection, "shell");
+});
+
 test("streamed derived thumbnails patch their owned images without rebuilding Preview or the shell", () => {
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const templates = readFileSync(new URL("../js/control/template-utils.js", import.meta.url), "utf8");
@@ -1074,10 +1150,10 @@ test("ordinary UI interactions do not wait through a fixed post-click quiet peri
 test("deferred UI frames consume current user truth instead of captured snapshots", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]*?deferRender\(latestState, \{[\s\S]*?previewPatched,[\s\S]*?projection === "live-program"[\s\S]*?render\(latestState, \{ reason, change, previewPatched \}\)/);
+  assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]*?const request = scheduledRenderRequest \|\| \{\};[\s\S]*?scheduledRenderRequest = null;[\s\S]*?deferRender\(latestState, request\)[\s\S]*?request\.projection === "live-program"[\s\S]*?render\(latestState, request\)/);
   assert.match(source, /function flushDeferredRender\(\)[\s\S]*?const context = deferredRenderContext \|\| \{\}[\s\S]*?scheduleRenderNow\(latestState, \{[\s\S]*?\.\.\.context/);
   assert.match(source, /if \(change\.structural\)[\s\S]*?scheduleRenderNow\(state, \{ force: true, reason, change \}\)/);
-  assert.match(source, /function scheduleRenderNow\(state, \{[\s\S]*?force = false,[\s\S]*?reason = "",[\s\S]*?change = null,[\s\S]*?projection = "shell",[\s\S]*?invalidation = null,[\s\S]*?previewPatched = false,[\s\S]*?\} = \{\}\)[\s\S]*?if \(!force && shouldDeferRender\(\)\)/);
+  assert.match(source, /function scheduleRenderNow\(state, \{[\s\S]*?force = false,[\s\S]*?reason = "",[\s\S]*?change = null,[\s\S]*?projection = "shell",[\s\S]*?invalidation = null,[\s\S]*?previewPatched = false,[\s\S]*?\} = \{\}\)[\s\S]*?if \(!request\.force && shouldDeferRender\(\)\)/);
 });
 
 test("Live transitions avoid a second full control-shell rebuild at expiry", () => {
@@ -1088,6 +1164,45 @@ test("Live transitions avoid a second full control-shell rebuild at expiry", () 
   assert.match(source, /createControlRenderDiagnostics\(\{ diagnostics \}\)/);
 });
 
+test("Live transition expiry survives unrelated state traffic across its deadline", () => {
+  let nowMs = 1000;
+  let nextHandle = 1;
+  const callbacks = new Map();
+  const cancelled = [];
+  let expirationCount = 0;
+  const scheduler = createLiveTransitionExpiryScheduler({
+    now: () => nowMs,
+    schedule: (callback, delayMs) => {
+      const handle = nextHandle++;
+      callbacks.set(handle, { callback, delayMs });
+      return handle;
+    },
+    cancel: (handle) => {
+      cancelled.push(handle);
+      callbacks.delete(handle);
+    },
+    onExpire: () => { expirationCount++; },
+  });
+  const transition = {
+    id: "scene-to-component",
+    fromSurfaceRoutes: { surfaces: [{ id: "surface-1" }] },
+    startedAtMs: 1000,
+    durationMs: 100,
+  };
+
+  assert.equal(scheduler.update(transition), true);
+  assert.equal(callbacks.get(1).delayMs, 120);
+
+  nowMs = 1095;
+  assert.equal(scheduler.update(transition), false, "metrics before expiry retain the original timer");
+  nowMs = 1105;
+  assert.equal(scheduler.update(transition), false, "metrics inside the grace window cannot erase expiry");
+  assert.deepEqual(cancelled, []);
+
+  callbacks.get(1).callback();
+  assert.equal(expirationCount, 1);
+});
+
 test("Live program selection reconciles outside the originating click event", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   assert.match(
@@ -1096,7 +1211,7 @@ test("Live program selection reconciles outside the originating click event", ()
   );
   assert.match(
     source,
-    /if \(projection === "live-program"\) renderLiveProgramChange\(latestState, \{ reason, change \}\);/,
+    /if \(request\.projection === "live-program"\) \{[\s\S]*?renderLiveProgramChange\(latestState, request\);/,
   );
 });
 
@@ -1151,7 +1266,7 @@ test("Live output-matrix selection and Mapping eyes use scoped projection activa
   );
 });
 
-test("Surface eyes commit visibility and selection once and rebuild only their projection", () => {
+test("Surface eyes commit visibility through the shared selection contract and rebuild only their projection", () => {
   const inputSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   const shellSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
@@ -1159,7 +1274,7 @@ test("Surface eyes commit visibility and selection once and rebuild only their p
 
   assert.match(
     inputSource,
-    /button\.dataset\.toggleSelectAction === "data-select-surface"[\s\S]*?draft\.ui\.selectedSurfaceId = button\.dataset\.toggleSelectId[\s\S]*?return;/,
+    /button\.dataset\.toggleSelectAction === "data-select-surface"[\s\S]*?applyEditorSelection\(draft\.ui, "surface", button\.dataset\.toggleSelectId\)[\s\S]*?return;/,
   );
   assert.match(
     inputSource,
@@ -1756,7 +1871,7 @@ test("studio scrubs patch previews without replacing their complete state", () =
   assert.ok(controllerSource.includes("if (!patchedLivePreview && !patchedStudioPreview"));
   assert.ok(controllerSource.includes("previewPatched: patchedLivePreview || patchedStudioPreview"));
   assert.ok(controllerSource.includes("previewPatched = false"));
-  assert.ok(controllerSource.includes("render(latestState, { reason, change, previewPatched })"));
+  assert.ok(controllerSource.includes("render(latestState, request)"));
   assert.ok(controllerSource.includes("deferRender(state, context)"));
   assert.ok(controllerSource.includes("if (!context.previewPatched) updatePreviewState(state)"));
   assert.ok(controllerSource.includes("const context = deferredRenderContext || {}"));

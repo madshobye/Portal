@@ -10,7 +10,7 @@ import { getGeneratorNodeComponent as getGeneratorComponent, listGeneratorNodeCo
 import { RenderNodeRuntime, textureStateKey } from "../js/libraries/render-engine/render-node-contract.js";
 import { mediaRenderInvalidation } from "../js/libraries/render-engine/invalidation/index.js";
 import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
-import { createOutputInitialStateGate, hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
+import { createOutputInitialStateGate, hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, shouldSuspendStableOutputPresentation, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js";
 import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js";
 import { isReadyMediaItem } from "../js/output/component-render-state.js";
@@ -1436,6 +1436,31 @@ test("standalone Output waits for one authoritative initial state before rendere
   assert.equal(gate.accept(createInitialState()), false, "later states use normal revisioned activation");
 });
 
+test("standalone Output cannot suspend before its first complete presentation", () => {
+  assert.equal(shouldSuspendStableOutputPresentation({
+    presentationMode: "on-change",
+    hasPresentedCompleteFrame: false,
+  }), false, "a readiness-held startup frame must not leave the new popup black");
+  assert.equal(shouldSuspendStableOutputPresentation({
+    presentationMode: "on-change",
+    hasPresentedCompleteFrame: true,
+  }), true, "a stable Output may suspend after it has produced one complete frame");
+  assert.equal(shouldSuspendStableOutputPresentation({
+    presentationMode: "continuous",
+    hasPresentedCompleteFrame: true,
+  }), false);
+  assert.equal(shouldSuspendStableOutputPresentation({
+    preparing: true,
+    presentationMode: "on-change",
+    hasPresentedCompleteFrame: true,
+  }), false);
+  assert.equal(shouldSuspendStableOutputPresentation({
+    idleSuspended: true,
+    presentationMode: "on-change",
+    hasPresentedCompleteFrame: true,
+  }), false);
+});
+
 test("output defers a requested Live Scene and starts its transition at activation time", () => {
   const current = createInitialState();
   current.ui.selectedMappingId = "scene-a";
@@ -1556,7 +1581,10 @@ test("active output can return project state and files to a refreshed control wi
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
   const outputSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
 
-  assert.ok(bridgeSource.includes('protocolMessage({ type: "control-hello", sessionId })'));
+  assert.ok(bridgeSource.includes('type: "control-hello"'));
+  assert.ok(bridgeSource.includes("controlId"));
+  assert.ok(bridgeSource.includes('msg.type === "control-conflict"'));
+  assert.ok(bridgeSource.includes('msg.type === "control-goodbye"'));
   assert.ok(bridgeSource.includes("OUTPUT_BRIDGE_PROTOCOL_VERSION"));
   assert.ok(bridgeSource.includes('msg.type === "protocol-mismatch"'));
   assert.ok(bridgeSource.includes('msg.sessionId !== controlSessionId'));

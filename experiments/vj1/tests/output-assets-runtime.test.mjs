@@ -1238,8 +1238,9 @@ test("output bridge transmits an empty authoritative media snapshot", () => {
     const bridge = createControlBridge({ store, mediaLibrary: { getAllFiles: () => [] } });
     const sessionId = messages.find((message) => message.type === "control-hello")?.sessionId;
     bridge.sendMediaFiles([]);
+    const mediaMessage = messages.at(-1);
     bridge.close();
-    assert.deepEqual(messages.at(-1), protocol({ type: "media-files", files: [], sessionId }));
+    assert.deepEqual(mediaMessage, protocol({ type: "media-files", files: [], sessionId }));
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
     else globalThis.BroadcastChannel = previousBroadcastChannel;
@@ -1286,6 +1287,202 @@ test("output diagnostics cross the bridge with origin and bounded occurrence cou
     output.close();
     control.close();
   } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("one Control tab owns an Output until it closes, then a waiting tab takes over", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const channels = [];
+  const conflicts = [];
+  const installedStates = [];
+  const controlSessions = [];
+  globalThis.BroadcastChannel = class {
+    constructor() {
+      this.closed = false;
+      channels.push(this);
+    }
+    postMessage(message) {
+      for (const channel of channels) {
+        if (channel !== this && !channel.closed) channel.onmessage?.({ data: message });
+      }
+    }
+    close() { this.closed = true; }
+  };
+  const makeStore = (source) => {
+    const state = {
+      source,
+      project: { folderName: "" },
+      metrics: { clients: 0, outputs: {} },
+    };
+    return {
+      subscribe() { return () => {}; },
+      getState: () => state,
+      getLiveRenderState: () => state,
+      getMetrics: () => state.metrics,
+      updateRuntime() {},
+    };
+  };
+  let owner = null;
+  let waiting = null;
+  let output = null;
+  try {
+    owner = createControlBridge({
+      store: makeStore("owner"),
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+    output = createOutputBridge({
+      mode: "output",
+      outputId: "projector-a",
+      onState: (state) => installedStates.push(state.source),
+      onControlHello: ({ sessionId }) => controlSessions.push(sessionId),
+    });
+    waiting = createControlBridge({
+      store: makeStore("waiting"),
+      mediaLibrary: { getAllFiles: () => [] },
+      diagnostics: {
+        record(level, values) { conflicts.push({ level, entry: values[0] }); },
+      },
+    });
+
+    waiting.sendState({ source: "must-not-cross" });
+    owner.sendState({ source: "owner-update" });
+    assert.deepEqual(installedStates, ["owner", "owner-update"]);
+    assert.equal(controlSessions.length, 1, "a second Control must not reset Output authority");
+    assert.deepEqual(conflicts.map(({ level, entry }) => [level, entry.code]), [
+      ["error", "VJ1_OUTPUT_CONTROL_CONFLICT"],
+    ]);
+
+    owner.close();
+    owner = null;
+    assert.deepEqual(installedStates, ["owner", "owner-update", "waiting"]);
+    assert.equal(controlSessions.length, 2, "the waiting Control takes over after the owner releases Output");
+  } finally {
+    output?.close();
+    waiting?.close();
+    owner?.close();
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("refresh preserves Control ownership instead of letting another tab steal Output", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const channels = [];
+  const installedStates = [];
+  const controlSessions = [];
+  const lifecycleListeners = new Map();
+  const lifecycleTarget = {
+    addEventListener(type, listener) { lifecycleListeners.set(type, listener); },
+    removeEventListener(type, listener) {
+      if (lifecycleListeners.get(type) === listener) lifecycleListeners.delete(type);
+    },
+  };
+  globalThis.BroadcastChannel = class {
+    constructor() {
+      this.closed = false;
+      channels.push(this);
+    }
+    postMessage(message) {
+      for (const channel of channels) {
+        if (channel !== this && !channel.closed) channel.onmessage?.({ data: message });
+      }
+    }
+    close() { this.closed = true; }
+  };
+  const makeStore = (source) => {
+    const state = {
+      source,
+      project: { folderName: "" },
+      metrics: { clients: 0, outputs: {} },
+    };
+    return {
+      subscribe() { return () => {}; },
+      getState: () => state,
+      getLiveRenderState: () => state,
+      getMetrics: () => state.metrics,
+      updateRuntime() {},
+    };
+  };
+  let original = null;
+  let refreshed = null;
+  let waiting = null;
+  let output = null;
+  try {
+    original = createControlBridge({
+      store: makeStore("owner-original"),
+      mediaLibrary: { getAllFiles: () => [] },
+      lifecycleTarget,
+      controlId: "tab-owner",
+    });
+    output = createOutputBridge({
+      mode: "output",
+      outputId: "projector-refresh",
+      onState: (state) => installedStates.push(state.source),
+      onControlHello: ({ sessionId }) => controlSessions.push(sessionId),
+    });
+    waiting = createControlBridge({
+      store: makeStore("waiting"),
+      mediaLibrary: { getAllFiles: () => [] },
+      controlId: "tab-waiting",
+    });
+
+    lifecycleListeners.get("pagehide")?.();
+    refreshed = createControlBridge({
+      store: makeStore("owner-refreshed"),
+      mediaLibrary: { getAllFiles: () => [] },
+      controlId: "tab-owner",
+    });
+    waiting.sendState({ source: "must-not-cross-after-refresh" });
+    refreshed.sendState({ source: "refreshed-update" });
+
+    assert.deepEqual(installedStates, [
+      "owner-original",
+      "owner-refreshed",
+      "refreshed-update",
+    ]);
+    assert.equal(controlSessions.length, 2, "refresh installs a new session for the same owning tab");
+  } finally {
+    output?.close();
+    waiting?.close();
+    refreshed?.close();
+    original?.close();
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
+test("an Output lease recovers from a vanished Control that cannot send goodbye", async () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let channel = null;
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage(message) { messages.push(message); }
+    close() {}
+  };
+  let bridge = null;
+  try {
+    const sessions = [];
+    bridge = createOutputBridge({
+      mode: "output",
+      controlLeaseMs: 2,
+      onControlHello: ({ sessionId }) => sessions.push(sessionId),
+    });
+    channel.onmessage({ data: protocol({ type: "control-hello", sessionId: "control-a" }) });
+    channel.onmessage({ data: protocol({ type: "control-hello", sessionId: "control-b" }) });
+    assert.deepEqual(sessions, ["control-a"]);
+    assert.equal(messages.some((message) => (
+      message.type === "control-conflict"
+      && message.targetSessionId === "control-b"
+    )), true);
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    channel.onmessage({ data: protocol({ type: "control-hello", sessionId: "control-b" }) });
+    assert.deepEqual(sessions, ["control-a", "control-b"]);
+  } finally {
+    bridge?.close();
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
     else globalThis.BroadcastChannel = previousBroadcastChannel;
   }
@@ -1397,6 +1594,7 @@ test("controller startup never publishes a false empty media snapshot before rec
       updateRuntime() {},
     };
     const bridge = createControlBridge({ store, mediaLibrary: { getAllFiles: () => [] } });
+    const sessionId = messages.find((message) => message.type === "control-hello")?.sessionId;
 
     await channel.onmessage({ data: protocol({ type: "hello", clientId: "output-before-recovery" }) });
     assert.equal(
@@ -1406,7 +1604,11 @@ test("controller startup never publishes a false empty media snapshot before rec
     );
 
     state = { ...state, project: { folderName: "empty-show" } };
-    await channel.onmessage({ data: protocol({ type: "hello", clientId: "output-after-project-load" }) });
+    await channel.onmessage({ data: protocol({
+      type: "hello",
+      clientId: "output-after-project-load",
+      sessionId,
+    }) });
     assert.deepEqual(messages.find((message) => message.type === "media-files")?.files, []);
     bridge.close();
   } finally {

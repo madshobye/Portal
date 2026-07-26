@@ -645,6 +645,50 @@ test("the shader-effect capability owns retained effect evaluation and quality d
   assert.equal(evaluations[0].options.instanceInvariant, true);
 });
 
+test("declared neutral shader effects bypass evaluation, targets, and draw calls", () => {
+  const component = {
+    id: "neutral-effect",
+    params: [
+      { id: "amount", type: "number", min: 0, max: 1, defaultValue: 1 },
+      { id: "cut", type: "number", min: 0, max: 32, defaultValue: 1 },
+      { id: "feather", type: "number", min: 0, max: 32, defaultValue: 3 },
+    ],
+    runtime: {
+      isNeutral: (params) => params.cut <= 0.001 && params.feather <= 0.001,
+    },
+  };
+  const runtime = new ShaderEffectRuntime({}, {
+    getComponent: () => component,
+    getCustomCode: () => "",
+    createTarget: () => {
+      throw new Error("a neutral effect must not allocate a render target");
+    },
+  });
+  const inputState = {
+    buffer: { id: "input" },
+    outputVersion: 3,
+    nodeKey: "input",
+    instanceInvariant: true,
+  };
+
+  const result = runtime.renderNodeState(
+    "effect-node",
+    inputState,
+    {
+      id: "effect-item",
+      componentId: component.id,
+      opacity: 1,
+      blend: "normal",
+      params: { amount: 1, cut: 0, feather: 0 },
+    },
+    2,
+    { width: 200, height: 100 },
+  );
+
+  assert.strictEqual(result, inputState);
+  assert.equal(runtime.targetGroups.size, 0);
+});
+
 test("the compositing backend owns fixed passes per context and disposes every program", () => {
   const deleted = [];
   const gl = {
@@ -1560,6 +1604,29 @@ test("Scene Surface frames become inert while an element owns inspector focus", 
   renderer.state.ui.sceneInspectorTarget = "surface";
   assert.equal(interaction.activeSceneSurfaceId(), surface.id);
   assert.equal(interaction.startSurfaceDrag(20, 10), true);
+});
+
+test("Preview element picking applies the shared exclusive Scene selection", () => {
+  const selected = [];
+  const renderer = {
+    state: {
+      ui: {
+        workspace: "scene",
+        sceneInspectorTarget: "surface",
+        selectedSurfaceId: "surface-a",
+        selectedChainItemId: "",
+      },
+    },
+    onChainItemSelect: (id) => selected.push(id),
+  };
+  const interaction = new ComponentPreviewInteraction(renderer);
+
+  interaction.selectChainItemAtPoint(0, 0, { id: "element-a" });
+
+  assert.equal(renderer.state.ui.sceneInspectorTarget, "element");
+  assert.equal(renderer.state.ui.selectedChainItemId, "element-a");
+  assert.equal(renderer.state.ui.selectedSurfaceId, "");
+  assert.deepEqual(selected, ["element-a"]);
 });
 
 test("element scale dragging uses a softened bounded response", () => {

@@ -145,7 +145,7 @@ test("HSV alpha key exposes paired color ranges and preserves premultiplied alph
   assert.match(component.code, /color\.rgb \* keep, color\.a \* keep/);
 });
 
-test("Alpha Feather erodes then softens alpha while preserving premultiplied color", () => {
+test("Alpha Feather uses a continuous alpha-distance gradient with a neutral fast path", () => {
   const component = getShaderComponent("alphaFeather");
   const params = Object.fromEntries(component.params.map((param) => [param.id, param]));
 
@@ -163,8 +163,14 @@ test("Alpha Feather erodes then softens alpha while preserving premultiplied col
   assert.equal(params.cut.defaultValue, 1);
   assert.equal(params.feather.defaultValue, 3);
   assert.equal(params.cut.max, 32);
+  assert.equal(component.runtime.isNeutral({ cut: 0, feather: 0 }), true);
+  assert.equal(component.runtime.isNeutral({ cut: 0, feather: 0.25 }), false);
+  assert.equal(component.runtime.isNeutral({ cut: 0.25, feather: 0 }), false);
   assert.match(component.code, /float erodedAlpha8/);
-  assert.match(component.code, /cutRadius \+ featherRadius/);
+  assert.match(component.code, /float alphaEdgeDistance/);
+  assert.match(component.code, /alphaSum \/ 32\.0/);
+  assert.match(component.code, /smoothstep\(cutRadius, outerRadius, edgeDistance\)/);
+  assert.doesNotMatch(component.code, /middleAlpha/);
   assert.match(component.code, /color\.rgb \* alphaScale, outputAlpha/);
 });
 

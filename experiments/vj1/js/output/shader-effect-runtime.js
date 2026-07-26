@@ -193,7 +193,11 @@ export class ShaderEffectRuntime {
     if (!component) return inputState;
     const params = normalizeParamValues(component, effectParamState(item));
     const amount = effectParamNumber(component, params, "amount", 0.35);
-    if ((item.opacity ?? 1) <= 0.0001 || amount <= 0.0001) {
+    if (
+      (item.opacity ?? 1) <= 0.0001 ||
+      amount <= 0.0001 ||
+      component.runtime?.isNeutral?.(params) === true
+    ) {
       return inputState;
     }
     const runtimeContext = this.runtimeContext(componentTime);
@@ -376,7 +380,10 @@ export class ShaderEffectRuntime {
       pass.params && typeof pass.params === "object" ? pass.params : {},
     );
     const amount = effectParamNumber(component, params, "amount", 0.35);
-    if (amount <= 0.0001) return false;
+    if (
+      amount <= 0.0001 ||
+      component.runtime?.isNeutral?.(params) === true
+    ) return false;
     return (
       component.runtime?.cacheable === false ||
       component.runtime?.timeDependent?.(params) === true
@@ -415,6 +422,9 @@ export class ShaderEffectRuntime {
     for (const job of schedule) {
       const pass = job.pass;
       if (pass.amount <= 0.0001) continue;
+      if (job.component?.runtime?.isNeutral?.(pass.params || {}) === true) {
+        continue;
+      }
       let handoff = false;
       if (host.renderTargetRuntime.isShaderBuffer(current) &&
           !isSharedFramebufferTarget(current) &&
@@ -533,7 +543,11 @@ export class ShaderEffectRuntime {
       [pass],
       host.visualNodeRuntime.resolverOptions,
     )[0];
-    if (!job || job.pass.amount <= 0.0001) return input;
+    if (
+      !job ||
+      job.pass.amount <= 0.0001 ||
+      job.component?.runtime?.isNeutral?.(job.pass.params || {}) === true
+    ) return input;
     const shaderProgram = this.builder.getShader(job.pass, target);
     if (!shaderProgram) return input;
     const isfRuntime = this.getIsfRuntime();

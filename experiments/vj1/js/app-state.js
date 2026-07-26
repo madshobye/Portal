@@ -35,6 +35,7 @@ import {
   produceStructuralShare,
 } from "./libraries/data-store/data-store/index.js";
 import { signalLoadMeter } from "./metrics/signal-load-meter.js";
+import { applyEditorSelection, editorSelectionChangedPaths } from "./domain/editor-selection.js";
 
 export function createAppState(initial = null, {
   prepareState = null,
@@ -274,12 +275,12 @@ export function createAppState(initial = null, {
     },
     selectSurface(id) {
       if (!state.surfaces.some((surface) => surface.id === id)) return;
+      const changedPaths = editorSelectionChangedPaths(state.ui, "surface");
       updateUi((ui) => {
-        ui.selectedSurfaceId = id;
-        if (ui.workspace === "scene") ui.sceneInspectorTarget = "surface";
+        applyEditorSelection(ui, "surface", id);
       }, {
         reason: "select-surface",
-        changedPaths: ["ui.selectedSurfaceId"],
+        changedPaths,
       });
     },
     setMappingSurfaceVisibility(mappingId, surfaceId, visible, reason = "") {
@@ -312,13 +313,12 @@ export function createAppState(initial = null, {
       const mappings = state.mappings.slice();
       mappings[mappingIndex] = nextMapping;
       const previous = state;
+      const ui = { ...state.ui };
+      applyEditorSelection(ui, "surface", surfaceId);
       const next = {
         ...state,
         mappings,
-        ui: {
-          ...state.ui,
-          selectedSurfaceId: String(surfaceId),
-        },
+        ui,
       };
       if (String(state.ui?.selectedMappingId || "") === String(nextMapping.id)) {
         projectSelectedMapping(next, nextMapping);
@@ -335,7 +335,10 @@ export function createAppState(initial = null, {
       emit({
         reason: changeReason,
         scope: "project",
-        changedPaths: [`mappings.${mappingIndex}.surfaces.${surfaceIndex}.enabled`],
+        changedPaths: [
+          `mappings.${mappingIndex}.surfaces.${surfaceIndex}.enabled`,
+          ...editorSelectionChangedPaths(state.ui, "surface"),
+        ],
         renderPatches: [{
           target: "state",
           path: "surfaces",
@@ -387,8 +390,7 @@ export function createAppState(initial = null, {
       components[componentIndex] = nextComponent;
       const ui = clone(state.ui);
       if (selectAction === "chain-item" && selectId) {
-        ui.selectedChainItemId = String(selectId);
-        if (ui.workspace === "scene") ui.sceneInspectorTarget = "element";
+        applyEditorSelection(ui, "element", selectId);
       } else if (selectAction === "data-select-component" && selectId) {
         ui.selectedComponentId = String(selectId);
       }
@@ -402,12 +404,18 @@ export function createAppState(initial = null, {
         : next;
       reconcileLiveOverridesWithPersistentEdits(previous, state);
       pendingEditBaseline = null;
+      const selectionChangedPaths = selectAction === "chain-item" && selectId
+        ? editorSelectionChangedPaths(state.ui, "element")
+        : [];
       emit({
         reason: reason || `update:components.${componentIndex}.${normalizedEntries[0].relativePath}`,
         scope: "project",
-        changedPaths: normalizedEntries.map((entry) =>
-          `components.${componentIndex}.${entry.relativePath}`
-        ),
+        changedPaths: [
+          ...normalizedEntries.map((entry) =>
+            `components.${componentIndex}.${entry.relativePath}`
+          ),
+          ...selectionChangedPaths,
+        ],
         renderPatches: normalizedEntries.filter((entry) =>
           !["activity", "thumbnail", "name", "catalogMarker"].includes(
             String(entry.relativePath).split(".")[0]
@@ -438,8 +446,7 @@ export function createAppState(initial = null, {
       touchComponentUsed({ components }, id);
       const ui = clone(state.ui);
       ui.selectedComponentId = id;
-      ui.selectedChainItemId = component.chain?.[0]?.id || "";
-      if (ui.workspace === "scene") ui.sceneInspectorTarget = "element";
+      applyEditorSelection(ui, "element", component.chain?.[0]?.id || "");
       rememberWorkspaceComponent({ ui }, ui.workspace, component);
       state = { ...state, components, ui };
       // Selection is local to the editor. It is still autosaved so recent-use
@@ -504,7 +511,7 @@ export function createAppState(initial = null, {
         const component = createDefaultComponent(componentCount, { empty: componentCount > 10 });
         draft.components.push(component);
         draft.ui.selectedComponentId = component.id;
-        draft.ui.selectedChainItemId = component.chain[0]?.id || "";
+        applyEditorSelection(draft.ui, "element", component.chain[0]?.id || "");
         rememberWorkspaceComponent(draft, "component", component);
       }, "add-component");
     },
@@ -515,7 +522,7 @@ export function createAppState(initial = null, {
         );
         draft.components.push(component);
         draft.ui.selectedComponentId = component.id;
-        draft.ui.selectedChainItemId = component.chain[0]?.id || "";
+        applyEditorSelection(draft.ui, "element", component.chain[0]?.id || "");
         rememberWorkspaceComponent(draft, "scene", component);
       }, "add-scene");
     },
@@ -535,23 +542,24 @@ export function createAppState(initial = null, {
     selectChainItem(id) {
       const selected = state.components.find((component) => component.id === state.ui.selectedComponentId);
       if (!id) {
-        if (!state.ui.selectedChainItemId) return;
+        if (!state.ui.selectedChainItemId &&
+            !(state.ui.workspace === "scene" && state.ui.sceneInspectorTarget !== "element")) return;
+        const changedPaths = editorSelectionChangedPaths(state.ui, "element");
         updateUi((ui) => {
-          ui.selectedChainItemId = "";
-          if (ui.workspace === "scene") ui.sceneInspectorTarget = "element";
+          applyEditorSelection(ui, "element", "");
         }, {
           reason: "select-chain-item",
-          changedPaths: ["ui.selectedChainItemId"],
+          changedPaths,
         });
         return;
       }
       if (!findChainItemLocation(selected?.chain, id)) return;
+      const changedPaths = editorSelectionChangedPaths(state.ui, "element");
       updateUi((ui) => {
-        ui.selectedChainItemId = id;
-        if (ui.workspace === "scene") ui.sceneInspectorTarget = "element";
+        applyEditorSelection(ui, "element", id);
       }, {
         reason: "select-chain-item",
-        changedPaths: ["ui.selectedChainItemId"],
+        changedPaths,
       });
     },
     removeChainItem(componentId, itemId) {
@@ -560,7 +568,7 @@ export function createAppState(initial = null, {
         if (!component?.chain) return;
         const removed = removeChainItemFromChain(component.chain, itemId);
         if (removed && draft.ui.selectedChainItemId === itemId) {
-          draft.ui.selectedChainItemId = firstChainItemId(component.chain);
+          applyEditorSelection(draft.ui, "element", firstChainItemId(component.chain));
         }
       }, "remove-chain-item");
     },
@@ -582,7 +590,7 @@ export function createAppState(initial = null, {
         }
         component.chain ||= [];
         insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, layer);
-        draft.ui.selectedChainItemId = layer.id;
+        applyEditorSelection(draft.ui, "element", layer.id);
       }, "add-chain-source");
     },
     addChainEffect(componentId, effectId) {
@@ -593,7 +601,7 @@ export function createAppState(initial = null, {
         initializeLiveChainInsertion(draft, component.id, effect);
         component.chain ||= [];
         insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, effect);
-        draft.ui.selectedChainItemId = effect.id;
+        applyEditorSelection(draft.ui, "element", effect.id);
       }, "add-chain-effect");
     },
     addChainGroup(componentId) {
@@ -604,7 +612,7 @@ export function createAppState(initial = null, {
         const group = createComponentGroup(countChainGroups(component.chain));
         initializeLiveChainInsertion(draft, component.id, group);
         insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, group);
-        draft.ui.selectedChainItemId = group.id;
+        applyEditorSelection(draft.ui, "element", group.id);
       }, "add-chain-group");
     },
     reorderChain(componentId, fromId, toId, position = "before") {
@@ -645,7 +653,7 @@ export function createAppState(initial = null, {
         surface.name = `Srf ${mappedSurfaces.length + 1}`;
         surface.mappingId = surface.id;
         mapping.surfaces.push(surface);
-        draft.ui.selectedSurfaceId = surface.id;
+        applyEditorSelection(draft.ui, "surface", surface.id);
       }, "add-surface");
     },
     removeSurface(id) {
@@ -659,7 +667,7 @@ export function createAppState(initial = null, {
           if (component.type !== "scene") continue;
           if (component.scene?.surfaceThumbnails) delete component.scene.surfaceThumbnails[id];
         }
-        draft.ui.selectedSurfaceId = mapping.surfaces[0]?.id || "";
+        applyEditorSelection(draft.ui, "surface", mapping.surfaces[0]?.id || "");
         if (Array.isArray(mapping.calibration?.surfaces)) {
           mapping.calibration.surfaces = mapping.calibration.surfaces.filter((surface) => surface.name !== id && surface.id !== id);
         }
@@ -1012,8 +1020,7 @@ function restoreWorkspaceComponent(draft, workspace) {
   if (!component) return;
   draft.ui.workspaceSelectionIds[workspace] = component.id;
   draft.ui.selectedComponentId = component.id;
-  draft.ui.selectedChainItemId = component.chain?.[0]?.id || "";
-  if (workspace === "scene") draft.ui.sceneInspectorTarget = "element";
+  applyEditorSelection(draft.ui, "element", component.chain?.[0]?.id || "");
 }
 
 function firstChainItemId(chain = []) {

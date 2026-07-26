@@ -3,6 +3,7 @@ import { componentFrameMetrics } from "./component-frame.js";
 import { sceneLogicalSize } from "./render-settings.js";
 import { insertChainItemNearSelection } from "./chain-operations.js";
 import { initializeLiveChainInsertion } from "./scene-routing.js";
+import { applyEditorSelection } from "./editor-selection.js";
 import {
   canonicalizeAuthoredVisualChain,
   canonicalizeAuthoredVisualSource,
@@ -68,7 +69,7 @@ export function copyComponentAsScene(draft = {}, componentId = "") {
   draft.components.push(copy);
   draft.ui ||= {};
   draft.ui.selectedComponentId = copy.id;
-  draft.ui.selectedChainItemId = copy.chain[0]?.id || "";
+  applyEditorSelection(draft.ui, "element", copy.chain[0]?.id || "");
   draft.ui.workspaceSelectionIds ||= { component: "", scene: "" };
   draft.ui.workspaceSelectionIds.scene = copy.id;
   return { converted: true, kind: "scene", id: copy.id };
@@ -109,7 +110,7 @@ function pasteComponent(draft, source, target) {
   draft.components ||= [];
   draft.components.push(copy);
   draft.ui.selectedComponentId = copy.id;
-  draft.ui.selectedChainItemId = copy.chain?.[0]?.id || "";
+  applyEditorSelection(draft.ui, "element", copy.chain?.[0]?.id || "");
   draft.ui.workspaceSelectionIds ||= { component: "", scene: "" };
   draft.ui.workspaceSelectionIds[copy.type === "scene" ? "scene" : "component"] = copy.id;
   return { pasted: true, kind: "component", id: copy.id };
@@ -157,7 +158,7 @@ function pasteSurface(draft, source, target) {
     const calibrated = mapping.calibration.surfaces.find((item) => item.name === source.id || item.id === source.id);
     if (calibrated) mapping.calibration.surfaces.push({ ...clone(calibrated), id: copy.id, name: copy.id });
   }
-  draft.ui.selectedSurfaceId = copy.id;
+  applyEditorSelection(draft.ui, "surface", copy.id);
   return { pasted: true, kind: "surface", id: copy.id };
 }
 
@@ -190,7 +191,7 @@ function insertIntoTarget(draft, target, item) {
     insertChainItemNearSelection(component.chain, target.itemId, item);
   }
   draft.ui.selectedComponentId = component.id;
-  draft.ui.selectedChainItemId = item.id;
+  applyEditorSelection(draft.ui, "element", item.id);
   return { pasted: true, kind: "chain-item", id: item.id };
 }
 

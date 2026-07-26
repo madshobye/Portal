@@ -1,4 +1,5 @@
 import { visibleSceneSurfaceIds } from "../domain/scene-routing.js";
+import { applyEditorSelection } from "../domain/editor-selection.js";
 import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js";
 import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
@@ -95,9 +96,8 @@ export class ComponentPreviewInteraction {
 
   activeSceneSurfaceId() {
     const ui = this.renderer.state?.ui || {};
-    // Scene element and Surface editing are mutually exclusive interaction
-    // modes. Keep the last Surface id for stable inspector navigation, but it
-    // becomes inert as soon as an element owns Scene inspector focus.
+    // Scene element and Surface editing are mutually exclusive. The target
+    // check keeps older saved UI projections safe during normalization.
     if (ui.workspace === "scene" && ui.sceneInspectorTarget !== "surface") {
       return "";
     }
@@ -421,25 +421,22 @@ export class ComponentPreviewInteraction {
     const renderer = this.renderer;
     if (!hit) {
       if (renderer.state?.ui?.selectedChainItemId) {
+        const ui = { ...renderer.state.ui };
+        applyEditorSelection(ui, "element", "");
         renderer.state = {
           ...renderer.state,
-          ui: {
-            ...renderer.state.ui,
-            selectedChainItemId: "",
-          },
+          ui,
         };
         renderer.onChainItemSelect?.("");
       }
       return null;
     }
     if (renderer.state?.ui) {
+      const ui = { ...renderer.state.ui };
+      applyEditorSelection(ui, "element", hit.id);
       renderer.state = {
         ...renderer.state,
-        ui: {
-          ...renderer.state.ui,
-          selectedChainItemId: hit.id,
-          ...(renderer.state.ui.workspace === "scene" ? { sceneInspectorTarget: "element" } : {}),
-        },
+        ui,
       };
     }
     renderer.onChainItemSelect?.(hit.id);
@@ -652,10 +649,11 @@ export class ComponentPreviewInteraction {
           chainOwner.itemId,
           chainOwner.transform
         );
-        if (reconciled.ui) reconciled = {
-          ...reconciled,
-          ui: { ...reconciled.ui, selectedChainItemId: chainOwner.itemId },
-        };
+        if (reconciled.ui) {
+          const ui = { ...reconciled.ui };
+          applyEditorSelection(ui, "element", chainOwner.itemId);
+          reconciled = { ...reconciled, ui };
+        }
       }
     }
 
@@ -679,10 +677,11 @@ export class ComponentPreviewInteraction {
           boundaryOwner.itemId,
           boundaryOwner.boundary
         );
-        if (reconciled.ui) reconciled = {
-          ...reconciled,
-          ui: { ...reconciled.ui, selectedChainItemId: boundaryOwner.itemId },
-        };
+        if (reconciled.ui) {
+          const ui = { ...reconciled.ui };
+          applyEditorSelection(ui, "element", boundaryOwner.itemId);
+          reconciled = { ...reconciled, ui };
+        }
       }
     }
 
