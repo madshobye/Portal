@@ -3606,6 +3606,12 @@ test("bounded raster SVG shader and 3D sources keep node ROI separate from Compo
     height: 0.6,
     rotation: 0,
   };
+  const transform = {
+    x: 0.2,
+    y: -0.1,
+    scale: 1.4,
+    rotation: 0.15,
+  };
 
   for (const generatorId of [
     "mediaImage:raster",
@@ -3624,6 +3630,7 @@ test("bounded raster SVG shader and 3D sources keep node ROI separate from Compo
           kind: "source",
           enabled: true,
           boundary,
+          transform,
           opacity: 1,
           blend: "normal",
           source: {
@@ -3660,7 +3667,19 @@ test("bounded raster SVG shader and 3D sources keep node ROI separate from Compo
   for (const composite of composites) {
     assert.strictEqual(composite.request, request);
     assert.equal(composite.item.boundary, boundary);
+    assert.deepEqual(
+      composite.item.transform,
+      {},
+      "the source renderer owns Content placement; bounded compositing must not apply it twice",
+    );
     assert.ok(composite.roi.centerX > request.width * 0.5);
+  }
+  for (const { item } of sourceRequests) {
+    assert.deepEqual(
+      item.transform,
+      transform,
+      "the authored transform reaches every bounded source renderer",
+    );
   }
 });
 
@@ -3748,7 +3767,8 @@ test("component groups render isolated from earlier parent layers", () => {
   assert.ok(groupRenderSource.includes("operation.placementLowering === \"terminal-coordinate\""));
   assert.ok(groupRenderSource.includes("const groupTransform ="));
   assert.ok(groupRenderSource.includes("compiledGroup && !lowersPlacementToTerminal"));
-  assert.ok(groupRenderSource.includes("transform: lowersPlacementToTerminal"));
+  assert.ok(groupRenderSource.includes("requiresFullBoundaryPlacement"));
+  assert.ok(groupRenderSource.includes("extractNodeViewState("));
   assert.ok(groupRenderSource.includes("compoundPlacementTransform"));
   assert.ok(groupRenderSource.includes("host.compositeRuntime.renderBoundedLayerNodeState("));
   assert.ok(groupRenderSource.includes("host.compositeRuntime.renderLayerNodeState("));
@@ -3827,6 +3847,201 @@ test("compiled visual Groups publish their isolated public output as the outer i
   assert.equal(coverageRecords[0][5], "rendered-alpha");
 });
 
+test("bounded compound-output placement is evaluated in the full node boundary before ROI extraction", () => {
+  const parentState = { buffer: { id: "parent" }, instanceInvariant: true };
+  const rawState = { buffer: { id: "raw" }, instanceInvariant: true };
+  const transformedState = {
+    buffer: { id: "transformed" },
+    instanceInvariant: true,
+  };
+  const visibleState = { buffer: { id: "visible" }, instanceInvariant: true };
+  const compositedState = {
+    buffer: { id: "composited" },
+    instanceInvariant: true,
+  };
+  const transparentRequests = [];
+  const transformCalls = [];
+  const extractionCalls = [];
+  const boundedCalls = [];
+  const host = {
+    compositeRuntime: {
+      transparentChainState(_component, request) {
+        transparentRequests.push(request);
+        return transparentRequests.length === 1 ? parentState : rawState;
+      },
+      renderLayerContentTransformState(...args) {
+        transformCalls.push(args);
+        return transformedState;
+      },
+      extractNodeViewState(...args) {
+        extractionCalls.push(args);
+        return visibleState;
+      },
+      renderBoundedLayerNodeState(...args) {
+        boundedCalls.push(args);
+        return compositedState;
+      },
+    },
+    componentRenderRuntime: { recordResolution() {} },
+    previewHitCoverage: {
+      prepareRegionRequest() {},
+      recordRaster() {},
+    },
+    mediaRuntime: null,
+    media: new Map(),
+    specializedSources: {
+      capabilityReadiness: () => null,
+    },
+  };
+  const runtime = new VisualPlanRuntime(host);
+  const transform = {
+    x: 0.25,
+    y: -0.15,
+    scale: 1.3,
+    rotation: 0.1,
+  };
+  const operation = {
+    id: "bounded-compound",
+    opcode: "group",
+    backend: "compiled-visual-group",
+    placementLowering: "compound-output",
+    configuration: {
+      id: "bounded-compound",
+      kind: "group",
+      enabled: true,
+      boundary: {
+        x: 0.75,
+        y: 0,
+        width: 0.8,
+        height: 0.6,
+        rotation: 0,
+      },
+      transform,
+      opacity: 1,
+      blend: "normal",
+    },
+    operations: [],
+    runtimeStates: new Map(),
+    runtimeOutputStates: new Map(),
+    outputPorts: ["texture"],
+    outputBindings: {},
+    outputPort: "texture",
+    publicTextureInputs: {},
+    contract: { roi: { halo: 0, coordinateSpace: "boundary" } },
+  };
+  const request = { role: "component", width: 800, height: 600 };
+
+  const result = runtime.renderOperations(
+    { id: "component", name: "Component" },
+    [operation],
+    0,
+    request,
+  );
+
+  assert.strictEqual(result, compositedState);
+  assert.equal(transparentRequests.length, 2);
+  const fullBoundaryRequest = transparentRequests[1];
+  assert.deepEqual(fullBoundaryRequest.uvRect, [0, 0, 1, 1]);
+  assert.equal(fullBoundaryRequest.nodeRegionView, false);
+  assert.equal(fullBoundaryRequest.width, 640);
+  assert.equal(fullBoundaryRequest.height, 360);
+  assert.equal(transformCalls.length, 1);
+  assert.strictEqual(transformCalls[0][1], rawState);
+  assert.deepEqual(transformCalls[0][2], transform);
+  assert.strictEqual(transformCalls[0][3], fullBoundaryRequest);
+  assert.equal(extractionCalls.length, 1);
+  assert.strictEqual(extractionCalls[0][1], transformedState);
+  assert.strictEqual(extractionCalls[0][2], fullBoundaryRequest);
+  assert.notDeepEqual(extractionCalls[0][3].uvRect, [0, 0, 1, 1]);
+  assert.ok(extractionCalls[0][3].width < fullBoundaryRequest.width);
+  assert.equal(boundedCalls.length, 1);
+  assert.strictEqual(boundedCalls[0][2], visibleState);
+  assert.deepEqual(
+    boundedCalls[0][3].transform,
+    {},
+    "Content placement is complete before the ROI is placed into the parent",
+  );
+});
+
+test("bounded compound-output identity placement retains the ROI-sized optimized path", () => {
+  const parentState = { buffer: { id: "parent" }, instanceInvariant: true };
+  const rawState = { buffer: { id: "raw" }, instanceInvariant: true };
+  const compositedState = {
+    buffer: { id: "composited" },
+    instanceInvariant: true,
+  };
+  const transparentRequests = [];
+  let transformCalls = 0;
+  let extractionCalls = 0;
+  const host = {
+    compositeRuntime: {
+      transparentChainState(_component, request) {
+        transparentRequests.push(request);
+        return transparentRequests.length === 1 ? parentState : rawState;
+      },
+      renderLayerContentTransformState() {
+        transformCalls += 1;
+        return rawState;
+      },
+      extractNodeViewState() {
+        extractionCalls += 1;
+        return rawState;
+      },
+      renderBoundedLayerNodeState: () => compositedState,
+    },
+    componentRenderRuntime: { recordResolution() {} },
+    previewHitCoverage: {
+      prepareRegionRequest() {},
+      recordRaster() {},
+    },
+    mediaRuntime: null,
+    media: new Map(),
+    specializedSources: {
+      capabilityReadiness: () => null,
+    },
+  };
+  const runtime = new VisualPlanRuntime(host);
+  runtime.renderOperations(
+    { id: "component", name: "Component" },
+    [{
+      id: "identity-compound",
+      opcode: "group",
+      backend: "compiled-visual-group",
+      placementLowering: "compound-output",
+      configuration: {
+        id: "identity-compound",
+        kind: "group",
+        enabled: true,
+        boundary: {
+          x: 0.75,
+          y: 0,
+          width: 0.8,
+          height: 0.6,
+          rotation: 0,
+        },
+        transform: {},
+      },
+      operations: [],
+      runtimeStates: new Map(),
+      runtimeOutputStates: new Map(),
+      outputPorts: ["texture"],
+      outputBindings: {},
+      outputPort: "texture",
+      publicTextureInputs: {},
+      contract: { roi: { halo: 0, coordinateSpace: "boundary" } },
+    }],
+    0,
+    { role: "component", width: 800, height: 600 },
+  );
+
+  assert.equal(transparentRequests.length, 2);
+  assert.equal(transparentRequests[1].nodeRegionView, true);
+  assert.notDeepEqual(transparentRequests[1].uvRect, [0, 0, 1, 1]);
+  assert.ok(transparentRequests[1].width < 640);
+  assert.equal(transformCalls, 0);
+  assert.equal(extractionCalls, 0);
+});
+
 test("disabled compiled visual Groups do not evaluate values or child render operations", () => {
   let valueEvaluations = 0;
   let sourceRenders = 0;
@@ -3887,6 +4102,7 @@ test("disabled compiled visual Groups do not evaluate values or child render ope
 
 test("compiled Group Content scale raises value-provider detail without enlarging its target", () => {
   let evaluation = null;
+  let renderedChild = null;
   const transparent = { buffer: { id: "transparent" }, instanceInvariant: true };
   const host = {
     compositeRuntime: {
@@ -3895,6 +4111,14 @@ test("compiled Group Content scale raises value-provider detail without enlargin
       renderBoundedLayerNodeState: (_id, _state, output) => output,
     },
     componentRenderRuntime: { recordResolution() {} },
+    sourceRuntime: {
+      measureOperation: (_component, _item, _request, render) => render(),
+      canDirectComposite: () => false,
+      renderItemState: (_component, item) => {
+        renderedChild = item;
+        return transparent;
+      },
+    },
     mediaRuntime: null,
     media: new Map(),
     specializedSources: {
@@ -3907,6 +4131,7 @@ test("compiled Group Content scale raises value-provider detail without enlargin
     id: "scaled-group",
     opcode: "group",
     backend: "compiled-visual-group",
+    configurationRevision: 2,
     placementLowering: "terminal-coordinate",
     configuration: {
       id: "scaled-group",
@@ -3915,7 +4140,20 @@ test("compiled Group Content scale raises value-provider detail without enlargin
       transform: { x: 0, y: 0, scale: 3, rotation: 0 },
       boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 },
     },
-    operations: [],
+    operations: [{
+      id: "render",
+      opcode: "source",
+      configuration: {
+        id: "render",
+        kind: "source",
+        enabled: true,
+        transform: {},
+        source: {
+          type: "generator",
+          generatorId: "core.visual.media-resource-to-image",
+        },
+      },
+    }],
     valueProgram: {
       evaluate(options) {
         evaluation = options;
@@ -3936,7 +4174,10 @@ test("compiled Group Content scale raises value-provider detail without enlargin
     request,
   );
 
-  assert.deepEqual(evaluation.renderRequest, request);
+  assert.deepEqual(evaluation.renderRequest, {
+    ...request,
+    configurationRevision: "scaled-group@2",
+  });
   assert.deepEqual(evaluation.sourceDetail, {
     width: 2400,
     height: 1350,
@@ -3944,6 +4185,11 @@ test("compiled Group Content scale raises value-provider detail without enlargin
     physicalHeight: 450,
     contentScale: 3,
   });
+  assert.deepEqual(
+    renderedChild.transform,
+    { x: 0, y: 0, scale: 3, rotation: 0 },
+    "the shared authored placement reaches a static compiled child without relying on animation",
+  );
 });
 
 test("compiled visual Groups route named texture inputs by public port identity", () => {

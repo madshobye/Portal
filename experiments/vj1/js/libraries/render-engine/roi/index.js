@@ -139,6 +139,39 @@ export function nodeRoiRequest(renderRequest = {}, boundary = {}, additions = {}
   };
 }
 
+// Recover the complete node-boundary allocation from a cropped node ROI.
+// This changes allocation/view only; it never reinterprets Content placement.
+// Callers can therefore evaluate a boundary-space transform once and crop the
+// transformed result back through the original ROI request.
+export function fullNodeBoundaryRequest(request = {}) {
+  const roi = request.roi || {};
+  const uv = normalizeUvRect(request.uvRect);
+  const width = Math.max(
+    1,
+    Math.round(
+      Number(roi.boundaryWidth) ||
+      (Number(request.width) || 1) / Math.max(1e-9, uv[2]),
+    ),
+  );
+  const height = Math.max(
+    1,
+    Math.round(
+      Number(roi.boundaryHeight) ||
+      (Number(request.height) || 1) / Math.max(1e-9, uv[3]),
+    ),
+  );
+  return {
+    ...request,
+    width,
+    height,
+    uvRect: [0, 0, 1, 1],
+    nodeRegionView: false,
+    role: `${String(request.role || "texture").replace(/:roi$/, "")}:boundary`,
+    empty: false,
+    roi: null,
+  };
+}
+
 export function sameNodeBoundary(left = {}, right = {}) {
   const a = normalizeNodeBoundary(left);
   const b = normalizeNodeBoundary(right);

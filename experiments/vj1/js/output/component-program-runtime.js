@@ -120,6 +120,26 @@ export class ComponentProgramRuntime {
     return program.syncProjectedConfiguration(component);
   }
 
+  syncConfigurationItems(componentId, itemIds = [], state = this.getState?.()) {
+    const id = String(componentId || "");
+    const component = (state?.components || []).find(
+      (candidate) => String(candidate?.id || "") === id,
+    );
+    const program = this.programs.get(id);
+    if (!component || !program) {
+      return Object.freeze({
+        applied: false,
+        componentId: id,
+        changedIds: Object.freeze([]),
+        missingIds: Object.freeze(Array.from(itemIds || [], String)),
+      });
+    }
+    return Object.freeze({
+      componentId: id,
+      ...program.syncProjectedItems(component, itemIds),
+    });
+  }
+
   rebuildLookups(state = this.getState?.()) {
     const components = [
       ...(state?.components || []),

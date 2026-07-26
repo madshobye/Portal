@@ -345,9 +345,57 @@ export class CompiledComponentRenderProgram {
     const result = replaceMaterializedChainItem(this.configurationProjection, String(itemId || ""), nextItem);
     if (result.changed) {
       this.configurationProjection = result.chain;
-      this.plan.replaceConfiguration(itemId, nextItem);
+      if (!this.plan.replaceConfiguration(itemId, nextItem)) {
+        throw new Error(
+          `VJ1_COMPILED_CONFIGURATION_TARGET_MISSING:${this.componentId}:${String(itemId || "")}`,
+        );
+      }
     }
     return result.changed;
+  }
+
+  syncProjectedItems(component = {}, itemIds = []) {
+    const requested = new Set(
+      Array.from(itemIds || [], (id) => String(id || "")).filter(Boolean),
+    );
+    if (!requested.size) {
+      return Object.freeze({
+        applied: true,
+        changedIds: Object.freeze([]),
+        missingIds: Object.freeze([]),
+      });
+    }
+    const items = new Map();
+    const visit = (chain = []) => {
+      for (const item of chain || []) {
+        const id = String(item?.id || "");
+        if (id && requested.has(id)) items.set(id, item);
+        if (item?.kind === "group") visit(item.chain || []);
+      }
+    };
+    visit(component.chain || []);
+    const missingIds = [...requested].filter((id) => !items.has(id));
+    if (missingIds.length) {
+      return Object.freeze({
+        applied: false,
+        changedIds: Object.freeze([]),
+        missingIds: Object.freeze(missingIds),
+      });
+    }
+    const changedIds = [];
+    for (const id of requested) {
+      if (this.replaceChainItem(id, items.get(id))) changedIds.push(id);
+    }
+    if (changedIds.length) this.syncGeneratedControlsFromConfiguration();
+    return Object.freeze({
+      applied: changedIds.length === requested.size,
+      changedIds: Object.freeze(changedIds),
+      missingIds: Object.freeze(
+        changedIds.length === requested.size
+          ? []
+          : [...requested].filter((id) => !changedIds.includes(id)),
+      ),
+    });
   }
 
   syncProjectedConfiguration(component = {}) {

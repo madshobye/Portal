@@ -135,8 +135,23 @@ export class LiveRenderPatchRuntime {
     ) {
       host.componentProgramRuntime.rebuild();
     } else {
-      for (const componentId of result.componentIds) {
-        host.componentProgramRuntime.syncConfiguration(componentId);
+      let configurationApplied = true;
+      for (const target of result.configurationTargets || []) {
+        const synchronized =
+          host.componentProgramRuntime.syncConfigurationItems(
+            target.componentId,
+            target.itemIds,
+          );
+        configurationApplied =
+          synchronized.applied && configurationApplied;
+      }
+      // A render patch is not successful merely because it reached project
+      // state. Its semantic visual item must also acknowledge the authored
+      // configuration. A missing binding indicates stale/migrated topology;
+      // rebuild once at this shared compiler boundary instead of leaving a
+      // renderer-specific stale image on screen.
+      if (!configurationApplied) {
+        host.componentProgramRuntime.rebuild();
       }
     }
     if (result.componentIds.length) host.thumbnailRuntime.invalidateSelectedComponent();

@@ -33,6 +33,7 @@ export function applyLiveRenderPatches(state, patches = []) {
   return {
     applied: true,
     componentIds: resolution.componentIds,
+    configurationTargets: resolution.configurationTargets,
     statePaths: resolution.statePaths,
     failedPatch: null,
   };
@@ -44,6 +45,7 @@ export function resolveLiveRenderPatches(state, patches = []) {
   }
   const components = new Map(state.components.map((component) => [String(component.id || ""), component]));
   const componentIds = new Set();
+  const configurationTargets = new Map();
   const statePaths = new Set();
   const resolved = [];
   for (const patch of patches) {
@@ -67,14 +69,45 @@ export function resolveLiveRenderPatches(state, patches = []) {
     }
     resolved.push({ ...destination, targetType: "component", componentId, path: String(patch.path || ""), value: patch.value });
     componentIds.add(componentId);
+    const itemId = visualItemIdForPatchPath(component, parts);
+    if (itemId) {
+      const ids = configurationTargets.get(componentId) || new Set();
+      ids.add(itemId);
+      configurationTargets.set(componentId, ids);
+    }
   }
   return {
     applied: true,
     componentIds: [...componentIds],
+    configurationTargets: [...configurationTargets].map(
+      ([componentId, itemIds]) => Object.freeze({
+        componentId,
+        itemIds: Object.freeze([...itemIds]),
+      }),
+    ),
     statePaths: [...statePaths],
     destinations: resolved,
     failedPatch: null,
   };
+}
+
+function visualItemIdForPatchPath(component = {}, parts = []) {
+  let cursor = component;
+  let itemId = "";
+  for (let index = 0; index < parts.length; index++) {
+    const part = parts[index];
+    if (part === "chain" && Number.isInteger(parts[index + 1])) {
+      const item = cursor?.chain?.[parts[index + 1]];
+      if (!item) return "";
+      itemId = String(item.id || itemId);
+      cursor = item;
+      index++;
+      continue;
+    }
+    if (cursor == null || typeof cursor !== "object") break;
+    cursor = cursor[part];
+  }
+  return itemId;
 }
 
 export function interpolatedLiveRenderValue(from, to, startedAtMs, durationMs, nowMs) {

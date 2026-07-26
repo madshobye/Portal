@@ -154,6 +154,8 @@ function staticCompiledOperationState(operation = {}) {
     nodeId: operation.nodeId || "",
     opcode: operation.opcode || "",
     backend: operation.backend || "",
+    configurationRevision:
+      Math.max(0, Number(operation.configurationRevision) || 0),
     enabled: configuration.enabled !== false,
     textureInputs: operation.textureInputs || {},
     configuration: configuration.kind === "source"

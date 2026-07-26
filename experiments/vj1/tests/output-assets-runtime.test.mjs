@@ -2364,8 +2364,8 @@ test("a buffered patch newer than startup state continues from the installed rev
 test("Live render patches mutate only the addressed Component path", () => {
   const state = {
     components: [
-      { id: "component-a", opacity: 1, chain: [{ params: { amount: 0.1 } }] },
-      { id: "component-b", opacity: 0.75, chain: [{ params: { amount: 0.2 } }] },
+      { id: "component-a", opacity: 1, chain: [{ id: "item-a", params: { amount: 0.1 } }] },
+      { id: "component-b", opacity: 0.75, chain: [{ id: "item-b", params: { amount: 0.2 } }] },
     ],
   };
   const untouched = state.components[1];
@@ -2375,6 +2375,10 @@ test("Live render patches mutate only the addressed Component path", () => {
 
   assert.equal(result.applied, true);
   assert.deepEqual(result.componentIds, ["component-a"]);
+  assert.deepEqual(result.configurationTargets, [{
+    componentId: "component-a",
+    itemIds: ["item-a"],
+  }]);
   assert.equal(state.components[0].chain[0].params.amount, 0.8);
   assert.equal(state.components[1], untouched);
   const beforeAtomicFailure = state.components[0].chain[0].params.amount;
@@ -2487,15 +2491,26 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
   const component = {
     id: "component-a",
     type: "chain",
-    chain: [{
-      id: "source-a",
-      kind: "source",
-      enabled: true,
-      opacity: 1,
-      blend: "normal",
-      transform: { x: 0, y: 0, scale: 1, rotation: 0 },
-      source: { type: "generator", generatorId: "noise", params: { scale: 1 } },
-    }],
+    chain: [
+      {
+        id: "source-a",
+        kind: "source",
+        enabled: true,
+        opacity: 1,
+        blend: "normal",
+        transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+        source: { type: "generator", generatorId: "noise", params: { scale: 1 } },
+      },
+      {
+        id: "source-b",
+        kind: "source",
+        enabled: true,
+        opacity: 1,
+        blend: "normal",
+        transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+        source: { type: "generator", generatorId: "noise", params: { scale: 2 } },
+      },
+    ],
   };
   const persistedGroup = compileComponentGroupTopology(component);
   const renderer = new OutputRenderer({ mode: "output" });
@@ -2518,8 +2533,51 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
   ]);
 
   assert.equal(result.applied, true);
+  assert.deepEqual(result.configurationTargets, [{
+    componentId: component.id,
+    itemIds: ["source-a"],
+  }]);
   assert.strictEqual(program.plan, originalPlan, "a parameter scrub does not recompile the plan");
   assert.equal(program.plan.operations[0].configuration.source.params.scale, 3);
+  assert.equal(
+    program.plan.operations[0].configurationRevision,
+    1,
+    "the addressed visual item advances its shared authored-configuration epoch",
+  );
+  assert.equal(
+    program.plan.operations[1].configurationRevision,
+    undefined,
+    "a sibling visual item remains cache-stable",
+  );
+
+  const beforePlacementSignature =
+    renderer.componentRenderRuntime.stableSignature(component, {
+      role: "component",
+      width: 640,
+      height: 360,
+    });
+  const placementResult = renderer.livePatchRuntime.applyLive([
+    createLiveRenderPatch(component.id, "chain.0.transform.x", 0.75),
+  ]);
+  const afterPlacementSignature =
+    renderer.componentRenderRuntime.stableSignature(component, {
+      role: "component",
+      width: 640,
+      height: 360,
+    });
+
+  assert.equal(placementResult.applied, true);
+  assert.equal(program.plan.operations[0].configuration.transform.x, 0.75);
+  assert.equal(
+    program.plan.operations[0].configurationRevision,
+    2,
+    "shared placement properties advance the same semantic visual revision as node parameters",
+  );
+  assert.notEqual(
+    afterPlacementSignature,
+    beforePlacementSignature,
+    "a static Component cannot reuse its retained frame after Content X/Y/Scale changes",
+  );
 });
 
 test("Live numeric patches preserve target truth while the renderer interpolates display values", () => {

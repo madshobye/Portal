@@ -1030,6 +1030,140 @@ test("compiled compound instances own isolated private render configuration", ()
   );
 });
 
+test("one authored-parameter epoch consistently invalidates raster, SVG, and STL compounds", () => {
+  const packageRoot = createVj1NodePackage();
+  const component = {
+    id: "cross-type-configuration-epoch",
+    name: "Cross-type configuration epoch",
+    type: "component",
+    chain: [
+      {
+        id: "raster-source",
+        kind: "source",
+        source: {
+          type: "generator",
+          generatorId: "mediaImage",
+          params: {
+            mediaId: "media/example.png",
+            fit: "contain",
+          },
+        },
+      },
+      {
+        id: "svg-source",
+        kind: "source",
+        source: {
+          type: "generator",
+          generatorId: "mediaImage",
+          params: {
+            mediaId: "media/example.svg",
+            fit: "contain",
+          },
+        },
+      },
+      {
+        id: "model-source",
+        kind: "source",
+        source: {
+          type: "generator",
+          generatorId: "modelMedia",
+          params: {
+            mediaId: "media/example.stl",
+            geometryDetail: 0.5,
+            spinY: 0,
+          },
+        },
+      },
+    ],
+  };
+  const state = packageRoot.prepareProjectState({
+    components: [component],
+    media: [
+      { id: "media/example.png", type: "image" },
+      { id: "media/example.svg", type: "image" },
+      { id: "media/example.stl", type: "model" },
+    ],
+    nodes: {},
+  });
+  const program = compileComponentRenderPrograms(
+    state.components,
+    state.nodes.groups,
+    {
+      resolveNodeDefinition: (node) =>
+        packageRoot.registry.get(node.nodeId, node.nodeVersion),
+    },
+  ).get(component.id);
+  const originalPlan = program.plan;
+  const operation = (id) =>
+    program.plan.operations.find((candidate) => candidate.id === id);
+  const child = (id, childId) =>
+    operation(id).operations.find((candidate) => candidate.id === childId);
+  const withParam = (current, itemId, parameter, value) => ({
+    ...current,
+    chain: current.chain.map((item) => item.id === itemId
+      ? {
+          ...item,
+          source: {
+            ...item.source,
+            params: {
+              ...item.source.params,
+              [parameter]: value,
+            },
+          },
+        }
+      : item),
+  });
+
+  const rasterEdit = withParam(
+    state.components[0],
+    "raster-source",
+    "fit",
+    "cover",
+  );
+  assert.deepEqual(
+    program.syncProjectedItems(rasterEdit, ["raster-source"]),
+    {
+      applied: true,
+      changedIds: ["raster-source"],
+      missingIds: [],
+    },
+  );
+  assert.strictEqual(program.plan, originalPlan);
+  assert.equal(operation("raster-source").configurationRevision, 1);
+  assert.equal(child("raster-source", "render").configuration.source.params.fit, "cover");
+  assert.equal(operation("svg-source").configurationRevision, undefined);
+  assert.equal(child("svg-source", "render").configuration.source.params.fit, "contain");
+  assert.equal(operation("model-source").configurationRevision, undefined);
+
+  const svgEdit = withParam(rasterEdit, "svg-source", "fit", "stretch");
+  assert.equal(
+    program.syncProjectedItems(svgEdit, ["svg-source"]).applied,
+    true,
+  );
+  assert.equal(operation("raster-source").configurationRevision, 1);
+  assert.equal(operation("svg-source").configurationRevision, 1);
+  assert.equal(child("svg-source", "render").configuration.source.params.fit, "stretch");
+  assert.equal(operation("model-source").configurationRevision, undefined);
+
+  const modelEdit = withParam(
+    svgEdit,
+    "model-source",
+    "geometryDetail",
+    0.9,
+  );
+  assert.equal(
+    program.syncProjectedItems(modelEdit, ["model-source"]).applied,
+    true,
+  );
+  assert.equal(operation("raster-source").configurationRevision, 1);
+  assert.equal(operation("svg-source").configurationRevision, 1);
+  assert.equal(operation("model-source").configurationRevision, 1);
+  assert.equal(
+    operation("model-source").configuration.source.params.geometryDetail,
+    0.9,
+  );
+});
+
 test("compiled Component programs initialize generated controls from authoritative configuration", () => {
   const packageRoot = createVj1NodePackage();
   const component = {

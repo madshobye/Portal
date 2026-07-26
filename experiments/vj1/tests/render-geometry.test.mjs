@@ -4,6 +4,7 @@ import { componentTextureSize } from "../js/domain/render-resolution.js";
 import { createInitialState, syncSurfaceProportionsFromMapping } from "../js/domain/models.js";
 import {
   disposeRenderTarget,
+  fullNodeBoundaryRequest,
   nodeBoundaryPixelRect,
   nodeBoundaryUniformScale,
   nodeBoundaryWithUniformScale,
@@ -355,11 +356,51 @@ test("consumer-grid ROI retains conservative allocation for rotation and halos",
   assert.ok(haloed.height > parent.height);
 });
 
+test("a full node-boundary request removes ROI authority without changing its logical domain", () => {
+  const cropped = nodeRoiRequest(
+    { role: "component", width: 800, height: 600 },
+    { x: 0.75, y: 0, width: 0.8, height: 0.6, rotation: 0 },
+  );
+  const full = fullNodeBoundaryRequest(cropped);
+
+  assert.deepEqual(full.uvRect, [0, 0, 1, 1]);
+  assert.equal(full.nodeRegionView, false);
+  assert.equal(full.width, 640);
+  assert.equal(full.height, 360);
+  assert.equal(full.logicalWidth, cropped.logicalWidth);
+  assert.equal(full.logicalHeight, cropped.logicalHeight);
+  assert.equal(full.roi, null);
+  assert.equal(full.empty, false);
+});
+
 test("render evaluation distinguishes equal allocations showing different logical views", () => {
   const left = { role: "component:roi", width: 500, height: 500, logicalWidth: 1000, logicalHeight: 500, uvRect: [0, 0, 0.5, 1] };
   const right = { ...left, uvRect: [0.5, 0, 0.5, 1] };
   assert.equal(renderRequestKey(left), renderRequestKey(right));
   assert.notEqual(renderRequestStateKey(left), renderRequestStateKey(right));
+});
+
+test("render evaluation includes the authored visual configuration epoch", () => {
+  const request = {
+    role: "component:roi",
+    width: 500,
+    height: 500,
+    logicalWidth: 1000,
+    logicalHeight: 500,
+    uvRect: [0, 0, 0.5, 1],
+  };
+  assert.equal(renderRequestKey(request), renderRequestKey({
+    ...request,
+    configurationRevision: "media-a@1",
+  }));
+  assert.notEqual(
+    renderRequestStateKey(request),
+    renderRequestStateKey({
+      ...request,
+      configurationRevision: "media-a@1",
+    }),
+    "configuration changes invalidate retained pixels without changing allocation",
+  );
 });
 
 test("instance-invariant requests remove placement identity but preserve the logical view", () => {

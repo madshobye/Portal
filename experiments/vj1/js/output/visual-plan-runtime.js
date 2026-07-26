@@ -1,6 +1,7 @@
 import { clamp01 } from "../domain/models.js";
 import { textureStateKey } from "../libraries/render-engine/render-node-contract.js";
 import {
+  fullNodeBoundaryRequest,
   isFullNodeBoundary,
   nodeBoundaryPixelRect,
   nodeRoiRequest,
@@ -575,7 +576,10 @@ export class VisualPlanRuntime {
             nodeId,
             state,
             sourceState,
-            renderedItem,
+            // Source renderers evaluate Content placement in the full logical
+            // boundary coordinate space through the ROI view. The outer
+            // compositor owns only boundary placement, blend and opacity.
+            { ...renderedItem, transform: {} },
             renderRequest,
             roiRequest.roi,
           );
@@ -782,9 +786,35 @@ export class VisualPlanRuntime {
       }
 
       if (opcode === "group") {
+        const compiledGroup =
+          operation?.backend === "compiled-visual-group";
+        const lowersPlacementToTerminal =
+          compiledGroup &&
+          operation.placementLowering === "terminal-coordinate";
+        const compoundPlacementTransform =
+          combineContentTransforms(
+            inheritedTransform,
+            item.transform || {},
+          );
+        const groupConfigurationRevision = Math.max(
+          0,
+          Number(operation?.configurationRevision) || 0,
+        );
+        const inheritedConfigurationRevision = String(
+          renderRequest.configurationRevision || "",
+        );
+        const configuredRenderRequest = groupConfigurationRevision
+          ? {
+              ...renderRequest,
+              configurationRevision: [
+                inheritedConfigurationRevision,
+                `${String(operation.id || nodeId)}@${groupConfigurationRevision}`,
+              ].filter(Boolean).join("/"),
+            }
+          : renderRequest;
         const bounded = !isFullNodeBoundary(renderedItem.boundary);
-        const groupRequest = bounded
-          ? nodeRoiRequest(renderRequest, renderedItem.boundary, {
+        const destinationGroupRequest = bounded
+          ? nodeRoiRequest(configuredRenderRequest, renderedItem.boundary, {
               renderIdentity: renderBufferKey(
                 renderRequest.renderIdentity || component.id,
                 renderedItem.id || nodeId,
@@ -792,27 +822,37 @@ export class VisualPlanRuntime {
               halo: operation?.contract?.roi?.halo,
               coordinateSpace:
                 operation?.contract?.roi?.coordinateSpace,
-            })
-          : renderRequest;
+              })
+          : configuredRenderRequest;
         if (bounded) {
           host.previewHitCoverage?.prepareRegionRequest(
             component,
             renderRequest,
-            groupRequest,
+            destinationGroupRequest,
           );
         }
-        if (groupRequest.empty) continue;
+        if (destinationGroupRequest.empty) continue;
+        // A compound-output Group applies Content placement after its child
+        // graph has produced one texture. If only the visible ROI were rendered
+        // first, that ROI would incorrectly become the transform's coordinate
+        // system and moving/scaling content would depend on clipping. Render
+        // the complete *node boundary* only for this non-identity case, apply
+        // placement there, then extract the visible ROI. Identity placement and
+        // terminal-coordinate Groups retain the optimized ROI allocation path.
+        const requiresFullBoundaryPlacement =
+          bounded &&
+          compiledGroup &&
+          !lowersPlacementToTerminal &&
+          !isIdentityTransform(compoundPlacementTransform);
+        const groupRequest = requiresFullBoundaryPlacement
+          ? fullNodeBoundaryRequest(destinationGroupRequest)
+          : destinationGroupRequest;
         host.componentRenderRuntime.recordResolution(
           component,
           renderedItem,
           "group",
           groupRequest,
         );
-        const compoundPlacementTransform =
-          combineContentTransforms(
-            inheritedTransform,
-            item.transform || {},
-          );
         const restoreGroupControls =
           operation?.controlProgram?.apply({
             componentTime,
@@ -839,8 +879,6 @@ export class VisualPlanRuntime {
         let groupState;
         let isolatedGroupOutputState = null;
         try {
-          const compiledGroup =
-            operation?.backend === "compiled-visual-group";
           operation?.runtimeOutputStates?.clear?.();
           const groupInputStates = compiledGroup
             ? this.compiledGroupInputStates(
@@ -858,9 +896,6 @@ export class VisualPlanRuntime {
             scopeId,
             item.id || index,
           );
-          const lowersPlacementToTerminal =
-            compiledGroup &&
-            operation.placementLowering === "terminal-coordinate";
           const groupTransform =
             compiledGroup && !lowersPlacementToTerminal
               ? {}
@@ -900,9 +935,28 @@ export class VisualPlanRuntime {
                 rawOutputs.size === 1
                   ? nodeId
                   : renderBufferKey(nodeId, "output", publicId);
+              let isolatedOutputState = rawOutputState;
+              if (requiresFullBoundaryPlacement) {
+                const transformedOutputState =
+                  host.compositeRuntime.renderLayerContentTransformState(
+                    renderBufferKey(outputNodeId, "placement"),
+                    rawOutputState,
+                    compoundPlacementTransform,
+                    groupRequest,
+                  );
+                isolatedOutputState =
+                  host.compositeRuntime.extractNodeViewState(
+                    renderBufferKey(outputNodeId, "visible-region"),
+                    transformedOutputState,
+                    groupRequest,
+                    destinationGroupRequest,
+                  );
+              }
               const placement = {
                 ...item,
-                transform: lowersPlacementToTerminal
+                transform:
+                  lowersPlacementToTerminal ||
+                  requiresFullBoundaryPlacement
                   ? {}
                   : compoundPlacementTransform,
               };
@@ -910,15 +964,15 @@ export class VisualPlanRuntime {
                 ? host.compositeRuntime.renderBoundedLayerNodeState(
                     outputNodeId,
                     state,
-                    rawOutputState,
+                    isolatedOutputState,
                     placement,
                     renderRequest,
-                    groupRequest.roi,
+                    destinationGroupRequest.roi,
                   )
                 : host.compositeRuntime.renderLayerNodeState(
                     outputNodeId,
                     state,
-                    rawOutputState,
+                    isolatedOutputState,
                     placement,
                     renderRequest,
                   );
@@ -926,6 +980,12 @@ export class VisualPlanRuntime {
                 publicId,
                 outputState,
               );
+              if (
+                publicId === operation.outputPort ||
+                rawOutputs.size === 1
+              ) {
+                isolatedGroupOutputState = isolatedOutputState;
+              }
             }
             groupState =
               operation.runtimeOutputStates.get(operation.outputPort) ||
@@ -947,7 +1007,7 @@ export class VisualPlanRuntime {
           renderedItem,
           isolatedGroupOutputState,
           renderRequest,
-          bounded ? groupRequest.roi : null,
+          bounded ? destinationGroupRequest.roi : null,
           operation?.contract?.interaction?.hitRegion,
         );
         state =
@@ -960,7 +1020,7 @@ export class VisualPlanRuntime {
                   groupState,
                   { ...item, transform: {} },
                   renderRequest,
-                  groupRequest.roi,
+                  destinationGroupRequest.roi,
                 )
               : host.compositeRuntime.renderLayerNodeState(
                   nodeId,

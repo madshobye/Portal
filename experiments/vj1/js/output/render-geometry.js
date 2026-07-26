@@ -98,7 +98,9 @@ export function renderRequestStateKey(request = {}) {
   const uv = Array.isArray(request.uvRect) && request.uvRect.length >= 4
     ? request.uvRect.map((value) => Math.round((Number(value) || 0) * 1e6) / 1e6)
     : [0, 0, 1, 1];
-  return `${renderRequestKey(request)}:${logicalWidth}x${logicalHeight}:${uv.join(",")}`;
+  const configurationRevision = String(request.configurationRevision || "");
+  return `${renderRequestKey(request)}:${logicalWidth}x${logicalHeight}:${uv.join(",")}` +
+    (configurationRevision ? `:config:${configurationRevision}` : "");
 }
 
 // An immutable node produces the same pixels for every async placement. Strip

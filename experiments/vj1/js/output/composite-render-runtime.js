@@ -22,6 +22,7 @@ import {
   instanceInvariantRenderRequest,
   renderRequestStateKey,
 } from "./render-geometry.js";
+import { normalizeRenderUvRect } from "../libraries/render-engine/render-view/index.js";
 import { drawBuffer } from "./render-draw-utils.js";
 import { isIdentityTransform } from "./preview-interaction-geometry.js";
 import { contentTransformCanvasPlacement } from "./content-coordinate-space.js";
@@ -563,6 +564,47 @@ export class CompositeRenderRuntime {
         output.pop();
       },
       "roi-extract",
+      { instanceInvariant },
+    );
+  }
+
+  extractNodeViewState(nodeId, inputState, fullRequest, viewRequest) {
+    const host = this.host;
+    const instanceInvariant = inputState.instanceInvariant === true;
+    const evaluationRequest = instanceInvariant
+      ? instanceInvariantRenderRequest(fullRequest)
+      : fullRequest;
+    const uv = normalizeRenderUvRect(viewRequest.uvRect);
+    const signature = stableStringify({
+      input: textureStateKey(inputState),
+      view: uv,
+      request: renderRequestStateKey(evaluationRequest),
+    });
+    return host.renderEvaluationRuntime.evaluate(
+      nodeId,
+      signature,
+      viewRequest,
+      (output) => {
+        const fullWidth = Math.max(1, Number(fullRequest.width) || 1);
+        const fullHeight = Math.max(1, Number(fullRequest.height) || 1);
+        output.push();
+        output.clear();
+        // `inputState` is the complete node-boundary domain. The destination
+        // remains only its visible allocation window. Crop that domain without
+        // redefining it: Content placement has already been evaluated against
+        // fullWidth/fullHeight and is therefore independent from the ROI.
+        drawBuffer(
+          output,
+          inputState.buffer,
+          -uv[0] * fullWidth,
+          -uv[1] * fullHeight,
+          fullWidth,
+          fullHeight,
+          host.renderTargetRuntime.isShaderBuffer(inputState.buffer),
+        );
+        output.pop();
+      },
+      "node-view-extract",
       { instanceInvariant },
     );
   }

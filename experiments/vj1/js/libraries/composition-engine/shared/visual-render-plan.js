@@ -1271,7 +1271,17 @@ function replaceOperationConfiguration(operations, itemId, nextConfiguration) {
   const next = operations.map((operation) => {
     if (operation.id === itemId) {
       changed = true;
-      const updated = Object.freeze({ ...operation, configuration: nextConfiguration });
+      const updated = Object.freeze({
+        ...operation,
+        configuration: nextConfiguration,
+        // One semantic visual item owns one authored-configuration epoch.
+        // Compiled compounds project public parameters into private child
+        // operations, whose typed values may otherwise retain the same
+        // identity. Advancing the outer epoch gives every backend the same
+        // dirty contract without renderer-specific invalidation hooks.
+        configurationRevision:
+          Math.max(0, Number(operation.configurationRevision) || 0) + 1,
+      });
       synchronizeCompoundPublicParameters(updated);
       return updated;
     }
@@ -1279,7 +1289,15 @@ function replaceOperationConfiguration(operations, itemId, nextConfiguration) {
     const nested = replaceOperationConfiguration(operation.operations, itemId, nextConfiguration);
     if (!nested.changed) return operation;
     changed = true;
-    return Object.freeze({ ...operation, operations: Object.freeze(nested.operations) });
+    return Object.freeze({
+      ...operation,
+      operations: Object.freeze(nested.operations),
+      // A public Layer Group is also a semantic cache boundary. Propagate a
+      // descendant edit through that boundary while leaving sibling groups
+      // and Components untouched.
+      configurationRevision:
+        Math.max(0, Number(operation.configurationRevision) || 0) + 1,
+    });
   });
   return { changed, operations: changed ? next : operations };
 }
