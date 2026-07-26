@@ -617,6 +617,15 @@ export function applyOptimisticToggleIntent(button) {
   button.dataset.toggleValue = nextValue ? "true" : "false";
   button.classList?.toggle?.("is-enabled", nextValue);
   button.setAttribute?.("aria-pressed", String(nextValue));
+  const iconElement = button.querySelector?.(".material-symbols-rounded");
+  const iconName = nextValue
+    ? button.dataset.toggleEnabledIcon
+    : button.dataset.toggleDisabledIcon;
+  if (iconElement && iconName) iconElement.textContent = iconName;
+  const action = nextValue ? "Disable" : "Enable";
+  const label = button.dataset.toggleLabel || "";
+  button.setAttribute?.("title", `${action} ${label}`.trim());
+  button.setAttribute?.("aria-label", `${action} ${label}`.trim());
   return nextValue;
 }
 

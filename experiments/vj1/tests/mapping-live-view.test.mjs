@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
 import { sceneComponents, ordinaryComponents } from "../js/control/control-selectors.js";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate } from "../js/control/mapping-live-view.js";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfaceSectionTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate } from "../js/control/mapping-live-view.js";
 import { liveProjectionRailTemplate, projectRailTemplate } from "../js/control/project-rail-view.js";
 import { createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js";
 
@@ -48,6 +48,26 @@ test("Mapping Surface parameters use the shared inset control section", () => {
   const surface = state.surfaces[0];
 
   assert.match(mappingSurfaceTemplate(surface, state), /class="sculpt-card inspector-control-surface"/);
+});
+
+test("Mapping Surface rail membership comes from the selected Mapping, not the executable projection", () => {
+  const state = createInitialState();
+  const first = state.mappings[0];
+  const second = createMappingFromState(state, "Second Mapping");
+  second.surfaces = second.surfaces.map((surface, index) => ({
+    ...surface,
+    id: `second-surface-${index}`,
+    name: `Second Surface ${index}`,
+  }));
+  state.mappings.push(second);
+  state.ui.selectedMappingId = second.id;
+  // Deliberately leave the compatibility projection pointing at Mapping one.
+  state.surfaces = first.surfaces.map((surface) => ({ ...surface }));
+
+  const html = mappingSurfaceSectionTemplate(state);
+
+  assert.match(html, /Second Surface 0/);
+  assert.doesNotMatch(html, new RegExp(`data-select-surface="${first.surfaces[0].id}"`));
 });
 
 test("Live combines independently enabled Scene and Part filters while keeping one on", () => {

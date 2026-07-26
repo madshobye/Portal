@@ -634,7 +634,7 @@ test("Live Surface patch assignment and removal use the configured transition", 
   assert.equal(previousRoute.componentId, scene.id);
   assert.equal(previousRoute.projectionFit, "contain");
   assert.equal(currentRoute.componentId, patchComponent.id);
-  assert.equal(currentRoute.projectionFit, "cover");
+  assert.equal(currentRoute.projectionFit, "contain");
   assert.equal(currentRoute.sceneCrop, false);
   assert.equal(currentRoute.sourceFitActive, false);
   const transitionRenderState = createLiveRenderState(after);
@@ -647,8 +647,8 @@ test("Live Surface patch assignment and removal use the configured transition", 
   );
   assert.equal(
     transitionRenderState.surfaces.find((item) => item.id === surface.id).projectionFit,
-    "cover",
-    "the incoming patch keeps its target fit"
+    "contain",
+    "the incoming patch keeps the selected Surface's authored fit"
   );
 
   store.selectLivePreviewSurface("__mapping__");
@@ -2031,6 +2031,8 @@ test("Mapping Surface visibility commits one scoped route transaction", () => {
       return value;
     },
   });
+  const sceneMappingInLive = store.getState().ui.live.sceneMappingInLive;
+  const sceneMappingVisible = store.getState().ui.live.sceneMappingVisible;
   const events = [];
   store.subscribe((_state, _reason, event) => events.push(event));
 
@@ -2040,6 +2042,8 @@ test("Mapping Surface visibility commits one scoped route transaction", () => {
   const authored = next.mappings[0].surfaces[0];
   assert.equal(authored.enabled, false);
   assert.equal(next.ui.selectedSurfaceId, surface.id);
+  assert.equal(next.ui.live.sceneMappingInLive, sceneMappingInLive);
+  assert.equal(next.ui.live.sceneMappingVisible, sceneMappingVisible);
   assert.notEqual(authored.activity.updatedAt, "2020-01-01T00:00:00.000Z");
   assert.equal(prepareCount, 1);
   assert.equal(events.at(-1).scope, "project");

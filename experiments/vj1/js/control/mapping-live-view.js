@@ -102,7 +102,10 @@ export function mappingSurfaceSectionTemplate(state, { renderSelection = true } 
         className: "mapping-test-pattern-button",
       })}
     </div>`,
-    content: `${sceneMappingOutputPillTemplate(state)}${state.surfaces.map((surface) => mappingSurfacePillTemplate(surface, state, {
+    // Mapping owns its authored Surface collection. `state.surfaces` is a
+    // compatibility projection containing the executable preview routes and
+    // must never decide which rows belong to the selected Mapping.
+    content: `${sceneMappingOutputPillTemplate(state)}${mapping.surfaces.map((surface) => mappingSurfacePillTemplate(surface, state, {
       selected: renderSelection && state.ui.selectedSurfaceId === surface.id,
     })).join("")}`,
     emptyText: "Add a surface",

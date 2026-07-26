@@ -100,7 +100,11 @@ test("Live Surface patches replace only the chosen destination", () => {
   const patched = compileLiveProjectionProgram(current).currentRoutes.surfaces.find((surface) => surface.id === firstSurface.id);
   assert.equal(patched.componentId, component.id);
   assert.equal(patched.sceneCrop, false);
-  assert.equal(patched.projectionFit, "cover");
+  assert.equal(
+    patched.projectionFit,
+    firstSurface.projectionFit,
+    "an explicit Live mount uses the selected output Surface's fit",
+  );
 });
 
 test("clearing a Surface patch restores Overall routing without changing Mapping", () => {

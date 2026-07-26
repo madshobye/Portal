@@ -79,27 +79,34 @@ test("an Overall Component covers Scene space while preserving authored Surface 
   assert.deepEqual(state.surfaces, [surface]);
 });
 
-test("an individual Surface patch assigns the complete source through one cover stage", () => {
-  const surface = {
-    id: "surface-a",
-    x: 0.2,
-    y: 0.1,
-    width: 0.5,
-    height: 0.75,
-    projectionFit: "contain",
-  };
+test("individual Live Surface patches preserve each destination's authored fit", () => {
   const scene = { id: "scene-a", type: "scene" };
-  const state = { components: [scene], surfaces: [surface] };
+  for (const destination of [
+    { type: "direct", outputIds: ["output-main"] },
+    { type: "mapped" },
+  ]) {
+    for (const projectionFit of ["contain", "stretch", "cover"]) {
+      const surface = {
+        id: `surface-${destination.type}-${projectionFit}`,
+        x: 0.2,
+        y: 0.1,
+        width: 0.5,
+        height: 0.75,
+        projectionFit,
+        destination,
+      };
+      const state = { components: [scene], surfaces: [surface] };
+      const route = materializeLiveSurfacePatchRoute(state, scene, null, surface.id);
 
-  const route = materializeLiveSurfacePatchRoute(state, scene, null, surface.id);
-
-  assert.equal(route.sourceNodeId, sceneSourceNodeId(scene.id));
-  assert.equal(route.componentId, scene.id);
-  assert.equal(route.sceneCrop, false);
-  assert.equal(route.sourceFitActive, false);
-  assert.equal(route.projectionFit, "cover");
-  assert.equal(route.x, surface.x);
-  assert.equal(route.width, surface.width);
+      assert.equal(route.sourceNodeId, sceneSourceNodeId(scene.id));
+      assert.equal(route.componentId, scene.id);
+      assert.equal(route.sceneCrop, false);
+      assert.equal(route.sourceFitActive, false);
+      assert.equal(route.projectionFit, projectionFit);
+      assert.equal(route.x, surface.x);
+      assert.equal(route.width, surface.width);
+    }
+  }
 });
 
 test("visible Scene guide ids are the enabled Surface ids", () => {

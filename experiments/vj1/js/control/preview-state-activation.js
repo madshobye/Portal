@@ -11,6 +11,11 @@
 // and media resources.
 export function previewActivationForContext(context = {}) {
   if (context.reason === "live:preview-surface") return "projection";
+  // Selecting a Mapping is UI-only in the authored project, but it replaces
+  // the derived Mapping preview program, calibration, and retained handles.
+  // Treating it as ordinary UI navigation leaves the previous Mapping program
+  // active while the rail already displays the newly selected document.
+  if (context.reason === "select-mapping") return "mapping";
   if (isMappingSurfaceVisibilityReason(context.reason)) return "mapping";
   if (context.change?.scope === "ui") return "ui";
   if (context.change?.scope === "assets" ||

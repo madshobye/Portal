@@ -88,7 +88,7 @@ export function enableToggleButton({
     : `data-toggle-path="${esc(path)}"`;
   const action = enabled ? "Disable" : "Enable";
   return `
-    <button type="button" class="enable-toggle${showLabel ? " enable-toggle-labeled" : ""}${className ? ` ${esc(className)}` : ""} ${enabled ? "is-enabled" : ""}" ${toggleAttrs} ${selectAction ? `data-toggle-select-action="${esc(selectAction)}" data-toggle-select-id="${esc(selectId)}"` : ""} data-toggle-value="${enabled ? "true" : "false"}" aria-pressed="${enabled}" title="${action} ${esc(label)}" aria-label="${action} ${esc(label)}">
+    <button type="button" class="enable-toggle${showLabel ? " enable-toggle-labeled" : ""}${className ? ` ${esc(className)}` : ""} ${enabled ? "is-enabled" : ""}" ${toggleAttrs} ${selectAction ? `data-toggle-select-action="${esc(selectAction)}" data-toggle-select-id="${esc(selectId)}"` : ""} data-toggle-value="${enabled ? "true" : "false"}" data-toggle-enabled-icon="${esc(iconName)}" data-toggle-disabled-icon="${esc(disabledIconName)}" data-toggle-label="${esc(label)}" aria-pressed="${enabled}" title="${action} ${esc(label)}" aria-label="${action} ${esc(label)}">
       ${icon(enabled ? iconName : disabledIconName)}
       ${showLabel ? `<span>${esc(label)}</span>` : ""}
     </button>

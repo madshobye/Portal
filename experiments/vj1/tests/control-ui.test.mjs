@@ -150,18 +150,31 @@ test("keyed ephemeral controls survive template replacement without entering pro
 test("rapid toggles preserve commanded user truth before render acknowledgement", () => {
   const classes = new Set(["is-enabled"]);
   const attributes = {};
+  const iconElement = { textContent: "visibility" };
   const button = {
-    dataset: { toggleValue: "true" },
+    dataset: {
+      toggleValue: "true",
+      toggleEnabledIcon: "visibility",
+      toggleDisabledIcon: "hide_source",
+      toggleLabel: "Surface",
+    },
     classList: { toggle(name, enabled) { if (enabled) classes.add(name); else classes.delete(name); } },
     setAttribute(name, value) { attributes[name] = value; },
+    querySelector(selector) {
+      return selector === ".material-symbols-rounded" ? iconElement : null;
+    },
   };
   assert.equal(applyOptimisticToggleIntent(button), false);
   assert.equal(button.dataset.toggleValue, "false");
   assert.equal(classes.has("is-enabled"), false);
   assert.equal(attributes["aria-pressed"], "false");
+  assert.equal(iconElement.textContent, "hide_source");
+  assert.equal(attributes.title, "Enable Surface");
   assert.equal(applyOptimisticToggleIntent(button), true);
   assert.equal(button.dataset.toggleValue, "true");
   assert.equal(classes.has("is-enabled"), true);
+  assert.equal(iconElement.textContent, "visibility");
+  assert.equal(attributes.title, "Disable Surface");
 });
 
 test("preview presses defer UI rebuilding and draggable chain rows select on press", () => {
@@ -1095,6 +1108,14 @@ test("Live output-matrix selection and Mapping eyes use scoped projection activa
   assert.equal(
     isMappingSurfaceVisibilityReason("toggle:mappings.0.surfaces.2.enabled"),
     true,
+  );
+  assert.equal(
+    previewActivationForContext({
+      reason: "select-mapping",
+      change: { scope: "ui" },
+    }),
+    "mapping",
+    "Mapping selection replaces the derived route program and retained handles",
   );
   assert.equal(
     previewActivationForContext({

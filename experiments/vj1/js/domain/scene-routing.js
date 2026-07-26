@@ -28,10 +28,9 @@ export function rebaseSurfaceRouteProgram(previousRoutes = [], currentRoutes = [
   const previousById = new Map((previousRoutes || []).map((surface) => [String(surface?.id || ""), surface]));
   // A transition snapshot owns the presentation contract which was visible
   // immediately before the transition as well as its compiled source binding.
-  // `projectionFit` is normally authored by the physical Surface, but a Live
-  // matrix patch deliberately replaces it with `cover`. Rebasing the previous
-  // route onto that target route without retaining its fit makes a `contain`
-  // source jump to `cover` on the first transition frame (progress zero).
+  // Retaining `projectionFit` here prevents a Surface whose fit changes during
+  // a transition from jumping at progress zero. Ordinary Live matrix mounts
+  // preserve the authored physical Surface fit at both endpoints.
   const routeKeys = ["enabled", "projectionFit", ...SURFACE_ROUTE_DERIVED_KEYS];
   return (currentRoutes || []).map((current) => {
     const route = { ...(current || {}) };
@@ -180,10 +179,10 @@ export function materializeLiveSurfacePatchRoute(state = {}, target = null, mapp
     // route after a transition.
     sourceFitActive: false,
     sourceAspect: 1,
-    // A matrix patch replaces the complete destination rather than adopting
-    // the authored fit of the previous Overall route. Keep exactly one fit
-    // stage and make that physical projection stage cover the destination.
-    projectionFit: "cover",
+    // A matrix patch replaces only the source mounted at this destination.
+    // The physical Surface remains the owner of contain/cover/stretch for both
+    // Direct and projected outputs, so mounting cannot silently rewrite it.
+    projectionFit: normalizeProjectionFit(surface.projectionFit),
   };
 }
 
