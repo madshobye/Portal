@@ -14,6 +14,8 @@ import {
   VisualStageNodeDefinitions,
 } from "./libraries/visual-nodes/index.js";
 import {
+  AnimationCurveControlNode,
+  AnimationSequencerControlNode,
   AudioControlInputNode,
   ComponentTimeControlNode,
   EventTriggerControlNode,
@@ -23,6 +25,7 @@ import {
   MidiControlInputNode,
   OscillatorControlNode,
   OscControlInputNode,
+  RandomTriggerControlNode,
   SampleHoldControlNode,
   ScalarMathControlNode,
   SelectControlNode,
@@ -98,10 +101,13 @@ const ProjectMappingNode = semanticProjectNode("vj1.project.mapping", "Mapping",
 const ProjectLiveNode = semanticProjectNode("vj1.project.live", "Live", "The active performance projection of a selected Scene.", "event");
 
 const CORE_NODE_DEFINITIONS = Object.freeze([
+  AnimationCurveControlNode,
+  AnimationSequencerControlNode,
   SliderNode,
   ValueControlNode,
   ComponentTimeControlNode,
   OscillatorControlNode,
+  RandomTriggerControlNode,
   MapRangeControlNode,
   ScalarMathControlNode,
   Vector2ControlNode,
@@ -567,7 +573,10 @@ export function ensureVj1NodeProjectData(value = {}, components = [], {
     SliderNode,
     ValueControlNode,
     ComponentTimeControlNode,
+    AnimationCurveControlNode,
+    AnimationSequencerControlNode,
     OscillatorControlNode,
+    RandomTriggerControlNode,
     MapRangeControlNode,
     ScalarMathControlNode,
     Vector2ControlNode,

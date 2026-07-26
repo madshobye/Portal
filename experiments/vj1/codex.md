@@ -1,6 +1,6 @@
 # VJ1 Architecture Handover
 
-Updated: 2026-07-26
+Updated: 2026-07-27
 
 VJ1 is a build-free browser VJ and projection-mapping application in
 `experiments/vj1`. It targets current Chrome with WebGL2. p5 is the browser and
@@ -88,8 +88,15 @@ graph-driven inlet.
 Numeric parameter Animation tracks are authored control fragments inside the
 owning Component/Scene program, never a second animation runtime or parallel
 Component property. The shared Animation inspector projects tagged
-`Component Time -> Oscillator -> $parameter` wiring. Loop and ping-pong lower to
-saw and triangle oscillators with their authored range on the parameter edge.
+`Component Time -> Animation Sequencer -> Animation Curve -> $parameter`
+wiring. The Sequencer owns automatic/triggered loop and ping-pong timing,
+endpoint pauses, and one-leg/full-sequence trigger semantics. The Curve node is
+a pure bounded mapper and owns easing plus explicit return-leg behavior.
+Deterministic random triggers are separate Component-Time event nodes. Manual
+trigger buttons publish sequence-stamped application control signals to Preview
+and Output; they never write project state, create history, autosave, or
+recompile the graph. Legacy oscillator tracks remain readable and migrate
+through the shared fragment factory on their next edit.
 General opacity, Content placement, and Boundary placement use reserved
 `$general.*` parameter sockets on that same operation; Boundary scale lowers to
 one aspect-preserving width/height write rather than becoming duplicate state.
@@ -455,7 +462,7 @@ specialized child values; native terminal operations remain explicit optimized
 backends rather than hidden parent programs. Output scheduling, signatures,
 dependency/media state, and thumbnails consume compiled-program APIs; raw
 Component chains are limited to migration and explicit editor projections. The
-automated suite passes **1,358 tests**. The top-bar Signal load indicator and
+automated suite passes **1,415 tests**. The top-bar Signal load indicator and
 ten-second report expose state, invalidation, compile, resource, cache, and
 presentation rates without classifying ordinary presentation or cache reuse as
 coordination pressure.

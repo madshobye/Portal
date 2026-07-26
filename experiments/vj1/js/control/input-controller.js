@@ -21,6 +21,7 @@ export function createInputController({
   currentWorkspace,
   refreshSelectedMappingProjection,
   setStatus = () => {},
+  triggerParameterAnimation = () => {},
 }) {
   const paramContextScopes = new WeakSet();
 
@@ -83,13 +84,34 @@ export function createInputController({
             trackId,
           }));
         });
+        track.querySelector("[data-trigger-parameter-animation]")?.addEventListener("click", () => {
+          triggerParameterAnimation({
+            componentId,
+            targetNodeId,
+            trackId,
+            address: track.dataset.animationTriggerAddress || "",
+          });
+        });
+        track.querySelector("[data-toggle-animation-return]")?.addEventListener("click", (event) => {
+          const returnMode = event.currentTarget.getAttribute("aria-pressed") === "true"
+            ? "retrace"
+            : "repeat";
+          commitAnimationEdit("return-mode", () => updateParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            trackId,
+            patch: { returnMode },
+          }));
+        });
         track.querySelectorAll("[data-animation-track-field]").forEach((input) => {
           if (input.type === "range") {
             input.addEventListener("input", () => syncRangeValue(input));
           }
           input.addEventListener("change", () => {
             const field = input.dataset.animationTrackField;
-            const value = field === "mode" ? input.value : Number(input.value);
+            const value = ["mode", "curve", "runMode", "triggerBehavior"].includes(field)
+              ? input.value
+              : Number(input.value);
             commitAnimationEdit(field, () => updateParameterAnimationTrack(getState().nodes, {
               componentId,
               targetNodeId,

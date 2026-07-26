@@ -3,6 +3,7 @@ import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes }
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js";
+import { CONTROL_SIGNAL_COMMAND } from "../output/control-signal-command.js";
 import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js";
 import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
 import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js";
@@ -240,6 +241,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     getCatalogSortMode: (state, scope = "component") => catalogSortMode(state, scope),
     bindCatalogSortControls,
   });
+  let embeddedPreview = null;
+  let animationTriggerSequence = 0;
   const inputs = createInputController({
     store,
     getState: () => latestState,
@@ -250,8 +253,20 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     currentWorkspace,
     refreshSelectedMappingProjection,
     setStatus,
+    triggerParameterAnimation({ address }) {
+      if (!address) return;
+      const payload = {
+        kind: "control",
+        address,
+        value: 1,
+        sequence: ++animationTriggerSequence,
+        timestamp: Date.now(),
+      };
+      embeddedPreview?.command(CONTROL_SIGNAL_COMMAND, payload);
+      bridge.command(CONTROL_SIGNAL_COMMAND, payload);
+    },
   });
-  const embeddedPreview = createEmbeddedPreviewApp({
+  embeddedPreview = createEmbeddedPreviewApp({
     store,
     mediaLibrary,
     projectService,

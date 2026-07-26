@@ -3311,6 +3311,26 @@ button.text-list-main:hover {
   background: var(--accent);
 }
 
+.animation-trigger-button,
+.animation-return-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: var(--control-height);
+}
+
+.animation-return-toggle.is-selected {
+  color: var(--ink);
+  background: var(--accent);
+}
+
+.animation-trigger-button .material-symbols-rounded,
+.animation-return-toggle .material-symbols-rounded {
+  font-size: 18px;
+}
+
 .parameter-animation-add {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

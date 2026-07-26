@@ -7,6 +7,7 @@ import { createInitialState, createSceneComponent } from "../js/domain/models.js
 import {
   addParameterAnimationTrack,
   parameterAnimationTracks,
+  parameterAnimationTriggerAddress,
   removeParameterAnimationTrack,
   updateParameterAnimationTrack,
 } from "../js/libraries/composition-engine/shared/parameter-animation-tracks.js";
@@ -16,6 +17,7 @@ import {
   chainGeneralControlParameterId,
 } from "../js/libraries/composition-engine/shared/chain-general-control-parameters.js";
 import { serializeNodeProjectData } from "../js/libraries/node-engine/node-project.js";
+import { ControlSignalRuntime } from "../js/output/control-signal-runtime.js";
 
 function plasmaState() {
   const packageRoot = createVj1NodePackage();
@@ -80,7 +82,8 @@ test("Animation tracks author the existing Component control graph and restore i
   assert.equal(group.authoredConnections, true);
   assert.equal(group.persistence, "project-diff");
   assert.ok(group.nodes.some((node) => node.nodeId === "core.control.component-time"));
-  assert.ok(group.nodes.some((node) => node.nodeId === "core.control.oscillator"));
+  assert.ok(group.nodes.some((node) => node.nodeId === "core.control.animation-sequencer"));
+  assert.ok(group.nodes.some((node) => node.nodeId === "core.control.animation-curve"));
   assert.ok(!group.connections.some((edge) =>
     edge.from === `${baseControl.id}.value` &&
     edge.to === `${targetNodeId}.$parameter.speed`
@@ -136,7 +139,8 @@ test("Animation tracks author the existing Component control graph and restore i
     edge.to === `${targetNodeId}.$parameter.speed`
   ));
   assert.ok(!restored.nodes.some((node) => node.nodeId === "core.control.component-time"));
-  assert.ok(!restored.nodes.some((node) => node.nodeId === "core.control.oscillator"));
+  assert.ok(!restored.nodes.some((node) => node.nodeId === "core.control.animation-sequencer"));
+  assert.ok(!restored.nodes.some((node) => node.nodeId === "core.control.animation-curve"));
 });
 
 test("Animation graph fragments survive project serialization and ordinary parameter reconciliation", () => {
@@ -184,7 +188,7 @@ test("Animation graph fragments survive project serialization and ordinary param
   assert.ok(baseControl);
   assert.notEqual(baseControl.parameters.value, 0, "the refreshed generated fallback follows the authored base value");
   assert.ok(group.connections.some((edge) =>
-    edge.from === `${track.id}.value` &&
+    edge.from === `${track.id}:curve.value` &&
     edge.to === `${targetNodeId}.$parameter.speed`
   ));
 });
@@ -232,7 +236,8 @@ test("Animation tracks execute through the allocation-stable compiled control pr
   assert.ok(operation);
   assert.deepEqual(program.plan.controlProgram.diagnostics, []);
   assert.equal(program.plan.controlProgram.steps.some((step) => step.nodeId === "core.control.component-time"), true);
-  assert.equal(program.plan.controlProgram.steps.some((step) => step.nodeId === "core.control.oscillator"), true);
+  assert.equal(program.plan.controlProgram.steps.some((step) => step.nodeId === "core.control.animation-sequencer"), true);
+  assert.equal(program.plan.controlProgram.steps.some((step) => step.nodeId === "core.control.animation-curve"), true);
   assert.equal(String(program.plan.controlProgram.constructor.name).includes("NodeGraph"), false);
 
   const restore = program.plan.controlProgram.apply({ componentTime: 1 });
@@ -359,6 +364,191 @@ test("General animation fallbacks survive reconciliation and follow the latest s
   assert.equal(operation.configuration.opacity, 0.4);
 });
 
+test("Triggered animation tracks compile one sequencer fragment with transient and deterministic event inputs", () => {
+  const { packageRoot, state, componentId, targetNodeId } = plasmaState();
+  const nodes = addParameterAnimationTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "speed",
+    mode: "ping-pong",
+    runMode: "triggered",
+    triggerBehavior: "next-leg",
+    curve: "cubic-in-out",
+    returnMode: "repeat",
+    duration: 4,
+    pause: 0.5,
+    randomRate: 12,
+    from: 0,
+    to: 4,
+  });
+  const [track] = parameterAnimationTracks(nodes, componentId, targetNodeId);
+  assert.deepEqual(track, {
+    id: track.id,
+    targetNodeId,
+    parameterId: "speed",
+    enabled: true,
+    mode: "ping-pong",
+    from: 0,
+    to: 4,
+    duration: 4,
+    phase: 0,
+    curve: "cubic-in-out",
+    returnMode: "repeat",
+    pause: 0.5,
+    runMode: "triggered",
+    triggerBehavior: "next-leg",
+    randomRate: 12,
+  });
+  const group = nodes.groups.find((entry) => entry.componentId === componentId);
+  const owned = group.nodes.filter((node) =>
+    node.animationTrack?.id === track.id || node.animationTrackOwnerId === track.id
+  );
+  assert.deepEqual(
+    owned.map((node) => node.nodeId).sort(),
+    [
+      "core.control.animation-curve",
+      "core.control.animation-sequencer",
+      "core.control.host-input",
+      "core.control.random-trigger",
+    ].sort(),
+  );
+  const host = owned.find((node) => node.nodeId === "core.control.host-input");
+  assert.equal(host.parameters.address, parameterAnimationTriggerAddress(componentId, track.id));
+
+  const program = compileComponentRenderPrograms(state.components, nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(componentId);
+  assert.deepEqual(program.plan.controlProgram.diagnostics, []);
+  assert.ok(program.plan.controlProgram.inspect().requirements.some((requirement) =>
+    requirement.kind === "control-signal" &&
+    requirement.signalKind === "control" &&
+    requirement.address === host.parameters.address
+  ));
+  const removed = removeParameterAnimationTrack(nodes, {
+    componentId,
+    targetNodeId,
+    trackId: track.id,
+  });
+  const removedGroup = removed.groups.find((entry) => entry.componentId === componentId);
+  assert.ok(!removedGroup.nodes.some((node) =>
+    node.animationTrack?.id === track.id || node.animationTrackOwnerId === track.id
+  ));
+});
+
+test("Editing a legacy oscillator track migrates it through the common sequencer fragment factory", () => {
+  const { state, componentId, targetNodeId } = plasmaState();
+  let nodes = addParameterAnimationTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "speed",
+    mode: "ping-pong",
+    duration: 4,
+    phase: 0.2,
+    from: 0,
+    to: 3,
+  });
+  const [created] = parameterAnimationTracks(nodes, componentId, targetNodeId);
+  const groups = nodes.groups.map((group) => {
+    if (group.componentId !== componentId) return group;
+    const ownerIds = new Set(group.nodes
+      .filter((node) =>
+        node.animationTrack?.id === created.id || node.animationTrackOwnerId === created.id
+      )
+      .map((node) => node.id));
+    const legacy = {
+      id: created.id,
+      nodeId: "core.control.oscillator",
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: { waveform: "triangle", frequency: 0.25, phase: 0.2 },
+      authoredBy: "vj1-animation-editor",
+      animationTrack: {
+        feature: "parameter-animation-track",
+        id: created.id,
+        targetNodeId,
+        parameterId: "speed",
+        range: [0, 3],
+      },
+    };
+    const time = group.nodes.find((node) => node.nodeId === "core.control.component-time");
+    return {
+      ...group,
+      nodes: [
+        ...group.nodes.filter((node) => !ownerIds.has(node.id)),
+        legacy,
+      ],
+      connections: [
+        ...group.connections.filter((edge) =>
+          !ownerIds.has(String(edge.from || "").split(".")[0]) &&
+          !ownerIds.has(String(edge.to || "").split(".")[0]) &&
+          edge.to !== `${targetNodeId}.$parameter.speed`
+        ),
+        { from: `${time.id}.time`, to: `${legacy.id}.time`, type: "number" },
+        {
+          from: `${legacy.id}.value`,
+          to: `${targetNodeId}.$parameter.speed`,
+          type: "number",
+          sourceRange: [0, 1],
+          targetRange: [0, 3],
+          semantic: "parameter-animation-track",
+        },
+      ],
+    };
+  });
+  nodes = { ...nodes, groups };
+  assert.equal(parameterAnimationTracks(nodes, componentId, targetNodeId)[0].duration, 4);
+
+  nodes = updateParameterAnimationTrack(nodes, {
+    componentId,
+    targetNodeId,
+    trackId: created.id,
+    patch: { curve: "quart-in-out", pause: 1 },
+  });
+  const group = nodes.groups.find((entry) => entry.componentId === componentId);
+  assert.ok(!group.nodes.some((node) =>
+    node.animationTrack?.id === created.id && node.nodeId === "core.control.oscillator"
+  ));
+  assert.ok(group.nodes.some((node) =>
+    node.animationTrack?.id === created.id && node.nodeId === "core.control.animation-sequencer"
+  ));
+  assert.equal(parameterAnimationTracks(nodes, componentId, targetNodeId)[0].curve, "quart-in-out");
+  assert.equal(parameterAnimationTracks(nodes, componentId, targetNodeId)[0].pause, 1);
+});
+
+test("Manual animation events advance compiled Preview and Output programs through host control signals", () => {
+  const { packageRoot, state, componentId, targetNodeId } = plasmaState();
+  const nodes = addParameterAnimationTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "speed",
+    mode: "ping-pong",
+    runMode: "triggered",
+    triggerBehavior: "next-leg",
+    duration: 2,
+    from: 0,
+    to: 4,
+  });
+  const [track] = parameterAnimationTracks(nodes, componentId, targetNodeId);
+  const program = compileComponentRenderPrograms(state.components, nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(componentId);
+  const operation = program.plan.operations.find((entry) => entry.id === targetNodeId);
+  const signals = new ControlSignalRuntime();
+  const request = { componentTime: 0, renderRequest: { controlSignals: signals } };
+  program.plan.controlProgram.apply(request)();
+  signals.publish("control", parameterAnimationTriggerAddress(componentId, track.id), 1, {
+    sequence: 1,
+    timestamp: 0,
+  });
+  request.componentTime = 0;
+  program.plan.controlProgram.apply(request)();
+  request.componentTime = 0.5;
+  const restore = program.plan.controlProgram.apply(request);
+  assert.equal(operation.configuration.source.params.speed, 2);
+  restore();
+  signals.dispose();
+});
+
 test("Component and Scene inspectors share one Animation tab before General", () => {
   const fixture = plasmaState();
   let state = fixture.state;
@@ -386,6 +576,30 @@ test("Component and Scene inspectors share one Animation tab before General", ()
   assert.match(html, /class="parameter-animation-track is-enabled"/);
   assert.match(html, /<strong>Motion speed<\/strong>/);
   assert.match(html, /data-animation-track-field="mode"/);
+  assert.match(html, /data-animation-track-field="curve"/);
+  assert.match(html, /data-animation-track-field="runMode"/);
+  assert.match(html, /data-animation-track-field="pause"/);
+  const [uiTrack] = parameterAnimationTracks(state.nodes, fixture.componentId, fixture.targetNodeId);
+  state = {
+    ...state,
+    nodes: updateParameterAnimationTrack(state.nodes, {
+      componentId: fixture.componentId,
+      targetNodeId: fixture.targetNodeId,
+      trackId: uiTrack.id,
+      patch: {
+        mode: "ping-pong",
+        runMode: "triggered",
+        triggerBehavior: "next-leg",
+        randomRate: 6,
+      },
+    }),
+  };
+  html = componentSelectedChainSettingsTemplate(component, state);
+  assert.match(html, /data-trigger-parameter-animation/);
+  assert.match(html, /data-toggle-animation-return/);
+  assert.match(html, /data-animation-track-field="triggerBehavior"/);
+  assert.match(html, /data-animation-track-field="randomRate"/);
+  assert.match(html, /Stop at each end/);
 
   const scene = createSceneComponent(0);
   const effect = {

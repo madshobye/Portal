@@ -15,6 +15,7 @@ import {
   importNodePackage,
 } from "../libraries/node-engine/node-package.js";
 import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js";
+import { CONTROL_SIGNAL_COMMAND, publishRendererControlSignal } from "./control-signal-command.js";
 
 let outputFitSignature = "";
 
@@ -393,6 +394,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       if (command === "reset-mapping") renderer?.mappingRuntime.reset(payload.surfaceId);
       if (command === "export-mapping") renderer?.mappingRuntime.export();
       if (command === "schedule") renderer?.frameRuntime.schedule(payload);
+      if (command === CONTROL_SIGNAL_COMMAND) publishRendererControlSignal(renderer, payload);
     },
   });
   diagnosticForwarder = forwardDiagnosticsToBridge(diagnostics, bridge);

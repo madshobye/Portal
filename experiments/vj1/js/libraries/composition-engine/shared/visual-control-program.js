@@ -1,4 +1,6 @@
 import {
+  AnimationCurveControlNode,
+  AnimationSequencerControlNode,
   AudioControlInputNode,
   ComponentTimeControlNode,
   EventTriggerControlNode,
@@ -8,6 +10,7 @@ import {
   MidiControlInputNode,
   OscillatorControlNode,
   OscControlInputNode,
+  RandomTriggerControlNode,
   SampleHoldControlNode,
   ScalarMathControlNode,
   SelectControlNode,
@@ -28,10 +31,13 @@ import {
 
 const PARAMETER_SEGMENT = "$parameter";
 const BUILT_IN_CONTROL_DEFINITIONS = new Map([
+  AnimationCurveControlNode,
+  AnimationSequencerControlNode,
   SliderNode,
   ValueControlNode,
   ComponentTimeControlNode,
   OscillatorControlNode,
+  RandomTriggerControlNode,
   MapRangeControlNode,
   ScalarMathControlNode,
   Vector2ControlNode,

@@ -39,6 +39,9 @@ export class ControlSignalRuntime {
       cancelSchedule,
       clock,
     }), { invalidate: false });
+    this.register("control", new ApplicationControlAdapter({
+      clock,
+    }), { invalidate: false });
   }
 
   register(kind, adapter, { invalidate = true } = {}) {
@@ -78,6 +81,15 @@ export class ControlSignalRuntime {
     adapter?.activate?.(options);
     adapter?.ensureAccess?.();
     return this.status(kind, "", options);
+  }
+
+  publish(kind, address, value, meta = {}) {
+    const id = String(kind || "");
+    if (id !== "control") return false;
+    const adapter = this.adapters.get(id);
+    if (!adapter || typeof adapter.publish !== "function") return false;
+    adapter.publish(String(address || ""), value, meta);
+    return true;
   }
 
   beginFrame() {
@@ -124,6 +136,67 @@ export class ControlSignalRuntime {
   dispose() {
     for (const adapter of this.adapters.values()) adapter.dispose?.();
     this.adapters.clear();
+  }
+}
+
+// Application controls are transient retained signals. They deliberately live
+// beside MIDI/OSC/audio rather than in project state, so a button press wakes
+// every renderer without creating history, autosave, or graph recompilation.
+export class ApplicationControlAdapter {
+  constructor({ onInvalidate = null, clock = runtimeMillis } = {}) {
+    this.onInvalidate = onInvalidate;
+    this.clock = clock;
+    this.signals = new Map();
+    this.sequence = 0;
+    this.lifecycleRevision = 0;
+  }
+
+  setInvalidationHandler(onInvalidate = null) {
+    this.onInvalidate = onInvalidate;
+  }
+
+  resolve(address) {
+    return this.signals.get(String(address || ""));
+  }
+
+  status(address = "") {
+    return {
+      state: "ready",
+      error: "",
+      signalAvailable: address ? this.signals.has(String(address)) : undefined,
+    };
+  }
+
+  revisionFor(address) {
+    const signal = this.signals.get(String(address || ""));
+    return `${this.lifecycleRevision}.${signal?.sequence || 0}`;
+  }
+
+  publish(address, value, {
+    sequence,
+    timestamp,
+  } = {}) {
+    const key = String(address || "");
+    if (!key) return false;
+    const requestedSequence = Number(sequence);
+    const nextSequence = Number.isFinite(requestedSequence) && requestedSequence > 0
+      ? Math.trunc(requestedSequence)
+      : this.sequence + 1;
+    this.sequence = Math.max(this.sequence, nextSequence);
+    this.signals.set(key, {
+      value,
+      sequence: nextSequence,
+      timestamp: Number.isFinite(Number(timestamp)) ? Number(timestamp) : this.clock(),
+    });
+    this.onInvalidate?.("signal");
+    return true;
+  }
+
+  activate() {}
+
+  dispose() {
+    this.signals.clear();
+    this.lifecycleRevision++;
   }
 }
 

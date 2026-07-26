@@ -8,6 +8,42 @@ import {
   decodeOscPayload,
 } from "../js/output/control-signal-runtime.js";
 
+test("Application control signals retain explicit event sequences without external resources", () => {
+  const invalidations = [];
+  const runtime = new ControlSignalRuntime({
+    onInvalidate: (reason) => invalidations.push(reason),
+    clock: () => 1234,
+  });
+  assert.equal(runtime.status("control", "animation:test").state, "ready");
+  assert.equal(runtime.resolve("control", "animation:test"), undefined);
+  const unrelatedBefore = runtime.revisionFor([{
+    kind: "control-signal",
+    signalKind: "control",
+    address: "animation:other",
+  }]);
+  assert.equal(runtime.publish("control", "animation:test", 1, {
+    sequence: 41,
+    timestamp: 1200,
+  }), true);
+  assert.deepEqual(runtime.resolve("control", "animation:test"), {
+    value: 1,
+    sequence: 41,
+    timestamp: 1200,
+  });
+  assert.match(runtime.revisionFor([{
+    kind: "control-signal",
+    signalKind: "control",
+    address: "animation:test",
+  }]), /animation:test:0\.41/);
+  assert.equal(runtime.revisionFor([{
+    kind: "control-signal",
+    signalKind: "control",
+    address: "animation:other",
+  }]), unrelatedBefore);
+  assert.deepEqual(invalidations, ["control-signal"]);
+  runtime.dispose();
+});
+
 function midiInput(id = "device-a") {
   return {
     id,

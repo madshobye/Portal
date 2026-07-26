@@ -9,6 +9,7 @@ import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js";
 import { createThumbnailUrlLease } from "../services/component-thumbnail-store.js";
 import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js";
 import { applyLiveRenderPatchesImmutable } from "../domain/live-render-patch.js";
+import { CONTROL_SIGNAL_COMMAND, publishRendererControlSignal } from "./control-signal-command.js";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
   let host = null;
@@ -180,6 +181,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
     if (name === "reset-mapping") renderer?.mappingRuntime.reset(payload.surfaceId);
     if (name === "export-mapping") renderer?.mappingRuntime.export();
     if (name === "schedule") renderer?.frameRuntime.schedule(payload);
+    if (name === CONTROL_SIGNAL_COMMAND) publishRendererControlSignal(renderer, payload);
   }
 
   function pause() {
