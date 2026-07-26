@@ -1,5 +1,5 @@
-import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
-import { esc, icon } from "./template-utils.js?v=power-flicker-1";
+import { setClass, setText } from "./dom-utils.js";
+import { esc, icon } from "./template-utils.js";
 
 export function createControlDiagnosticsController({
   diagnostics,

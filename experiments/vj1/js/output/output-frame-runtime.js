@@ -1,11 +1,11 @@
-import { renderPresentationFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
+import { renderPresentationFrameRate } from "../domain/render-settings.js";
 import { createManualScheduler } from "../graph/manual-scheduler.js";
 import {
   advancePresentationClock,
   createPresentationClock,
-} from "../libraries/timing-engine/presentation-clock/index.js?v=presentation-clock-1";
-import { RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
-import { globalVisualTimeScale } from "./render-runtime-math.js?v=declarative-render-policy-1";
+} from "../libraries/timing-engine/presentation-clock/index.js";
+import { RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js";
+import { globalVisualTimeScale } from "./render-runtime-math.js";
 
 // Owns presentation time, frame identity, manual-event delivery, cadence
 // classification, and periodic retained-cache maintenance. It neither executes

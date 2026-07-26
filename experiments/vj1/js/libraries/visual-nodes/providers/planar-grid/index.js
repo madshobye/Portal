@@ -1,7 +1,7 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../../node-engine/node-definition.js";
 import {
   retainPlanarGridMesh,
-} from "../../../mesh-engine/planar-grid-mesh/index.js?v=retained-resource-2";
+} from "../../../mesh-engine/planar-grid-mesh/index.js";
 import { MeshType } from "../../../mesh-engine/mesh-types.js";
 import { GeometryProviderType } from "../../shared/visual-stage-types.js";
 

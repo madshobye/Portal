@@ -1,15 +1,15 @@
-import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js?v=surface-terminology-1";
-import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
-import { setClass, setText } from "./dom-utils.js?v=scroll-region-1";
-import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js?v=path-input-utils-extraction-1";
-import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js?v=project-media-contain-1";
-import { configuredOutputsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js?v=surface-terminology-1";
-import { mergeSourceChoice } from "../domain/source-choice.js?v=media-source-identity-1";
+import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js";
+import { sortComponentCatalog } from "./catalog-view.js";
+import { setClass, setText } from "./dom-utils.js";
+import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js";
+import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js";
+import { configuredOutputsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js";
+import { mergeSourceChoice } from "../domain/source-choice.js";
 import {
   createAuthoredMediaSource,
-} from "../domain/authored-visual-source.js?v=async-media-dirty-1";
-import { renameScreenCaptureInput, screenCaptureStatus, startScreenCapture, stopScreenCapture, stopScreenCaptureInput, subscribeScreenCapture } from "../output/screen-capture-service.js?v=async-media-dirty-1";
-import { screenInputOptionsTemplate } from "./parameter-view.js?v=parameter-control-group-1";
+} from "../domain/authored-visual-source.js";
+import { renameScreenCaptureInput, screenCaptureStatus, startScreenCapture, stopScreenCapture, stopScreenCaptureInput, subscribeScreenCapture } from "../output/screen-capture-service.js";
+import { screenInputOptionsTemplate } from "./parameter-view.js";
 
 export function nextPickerFilter(activeFilter = "all", requestedFilter = "all") {
   return activeFilter === requestedFilter ? "all" : requestedFilter;

@@ -1,15 +1,15 @@
 import { VJ1 } from "../constants.js";
 import { relativeRectToLogical } from "../libraries/render-engine/relative-geometry.js";
-import { fitRectGeometry } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
-import { normalizeRenderUvRect } from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
+import { fitRectGeometry } from "../libraries/render-engine/fit-geometry/index.js";
+import { normalizeRenderUvRect } from "../libraries/render-engine/render-view/index.js";
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { normalizePixelDensity, sceneLogicalSize } from "../domain/render-settings.js?v=surface-terminology-1";
+import { normalizePixelDensity, sceneLogicalSize } from "../domain/render-settings.js";
 import {
   aspectPreservingRenderDemand,
   createRenderRequest,
   SURFACE_DETAIL_DEMAND_SCALE,
-} from "./render-geometry.js?v=aspect-preserving-demand-1";
-import { isIdentityTransform, transformedRectVisibleRegion } from "./preview-interaction-geometry.js?v=alpha-feather-1";
+} from "./render-geometry.js";
+import { isIdentityTransform, transformedRectVisibleRegion } from "./preview-interaction-geometry.js";
 
 export function directFitRects(sourceWidth, sourceHeight, target = {}, fit = "stretch") {
   return fitRectGeometry(

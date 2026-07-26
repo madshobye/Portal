@@ -10,20 +10,34 @@
     <title>VJ1</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
-    <link rel="stylesheet" type="text/css" href="style.css?v=signal-load-observability-1" />
+    <link rel="stylesheet" type="text/css" href="style.css?v=startup-status-1" />
   </head>
   <body data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
-    <main id="app" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false"></main>
+    <main id="app" data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
+      <section class="app-startup-status" role="status" aria-live="polite">
+        <strong>VJ1</strong>
+        <span data-vj1-startup-status>Starting…</span>
+        <span class="app-startup-progress" aria-hidden="true"></span>
+      </section>
+    </main>
     <script>
       (async () => {
-        const sourceRevision = "source-coherence-167";
+        const sourceRevision = "source-coherence-177";
         const workerUrl = new URL(`./module-source-worker.js?v=${sourceRevision}`, location.href).href;
-        const start = () => import(`./js/app.js?v=retained-preview-commit-1`);
+        const setStartupStatus = (message) => {
+          const status = document.querySelector("[data-vj1-startup-status]");
+          if (status) status.textContent = message;
+        };
+        const start = () => {
+          setStartupStatus("Loading application modules…");
+          return import("./js/app.js");
+        };
         if (!("serviceWorker" in navigator) || !window.isSecureContext) {
           await start();
           return;
         }
         try {
+          setStartupStatus("Checking source revision…");
           const registration = await navigator.serviceWorker.register(
             workerUrl,
             { scope: "./", updateViaCache: "none" },
@@ -59,8 +73,9 @@
         } catch (error) {
           if (error?.message === "VJ1_SOURCE_WORKER_REVISION_MISMATCH") {
             console.error("[VJ1_SOURCE_COHERENCE_BLOCKED]", error);
-            document.getElementById("app").textContent =
-              "VJ1 could not activate a coherent source revision. Reload after the service worker update completes.";
+            setStartupStatus(
+              "VJ1 could not activate a coherent source revision. Reload after the service worker update completes.",
+            );
             return;
           }
           console.warn("[VJ1_SOURCE_COHERENCE_UNAVAILABLE]", error);

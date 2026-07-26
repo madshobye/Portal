@@ -1,22 +1,48 @@
 import { VJ1 } from "../constants.js";
-import { sanitizeState } from "../domain/models.js?v=structural-world-state-2";
-import { applyLiveRenderPatches } from "../domain/live-render-patch.js?v=structural-world-state-2";
-import { renderMaxFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
+import { sanitizeState } from "../domain/models.js";
+import { applyLiveRenderPatches } from "../domain/live-render-patch.js";
+import { renderMaxFrameRate } from "../domain/render-settings.js";
 import {
   createOutputBridge,
   OUTPUT_BRIDGE_PROTOCOL_VERSION,
-} from "../services/output-bridge-service.js?v=signal-transport-boundary-1";
-import { OutputRenderer } from "./output-renderer.js?v=signal-load-observability-1";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
-import { frameSize } from "./render-geometry.js?v=output-one-1";
-import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
+} from "../services/output-bridge-service.js";
+import { OutputRenderer } from "./output-renderer.js";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js";
+import { frameSize } from "./render-geometry.js";
+import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js";
 import {
   assertNodePackageTransportLock,
   importNodePackage,
-} from "../libraries/node-engine/node-package.js?v=package-content-lock-1";
-import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js?v=explicit-capability-policy-1";
+} from "../libraries/node-engine/node-package.js";
+import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js";
 
 let outputFitSignature = "";
+
+export function createOutputInitialStateGate() {
+  let resolveReady = null;
+  let settled = false;
+  const ready = new Promise((resolve) => {
+    resolveReady = resolve;
+  });
+  return Object.freeze({
+    ready,
+    accept(state) {
+      if (settled) return false;
+      settled = true;
+      resolveReady(state);
+      return true;
+    },
+    fail() {
+      if (settled) return false;
+      settled = true;
+      resolveReady(null);
+      return true;
+    },
+    get settled() {
+      return settled;
+    },
+  });
+}
 
 export function installOutputApp({ root, mode, diagnostics = null }) {
   const outputId = mode === "output" ? new URL(window.location.href).searchParams.get("outputId") || "" : "";
@@ -49,6 +75,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   let observedResizeSignature = "";
   let diagnosticForwarder = null;
   const fixtureUrl = fixtureStateUrl();
+  const initialStateGate = createOutputInitialStateGate();
 
   window.addEventListener("pagehide", () => {
     renderer?.dispose?.();
@@ -66,6 +93,12 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   }, { once: true });
 
   window.setup = async function setup() {
+    // p5 can finish loading before either the fixture or Control's registration
+    // baseline. Compiling null is never a valid fallback: keep setup pending
+    // until the first authoritative state arrives. The bridge heartbeat can
+    // still complete this gate if Control starts later.
+    const initialBaseline = await initialStateGate.ready;
+    if (!initialBaseline) return;
     const size = outputSize(pendingState, mode);
     const canvas = createCanvas(size.width, size.height, WEBGL);
     assertP5RenderCapabilities();
@@ -128,11 +161,12 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       pendingState = renderer.state;
     }
     renderer.importFiles(acceptedFiles);
-    // The bridge starts before p5 so it can buffer state and media while the
-    // display initializes. Finish setup with one authoritative pull: opening
-    // an output must not depend on a later Scene change to become current.
-    bridge?.requestState();
-    bridge?.requestMediaFiles();
+    // The bridge starts before p5 and its registration handshake pushes one
+    // authoritative state/media baseline. Messages received during setup are
+    // buffered above, then installed here. Do not request the same snapshots
+    // again: media packets are complete ownership snapshots, so a duplicate
+    // pull needlessly reconciles every resource in a large project. The
+    // bridge heartbeat repeats registration if Control was not ready yet.
   };
 
   window.draw = function draw() {
@@ -392,6 +426,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     transportMeta = null,
     activation = "full",
   ) {
+    initialStateGate.accept(state);
     pendingState = state;
     acceptedState = state;
     acceptedRevision = revision;
@@ -426,11 +461,14 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     loadFixtureState(fixtureUrl)
       .then(async (fixtureState) => {
         const state = await prepareFixtureRuntimeState(fixtureState);
+        initialStateGate.accept(state);
         pendingState = state;
         if (renderer) resizeOutputIfNeeded(state, mode, renderer);
         renderer?.setState(outputSizedState(state, outputSize(state, mode), mode, outputId), { normalized: true });
       })
       .catch((error) => {
+        initialStateGate.fail(error);
+        root.innerHTML = `<div class="empty-preview">${error.message}</div>`;
         console.warn(`[vj1] Could not load fixture state: ${error.message}`);
       });
   }
@@ -665,7 +703,7 @@ async function prepareFixtureRuntimeState(fixtureState = {}) {
   // standalone fixture has no control process, so perform that one-time graph
   // materialization here. This dynamic import stays outside normal output
   // startup and cannot add node-catalog work to the render frame.
-  const { createVj1NodePackage } = await import("../app-node-package.js?v=node-roi-placement-1");
+  const { createVj1NodePackage } = await import("../app-node-package.js");
   return createVj1NodePackage().prepareProjectState(withBindings);
 }
 

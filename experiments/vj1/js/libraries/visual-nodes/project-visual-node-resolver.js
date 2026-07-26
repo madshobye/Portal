@@ -1,19 +1,19 @@
 import { materializeProjectNodeFork } from "../node-engine/node-editor.js";
-import { resolveProjectNodePackages } from "../node-engine/node-package.js?v=project-group-authoring-compiler-transport-1";
+import { resolveProjectNodePackages } from "../node-engine/node-package.js";
 import {
   componentFromNodeDefinition,
   listBuiltInTransitionEntries,
   listEffectNodeComponents,
   listGeneratorNodeComponents,
-} from "./catalog.js?v=compiled-capability-revision-1";
+} from "./catalog.js";
 import {
   isIsfNodeDefinition,
   listProjectIsfTransitions,
   listProjectIsfVisualComponents,
   materializeIsfNodeDefinition,
   materializeIsfTransitionDefinition,
-} from "../isf-engine/index.js?v=named-image-inputs-1";
-import { resolveProjectVisualLibrary } from "./project-visual-library.js?v=compiled-capability-revision-1";
+} from "../isf-engine/index.js";
+import { resolveProjectVisualLibrary } from "./project-visual-library.js";
 
 export function createProjectVisualNodeResolver(state = {}, {
   coreDefinitions = [],

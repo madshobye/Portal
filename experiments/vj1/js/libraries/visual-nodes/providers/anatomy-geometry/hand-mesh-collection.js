@@ -1,9 +1,9 @@
-import { createMeshCollection } from "../../../mesh-engine/mesh-collection/index.js?v=mesh-collection-1";
+import { createMeshCollection } from "../../../mesh-engine/mesh-collection/index.js";
 import {
   createPathTubeMesh,
   createProfileMesh,
   createTaperedSegmentMesh,
-} from "../../../mesh-engine/procedural-mesh-primitives/index.js?v=procedural-mesh-primitives-2";
+} from "../../../mesh-engine/procedural-mesh-primitives/index.js";
 
 export function createHandMeshCollection({ detail = 8, depth = 1, fingerBend = 0.35 } = {}) {
   const segments = Math.max(4, Math.min(14, Math.round(finite(detail, 8))));

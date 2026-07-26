@@ -10,40 +10,40 @@ import {
   VisualCameraProviderType,
   VisualMaterialProviderType,
 } from "./visual-stage-types.js";
-import { PlanarGridGeometryProviderNode } from "../providers/planar-grid/index.js?v=retained-resource-2";
-import { LitMeshMaterialProviderNode } from "../providers/lit-mesh-material/index.js?v=canonical-material-1";
-import { AnatomyGeometryProviderNode } from "../providers/anatomy-geometry/index.js?v=canonical-anatomy-face-4";
-import { AnatomyMotionTransform3dNode } from "../providers/anatomy-motion-transform/index.js?v=compiled-capability-revision-1";
-import { AnatomyMaterialPaletteNode } from "../providers/anatomy-material-palette/index.js?v=anatomy-scene3d-1";
-import { TerrainHeightFieldGeometryProviderNode } from "../providers/terrain-height-field/index.js?v=semantic-terrain-node-ownership-1";
-import { TerrainBiomeMaterialProviderNode } from "../providers/terrain-biome-material/index.js?v=semantic-terrain-node-ownership-1";
-import { TerrainWireMaterialProviderNode } from "../providers/terrain-wire-material/index.js?v=semantic-terrain-node-ownership-1";
-import { TerrainFlightCameraProviderNode } from "../providers/terrain-flight-camera/index.js?v=semantic-terrain-render-nodes-1";
-import { ModelFitCameraNode } from "../providers/model-fit-camera/index.js?v=semantic-anatomy-render-node-1";
-import { MeshPatternTopologyProviderNode } from "../providers/mesh-pattern-topology/index.js?v=visual-provider-authoring-1";
-import { MeshPatternFillMaterialProviderNode } from "../providers/mesh-pattern-fill-material/index.js?v=visual-provider-authoring-1";
-import { MeshPatternWireMaterialProviderNode } from "../providers/mesh-pattern-wire-material/index.js?v=visual-provider-authoring-1";
+import { PlanarGridGeometryProviderNode } from "../providers/planar-grid/index.js";
+import { LitMeshMaterialProviderNode } from "../providers/lit-mesh-material/index.js";
+import { AnatomyGeometryProviderNode } from "../providers/anatomy-geometry/index.js";
+import { AnatomyMotionTransform3dNode } from "../providers/anatomy-motion-transform/index.js";
+import { AnatomyMaterialPaletteNode } from "../providers/anatomy-material-palette/index.js";
+import { TerrainHeightFieldGeometryProviderNode } from "../providers/terrain-height-field/index.js";
+import { TerrainBiomeMaterialProviderNode } from "../providers/terrain-biome-material/index.js";
+import { TerrainWireMaterialProviderNode } from "../providers/terrain-wire-material/index.js";
+import { TerrainFlightCameraProviderNode } from "../providers/terrain-flight-camera/index.js";
+import { ModelFitCameraNode } from "../providers/model-fit-camera/index.js";
+import { MeshPatternTopologyProviderNode } from "../providers/mesh-pattern-topology/index.js";
+import { MeshPatternFillMaterialProviderNode } from "../providers/mesh-pattern-fill-material/index.js";
+import { MeshPatternWireMaterialProviderNode } from "../providers/mesh-pattern-wire-material/index.js";
 import {
   TerrainSurfaceToImageNode,
   TerrainWireToImageNode,
-} from "../renderers/terrain-passes/index.js?v=node-roi-placement-1";
+} from "../renderers/terrain-passes/index.js";
 import {
   MeshPatternFillToImageNode,
   MeshPatternWireToImageNode,
-} from "../renderers/mesh-pattern-passes/index.js?v=framebuffer-sequence-1";
-import { MediaImageResourceNode } from "../providers/media-image-resource/index.js?v=typed-media-render-process-1";
+} from "../renderers/mesh-pattern-passes/index.js";
+import { MediaImageResourceNode } from "../providers/media-image-resource/index.js";
 import { ProjectMediaResourceNode } from "../providers/project-media-resource/index.js";
 import {
   MobileNetMorphAnalysisNode,
   SuperPointMorphAnalysisNode,
-} from "../providers/feature-morph-analysis/index.js?v=visual-provider-authoring-1";
-import { FeatureMorphToImageNode } from "../renderers/feature-morph-to-image/index.js?v=visual-provider-authoring-1";
-import { TextMaskProviderNode } from "../providers/text-mask/index.js?v=visual-provider-authoring-1";
-import { TextMaskToImageNode } from "../renderers/text-mask-to-image/index.js?v=visual-provider-authoring-1";
-import { ScreenInputResourceNode } from "../providers/screen-input-resource/index.js?v=async-media-dirty-1";
-import { CameraInputResourceNode } from "../providers/camera-input-resource/index.js?v=async-media-dirty-1";
-import { MediaResourceToImageNode } from "../renderers/media-resource-to-image/index.js?v=async-media-dirty-1";
-import { GazeBlinkControllerNode } from "../providers/gaze-blink-controller/index.js?v=gaze-blink-semantic-1";
+} from "../providers/feature-morph-analysis/index.js";
+import { FeatureMorphToImageNode } from "../renderers/feature-morph-to-image/index.js";
+import { TextMaskProviderNode } from "../providers/text-mask/index.js";
+import { TextMaskToImageNode } from "../renderers/text-mask-to-image/index.js";
+import { ScreenInputResourceNode } from "../providers/screen-input-resource/index.js";
+import { CameraInputResourceNode } from "../providers/camera-input-resource/index.js";
+import { MediaResourceToImageNode } from "../renderers/media-resource-to-image/index.js";
+import { GazeBlinkControllerNode } from "../providers/gaze-blink-controller/index.js";
 
 export {
   GeometryProviderType,

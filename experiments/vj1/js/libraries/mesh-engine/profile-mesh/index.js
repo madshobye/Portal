@@ -3,7 +3,7 @@ import { MeshType } from "../mesh-types.js";
 import {
   createProfileMesh,
   proceduralMeshSignature,
-} from "../procedural-mesh-primitives/index.js?v=procedural-mesh-primitives-2";
+} from "../procedural-mesh-primitives/index.js";
 
 export const ProfileMeshNode = defineNode({
   id: "core.scene3d.profile-mesh",

@@ -1,6 +1,6 @@
-import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=explicit-direct-surface-hierarchy-1";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=async-media-dirty-1";
-import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
+import { visibleSceneSurfaceIds } from "../domain/scene-routing.js";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js";
+import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
   surfaceBorderHit,
   surfaceRectCorners,
@@ -8,7 +8,7 @@ import {
   distanceSquared,
   moveSurfaceRect,
   resizeSurfaceRect,
-} from "./component-render-layout.js?v=surface-terminology-1";
+} from "./component-render-layout.js";
 import {
   combineContentTransforms,
   findChainItemById,
@@ -23,7 +23,7 @@ import {
   screenToLayerLocal,
   transformHandleLayout,
   transformedRectCenter,
-} from "./preview-interaction-geometry.js?v=transform-hit-contract-4";
+} from "./preview-interaction-geometry.js";
 
 // Owns editor-only hit testing and drag transactions. The renderer remains
 // the drawing/data port, but no longer owns pointer gesture policy or state.
@@ -74,9 +74,10 @@ export class ComponentPreviewInteraction {
     rectMode(CORNER);
     for (const item of this.sceneSurfaceRects(component, source)) {
       noFill();
-      const selected = String(item.surface.id || "") === String(this.renderer.state?.ui?.selectedSurfaceId || "")
+      const selected = String(item.surface.id || "") === this.activeSceneSurfaceId()
         || String(item.surface.id || "") === String(this.surfaceDrag?.surfaceId || "");
-      stroke(255, 228, 94, selected ? 235 : 72);
+      if (selected) stroke(255, 228, 94, 235);
+      else stroke(168, 168, 168, 105);
       strokeWeight((selected ? 2 : 1) * uiScale);
       rect(item.x - width * 0.5, item.y - height * 0.5, item.width, item.height);
       // calibrationLocked protects the physical quad in Mapping. It does not
@@ -90,6 +91,17 @@ export class ComponentPreviewInteraction {
       noFill();
     }
     pop();
+  }
+
+  activeSceneSurfaceId() {
+    const ui = this.renderer.state?.ui || {};
+    // Scene element and Surface editing are mutually exclusive interaction
+    // modes. Keep the last Surface id for stable inspector navigation, but it
+    // becomes inert as soon as an element owns Scene inspector focus.
+    if (ui.workspace === "scene" && ui.sceneInspectorTarget !== "surface") {
+      return "";
+    }
+    return String(ui.selectedSurfaceId || "");
   }
 
   sceneSurfaceRects(component, source = null) {
@@ -278,8 +290,11 @@ export class ComponentPreviewInteraction {
     if (component?.type !== "scene") return false;
     const source = renderer.resourceRuntime.componentOutput.get(component.id);
     const rects = this.sceneSurfaceRects(component, source);
+    const activeSurfaceId = this.activeSceneSurfaceId();
+    if (!activeSurfaceId) return false;
     for (let index = rects.length - 1; index >= 0; index--) {
       const item = rects[index];
+      if (String(item.surface.id || "") !== activeSurfaceId) continue;
       const corners = surfaceRectCorners(item);
       const hitRadius = 15 * this.uiPixelScale();
       const corner = corners.find((entry) => distanceSquared(x, y, entry.x, entry.y) <= hitRadius * hitRadius);
@@ -349,9 +364,9 @@ export class ComponentPreviewInteraction {
     const component = renderer.state?.components?.find((item) => item.id === renderer.state?.ui?.selectedComponentId);
     if (!component?.chain?.length) return null;
     const frame = renderer.presentationRuntime.componentPreviewRect(component, renderer.resourceRuntime.componentOutput.get(component.id));
-    // Handles get an explicit first chance in mousePressed(). The body hit
-    // itself must follow visual stacking order; giving the selected body
-    // priority makes overlapping objects impossible to pick reliably.
+    // Body hits always follow compositor z-order. The selected item's handles
+    // are tested before this method in mousePressed(), but selection must not
+    // turn its whole boundary into an invisible layer above later items.
     return hitTestChainItems({
       chain: component.chain,
       component,
@@ -391,8 +406,20 @@ export class ComponentPreviewInteraction {
 
   selectChainItemAtPoint(x, y, knownHit = null) {
     const hit = knownHit || this.chainItemAtPoint(x, y);
-    if (!hit) return null;
     const renderer = this.renderer;
+    if (!hit) {
+      if (renderer.state?.ui?.selectedChainItemId) {
+        renderer.state = {
+          ...renderer.state,
+          ui: {
+            ...renderer.state.ui,
+            selectedChainItemId: "",
+          },
+        };
+        renderer.onChainItemSelect?.("");
+      }
+      return null;
+    }
     if (renderer.state?.ui) {
       renderer.state = {
         ...renderer.state,

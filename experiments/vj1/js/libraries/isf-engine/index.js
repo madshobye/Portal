@@ -1,11 +1,11 @@
-export { parseIsfDocument, sourceHash } from "./isf-document.js?v=isf-coordinates-1";
+export { parseIsfDocument, sourceHash } from "./isf-document.js";
 export {
   compileIsfFragmentSource,
   compileIsfOptimizedFragmentSource,
   compileIsfTransitionKernel,
   evaluateIsfDimension,
   isfGlslType,
-} from "./isf-compiler.js?v=isf-coordinates-1";
+} from "./isf-compiler.js";
 export {
   createIsfNodeDefinition,
   createProjectIsfVisualLibraryLayer,
@@ -17,4 +17,4 @@ export {
   materializeIsfNodeDefinition,
   materializeIsfTransitionDefinition,
   mergeProjectIsfDefinitions,
-} from "./isf-node.js?v=named-image-inputs-1";
+} from "./isf-node.js";

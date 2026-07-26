@@ -1,16 +1,15 @@
 import { BLEND_MODES } from "../constants.js";
-import { createLiveComponentView, sceneSourceNodes, sourceBackedMediaId } from "../domain/models.js?v=live-output-matrix-contract-3";
-import { liveProgramComponentIds } from "../domain/scene-routing.js?v=live-output-matrix-contract-3";
+import { createLiveComponentView, sceneSourceNodes, sourceBackedMediaId } from "../domain/models.js";
+import { liveProgramComponentIds } from "../domain/scene-routing.js";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=async-media-dirty-1";
-import { componentCatalogToolsTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js?v=inspector-view-option-parameter-control-group-1";
-import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js?v=explicit-surface-visibility-direct-output-independence-1";
-import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, parameterGroupTemplate, paramControlTemplate, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js?v=parameter-control-group-1";
-import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js?v=param-select-1";
-import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { componentCardBarTemplate, deepEditButtonTemplate, elementListTemplate, emptyStateTemplate, enableToggleButton, panelTemplate, railListSectionTemplate, scrollRegionTemplate, selectablePillTemplate, textListItemTemplate, titleInputTemplate } from "./view-primitives.js?v=shared-live-element-row-1";
-import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js";
+import { catalogMarkerButtonTemplate, componentCatalogSearchText, componentCatalogToolsTemplate } from "./catalog-view.js";
+import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js";
+import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js";
+import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, chainTransformParams, componentParamViews, parameterGroupTemplate, paramControlTemplate, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js";
+import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js";
+import { componentCardBarTemplate, deepEditButtonTemplate, elementListTemplate, emptyStateTemplate, enableToggleButton, panelTemplate, railListSectionTemplate, scrollRegionTemplate, selectablePillTemplate, textListItemTemplate, titleInputTemplate } from "./view-primitives.js";
+import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js";
 import { UI_ICONS } from "./ui-icons.js";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
@@ -141,7 +140,7 @@ export function liveScenePillTemplate(scene, state) {
   const sceneOverrides = state.ui?.live?.sceneOverrides?.[scene.id] || (selected ? state.ui?.live?.componentOverrides || {} : {});
   const hasOverrides = Object.keys(sceneOverrides).length > 0;
   return `
-    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(scene.name.toLowerCase())}">
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(scene))}">
       <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
         ${thumbnailTemplate(scene.thumbnail, UI_ICONS.scene, scene.id)}
         ${componentCardBarTemplate(scene.name, UI_ICONS.scene)}
@@ -159,7 +158,7 @@ export function liveTargetComponentPillTemplate(component, state) {
     : live.selectedComponentId || "";
   const selected = String(selectedId) === String(component.id);
   return `
-    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(component.name.toLowerCase())}">
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(component))}">
       <button type="button" class="component-card live-component-picker ${selected ? "is-selected" : ""}" data-live-target-component="${esc(component.id)}">
         ${thumbnailTemplate(component.thumbnail, UI_ICONS.component, component.id)}
         ${componentCardBarTemplate(component.name, UI_ICONS.component)}
@@ -243,7 +242,8 @@ function significantChainControls(chain, options) {
       relativeBase: `${relativePath}.chain`,
       updateBase: `${updatePath}.chain`,
     }) : "";
-    const significantTransforms = CHAIN_TRANSFORM_PARAMS.filter((param) => paths.has(`${relativePath}.transform.${param.id}`));
+    const significantTransforms = chainTransformParams(item.transform)
+      .filter((param) => paths.has(`${relativePath}.transform.${param.id}`));
     const transformControls = significantTransforms.length ? paramControlsTemplate(significantTransforms, {
       pathFor: (param) => `${updatePath}.transform.${param.id}`,
       valueFor: (param) => normalizeParamValue(param, item.transform?.[param.id]),
@@ -448,7 +448,7 @@ function liveChainItemContentTemplate(item, componentId, path, paramView = "prim
 }
 
 function liveComponentPlacementControlsTemplate(transform = {}, componentId) {
-  return `<div class="chain-param-list">${paramControlsTemplate(CHAIN_TRANSFORM_PARAMS, {
+  return `<div class="chain-param-list">${paramControlsTemplate(chainTransformParams(transform), {
     pathFor: (param) => `transform.${param.id}`,
     valueFor: (param) => normalizeParamValue(param, transform?.[param.id]),
     attrs: liveParamAttrs(componentId),

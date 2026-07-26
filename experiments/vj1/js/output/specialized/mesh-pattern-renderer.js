@@ -1,7 +1,7 @@
-import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=surface-terminology-1";
-import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=node-roi-placement-1";
-import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=premultiplied-alpha-5";
-export { meshPatternPalette } from "../../libraries/visual-nodes/generators/mesh-patterns/palette.js?v=node-program-hooks-15";
+import { resolutionScaledStrokeWidth } from "../component-render-layout.js";
+import { contentTransformUvMatrices } from "../content-coordinate-space.js";
+import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js";
+export { meshPatternPalette } from "../../libraries/visual-nodes/generators/mesh-patterns/palette.js";
 import { compileRawShader, linkSpecializedProgram } from "../../libraries/render-engine/raw-webgl-utils.js";
 import {
   beginRawWebGlState,

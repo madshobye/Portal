@@ -8,8 +8,8 @@ import {
   createInitialState,
   createMappingFromState,
   sceneSourceNodeId,
-} from "../js/domain/models.js?v=world-frame-27";
-import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js?v=built-in-isf-repository-5";
+} from "../js/domain/models.js";
+import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
 import { createAuthoredMediaSource } from "../js/domain/authored-visual-source.js";
 import { getGeneratorNodeComponent } from "../js/libraries/visual-nodes/catalog.js";
 

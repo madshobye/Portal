@@ -1,25 +1,25 @@
-import { clamp01 } from "../domain/models.js?v=surface-terminology-1";
+import { clamp01 } from "../domain/models.js";
 import { textureStateKey } from "../libraries/render-engine/render-node-contract.js";
 import {
   isFullNodeBoundary,
   nodeBoundaryPixelRect,
   nodeRoiRequest,
   sameNodeBoundary,
-} from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
+} from "../libraries/render-engine/roi/index.js";
 import { transitionKernelCacheKey } from "../libraries/transition-engine/index.js";
 import {
   compileShaderSchedule,
   isFusibleShaderJob,
-} from "../graph/shader-scheduler.js?v=compiled-capability-revision-1";
-import { renderBufferKey } from "./component-render-state.js?v=async-media-dirty-1";
+} from "../graph/shader-scheduler.js";
+import { renderBufferKey } from "./component-render-state.js";
 import {
   chainItemToShaderPass,
-} from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "./shader-target-runtime.js";
 import {
   combineContentTransforms,
   isIdentityTransform,
-} from "./preview-interaction-geometry.js?v=alpha-feather-1";
-import { renderRequestStateKey } from "./render-geometry.js?v=fit-geometry-demand-1";
+} from "./preview-interaction-geometry.js";
+import { renderRequestStateKey } from "./render-geometry.js";
 import { renderSourceDetail } from "../libraries/render-engine/render-view/index.js";
 
 // Direct executor for already-compiled visual plans. The compiler has resolved

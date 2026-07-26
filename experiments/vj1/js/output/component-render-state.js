@@ -1,5 +1,5 @@
-import { isDrawableMedia } from "./media-utils.js?v=runtime-diagnostics-1";
-import { mediaRenderInvalidation } from "../libraries/render-engine/invalidation/index.js?v=gapless-video-loop-1";
+import { isDrawableMedia } from "./media-utils.js";
+import { mediaRenderInvalidation } from "../libraries/render-engine/invalidation/index.js";
 import { visitVisualParameterReferences } from "../libraries/visual-nodes/shared/parameter-references.js";
 
 export function renderBufferKey(...parts) {

@@ -30,8 +30,8 @@ test("parameter view owns reusable inspector controls outside the controller", (
   assert.match(range, /data-update="params\.gain"/);
   assert.doesNotMatch(controls, /Seed/);
   assert.match(controls, /Enabled/);
-  assert.match(componentView, /from "\.\/parameter-view\.js\?v=[^"]+"/);
-  assert.match(sceneLiveView, /from "\.\/parameter-view\.js\?v=[^"]+"/);
+  assert.match(componentView, /from "\.\/parameter-view\.js"/);
+  assert.match(sceneLiveView, /from "\.\/parameter-view\.js"/);
   assert.doesNotMatch(controller, /function paramControlTemplate\(/);
   assert.doesNotMatch(controller, /function paramControlsTemplate\(/);
 });

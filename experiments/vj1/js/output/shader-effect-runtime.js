@@ -6,17 +6,17 @@ import { textureStateKey } from "../libraries/render-engine/render-node-contract
 import {
   compileShaderSchedule,
   fuseLocalShaderSchedule,
-} from "../graph/shader-scheduler.js?v=compiled-capability-revision-1";
+} from "../graph/shader-scheduler.js";
 import {
   createShaderBuilder,
   fusedUniformName,
-} from "../shaders/shader-builder.js?v=shader-effect-backend-1";
-import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
+} from "../shaders/shader-builder.js";
+import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
+} from "./shared-framebuffer-target.js";
 import {
   applyShaderTarget,
   chainItemToShaderPass,
@@ -30,27 +30,27 @@ import {
   nextFxTargetSlot,
   resetShaderTarget,
   setShaderUniformIfPresent,
-} from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "./shader-target-runtime.js";
 import {
   effectTransformUniforms,
   instanceTime,
   qualityScaledRenderRequest,
-} from "./render-runtime-math.js?v=volumetric-clouds-1";
-import { colorUniform } from "./specialized/model-color.js?v=adaptive-component-demand-29";
+} from "./render-runtime-math.js";
+import { colorUniform } from "./specialized/model-color.js";
 import {
   instanceInvariantRenderRequest,
   renderRequestKey,
   renderRequestStateKey,
-} from "./render-geometry.js?v=output-one-1";
+} from "./render-geometry.js";
 import {
   componentRuntimeTimeKey,
   effectParamState,
   renderBufferKey,
-} from "./component-render-state.js?v=async-media-dirty-1";
-import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
+} from "./component-render-state.js";
+import { drawBuffer } from "./render-draw-utils.js";
 import {
   renderTargetNeedsShaderSampleFlip,
-} from "./render-target-contract.js?v=source-target-ownership-1";
+} from "./render-target-contract.js";
 
 const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
 

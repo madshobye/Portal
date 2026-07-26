@@ -22,6 +22,12 @@ import { nextPickerFilter, sourceForCatalogMedia } from "../js/control/modal-con
 import { mediaDisplayName, mediaPickerCardTemplate } from "../js/control/media-view.js";
 import { componentSelectedChainSettingsTemplate } from "../js/control/component-view.js";
 import { getGeneratorNodeComponent as getGeneratorComponent } from "../js/libraries/visual-nodes/index.js";
+import { componentCatalogSearchText } from "../js/control/catalog-view.js";
+import {
+  chainBoundaryPositionParams,
+  chainTransformParams,
+  placementAxisRange,
+} from "../js/control/parameter-view.js";
 
 test("catalog media enters Components through editable typed media Groups", () => {
   const state = {
@@ -404,6 +410,34 @@ test("browser workspace remains authoritative after project restoration", () => 
   assert.match(appSource, /restored = await projectService\.restoreStoredFolder\(\);[\s\S]*?if \(restored && store\.getState\(\)\.ui\.workspace !== initialWorkspace\) \{[\s\S]*?store\.setWorkspace\(initialWorkspace\);/);
 });
 
+test("Control publishes its first Output baseline only after local restore settles", () => {
+  const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+  const restoreBranch = appSource.slice(
+    appSource.indexOf("    bridge.beginProjectRestore();"),
+    appSource.indexOf("    // The URL is the navigation authority.", appSource.indexOf("    bridge.beginProjectRestore();")),
+  );
+  assert.ok(
+    restoreBranch.indexOf("await projectService.restoreStoredFolder()") <
+      restoreBranch.indexOf("bridge.announceControl()"),
+    "an existing Output must never receive an empty pre-restore state as its revision baseline",
+  );
+  assert.ok(
+    restoreBranch.indexOf("bridge.finishProjectRestore(restored)") <
+      restoreBranch.indexOf("bridge.announceControl()"),
+    "Output recovery becomes available only after the local restore outcome is authoritative",
+  );
+});
+
+test("Control startup remains visible and reports asynchronous initialization failures", () => {
+  const appSource = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
+
+  assert.match(appSource, /installControlApp\(\)\.catch\(showStartupFailure\)/);
+  assert.match(appSource, /VJ1_CONTROL_STARTUP_FAILED/);
+  assert.match(appSource, /showStartupStage\("Loading node library/);
+  assert.match(appSource, /showStartupStage\("Initializing application services/);
+  assert.match(appSource, /showStartupStage\("Restoring project folder/);
+});
+
 test("current-version project restore does not serialize a no-op migration autosave", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
 
@@ -495,7 +529,7 @@ test("all renderable chain elements expose shared quality opacity blend and plac
 
   assert.ok(parameterSource.includes('createNumberParam("opacity", "Opacity"'));
   assert.ok(parameterSource.includes('createEnumParam("blend", "Blend", BLEND_MODES'));
-  assert.ok(parameterSource.includes("[RENDER_QUALITY_PARAM, ...CHAIN_GENERAL_PARAMS]"));
+  assert.ok(parameterSource.includes("[RENDER_QUALITY_PARAM, ...generalParams]"));
   assert.ok(parameterSource.includes("chainRenderQualityTarget(item, basePath)"));
   assert.ok(parameterSource.includes('{ id: "general", label: "General", html: general }'));
   assert.ok(parameterSource.includes('createNumberParam("x", "Boundary X"'));
@@ -522,6 +556,35 @@ test("boundary scale controls write one aspect-preserving ROI change", () => {
   const controllerSource = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   assert.ok(parameterSource.includes("context: true"), "the final Boundary scale slider participates in the shared context menu");
   assert.ok(controllerSource.includes("isBoundaryScaleInput(boundaryScaleInput, path)"), "reset translates Boundary scale into its canonical width and height fields");
+});
+
+test("placement controls scale their editor range without changing authored coordinates", () => {
+  assert.equal(placementAxisRange(1, 0), 2, "a unit object retains the familiar ±2 range");
+  assert.equal(placementAxisRange(4, 0), 5, "a four-frame object can travel fully beyond either parent edge");
+  assert.equal(placementAxisRange(0.5, -3), 3, "an existing authored position remains reachable");
+
+  const content = chainTransformParams({ x: 0.25, y: -0.5, scale: 3 });
+  assert.deepEqual(
+    content.filter((param) => param.id === "x" || param.id === "y")
+      .map((param) => [param.min, param.max]),
+    [[-4, 4], [-4, 4]],
+  );
+  assert.equal(content.find((param) => param.id === "scale")?.max, 8);
+
+  const boundary = chainBoundaryPositionParams({
+    x: 0.2,
+    y: -0.3,
+    width: 3,
+    height: 0.5,
+  });
+  assert.deepEqual(
+    boundary.map((param) => [param.id, param.min, param.max]),
+    [
+      ["x", -4, 4],
+      ["y", -2, 2],
+      ["rotation", -3.1416, 3.1416],
+    ],
+  );
 });
 
 test("paired HSV ranges render two accessible handles and shared range state", () => {
@@ -730,7 +793,7 @@ test("editable element names live in their section headers beside the icon", () 
   assert.ok(primitivesSource.includes("function titleInputTemplate(path, value)"));
   assert.ok(primitivesSource.includes("function editableSectionTitleTemplate(iconName, path, value)"));
   assert.ok(primitivesSource.includes('class="section-title-input"'));
-  assert.match(controllerSource, /from "\.\/view-primitives\.js\?v=[^"]+"/);
+  assert.match(controllerSource, /from "\.\/view-primitives\.js"/);
   assert.ok(!controllerSource.includes('class="sculpt-head"'));
   assert.ok(settingsSource.includes('class="section-title-input"'));
   assert.ok(!settingsSource.includes('<label class="field">Name <input'));
@@ -814,6 +877,38 @@ test("component catalogs expose shared local filtering", () => {
   assert.ok(style.includes(".component-filter-field"));
   assert.ok(style.includes("[data-component-filter-card][hidden]"));
   assert.ok(style.includes("display: none !important;"));
+});
+
+test("component catalog search includes nested visual and media identities", () => {
+  const search = componentCatalogSearchText({
+    id: "component-1",
+    name: "Portrait",
+    chain: [
+      {
+        kind: "group",
+        name: "Finishing",
+        chain: [
+          { kind: "effect", name: "Soft Blur", componentId: "blur" },
+          {
+            kind: "source",
+            name: "",
+            componentId: "mediaImage",
+            source: {
+              type: "generator",
+              generatorId: "mediaImage",
+              params: { mediaId: "media/people/heart.png" },
+            },
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.match(search, /portrait/);
+  assert.match(search, /soft blur/);
+  assert.match(search, /blur/);
+  assert.match(search, /heart\.png/);
+  assert.match(search, /mediaimage/);
 });
 
 test("the primary workspace is architecturally named Component", () => {

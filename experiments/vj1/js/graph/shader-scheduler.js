@@ -5,7 +5,7 @@ import {
 } from "../libraries/visual-nodes/shared/component-schema.js";
 import {
   getEffectNodeComponent as getShaderComponent,
-} from "../libraries/visual-nodes/index.js?v=compiled-capability-revision-1";
+} from "../libraries/visual-nodes/index.js";
 
 export function compileShaderSchedule(chain = [], {
   getEffectComponent = getShaderComponent,

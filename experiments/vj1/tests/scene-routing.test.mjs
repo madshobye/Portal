@@ -51,7 +51,7 @@ test("scene routing exposes user Components without inventing Frame sources", ()
 
 test("models remains a facade for the scene-routing domain", () => {
   const source = readFileSync(new URL("../js/domain/models.js", import.meta.url), "utf8");
-  assert.match(source, /from "\.\/scene-routing\.js\?v=[^"]+"/);
+  assert.match(source, /from "\.\/scene-routing\.js"/);
   assert.doesNotMatch(source, /export function sceneSourceNodes\(/);
 });
 

@@ -4,16 +4,16 @@ import {
   NODE_PART_KINDS,
 } from "../../../node-engine/node-definition.js";
 import { MeshType } from "../../../mesh-engine/mesh-types.js";
-import { retainPlanarGridMesh } from "../../../mesh-engine/planar-grid-mesh/index.js?v=retained-resource-2";
+import { retainPlanarGridMesh } from "../../../mesh-engine/planar-grid-mesh/index.js";
 import {
   terrainGridSize,
   terrainRowMetrics,
   terrainTessellationSize,
-} from "../../../terrain-engine/geometry-provider/index.js?v=semantic-terrain-contract-4";
+} from "../../../terrain-engine/geometry-provider/index.js";
 import {
   TerrainKernelTopologyModuleExports,
   terrainKernelTopologyModuleSource,
-} from "../../../terrain-engine/kernel-topology/index.js?v=semantic-terrain-node-ownership-1";
+} from "../../../terrain-engine/kernel-topology/index.js";
 import { GeometryProviderType } from "../../shared/visual-stage-types.js";
 
 export const TerrainHeightFieldGeometryProviderNode = defineNode({

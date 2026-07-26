@@ -89,14 +89,34 @@ test("browser source loading bypasses caches for the complete native module grap
   assert.match(index, /controller\?\.scriptURL === workerUrl/);
   assert.match(index, /controllerchange/);
   assert.match(index, /VJ1_SOURCE_COHERENCE_BLOCKED/);
-  assert.match(index, /import\(`\.\/js\/app\.js\?v=/);
+  assert.match(index, /import\("\.\/js\/app\.js"\)/);
+  assert.match(index, /data-vj1-startup-status/);
+  assert.match(index, /Loading application modules/);
   assert.doesNotMatch(index, /<script[^>]+type="module"[^>]+src="js\/app\.js/);
   assert.match(worker, /self\.skipWaiting\(\)/);
   assert.match(worker, /self\.clients\.claim\(\)/);
   assert.match(worker, /fetch\(request,\s*\{\s*cache:\s*"no-store"\s*\}\)/);
   assert.match(worker, /request\.mode === "navigate"/);
-  assert.match(terrainFacade, /\.\/geometry-provider\/index\.js\?v=/);
-  assert.match(terrainFacade, /\.\/flight-controller\/index\.js\?v=/);
+  assert.match(terrainFacade, /\.\/geometry-provider\/index\.js/);
+  assert.match(terrainFacade, /\.\/flight-controller\/index\.js/);
+});
+
+test("the global source revision is the only cache authority for local JavaScript modules", () => {
+  const versionedModuleEdges = [];
+  for (const filename of modules) {
+    const source = readFileSync(filename, "utf8");
+    if (/\.js\?v=/.test(source)) versionedModuleEdges.push(moduleName(filename));
+  }
+
+  assert.deepEqual(
+    versionedModuleEdges,
+    [],
+    [
+      "Per-import query revisions create multiple browser module instances for one file.",
+      "That duplicates startup work and splits module-level registries and singleton state.",
+      "Bump the source worker revision in index.html instead; it owns graph-wide freshness.",
+    ].join(" "),
+  );
 });
 
 test("domain and graph modules do not depend on application, UI, services, or output runtimes", () => {

@@ -2,7 +2,7 @@ import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../node-engine/node-de
 import {
   createRetainedTransform3d,
   updateRetainedTransform3d,
-} from "../scene-types.js?v=retained-transform-signal-1";
+} from "../scene-types.js";
 
 export const AnimatedTransform3dNode = defineNode({
   id: "core.scene3d.animated-transform",

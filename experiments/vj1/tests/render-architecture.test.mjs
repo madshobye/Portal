@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { compileShaderSchedule, fuseLocalShaderSchedule } from "../js/graph/shader-scheduler.js?v=compiled-program-projection-1";
+import { compileShaderSchedule, fuseLocalShaderSchedule } from "../js/graph/shader-scheduler.js";
 import { effectTransformUniforms } from "../js/output/output-renderer.js";
 import {
   CONTENT_COORDINATE_CONVENTION,

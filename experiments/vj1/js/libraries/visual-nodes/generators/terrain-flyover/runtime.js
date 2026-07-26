@@ -11,7 +11,7 @@ import {
   terrainSurfaceTriangleIndices,
   terrainTessellationSize,
   terrainTriangleEdgeUvs,
-} from "../../../terrain-engine/kernel-topology/index.js?v=semantic-terrain-node-ownership-1";
+} from "../../../terrain-engine/kernel-topology/index.js";
 
 export {
   TERRAIN_GRID_CELLS,

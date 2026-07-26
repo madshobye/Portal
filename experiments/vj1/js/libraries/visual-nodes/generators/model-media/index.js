@@ -7,11 +7,11 @@ import {
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   defineCompiledVisualCompound,
-} from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
+} from "../../shared/compiled-visual-compound.js";
 import {
   LitMeshMaterialProviderNode,
   ModelFitCameraNode,
-} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
+} from "../../shared/visual-stage-nodes.js";
 import {
   AnimatedTransform3dNode,
   CombineObjects3dNode,
@@ -20,7 +20,7 @@ import {
   Scene3dNode,
   SceneObject3dNode,
   SceneToImageNode,
-} from "../../../mesh-engine/index.js?v=node-roi-placement-1";
+} from "../../../mesh-engine/index.js";
 
 export const MODEL_MEDIA_GENERATOR_ID = "modelMedia";
 

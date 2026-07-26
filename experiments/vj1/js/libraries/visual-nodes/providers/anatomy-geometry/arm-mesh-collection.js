@@ -1,6 +1,6 @@
-import { createMeshCollection } from "../../../mesh-engine/mesh-collection/index.js?v=mesh-collection-1";
-import { createPathTubeMesh } from "../../../mesh-engine/procedural-mesh-primitives/index.js?v=procedural-mesh-primitives-2";
-import { createArmPath } from "./limb-paths.js?v=limb-paths-1";
+import { createMeshCollection } from "../../../mesh-engine/mesh-collection/index.js";
+import { createPathTubeMesh } from "../../../mesh-engine/procedural-mesh-primitives/index.js";
+import { createArmPath } from "./limb-paths.js";
 
 export function createArmMeshCollection({ detail = 8, depth = 1, limbBend = 0.25 } = {}) {
   const segments = normalizedDetail(detail);

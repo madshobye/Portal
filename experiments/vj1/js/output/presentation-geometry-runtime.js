@@ -1,6 +1,6 @@
-import { normalizePixelDensity } from "../domain/render-settings.js?v=surface-terminology-1";
-import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-projector-resolution-ceilings-1";
-import { fitOverflowDestination } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
+import { normalizePixelDensity } from "../domain/render-settings.js";
+import { componentTextureSize } from "../domain/render-resolution.js";
+import { fitOverflowDestination } from "../libraries/render-engine/fit-geometry/index.js";
 import {
   frameSize,
   mappingWorldRender,
@@ -9,8 +9,8 @@ import {
   outputFrames,
   outputSpanRect,
   worldSize,
-} from "./render-geometry.js?v=fit-geometry-demand-1";
-import { rectToCorners } from "./component-render-layout.js?v=surface-terminology-1";
+} from "./render-geometry.js";
+import { rectToCorners } from "./component-render-layout.js";
 
 export class PresentationGeometryRuntime {
   constructor(host) {

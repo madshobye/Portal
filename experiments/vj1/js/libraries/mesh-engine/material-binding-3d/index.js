@@ -1,6 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../node-engine/node-definition.js";
 import { listType, valueType } from "../../node-engine/node-types.js";
-import { Material3dType } from "../scene-types.js?v=editable-inlet-literals-1";
+import { Material3dType } from "../scene-types.js";
 
 export const MaterialBinding3dType = valueType("material-binding3d", {
   contractVersion: 1,

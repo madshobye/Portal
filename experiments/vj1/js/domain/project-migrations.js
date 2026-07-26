@@ -1,4 +1,4 @@
-import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
+import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
 
 export const CURRENT_PROJECT_VERSION = 37;
 export const OLDEST_PROJECT_VERSION = 1;

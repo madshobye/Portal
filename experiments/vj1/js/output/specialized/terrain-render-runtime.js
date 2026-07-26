@@ -1,20 +1,20 @@
-import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=node-roi-placement-1";
-import { qualityComputeMultiplier } from "../render-runtime-math.js?v=render-coordinate-scope-3";
+import { contentTransformUvMatrices } from "../content-coordinate-space.js";
+import { qualityComputeMultiplier } from "../render-runtime-math.js";
 import {
   lowerTerrainGeometryProvider,
-} from "../../libraries/terrain-engine/index.js?v=semantic-terrain-contract-4";
-import { normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
-import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
+} from "../../libraries/terrain-engine/index.js";
+import { normalizedModelColor } from "./model-color.js";
+import { drawBuffer } from "../render-draw-utils.js";
 import {
   markRenderTargetOrientation,
   RENDER_TEXTURE_ORIENTATION,
-} from "../render-target-contract.js?v=source-target-ownership-1";
+} from "../render-target-contract.js";
 import {
   disposeTerrainSurfaceResources,
   disposeTerrainWireResources,
   drawTerrainSurface,
   drawTerrainWireframe,
-} from "./terrain-renderer.js?v=semantic-terrain-providers-4";
+} from "./terrain-renderer.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
 import {
   terrainNodeRuntimeModule,

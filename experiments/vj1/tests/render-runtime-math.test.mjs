@@ -88,7 +88,7 @@ test("output renderer imports runtime policy instead of defining it", () => {
   const generatorRuntime = readFileSync(new URL("../js/output/shader-generator-runtime.js", import.meta.url), "utf8");
   const runtimeMathSource = readFileSync(new URL("../js/output/render-runtime-math.js", import.meta.url), "utf8");
 
-  assert.match(rendererSource, /from "\.\/render-runtime-math\.js\?v=[^"]+"/);
+  assert.match(rendererSource, /from "\.\/render-runtime-math\.js"/);
   assert.doesNotMatch(rendererSource, /function qualityScaledRenderRequest\(/);
   assert.doesNotMatch(rendererSource, /function eyeballFrameUniforms\(/);
   assert.doesNotMatch(rendererSource, /function globalVisualTimeScale\(/);

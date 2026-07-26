@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { sceneInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate, sourceChainItemDisplayName, videoTrimValues } from "../js/control/component-view.js";
-import { createComponentEffect, createInitialState, normalizeComponentChainItem, normalizeMediaMeta } from "../js/domain/models.js?v=derived-media-element-names-1";
+import { createComponentEffect, createInitialState, normalizeComponentChainItem, normalizeMediaMeta } from "../js/domain/models.js";
 import { createProjectVisualGroupDefinition, defineNode, NodeRegistry } from "../js/libraries/node-engine/index.js";
 import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
 import { withProjectNodeGraph, withProjectNodeParameterExposure } from "../js/control/node-editor-view.js";
@@ -79,7 +79,7 @@ test("Component and Canvas chain presentation lives outside the control orchestr
   assert.equal((settingsHtml.match(/<span>Render quality<\/span>/g) || []).length, 1);
   assert.ok(settingsHtml.indexOf("chain-param-view-general") < settingsHtml.indexOf("<span>Render quality</span>"), "source render quality is owned by General");
   assert.doesNotMatch(canvasHtml, /\.canvas\.(?:width|height)"/);
-  assert.match(controller, /from "\.\/component-view\.js\?v=[^"]+"/);
+  assert.match(controller, /from "\.\/component-view\.js"/);
   assert.doesNotMatch(controller, /function componentTemplate\(/);
   assert.doesNotMatch(controller, /function componentUnifiedChainTemplate\(/);
   assert.doesNotMatch(controller, /function sourcePickerTemplate\(/);

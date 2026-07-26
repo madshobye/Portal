@@ -1,6 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "./node-definition.js";
 import { NodeInstance } from "./node-runtime.js";
-import { NodeGraphProgram } from "./node-graph-program.js?v=editable-inlet-literals-generic-graph-preflight-1";
+import { NodeGraphProgram } from "./node-graph-program.js";
 
 export const NODE_GROUP_EXECUTION_MODELS = Object.freeze({
   GRAPH: "graph",

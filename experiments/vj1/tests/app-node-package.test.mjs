@@ -893,6 +893,91 @@ test("Project Media compiles reusable resource, image, control, and alpha stages
   restoreActive();
 });
 
+test("compiled compound instances own isolated private render configuration", () => {
+  const packageRoot = createVj1NodePackage();
+  const component = {
+    id: "project-media-instance-isolation",
+    name: "Project Media Instance Isolation",
+    type: "component",
+    chain: [
+      {
+        id: "project-media-a",
+        kind: "source",
+        source: {
+          type: "generator",
+          generatorId: "mediaImage",
+          params: {
+            mediaId: "media/a.png",
+            fit: "stretch",
+          },
+        },
+      },
+      {
+        id: "project-media-b",
+        kind: "source",
+        source: {
+          type: "generator",
+          generatorId: "mediaImage",
+          params: {
+            mediaId: "media/b.png",
+            fit: "contain",
+          },
+        },
+      },
+    ],
+  };
+  const state = packageRoot.prepareProjectState({
+    components: [component],
+    media: [
+      { id: "media/a.png", type: "image" },
+      { id: "media/b.png", type: "image" },
+    ],
+    nodes: {},
+  });
+  const program = compileComponentRenderPrograms(
+    state.components,
+    state.nodes.groups,
+    {
+      resolveNodeDefinition: (node) =>
+        packageRoot.registry.get(node.nodeId, node.nodeVersion),
+    },
+  ).get(component.id);
+  const [first, second] = program.plan.operations;
+  const firstRender = first.operations.find((child) => child.id === "render");
+  const secondRender = second.operations.find((child) => child.id === "render");
+
+  assert.equal(firstRender.configuration.source.params.fit, "stretch");
+  assert.equal(secondRender.configuration.source.params.fit, "contain");
+  assert.notEqual(
+    firstRender.configuration,
+    secondRender.configuration,
+    "private compound child configuration is instance-owned rather than definition-owned",
+  );
+  assert.notEqual(
+    firstRender.configuration.source.params,
+    secondRender.configuration.source.params,
+  );
+
+  const firstConfiguration = state.components[0].chain[0];
+  program.replaceChainItem(firstConfiguration.id, {
+    ...firstConfiguration,
+    source: {
+      ...firstConfiguration.source,
+      params: {
+        ...firstConfiguration.source.params,
+        fit: "cover",
+      },
+    },
+  });
+
+  assert.equal(firstRender.configuration.source.params.fit, "cover");
+  assert.equal(
+    secondRender.configuration.source.params.fit,
+    "contain",
+    "updating one compound instance cannot overwrite another instance",
+  );
+});
+
 test("compiled Component programs initialize generated controls from authoritative configuration", () => {
   const packageRoot = createVj1NodePackage();
   const component = {

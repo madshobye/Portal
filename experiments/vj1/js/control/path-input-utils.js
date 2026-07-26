@@ -1,5 +1,5 @@
-import { setText } from "./dom-utils.js?v=scroll-region-1";
-import { formatRangeValue } from "./template-utils.js?v=slider-values-70";
+import { setText } from "./dom-utils.js";
+import { formatRangeValue } from "./template-utils.js";
 
 export function setByPath(target, path, value) {
   const parts = String(path || "").split(".").filter(Boolean);

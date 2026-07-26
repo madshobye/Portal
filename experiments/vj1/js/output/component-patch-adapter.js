@@ -1,4 +1,4 @@
-import { isIdentityTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
+import { isIdentityTransform } from "./preview-interaction-geometry.js";
 
 export function patchLayerForNode(node = {}) {
   const layer = node.state?.layer || {};

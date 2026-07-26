@@ -236,7 +236,7 @@ test("output renderer delegates loading and blackout traversal", () => {
   const readinessSource = readFileSync(new URL("../js/output/output-readiness-collector.js", import.meta.url), "utf8");
   const runtimeSource = readFileSync(new URL("../js/output/output-readiness-runtime.js", import.meta.url), "utf8");
 
-  assert.match(runtimeSource, /from "\.\/output-readiness-collector\.js\?v=[^"]+"/);
+  assert.match(runtimeSource, /from "\.\/output-readiness-collector\.js"/);
   assert.doesNotMatch(rendererSource, /collectComponentMediaReadiness\(/);
   assert.doesNotMatch(rendererSource, /collectChainMediaReadiness\(/);
   assert.doesNotMatch(readinessSource, /collectChainMediaReadiness|component\.chain/);

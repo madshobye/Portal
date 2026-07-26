@@ -7,7 +7,7 @@ import {
   OutputMediaRuntime,
   VIDEO_IDLE_GRACE_FRAMES,
 } from "../js/output/output-media-runtime.js";
-import { acceptVideoDecodedFrame, syncVideoPlayback } from "../js/output/media-utils.js?v=decoded-frame-drawability-1";
+import { acceptVideoDecodedFrame, syncVideoPlayback } from "../js/output/media-utils.js";
 import { OutputThumbnailRuntime } from "../js/output/output-thumbnail-runtime.js";
 import { mediaSourceDemandSize, mediaSourceDemandWidth, OutputRenderer } from "../js/output/output-renderer.js";
 import {
@@ -2258,6 +2258,100 @@ test("output receiver drops superseded pointer samples before renderer applicati
     assert.equal(received[0].meta.revision, 2);
     assert.equal(received[0].patches.length, 1);
     assert.equal(received[0].patches[0].value.x, 0.9);
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+    if (previousRequestAnimationFrame === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = previousRequestAnimationFrame;
+  }
+});
+
+test("a complete startup state subsumes buffered patches without a revision resync", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
+  let channel = null;
+  let scheduledFrame = null;
+  const received = [];
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage() {}
+    close() {}
+  };
+  globalThis.requestAnimationFrame = (callback) => {
+    scheduledFrame = callback;
+    return 1;
+  };
+  try {
+    const bridge = createOutputBridge({
+      mode: "output",
+      onState: (state, meta) => received.push(["state", state, meta]),
+      onLivePatch: (patches, meta) => received.push(["patch", patches, meta]),
+    });
+    channel.onmessage({ data: protocol({ type: "control-hello", sessionId: "control-a" }) });
+    channel.onmessage({ data: protocol({
+      type: "live-patch",
+      sessionId: "control-a",
+      baseRevision: 150,
+      revision: 151,
+      patches: [createLiveRenderPatch("component-a", "opacity", 0.5)],
+    }) });
+    channel.onmessage({ data: protocol({
+      type: "state",
+      sessionId: "control-a",
+      revision: 151,
+      state: { id: "authoritative-151" },
+    }) });
+
+    assert.deepEqual(received.map((entry) => entry[0]), ["state"]);
+    assert.equal(received[0][1].id, "authoritative-151");
+    scheduledFrame();
+    assert.deepEqual(received.map((entry) => entry[0]), ["state"]);
+    bridge.close();
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+    if (previousRequestAnimationFrame === undefined) delete globalThis.requestAnimationFrame;
+    else globalThis.requestAnimationFrame = previousRequestAnimationFrame;
+  }
+});
+
+test("a buffered patch newer than startup state continues from the installed revision", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const previousRequestAnimationFrame = globalThis.requestAnimationFrame;
+  let channel = null;
+  const received = [];
+  globalThis.BroadcastChannel = class {
+    constructor() { channel = this; }
+    postMessage() {}
+    close() {}
+  };
+  globalThis.requestAnimationFrame = () => 1;
+  try {
+    const bridge = createOutputBridge({
+      mode: "output",
+      onState: (state) => received.push(["state", state]),
+      onLivePatch: (patches, meta) => received.push(["patch", patches, meta]),
+    });
+    channel.onmessage({ data: protocol({ type: "control-hello", sessionId: "control-a" }) });
+    channel.onmessage({ data: protocol({
+      type: "live-patch",
+      sessionId: "control-a",
+      baseRevision: 150,
+      revision: 152,
+      patches: [createLiveRenderPatch("component-a", "opacity", 0.75)],
+    }) });
+    channel.onmessage({ data: protocol({
+      type: "state",
+      sessionId: "control-a",
+      revision: 151,
+      state: { id: "authoritative-151" },
+    }) });
+
+    assert.deepEqual(received.map((entry) => entry[0]), ["state", "patch"]);
+    assert.equal(received[1][2].baseRevision, 151);
+    assert.equal(received[1][2].revision, 152);
+    assert.equal(received[1][1][0].value, 0.75);
     bridge.close();
   } finally {
     if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;

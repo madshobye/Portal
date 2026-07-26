@@ -83,6 +83,50 @@ body {
   overflow: clip;
 }
 
+.app-startup-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 10px;
+  color: var(--muted);
+}
+
+.app-startup-status strong {
+  color: var(--ink);
+  font-size: 18px;
+  letter-spacing: 0.08em;
+}
+
+.app-startup-progress {
+  width: min(220px, 46vw);
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--control);
+}
+
+.app-startup-progress::after {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  animation: app-startup-progress 1.1s ease-in-out infinite alternate;
+  content: "";
+}
+
+@keyframes app-startup-progress {
+  from {
+    transform: translateX(-100%);
+  }
+
+  to {
+    transform: translateX(240%);
+  }
+}
+
 button,
 input,
 select,

@@ -1,9 +1,9 @@
-import { createMeshCollection } from "../../../mesh-engine/mesh-collection/index.js?v=mesh-collection-1";
+import { createMeshCollection } from "../../../mesh-engine/mesh-collection/index.js";
 import {
   createEllipsoidMesh,
   createProfileMesh,
   createTaperedSegmentMesh,
-} from "../../../mesh-engine/procedural-mesh-primitives/index.js?v=procedural-mesh-primitives-2";
+} from "../../../mesh-engine/procedural-mesh-primitives/index.js";
 
 export function createFaceMeshCollection({
   detail = 8,

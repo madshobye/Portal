@@ -1,6 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
 import { numberType, optionalType, recordType, valueType } from "../../node-engine/node-types.js";
-import { fitScale } from "../../render-engine/fit-geometry/index.js?v=fit-geometry-1";
+import { fitScale } from "../../render-engine/fit-geometry/index.js";
 
 export const MAX_CPU_RESIZE_PIXELS = 4_194_304;
 

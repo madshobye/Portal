@@ -56,7 +56,7 @@ test("component patch adapter translates graph nodes into renderer contracts", (
 test("output renderer delegates graph adaptation to one module", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
 
-  assert.match(rendererSource, /from "\.\/component-patch-adapter\.js\?v=[^"]+"/);
+  assert.match(rendererSource, /from "\.\/component-patch-adapter\.js"/);
   assert.doesNotMatch(rendererSource, /function sourceFromPatchNode\(/);
   assert.doesNotMatch(rendererSource, /function nodesInComponentChainOrder\(/);
   assert.doesNotMatch(rendererSource, /function sourceWithNodeParams\(/);

@@ -24,7 +24,7 @@
       import {
         drawStandby,
         standbyDiagnosticsVisible,
-      } from "../../js/output/generators.js?v=standby-local-diagnostic-1";
+      } from "../../js/output/generators.js?v=semantic-standby-1";
       import {
         createSharedFramebufferTarget,
       } from "../../js/output/shared-framebuffer-target.js?v=premultiplied-alpha-5";
@@ -71,8 +71,8 @@
             forceVisible: true,
           });
           const ok =
-            diagnostic.nonTransparent === diagnostic.pixels &&
-            diagnostic.checkerPixels > diagnostic.pixels * 0.2 &&
+            diagnostic.nonTransparent > 20 &&
+            diagnostic.nonTransparent < diagnostic.pixels * 0.2 &&
             clean.nonTransparent === 0 &&
             outputVisible === false;
           resultElement.textContent = JSON.stringify({
@@ -93,19 +93,13 @@
         const framebuffer = target.framebuffer;
         framebuffer.loadPixels();
         let nonTransparent = 0;
-        let checkerPixels = 0;
         for (let index = 0; index < framebuffer.pixels.length; index += 4) {
-          const red = framebuffer.pixels[index];
-          const green = framebuffer.pixels[index + 1];
-          const blue = framebuffer.pixels[index + 2];
           const alpha = framebuffer.pixels[index + 3];
           if (alpha > 0) nonTransparent++;
-          if (red >= 20 && green >= 24 && blue >= 30) checkerPixels++;
         }
         return {
           pixels: framebuffer.width * framebuffer.height,
           nonTransparent,
-          checkerPixels,
         };
       }
 

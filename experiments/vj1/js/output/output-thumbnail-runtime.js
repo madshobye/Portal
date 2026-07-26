@@ -1,15 +1,15 @@
 import {
   createSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
-import { normalizedContentTransform } from "./preview-interaction-geometry.js?v=render-coordinate-scope-3";
-import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js?v=source-target-ownership-1";
-import { boundedSampleRect } from "./render-draw-utils.js?v=runtime-diagnostics-1";
+} from "./shared-framebuffer-target.js";
+import { normalizedContentTransform } from "./preview-interaction-geometry.js";
+import { renderTargetNeedsPresentationFlip } from "./render-target-contract.js";
+import { boundedSampleRect } from "./render-draw-utils.js";
 import {
   componentThumbnailSignature,
   fittedThumbnailSize,
   graphicsToThumbnailBlob,
-} from "./thumbnail-utils.js?v=compiled-program-projection-1";
+} from "./thumbnail-utils.js";
 
 const CAPTURE_SETTLE_MS = 240;
 const CAPTURE_RETRY_MS = 600;

@@ -1,6 +1,6 @@
-import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
-import { renderTargetDescriptor, RENDER_TARGET_KIND } from "./render-target-contract.js?v=source-target-ownership-1";
-import { fitOverflowDestination } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
+import { isSharedFramebufferTarget } from "./shared-framebuffer-target.js";
+import { renderTargetDescriptor, RENDER_TARGET_KIND } from "./render-target-contract.js";
+import { fitOverflowDestination } from "../libraries/render-engine/fit-geometry/index.js";
 
 const reportedMediaDrawFailures = new WeakMap();
 const webGlMediaBridges = new WeakMap();

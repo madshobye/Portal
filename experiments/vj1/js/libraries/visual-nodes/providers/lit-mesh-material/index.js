@@ -2,7 +2,7 @@ import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../../node-engine/node
 import {
   createMaterial3d,
   Material3dType,
-} from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
+} from "../../../mesh-engine/scene-types.js";
 import { VisualMaterialProviderType } from "../../shared/visual-stage-types.js";
 
 export const LitMeshMaterialProviderNode = defineNode({

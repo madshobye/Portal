@@ -1,35 +1,35 @@
 import { VJ1, WORKSPACES } from "../constants.js";
-import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js?v=structural-world-state-2";
-import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js?v=component-transport-patch-1";
-import { buildOutputUrl } from "../view-routing.js?v=adaptive-component-demand-29";
-import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js?v=signal-load-observability-1";
-import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js?v=cursor-anchored-zoom-1";
-import { defaultProjectSurfaceMapping } from "../output/render-geometry.js?v=adaptive-component-demand-29";
-import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js?v=compiled-capability-revision-1";
-import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js?v=scroll-region-1";
+import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js";
+import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js";
+import { buildOutputUrl } from "../view-routing.js";
+import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js";
+import { fitPreviewViewport, resetViewport, updatePreviewViewportForUi, zoomViewport } from "../output/preview-viewport.js";
+import { defaultProjectSurfaceMapping } from "../output/render-geometry.js";
+import { analyzeVj1Project, createRuntimeHotspotSmoother, summarizeRuntimeHotPasses } from "../metrics/component-metrics.js";
+import { createHtmlCache, isInteractiveNode, isPointerInteractionNode, isTextEditingNode, setClass, setText } from "./dom-utils.js";
 import { bindReorderList } from "./reorder-list.js";
-import { collectRefs, shellTemplate } from "./shell-view.js?v=signal-load-observability-1";
-import { sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
-import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js?v=inspector-view-option-parameter-control-group-1";
-import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js?v=live-output-matrix-contract-3";
-import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js?v=live-output-matrix-contract-3";
-import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-card-type-icons-1";
-import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
-import { createClipboardController } from "./clipboard-controller.js?v=scene-live-audit-1";
-import { createModalController } from "./modal-controller.js?v=parameter-control-group-1";
-import { createInputController } from "./input-controller.js?v=inspector-view-option-parameter-control-group-1";
-import { createControlPerformanceSession } from "./control-performance-session.js?v=signal-load-observability-2";
-import { createControlDiagnosticsController } from "./control-diagnostics-controller.js?v=control-diagnostics-counter-1";
-import { createControlRenderDiagnostics } from "./control-render-diagnostics.js?v=control-ui-long-render-1";
+import { collectRefs, shellTemplate } from "./shell-view.js";
+import { sortComponentCatalog } from "./catalog-view.js";
+import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js";
+import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js";
+import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js";
+import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js";
+import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js";
+import { createClipboardController } from "./clipboard-controller.js";
+import { createModalController } from "./modal-controller.js";
+import { createInputController } from "./input-controller.js";
+import { createControlPerformanceSession } from "./control-performance-session.js";
+import { createControlDiagnosticsController } from "./control-diagnostics-controller.js";
+import { createControlRenderDiagnostics } from "./control-render-diagnostics.js";
 import { componentTypeIcon, UI_ICONS } from "./ui-icons.js";
-import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js?v=live-output-matrix-contract-3";
-import { prepareProjectNodeDefinitionEdit, prepareProjectNodeGraphEdit, selectedNodeEditorTemplate, withProjectNodeFork, withProjectNodeParameterExposure, withProjectNodePortExposure, withoutProjectNodeFork } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-atomic-preflight-2";
-import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js?v=canonical-effect-params-1";
-import { bindNodeGraphCanvas } from "./node-graph-canvas.js?v=typed-media-render-process-1";
+import { liveProjectionRailTemplate, projectRailTemplate } from "./project-rail-view.js";
+import { prepareProjectNodeDefinitionEdit, prepareProjectNodeGraphEdit, selectedNodeEditorTemplate, withProjectNodeFork, withProjectNodeParameterExposure, withProjectNodePortExposure, withoutProjectNodeFork } from "./node-editor-view.js";
+import { bindNodeLibraryFilter, nodeLibraryInspectorTemplate, nodeLibraryRailTemplate, nodeLibraryStudioTemplate, selectedNodeWorkspaceTarget } from "./node-library-view.js";
+import { bindNodeGraphCanvas } from "./node-graph-canvas.js";
 import {
   resolveProjectVisualTransitionEntries,
-} from "../libraries/visual-nodes/project-visual-node-resolver.js?v=async-media-dirty-1";
-import { isMappingSurfaceVisibilityReason, previewActivationForContext } from "./preview-state-activation.js?v=scoped-component-transaction-1";
+} from "../libraries/visual-nodes/project-visual-node-resolver.js";
+import { isMappingSurfaceVisibilityReason, previewActivationForContext } from "./preview-state-activation.js";
 import {
   mergeSignalLoadSnapshots,
   signalLoadMeter,

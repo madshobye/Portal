@@ -1,9 +1,9 @@
-import { createMediaReadinessStatus } from "./component-render-state.js?v=async-media-dirty-1";
+import { createMediaReadinessStatus } from "./component-render-state.js";
 import {
   collectComponentReadiness,
   collectOutputReadiness,
-} from "./output-readiness-collector.js?v=async-media-dirty-1";
-import { frameSize } from "./render-geometry.js?v=fit-geometry-demand-1";
+} from "./output-readiness-collector.js";
+import { frameSize } from "./render-geometry.js";
 
 export class OutputReadinessRuntime {
   constructor(host) {

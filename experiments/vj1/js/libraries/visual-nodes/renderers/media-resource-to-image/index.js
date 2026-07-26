@@ -137,7 +137,10 @@ export function mediaResourceToImageProcess(
     context.drawStandby?.(
       context.target,
       error || "media resource unavailable",
-      { forceVisible: true },
+      {
+        forceVisible: true,
+        icon: mediaResourceDiagnosticKind(descriptor),
+      },
     );
     return context.target || null;
   }
@@ -149,4 +152,14 @@ export function mediaResourceToImageProcess(
     context.renderView || context.target,
   );
   return context.target || null;
+}
+
+export function mediaResourceDiagnosticKind(descriptor = {}) {
+  const declaredKind = String(descriptor?.mediaKind || "").toLowerCase();
+  if (["image", "video", "model"].includes(declaredKind)) return declaredKind;
+  const mediaId = String(descriptor?.mediaId || "").toLowerCase().split(/[?#]/, 1)[0];
+  if (/\.(mp4|m4v|mov|webm|ogv)$/.test(mediaId)) return "video";
+  if (/\.(stl|obj|gltf|glb|ply)$/.test(mediaId)) return "model";
+  if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/.test(mediaId)) return "image";
+  return "resource";
 }

@@ -6,7 +6,7 @@ import {
 import {
   createMaterial3d,
   Material3dType,
-} from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
+} from "../../../mesh-engine/scene-types.js";
 import { VisualMaterialProviderType } from "../../shared/visual-stage-types.js";
 
 const WIRE_SETTING_IDS = Object.freeze([

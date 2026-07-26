@@ -26,7 +26,7 @@ test("thumbnail runtime delegates image conversion to thumbnail utilities", () =
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const runtimeSource = readFileSync(new URL("../js/output/output-thumbnail-runtime.js", import.meta.url), "utf8");
 
-  assert.ok(rendererSource.includes('from "./output-thumbnail-runtime.js?v=compiled-program-projection-1"'));
+  assert.ok(rendererSource.includes('from "./output-thumbnail-runtime.js"'));
   assert.doesNotMatch(rendererSource, /function graphicsToThumbnail\(/);
   assert.doesNotMatch(rendererSource, /function componentThumbnailSignature\(/);
   assert.ok(runtimeSource.includes("graphicsToThumbnailBlob(readback)"));

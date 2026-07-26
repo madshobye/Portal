@@ -574,6 +574,52 @@ test("project save work waits for the module worker readiness handshake", async 
   preparer.dispose();
 });
 
+test("project save worker can prewarm before the first authored transaction", async () => {
+  let instance = null;
+  const requests = [];
+  class WarmWorker {
+    constructor() {
+      instance = this;
+    }
+
+    postMessage(request) {
+      requests.push(request.kind);
+      queueMicrotask(() => this.onmessage?.({
+        currentTarget: this,
+        data: {
+          id: request.id,
+          ok: true,
+          result: prepareProjectSave(request.state, request.savedAt),
+        },
+      }));
+    }
+
+    terminate() {}
+  }
+  const preparer = createProjectSavePreparer({
+    WorkerClass: WarmWorker,
+    workerUrl: new URL("https://example.test/prewarmed-project-save-worker.js"),
+  });
+  assert.equal(preparer.prewarm(), true);
+  assert.deepEqual(requests, [], "prewarming loads code but does not serialize project state");
+  instance.onmessage?.({ currentTarget: instance, data: { type: "ready" } });
+  const prepared = await preparer.prepareState({
+    project: {},
+    ui: { live: {} },
+    global: {},
+    render: { outputs: [] },
+    scheduler: {},
+    nodes: {},
+    media: [],
+    components: [],
+    mappings: [],
+    shaders: {},
+  }, "2026-07-23T12:00:00.000Z");
+  assert.equal(JSON.parse(prepared.json).version, CURRENT_PROJECT_VERSION);
+  assert.deepEqual(requests, ["prepare-state"]);
+  preparer.dispose();
+});
+
 test("a silent save worker cannot hold every later project transaction forever", async () => {
   let terminated = false;
   class SilentWorker {

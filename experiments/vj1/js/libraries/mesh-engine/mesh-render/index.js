@@ -3,7 +3,7 @@ import { numberType, optionalType, recordType, valueType } from "../../node-engi
 import { resolutionScaledStrokeWidth } from "../../render-engine/render-metrics.js";
 import { buildParsedModelSurfaceVertices } from "../mesh-geometry.js";
 import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "../mesh-render-cache.js";
-import { modelCameraFov, modelDepthCutoff, modelDepthSliceEnabled, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js?v=node-roi-placement-1";
+import { modelCameraFov, modelDepthCutoff, modelDepthSliceEnabled, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js";
 import { MeshType, meshResourceCacheKey, modelTriangleCount } from "../mesh-types.js";
 import {
   Camera3dType,
@@ -21,11 +21,11 @@ import {
   disposeRawWebGlVertexArray,
   rawWebGlContextGeneration,
   restoreRawWebGlState,
-} from "../../render-engine/raw-webgl-state.js?v=node-roi-placement-1";
+} from "../../render-engine/raw-webgl-state.js";
 import {
   VISUAL_RENDER_PROCESS_CONTEXT_FORMAT,
   visualRenderProcessContext,
-} from "../../render-engine/render-process-context.js?v=node-roi-placement-1";
+} from "../../render-engine/render-process-context.js";
 
 const MeshRenderResultType = recordType("mesh-render-result", {
   rendered: valueType("boolean"),

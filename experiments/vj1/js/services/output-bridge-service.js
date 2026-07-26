@@ -1,10 +1,10 @@
 import { VJ1 } from "../constants.js";
-import { createOutputTransportProfiler, transportTimestampMs } from "./output-transport-profiler.js?v=output-transport-profile-1";
-import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
-import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js?v=signal-transport-boundary-1";
-import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
-import { createRenderStatePatch } from "../domain/live-render-patch.js?v=structural-world-state-2";
-import { materializeStructuralTree } from "../libraries/data-store/data-store/index.js?v=structural-world-state-2";
+import { createOutputTransportProfiler, transportTimestampMs } from "./output-transport-profiler.js";
+import { stateWithoutThumbnailUrls } from "./component-thumbnail-store.js";
+import { LivePatchSynchronizer } from "../libraries/synchronization-engine/live-patch-synchronizer/index.js";
+import { resetSceneMappingSession } from "../domain/live-ui-state.js";
+import { createRenderStatePatch } from "../domain/live-render-patch.js";
+import { materializeStructuralTree } from "../libraries/data-store/data-store/index.js";
 
 export const OUTPUT_BRIDGE_PROTOCOL_VERSION = 1;
 
@@ -490,7 +490,7 @@ export function createOutputBridge({
     if (!hasCurrentProtocol(msg)) return;
     if (msg.sessionId && controlSessionId && msg.sessionId !== controlSessionId) return;
     if (msg.type === "state" && (!msg.targetClientId || msg.targetClientId === clientId)) {
-      flushPendingLivePatch();
+      const pendingAfterState = takePendingLivePatch();
       const transport = transportProfiler.receive({
         kind: "state",
         revision: msg.revision,
@@ -504,6 +504,7 @@ export function createOutputBridge({
           : "full",
         transport,
       });
+      applyPendingLivePatchAfterState(pendingAfterState, Number(msg.revision) || 0);
     }
     if (msg.type === "live-patch") {
       const transport = transportProfiler.receive({
@@ -572,10 +573,7 @@ export function createOutputBridge({
   }
 
   function flushPendingLivePatch() {
-    if (livePatchScheduled) livePatchScheduleToken++;
-    livePatchScheduled = false;
-    const pending = pendingLivePatch;
-    pendingLivePatch = null;
+    const pending = takePendingLivePatch();
     if (!pending?.patches.size) return;
     onLivePatch?.([...pending.patches.values()], {
       baseRevision: pending.baseRevision,
@@ -585,10 +583,33 @@ export function createOutputBridge({
     });
   }
 
-  function cancelPendingLivePatch() {
+  function takePendingLivePatch() {
     if (livePatchScheduled) livePatchScheduleToken++;
     livePatchScheduled = false;
+    const pending = pendingLivePatch;
     pendingLivePatch = null;
+    return pending;
+  }
+
+  function applyPendingLivePatchAfterState(pending, stateRevision) {
+    if (!pending?.patches.size || pending.revision <= stateRevision) return;
+    // Complete state is installed before later values. When it falls inside a
+    // coalesced packet's revision range it already contains every earlier
+    // revision, so the packet can continue exactly from that state instead of
+    // producing a false startup gap and an unbounded resync loop.
+    const baseRevision = pending.baseRevision <= stateRevision
+      ? stateRevision
+      : pending.baseRevision;
+    onLivePatch?.([...pending.patches.values()], {
+      baseRevision,
+      revision: pending.revision,
+      sessionId: pending.sessionId,
+      transport: pending.transport,
+    });
+  }
+
+  function cancelPendingLivePatch() {
+    takePendingLivePatch();
   }
 
   function hello() {

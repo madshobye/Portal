@@ -2,7 +2,7 @@ import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../../node-engine/node
 import {
   Camera3dType,
   createCamera3d,
-} from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
+} from "../../../mesh-engine/scene-types.js";
 import { TerrainFlightStateType } from "../../../terrain-engine/flight-controller/index.js";
 import { VisualCameraProviderType } from "../../shared/visual-stage-types.js";
 

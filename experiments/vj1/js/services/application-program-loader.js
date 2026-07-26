@@ -1,4 +1,4 @@
-import { migrateProjectData } from "../domain/project-migrations.js?v=project-media-contain-1";
+import { migrateProjectData } from "../domain/project-migrations.js";
 import {
   canPersistDirectoryHandles,
   loadProjectDirectoryHandle,

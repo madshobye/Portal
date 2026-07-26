@@ -2,7 +2,7 @@ import {
   markRenderTargetOrientation,
   renderTargetNeedsPresentationFlip,
   RENDER_TEXTURE_ORIENTATION,
-} from "./render-target-contract.js?v=source-target-ownership-1";
+} from "./render-target-contract.js";
 
 // Canonical chain-content coordinates are screen oriented everywhere. A
 // source transform changes the coordinates evaluated inside the Composition

@@ -5,7 +5,7 @@ import { PerspectiveCamera3dNode } from "../perspective-camera-3d/index.js";
 import { SceneObject3dNode } from "../scene-object-3d/index.js";
 import { CombineObjects3dNode } from "../combine-objects-3d/index.js";
 import { Scene3dNode } from "../scene-3d/index.js";
-import { SceneToImageNode } from "../scene-render/index.js?v=node-roi-placement-1";
+import { SceneToImageNode } from "../scene-render/index.js";
 import { Transform3dNode } from "../transform-3d/index.js";
 import { MediaMeshNode } from "../media-mesh/index.js";
 

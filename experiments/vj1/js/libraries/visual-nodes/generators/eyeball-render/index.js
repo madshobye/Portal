@@ -1,6 +1,6 @@
 import { createNumberParam } from "../../shared/component-schema.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
-import { EYEBALL_SCALAR_FRAGMENT_SHADER } from "../../renderers/eyeball-to-image/shader.js?v=compound-terminal-roi-1";
+import { EYEBALL_SCALAR_FRAGMENT_SHADER } from "../../renderers/eyeball-to-image/shader.js";
 
 const manifest = Object.freeze({
   id: "eyeballRender",

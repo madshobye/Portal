@@ -1,10 +1,10 @@
 import { BLEND_MODES, VJ1 } from "../constants.js";
-import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-29";
-import { sanitizeState } from "../domain/models.js?v=surface-terminology-1";
-import { compileComponentRenderPrograms } from "../libraries/composition-engine/index.js?v=compiled-capability-revision-1";
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=async-media-dirty-1";
-import { frameSize, worldSize } from "../output/render-geometry.js?v=adaptive-component-demand-29";
-import { normalizePixelDensity } from "../domain/render-settings.js?v=surface-terminology-1";
+import { componentTextureSize } from "../domain/render-resolution.js";
+import { sanitizeState } from "../domain/models.js";
+import { compileComponentRenderPrograms } from "../libraries/composition-engine/index.js";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js";
+import { frameSize, worldSize } from "../output/render-geometry.js";
+import { normalizePixelDensity } from "../domain/render-settings.js";
 
 export function analyzeVj1Project(input = {}, options = {}) {
   const state = sanitizeState(input || {});

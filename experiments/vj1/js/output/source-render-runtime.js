@@ -3,13 +3,13 @@ import { visitVisualParameterReferences } from "../libraries/visual-nodes/shared
 import {
   VISUAL_SOURCE_RENDERERS,
   visualSourceRenderer,
-} from "../libraries/composition-engine/index.js?v=node-roi-placement-1";
+} from "../libraries/composition-engine/index.js";
 import {
   createPlacedRenderResult,
   directPlacementKind,
   transformedPlacementDemandRect,
-} from "../graph/placed-render-result.js?v=atomic-video-seek-1";
-import { clamp01 } from "../domain/models.js?v=surface-terminology-1";
+} from "../graph/placed-render-result.js";
+import { clamp01 } from "../domain/models.js";
 import {
   RenderNodeRuntime,
   textureStateKey,
@@ -21,47 +21,47 @@ import {
 import {
   drawStandby as drawStandbyDiagnostic,
   standbyDiagnosticsVisible,
-} from "./generators.js?v=standby-local-diagnostic-1";
-import { drawMediaFit, isDrawableMedia } from "./media-utils.js?v=fit-geometry-demand-1";
+} from "./generators.js";
+import { drawMediaFit, isDrawableMedia } from "./media-utils.js";
 import {
   sourceWithNodeParams,
-} from "./component-patch-adapter.js?v=chain-general-controls-1";
+} from "./component-patch-adapter.js";
 import {
   combineContentTransforms,
   normalizedContentTransform,
   transformedRectBounds,
   transformedRectVisibleRegion,
-} from "./preview-interaction-geometry.js?v=alpha-feather-1";
-import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=node-roi-placement-1";
+} from "./preview-interaction-geometry.js";
+import { contentTransformCanvasPlacement } from "./content-coordinate-space.js";
 import { applyBlend } from "./blend-utils.js";
 import {
   disposeGraphics,
   drawWithContentTransform,
-} from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "./shader-target-runtime.js";
 import {
   createSharedFramebufferTarget,
-} from "./shared-framebuffer-target.js?v=node-roi-placement-1";
+} from "./shared-framebuffer-target.js";
 import {
   componentInstanceTime,
   globalVisualTimeScale,
   instanceTime,
   qualityScaledRenderRequest,
-} from "./render-runtime-math.js?v=volumetric-clouds-1";
+} from "./render-runtime-math.js";
 import {
   frameRenderRequest,
   instanceInvariantRenderRequest,
   renderRequestKey,
   renderRequestStateKey,
-} from "./render-geometry.js?v=output-one-1";
+} from "./render-geometry.js";
 import {
   renderSourceDetail,
   renderView,
   withRenderView,
-} from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
+} from "../libraries/render-engine/render-view/index.js";
 import {
   createVisualRenderProcessContext,
   updateVisualRenderProcessContext,
-} from "../libraries/render-engine/render-process-context.js?v=node-roi-placement-1";
+} from "../libraries/render-engine/render-process-context.js";
 import { NativeRendererRegistry } from "../libraries/render-engine/native-renderer-registry.js";
 import {
   componentReferenceCount,
@@ -71,12 +71,12 @@ import {
   componentReferenceVisibleRenderRequest,
   componentRenderInstanceKey,
   fullTargetRect,
-} from "./component-render-layout.js?v=surface-terminology-1";
+} from "./component-render-layout.js";
 import {
   withRenderTarget2D,
-} from "./render-target-contract.js?v=source-target-ownership-1";
-import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { isFullNodeBoundary, nodeBoundaryPixelRect } from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
+} from "./render-target-contract.js";
+import { drawBuffer } from "./render-draw-utils.js";
+import { isFullNodeBoundary, nodeBoundaryPixelRect } from "../libraries/render-engine/roi/index.js";
 import {
   chainLayerState,
   componentRuntimeTimeKey,
@@ -88,7 +88,7 @@ import {
   staticCompiledComponentGraphState,
   staticMediaStateForIds,
   staticSourceState,
-} from "./component-render-state.js?v=typed-media-revision-invalidation-1";
+} from "./component-render-state.js";
 
 const SOURCE_RUNTIME_METHODS = Object.freeze({
   [VISUAL_SOURCE_RENDERERS.COMPONENT]: "drawComponentReferenceSource",
@@ -1924,7 +1924,11 @@ export class SourceRenderRuntime {
     return true;
   }
 
-  drawStandby(target, label, { forceVisible = false } = {}) {
+  drawStandby(target, label, {
+    forceVisible = false,
+    icon = "resource",
+    detail = false,
+  } = {}) {
     const transient = /loading|reading|processing|checking|preparing|matching|finding|not loaded/i
       .test(String(label || ""));
     withRenderTarget2D(target, () => {
@@ -1936,6 +1940,8 @@ export class SourceRenderRuntime {
         }),
         frame: this.host.frameRuntime.frameIndex,
         graceMs: transient ? 1000 : 0,
+        icon,
+        detail,
       });
     });
   }

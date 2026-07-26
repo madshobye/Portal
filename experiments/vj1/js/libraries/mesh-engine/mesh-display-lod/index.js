@@ -7,7 +7,7 @@ import { MeshType } from "../mesh-types.js";
 import {
   modelLodTargetTriangles,
   selectModelLod,
-} from "../mesh-resolution/index.js?v=node-roi-placement-1";
+} from "../mesh-resolution/index.js";
 
 export const MeshDisplayLodNode = defineNode({
   id: "core.mesh.display-lod",

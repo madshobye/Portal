@@ -1,4 +1,4 @@
-import { defineNodeGroup } from "./node-group.js?v=explicit-group-compiler-1";
+import { defineNodeGroup } from "./node-group.js";
 
 export const NODE_PROJECT_FORMAT_VERSION = 1;
 

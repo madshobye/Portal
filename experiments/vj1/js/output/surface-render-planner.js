@@ -1,19 +1,19 @@
-import { surfaceTextureCeiling } from "../domain/render-resolution.js?v=adaptive-component-demand-projector-resolution-ceilings-1";
+import { surfaceTextureCeiling } from "../domain/render-resolution.js";
 import {
   componentRenderInstanceKey,
   componentRootTransformRegion,
   componentSourceView,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=surface-terminology-1";
+} from "./component-render-layout.js";
 import {
   createRenderRequest,
   frameSize,
   sourceRenderDemand,
   SURFACE_DEMAND_OVERSCAN,
-} from "./render-geometry.js?v=roi-composition-1";
-import { visibleSurfaceUvRect } from "../libraries/mapping-engine/mapping-engine/index.js?v=roi-composition-1";
-import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js?v=roi-composition-1";
-import { directSurfaceHierarchy } from "../domain/direct-surface-hierarchy.js?v=explicit-direct-surface-hierarchy-1";
+} from "./render-geometry.js";
+import { visibleSurfaceUvRect } from "../libraries/mapping-engine/mapping-engine/index.js";
+import { createSurfaceCompositionEngine } from "../libraries/composition-engine/surface-composition/index.js";
+import { directSurfaceHierarchy } from "../domain/direct-surface-hierarchy.js";
 
 // Direct render-host bridge: the node owns the route algorithm while the
 // renderer supplies its established geometry policies directly. This closure

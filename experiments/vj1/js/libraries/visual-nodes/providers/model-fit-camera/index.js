@@ -2,8 +2,8 @@ import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../../node-engine/node
 import {
   Camera3dType,
   createCamera3d,
-} from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
-import { modelCameraFov } from "../../../mesh-engine/mesh-render-math.js?v=resolution-relative-model-clip-1";
+} from "../../../mesh-engine/scene-types.js";
+import { modelCameraFov } from "../../../mesh-engine/mesh-render-math.js";
 
 export const ModelFitCameraNode = defineNode({
   id: "core.visual.model-fit-camera",

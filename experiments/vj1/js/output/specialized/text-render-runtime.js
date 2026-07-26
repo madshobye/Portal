@@ -1,15 +1,15 @@
-import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=node-roi-placement-1";
+import { contentTransformUvMatrices } from "../content-coordinate-space.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
   drawShaderTarget,
   drawShaderTargetRect,
   resetShaderTarget,
-} from "../shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "../shader-target-runtime.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
 import {
   textMaskDimensions as fallbackTextMaskDimensions,
-} from "./text-generator-renderer.js?v=text-mask-readback-1";
+} from "./text-generator-renderer.js";
 import {
   textNodeRuntimeModule,
   textNodeShaderSource,

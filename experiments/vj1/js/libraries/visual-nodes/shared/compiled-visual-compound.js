@@ -1,4 +1,4 @@
-import { defineNodeGroup } from "../../node-engine/node-group.js?v=explicit-group-compiler-1";
+import { defineNodeGroup } from "../../node-engine/node-group.js";
 import { componentFromNodeDefinition } from "./visual-node-factory.js";
 
 export function defineCompiledVisualCompound(component, {

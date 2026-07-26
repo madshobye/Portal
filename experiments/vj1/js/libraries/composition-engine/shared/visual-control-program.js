@@ -16,7 +16,7 @@ import {
   ValueControlNode,
   Vector2ControlNode,
   Vector3ControlNode,
-} from "../../control-engine/index.js?v=async-media-dirty-1";
+} from "../../control-engine/index.js";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "../../timing-engine/index.js";
 import { NestedNoiseMotionNode, OrbitMotionNode } from "../../motion-engine/index.js";
 import { TerrainFlightControllerNode } from "../../terrain-engine/index.js";

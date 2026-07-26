@@ -1,9 +1,9 @@
 import { BLEND_MODES } from "../constants.js";
 import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { esc, formatRangeValue, paramContextAttributes, paramRangePairTemplate } from "./template-utils.js?v=param-select-1";
-import { markdownToEditorHtml } from "./markdown-editor.js?v=text-style-controls-1";
-import { screenCaptureStatus } from "../output/screen-capture-service.js?v=async-media-dirty-1";
-import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
+import { esc, formatRangeValue, paramContextAttributes, paramRangePairTemplate } from "./template-utils.js";
+import { markdownToEditorHtml } from "./markdown-editor.js";
+import { screenCaptureStatus } from "../output/screen-capture-service.js";
+import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 
 export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
   const params = options.params || component?.params || [];
@@ -93,9 +93,48 @@ export const CHAIN_GENERAL_PARAMS = Object.freeze([
   ...CHAIN_TRANSFORM_PARAMS,
 ]);
 
+export function placementAxisRange(extent = 1, position = 0) {
+  const safeExtent = Math.max(0.0001, Number(extent) || 1);
+  const safePosition = Math.abs(Number(position) || 0);
+  // X/Y are persisted in the stable parent coordinate system: ±1 spans one
+  // parent frame. Only the editor range follows visible extent. This lets a
+  // scaled object travel fully beyond either edge without changing authored
+  // coordinates, ROI math, or renderer placement semantics.
+  return Math.max(2, 1 + safeExtent, safePosition);
+}
+
+export function chainTransformParams(transform = {}) {
+  const range = placementAxisRange(transform.scale, Math.max(
+    Math.abs(Number(transform.x) || 0),
+    Math.abs(Number(transform.y) || 0),
+  ));
+  return CHAIN_TRANSFORM_PARAMS.map((param) => (
+    param.id === "x" || param.id === "y"
+      ? { ...param, min: -range, max: range }
+      : param
+  ));
+}
+
+export function chainBoundaryPositionParams(boundary = {}) {
+  const normalized = normalizeNodeBoundary(boundary);
+  return CHAIN_BOUNDARY_PARAMS.map((param) => {
+    if (param.id === "x") {
+      const range = placementAxisRange(normalized.width, normalized.x);
+      return { ...param, min: -range, max: range };
+    }
+    if (param.id === "y") {
+      const range = placementAxisRange(normalized.height, normalized.y);
+      return { ...param, min: -range, max: range };
+    }
+    return param;
+  });
+}
+
 export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) {
   const qualityTarget = chainRenderQualityTarget(item, basePath);
-  const params = qualityTarget ? [RENDER_QUALITY_PARAM, ...CHAIN_GENERAL_PARAMS] : CHAIN_GENERAL_PARAMS;
+  const transformParams = chainTransformParams(item?.transform);
+  const generalParams = [...CHAIN_COMPOSITE_PARAMS, ...transformParams];
+  const params = qualityTarget ? [RENDER_QUALITY_PARAM, ...generalParams] : generalParams;
   const general = paramControlsTemplate(params, {
     pathFor: (param) => param === RENDER_QUALITY_PARAM
       ? qualityTarget.path
@@ -111,7 +150,7 @@ export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) 
     isSignificant: options.isSignificant || (() => false),
   });
   const normalizedBoundary = normalizeNodeBoundary(item?.boundary);
-  const boundaryPosition = paramControlsTemplate(CHAIN_BOUNDARY_PARAMS, {
+  const boundaryPosition = paramControlsTemplate(chainBoundaryPositionParams(normalizedBoundary), {
     pathFor: (param) => `${basePath}.boundary.${param.id}`,
     valueFor: (param) => normalizeParamValue(param, normalizedBoundary[param.id]),
     attrs: options.attrs || "data-update",

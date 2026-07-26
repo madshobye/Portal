@@ -3,13 +3,13 @@ import {
   transitionKernelCacheKey,
   transitionKernelUniformValues,
 } from "../libraries/transition-engine/index.js";
-import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
-import { renderBufferKey } from "./component-render-state.js?v=async-media-dirty-1";
-import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
+import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js";
+import { renderBufferKey } from "./component-render-state.js";
+import { drawBuffer } from "./render-draw-utils.js";
 import {
   RENDER_PASS_VERTEX_SHADER,
   TEXTURE_OPERATOR_FRAGMENT_SHADER,
-} from "./render-pass-shaders.js?v=node-roi-placement-1";
+} from "./render-pass-shaders.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
@@ -17,11 +17,11 @@ import {
   drawShaderTargetRect,
   resetShaderTarget,
   setShaderUniformIfPresent,
-} from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
-import { unwrapRenderTarget } from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
+} from "./shader-target-runtime.js";
+import { unwrapRenderTarget } from "./shared-framebuffer-target.js";
 import {
   renderTargetNeedsShaderSampleFlip,
-} from "./render-target-contract.js?v=source-target-ownership-1";
+} from "./render-target-contract.js";
 
 // Optimized backend for the generic texture-node family. The compiled visual
 // plan owns topology and scheduling; this class owns shader programs and the

@@ -3,7 +3,7 @@ import {
   modelDerivedCacheKey,
   readDerivedModelCache,
   writeDerivedModelCache,
-} from "./model-derived-cache.js?v=quiet-model-cache-1";
+} from "./model-derived-cache.js";
 
 let worker = null;
 let requestSerial = 0;
@@ -95,7 +95,7 @@ function ensureWorker() {
   if (worker) return worker;
   if (typeof Worker !== "function") return null;
   try {
-    worker = new Worker(new URL("./model-processing-worker.js?v=model-wire-detail-2", import.meta.url), { type: "module" });
+    worker = new Worker(new URL("./model-processing-worker.js", import.meta.url), { type: "module" });
     worker.addEventListener("message", (event) => {
       const { requestId, mesh, error } = event.data || {};
       const request = pending.get(requestId);

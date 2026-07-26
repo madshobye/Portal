@@ -1,18 +1,18 @@
-import { defineNode, NODE_IMPLEMENTATION_KINDS, NodeRegistry, validateNodeGraphProgramDefinition } from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
-import { defineNodeArtifact, NodeArtifactCatalog } from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
-import { nodeEditorProjection } from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
-import { createProjectGroupDefinitionFromTemplate, createProjectVisualGroupDefinition, normalizeNodeProjectData, serializeNodeArtifact, serializeNodeDefinition } from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
+import { defineNode, NODE_IMPLEMENTATION_KINDS, NodeRegistry, validateNodeGraphProgramDefinition } from "./libraries/node-engine/index.js";
+import { defineNodeArtifact, NodeArtifactCatalog } from "./libraries/node-engine/index.js";
+import { nodeEditorProjection } from "./libraries/node-engine/index.js";
+import { createProjectGroupDefinitionFromTemplate, createProjectVisualGroupDefinition, normalizeNodeProjectData, serializeNodeArtifact, serializeNodeDefinition } from "./libraries/node-engine/index.js";
 import {
   createNodePackageFromProject,
   exportNodePackage,
   importNodePackage,
   installNodePackageIntoProject,
-} from "./libraries/node-engine/index.js?v=project-group-export-shader-javascript-forks-generic-graph-preflight-1";
+} from "./libraries/node-engine/index.js";
 import {
   listEffectNodeComponents,
   listGeneratorNodeComponents,
   VisualStageNodeDefinitions,
-} from "./libraries/visual-nodes/index.js?v=node-roi-placement-1";
+} from "./libraries/visual-nodes/index.js";
 import {
   AudioControlInputNode,
   ComponentTimeControlNode,
@@ -32,16 +32,16 @@ import {
   ValueControlNode,
   Vector2ControlNode,
   Vector3ControlNode,
-} from "./libraries/control-engine/index.js?v=async-media-dirty-1";
+} from "./libraries/control-engine/index.js";
 import { CacheEngineNode } from "./libraries/cache-engine/index.js";
-import { DataStoreNode } from "./libraries/data-store/index.js?v=structural-world-state-2";
+import { DataStoreNode } from "./libraries/data-store/index.js";
 import { DiagnosticsEngineNode } from "./libraries/diagnostics-engine/index.js";
-import { ImageResizeNode } from "./libraries/image-engine/index.js?v=nested-component-roi-1";
+import { ImageResizeNode } from "./libraries/image-engine/index.js";
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "./libraries/timing-engine/index.js";
 import { NestedNoiseMotionNode, OrbitMotionNode } from "./libraries/motion-engine/index.js";
-import { TerrainFlightControllerNode } from "./libraries/terrain-engine/index.js?v=semantic-terrain-contract-4";
+import { TerrainFlightControllerNode } from "./libraries/terrain-engine/index.js";
 import { MappingEngineNode } from "./libraries/mapping-engine/index.js";
-import { SceneSurfaceGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js?v=node-roi-placement-1";
+import { SceneSurfaceGuideNode, SurfaceCompositionNode } from "./libraries/composition-engine/index.js";
 import {
   COMPONENT_PROGRAM_GENERATOR,
   ComponentProgramNode,
@@ -52,7 +52,7 @@ import {
   compileVisualRenderPlan,
   componentProgramInstances,
   reconcileComponentGroupTopology,
-} from "./libraries/composition-engine/index.js?v=node-roi-placement-1";
+} from "./libraries/composition-engine/index.js";
 import {
   MAPPING_PROGRAM_GENERATOR,
   OutputProgramNode,
@@ -62,7 +62,7 @@ import {
   compileMappingGroupTopology,
   compileReachableProgramGraph,
   mappingProgramInstances,
-} from "./libraries/composition-engine/index.js?v=node-roi-placement-1";
+} from "./libraries/composition-engine/index.js";
 import {
   APPLICATION_PROGRAM_GENERATOR,
   ApplicationProgramRuntime,
@@ -70,13 +70,13 @@ import {
   applicationProgramInstances,
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
-} from "./libraries/composition-engine/index.js?v=node-roi-placement-1";
+} from "./libraries/composition-engine/index.js";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
 import { MediaInputLifecycleNode } from "./libraries/media-engine/index.js";
 import { RenderDemandNode } from "./libraries/render-engine/index.js";
-import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js?v=node-roi-placement-1";
+import { VisualNodeDefinitionNode } from "./libraries/visual-nodes/index.js";
 import {
   Convert3dFileToImageGroup,
   ComposableScene3dGroup,
@@ -89,8 +89,8 @@ import {
   Scene3dNodeDefinitions,
   StlParserNode,
   compileScene3dProgram,
-} from "./libraries/mesh-engine/index.js?v=node-roi-placement-1";
-import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js?v=named-image-inputs-1";
+} from "./libraries/mesh-engine/index.js";
+import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js";
 
 const ProjectComponentNode = semanticProjectNode("vj1.project.component", "Component", "A task-oriented visual program composed from reusable nodes.", "texture");
 const ProjectSceneNode = semanticProjectNode("vj1.project.scene", "Scene", "A spatial visual program arranging reusable Components against shared projection Surfaces.", "texture");

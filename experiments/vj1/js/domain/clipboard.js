@@ -1,13 +1,13 @@
-import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js?v=surface-terminology-1";
-import { componentFrameMetrics } from "./component-frame.js?v=adaptive-component-demand-29";
-import { sceneLogicalSize } from "./render-settings.js?v=surface-terminology-1";
-import { insertChainItemNearSelection } from "./chain-operations.js?v=adaptive-component-demand-29";
-import { initializeLiveChainInsertion } from "./scene-routing.js?v=explicit-direct-surface-hierarchy-1";
+import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js";
+import { componentFrameMetrics } from "./component-frame.js";
+import { sceneLogicalSize } from "./render-settings.js";
+import { insertChainItemNearSelection } from "./chain-operations.js";
+import { initializeLiveChainInsertion } from "./scene-routing.js";
 import {
   canonicalizeAuthoredVisualChain,
   canonicalizeAuthoredVisualSource,
   createAuthoredMediaSource,
-} from "./authored-visual-source.js?v=async-media-dirty-1";
+} from "./authored-visual-source.js";
 
 export const VJ1_CLIPBOARD_TYPE = "application/x-vj1-item";
 

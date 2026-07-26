@@ -1,16 +1,16 @@
 import { VJ1, defaultCustomShaderCode, WORKSPACES } from "../constants.js";
-import { createGeneratorSource } from "../libraries/visual-nodes/index.js?v=project-media-contain-1";
-import { componentFrameMetrics, normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js?v=pixel-density-4";
-import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
-import { normalizeCatalogMarker } from "./catalog-marker.js?v=catalog-marker-four-state-1";
-import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js?v=project-media-contain-1";
+import { createGeneratorSource } from "../libraries/visual-nodes/index.js";
+import { componentFrameMetrics, normalizeComponentFrameShape, normalizeComponentResolutionScale } from "./component-frame.js";
+import { createProjectActivity, normalizeProjectActivity } from "./component-activity.js";
+import { normalizeCatalogMarker } from "./catalog-marker.js";
+import { CURRENT_PROJECT_VERSION, migrateProjectData } from "./project-migrations.js";
 import {
   canonicalizeAuthoredVisualChain,
   canonicalizeAuthoredVisualSource,
-} from "./authored-visual-source.js?v=async-media-dirty-1";
-import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
-import { normalizeRelativeRect, projectedQuadAspect, projectedRelativeQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=surface-relative-aspect-1";
-import { FULL_NODE_BOUNDARY, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
+} from "./authored-visual-source.js";
+import { createEmptyNodeProjectData, normalizeNodeProjectData } from "../libraries/node-engine/node-project.js";
+import { normalizeRelativeRect, projectedQuadAspect, projectedRelativeQuadAspect } from "../libraries/render-engine/relative-geometry.js";
+import { FULL_NODE_BOUNDARY, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
   createOutputDefinition,
   normalizeCameraSettings,
@@ -19,7 +19,7 @@ import {
   normalizeRenderSettings,
   normalizeOutputName,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=surface-terminology-1";
+} from "./render-settings.js";
 import {
   applySceneSourceNode,
   authoredSurfaceFields,
@@ -31,17 +31,17 @@ import {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=live-output-matrix-contract-3";
-import { compileLiveProjectionProgram } from "./live-projection-program.js?v=live-output-matrix-contract-3";
+} from "./scene-routing.js";
+import { compileLiveProjectionProgram } from "./live-projection-program.js";
 import {
   materializeStructuralTree,
   materializeStructuralValue,
 } from "../libraries/data-store/data-store/structural-sharing.js";
-import { firstEnabledLiveSurfaceId } from "./live-ui-state.js?v=live-output-matrix-contract-3";
+import { firstEnabledLiveSurfaceId } from "./live-ui-state.js";
 import {
   MAPPING_TEST_PATTERN_COMPONENT_ID,
   MAPPING_TEST_PATTERN_SOURCE_NODE_ID,
-} from "./runtime-visual-sources.js?v=runtime-visual-sources-1";
+} from "./runtime-visual-sources.js";
 
 export {
   createOutputDefinition,
@@ -52,7 +52,7 @@ export {
   normalizeRenderSettings,
   normalizeOutputName,
   normalizeSamplingSettings,
-} from "./render-settings.js?v=surface-terminology-1";
+} from "./render-settings.js";
 export {
   applySceneSourceNode,
   authoredSurfaceFields,
@@ -65,13 +65,13 @@ export {
   resolveSceneSourceNode,
   sceneSourceNodeId,
   sceneSourceNodes,
-} from "./scene-routing.js?v=live-output-matrix-contract-3";
+} from "./scene-routing.js";
 
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
-export { MAPPING_TEST_PATTERN_COMPONENT_ID } from "./runtime-visual-sources.js?v=runtime-visual-sources-1";
+export { MAPPING_TEST_PATTERN_COMPONENT_ID } from "./runtime-visual-sources.js";
 
 export function createDefaultComponent(index = 0, { empty = false } = {}) {
   const initialSource = createDefaultSource();

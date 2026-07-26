@@ -1,12 +1,12 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../../node-engine/node-definition.js";
-import { MeshCollectionType } from "../../../mesh-engine/mesh-collection/index.js?v=mesh-collection-1";
+import { MeshCollectionType } from "../../../mesh-engine/mesh-collection/index.js";
 import { GeometryProviderType } from "../../shared/visual-stage-types.js";
-import { createHeartMeshCollection } from "./heart-mesh-collection.js?v=canonical-primitives-3";
-import { createHandMeshCollection } from "./hand-mesh-collection.js?v=canonical-primitives-2";
-import { createArmMeshCollection } from "./arm-mesh-collection.js?v=canonical-limbs-1";
-import { createLegMeshCollection } from "./leg-mesh-collection.js?v=canonical-limbs-1";
-import { createBodyMeshCollection } from "./body-mesh-collection.js?v=canonical-limbs-1";
-import { createFaceMeshCollection } from "./face-mesh-collection.js?v=canonical-face-1";
+import { createHeartMeshCollection } from "./heart-mesh-collection.js";
+import { createHandMeshCollection } from "./hand-mesh-collection.js";
+import { createArmMeshCollection } from "./arm-mesh-collection.js";
+import { createLegMeshCollection } from "./leg-mesh-collection.js";
+import { createBodyMeshCollection } from "./body-mesh-collection.js";
+import { createFaceMeshCollection } from "./face-mesh-collection.js";
 
 const ANATOMY_PARTS = ["face", "body", "hand", "arm", "leg", "heart"];
 

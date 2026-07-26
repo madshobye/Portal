@@ -9,10 +9,10 @@ import {
 } from "../../generators/mesh-patterns/palette.js";
 import {
   MaterialBinding3dListType,
-} from "../../../mesh-engine/material-binding-3d/index.js?v=mesh-collection-2";
+} from "../../../mesh-engine/material-binding-3d/index.js";
 import {
   createMaterial3d,
-} from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
+} from "../../../mesh-engine/scene-types.js";
 import { VisualMaterialProviderType } from "../../shared/visual-stage-types.js";
 
 const FILL_SETTING_IDS = Object.freeze([

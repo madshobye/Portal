@@ -1,13 +1,13 @@
-import { acceptVideoDecodedFrame, drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js?v=decoded-frame-drawability-1";
-import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js?v=madstodo-4";
-import { graphicsToPngBlob } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
-import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js?v=model-import-status-1";
+import { acceptVideoDecodedFrame, drawCover, isDrawableMedia, pauseVideoPlayback, syncVideoPlayback } from "./media-utils.js";
+import { mediaRenditionKey, mediaSourceRevision } from "../services/media-rendition-service.js";
+import { graphicsToPngBlob } from "./thumbnail-utils.js";
+import { processObjModelBuffer, processStlModelBuffer } from "./specialized/model-processing-client.js";
 import { disposeRawModelItemResources, estimateRawModelItemGpuBytes } from "../libraries/mesh-engine/mesh-render/index.js";
-import { readRasterDimensions } from "./raster-metadata.js?v=media-demand-6";
-import { SharedInputRuntime } from "./shared-input-runtime.js?v=async-media-dirty-1";
-import { frameSize } from "./render-geometry.js?v=output-one-1";
+import { readRasterDimensions } from "./raster-metadata.js";
+import { SharedInputRuntime } from "./shared-input-runtime.js";
+import { frameSize } from "./render-geometry.js";
 
-export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=async-media-dirty-1";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js";
 
 let videoFrameCallbackFailureReported = false;
 let rasterDecodeApiFallbackReported = false;

@@ -1,57 +1,57 @@
-import { OutputMediaRuntime } from "./output-media-runtime.js?v=typed-value-invalidation-1";
-import { ControlSignalRuntime } from "./control-signal-runtime.js?v=async-media-dirty-1";
-import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js?v=compiled-program-projection-1";
-import { OutputSurfaceRuntime } from "./output-surface-runtime.js?v=live-output-matrix-contract-3";
-import { IsfRenderRuntime } from "./isf-render-runtime.js?v=visual-node-runtime-capability-1";
-import { TextureOperatorRuntime } from "./texture-operator-runtime.js?v=async-media-dirty-1";
-import { ShaderEffectRuntime } from "./shader-effect-runtime.js?v=shader-program-lifetime-1";
-import { ShaderGeneratorRuntime } from "./shader-generator-runtime.js?v=async-media-dirty-1";
-import { RenderEvaluationRuntime } from "./render-evaluation-runtime.js?v=signal-load-observability-1";
-import { RenderTargetRuntime } from "./render-target-runtime.js?v=async-media-dirty-1";
-import { RenderRequestRuntime } from "./render-request-runtime.js?v=render-request-capability-1";
-import { CompositeRenderRuntime } from "./composite-render-runtime.js?v=node-roi-placement-1";
-import { TransitionRuntime } from "./transition-runtime.js?v=signal-load-observability-1";
+import { OutputMediaRuntime } from "./output-media-runtime.js";
+import { ControlSignalRuntime } from "./control-signal-runtime.js";
+import { OutputThumbnailRuntime } from "./output-thumbnail-runtime.js";
+import { OutputSurfaceRuntime } from "./output-surface-runtime.js";
+import { IsfRenderRuntime } from "./isf-render-runtime.js";
+import { TextureOperatorRuntime } from "./texture-operator-runtime.js";
+import { ShaderEffectRuntime } from "./shader-effect-runtime.js";
+import { ShaderGeneratorRuntime } from "./shader-generator-runtime.js";
+import { RenderEvaluationRuntime } from "./render-evaluation-runtime.js";
+import { RenderTargetRuntime } from "./render-target-runtime.js";
+import { RenderRequestRuntime } from "./render-request-runtime.js";
+import { CompositeRenderRuntime } from "./composite-render-runtime.js";
+import { TransitionRuntime } from "./transition-runtime.js";
 import {
   ComponentProgramRuntime,
   renderStateComponentProgramRoots,
-} from "./component-program-runtime.js?v=signal-load-observability-1";
+} from "./component-program-runtime.js";
 import {
   ComponentRenderRuntime,
   componentPipelineSourceRequest,
-} from "./component-render-runtime.js?v=signal-load-observability-1";
-import { MappingProgramRuntime } from "./mapping-program-runtime.js?v=signal-load-observability-1";
+} from "./component-render-runtime.js";
+import { MappingProgramRuntime } from "./mapping-program-runtime.js";
 import {
   VisualPlanRuntime,
   primaryTextureInputPort,
   visualOperationRenderItem,
-} from "./visual-plan-runtime.js?v=node-roi-placement-1";
-import { SourceRenderRuntime } from "./source-render-runtime.js?v=signal-load-observability-1";
-import { ComponentPreviewInteraction } from "./component-preview-interaction.js?v=output-resource-runtime-capability-1";
-import { OutputRenderProfile } from "./output-render-profile.js?v=profiling-capability-1";
-import { OutputPresentationMetrics } from "./output-presentation-metrics.js?v=signal-load-observability-1";
-import { PresentationGeometryRuntime } from "./presentation-geometry-runtime.js?v=presentation-geometry-capability-1";
-import { OutputReadinessRuntime } from "./output-readiness-runtime.js?v=async-media-dirty-1";
-import { OutputFrameRuntime } from "./output-frame-runtime.js?v=async-media-dirty-1";
-import { LiveRenderPatchRuntime } from "./live-render-patch-runtime.js?v=structural-world-state-2";
-import { VisualNodeRuntime } from "./visual-node-runtime.js?v=node-roi-placement-1";
-import { OutputMappingRuntime } from "./output-mapping-runtime.js?v=output-resource-runtime-capability-1";
-import { OutputPresentationRuntime } from "./output-presentation-runtime.js?v=signal-load-observability-1";
-import { OutputResourceRuntime } from "./output-resource-runtime.js?v=output-resource-runtime-capability-1";
-import { OutputStateRuntime } from "./output-state-runtime.js?v=live-output-matrix-contract-3";
+} from "./visual-plan-runtime.js";
+import { SourceRenderRuntime } from "./source-render-runtime.js";
+import { ComponentPreviewInteraction } from "./component-preview-interaction.js";
+import { OutputRenderProfile } from "./output-render-profile.js";
+import { OutputPresentationMetrics } from "./output-presentation-metrics.js";
+import { PresentationGeometryRuntime } from "./presentation-geometry-runtime.js";
+import { OutputReadinessRuntime } from "./output-readiness-runtime.js";
+import { OutputFrameRuntime } from "./output-frame-runtime.js";
+import { LiveRenderPatchRuntime } from "./live-render-patch-runtime.js";
+import { VisualNodeRuntime } from "./visual-node-runtime.js";
+import { OutputMappingRuntime } from "./output-mapping-runtime.js";
+import { OutputPresentationRuntime } from "./output-presentation-runtime.js";
+import { OutputResourceRuntime } from "./output-resource-runtime.js";
+import { OutputStateRuntime } from "./output-state-runtime.js";
 import {
   frameSize,
-} from "./render-geometry.js?v=fit-geometry-demand-1";
-import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js?v=structural-world-state-2";
+} from "./render-geometry.js";
+import { SpecializedSourceRuntime } from "./specialized/specialized-source-runtime.js";
 import { NativeRendererRegistry } from "../libraries/render-engine/native-renderer-registry.js";
 import { signalLoadMeter } from "../metrics/signal-load-meter.js";
 
-export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
+export { averageGpuQueryNanoseconds, GpuTimerTracker } from "./gpu-timer-tracker.js";
 export { parseObjMesh } from "../libraries/mesh-engine/obj-parser/index.js";
 export { modelDepthCutoff, transformedModelDepthRange } from "../libraries/mesh-engine/mesh-render-math.js";
-export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js?v=alpha-feather-1";
-export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js?v=volumetric-clouds-1";
-export { sourceWithNodeParams } from "./component-patch-adapter.js?v=canonical-effect-params-1";
-export { effectNeedsComposite } from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
+export { chainTransformDragScale, pointInTransformedRect } from "./preview-interaction-geometry.js";
+export { advanceRateClock, advanceSpatialScale, componentInstanceTime, effectTransformUniforms, eyeballFrameUniforms, instanceTime, qualityAdjustedGeneratorParams, qualityScaledRenderRequest } from "./render-runtime-math.js";
+export { sourceWithNodeParams } from "./component-patch-adapter.js";
+export { effectNeedsComposite } from "./shader-target-runtime.js";
 export {
   compiledSourceRenderRequest,
   compiledNativeSourceRenderer,
@@ -60,9 +60,9 @@ export {
   mediaSourceDemandWidth,
   namedTextureStateKey,
   namedValueIdentityKey,
-} from "./source-render-runtime.js?v=node-roi-placement-1";
-export { fittedThumbnailSize } from "./thumbnail-utils.js?v=canvas-global-resolution-1";
-export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
+} from "./source-render-runtime.js";
+export { fittedThumbnailSize } from "./thumbnail-utils.js";
+export { cameraCaptureSettings, cameraSettingsSignature } from "./shared-input-runtime.js";
 export {
   terrainExpandedGridWireVertices,
   terrainExpandedWireVertices,
@@ -71,7 +71,7 @@ export {
   terrainSurfaceGridVertices,
   terrainSurfaceTriangleIndices,
   terrainTriangleEdgeUvs,
-} from "./specialized/terrain-mesh.js?v=shared-terrain-grid-math-16";
+} from "./specialized/terrain-mesh.js";
 export {
   sceneComponentPlacementRect,
   surfaceBorderHit,
@@ -94,7 +94,7 @@ export {
   resizeSurfaceRect,
   scaledComponentSampleRect,
   sharedComponentRenderRequests,
-} from "./component-render-layout.js?v=surface-terminology-1";
+} from "./component-render-layout.js";
 
 export { primaryTextureInputPort, visualOperationRenderItem };
 

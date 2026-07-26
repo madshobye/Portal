@@ -1,8 +1,8 @@
-import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js?v=project-media-contain-1";
-import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
-import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js?v=catalog-tools-row-1";
-import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
-import { mediaCategory, mediaPickerCardTemplate, mediaRefreshButtonTemplate } from "./media-view.js?v=media-name-presentation-1";
+import { listGeneratorNodeComponents as listGeneratorComponents, listEffectNodeComponents as listShaderComponents } from "../libraries/visual-nodes/index.js";
+import { effectIcon, esc, icon, thumbnailTemplate } from "./template-utils.js";
+import { catalogMarkerButtonTemplate, sortComponentCatalog } from "./catalog-view.js";
+import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js";
+import { mediaCategory, mediaPickerCardTemplate, mediaRefreshButtonTemplate } from "./media-view.js";
 import { UI_ICONS } from "./ui-icons.js";
 
 function getByPath(target, path) {

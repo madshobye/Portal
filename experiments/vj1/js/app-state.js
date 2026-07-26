@@ -17,23 +17,23 @@ import {
   sanitizeState,
   syncSurfaceProportionsFromMapping,
   uid,
-} from "./domain/models.js?v=signal-load-observability-1";
-import { compileLiveProjectionProgram } from "./domain/live-projection-program.js?v=live-output-matrix-contract-3";
-import { firstEnabledLiveSurfaceId, liveSurfaceVisible } from "./domain/live-ui-state.js?v=live-output-matrix-contract-3";
-import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js?v=adaptive-component-demand-29";
-import { componentFrameMetrics } from "./domain/component-frame.js?v=adaptive-component-demand-29";
+} from "./domain/models.js";
+import { compileLiveProjectionProgram } from "./domain/live-projection-program.js";
+import { firstEnabledLiveSurfaceId, liveSurfaceVisible } from "./domain/live-ui-state.js";
+import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js";
+import { componentFrameMetrics } from "./domain/component-frame.js";
 import { WORKSPACES } from "./constants.js";
-import { createChangeEvent } from "./libraries/state-engine/state-command/index.js?v=structural-world-state-2";
-import { sceneLogicalSize } from "./domain/render-settings.js?v=surface-terminology-1";
-import { nextCatalogMarker } from "./domain/catalog-marker.js?v=catalog-marker-four-state-1";
-import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js?v=adaptive-component-demand-29";
-import { copyComponentAsScene, pasteClipboardPayload } from "./domain/clipboard.js?v=canvas-global-resolution-1";
-import { initializeLiveChainInsertion } from "./domain/scene-routing.js?v=live-output-matrix-contract-3";
+import { createChangeEvent } from "./libraries/state-engine/state-command/index.js";
+import { sceneLogicalSize } from "./domain/render-settings.js";
+import { nextCatalogMarker } from "./domain/catalog-marker.js";
+import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js";
+import { copyComponentAsScene, pasteClipboardPayload } from "./domain/clipboard.js";
+import { initializeLiveChainInsertion } from "./domain/scene-routing.js";
 import {
   materializeStructuralTree,
   ObservableDataStore,
   produceStructuralShare,
-} from "./libraries/data-store/data-store/index.js?v=structural-world-state-2";
+} from "./libraries/data-store/data-store/index.js";
 import { signalLoadMeter } from "./metrics/signal-load-meter.js";
 
 export function createAppState(initial = null, {
@@ -534,6 +534,17 @@ export function createAppState(initial = null, {
     },
     selectChainItem(id) {
       const selected = state.components.find((component) => component.id === state.ui.selectedComponentId);
+      if (!id) {
+        if (!state.ui.selectedChainItemId) return;
+        updateUi((ui) => {
+          ui.selectedChainItemId = "";
+          if (ui.workspace === "scene") ui.sceneInspectorTarget = "element";
+        }, {
+          reason: "select-chain-item",
+          changedPaths: ["ui.selectedChainItemId"],
+        });
+        return;
+      }
       if (!findChainItemLocation(selected?.chain, id)) return;
       updateUi((ui) => {
         ui.selectedChainItemId = id;
@@ -849,6 +860,45 @@ export function createAppState(initial = null, {
         draft.ui.live.transition = null;
         draft.ui.live.selectedComponentId = scene.id;
       }, { reason: "live:scene-restore", history: "none" });
+    },
+    restoreLivePreference({ sceneId = "", previewSurfaceId = "" } = {}) {
+      updateLive((draft) => {
+        const scene = draft.components.find(
+          (item) => item.type === "scene" && String(item.id) === String(sceneId),
+        );
+        const mapping = draft.mappings.find(
+          (item) => String(item.id) === String(draft.ui.selectedMappingId || ""),
+        ) || draft.mappings[0];
+        const requestedSurfaceId = String(previewSurfaceId || "");
+        const surfaceIsValid =
+          requestedSurfaceId === "__mapping__" ||
+          mapping?.surfaces?.some(
+            (surface) => String(surface.id) === requestedSurfaceId,
+          );
+        if (scene) {
+          draft.ui.live.sceneOverrides ||= {};
+          draft.ui.live.overallSourceCleared = false;
+          draft.ui.live.selectedSceneId = scene.id;
+          draft.ui.live.selectedComponentId = scene.id;
+          draft.ui.live.inspectedComponentId = "";
+          draft.ui.live.surfacePatches = {};
+          draft.ui.live.patchSourceId = "";
+          draft.ui.live.componentOverrides = clone(
+            draft.ui.live.sceneOverrides[scene.id] || {},
+          );
+          draft.ui.live.transition = null;
+        }
+        if (surfaceIsValid) {
+          draft.ui.live.previewSurfaceId = requestedSurfaceId;
+          draft.ui.previewViewports ||= {};
+          draft.ui.previewViewports.live = {
+            zoom: 1,
+            x: 0,
+            y: 0,
+            fit: "frame",
+          };
+        }
+      }, { reason: "live:preference-restore", history: "none" });
     },
     resetLiveScene(id) {
       updateLive((draft) => {

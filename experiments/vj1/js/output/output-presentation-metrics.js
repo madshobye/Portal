@@ -1,4 +1,4 @@
-import { normalizePixelDensity, renderMaxFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
+import { normalizePixelDensity, renderMaxFrameRate } from "../domain/render-settings.js";
 
 export class OutputPresentationMetrics {
   constructor(host) {

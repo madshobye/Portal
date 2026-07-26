@@ -1,11 +1,11 @@
-import { renderBufferKey } from "./component-render-state.js?v=async-media-dirty-1";
-import { renderRequestKey } from "./render-geometry.js?v=fit-geometry-demand-1";
-import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
+import { renderBufferKey } from "./component-render-state.js";
+import { renderRequestKey } from "./render-geometry.js";
+import { drawBuffer } from "./render-draw-utils.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
-} from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
-import { disposeGraphics } from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "./shared-framebuffer-target.js";
+import { disposeGraphics } from "./shader-target-runtime.js";
 
 export class RenderTargetRuntime {
   constructor(host) {

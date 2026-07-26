@@ -1,4 +1,4 @@
-import { MeshoptSimplifier } from "../../vendor/meshopt-simplifier.js?v=meshoptimizer-0.25";
+import { MeshoptSimplifier } from "../../vendor/meshopt-simplifier.js";
 
 await MeshoptSimplifier.ready;
 

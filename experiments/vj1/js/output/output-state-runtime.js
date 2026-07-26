@@ -1,5 +1,5 @@
-import { sanitizeState } from "../domain/models.js?v=surface-terminology-1";
-import { cameraSettingsSignature } from "./shared-input-runtime.js?v=camera-input-leases-1";
+import { sanitizeState } from "../domain/models.js";
+import { cameraSettingsSignature } from "./shared-input-runtime.js";
 
 // Owns activation of the semantic project snapshot and every retained program
 // derived from it. State changes are transactional at this boundary: frame

@@ -1,13 +1,13 @@
 import {
   createProjectVisualNodeResolver,
   VisualStageNodeDefinitions,
-} from "../libraries/visual-nodes/index.js?v=node-roi-placement-1";
-import { TextureOperatorNodeDefinitions } from "../libraries/composition-engine/index.js?v=node-roi-placement-1";
+} from "../libraries/visual-nodes/index.js";
+import { TextureOperatorNodeDefinitions } from "../libraries/composition-engine/index.js";
 import { RenderDemandNode } from "../libraries/render-engine/index.js";
 import {
   ComposableScene3dGroup,
   Transform3dNode,
-} from "../libraries/mesh-engine/index.js?v=node-roi-placement-1";
+} from "../libraries/mesh-engine/index.js";
 import { TerrainFlightControllerNode } from "../libraries/terrain-engine/index.js";
 
 const COMPILED_VISUAL_CORE_DEFINITIONS = new Map([

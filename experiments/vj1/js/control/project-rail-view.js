@@ -1,14 +1,14 @@
-import { catalogMarkerButtonTemplate, componentCatalogToolsTemplate, componentFilterTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { getLiveSourceTarget, sceneComponents, ordinaryComponents } from "./control-selectors.js?v=live-output-matrix-contract-3";
-import { liveComponentPillTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate } from "./mapping-live-view.js?v=live-output-matrix-contract-3";
-import { componentCardBarTemplate, railListSectionTemplate, textListItemTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-card-type-icons-1";
-import { esc, icon, thumbnailTemplate } from "./template-utils.js?v=derived-thumbnail-projection-1";
-import { liveSurfaceVisible } from "../domain/live-ui-state.js?v=live-output-matrix-contract-3";
-import { listProjectIsfTransitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+import { catalogMarkerButtonTemplate, componentCatalogSearchText, componentCatalogToolsTemplate, componentFilterTemplate } from "./catalog-view.js";
+import { getLiveSourceTarget, sceneComponents, ordinaryComponents } from "./control-selectors.js";
+import { liveComponentPillTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate } from "./mapping-live-view.js";
+import { componentCardBarTemplate, railListSectionTemplate, textListItemTemplate } from "./view-primitives.js";
+import { esc, icon, thumbnailTemplate } from "./template-utils.js";
+import { liveSurfaceVisible } from "../domain/live-ui-state.js";
+import { listProjectIsfTransitions } from "../libraries/isf-engine/index.js";
 import {
   DefaultBuiltInTransition,
   listBuiltInTransitionEntries,
-} from "../libraries/visual-nodes/catalog.js?v=compiled-capability-revision-1";
+} from "../libraries/visual-nodes/catalog.js";
 import { createTransitionCatalog } from "../libraries/transition-engine/index.js";
 import { componentTypeIcon, UI_ICONS } from "./ui-icons.js";
 
@@ -255,7 +255,7 @@ function componentPillTemplate(component, state, renderSelection = true) {
     ? ordinaryComponents(state).length <= 1
     : state.components.length <= 1;
   return `
-    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(component.name.toLowerCase())}">
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(component))}">
       <button type="button" class="component-card ${selected ? "is-selected" : ""}" data-select-component="${esc(component.id)}">
         ${thumbnailTemplate(component.thumbnail, fallbackIcon, component.id)}
         ${componentCardBarTemplate(component.name, fallbackIcon)}

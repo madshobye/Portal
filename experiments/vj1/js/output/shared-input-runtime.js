@@ -1,7 +1,7 @@
-import { frameSize } from "./render-geometry.js?v=adaptive-component-demand-29";
-import { screenCaptureService } from "./screen-capture-service.js?v=async-media-dirty-1";
+import { frameSize } from "./render-geometry.js";
+import { screenCaptureService } from "./screen-capture-service.js";
 import { MediaInputLifecycle } from "../libraries/media-engine/media-input-lifecycle/index.js";
-import { isDrawableMedia } from "./media-utils.js?v=runtime-diagnostics-1";
+import { isDrawableMedia } from "./media-utils.js";
 
 const CAMERA_RETRY_MS = 3000;
 const CAMERA_IDLE_GRACE_MS = 750;

@@ -1,42 +1,42 @@
-import GeneratorAnatomy from "./generators/anatomy/index.js?v=node-roi-placement-1";
+import GeneratorAnatomy from "./generators/anatomy/index.js";
 import GeneratorAdditiveLightOrbs from "./generators/additive-light-orbs/index.js";
 import GeneratorAnimatedDazzleStripes from "./generators/animated-dazzle-stripes/index.js";
 import GeneratorBezierStrokes from "./generators/bezier-strokes/index.js";
 import GeneratorBiomineLite from "./generators/biomine-lite/index.js";
-import GeneratorCameraInput from "./generators/camera-input/index.js?v=compiled-capability-revision-1";
+import GeneratorCameraInput from "./generators/camera-input/index.js";
 import GeneratorCellularCircles from "./generators/cellular-circles/index.js";
 import GeneratorChainFollowerTrails from "./generators/chain-follower-trails/index.js";
 import GeneratorChecker from "./generators/checker/index.js";
 import GeneratorCherenkovVolume from "./generators/cherenkov-volume/index.js";
 import GeneratorCloudyTunnel from "./generators/cloudy-tunnel/index.js";
-import GeneratorEyeball from "./generators/eyeball/index.js?v=compound-terminal-roi-1";
-import GeneratorEyeballRender from "./generators/eyeball-render/index.js?v=compound-terminal-roi-1";
-import GeneratorFeatureMorphV2 from "./generators/feature-morph-v2/index.js?v=compiled-capability-revision-1";
-import GeneratorFeatureMorph from "./generators/feature-morph/index.js?v=compiled-capability-revision-1";
+import GeneratorEyeball from "./generators/eyeball/index.js";
+import GeneratorEyeballRender from "./generators/eyeball-render/index.js";
+import GeneratorFeatureMorphV2 from "./generators/feature-morph-v2/index.js";
+import GeneratorFeatureMorph from "./generators/feature-morph/index.js";
 import GeneratorFireflies from "./generators/fireflies/index.js";
 import GeneratorFog from "./generators/fog/index.js";
 import GeneratorGalaxy from "./generators/galaxy/index.js";
 import GeneratorGradient from "./generators/gradient/index.js";
 import GeneratorGestureReticle from "./generators/gesture-reticle/index.js";
 import GeneratorLightning from "./generators/lightning/index.js";
-import GeneratorMediaImage from "./generators/media-image/index.js?v=project-media-contain-1";
-import GeneratorMeshPatterns from "./generators/mesh-patterns/index.js?v=compiled-capability-revision-1";
-import GeneratorModelMedia from "./generators/model-media/index.js?v=node-roi-placement-1";
+import GeneratorMediaImage from "./generators/media-image/index.js";
+import GeneratorMeshPatterns from "./generators/mesh-patterns/index.js";
+import GeneratorModelMedia from "./generators/model-media/index.js";
 import GeneratorNoise from "./generators/noise/index.js";
 import GeneratorNestedOrbitMotion from "./generators/nested-orbit-motion/index.js";
 import GeneratorPaintDrips from "./generators/paint-drips/index.js";
 import GeneratorPlasma from "./generators/plasma/index.js";
-import GeneratorScreenShare from "./generators/screen-share/index.js?v=compiled-capability-revision-1";
-import GeneratorSdfSketch from "./generators/sdf-sketch/index.js?v=sdf-content-editor-1";
+import GeneratorScreenShare from "./generators/screen-share/index.js";
+import GeneratorSdfSketch from "./generators/sdf-sketch/index.js";
 import GeneratorSeascape from "./generators/seascape/index.js";
 import GeneratorShadertoyBaseWarp from "./generators/shadertoy-base-warp/index.js";
 import GeneratorSunRays from "./generators/sun-rays/index.js";
 import GeneratorSwayingTrees from "./generators/swaying-trees/index.js";
-import GeneratorTerrainFlyover from "./generators/terrain-flyover/index.js?v=compiled-capability-revision-1";
+import GeneratorTerrainFlyover from "./generators/terrain-flyover/index.js";
 import GeneratorExpressiveRibbonBrush from "./generators/expressive-ribbon-brush/index.js";
-import GeneratorTestPattern from "./generators/test-pattern/index.js?v=pixel-diagnostics-1";
-import GeneratorText from "./generators/text/index.js?v=compiled-capability-revision-1";
-import GeneratorTileTexture from "./generators/tile-texture/index.js?v=compiled-capability-revision-1";
+import GeneratorTestPattern from "./generators/test-pattern/index.js";
+import GeneratorText from "./generators/text/index.js";
+import GeneratorTileTexture from "./generators/tile-texture/index.js";
 import GeneratorVolumetricClouds from "./generators/volumetric-clouds/index.js";
 import GeneratorWaves from "./generators/waves/index.js";
 import EffectAlphaFeather from "./effects/alpha-feather/index.js";
@@ -78,7 +78,7 @@ import {
   VISUAL_IMPLEMENTATION_FORMATS,
   VISUAL_LIBRARY_LAYER_KINDS,
 } from "../visual-library/index.js";
-import { BuiltInIsfRepository } from "../visual-library/built-in-isf-repository.js?v=async-media-dirty-1";
+import { BuiltInIsfRepository } from "../visual-library/built-in-isf-repository.js";
 export { componentFromNodeDefinition } from "./shared/visual-node-factory.js";
 
 const builtInIsfByVisualId = new Map(

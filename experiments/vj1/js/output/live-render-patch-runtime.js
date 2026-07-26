@@ -3,7 +3,7 @@ import {
   interpolatedLiveRenderValue,
   isInterpolableLiveRenderPath,
   resolveLiveRenderPatches,
-} from "../domain/live-render-patch.js?v=surface-projection-patch-1";
+} from "../domain/live-render-patch.js";
 
 export function renderPatchChangesProgramReachability(patch = {}) {
   if (patch?.target === "state") return false;

@@ -3,7 +3,7 @@ import { MeshType } from "../mesh-types.js";
 import {
   createPathTubeMesh,
   proceduralMeshSignature,
-} from "../procedural-mesh-primitives/index.js?v=procedural-mesh-primitives-2";
+} from "../procedural-mesh-primitives/index.js";
 
 export const PathTubeMeshNode = defineNode({
   id: "core.scene3d.path-tube-mesh",

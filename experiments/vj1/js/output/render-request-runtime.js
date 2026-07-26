@@ -1,4 +1,4 @@
-import { createRenderRequest } from "./render-geometry.js?v=fit-geometry-demand-1";
+import { createRenderRequest } from "./render-geometry.js";
 
 // Owns the normalized render-demand contract shared by compiled visual
 // runtimes. Nodes consume retained request values directly; the renderer shell

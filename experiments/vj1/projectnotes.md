@@ -31,42 +31,235 @@
 
 #Inbox
 
-Terrain Flyover's default camera/placement starts with the ground plane outside the intended Component framing.
+previously we had a solution in which clicking a new component or scene in live view while a transition was happening would result in it being armed for the next transition can that come back but only if it is a transition involving the current output window. e.g. if another output window is selected it should not wait for the other one.
+
+Open feature: allow individual elements to choose portrait, landscape, or
+square frame shapes independently from the parent Component/Scene. This needs a
+single semantic frame contract rather than copied dimensions.
+
+it would be nice if seed and time could sync up between live view preview and output window such that the animations were in sync. it causes a bit of confusion sometimes that they are wastly different.
+
+**Design decision remains open.** Preview and Output currently own separate
+accumulated presentation clocks, including pause and time-stretch state. True
+synchronization needs a shared session timeline and explicit rebase rules; it
+should not be approximated by reading wall-clock time in individual nodes.
+
+how close are we to important the isf shader library into the app as base shaders to use for different things? ISF has this repository https://github.com/Vidvox/ISF-Files/tree/master/ISF and I would like to import ideally all of them. Some use a vertex shader i think? and they have different porpuses. i assume the simple shaders is not a problem. but i would also like for the shaders that are e.g. transitions to be imported and used as transitions. i suggest that we create a transition generator that can be inserted in the chain. The concept would be the following: when a isf transition is inserted it be becomes an element that can contain children like a group and maybe two coloumns such that one can create two list underneath it for each transition. I would like for there also to be a mode where it can transition between what come before the isf shader and what is inside its group. either there should be a toggle as a param or a logic based on whether both coloumns has been filled out. Similarly sound should be implimented so it is compatible with isf. I suggest that we create some settings in input sources for sound and that we have a basic fft library to create fft textures (i think isf has this logic right?). be aware that the current version of p5 v2 does not seems to have a strong sound implimentation and i suggest that we bypas p5 and use tone js instead https://tonejs.github.io/ 
+
+relating to the above and in general we need to work with live input like mouse, multitouch and webcam tracking. i suggest that we start to develop a logic where the system has a multitouch input bus attached to both output window and when the preview window in such a way that we can ahve a drawing shader that one can draw on top of live when the system is running. I want it to be in such a way that drawing in live view preview also produces touch signals to the output window. have a look at the portals multitouch code and copy it in or make your own iteration in the system. Further more i would like that settings has a hand tracking setting such that one can start a hand tracker that is converted into touch gestures as if it was a tablet or a touchpad. I would like for the system to use the following modes: 1. Click: use two fingers to "click" and it is detected as a click then movement from there is recorded either relatively or as absolutes. 2. a multi touch mode where all visible fingers are avaliable for finger painting etc. 
+
+In general i would like for the architecture to be relative generic or abstracted around media and shaders. e.g. i would like for there to be a few default shaders for stl files and a few default transitions but then i would like that one can use the media selector to select other shaders to use. e.g. that the bionome shader for terrain can also be used on a stl files and vice versa that a isf shader can be used on a terrain - would it even be possible to use an image (and thus the generator for an image) as a shader for a stl object?. and that besides some basic transition for transition in liveview that one can select other transition shaders to use. I suggest that the media library make sure to have a few categories that defines at least if something is a transition shader needing multiple sources or a more simple shader.
+
+Similarly i wonder if it would be possible to make the architecture so most things are pretty agnostic about input sources e.g. the morphing generators could recieve a component as its input and output source. Maybe this case is not that good because it needs to analyse but it would be good to start aiming for a pretty flexible architecture around this so there are few base input and output sources and thiings are relatively interchangable.
+
+I have a dream that we slowly move towards more complex chains in element list in scenes and components. my idea is that one can have a "group" that consists of nodes that are not neccesarely image nodes but the chain in the group should resolve in an image and possibly take an image in. These chains would then be a series of nodes that fit together. e.g. an stl loader + a mesh modifier + 3d mesh to image buffer output. I am thinking in terms of lego pieces or like littleBits - e.g. compoents conceptually either attract or reject lige poles of a magnet. so different compoentns nodes has a color for input and a color for output and one can then combine when they fit. in those terms we have already made a lot of nodes with the shader buffer input and output and they should then have a color.
+
+Similarly i would like to have a set of webcam tracking elements like hand gesture and bodypose (see the portal modules a do copy code into the vj app). Then i would like to be able to have different lego components that could be added e.g. a component that draws the body or the hand.
+
+I would like to slowly build an animation platform. my thought is that basic animations in our generators and effects like the heartbeat pulse should reside in the shader itself but they should not have default animations like the plasma that moves in a specific way or the terrain flyover. instead they should have a suggested animation mode and then there should be a generic animation node that they can inform how they work and they can then create a setup that can be modified by the user. The animation node should this be a part of each effect or generator group with preconfigured setting and the animation node should be shown as a view in the params list before the general tab. in this animation tab one has a list where one can add configurations based on the params in the element. e.g. one can select the opacity param and the tel the animation module to loop it within a certain timeframe or make it pin-pong and also have a way to choose envelopes and curves to make it more dynamic than simple transitions. In this animation mode one can also choose to set it to trigger mode and then a button show be avaliable and when clicking on it it animates e.g. a opacity ping pong once (or maybe with an option for number of animations). Later on we need to find a way to then connect this trigger button to a "bang"/signal from somewhere else. For this part it would be valuable to go through all the existing effects and generators and port them to this animation principle. Also it is valuable to be able to animate the color param as well such that it can transition between two colors.
+
+I would like for the visibility toggle on an element in component or a scene to actually be a transition toggle. e.g. that pressing it creates a transition from e.g. opacity or a transition slider (it is fine to opacity first but a shader warp from central point to full size later could be interesting). This is to connect it more clearly to live use so that the visibility toggle uses the param transition time like the other params. this is only for live view e.g. not when one generally toggles visibility in scene or component view.
 
 
-video or other asynchronous media must continue rendering without moving another element. movement must never be the signal that makes a ready resource visible.
+I would like to have a generator where one can select other element or components as a list (it could be a group like interface) and then they will be stacked in 3d such that they look like a parallax game design principle where he view port can shift a bit up, down, right and left to show the effect.
 
-short looping videos in comp74 sometimes shows video unavaliable in their loops as if the cache reloads them or something. also sometimes there also frames without a video e.g. just alpha which also makes it blink like the black streen. at least keep the last frame while video restarts in a loop.
+I would like to add an element that can be added to a component or scene chain which is a recording probe. what this probe does is that it records a pixel or a group of pixels like a color picker. one adds it to the chain and place it in the 2d canvas space and then it will record the color values for the area it is on top. the scale handles can be used to define size. The probe should then attach itself to a bus for live params that can be used by other elements. first and foremost by the animation engine that resides in the other nodes and elements. Here e.g. the brightness, the r,g,b or h,s, v (or b) values can the serve as information for the animation engine for another param e.g. opacity or scale. so e.g. if a probe reads 255 in brightness the opacity of the given elements is 100% procent or vice versa. This will create interlinked dynamics where changes in a scene will trigger other elements in the scene. I think we in the beginning needs to limit ourselves to connecting probes and animations within the same scene or component to limit the realtime setup since we else have to handle the edgecase of a probe is on a non active scene and the animation is tied to an active scene.
 
-The scaling architecture has a bug in which x and y for scaling boundary and content is not relative to the scaling. e.g it makes sense to have a slider going from -2 to 2 if the scale is 1 but it should also make sense if the scale is larger so some intermediary math is needed here.
+simmilarly we need to slowly impliment both wled control and dmx. I suggest we look up the most viable websocket based led control protocol for wled and create a settings panel where one can set up at wled ip or usb connection (have a look at the usb portal module and copy it to the vj1 app as a component) and for dmx have a look at the dmx controller experiment and copy dmx / usb serial control code from the portal modules as well - also make a settings panel for this. I suggest that we extend the probe concept so that there is a multiled probe where a ledstring can be placed in the mapper view on the preview output and then the pixels are recorded and transmitted to the wled or dmx. For dmx we need to be able to add fixtures and channels in settings. e.g. create a list of common fixtures "brigthnes.r.g.b" that one can add and define a start channel then this fixture can be placed as a probe in the mapper view.
+
+We need to start to think in terms of shaders that uses a feedback loop for delay etc. e.g. that the shader draws in its a stored shader buffer with fadeout over time such that live movement and video gets a trail effect. this might also be a requirement for some isf shaders.
+
+we are slowly moving towards a generalised react or similar framework for handling html dom and events. however it seems like we still need to tigthen it a bit more. I noticed there were html elements in the output render and i also notice that the state is lost on refresh except for custom handlers and the there is an ongoing balance of what elements to refresh on events. and that design elements are not naturally consistent on lists and params etc. it seems like a systematic redesign is in place. here i would like for an abastraction of the user interface where there are some generalised concepts like list items, thumbnails lists, search function, buttons, toggle, popup etc. and these then are the building blocks for the ui with custom params for different situations. I would like for these building blocks to also be state handlers on refresh of the page and when things change so they can be rebuild consistently with scroll location and which view is selected etc.
+
+we need to have a midi input setup in settings where one can define a toucpad or controller to params in the system. i suggest we start with a set of specific midi controllers and get them to function. this also includes thinking it into the current param workflow.
+
+we need a way to add post effect processing so one can add general effects and maybe also layer elements on top of each other. I suggest we look into resolumen style matrix based setup and think of a way to integrate this into the live view or make another view for it. this relates back to the midi controller where it would be lovely if one could select a series of scenes and have them as toucpad points in a matrix there as well.
+
+we need a global control flow view where one can map out different input sources and match them with params in the system. I suggest a flow view and there one can add input components like webcam gesture, posenet, websocket, mqtt, osc, etc and combine with different parser nodes and also add a piece of code as a middleman then output should be connected to different params and components in the system. e.g. change opasity for this specific component or set this scene in liveview etc.
+
+we need to add a ble pulse sensor as an input source and param for animations have a look at portal and the ble pulse module and import it into the system make a copy of the code.
+
+similar to multitouchlight in the experiments folder i need a shader that can create light points based on touch and move them around.
+
+similar to textprompt in the experiments folder i need this as a generator and we need to write some eps32 code for the version that has usb host such that the esp32 works as a host for a usb keyboard and then the keystrokes are send via serial to the generator that then can generate the visuals. 
+
+i would like a shader that can generate dazzle patters similar to dazzle camouflage: https://www.google.com/search?q=dazzle+camouflage&sca_esv=aafc69412a6fc5ff&udm=2&biw=1416&bih=687&sxsrf=APpeQnuS-LFjxU8_HfOVR_0erCpKJ4ZFcQ%3A1784967442548&ei=EnFkatD6IP6V9u8Pvd6aoAQ
+
+the screen sharing interface in settings should have human id system. e.g. screen 1, screen 2 etc and then one can rename them in settings. on refresh one should be able to then use the already created id for e.g. screen 1 and reconnect it to a screen share. in the screen sharing generator there should be a drop down list where one can select from the list of ids from settings. If a screen id dissapears from settings then the generator should just pick the first active screen in the list and show that.
+
+I would be good to be able to have the option for multiple webcams. e.g. that one can add more than one. they should have human ids webcam 1, 2... and with the possibility to rename. in the webcam input generator one should be able to select one them from the list. if the webcam is not in the list anymore then it should pick the first that is connected. if it is in the list but not active then it should just show a black screen.
+
+
+
+#Done
 
 shift refresh - hard refresh - on the vj tab takes forever to reload and sometimes it fails with just a black page or a message about time took too long. also having a live output window open can make it go stuck so it newer goes beyond the black screen (i think that might be one major issue). we need a test for this because it has been a recurring problem. this probably relates to the many many js files it has to laod as well.
 
-in mapping view the surfaces for different mappings seems to bleed over so it is in practice only one mapping where surfaces can be mapped others does not have handles in preview - it might be as simple as a preview state that is not tied correctly to the different mappings i am not sure.
+**The black startup failure and duplicate native-module identities are
+repaired.** Control no longer publishes an empty project while folder restore
+is unresolved, startup has an explicit visible/error state, and save-worker
+prewarming removes its first-use timeout. The remaining Output crash had a
+different race: p5 could finish before either the fixture or Control baseline
+arrived, causing Component compilation against `null`. Standalone Output now
+waits without a timeout for its first authoritative state; the existing bridge
+heartbeat completes the same gate when Control starts later. It does not request
+a duplicate state or media snapshot.
 
-
-In liveview the scaling and general boundary info is not shown in the list of a canvas. it should be similar to a component.
-
-refresh reset the live output selection it should keep the current selection this is a bit complicated with the multiple surfaces but ideally the live output state should be consistent on reset including params tweaked in liveview. e.g. a local storage. i think for debugging this we need a live preview reset button i think the best placement to the right of the timing header text. maybe change the timing header to live
+The build-free graph also had 416 files but 518 browser module identities:
+71 files were imported under conflicting historical `?v=` tags, creating 102
+redundant evaluations and splitting module-level registries. Local imports are
+now queryless and the source worker revision is the sole graph-wide cache
+authority. An architecture test prevents per-import versions from returning.
+Source revision 175 loaded and reloaded Control, fixture Output, and bridged
+Output while the other window remained active, with full 1280×720 canvases and
+zero warnings/errors. The remaining 416-file native graph is a later packaging
+optimization, not a reason to alter the renderer or source-coherence contract.
 
 changing params live view and possibly also other places has become laggy in the output window. does the diff based transport still run or has it been replaced with full refresh of project for every change? Are there noise in the background with many workers doing a lot of busywork? I suspect both. Verify both and fix it. this is a recurring problem so do make unit tests for it.
 
-**Transport verified; the remaining Live startup/routing work stays open.**
-Continuous Live parameter scrubs use the revisioned patch channel and coalesce
-before crossing to Output. In the profile with an Output window open, nine
-scrubs plus one ordinary Live update produced one patch packet containing one
-patch—not nine project snapshots. Two complete state packets corresponded to
-Live target/projection changes, which alter routing reachability rather than a
-single visual parameter. Unit coverage now fails if a committed Component
-placement sends any project snapshot. Opening Output still produced a separate
-resource/activation burst with high event-loop lag and memory growth; that is
-not explained by parameter transport and remains part of this inbox item.
+**Transport, duplicate Output activation, and the 411-warning resync loop are
+repaired.** Continuous Live scrubs use one revisioned/coalesced patch packet;
+committed placement changes cannot send complete project snapshots. Registration
+pushes one authoritative state/media baseline, which Output buffers through p5
+setup and imports once. Complete media packets remain ownership snapshots, so
+the removed duplicate pull no longer reconciles every resource at startup.
+Output installs a complete state before any buffered newer patch, discards
+patches already included by that state, and rebases a genuinely newer packet
+from the accepted revision. Protocol and lifecycle tests cover the ordering,
+and clean browser reloads with active Control/Output show no
+`VJ1_LIVE_PATCH_RESYNC` or duplicate reconciliation.
 
-previously we had a solution in which clicking a new component or scene in live view while a transition was happening would result in it being armed for the next transition can that come back but only if it is a transition involving the current output window. e.g. if another output window is selected it should not wait for the other one.
+**Scaling-control range repaired without changing authored coordinates.**
+Boundary and Content X/Y remain stored in the stable parent coordinate space,
+while their editor ranges now expand from the visible scaled extent. A 1x
+element retains the familiar ±2 controls; larger elements can still traverse
+their full visible range without adding a second coordinate convention.
+Component, Scene, Group, and Live projections use the same parameter contract.
 
-there is a bug where the bounding box of a component that is placed in a scene is not its own bounding box but the bounding box of the current scene. e.g. if a component is a square the inserted component does not maintain that shape. it should and it should not be a copy of params because one should be able to change the shape of the component and then it should be updated naturally without multiple params stored other places in the system. Further more i would like for elements to have the same feature of being either portrait, landscape or square independent of its components or scene. if this is possible to impliment in an elegent way plaese do so.
+**Live Canvas placement controls verified.** A Canvas is a Scene root, so it
+does not own a fabricated root transform. Its element list exposes the same
+Content X, Content Y, and Content scale controls as Component elements, while
+ordinary Components mounted in Live expose their own Component placement
+controls. Rendered-inspector tests preserve both sides of this ownership rule.
 
-surfaces e.g. the recording frames in scene view should be visible as grey all the time but only active and selectable when a surface has been selected. here this should deselect and element in the render chain and vice versa. aim is to remove the current trap in which one want to grap something and the accidentally moves ronder of the frames. they should be considered a calibration and thus not something that should be accidentally moved.
+**Placed Component proportions are repaired.** Scene and Canvas placement derive
+their geometry from the referenced Component's current aspect instead of
+copying the parent allocation or storing a second stale aspect parameter.
+Regression tests cover a square Component inside a non-square Scene and an
+aspect change after placement.
+
+**Scene Surface calibration interaction repaired.** Surface frames remain
+visible in neutral grey, but only the explicitly selected Surface is yellow and
+draggable. Selecting a chain element makes every Surface inert without erasing
+the remembered Surface selection. Element handles retain pointer priority and
+tests cover both interaction modes.
+
+**Missing/loading presentation repaired at the shared standby contract.**
+Diagnostics clear to alpha and render a compact image, video, model, or generic
+resource icon instead of an opaque checkerboard and sentence. Clean Output
+remains diagnostic-free. Text is opt-in and Feature Morph uses it only for
+meaningful analysis progress/errors. The real p5/WebGL smoke verifies the
+alpha-backed icon and absence of Output diagnostics.
+
+**Broad interaction refresh repaired by structural sharing and scoped
+projections.** Parameter edits, visibility, selection, reorder, add/remove, and
+rename update only their authored path and derived UI projection; they do not
+clone or normalize the complete in-memory project. Compiled programs remain
+stable across parameter/visibility patches and only affected retained stages
+invalidate. Idle/presentation cost and native-module startup remain separate
+performance domains rather than reasons to rebuild the world model.
+
+**First selection-stability iteration complete.** A selected element keeps
+pointer ownership while clicks remain inside its authored boundary. Clicking
+empty preview space explicitly deselects it; without an owner, ordinary visual
+stacking chooses the next item. Selected Groups use the union of their visible
+children rather than an invisible full-Component hit area. Alpha-aware picking
+for generators remains an optional later feature because it needs a retained
+readback/hit-mask contract and should not be approximated with per-click GPU
+sampling.
+
+it would be nice if search in thumbnail lists would also search for keywords from the generators e.g. "blur" would show all components with blur effect or if one has an image names heart.png then both png and heart would show it.
+
+**Implemented through one shared catalog-search projection. Component, Scene,
+and Live thumbnail filters now index the authored title plus nested visual
+names, generator IDs, media IDs, and media filenames. The visible label and
+stable identity remain unchanged. Unit coverage proves nested effect and media
+matches, and browser verification shows searching for `blur` returning
+`Waves Luma Stack` even though its title does not contain the term. The complete
+suite passes (1,350/1,350).**
+
+another observation - canv 5 has always been the heaviest to compute because it does a lot of individual renders of the same komponents which it should. but the fps seems noticiably slower now than usual. is something is going on there. normally it would be around 45 fps in output window 25-30.
+
+**Repaired and browser verified. The July 20 and July 25 profiles contain the
+same five authored Comp 33 renders and ten shader passes, but the migrated
+shader host had coupled two unrelated lifetimes: evicting one of its
+size-keyed scratch framebuffer pairs also cleared every program in their
+shared WebGL context. Canv 5 therefore recompiled Cellular Circles, Eyeball,
+and the shared effects while cycling through its normal regional sizes.
+Scratch allocation eviction now retains shared-context programs; explicit
+shader invalidation and renderer disposal still clear them. A compile-count
+test exercises four target sizes and proves one compilation. In a clean
+10-second browser run with Preview and Output active, Canv 5 averaged 46.7 FPS
+with zero graph compiles and zero cache invalidations. Its remaining CPU work
+is the five intentionally distinct branches; resolution, ROI, shader math,
+and branch count are unchanged.**
+
+short looping videos in comp74 sometimes shows video unavaliable in their loops as if the cache reloads them or something. also sometimes there also frames without a video e.g. just alpha which also makes it blink like the black streen. at least keep the last frame while video restarts in a loop.
+
+**Repaired and verified at the decoded-frame lifecycle. Full-length and trimmed
+videos use one manual boundary controller that seeks before decoder exhaustion.
+The retained last confirmed texture remains authoritative while seeking,
+ready-state dips cannot publish an empty revision, and a callback queued before
+the seek is rejected unless its media time belongs to the new loop target.
+Readiness remains latched through temporary decoder dips. Unit tests cover each
+boundary, and a clean Comp 74 browser run kept all four videos present while
+the 0.78 s and 1.28 s trims crossed multiple loop restarts.**
+
+video or other asynchronous media must continue rendering without moving another element. movement must never be the signal that makes a ready resource visible.
+
+**Verified at the shared media-revision boundary. Decode completion increments
+the exact resource revision, emits `media-ready`, and schedules the retained
+presentation independently of pointer or transform activity; asynchronously
+loaded persisted renditions do the same through `media-rendition-ready`.
+Unit coverage starts with an unavailable image and proves readiness emits the
+wakeup. The clean browser contract rendered an initially missing PNG on its
+third scheduled frame with the expected pixels and exactly one media-ready
+invalidation, without any movement or unrelated edit.**
+
+in mapping view the surfaces for different mappings seems to bleed over so it is in practice only one mapping where surfaces can be mapped others does not have handles in preview - it might be as simple as a preview state that is not tied correctly to the different mappings i am not sure.
+
+**Repaired at retained Mapping ownership. Mapping identity is now semantic
+runtime state: switching documents clears the previous document's pending
+pointer ownership, rebuilds its Surface handles even when IDs and calibration
+JSON happen to match, and applies only the selected Mapping's calibration. A
+regression test covers equal IDs/equal calibration across two Mappings. Browser
+verification switching between `debug` and `projection` shows their distinct
+Surface sets and projections without retained handles bleeding between them.**
+
+refresh reset the live output selection it should keep the current selection this is a bit complicated with the multiple surfaces but ideally the live output state should be consistent on reset including params tweaked in liveview. e.g. a local storage. i think for debugging this we need a live preview reset button i think the best placement to the right of the timing header text. maybe change the timing header to live
+
+**Repaired at the project-scoped Live preference boundary. The selected Live
+route and selected Scene now restore atomically from local preferences after a
+clean reload, without serializing transient Live overrides into project.json.
+Invalid or deleted route IDs normalize to the normal Scene Mapping selection.
+State and routing tests cover restoration, and a clean browser reload retained
+the selected direct-output row.**
+
+changing draw mode on a stl object does not affect the preview output. it seems like the param is not connected. changing in composition works fine. it seems to be all params for stl render that is not connected this seems odd because i assume this is a generic abstraction. e.g. other elements in liveviews params works fine. the params from stl generator is clearly connection to output window so this is only affected in the preview window of live view
+
+svg elements params does not seems to have an effect in live preview when changed. cut edge and feather does not seem to work for svg.
+
+images: feather and cut edge only seems to work for window output not in the liveview preview. a pattern starts to emerge where most params in live view is not wired out to the preview output. this seems odd since i assume that it is the same wiring for live preiview and widnow out.
+
+**Repaired together at the compiled-compound instance boundary. These were not
+three renderer-specific wiring failures: private child configurations were
+shared by every instance of a compound Node definition, allowing Preview and
+Output compilation order to overwrite the same mutable render parameters.
+Every compiled compound now owns an isolated private configuration tree.
+Regression coverage proves that editing one Project Media instance cannot
+change another. Clean browser checks confirm retained 3D draw mode, image fit,
+and image cut-edge update the embedded Live Preview immediately; SVG uses the
+same Project Media compound path.**
 
 verify that we have not introduced a large overhead of constant recompile of node structures or merging of models everytime some changes or a new frame is rendered. I would like for some how to have a visuel marker that counts some event and data flow e.g. per frame or something so i can also keep an eye on it. e.g. it could be another circel with the other circel and a part of the general profiler. it is important to catch signalling regressions that result in complex rerenders and cache updates. I do not know exactly what to measure but an arbitrary summary of certain key point in the system so at least it is noticed when it goes off the roof randomly or can detect patterns like mouse movement over at preview results in rerendering of massive amount of elements.
 
@@ -103,83 +296,27 @@ diagnostic boundary is now corrected. A fresh profile will identify the cause
 of any remaining compile through its recorded reason instead of requiring a
 guess.
 
-
-
-The loading media with the checkerboard and the text. i suggest we refactor to an alpha bg and then just an icon for the type of item missing or loading. in cases like morph where there is progress there could still be text.
-
-it would be nice if search in thumbnail lists would also search for keywords from the generators e.g. "blur" would show all components with blur effect or if one has an image names heart.png then both png and heart would show it.
-
-it would be nice if seed and time could sync up between live view preview and output window such that the animations were in sync. it causes a bit of confusion sometimes that they are wastly different.
-
-changing draw mode on a stl object does not affect the preview output. it seems like the param is not connected. changing in composition works fine. it seems to be all params for stl render that is not connected this seems odd because i assume this is a generic abstraction. e.g. other elements in liveviews params works fine. the params from stl generator is clearly connection to output window so this is only affected in the preview window of live view
-
-svg elements params does not seems to have an effect in live preview when changed. cut edge and feather does not seem to work for svg.
-
-images: feather and cut edge only seems to work for window output not in the liveview preview. a pattern starts to emerge where most params in live view is not wired out to the preview output. this seems odd since i assume that it is the same wiring for live preiview and widnow out.
-
-the overall refresh of changing params. making elements visible or invisible all seems to be not snappy as if it is a full rerender everytime.
-
 there is a strange bug in which fit for images is affected by whether there is another image on top of them (next in the chain). then they resort to fit and does do cover or stretch.does not seem to happen with an effect but there may be other things like generators which does the same.
 
-how close are we to important the isf shader library into the app as base shaders to use for different things? ISF has this repository https://github.com/Vidvox/ISF-Files/tree/master/ISF and I would like to import ideally all of them. Some use a vertex shader i think? and they have different porpuses. i assume the simple shaders is not a problem. but i would also like for the shaders that are e.g. transitions to be imported and used as transitions. i suggest that we create a transition generator that can be inserted in the chain. The concept would be the following: when a isf transition is inserted it be becomes an element that can contain children like a group and maybe two coloumns such that one can create two list underneath it for each transition. I would like for there also to be a mode where it can transition between what come before the isf shader and what is inside its group. either there should be a toggle as a param or a logic based on whether both coloumns has been filled out. Similarly sound should be implimented so it is compatible with isf. I suggest that we create some settings in input sources for sound and that we have a basic fft library to create fft textures (i think isf has this logic right?). be aware that the current version of p5 v2 does not seems to have a strong sound implimentation and i suggest that we bypas p5 and use tone js instead https://tonejs.github.io/ 
-
-relating to the above and in general we need to work with live input like mouse, multitouch and webcam tracking. i suggest that we start to develop a logic where the system has a multitouch input bus attached to both output window and when the preview window in such a way that we can ahve a drawing shader that one can draw on top of live when the system is running. I want it to be in such a way that drawing in live view preview also produces touch signals to the output window. have a look at the portals multitouch code and copy it in or make your own iteration in the system. Further more i would like that settings has a hand tracking setting such that one can start a hand tracker that is converted into touch gestures as if it was a tablet or a touchpad. I would like for the system to use the following modes: 1. Click: use two fingers to "click" and it is detected as a click then movement from there is recorded either relatively or as absolutes. 2. a multi touch mode where all visible fingers are avaliable for finger painting etc. 
-
-In general i would like for the architecture to be relative generic or abstracted around media and shaders. e.g. i would like for there to be a few default shaders for stl files and a few default transitions but then i would like that one can use the media selector to select other shaders to use. e.g. that the bionome shader for terrain can also be used on a stl files and vice versa that a isf shader can be used on a terrain - would it even be possible to use an image (and thus the generator for an image) as a shader for a stl object?. and that besides some basic transition for transition in liveview that one can select other transition shaders to use. I suggest that the media library make sure to have a few categories that defines at least if something is a transition shader needing multiple sources or a more simple shader.
-
-Similarly i wonder if it would be possible to make the architecture so most things are pretty agnostic about input sources e.g. the morphing generators could recieve a component as its input and output source. Maybe this case is not that good because it needs to analyse but it would be good to start aiming for a pretty flexible architecture around this so there are few base input and output sources and thiings are relatively interchangable.
-
-I have a dream that we slowly move towards more complex chains in element list in scenes and components. my idea is that one can have a "group" that consists of nodes that are not neccesarely image nodes but the chain in the group should resolve in an image and possibly take an image in. These chains would then be a series of nodes that fit together. e.g. an stl loader + a mesh modifier + 3d mesh to image buffer output. I am thinking in terms of lego pieces or like littleBits - e.g. compoents conceptually either attract or reject lige poles of a magnet. so different compoentns nodes has a color for input and a color for output and one can then combine when they fit. in those terms we have already made a lot of nodes with the shader buffer input and output and they should then have a color.
-
-Similarly i would like to have a set of webcam tracking elements like hand gesture and bodypose (see the portal modules a do copy code into the vj app). Then i would like to be able to have different lego components that could be added e.g. a component that draws the body or the hand.
-
-I would like to slowly build an animation platform. my thought is that basic animations in our generators and effects like the heartbeat pulse should reside in the shader itself but they should not have default animations like the plasma that moves in a specific way or the terrain flyover. instead they should have a suggested animation mode and then there should be a generic animation node that they can inform how they work and they can then create a setup that can be modified by the user. The animation node should this be a part of each effect or generator group with preconfigured setting and the animation node should be shown as a view in the params list before the general tab. in this animation tab one has a list where one can add configurations based on the params in the element. e.g. one can select the opacity param and the tel the animation module to loop it within a certain timeframe or make it pin-pong and also have a way to choose envelopes and curves to make it more dynamic than simple transitions. In this animation mode one can also choose to set it to trigger mode and then a button show be avaliable and when clicking on it it animates e.g. a opacity ping pong once (or maybe with an option for number of animations). Later on we need to find a way to then connect this trigger button to a "bang"/signal from somewhere else. For this part it would be valuable to go through all the existing effects and generators and port them to this animation principle. Also it is valuable to be able to animate the color param as well such that it can transition between two colors.
-
-I would like for the visibility toggle on an element in component or a scene to actually be a transition toggle. e.g. that pressing it creates a transition from e.g. opacity or a transition slider (it is fine to opacity first but a shader warp from central point to full size later could be interesting). This is to connect it more clearly to live use so that the visibility toggle uses the param transition time like the other params. this is only for live view e.g. not when one generally toggles visibility in scene or component view.
-
-
-I would like to have a generator where one can select other element or components as a list (it could be a group like interface) and then they will be stacked in 3d such that they look like a parallax game design principle where he view port can shift a bit up, down, right and left to show the effect.
-
-I would like to add an element that can be added to a component or scene chain which is a recording probe. what this probe does is that it records a pixel or a group of pixels like a color picker. one adds it to the chain and place it in the 2d canvas space and then it will record the color values for the area it is on top. the scale handles can be used to define size. The probe should then attach itself to a bus for live params that can be used by other elements. first and foremost by the animation engine that resides in the other nodes and elements. Here e.g. the brightness, the r,g,b or h,s, v (or b) values can the serve as information for the animation engine for another param e.g. opacity or scale. so e.g. if a probe reads 255 in brightness the opacity of the given elements is 100% procent or vice versa. This will create interlinked dynamics where changes in a scene will trigger other elements in the scene. I think we in the beginning needs to limit ourselves to connecting probes and animations within the same scene or component to limit the realtime setup since we else have to handle the edgecase of a probe is on a non active scene and the animation is tied to an active scene.
-
-simmilarly we need to slowly impliment both wled control and dmx. I suggest we look up the most viable websocket based led control protocol for wled and create a settings panel where one can set up at wled ip or usb connection (have a look at the usb portal module and copy it to the vj1 app as a component) and for dmx have a look at the dmx controller experiment and copy dmx / usb serial control code from the portal modules as well - also make a settings panel for this. I suggest that we extend the probe concept so that there is a multiled probe where a ledstring can be placed in the mapper view on the preview output and then the pixels are recorded and transmitted to the wled or dmx. For dmx we need to be able to add fixtures and channels in settings. e.g. create a list of common fixtures "brigthnes.r.g.b" that one can add and define a start channel then this fixture can be placed as a probe in the mapper view.
-
-We need to start to think in terms of shaders that uses a feedback loop for delay etc. e.g. that the shader draws in its a stored shader buffer with fadeout over time such that live movement and video gets a trail effect. this might also be a requirement for some isf shaders.
-
-clicking and selecting elements in components and scenes is a bit of a hit and miss sometimes you get the right one sometimes it jumps to another. this is understandable but it would be nice to do the following: 1. the first simple step is that the one that is selected keeps being selected as long one i clicking within its boundary. this requires a deselect e.g. that one can click on empty space and then no item is selected in the list. 2. if possible then use the alpha channel on the items to make a more precise hit. e.g. one is selecting the element that one hits with the mouse pointer. i think this should only apply for generators since effects either does not have anything or covers everything.
-
-we are slowly moving towards a generalised react or similar framework for handling html dom and events. however it seems like we still need to tigthen it a bit more. I noticed there were html elements in the output render and i also notice that the state is lost on refresh except for custom handlers and the there is an ongoing balance of what elements to refresh on events. and that design elements are not naturally consistent on lists and params etc. it seems like a systematic redesign is in place. here i would like for an abastraction of the user interface where there are some generalised concepts like list items, thumbnails lists, search function, buttons, toggle, popup etc. and these then are the building blocks for the ui with custom params for different situations. I would like for these building blocks to also be state handlers on refresh of the page and when things change so they can be rebuild consistently with scroll location and which view is selected etc.
-
-we need to have a midi input setup in settings where one can define a toucpad or controller to params in the system. i suggest we start with a set of specific midi controllers and get them to function. this also includes thinking it into the current param workflow.
-
-we need a way to add post effect processing so one can add general effects and maybe also layer elements on top of each other. I suggest we look into resolumen style matrix based setup and think of a way to integrate this into the live view or make another view for it. this relates back to the midi controller where it would be lovely if one could select a series of scenes and have them as toucpad points in a matrix there as well.
-
-we need a global control flow view where one can map out different input sources and match them with params in the system. I suggest a flow view and there one can add input components like webcam gesture, posenet, websocket, mqtt, osc, etc and combine with different parser nodes and also add a piece of code as a middleman then output should be connected to different params and components in the system. e.g. change opasity for this specific component or set this scene in liveview etc.
-
-we need to add a ble pulse sensor as an input source and param for animations have a look at portal and the ble pulse module and import it into the system make a copy of the code.
-
-similar to multitouchlight in the experiments folder i need a shader that can create light points based on touch and move them around.
-
-similar to textprompt in the experiments folder i need this as a generator and we need to write some eps32 code for the version that has usb host such that the esp32 works as a host for a usb keyboard and then the keystrokes are send via serial to the generator that then can generate the visuals. 
-
-i would like a shader that can generate dazzle patters similar to dazzle camouflage: https://www.google.com/search?q=dazzle+camouflage&sca_esv=aafc69412a6fc5ff&udm=2&biw=1416&bih=687&sxsrf=APpeQnuS-LFjxU8_HfOVR_0erCpKJ4ZFcQ%3A1784967442548&ei=EnFkatD6IP6V9u8Pvd6aoAQ
-
-the screen sharing interface in settings should have human id system. e.g. screen 1, screen 2 etc and then one can rename them in settings. on refresh one should be able to then use the already created id for e.g. screen 1 and reconnect it to a screen share. in the screen sharing generator there should be a drop down list where one can select from the list of ids from settings. If a screen id dissapears from settings then the generator should just pick the first active screen in the list and show that.
-
-I would be good to be able to have the option for multiple webcams. e.g. that one can add more than one. they should have human ids webcam 1, 2... and with the possibility to rename. in the webcam input generator one should be able to select one them from the list. if the webcam is not in the list anymore then it should pick the first that is connected. if it is in the list but not active then it should just show a black screen.
-
-
-
-**Root regression repaired; fresh browser profiling is still required before moving this item to Done. The July 20 and July 25 profiles contain the same five authored Comp 33 renders and ten shader passes, with no second context, larger request, lost cache reuse, or per-frame graph compilation. The newer run nevertheless fell from about 42 FPS to 16 FPS while its shader allocations were smaller. The migrated shader host coupled two unrelated lifetimes: exceeding three size-keyed scratch framebuffer pairs pruned a framebuffer and also cleared every program in their shared WebGL context. Canv 5 cycles through enough distinct regional sizes to trigger that path during normal frames, repeatedly recompiling Cellular Circles, Eyeball, and the shared effects. Scratch allocation eviction now retains shared-context programs; explicit shader invalidation and renderer disposal still clear them. A compile-count regression test exercises four target sizes and proves one compilation, and the complete suite passes (1,319/1,319). Resolution, ROI, shader math, and the five distinct renders are unchanged.**
-
-
-#Done
-
-another observation - canv 5 has always been the heaviest to compute because it does a lot of individual renders of the same komponents which it should. but the fps seems noticiably slower now than usual. is something is going on there. normally it would be around 45 fps in output window 25-30.
-
-
+**Repaired at the compiled-compound ownership boundary. Private child
+configurations in a visual Group were being reused directly from the immutable
+Node definition, so every instance of the same compound shared its mutable
+render parameters; the later Project Media instance therefore overwrote the
+earlier instance's fit. Compilation now creates an instance-owned configuration
+tree for every compound. A regression test proves two instances retain
+different fit values and that updating one cannot mutate the other. Browser
+verification shows stretch and contain operating simultaneously in the same
+Component, and the focused compiler/render suites pass (271/271).**
 
 we need to look a possible optimization at least there should be some kind of loading bar that shows a progress or something and it should not timeout.
+
+**Implemented the fail-visible part without claiming the larger optimization.
+The initial document now owns an indeterminate progress bar and reports source
+revision, module loading, node-library, application-service, and project-restore
+stages. Startup promise failures are rendered and logged instead of becoming an
+empty page. Save work still has a correctness timeout and local fallback so a
+dead Worker cannot hold every later transaction; prewarming removes its normal
+cold-start cost. Native-module packaging remains a separate open task above.**
 
 live output window does not seem to like showing feature morph it newer transitions to it. this may have something to do with the need to load the library etc. feature morph has a tendency to reanalyse images at different scales which i dont think it needs to. also feature morph two has this problem. it however seems to be a bug because when one transitions away from a scene with feature morph then it does the transition with it. so a flag that says that it is loaded is newer set. that is the first problem.
 
@@ -368,8 +505,22 @@ draw @ output-renderer.js?v=live-output-projection-1:289
 draw @ embedded-preview-app.js?v=live-output-projection-1:285
 (anonymous) @ portal.js?v=adaptive-component-demand-29:424
 
-**The undo/view-loss portion is repaired at the transaction boundary, while the separate save-worker timeout remains open for a real project-folder browser reproduction. All `select-*` changes are now non-history editor projections, Mapping selection explicitly publishes UI scope, and undo/redo preserves the current editor UI while restoring authored project state. An end-to-end save → select another Component → undo → redo test proves one authored transaction and stable editor selection. Complete suite: 1,321/1,321.**
-toggling visibility of surfaces either in mapping view or in live view is heavy as if a lot of processing are reacting to it.
+**The undo/view-loss portion is repaired at the transaction boundary.** All
+`select-*` changes are non-history editor projections, Mapping selection
+explicitly publishes UI scope, and undo/redo preserves the current editor UI
+while restoring authored project state. The save-preparation Worker is now
+prewarmed during startup and has a bounded main-thread fallback; it no longer
+holds the serialized save queue while its module graph starts. End-to-end tests
+cover one authored transaction, stable editor selection, Worker readiness, and
+fallback completion.
+
+**Surface visibility is a scoped route transaction.** Mapping changes clone and
+stamp only the selected Mapping and Surface, emit one `surfaces` render patch,
+and retain the rest of the authored world. Live visibility is a separate
+runtime projection and sends only the derived Surface route patch to Output—no
+project snapshot. The control UI updates only the projection rail and retained
+Preview projection. Tests preserve both the narrow transport and the
+independence of Scene Mapping versus direct Surface visibility.
 
 
 moving an element should not rebuild the complete Component or Scene. Media/resource readiness must invalidate its exact consumer independently; movement making an element appear is evidence that the narrower invalidation is still missing.

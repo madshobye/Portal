@@ -1,9 +1,9 @@
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { evaluateIsfDimension } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+import { evaluateIsfDimension } from "../libraries/isf-engine/index.js";
 import {
   createSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
+} from "./shared-framebuffer-target.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
@@ -13,7 +13,7 @@ import {
   enumUniform,
   resetShaderTarget,
   setShaderUniformIfPresent,
-} from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "./shader-target-runtime.js";
 
 const FULL_RENDER_UV_RECT = Object.freeze([0, 0, 1, 1]);
 

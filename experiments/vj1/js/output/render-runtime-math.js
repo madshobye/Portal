@@ -1,5 +1,5 @@
 import { renderQualityScale, renderQualityValue } from "../libraries/visual-nodes/shared/component-schema.js";
-import { contentTransformUvMatrices } from "./content-coordinate-space.js?v=node-roi-placement-1";
+import { contentTransformUvMatrices } from "./content-coordinate-space.js";
 import { gazeBlinkUniforms } from "../libraries/visual-nodes/providers/gaze-blink-controller/index.js";
 export { advanceRateClock, componentInstanceTime, globalVisualTimeScale, instanceTime } from "../libraries/timing-engine/index.js";
 export { advanceSpatialScale } from "../libraries/timing-engine/index.js";

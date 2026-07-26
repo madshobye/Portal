@@ -6,12 +6,12 @@ import {
 import {
   createMaterial3d,
   Material3dType,
-} from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
+} from "../../../mesh-engine/scene-types.js";
 import { VisualMaterialProviderType } from "../../shared/visual-stage-types.js";
 import {
   TERRAIN_SURFACE_FRAGMENT_SHADER,
   TERRAIN_SURFACE_VERTEX_SHADER,
-} from "../../generators/terrain-flyover/shaders.js?v=source-roi-view-3";
+} from "../../generators/terrain-flyover/shaders.js";
 
 const TERRAIN_BIOME_SURFACE_SOURCE = `
 vec4 vj1Surface(vec3 normal, vec3 position, vec2 uv, vec4 baseColor) {

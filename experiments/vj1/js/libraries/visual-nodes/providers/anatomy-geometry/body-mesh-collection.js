@@ -1,11 +1,11 @@
-import { createMeshCollection } from "../../../mesh-engine/mesh-collection/index.js?v=mesh-collection-1";
+import { createMeshCollection } from "../../../mesh-engine/mesh-collection/index.js";
 import {
   createEllipsoidMesh,
   createPathTubeMesh,
   createProfileMesh,
   createTaperedSegmentMesh,
-} from "../../../mesh-engine/procedural-mesh-primitives/index.js?v=procedural-mesh-primitives-2";
-import { createArmPath, createLegPath } from "./limb-paths.js?v=limb-paths-1";
+} from "../../../mesh-engine/procedural-mesh-primitives/index.js";
+import { createArmPath, createLegPath } from "./limb-paths.js";
 
 export function createBodyMeshCollection({ detail = 8, depth = 1, limbBend = 0.25 } = {}) {
   const segments = Math.max(4, Math.min(14, Math.round(finite(detail, 8))));

@@ -1,10 +1,10 @@
-import { componentTextureSize } from "../domain/render-resolution.js?v=adaptive-component-demand-projector-resolution-ceilings-1";
-import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js?v=roi-composition-1";
+import { componentTextureSize } from "../domain/render-resolution.js";
+import { VjMapper } from "../libraries/mapping-engine/mapping-engine/index.js";
 import {
   defaultProjectSurfaceMapping,
-} from "./render-geometry.js?v=fit-geometry-demand-1";
-import { stableSurfaceRenderRequest } from "./surface-render-planner.js?v=explicit-direct-surface-hierarchy-1";
-import { cornersRect } from "./component-render-layout.js?v=surface-terminology-1";
+} from "./render-geometry.js";
+import { stableSurfaceRenderRequest } from "./surface-render-planner.js";
+import { cornersRect } from "./component-render-layout.js";
 
 // Owns Mapping lifecycle and synchronization. Surface rendering consumes the
 // retained mapper and materialized Surface records directly; project state
@@ -59,6 +59,11 @@ export class OutputMappingRuntime {
   captureState() {
     const host = this.host;
     return {
+      // Mapping identity is semantic state. Different Mapping documents may
+      // intentionally contain the same Surface IDs and equal (often empty)
+      // calibration JSON, but their retained editor handles must never share
+      // ownership.
+      mappingId: String(host.state?.ui?.selectedMappingId || ""),
       surfaceIds: (host.state?.surfaces || []).map((surface) => surface.id).join(","),
       renderSize: host.state
         ? host.presentationGeometry.renderSizeSignature(host.state.render)
@@ -70,9 +75,20 @@ export class OutputMappingRuntime {
 
   reconcileState(previous = {}) {
     const host = this.host;
+    const nextMappingId = String(host.state?.ui?.selectedMappingId || "");
     const nextSurfaceIds = (host.state?.surfaces || []).map((surface) => surface.id).join(",");
     const nextSize = host.presentationGeometry.renderSizeSignature(host.state.render);
     const nextMappingSignature = this.currentSignature();
+    const mappingChanged = previous.mappingId !== nextMappingId;
+    if (mappingChanged) {
+      // Local pointer ownership belongs to the Mapping that emitted it. It
+      // cannot protect or seed the next Mapping, even when both documents use
+      // identical Surface IDs.
+      this.pendingMappingSignature = "";
+      this.pendingMappingStartedAt = 0;
+      this.mappingAckWarningSignature = "";
+      this.surfaceRebuildPending = false;
+    }
     // An echo acknowledges local ownership even while VjMapper still reports
     // the pointer gesture active.
     if (
@@ -85,14 +101,15 @@ export class OutputMappingRuntime {
       host.resourceRuntime.createBuffers();
     }
     const surfacesChanged =
+      mappingChanged ||
       previous.surfaceIds !== nextSurfaceIds ||
       previous.renderSize !== nextSize;
     if (surfacesChanged) {
-      if (previous.interactionActive) this.surfaceRebuildPending = true;
+      if (previous.interactionActive && !mappingChanged) this.surfaceRebuildPending = true;
       else {
         this.surfaceRebuildPending = false;
         this.rebuildSurfaces({
-          preferExistingMapping: !!this.pendingMappingSignature,
+          preferExistingMapping: !mappingChanged && !!this.pendingMappingSignature,
         });
       }
     }
@@ -103,7 +120,7 @@ export class OutputMappingRuntime {
     if (
       (surfacesChanged ||
         previous.mappingSignature !== nextMappingSignature) &&
-      !previous.interactionActive &&
+      (!previous.interactionActive || mappingChanged) &&
       !ignoreIncoming
     ) {
       this.applyProject(nextMappingSignature);

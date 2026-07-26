@@ -1,13 +1,13 @@
-import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=async-media-dirty-1";
+import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js";
 import {
   combineContentTransforms,
   contentTransformCanvasPlacement,
   isIdentityTransform,
   localContentDragDelta,
   normalizedContentTransform,
-} from "./content-coordinate-space.js?v=node-roi-placement-1";
+} from "./content-coordinate-space.js";
 
-export { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=node-roi-placement-1";
+export { combineContentTransforms, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js";
 
 export function findChainItemById(chain = [], id = "") {
   if (!Array.isArray(chain) || !id) return null;

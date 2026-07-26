@@ -65,6 +65,23 @@ test("preview hit policy returns the containing group for nested physical childr
   assert.equal(hitTestChainItems({ chain: [group], component: {}, frame, x: 50, y: 50 }), null);
 });
 
+test("overlapping Component and Scene elements pick the frontmost composited item", () => {
+  const back = { id: "back", kind: "source", source: { type: "media", mediaId: "back" } };
+  const front = { id: "front", kind: "source", source: { type: "media", mediaId: "front" } };
+  const frame = { x: 0, y: 0, width: 100, height: 100 };
+
+  for (const type of ["chain", "scene"]) {
+    const hit = hitTestChainItems({
+      chain: [back, front],
+      component: { type },
+      frame,
+      x: 50,
+      y: 50,
+    });
+    assert.equal(hit, front, `${type} picking follows visual front-to-back order`);
+  }
+});
+
 test("oriented boundary picking rejects points inside only the rotated AABB", () => {
   const boundary = {
     centerX: 100,
@@ -107,7 +124,7 @@ test("move scale and rotation drag calculations live outside the renderer", () =
   assert.equal(move.y, 0);
   assert.equal(scale.scale, 2);
   assert.equal(rotate.rotation, Math.PI / 2);
-  assert.match(renderer, /from "\.\/preview-interaction-geometry\.js\?v=alpha-feather-1"/);
+  assert.match(renderer, /from "\.\/preview-interaction-geometry\.js"/);
   assert.doesNotMatch(renderer, /function findChainItemTransformContext\(/);
   assert.doesNotMatch(renderer, /function chainTransformDragScale\(/);
 });

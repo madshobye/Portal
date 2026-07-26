@@ -1,11 +1,11 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../../node-engine/node-definition.js";
 import {
   MaterialBinding3dListType,
-} from "../../../mesh-engine/material-binding-3d/index.js?v=mesh-collection-2";
+} from "../../../mesh-engine/material-binding-3d/index.js";
 import {
   createMaterial3d,
   Material3dType,
-} from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
+} from "../../../mesh-engine/scene-types.js";
 
 const SLOT_STYLES = Object.freeze({
   surface: Object.freeze({ source: "surface", brightness: 1, wireScale: 1 }),

@@ -1,4 +1,4 @@
-import { componentFrameSize, resolutionCeilingLongEdge } from "./render-settings.js?v=surface-terminology-1";
+import { componentFrameSize, resolutionCeilingLongEdge } from "./render-settings.js";
 
 // Component design resolution is independent from the adaptive surface
 // raster policy. It defines frame geometry and available native detail.

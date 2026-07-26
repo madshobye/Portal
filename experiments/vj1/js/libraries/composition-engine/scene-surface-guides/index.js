@@ -1,5 +1,5 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
-import { fitSourceUvToTargetUv } from "../../render-engine/fit-geometry/index.js?v=fit-geometry-1";
+import { fitSourceUvToTargetUv } from "../../render-engine/fit-geometry/index.js";
 
 // Surface guides are route geometry, not a canvas overlay. The node converts
 // authored Scene-relative Surface rectangles into the exact UV space sampled by a Surface;

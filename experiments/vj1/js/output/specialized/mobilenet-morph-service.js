@@ -3,8 +3,8 @@ import {
   buildRigidMlsMorphField,
   matchMobileNetFeatures,
   mobileNetMorphFieldForStrategy,
-} from "../../libraries/visual-nodes/generators/feature-morph-v2/analysis.js?v=node-program-hooks-15";
-import { fitOverflowDestination } from "../../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
+} from "../../libraries/visual-nodes/generators/feature-morph-v2/analysis.js";
+import { fitOverflowDestination } from "../../libraries/render-engine/fit-geometry/index.js";
 
 export {
   buildMobileNetMorphField,

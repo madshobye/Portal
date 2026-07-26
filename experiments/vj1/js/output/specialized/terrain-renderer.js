@@ -1,6 +1,6 @@
-import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js?v=premultiplied-alpha-5";
-import { resolutionScaledStrokeWidth } from "../component-render-layout.js?v=surface-terminology-1";
-import { normalizedModelColor } from "./model-color.js?v=adaptive-component-demand-29";
+import { isSharedFramebufferTarget } from "../shared-framebuffer-target.js";
+import { resolutionScaledStrokeWidth } from "../component-render-layout.js";
+import { normalizedModelColor } from "./model-color.js";
 import { compileRawShader, linkSpecializedProgram } from "../../libraries/render-engine/raw-webgl-utils.js";
 import {
   beginRawWebGlState,
@@ -8,16 +8,16 @@ import {
   captureRawWebGlAttributes,
   disposeRawWebGlVertexArray,
   restoreRawWebGlState,
-} from "../../libraries/render-engine/raw-webgl-state.js?v=node-roi-placement-1";
+} from "../../libraries/render-engine/raw-webgl-state.js";
 import {
   TerrainNodeModuleExports,
-} from "./terrain-mesh.js?v=shared-terrain-grid-math-16";
+} from "./terrain-mesh.js";
 import {
   TERRAIN_SURFACE_FRAGMENT_SHADER,
   TERRAIN_SURFACE_VERTEX_SHADER,
   TERRAIN_WIRE_FRAGMENT_SHADER,
   TERRAIN_WIRE_VERTEX_SHADER,
-} from "../../libraries/visual-nodes/generators/terrain-flyover/shaders.js?v=source-roi-view-3";
+} from "../../libraries/visual-nodes/generators/terrain-flyover/shaders.js";
 
 export function drawTerrainSurface(target, resourceCache, params, componentTime, planeWidth, planeDepth, style, sky, terrainModule = TerrainNodeModuleExports, moduleRevision = "legacy", nodeShaders = null, shaderRevision = moduleRevision) {
   const gl = target?.drawingContext;

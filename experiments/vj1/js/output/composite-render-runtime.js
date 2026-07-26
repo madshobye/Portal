@@ -1,31 +1,31 @@
-import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js?v=safe-shader-disposal-1";
-import { clamp01 } from "../domain/models.js?v=surface-terminology-1";
+import { disposeP5Shader } from "../libraries/mapping-engine/mapping-engine/index.js";
+import { clamp01 } from "../domain/models.js";
 import { textureStateKey } from "../libraries/render-engine/render-node-contract.js";
 import {
   FULL_NODE_BOUNDARY,
   nodeRoiRequest,
-} from "../libraries/render-engine/roi/index.js?v=node-roi-placement-1";
+} from "../libraries/render-engine/roi/index.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
+} from "./shared-framebuffer-target.js";
 import {
   renderTargetNeedsShaderSampleFlip,
-} from "./render-target-contract.js?v=source-target-ownership-1";
+} from "./render-target-contract.js";
 import {
   chainLayerState,
   renderBufferKey,
-} from "./component-render-state.js?v=async-media-dirty-1";
+} from "./component-render-state.js";
 import { applyBlend } from "./blend-utils.js";
 import {
   instanceInvariantRenderRequest,
   renderRequestStateKey,
-} from "./render-geometry.js?v=fit-geometry-demand-1";
-import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { isIdentityTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
-import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=node-roi-placement-1";
-import { effectTransformUniforms } from "./render-runtime-math.js?v=declarative-render-policy-1";
+} from "./render-geometry.js";
+import { drawBuffer } from "./render-draw-utils.js";
+import { isIdentityTransform } from "./preview-interaction-geometry.js";
+import { contentTransformCanvasPlacement } from "./content-coordinate-space.js";
+import { effectTransformUniforms } from "./render-runtime-math.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
@@ -33,7 +33,7 @@ import {
   drawShaderTarget,
   drawShaderTargetRect,
   resetShaderTarget,
-} from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "./shader-target-runtime.js";
 import {
   COMPONENT_POST_FRAGMENT_SHADER,
   COMPONENT_UPSCALE_FRAGMENT_SHADER,
@@ -41,7 +41,7 @@ import {
   LAYER_TRANSFORM_FRAGMENT_SHADER,
   OVERLAY_BLEND_FRAGMENT_SHADER,
   RENDER_PASS_VERTEX_SHADER,
-} from "./render-pass-shaders.js?v=node-roi-placement-1";
+} from "./render-pass-shaders.js";
 
 // Fixed-function compositing backend shared by Components, Groups, and
 // Canvases. RenderTargetRuntime owns target allocation and

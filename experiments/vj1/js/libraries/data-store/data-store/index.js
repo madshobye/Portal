@@ -8,13 +8,13 @@ import {
   materializeStructuralValue,
   prepareCopy,
   produceStructuralShare,
-} from "./structural-sharing.js?v=structural-world-state-2";
+} from "./structural-sharing.js";
 
 export {
   materializeStructuralValue,
   materializeStructuralTree,
   produceStructuralShare,
-} from "./structural-sharing.js?v=structural-world-state-2";
+} from "./structural-sharing.js";
 
 export class ObservableDataStore {
   constructor(initialValue, {

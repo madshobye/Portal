@@ -14,11 +14,11 @@ import {
   createLiveScenePreviewState,
   createMappingFromState,
   sceneSourceNodeId,
-} from "../js/domain/models.js?v=world-frame-27";
-import { compileLiveProjectionProgram } from "../js/domain/live-projection-program.js?v=live-projection-program-1";
+} from "../js/domain/models.js";
+import { compileLiveProjectionProgram } from "../js/domain/live-projection-program.js";
 import { liveSurfaceVisible } from "../js/domain/live-ui-state.js";
 import { applyLiveRenderPatches, createLiveRenderPatch } from "../js/domain/live-render-patch.js";
-import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js?v=compiled-program-projection-1";
+import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
 import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
 import { DataStoreNode, ObservableDataStore } from "../js/libraries/data-store/data-store/index.js";
 import { isMappingProjectionPresentation } from "../js/output/output-presentation-runtime.js";
@@ -191,6 +191,37 @@ test("Live projection inspection is UI-only and does not reroute the program", (
   assert.equal(preview.livePreviewPresentation, "mapping");
   assert.equal(preview.ui.selectedSurfaceId, surface.id);
   assert.equal(isMappingProjectionPresentation({ mode: "live", state: preview }), true);
+});
+
+test("Live Scene and projection preferences restore atomically without history", () => {
+  const initial = createInitialState();
+  const firstScene = createSceneComponent(0, initial.components[0].id);
+  const secondScene = createSceneComponent(1, initial.components[0].id);
+  initial.components.push(firstScene, secondScene);
+  initial.ui.live.selectedSceneId = firstScene.id;
+  initial.ui.live.selectedComponentId = firstScene.id;
+  initial.ui.live.previewSurfaceId = "__mapping__";
+  const surface = initial.mappings[0].surfaces[0];
+  const store = createAppState(initial);
+  let observedEvent = null;
+  store.subscribe((_state, _reason, event) => {
+    if (event.reason === "live:preference-restore") observedEvent = event;
+  });
+
+  store.restoreLivePreference({
+    sceneId: secondScene.id,
+    previewSurfaceId: surface.id,
+  });
+
+  assert.equal(store.getState().ui.live.selectedSceneId, secondScene.id);
+  assert.equal(store.getState().ui.live.selectedComponentId, secondScene.id);
+  assert.equal(store.getState().ui.live.previewSurfaceId, surface.id);
+  assert.deepEqual(
+    store.getState().ui.previewViewports.live,
+    { zoom: 1, x: 0, y: 0, fit: "frame" },
+  );
+  assert.equal(observedEvent?.scope, "live");
+  assert.equal(observedEvent?.history, "none");
 });
 
 test("Scene Mapping preview monitors its mounted source while guiding the compiled output matrix", () => {
@@ -1649,6 +1680,9 @@ test("nested chain items remain selectable after state normalization", () => {
 
   store.selectChainItem(nested.id);
   assert.equal(store.getState().ui.selectedChainItemId, nested.id);
+
+  store.selectChainItem("");
+  assert.equal(store.getState().ui.selectedChainItemId, "");
 });
 
 test("Scene inspector follows the most recently selected Surface or element", () => {

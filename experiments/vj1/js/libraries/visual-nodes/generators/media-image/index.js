@@ -1,12 +1,12 @@
 import { createEnumParam, createNumberParam, createTextParam } from "../../shared/component-schema.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
-import { MapRangeControlNode, ScalarMathControlNode } from "../../../control-engine/index.js?v=async-media-dirty-1";
+import { MapRangeControlNode, ScalarMathControlNode } from "../../../control-engine/index.js";
 import {
   MediaResourceToImageNode,
   ProjectMediaResourceNode,
-} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
-import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
-import { VisualComponent as AlphaFeatherVisualComponent } from "../../effects/alpha-feather/index.js?v=async-media-dirty-1";
+} from "../../shared/visual-stage-nodes.js";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
+import { VisualComponent as AlphaFeatherVisualComponent } from "../../effects/alpha-feather/index.js";
 
 const manifest = Object.freeze({
   id: "mediaImage",

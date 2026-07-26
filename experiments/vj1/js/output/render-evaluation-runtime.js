@@ -1,9 +1,9 @@
 import { RenderNodeRuntime } from "../libraries/render-engine/render-node-contract.js";
-import { renderBufferKey } from "./component-render-state.js?v=async-media-dirty-1";
+import { renderBufferKey } from "./component-render-state.js";
 import {
   instanceInvariantRenderRequest,
   renderRequestKey,
-} from "./render-geometry.js?v=fit-geometry-demand-1";
+} from "./render-geometry.js";
 
 export class RenderEvaluationRuntime {
   constructor(host) {

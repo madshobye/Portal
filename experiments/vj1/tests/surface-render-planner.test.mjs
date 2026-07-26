@@ -537,8 +537,8 @@ test("output renderer delegates surface demand planning", () => {
   const runtimeSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
   const mapperSource = readFileSync(new URL("../js/libraries/mapping-engine/mapping-engine/index.js", import.meta.url), "utf8");
 
-  assert.match(rendererSource, /from "\.\/output-surface-runtime\.js\?v=[^"]+"/);
-  assert.match(runtimeSource, /from "\.\/surface-render-planner\.js\?v=[^"]+"/);
+  assert.match(rendererSource, /from "\.\/output-surface-runtime\.js"/);
+  assert.match(runtimeSource, /from "\.\/surface-render-planner\.js"/);
   assert.ok(runtimeSource.includes("const { routes, metrics } = planSurfaceRoutes({"));
   assert.match(
     runtimeSource,

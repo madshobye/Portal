@@ -7,8 +7,8 @@ import {
   MeshPatternTopologyProviderNode,
   MeshPatternWireMaterialProviderNode,
   MeshPatternWireToImageNode,
-} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
-import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
+} from "../../shared/visual-stage-nodes.js";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
 const manifest = Object.freeze({
     id: "meshPatterns",
     name: "2D Mesh Patterns",

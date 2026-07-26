@@ -12,7 +12,7 @@ import {
 import {
   createMeshCollection,
   MeshCollectionType,
-} from "../../../mesh-engine/mesh-collection/index.js?v=mesh-collection-1";
+} from "../../../mesh-engine/mesh-collection/index.js";
 import { TopologyProviderType } from "../../shared/visual-stage-types.js";
 
 const TOPOLOGY_SETTING_IDS = Object.freeze([

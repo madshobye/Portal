@@ -3,14 +3,14 @@ import { timeParamRuntime } from "../../shared/shader-component-common.js";
 import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   featureMorphNodeProcess,
-} from "./runtime.js?v=source-roi-view-3";
+} from "./runtime.js";
 import {
   FeatureMorphToImageNode,
   MediaImageResourceNode,
   MobileNetMorphAnalysisNode,
   SuperPointMorphAnalysisNode,
-} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
-import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
+} from "../../shared/visual-stage-nodes.js";
+import { defineCompiledVisualCompound } from "../../shared/compiled-visual-compound.js";
 
 const manifest = Object.freeze({
     id: "featureMorph",

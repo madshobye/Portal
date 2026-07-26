@@ -1,21 +1,21 @@
-import { TerrainNodeModuleExports as FALLBACK_TERRAIN_NODE_MODULE } from "./terrain-mesh.js?v=shared-terrain-grid-math-16";
+import { TerrainNodeModuleExports as FALLBACK_TERRAIN_NODE_MODULE } from "./terrain-mesh.js";
 import {
   FEATURE_MORPH_FRAGMENT_SHADER,
   FEATURE_MORPH_VERTEX_SHADER,
   imageFitUniform as fallbackImageFitUniform,
-} from "./feature-morph-shader.js?v=source-roi-view-3";
+} from "./feature-morph-shader.js";
 import {
   buildFeatureMorphField as fallbackBuildFeatureMorphField,
   buildFeatureMorphMesh as fallbackBuildFeatureMorphMesh,
   matchSuperPointFeatures as fallbackMatchSuperPointFeatures,
-} from "./feature-morph-field.js?v=node-program-hooks-15";
+} from "./feature-morph-field.js";
 import {
   createTextMask as fallbackCreateTextMask,
   TEXT_GENERATOR_FRAGMENT_SHADER as FALLBACK_TEXT_FRAGMENT_SHADER,
   TEXT_GENERATOR_VERTEX_SHADER as FALLBACK_TEXT_VERTEX_SHADER,
   textMaskDimensions as fallbackTextMaskDimensions,
   textMaskSignature as fallbackTextMaskSignature,
-} from "./text-generator-renderer.js?v=text-mask-readback-1";
+} from "./text-generator-renderer.js";
 
 const FALLBACK_TEXT_NODE_MODULE = Object.freeze({
   createTextMask: fallbackCreateTextMask,

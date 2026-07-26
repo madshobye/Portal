@@ -1,4 +1,4 @@
-import { outputSpanFitScale, worldSize } from "./render-geometry.js?v=shared-preview-viewport-1";
+import { outputSpanFitScale, worldSize } from "./render-geometry.js";
 
 export function previewCanvasLogicalSize({ mode = "preview", workspace = "component", render = {} } = {}) {
   // Every embedded workspace owns the same full-stage canvas. Component,

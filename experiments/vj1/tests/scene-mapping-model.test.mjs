@@ -12,7 +12,7 @@ import {
   sanitizeState,
 } from "../js/domain/models.js";
 import { createAppState } from "../js/app-state.js";
-import { compileLiveProjectionProgram } from "../js/domain/live-projection-program.js?v=live-projection-program-1";
+import { compileLiveProjectionProgram } from "../js/domain/live-projection-program.js";
 import { materializeLiveProgramSurfaceRoutes } from "../js/domain/scene-routing.js";
 
 function sceneMappingFixture() {

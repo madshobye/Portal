@@ -1,9 +1,9 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../node-engine/node-definition.js";
-import { projectedQuadAspect } from "../../render-engine/relative-geometry.js?v=frame-projection-aspect-1";
+import { projectedQuadAspect } from "../../render-engine/relative-geometry.js";
 import {
   fitModeCode,
   fitTargetUvToSourceUvShaderSource,
-} from "../../render-engine/fit-geometry/index.js?v=fit-geometry-1";
+} from "../../render-engine/fit-geometry/index.js";
 import {
   DissolveTransitionKernel,
   transitionKernelCacheKey,

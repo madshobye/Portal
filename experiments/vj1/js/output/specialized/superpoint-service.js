@@ -1,5 +1,5 @@
-import { buildFeatureMorphField, matchSuperPointFeatures } from "./feature-morph-field.js?v=node-program-hooks-15";
-import { fitOverflowDestination } from "../../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
+import { buildFeatureMorphField, matchSuperPointFeatures } from "./feature-morph-field.js";
+import { fitOverflowDestination } from "../../libraries/render-engine/fit-geometry/index.js";
 
 const FALLBACK_ANALYSIS_MODULE = Object.freeze({ buildFeatureMorphField, matchSuperPointFeatures });
 

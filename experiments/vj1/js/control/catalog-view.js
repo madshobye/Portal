@@ -1,5 +1,5 @@
-import { esc, icon } from "./template-utils.js?v=slider-values-70";
-import { CATALOG_MARKER_PINNED, catalogMarkerMeta, normalizeCatalogMarker } from "../domain/catalog-marker.js?v=catalog-marker-four-state-1";
+import { esc, icon } from "./template-utils.js";
+import { CATALOG_MARKER_PINNED, catalogMarkerMeta, normalizeCatalogMarker } from "../domain/catalog-marker.js";
 
 export function componentFilterTemplate(
   placeholder = "Filter components",
@@ -26,6 +26,30 @@ export function componentCatalogToolsTemplate(scope, activeMode = "recent", plac
       </div>
     </div>
   `;
+}
+
+export function componentCatalogSearchText(component = {}) {
+  const terms = [];
+  const append = (value) => {
+    const text = String(value || "").trim();
+    if (text) terms.push(text);
+  };
+  const visitChain = (chain = []) => {
+    for (const item of chain || []) {
+      append(item?.name);
+      append(item?.componentId);
+      append(item?.source?.mediaId);
+      append(item?.source?.componentId);
+      append(item?.source?.generatorId);
+      append(item?.source?.params?.mediaId);
+      if (item?.kind === "group") visitChain(item.chain);
+    }
+  };
+
+  append(component.name);
+  append(component.id);
+  visitChain(component.chain);
+  return terms.join(" ").toLowerCase();
 }
 
 export function sortComponentCatalog(items = [], mode = "recent") {

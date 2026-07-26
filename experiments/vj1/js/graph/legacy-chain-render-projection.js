@@ -7,8 +7,8 @@ import {
 import {
   getEffectNodeComponent as getShaderComponent,
   getGeneratorNodeComponent as getGeneratorComponent,
-} from "../libraries/visual-nodes/index.js?v=compiled-capability-revision-1";
-import { passParams } from "./shader-scheduler.js?v=compiled-capability-revision-1";
+} from "../libraries/visual-nodes/index.js";
+import { passParams } from "./shader-scheduler.js";
 
 // Explicit compatibility projection for pre-graph tests and migrations. Output
 // and Preview never import this module; production rendering compiles the saved

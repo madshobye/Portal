@@ -1,4 +1,4 @@
-import { esc, icon } from "./template-utils.js?v=slider-values-70";
+import { esc, icon } from "./template-utils.js";
 
 export function componentCardBarTemplate(label, iconName) {
   return `<div class="component-card-bar">

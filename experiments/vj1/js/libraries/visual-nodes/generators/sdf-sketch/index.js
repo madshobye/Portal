@@ -1,7 +1,7 @@
 import { NODE_PART_KINDS } from "../../../node-engine/node-definition.js";
-import { compileSdf2dProgram } from "../../../procedural-2d/compiler.js?v=procedural-2d-2";
-import { createSdf2dProgram, sdfExpr } from "../../../procedural-2d/program.js?v=procedural-2d-1";
-import { defineGeneratorNode } from "../../shared/visual-node-factory.js?v=sdf-content-editor-1";
+import { compileSdf2dProgram } from "../../../procedural-2d/compiler.js";
+import { createSdf2dProgram, sdfExpr } from "../../../procedural-2d/program.js";
+import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import { ALWAYS_TIME_RUNTIME } from "../../shared/shader-component-common.js";
 
 const manifest = Object.freeze({

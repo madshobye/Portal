@@ -1,5 +1,5 @@
-import { createProjectNodeFork, materializeProjectNodeFork, validateProjectNodeFork } from "../libraries/node-engine/node-editor.js?v=shader-javascript-forks-2";
-import { compileSdf2dSketchSource } from "../libraries/procedural-2d/compiler.js?v=procedural-2d-3";
+import { createProjectNodeFork, materializeProjectNodeFork, validateProjectNodeFork } from "../libraries/node-engine/node-editor.js";
+import { compileSdf2dSketchSource } from "../libraries/procedural-2d/compiler.js";
 import { esc, icon } from "./template-utils.js";
 
 export function selectedNodeEditorTemplate(component, state, nodePackage) {

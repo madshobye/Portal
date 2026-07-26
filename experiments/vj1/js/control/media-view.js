@@ -1,5 +1,5 @@
-import { catalogMarkerButtonTemplate } from "./catalog-view.js?v=catalog-tools-row-1";
-import { esc, icon } from "./template-utils.js?v=power-flicker-1";
+import { catalogMarkerButtonTemplate } from "./catalog-view.js";
+import { esc, icon } from "./template-utils.js";
 
 const MEDIA_PICKER_ACTIONS = Object.freeze({
   add: "data-add-element-media",

@@ -4,17 +4,17 @@ import { readFileSync } from "node:fs";
 import { generatorIcon } from "../js/control/picker-view.js";
 import { createAuthoredMediaSource } from "../js/domain/authored-visual-source.js";
 
-import { createSceneComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState, sceneSourceNodeId } from "../js/domain/models.js?v=world-frame-27";
+import { createSceneComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState, sceneSourceNodeId } from "../js/domain/models.js";
 import { normalizeParamValue, renderQualityScale } from "../js/libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, listGeneratorNodeComponents as listGeneratorComponents } from "../js/libraries/visual-nodes/index.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/libraries/render-engine/render-node-contract.js";
 import { mediaRenderInvalidation } from "../js/libraries/render-engine/invalidation/index.js";
-import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js?v=compiled-program-projection-1";
-import { hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
-import { drawMediaFit } from "../js/output/media-utils.js?v=surface-media-contract-6";
-import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js?v=source-target-ownership-1";
+import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
+import { createOutputInitialStateGate, hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, transitionTerminalState } from "../js/output/output-app.js";
+import { drawMediaFit } from "../js/output/media-utils.js";
+import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js";
 import { isReadyMediaItem } from "../js/output/component-render-state.js";
-import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSafeNearDistance, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js?v=world-frame-27";
+import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSafeNearDistance, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js";
 import { terrainCameraView } from "../js/output/specialized/specialized-source-runtime.js";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
 
@@ -1418,6 +1418,22 @@ test("output client holds current project state during control window refresh bo
   restored.media = [{ id: "media/a.png", name: "a.png", type: "image" }];
   assert.equal(shouldHoldCurrentOutputState(restored, current), false);
   assert.equal(shouldHoldCurrentOutputState(boot, null), false);
+});
+
+test("standalone Output waits for one authoritative initial state before renderer setup", async () => {
+  const gate = createOutputInitialStateGate();
+  const state = createInitialState();
+  let activated = false;
+  gate.ready.then(() => {
+    activated = true;
+  });
+
+  await Promise.resolve();
+  assert.equal(activated, false, "loading p5 cannot activate a null project");
+  assert.equal(gate.accept(state), true);
+  assert.equal(await gate.ready, state);
+  assert.equal(activated, true);
+  assert.equal(gate.accept(createInitialState()), false, "later states use normal revisioned activation");
 });
 
 test("output defers a requested Live Scene and starts its transition at activation time", () => {

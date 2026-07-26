@@ -1,6 +1,6 @@
-import { latestProjectActivity } from "./component-activity.js?v=adaptive-component-demand-29";
-import { runtimeVisualSourceNodes } from "./runtime-visual-sources.js?v=runtime-visual-sources-1";
-import { directSurfaceHierarchy } from "./direct-surface-hierarchy.js?v=explicit-direct-surface-hierarchy-1";
+import { latestProjectActivity } from "./component-activity.js";
+import { runtimeVisualSourceNodes } from "./runtime-visual-sources.js";
+import { directSurfaceHierarchy } from "./direct-surface-hierarchy.js";
 
 // These fields belong to a compiled Surface route, not to the authored
 // Mapping Surface. Keeping the list beside the route materializer gives model

@@ -1,4 +1,4 @@
-import { createSdf2dProgram, sdfExpr } from "./program.js?v=procedural-2d-1";
+import { createSdf2dProgram, sdfExpr } from "./program.js";
 
 // Compiles an edited sketch at authoring time. The returned source is the only
 // artifact used by the render loop; sketch JavaScript is never run per frame.

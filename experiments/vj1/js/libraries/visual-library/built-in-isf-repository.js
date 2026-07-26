@@ -2,7 +2,7 @@ import {
   createIsfNodeDefinition,
   materializeIsfTransitionDefinition,
   materializeIsfNodeDefinition,
-} from "../isf-engine/isf-node.js?v=async-media-dirty-1";
+} from "../isf-engine/isf-node.js";
 
 const BUILT_IN_MANIFEST_URL = new URL(
   "../../../visual-library/visual-library.json",

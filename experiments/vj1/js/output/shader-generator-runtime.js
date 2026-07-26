@@ -1,7 +1,7 @@
-import { contentTransformUvMatrices } from "./content-coordinate-space.js?v=node-roi-placement-1";
+import { contentTransformUvMatrices } from "./content-coordinate-space.js";
 import {
   isSharedFramebufferTarget,
-} from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
+} from "./shared-framebuffer-target.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
@@ -10,20 +10,20 @@ import {
   resetShaderTarget,
   setShaderUniformIfPresent,
   shaderDrawingBufferSize,
-} from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "./shader-target-runtime.js";
 import {
   generatorRateParam,
   qualityAdjustedGeneratorParams,
   usesShadertoyInterface,
-} from "./render-runtime-math.js?v=declarative-render-policy-1";
+} from "./render-runtime-math.js";
 import {
   FULL_RENDER_UV_RECT,
   renderSourceDetail,
-} from "../libraries/render-engine/render-view/index.js?v=source-detail-contract-1";
-import { isIdentityTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
-import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { frameRenderRequest } from "./render-geometry.js?v=output-one-1";
-import { roundMetric } from "./output-render-profile.js?v=output-profile-runtime-1";
+} from "../libraries/render-engine/render-view/index.js";
+import { isIdentityTransform } from "./preview-interaction-geometry.js";
+import { drawBuffer } from "./render-draw-utils.js";
+import { frameRenderRequest } from "./render-geometry.js";
+import { roundMetric } from "./output-render-profile.js";
 import { advanceRateClock } from "../libraries/timing-engine/index.js";
 
 // Direct capability for compiled fragment, Shadertoy, and ISF generators.

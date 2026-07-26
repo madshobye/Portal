@@ -1,18 +1,18 @@
-import { clamp01 } from "../../domain/models.js?v=surface-terminology-1";
-import { contentTransformUvMatrices } from "../content-coordinate-space.js?v=node-roi-placement-1";
+import { clamp01 } from "../../domain/models.js";
+import { contentTransformUvMatrices } from "../content-coordinate-space.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
   drawShaderTarget,
   drawShaderTargetRect,
   resetShaderTarget,
-} from "../shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "../shader-target-runtime.js";
 import { renderView } from "../../libraries/render-engine/render-view/index.js";
 import {
   mobileNetAnalysisModule,
   MobileNetMorphPairService,
-} from "./mobilenet-morph-service.js?v=analysis-state-invalidation-1";
-import { SuperPointPairService } from "./superpoint-service.js?v=analysis-state-invalidation-1";
+} from "./mobilenet-morph-service.js";
+import { SuperPointPairService } from "./superpoint-service.js";
 import {
   compiledSpecializedOperation,
   featureMorphNodeRuntimeModule,
@@ -363,6 +363,7 @@ export class FeatureMorphRuntime {
       this.drawStandby(
         output,
         entry.detail || analysisProvider.loadingLabel,
+        { detail: true },
       );
       return;
     }
@@ -370,6 +371,7 @@ export class FeatureMorphRuntime {
       this.drawStandby(
         output,
         entry.error || analysisProvider.errorLabel,
+        { detail: true },
       );
       return;
     }

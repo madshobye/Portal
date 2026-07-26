@@ -3,7 +3,7 @@ import { MeshType } from "../mesh-types.js";
 import {
   createEllipsoidMesh,
   proceduralMeshSignature,
-} from "../procedural-mesh-primitives/index.js?v=procedural-mesh-primitives-2";
+} from "../procedural-mesh-primitives/index.js";
 
 export const EllipsoidMeshNode = defineNode({
   id: "core.scene3d.ellipsoid-mesh",

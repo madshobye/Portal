@@ -1501,7 +1501,13 @@ test("direct output Surfaces remain editable as 2D Scene rectangles", () => {
     state: {
       components: [scene],
       mappings: [{ id: "mapping", surfaces: [surface] }],
-      ui: { selectedComponentId: scene.id, selectedMappingId: "mapping" },
+      ui: {
+        workspace: "scene",
+        sceneInspectorTarget: "surface",
+        selectedComponentId: scene.id,
+        selectedMappingId: "mapping",
+        selectedSurfaceId: surface.id,
+      },
     },
     resourceRuntime: {
       componentOutput: new Map(),
@@ -1517,6 +1523,43 @@ test("direct output Surfaces remain editable as 2D Scene rectangles", () => {
   assert.deepEqual(selected, [surface.id]);
   assert.equal(interaction.surfaceDrag?.surfaceId, surface.id);
   assert.equal(interaction.surfaceDrag?.keepProportions, true);
+});
+
+test("Scene Surface frames become inert while an element owns inspector focus", () => {
+  const surface = {
+    id: "surface-a",
+    enabled: true,
+    x: 0.1,
+    y: 0.1,
+    width: 0.4,
+    height: 0.3,
+  };
+  const scene = { id: "scene", type: "scene", chain: [] };
+  const renderer = {
+    state: {
+      components: [scene],
+      mappings: [{ id: "mapping", surfaces: [surface] }],
+      ui: {
+        workspace: "scene",
+        sceneInspectorTarget: "element",
+        selectedComponentId: scene.id,
+        selectedMappingId: "mapping",
+        selectedSurfaceId: surface.id,
+      },
+    },
+    resourceRuntime: { componentOutput: new Map() },
+    presentationRuntime: {
+      componentPreviewRect: () => ({ x: 0, y: 0, width: 100, height: 100 }),
+    },
+  };
+  const interaction = new ComponentPreviewInteraction(renderer);
+
+  assert.equal(interaction.activeSceneSurfaceId(), "");
+  assert.equal(interaction.startSurfaceDrag(20, 10), false);
+
+  renderer.state.ui.sceneInspectorTarget = "surface";
+  assert.equal(interaction.activeSceneSurfaceId(), surface.id);
+  assert.equal(interaction.startSurfaceDrag(20, 10), true);
 });
 
 test("element scale dragging uses a softened bounded response", () => {
@@ -1554,7 +1597,7 @@ test("preview picking selects physical sources, spatial effects, and containing 
   assert.equal(renderer.previewInteraction.selectChainItemAtPoint(100, 50)?.id, "effect-spatial");
 });
 
-test("preview body picking follows current boundaries and visual stacking rather than selection", () => {
+test("preview body picking follows compositor z-order even when a covered item was selected", () => {
   const renderer = new OutputRenderer({ mode: "component" });
   const left = {
     id: "left",
@@ -1584,7 +1627,39 @@ test("preview body picking follows current boundaries and visual stacking rather
   assert.equal(renderer.previewInteraction.chainItemAtPoint(150, 50), right);
 
   right.boundary = { x: 0, y: 0, width: 1, height: 1, rotation: 0 };
-  assert.equal(renderer.previewInteraction.chainItemAtPoint(50, 50), right, "the top item wins an overlapping body hit");
+  assert.equal(
+    renderer.previewInteraction.chainItemAtPoint(50, 50),
+    right,
+    "the frontmost body wins even when the covered item owns selection",
+  );
+});
+
+test("clicking empty preview space clears element selection", () => {
+  const selected = [];
+  const renderer = new OutputRenderer({
+    mode: "component",
+    onChainItemSelect: (id) => selected.push(id),
+  });
+  const source = {
+    id: "source-a",
+    kind: "source",
+    enabled: true,
+    opacity: 1,
+    boundary: { x: 0, y: 0, width: 0.25, height: 0.25, rotation: 0 },
+    source: { type: "generator", generatorId: "noise" },
+  };
+  const component = { id: "component-a", type: "chain", chain: [source] };
+  renderer.state = {
+    components: [component],
+    render: {},
+    ui: { selectedComponentId: component.id, selectedChainItemId: source.id },
+  };
+  renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
+
+  renderer.mousePressed(10, 10);
+
+  assert.equal(renderer.state.ui.selectedChainItemId, "");
+  assert.deepEqual(selected, [""]);
 });
 
 test("one preview press selects a physical element and begins moving it", () => {
@@ -1809,7 +1884,7 @@ test("local surface mappings remain authoritative until their exact acknowledgem
   assert.equal(renderer.mappingRuntime.pendingMappingSignature, "");
 
   const source = readFileSync(new URL("../js/output/output-mapping-runtime.js", import.meta.url), "utf8");
-  assert.ok(source.includes("if (previous.interactionActive) this.surfaceRebuildPending = true"));
+  assert.ok(source.includes("if (previous.interactionActive && !mappingChanged) this.surfaceRebuildPending = true"));
   assert.ok(source.includes("this.rebuildSurfaces({ preferExistingMapping: true })"));
   assert.ok(source.includes("preferExistingMapping && existingProjectCorners?.length === 4"));
   assert.ok(!source.includes("localMappingProtectedUntil"));
@@ -1829,7 +1904,7 @@ test("an exact mapping echo acknowledges ownership while its drag is still activ
   };
   state.mappingCalibration = local;
   state.mappings[0].calibration = structuredClone(local);
-  renderer.state = createInitialState();
+  renderer.state = structuredClone(state);
   renderer.mappingRuntime.mapper = {
     isActive: () => true,
     setCalibrate() {},
@@ -1841,6 +1916,49 @@ test("an exact mapping echo acknowledges ownership while its drag is still activ
   renderer.setState(state);
 
   assert.equal(renderer.mappingRuntime.pendingMappingSignature, "");
+});
+
+test("switching Mapping documents rebuilds retained handles even when IDs and calibration match", () => {
+  const renderer = new OutputRenderer({ mode: "preview" });
+  const surface = {
+    id: "shared-surface-id",
+    destination: { type: "mapped" },
+  };
+  renderer.state = {
+    render: {},
+    surfaces: [surface],
+    mappingCalibration: {},
+    ui: { selectedMappingId: "mapping-a" },
+    global: {},
+  };
+  renderer.mappingRuntime.mapper = {
+    isActive: () => true,
+    setCalibrate() {},
+    setOverlayMode() {},
+  };
+  renderer.mappingRuntime.mappingSignature = renderer.mappingRuntime.currentSignature();
+  renderer.mappingRuntime.pendingMappingSignature = '{"surfaces":["mapping-a-local"]}';
+  renderer.mappingRuntime.pendingMappingStartedAt = performance.now();
+  const previous = renderer.mappingRuntime.captureState();
+  const rebuilds = [];
+  const applied = [];
+  renderer.mappingRuntime.rebuildSurfaces = (options) => rebuilds.push(options);
+  renderer.mappingRuntime.applyProject = (signature) => {
+    applied.push(signature);
+    renderer.mappingRuntime.mappingSignature = signature;
+  };
+
+  renderer.state = {
+    ...renderer.state,
+    surfaces: [{ ...surface }],
+    ui: { selectedMappingId: "mapping-b" },
+  };
+  renderer.mappingRuntime.reconcileState(previous);
+
+  assert.deepEqual(rebuilds, [{ preferExistingMapping: false }]);
+  assert.deepEqual(applied, ["{}"]);
+  assert.equal(renderer.mappingRuntime.pendingMappingSignature, "");
+  assert.equal(renderer.mappingRuntime.surfaceRebuildPending, false);
 });
 
 test("standalone output permanently rejects calibration markers", () => {
@@ -1874,15 +1992,17 @@ test("output diagnostics remain DOM-only and never add text to the GL surface pa
   assert.ok(appSource.includes('class="output-fps"'));
 });
 
-test("standalone output requests authoritative state and media after renderer setup", () => {
+test("standalone output consumes its handshake baseline without requesting duplicate snapshots after setup", () => {
   const appSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
+  assert.ok(appSource.includes("await initialStateGate.ready;"));
   const importedFiles = appSource.indexOf("renderer.importFiles(acceptedFiles);");
-  const requestedState = appSource.indexOf("bridge?.requestState();", importedFiles);
-  const requestedMedia = appSource.indexOf("bridge?.requestMediaFiles();", requestedState);
+  const setupEnd = appSource.indexOf("\n  };", importedFiles);
+  const setupTail = appSource.slice(importedFiles, setupEnd);
 
   assert.ok(importedFiles >= 0);
-  assert.ok(requestedState > importedFiles);
-  assert.ok(requestedMedia > requestedState);
+  assert.ok(setupEnd > importedFiles);
+  assert.equal(setupTail.includes("bridge?.requestState();"), false);
+  assert.equal(setupTail.includes("bridge?.requestMediaFiles();"), false);
 });
 
 test("surface calibration keeps direct projection without materialized labels", () => {

@@ -1,6 +1,6 @@
-import { uid } from "../domain/models.js?v=surface-terminology-1";
-import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
-import { createModelPreviewUrl } from "../libraries/mesh-engine/convert-3d-file-to-image/index.js?v=async-media-dirty-1";
+import { uid } from "../domain/models.js";
+import { isMediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "./media-rendition-service.js";
+import { createModelPreviewUrl } from "../libraries/mesh-engine/convert-3d-file-to-image/index.js";
 
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;

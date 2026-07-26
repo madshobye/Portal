@@ -1,5 +1,5 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../node-engine/node-definition.js";
-import { createMaterial3d, Material3dType } from "../scene-types.js?v=editable-inlet-literals-1";
+import { createMaterial3d, Material3dType } from "../scene-types.js";
 
 export const Material3dNode = defineNode({
   id: "core.scene3d.material",

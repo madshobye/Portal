@@ -1,4 +1,4 @@
-import { normalizeComponentPipelineSettings } from "../domain/models.js?v=surface-terminology-1";
+import { normalizeComponentPipelineSettings } from "../domain/models.js";
 import {
   isReadyMediaItem,
   renderBufferKey,
@@ -6,13 +6,13 @@ import {
   runtimeMediaInvalidation,
   staticCompiledComponentGraphMediaState,
   staticCompiledComponentGraphState,
-} from "./component-render-state.js?v=typed-media-revision-invalidation-1";
-import { drawBuffer } from "./render-draw-utils.js?v=runtime-diagnostics-1";
+} from "./component-render-state.js";
+import { drawBuffer } from "./render-draw-utils.js";
 import {
   createRenderRequest,
   renderRequestKey,
   renderRequestStateKey,
-} from "./render-geometry.js?v=fit-geometry-demand-1";
+} from "./render-geometry.js";
 
 // Retained Component execution capability. Semantic graphs are compiled by
 // ComponentProgramRuntime; this capability owns the allocation-stable request,

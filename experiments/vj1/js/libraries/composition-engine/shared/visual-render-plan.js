@@ -1,5 +1,5 @@
-import { compileVisualControlProgram, setCompiledVisualParameter } from "./visual-control-program.js?v=async-media-dirty-1";
-import { compileVisualValueProgram } from "./visual-value-program.js?v=retained-value-signal-1";
+import { compileVisualControlProgram, setCompiledVisualParameter } from "./visual-control-program.js";
+import { compileVisualValueProgram } from "./visual-value-program.js";
 import {
   defineVisualNodeContract,
   VISUAL_ALLOCATION_MODES,
@@ -14,7 +14,7 @@ import {
   revisionRenderInvalidation,
   runtimePolicyRenderInvalidation,
   stableRenderInvalidation,
-} from "../../render-engine/invalidation/index.js?v=compiled-invalidation-composition-1";
+} from "../../render-engine/invalidation/index.js";
 import { visitVisualParameterReferences } from "../../visual-nodes/shared/parameter-references.js";
 
 export const VISUAL_RENDER_OPCODES = Object.freeze({
@@ -162,7 +162,13 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
       }, {
         chain: (graph.nodes || [])
           .filter((child) => child.role !== "control")
-          .map((child) => child.configuration)
+          // A Node definition is an immutable template shared by every
+          // instance. Its private child configurations are runtime parameter
+          // storage, however, so each compiled compound must own a distinct
+          // tree. Reusing the definition objects made the last instance of a
+          // compound overwrite earlier instances (for example, the second
+          // Project Media node changed the first node's fit mode).
+          .map((child) => cloneCompoundConfiguration(child.configuration))
           .filter(Boolean),
       }, path);
       const operations = compileFramebufferPassSequences(
@@ -1091,6 +1097,25 @@ function operation(opcode, node, configuration, path, additions = {}) {
     configuration,
     ...additions,
   });
+}
+
+function cloneCompoundConfiguration(value, seen = new Map()) {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return seen.get(value);
+  if (Array.isArray(value)) {
+    const clone = [];
+    seen.set(value, clone);
+    for (const item of value) clone.push(cloneCompoundConfiguration(item, seen));
+    return clone;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return value;
+  const clone = {};
+  seen.set(value, clone);
+  for (const [key, item] of Object.entries(value)) {
+    clone[key] = cloneCompoundConfiguration(item, seen);
+  }
+  return clone;
 }
 
 function normalizeOperationContract(operation, diagnostics) {

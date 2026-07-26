@@ -1,4 +1,4 @@
-import { registerRenderTarget, RENDER_TARGET_KIND, RENDER_TEXTURE_ORIENTATION } from "./render-target-contract.js?v=source-target-ownership-1";
+import { registerRenderTarget, RENDER_TARGET_KIND, RENDER_TEXTURE_ORIENTATION } from "./render-target-contract.js";
 
 const TWO_D_METHODS = [
   "background",

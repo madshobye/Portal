@@ -1,5 +1,5 @@
-import { buildProjectPayload } from "./project-serializer.js?v=project-media-contain-1";
-import { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
+import { buildProjectPayload } from "./project-serializer.js";
+import { projectHistorySignature } from "./project-history-policy.js";
 
 export function prepareProjectSave(state, savedAt = new Date().toISOString()) {
   return prepareProjectPayload(buildProjectPayload(state, savedAt));
@@ -40,7 +40,7 @@ export function projectPayloadSignature(payload = {}) {
 
 export function createProjectSavePreparer({
   WorkerClass = globalThis.Worker,
-  workerUrl = new URL("./project-save-preparation-worker.js?v=project-save-worker-ready-1", import.meta.url),
+  workerUrl = new URL("./project-save-preparation-worker.js", import.meta.url),
   onFallback = defaultFallbackWarning,
   requestTimeoutMs = 5000,
 } = {}) {
@@ -147,6 +147,10 @@ export function createProjectSavePreparer({
   }
 
   return Object.freeze({
+    // Start the module graph while the application is otherwise initializing.
+    // The first authored edit must not also pay the Worker cold-start cost and
+    // mistake slow module activation for failed save preparation.
+    prewarm: () => !!ensureWorker(),
     prepareState: (state, savedAt) => request({ kind: "prepare-state", state, savedAt }),
     preparePayload: (payload) => request({ kind: "prepare-payload", payload }),
     inspectText: (text) => request({ kind: "inspect-text", text }),

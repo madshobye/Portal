@@ -13,7 +13,7 @@ import {
   pinNodeVersion,
   serializeNodeArtifact,
   serializeNodeDefinition,
-} from "./node-project.js?v=package-content-lock-1";
+} from "./node-project.js";
 
 export const NODE_PACKAGE_FORMAT_VERSION = 3;
 

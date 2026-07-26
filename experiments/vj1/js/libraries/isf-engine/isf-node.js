@@ -26,8 +26,8 @@ import {
   compileIsfFragmentSource,
   compileIsfOptimizedFragmentSource,
   compileIsfTransitionKernel,
-} from "./isf-compiler.js?v=async-media-dirty-1";
-import { parseIsfDocument, sourceHash } from "./isf-document.js?v=isf-coordinates-1";
+} from "./isf-compiler.js";
+import { parseIsfDocument, sourceHash } from "./isf-document.js";
 
 const projectComponentCache = new WeakMap();
 const projectDefinitionCache = new Map();

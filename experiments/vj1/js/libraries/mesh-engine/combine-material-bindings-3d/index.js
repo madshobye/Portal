@@ -2,7 +2,7 @@ import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../node-engine/node-de
 import {
   MaterialBinding3dListType,
   MaterialBinding3dType,
-} from "../material-binding-3d/index.js?v=mesh-collection-2";
+} from "../material-binding-3d/index.js";
 
 export const CombineMaterialBindings3dNode = defineNode({
   id: "core.scene3d.combine-material-bindings",

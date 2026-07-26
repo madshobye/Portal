@@ -1,7 +1,7 @@
-import { OutputRenderCache } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
-import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js?v=adaptive-component-demand-29";
-import { disposeGraphics } from "./shader-target-runtime.js?v=premultiplied-alpha-write-1";
-import { createSharedFramebufferTarget } from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
+import { OutputRenderCache } from "../libraries/cache-engine/render-cache/index.js";
+import { applyFontToGlobal, applyFontToTarget } from "./font-loader.js";
+import { disposeGraphics } from "./shader-target-runtime.js";
+import { createSharedFramebufferTarget } from "./shared-framebuffer-target.js";
 
 // Owns shared presentation resources and their context-safe lifecycle. Exact
 // render requests and per-node retained targets remain owned by their existing

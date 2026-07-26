@@ -6,7 +6,7 @@ import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
 import { sceneComponents, ordinaryComponents } from "../js/control/control-selectors.js";
 import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate } from "../js/control/mapping-live-view.js";
 import { liveProjectionRailTemplate, projectRailTemplate } from "../js/control/project-rail-view.js";
-import { createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js?v=render-coordinate-scope-3";
+import { createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js";
 
 function stateWithScene() {
   const state = createInitialState();
@@ -37,7 +37,7 @@ test("Mapping and Live Scene presentation lives outside the control orchestrator
   const surfaceTemplate = mappingSurfaceTemplate(surface, state);
   assert.match(surfaceTemplate, /class="sculpt-card inspector-control-surface"/);
   assert.doesNotMatch(surfaceTemplate, /data-set-route-frame-id=/);
-  assert.match(controller, /from "\.\/mapping-live-view\.js\?v=[^"]+"/);
+  assert.match(controller, /from "\.\/mapping-live-view\.js"/);
   assert.doesNotMatch(controller, /function liveInspectorTemplate\(/);
   assert.doesNotMatch(controller, /function mappingSurfaceTemplate\(/);
   assert.doesNotMatch(controller, /sceneSignificantComponentTemplate/);

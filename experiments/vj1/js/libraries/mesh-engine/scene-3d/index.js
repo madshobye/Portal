@@ -1,6 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../node-engine/node-definition.js";
 import { listType } from "../../node-engine/node-types.js";
-import { Camera3dType, createScene3d, Object3dType, Scene3dType } from "../scene-types.js?v=editable-inlet-literals-1";
+import { Camera3dType, createScene3d, Object3dType, Scene3dType } from "../scene-types.js";
 
 export const Scene3dNode = defineNode({
   id: "core.scene3d.scene",

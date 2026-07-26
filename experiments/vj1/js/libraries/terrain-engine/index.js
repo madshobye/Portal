@@ -3,7 +3,7 @@ export {
   TerrainFlightStateType,
   terrainCameraView,
   terrainFlightControllerProcess,
-} from "./flight-controller/index.js?v=semantic-terrain-contract-5";
+} from "./flight-controller/index.js";
 export {
   PLANAR_GRID_PROVIDER,
   TERRAIN_GRID_CELLS,
@@ -12,4 +12,4 @@ export {
   terrainGridSize,
   terrainRowMetrics,
   terrainTessellationSize,
-} from "./geometry-provider/index.js?v=semantic-terrain-contract-5";
+} from "./geometry-provider/index.js";

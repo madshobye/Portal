@@ -17,7 +17,7 @@ import { mapperTransitionFragmentShaderSource } from "../js/libraries/mapping-en
 import { serializeNodeProjectData } from "../js/libraries/node-engine/node-project.js";
 import { createProjectNodeFork } from "../js/libraries/node-engine/node-editor.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/project-visual-node-resolver.js";
-import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js?v=compiled-program-projection-1";
+import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
 
 const FILTER = `/*{
   "ISFVSN": "2.0",

@@ -1,14 +1,14 @@
-import { createAppState } from "./app-state.js?v=signal-load-observability-2";
-import { createControlShell } from "./control/control-shell-controller.js?v=retained-preview-commit-1";
-import { getInitialWorkspace, getClientMode, persistLiveScenePreference, persistWorkspace, preferredLiveSceneId } from "./view-routing.js?v=scene-mapping-1";
-import { createMediaLibrary } from "./services/media-library-service.js?v=atomic-media-reconciliation-1";
-import { createProjectFolderService } from "./services/project-folder-service.js?v=project-save-worker-ready-1";
-import { createControlBridge } from "./services/output-bridge-service.js?v=signal-transport-boundary-1";
-import { installOutputApp } from "./output/output-app.js?v=signal-load-observability-1";
-import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js?v=component-transport-patch-1";
-import { createRenderStatePatch } from "./domain/live-render-patch.js?v=structural-world-state-2";
+import { createAppState } from "./app-state.js";
+import { createControlShell } from "./control/control-shell-controller.js";
+import { getInitialWorkspace, getClientMode, persistLivePreference, persistWorkspace, preferredLivePreference } from "./view-routing.js";
+import { createMediaLibrary } from "./services/media-library-service.js";
+import { createProjectFolderService } from "./services/project-folder-service.js";
+import { createControlBridge } from "./services/output-bridge-service.js";
+import { installOutputApp } from "./output/output-app.js";
+import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js";
+import { createRenderStatePatch } from "./domain/live-render-patch.js";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
-import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js?v=explicit-capability-policy-1";
+import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -27,14 +27,15 @@ if (!compatibility?.supported) {
   diagnostics.install();
   installOutputApp({ root, mode, diagnostics });
 } else {
-  installControlApp();
+  installControlApp().catch(showStartupFailure);
 }
 
 async function installControlApp() {
+  showStartupStage("Loading node library…");
   // Control-only composition keeps node catalog/editor metadata completely out
   // of output and preview render processes; no live-frame work is introduced.
-  const { createVj1NodePackage } = await import("./app-node-package.js?v=structural-world-state-2");
-  const { applicationProgramFromProjectData, loadStoredApplicationProgram } = await import("./services/application-program-loader.js?v=project-media-contain-1");
+  const { createVj1NodePackage } = await import("./app-node-package.js");
+  const { applicationProgramFromProjectData, loadStoredApplicationProgram } = await import("./services/application-program-loader.js");
   const nodePackage = createVj1NodePackage();
   const fixtureUrl = fixtureStateUrl();
   let fixtureState = null;
@@ -55,8 +56,10 @@ async function installControlApp() {
       };
     }
   } else {
+    showStartupStage("Loading application program…");
     applicationBootstrap = await loadStoredApplicationProgram(nodePackage);
   }
+  showStartupStage("Initializing application services…");
   const application = await nodePackage.createApplicationRuntime({
     group: applicationBootstrap.group,
     factories: {
@@ -185,11 +188,19 @@ async function installControlApp() {
 
   store.subscribe((state, reason, change) => {
     if (reason === "workspace") persistWorkspace(state.ui.workspace);
-    if (reason === "live:scene") persistLiveScenePreference(state);
+    if (reason === "live:scene" || reason === "live:preview-surface") {
+      persistLivePreference(state);
+    }
     if (change.projectRestore) {
-      const preferredSceneId = preferredLiveSceneId(state);
-      if (preferredSceneId && preferredSceneId !== String(state.ui.live?.selectedSceneId || "")) {
-        store.restoreLiveScene(preferredSceneId);
+      const preferred = preferredLivePreference(state);
+      if (
+        (preferred.sceneId &&
+          preferred.sceneId !== String(state.ui.live?.selectedSceneId || "")) ||
+        (preferred.previewSurfaceId &&
+          preferred.previewSurfaceId !==
+            String(state.ui.live?.previewSurfaceId || "__mapping__"))
+      ) {
+        store.restoreLivePreference(preferred);
         return;
       }
     }
@@ -206,16 +217,21 @@ async function installControlApp() {
     console.warn(`[vj1] Could not load fixture state: ${applicationBootstrap.warning || "unknown error"}`);
     bridge.announceControl();
   } else {
-    // Output state may make the editor useful while the local folder loads,
-    // but its media snapshot must not compete with the authoritative import.
+    showStartupStage("Restoring project folder…");
+    // The local folder is the startup authority. Do not announce an empty
+    // controller while it is still restoring: an already-running Output
+    // would otherwise receive an intentionally rejected empty baseline
+    // followed by valid Live patches, producing revision gaps and resync
+    // storms. If local restore fails, announcement still happens afterward
+    // and Output recovery remains available as the read-only fallback.
     bridge.beginProjectRestore();
-    bridge.announceControl();
     let restored = false;
     try {
       restored = await projectService.restoreStoredFolder();
     } finally {
       bridge.finishProjectRestore(restored);
     }
+    bridge.announceControl();
     // The URL is the navigation authority. A restored project may contain the
     // workspace that was active when it was saved, but it must not replace the
     // view explicitly requested by this browser tab (for example Scene on a
@@ -224,6 +240,23 @@ async function installControlApp() {
       store.setWorkspace(initialWorkspace);
     }
   }
+}
+
+function showStartupStage(message) {
+  const status = root.querySelector("[data-vj1-startup-status]");
+  if (status) status.textContent = String(message || "Starting…");
+}
+
+function showStartupFailure(error) {
+  console.error("[VJ1_CONTROL_STARTUP_FAILED]", error);
+  root.innerHTML = `
+    <section class="app-startup-status" role="alert">
+      <strong>VJ1 could not start</strong>
+      <span data-vj1-startup-status></span>
+    </section>
+  `;
+  root.querySelector("[data-vj1-startup-status]").textContent =
+    error?.message || String(error || "Unknown startup error");
 }
 
 function fixtureStateUrl() {

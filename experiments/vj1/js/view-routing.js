@@ -23,28 +23,58 @@ export function persistWorkspace(workspace) {
   window.history.replaceState({}, "", url);
 }
 
-export function persistLiveScenePreference(state, storage = globalThis.localStorage) {
+export function persistLivePreference(state, storage = globalThis.localStorage) {
   const projectKey = liveSceneProjectKey(state);
   const sceneId = String(state?.ui?.live?.selectedSceneId || "");
-  if (!projectKey || !sceneId || !state?.components?.some((scene) => scene.type === "scene" && String(scene.id) === sceneId)) return false;
+  const previewSurfaceId = validLivePreviewSurfaceId(
+    state,
+    state?.ui?.live?.previewSurfaceId || "__mapping__",
+  );
+  if (
+    !projectKey ||
+    !sceneId ||
+    !previewSurfaceId ||
+    !state?.components?.some(
+      (scene) => scene.type === "scene" && String(scene.id) === sceneId,
+    )
+  ) return false;
   try {
-    const preferences = parseLiveScenePreferences(storage?.getItem?.(VJ1.localLiveSceneKey));
-    preferences[projectKey] = sceneId;
-    storage?.setItem?.(VJ1.localLiveSceneKey, JSON.stringify(preferences));
+    const preferences = parseLivePreferences(
+      storage?.getItem?.(VJ1.localLivePreferenceKey),
+    );
+    preferences[projectKey] = { sceneId, previewSurfaceId };
+    storage?.setItem?.(
+      VJ1.localLivePreferenceKey,
+      JSON.stringify(preferences),
+    );
     return true;
   } catch {
     return false;
   }
 }
 
-export function preferredLiveSceneId(state, storage = globalThis.localStorage) {
+export function preferredLivePreference(
+  state,
+  storage = globalThis.localStorage,
+) {
   const projectKey = liveSceneProjectKey(state);
-  if (!projectKey) return "";
+  if (!projectKey) return { sceneId: "", previewSurfaceId: "" };
   try {
-    const sceneId = String(parseLiveScenePreferences(storage?.getItem?.(VJ1.localLiveSceneKey))[projectKey] || "");
-    return state?.components?.some((scene) => scene.type === "scene" && String(scene.id) === sceneId) ? sceneId : "";
+    const stored = parseLivePreferences(
+      storage?.getItem?.(VJ1.localLivePreferenceKey),
+    )[projectKey];
+    const sceneId = String(stored?.sceneId || "");
+    return {
+      sceneId: state?.components?.some(
+        (scene) => scene.type === "scene" && String(scene.id) === sceneId,
+      ) ? sceneId : "",
+      previewSurfaceId: validLivePreviewSurfaceId(
+        state,
+        stored?.previewSurfaceId,
+      ),
+    };
   } catch {
-    return "";
+    return { sceneId: "", previewSurfaceId: "" };
   }
 }
 
@@ -55,13 +85,25 @@ function liveSceneProjectKey(state = {}) {
   return name ? `project:${name}` : "";
 }
 
-function parseLiveScenePreferences(value) {
+function parseLivePreferences(value) {
   try {
     const parsed = JSON.parse(String(value || "{}"));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   } catch {
     return {};
   }
+}
+
+function validLivePreviewSurfaceId(state = {}, requestedId = "") {
+  const requested = String(requestedId || "");
+  if (!requested) return "";
+  if (requested === "__mapping__") return requested;
+  const mapping = (state.mappings || []).find(
+    (item) => String(item.id) === String(state.ui?.selectedMappingId || ""),
+  ) || state.mappings?.[0];
+  return mapping?.surfaces?.some(
+    (surface) => String(surface.id) === requested,
+  ) ? requested : "";
 }
 
 export function buildOutputUrl(kind = "output", { outputId = "" } = {}) {

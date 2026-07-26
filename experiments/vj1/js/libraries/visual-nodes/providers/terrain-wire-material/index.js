@@ -6,12 +6,12 @@ import {
 import {
   createMaterial3d,
   Material3dType,
-} from "../../../mesh-engine/scene-types.js?v=editable-inlet-literals-1";
+} from "../../../mesh-engine/scene-types.js";
 import { VisualMaterialProviderType } from "../../shared/visual-stage-types.js";
 import {
   TERRAIN_WIRE_FRAGMENT_SHADER,
   TERRAIN_WIRE_VERTEX_SHADER,
-} from "../../generators/terrain-flyover/shaders.js?v=source-roi-view-3";
+} from "../../generators/terrain-flyover/shaders.js";
 
 export const TerrainWireMaterialProviderNode = defineNode({
   id: "core.visual.terrain-wire-material",

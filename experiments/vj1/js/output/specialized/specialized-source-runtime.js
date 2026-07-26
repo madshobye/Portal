@@ -1,9 +1,9 @@
-import { drawStandby } from "../generators.js?v=standby-local-diagnostic-1";
-import { FeatureMorphRuntime } from "./feature-morph-runtime.js?v=structural-world-state-2";
-import { MeshPatternRuntime } from "./mesh-pattern-runtime.js?v=framebuffer-sequence-1";
-import { SpecializedTargetRuntime } from "./specialized-target-runtime.js?v=async-media-dirty-1";
-import { TerrainRenderRuntime } from "./terrain-render-runtime.js?v=async-media-dirty-1";
-import { TextRenderRuntime } from "./text-render-runtime.js?v=visual-stage-authority-1";
+import { drawStandby } from "../generators.js";
+import { FeatureMorphRuntime } from "./feature-morph-runtime.js";
+import { MeshPatternRuntime } from "./mesh-pattern-runtime.js";
+import { SpecializedTargetRuntime } from "./specialized-target-runtime.js";
+import { TerrainRenderRuntime } from "./terrain-render-runtime.js";
+import { TextRenderRuntime } from "./text-render-runtime.js";
 import { NativeRendererRegistry } from "../../libraries/render-engine/native-renderer-registry.js";
 
 export {
@@ -15,7 +15,7 @@ export {
   textNodeRuntimeModule,
   textNodeShaderSource,
 } from "./specialized-node-artifacts.js";
-export { terrainCameraView } from "../../libraries/terrain-engine/index.js?v=semantic-terrain-contract-4";
+export { terrainCameraView } from "../../libraries/terrain-engine/index.js";
 
 // Registry and lifecycle composition root for the few declared retained
 // native kernels. Each visual family owns its algorithms and context-bound
@@ -44,8 +44,8 @@ export class SpecializedSourceRuntime {
     this.targets = new SpecializedTargetRuntime({
       applyGraphicsPixelDensity,
     });
-    const standby = (target, label) =>
-      this.drawStandby(target, label);
+    const standby = (target, label, options = {}) =>
+      this.drawStandby(target, label, options);
     this.featureMorph = new FeatureMorphRuntime({
       targets: this.targets,
       acquireMedia,
@@ -210,7 +210,10 @@ export class SpecializedSourceRuntime {
     };
   }
 
-  drawStandby(target, label) {
+  drawStandby(target, label, {
+    icon = "resource",
+    detail = false,
+  } = {}) {
     const transient =
       /loading|checking|preparing|matching|finding|not loaded/i.test(
         String(label || ""),
@@ -219,6 +222,8 @@ export class SpecializedSourceRuntime {
       visible: this.showDiagnostics(),
       frame: this.frameIndex(),
       graceMs: transient ? 1000 : 0,
+      icon,
+      detail,
     });
   }
 

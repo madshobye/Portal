@@ -3,17 +3,17 @@ import { defineGeneratorNode } from "../../shared/visual-node-factory.js";
 import {
   AnatomyGeometryProviderNode,
   ModelFitCameraNode,
-} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
+} from "../../shared/visual-stage-nodes.js";
 import {
   defineCompiledVisualCompound,
-} from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
-import { AnatomyMotionTransform3dNode } from "../../providers/anatomy-motion-transform/index.js?v=compiled-capability-revision-1";
-import { AnatomyMaterialPaletteNode } from "../../providers/anatomy-material-palette/index.js?v=anatomy-scene3d-1";
+} from "../../shared/compiled-visual-compound.js";
+import { AnatomyMotionTransform3dNode } from "../../providers/anatomy-motion-transform/index.js";
+import { AnatomyMaterialPaletteNode } from "../../providers/anatomy-material-palette/index.js";
 import {
   MeshCollectionObjects3dNode,
   Scene3dNode,
   SceneToImageNode,
-} from "../../../mesh-engine/index.js?v=node-roi-placement-1";
+} from "../../../mesh-engine/index.js";
 
 const manifest = Object.freeze({
     id: "anatomy",

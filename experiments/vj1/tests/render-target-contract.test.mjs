@@ -11,7 +11,7 @@ import {
   RENDER_TARGET_KIND,
   RENDER_TEXTURE_ORIENTATION,
   withRenderTarget2D,
-} from "../js/output/render-target-contract.js?v=source-target-ownership-1";
+} from "../js/output/render-target-contract.js";
 import { contentTransformRawWebglPlacement } from "../js/output/content-coordinate-space.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
 import {

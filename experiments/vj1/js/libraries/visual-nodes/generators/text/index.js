@@ -4,10 +4,10 @@ import { RenderDemandNode } from "../../../render-engine/index.js";
 import {
   TextMaskProviderNode,
   TextMaskToImageNode,
-} from "../../shared/visual-stage-nodes.js?v=node-roi-placement-1";
+} from "../../shared/visual-stage-nodes.js";
 import {
   defineCompiledVisualCompound,
-} from "../../shared/compiled-visual-compound.js?v=typed-media-render-process-1";
+} from "../../shared/compiled-visual-compound.js";
 
 const manifest = Object.freeze({
     id: "text",

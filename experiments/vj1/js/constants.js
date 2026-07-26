@@ -1,7 +1,7 @@
 export const VJ1 = Object.freeze({
   channelName: "vj1-output-bridge",
   localWorkspaceKey: "vj1-workspace",
-  localLiveSceneKey: "vj1-live-scene-by-project",
+  localLivePreferenceKey: "vj1-live-preferences-by-project",
   localPreviewKey: "vj1-preview-live",
   renderWidth: 960,
   renderHeight: 540,
@@ -9,7 +9,7 @@ export const VJ1 = Object.freeze({
   sceneHeight: 2160,
   outputWorldMarginRatio: 0.25,
   p5Script: "https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js",
-  portalScript: "../../P1/portal/portal.js?v=adaptive-component-demand-29",
+  portalScript: "../../P1/portal/portal.js",
   renderFont: "assets/RobotoMono-Regular.ttf",
 });
 

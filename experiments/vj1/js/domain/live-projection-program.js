@@ -1,7 +1,7 @@
 import {
   materializeLiveProgramSurfaceRoutes,
   rebaseSurfaceRouteProgram,
-} from "./scene-routing.js?v=live-output-matrix-contract-3";
+} from "./scene-routing.js";
 
 const EMPTY_ROUTES = Object.freeze({ surfaces: Object.freeze([]) });
 

@@ -9,7 +9,7 @@ import {
   createTransform3d,
   Material3dType,
   Object3dListType,
-} from "../scene-types.js?v=mesh-collection-1";
+} from "../scene-types.js";
 
 export const MeshCollectionObjects3dNode = defineNode({
   id: "core.scene3d.mesh-collection-objects",

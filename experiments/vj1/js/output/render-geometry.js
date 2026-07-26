@@ -4,7 +4,7 @@ import { compositionLogicalSize, normalizeAspectRatio, projectedQuadAspect } fro
 import {
   fitSampleFractions,
   fitTargetUvToSourceUv,
-} from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
+} from "../libraries/render-engine/fit-geometry/index.js";
 
 export const SURFACE_DEMAND_OVERSCAN = 1;
 export const SURFACE_DETAIL_DEMAND_SCALE = 1;

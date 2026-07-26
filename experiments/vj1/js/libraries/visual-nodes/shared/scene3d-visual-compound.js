@@ -1,4 +1,4 @@
-import { defineNodeGroup } from "../../node-engine/node-group.js?v=explicit-group-compiler-public-group-ports-1";
+import { defineNodeGroup } from "../../node-engine/node-group.js";
 import { defineVisualNodeContract } from "../../render-engine/visual-node-contract.js";
 import { componentFromNodeDefinition } from "./visual-node-factory.js";
 

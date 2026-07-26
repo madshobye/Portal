@@ -4,8 +4,8 @@ import {
   nodePackageContentIntegrity,
   resolveProjectNodePackages,
   serializeNodePackage,
-} from "../libraries/node-engine/node-package.js?v=project-group-authoring-compiler-transport-1";
-import { createIsfNodeDefinition } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+} from "../libraries/node-engine/node-package.js";
+import { createIsfNodeDefinition } from "../libraries/isf-engine/index.js";
 
 export const NODE_PACKAGE_LIBRARY_ROOT = "libraries";
 export const NODE_PACKAGE_MANIFEST_NAME = "node-package.json";

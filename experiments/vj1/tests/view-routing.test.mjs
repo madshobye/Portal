@@ -4,8 +4,8 @@ import assert from "node:assert/strict";
 import {
   buildOutputUrl,
   getInitialWorkspace,
-  persistLiveScenePreference,
-  preferredLiveSceneId,
+  persistLivePreference,
+  preferredLivePreference,
 } from "../js/view-routing.js";
 
 test("legacy compose URLs and sessions route to the Component workspace", () => {
@@ -48,7 +48,7 @@ test("output URLs discard obsolete private Scene startup state", () => {
   }
 });
 
-test("the last Live Scene preference is durable and project-scoped", () => {
+test("the last Live Scene and projection selection are durable and project-scoped", () => {
   const values = new Map();
   const storage = {
     getItem: (key) => values.get(key) || null,
@@ -57,26 +57,55 @@ test("the last Live Scene preference is durable and project-scoped", () => {
   const state = {
     project: { folderName: "show-a", name: "Show A" },
     components: [{ id: "scene-a", type: "scene" }, { id: "scene-b", type: "scene" }],
-    ui: { live: { selectedSceneId: "scene-b" } },
+    mappings: [{ id: "mapping-a", surfaces: [{ id: "surface-a" }] }],
+    ui: {
+      selectedMappingId: "mapping-a",
+      live: { selectedSceneId: "scene-b", previewSurfaceId: "surface-a" },
+    },
   };
 
-  assert.equal(persistLiveScenePreference(state, storage), true);
+  assert.equal(persistLivePreference(state, storage), true);
   state.ui.live.selectedSceneId = "scene-a";
-  assert.equal(preferredLiveSceneId(state, storage), "scene-b");
-  assert.equal(preferredLiveSceneId({ ...state, project: { folderName: "show-b" } }, storage), "");
+  state.ui.live.previewSurfaceId = "__mapping__";
+  assert.deepEqual(preferredLivePreference(state, storage), {
+    sceneId: "scene-b",
+    previewSurfaceId: "surface-a",
+  });
+  assert.deepEqual(
+    preferredLivePreference(
+      { ...state, project: { folderName: "show-b" } },
+      storage,
+    ),
+    { sceneId: "", previewSurfaceId: "" },
+  );
 });
 
 test("a removed Live Scene or malformed preference safely falls back to project state", () => {
   const state = {
     project: { folderName: "show-a" },
     components: [{ id: "scene-a", type: "scene" }],
-    ui: { live: { selectedSceneId: "scene-a" } },
+    mappings: [{ id: "mapping-a", surfaces: [{ id: "surface-a" }] }],
+    ui: {
+      selectedMappingId: "mapping-a",
+      live: { selectedSceneId: "scene-a" },
+    },
   };
   const staleStorage = {
-    getItem: () => JSON.stringify({ "project:show-a": "scene-deleted" }),
+    getItem: () => JSON.stringify({
+      "project:show-a": {
+        sceneId: "scene-deleted",
+        previewSurfaceId: "surface-deleted",
+      },
+    }),
   };
   const malformedStorage = { getItem: () => "not-json" };
 
-  assert.equal(preferredLiveSceneId(state, staleStorage), "");
-  assert.equal(preferredLiveSceneId(state, malformedStorage), "");
+  assert.deepEqual(preferredLivePreference(state, staleStorage), {
+    sceneId: "",
+    previewSurfaceId: "",
+  });
+  assert.deepEqual(preferredLivePreference(state, malformedStorage), {
+    sceneId: "",
+    previewSurfaceId: "",
+  });
 });

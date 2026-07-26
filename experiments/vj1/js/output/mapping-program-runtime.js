@@ -2,7 +2,7 @@ import {
   activeMappingProgramSurfaces,
   compileMappingRenderPrograms,
   compileOutputRenderProgram,
-} from "../libraries/composition-engine/index.js?v=compiled-capability-revision-1";
+} from "../libraries/composition-engine/index.js";
 
 // Retained compiler boundary for Mapping and Output graph programs. Surface
 // presentation consumes the resolved program directly; authored Mapping state

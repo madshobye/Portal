@@ -1,6 +1,6 @@
 # VJ1 Architecture Handover
 
-Updated: 2026-07-25
+Updated: 2026-07-26
 
 VJ1 is a build-free browser VJ and projection-mapping application in
 `experiments/vj1`. It targets current Chrome with WebGL2. p5 is the browser and
@@ -106,6 +106,12 @@ folder discovery publishes cumulative authoritative batches so a large library
 never gates an already discovered source. The embedded preview subscribes to
 file-resource availability directly; project-state changes are not used as a
 media wake signal. Renditions attach later and never gate their source files.
+Standalone Output registration receives one authoritative state/media baseline
+and buffers it while p5 initializes. Renderer setup consumes that baseline; it
+must not request the same complete ownership snapshots again. The bridge
+heartbeat retries registration when Control is not ready. p5 setup waits for
+the first Control baseline or fixture state before compiling; `null` is not a
+renderable boot state and must never be used as a timing fallback.
 Asynchronous image, model, video, and rendition completion emits a
 resource-dirty event so on-change presentation schedules exactly one dependent
 render. Retained child renderers include readiness and revision discovered
@@ -347,6 +353,10 @@ Persistence and transport rules:
   and other retained configuration changes cross as compact patches; complete
   state is reserved for restore/resync and topology or routing-reachability
   changes. Stale clients and incoherent source revisions fail closed.
+- Browser source coherence has one graph-wide owner: the source-worker revision
+  in `index.html`. Local JavaScript imports are queryless so one file has one
+  module identity. Never restore per-import `?v=` tags; they duplicate module
+  evaluation and split registries/singletons under different URLs.
 - File/object URLs, decoders, captures, models, buffers, programs, and targets
   have explicit release ownership.
 - Canonical state must remain structured-cloneable.
@@ -415,7 +425,7 @@ shaders, transitions and endpoint equivalence, ROI crop equivalence, ordinary
 and retained-value Groups, semantic 3D, aggregate CPU/Overall metrics, resource
 revisions, and balanced GPU/browser resources.
 
-At source coherence revision **167**, semantic sources, typed
+At source coherence revision **175**, semantic sources, typed
 resource/capability readiness, progressive primary-media restore, aggregate
 metrics, atomic retained framebuffer passes, and the complete browser import
 chain share one cache identity. A retained render result renews the lifetime of
@@ -426,7 +436,7 @@ specialized child values; native terminal operations remain explicit optimized
 backends rather than hidden parent programs. Output scheduling, signatures,
 dependency/media state, and thumbnails consume compiled-program APIs; raw
 Component chains are limited to migration and explicit editor projections. The
-automated suite passes **1,340 tests**. The top-bar Signal load indicator and
+automated suite passes **1,358 tests**. The top-bar Signal load indicator and
 ten-second report expose state, invalidation, compile, resource, cache, and
 presentation rates without classifying ordinary presentation or cache reuse as
 coordination pressure.

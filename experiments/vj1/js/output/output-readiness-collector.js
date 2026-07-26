@@ -1,4 +1,4 @@
-import { createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js?v=async-media-dirty-1";
+import { createMediaReadinessStatus, isReadyMediaItem } from "./component-render-state.js";
 
 export function collectOutputReadiness({
   mode = "output",

@@ -1,16 +1,16 @@
-import { clamp01 } from "../domain/models.js?v=surface-terminology-1";
-import { visibleSceneSurfaceIds } from "../domain/scene-routing.js?v=live-output-matrix-contract-3";
-import { BoundedRenderTargetPool } from "../libraries/cache-engine/render-cache/index.js?v=periodic-preview-maintenance-1";
-import { SceneSurfaceGuideNode } from "../libraries/composition-engine/index.js?v=compiled-capability-revision-1";
-import { projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js?v=frame-projection-aspect-1";
+import { clamp01 } from "../domain/models.js";
+import { visibleSceneSurfaceIds } from "../domain/scene-routing.js";
+import { BoundedRenderTargetPool } from "../libraries/cache-engine/render-cache/index.js";
+import { SceneSurfaceGuideNode } from "../libraries/composition-engine/index.js";
+import { projectedQuadAspect } from "../libraries/render-engine/relative-geometry.js";
 import { componentInstanceTime } from "../libraries/timing-engine/index.js";
-import { sceneLogicalSize } from "../domain/render-settings.js?v=surface-terminology-1";
-import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js?v=node-roi-placement-1";
+import { sceneLogicalSize } from "../domain/render-settings.js";
+import { contentTransformCanvasPlacement, isIdentityTransform, normalizedContentTransform } from "./content-coordinate-space.js";
 import { applyBlend } from "./blend-utils.js";
 import {
   drawStandby,
   standbyDiagnosticsVisible,
-} from "./generators.js?v=standby-local-diagnostic-1";
+} from "./generators.js";
 import {
   applyBlendGlobal,
   cornersRect,
@@ -18,19 +18,19 @@ import {
   fittedSampleRect,
   scaledComponentSampleRect,
   unifyTransitionComponentRenderRequests,
-} from "./component-render-layout.js?v=surface-terminology-1";
+} from "./component-render-layout.js";
 import {
   drawBuffer,
   drawSampleRect,
   renderTargetImageGeometry,
   withShaderInstancePrefix,
-} from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js?v=explicit-direct-surface-hierarchy-1";
+} from "./render-draw-utils.js";
+import { orderedSurfaceProgram, planSurfaceRoutes, stableSurfaceRenderRequest } from "./surface-render-planner.js";
 import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
+} from "./shared-framebuffer-target.js";
 
 export function surfaceRouteOpacity(route = {}) {
   return clamp01(route.surface?.opacity ?? 1) * clamp01(route.component?.opacity ?? 1);

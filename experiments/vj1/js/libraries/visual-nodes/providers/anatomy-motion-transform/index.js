@@ -1,9 +1,9 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS, NODE_PART_KINDS } from "../../../node-engine/node-definition.js";
-import { MeshCollectionType, isMeshCollection } from "../../../mesh-engine/mesh-collection/index.js?v=mesh-collection-1";
+import { MeshCollectionType, isMeshCollection } from "../../../mesh-engine/mesh-collection/index.js";
 import {
   createRetainedTransform3d,
   updateRetainedTransform3d,
-} from "../../../mesh-engine/scene-types.js?v=retained-transform-signal-1";
+} from "../../../mesh-engine/scene-types.js";
 
 export const AnatomyMotionTransform3dNode = defineNode({
   id: "core.visual.anatomy-motion-transform",

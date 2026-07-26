@@ -3,7 +3,7 @@ import {
   terrainGridSize,
   terrainRowMetrics,
   terrainTessellationSize,
-} from "../geometry-provider/index.js?v=semantic-terrain-contract-4";
+} from "../geometry-provider/index.js";
 
 export {
   TERRAIN_GRID_CELLS,

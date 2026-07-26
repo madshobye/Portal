@@ -1,37 +1,37 @@
-import { collectProjectAssetFiles, isMediaFile, isShaderFile } from "./media-library-service.js?v=atomic-media-reconciliation-1";
-import { RENDITION_ROOT } from "./media-rendition-service.js?v=madstodo-4";
+import { collectProjectAssetFiles, isMediaFile, isShaderFile } from "./media-library-service.js";
+import { RENDITION_ROOT } from "./media-rendition-service.js";
 import {
   applyThumbnailUrls,
   clearThumbnailUrls,
   createThumbnailUrlLease,
-} from "./component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
+} from "./component-thumbnail-store.js";
 import {
   canPersistDirectoryHandles,
   clearProjectDirectoryHandle,
   loadProjectDirectoryHandle,
   saveProjectDirectoryHandle,
 } from "./directory-handle-store.js";
-import { createInitialState, projectSelectedMapping } from "../domain/models.js?v=project-media-contain-1";
-import { resetSceneMappingSession } from "../domain/live-ui-state.js?v=scene-mapping-default-selection-1";
-import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js?v=project-media-contain-1";
-import { createChangeEvent } from "../libraries/state-engine/state-command/index.js?v=structural-world-state-2";
-import { isHistoryReason } from "./project-history-policy.js?v=project-storage-1";
-import { buildProjectPayload } from "./project-serializer.js?v=project-media-contain-1";
+import { createInitialState, projectSelectedMapping } from "../domain/models.js";
+import { resetSceneMappingSession } from "../domain/live-ui-state.js";
+import { CURRENT_PROJECT_VERSION, migrateProjectData, ProjectVersionError } from "../domain/project-migrations.js";
+import { createChangeEvent } from "../libraries/state-engine/state-command/index.js";
+import { isHistoryReason } from "./project-history-policy.js";
+import { buildProjectPayload } from "./project-serializer.js";
 import {
   createProjectSavePreparer,
   projectPayloadSignature,
-} from "./project-save-preparation.js?v=project-save-worker-ready-1";
-import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js?v=project-history-store-1";
-import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js?v=streamed-thumbnail-restore-1";
-import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js?v=autosave-snapshot-recovery-1";
-import { mergeProjectIsfDefinitions } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
+} from "./project-save-preparation.js";
+import { COLD_BACKUP_ROOT, createProjectHistoryStore } from "./project-history-store.js";
+import { ProjectDerivedAssetStore } from "./project-derived-asset-store.js";
+import { SerializedTaskQueue } from "../libraries/storage-engine/serialized-storage/index.js";
+import { mergeProjectIsfDefinitions } from "../libraries/isf-engine/index.js";
 import {
   serializeNodePackage,
-} from "../libraries/node-engine/node-package.js?v=package-content-lock-1";
+} from "../libraries/node-engine/node-package.js";
 import {
   installNodePackageReference,
   removeNodePackageReference,
-} from "../libraries/node-engine/node-project.js?v=package-content-lock-1";
+} from "../libraries/node-engine/node-project.js";
 import {
   assertNodePackageUpdateSafe,
   createNodePackageLock,
@@ -41,11 +41,11 @@ import {
   resolveReferencedNodePackages,
   writeNodePackageManifest as writeRepositoryNodePackageManifest,
   NODE_PACKAGE_LIBRARY_ROOT,
-} from "./node-package-repository.js?v=package-content-lock-1";
+} from "./node-package-repository.js";
 
-export { projectHistorySignature } from "./project-history-policy.js?v=project-storage-1";
-export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js?v=project-media-contain-1";
-export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js?v=project-history-store-1";
+export { projectHistorySignature } from "./project-history-policy.js";
+export { buildProjectPayload, persistedRenderSettings } from "./project-serializer.js";
+export { COLD_BACKUP_INTERVAL, COLD_BACKUP_ROOT, nextColdBackupRevision } from "./project-history-store.js";
 
 export function restoreProjectLiveUi(currentLive = {}, projectLive = {}) {
   return resetSceneMappingSession({
@@ -122,6 +122,7 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     },
   });
   const savePreparer = createProjectSavePreparer();
+  savePreparer.prewarm();
   const lifecycleDocument = globalThis.document;
   const lifecycleTarget = globalThis.window || globalThis;
   lifecycleDocument?.addEventListener?.("visibilitychange", () => {

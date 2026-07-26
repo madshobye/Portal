@@ -1,9 +1,9 @@
-import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
+import { drawBuffer } from "../render-draw-utils.js";
 import {
   markRenderTargetOrientation,
   RENDER_TEXTURE_ORIENTATION,
-} from "../render-target-contract.js?v=source-target-ownership-1";
-import { MeshPatternRenderer } from "./mesh-pattern-renderer.js?v=mesh-pattern-node-authority-2";
+} from "../render-target-contract.js";
+import { MeshPatternRenderer } from "./mesh-pattern-renderer.js";
 
 // Owns the two retained Mesh Pattern passes. Topology and material values come
 // from ordinary compiled provider nodes; this capability only executes the

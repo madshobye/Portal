@@ -1,5 +1,5 @@
-import { ComponentProgramNode } from "../component-program/index.js?v=compiler-template-authority-1";
-import { LayerGroupNode } from "../layer-group/index.js?v=compiler-template-authority-1";
+import { ComponentProgramNode } from "../component-program/index.js";
+import { LayerGroupNode } from "../layer-group/index.js";
 import { VisualSourceNode, visualSourceRenderer } from "../visual-source/index.js";
 import {
   canonicalizeAuthoredVisualChain,
@@ -11,7 +11,7 @@ import {
   visualNodeContractFromMetadata,
   VISUAL_TRANSFORM_DOMAINS,
 } from "../../render-engine/visual-node-contract.js";
-import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js?v=node-roi-placement-1";
+import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";

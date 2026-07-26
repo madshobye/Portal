@@ -1,13 +1,13 @@
 import { VJ1 } from "../constants.js";
-import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js?v=live-transition-geometry-1";
-import { OutputRenderer } from "./output-renderer.js?v=signal-load-observability-1";
-import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderPresentationFrameRate } from "../domain/render-settings.js?v=surface-terminology-1";
-import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js?v=preview-phase-shift-1";
-import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js?v=adaptive-component-demand-29";
-import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js?v=cursor-anchored-zoom-1";
-import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js?v=transform-hit-contract-4";
-import { createThumbnailUrlLease } from "../services/component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
-import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js?v=explicit-capability-policy-1";
+import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js";
+import { OutputRenderer } from "./output-renderer.js";
+import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderPresentationFrameRate } from "../domain/render-settings.js";
+import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js";
+import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js";
+import { createPreviewViewportController, fitPreviewCanvasElement, previewCanvasLogicalSize, previewViewportForUi, resolveViewportForFit } from "./preview-viewport.js";
+import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js";
+import { createThumbnailUrlLease } from "../services/component-thumbnail-store.js";
+import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js";
 
 export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
   let host = null;

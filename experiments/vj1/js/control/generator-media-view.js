@@ -1,5 +1,5 @@
-import { esc } from "./template-utils.js?v=adaptive-component-demand-29";
-import { mediaChoiceButtonTemplate } from "./media-view.js?v=media-name-presentation-1";
+import { esc } from "./template-utils.js";
+import { mediaChoiceButtonTemplate } from "./media-view.js";
 
 export function generatorImageMediaControlTemplate(base, source = {}, state = {}, {
   label = "Image",

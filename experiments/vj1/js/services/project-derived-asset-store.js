@@ -1,4 +1,4 @@
-import { RENDITION_DIR, RENDITION_ROOT, isMediaRenditionPath, mediaRenditionPath } from "./media-rendition-service.js?v=madstodo-4";
+import { RENDITION_DIR, RENDITION_ROOT, isMediaRenditionPath, mediaRenditionPath } from "./media-rendition-service.js";
 import {
   THUMBNAIL_DIR,
   THUMBNAIL_ROOT,
@@ -6,7 +6,7 @@ import {
   parseComponentThumbnailFilename,
   thumbnailExtension,
   thumbnailValueToBlob,
-} from "./component-thumbnail-store.js?v=thumbnail-url-lifecycle-1";
+} from "./component-thumbnail-store.js";
 
 export class ProjectDerivedAssetStore {
   constructor({ getProjectDirectory, isCurrentProject, mediaLibrary, onMediaFilesChanged, maxIndexedRenditions = 1000 }) {

@@ -1,19 +1,19 @@
 import { componentFrameMetrics } from "../domain/component-frame.js";
-import { componentFromNodeDefinition, getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js?v=project-media-contain-1";
-import { materializeProjectNodeDefinition } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
-import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js?v=mobilenet-morph-v2-47";
-import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
-import { generatorIcon } from "./picker-view.js?v=project-media-contain-1";
-import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, parameterGroupTemplate, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js?v=parameter-control-group-1";
-import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js?v=param-select-1";
-import { deepEditButtonTemplate, editableSectionTitleTemplate, elementListTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js?v=shared-element-list-1";
-import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js?v=named-image-inputs-1";
-import { mediaChoiceButtonTemplate, mediaDisplayName } from "./media-view.js?v=media-name-presentation-1";
+import { componentFromNodeDefinition, getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js";
+import { materializeProjectNodeDefinition } from "./node-editor-view.js";
+import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js";
+import { generatorImageMediaControlTemplate } from "./generator-media-view.js";
+import { generatorIcon } from "./picker-view.js";
+import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, parameterGroupTemplate, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js";
+import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js";
+import { deepEditButtonTemplate, editableSectionTitleTemplate, elementListTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js";
+import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js";
+import { mediaChoiceButtonTemplate, mediaDisplayName } from "./media-view.js";
 import { UI_ICONS } from "./ui-icons.js";
 import {
   isAutomaticMediaSourceName,
   sourceBackedMediaId,
-} from "../domain/models.js?v=project-media-contain-1";
+} from "../domain/models.js";
 
 
 export function sceneInspectorTemplate(component, state) {

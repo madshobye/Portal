@@ -1,21 +1,21 @@
-import { clamp01 } from "../domain/models.js?v=surface-terminology-1";
-import { createPlacedRenderResult } from "../graph/placed-render-result.js?v=atomic-video-seek-1";
-import { fitRectGeometry } from "../libraries/render-engine/fit-geometry/index.js?v=fit-geometry-1";
+import { clamp01 } from "../domain/models.js";
+import { createPlacedRenderResult } from "../graph/placed-render-result.js";
+import { fitRectGeometry } from "../libraries/render-engine/fit-geometry/index.js";
 import { applyBlend } from "./blend-utils.js";
 import {
   componentLogicalPreviewRect,
   componentPreviewRenderRequest,
   scenePreviewRenderRequest,
-} from "./component-render-layout.js?v=surface-terminology-1";
-import { contentTransformCanvasPlacement } from "./content-coordinate-space.js?v=node-roi-placement-1";
-import { GpuTimerTracker } from "./gpu-timer-tracker.js?v=runtime-diagnostics-1";
-import { normalizedContentTransform } from "./preview-interaction-geometry.js?v=alpha-feather-1";
+} from "./component-render-layout.js";
+import { contentTransformCanvasPlacement } from "./content-coordinate-space.js";
+import { GpuTimerTracker } from "./gpu-timer-tracker.js";
+import { normalizedContentTransform } from "./preview-interaction-geometry.js";
 import {
   outputFrames,
   outputFramesForIds,
-} from "./render-geometry.js?v=fit-geometry-demand-1";
-import { renderTargetImageGeometry } from "./render-draw-utils.js?v=runtime-diagnostics-1";
-import { unwrapRenderTarget } from "./shared-framebuffer-target.js?v=premultiplied-alpha-5";
+} from "./render-geometry.js";
+import { renderTargetImageGeometry } from "./render-draw-utils.js";
+import { unwrapRenderTarget } from "./shared-framebuffer-target.js";
 
 // Owns presentation of already-compiled render results. It may draw the final
 // canvas, editor guides, and retained thumbnails, but it cannot compile a graph

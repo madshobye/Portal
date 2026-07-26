@@ -1,4 +1,4 @@
-import { generatorImageMediaControlTemplate } from "./generator-media-view.js?v=tile-texture-40";
+import { generatorImageMediaControlTemplate } from "./generator-media-view.js";
 
 export function featureMorphMediaControlsTemplate(base, source = {}, state = {}, {
   note = "Best with related images that share recognizable local features.",

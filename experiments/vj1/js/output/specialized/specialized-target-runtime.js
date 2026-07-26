@@ -2,25 +2,25 @@ import {
   createSharedFramebufferTarget,
   isSharedFramebufferTarget,
   unwrapRenderTarget,
-} from "../shared-framebuffer-target.js?v=premultiplied-alpha-5";
+} from "../shared-framebuffer-target.js";
 import {
   markRenderTargetOrientation,
   renderTargetDescriptor,
   renderTargetNeedsShaderSampleFlip,
   RENDER_TEXTURE_ORIENTATION,
-} from "../render-target-contract.js?v=source-target-ownership-1";
-import { drawBuffer } from "../render-draw-utils.js?v=render-diagnostics-1";
+} from "../render-target-contract.js";
+import { drawBuffer } from "../render-draw-utils.js";
 import {
   GENERATED_TARGET_PRESENTATION_FRAGMENT_SHADER,
   RENDER_PASS_VERTEX_SHADER,
-} from "../render-pass-shaders.js?v=node-roi-placement-1";
+} from "../render-pass-shaders.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
   drawShaderTarget,
   drawShaderTargetRect,
   resetShaderTarget,
-} from "../shader-target-runtime.js?v=premultiplied-alpha-write-1";
+} from "../shader-target-runtime.js";
 import { disposeRenderTarget } from "../../libraries/render-engine/render-target-lifetime.js";
 
 // Shared allocation and presentation policy for the few retained native

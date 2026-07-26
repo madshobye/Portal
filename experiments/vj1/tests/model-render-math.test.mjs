@@ -183,7 +183,7 @@ test("shared mesh render operation owns bounded point and wire extraction", () =
     1, 0, 0, 0, 1, 0,
     0, 1, 0, 0, 0, 0,
   ]);
-  assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
+  assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js"/);
   assert.doesNotMatch(sourceRuntime, /model-render-runtime|specializedSources\.model/);
   assert.doesNotMatch(renderer, /function ensureParsedModelPointCloud\(/);
   assert.doesNotMatch(renderer, /function buildParsedModelWireLines\(/);
@@ -211,7 +211,7 @@ test("raw model WebGL programs and context resources live outside the output orc
   const specializedRuntime = readFileSync(new URL("../js/output/specialized/specialized-source-runtime.js", import.meta.url), "utf8");
   const rawModelRenderer = readFileSync(new URL("../js/libraries/mesh-engine/mesh-render/index.js", import.meta.url), "utf8");
 
-  assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js\?v=[^"]+"/);
+  assert.match(renderer, /from "\.\/specialized\/specialized-source-runtime\.js"/);
   assert.doesNotMatch(specializedRuntime, /model-render-runtime|renderMeshNodeProcess/);
   assert.doesNotMatch(specializedRuntime, /new NodeInstance\(/);
   assert.match(rawModelRenderer, /export const MeshRenderNode = defineNode\(/);

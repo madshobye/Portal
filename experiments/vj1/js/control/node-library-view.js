@@ -1,7 +1,7 @@
-import { materializeProjectNodeDefinition, nodeDefinitionEditorTemplate } from "./node-editor-view.js?v=project-group-authoring-public-group-ports-1";
-import { NODE_GRAPH_AUTHORING_TARGETS, nodeDefinitionPlaceableInGraph, nodeGraphCanvasTemplate } from "./node-graph-canvas.js?v=typed-media-render-process-1";
+import { materializeProjectNodeDefinition, nodeDefinitionEditorTemplate } from "./node-editor-view.js";
+import { NODE_GRAPH_AUTHORING_TARGETS, nodeDefinitionPlaceableInGraph, nodeGraphCanvasTemplate } from "./node-graph-canvas.js";
 import { emptyNote, esc, icon } from "./template-utils.js";
-import { railListSectionTemplate } from "./view-primitives.js?v=uniform-section-hierarchy-card-type-icons-1";
+import { railListSectionTemplate } from "./view-primitives.js";
 
 export function selectedLibraryNode(state, nodePackage) {
   const definitions = nodeDefinitions(nodePackage);
