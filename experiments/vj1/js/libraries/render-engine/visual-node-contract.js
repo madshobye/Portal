@@ -1,4 +1,4 @@
-export const VISUAL_CONTRACT_VERSION = 1;
+export const VISUAL_CONTRACT_VERSION = 2;
 
 export const VISUAL_COORDINATE_SPACES = Object.freeze({
   COMPOSITION: "composition",
@@ -34,6 +34,16 @@ export const VISUAL_ALPHA_MODES = Object.freeze({
   OPAQUE: "opaque",
 });
 
+// Interaction geometry is a semantic property of a visual output, not an
+// editor-specific guess. Editors can use it for selection today; pointer,
+// gesture, and other interactive nodes can consume the same contract later.
+// `rendered-alpha` means the node's isolated output defines the hit region.
+export const VISUAL_HIT_REGION_MODES = Object.freeze({
+  RENDERED_ALPHA: "rendered-alpha",
+  BOUNDARY: "boundary",
+  NONE: "none",
+});
+
 // This is the semantic contract consumed by visual compiler backends. It
 // describes coordinates and demand, not a particular framebuffer strategy.
 // Optimizers may fuse or specialize nodes as long as the observable contract
@@ -51,6 +61,12 @@ export function defineVisualNodeContract(value = {}, defaults = {}) {
   const allocationFallback = typeof fallback.allocation === "string" ? { mode: fallback.allocation } : record(fallback.allocation);
   const alphaSource = typeof source.alpha === "string" ? { output: source.alpha } : record(source.alpha);
   const alphaFallback = typeof fallback.alpha === "string" ? { output: fallback.alpha } : record(fallback.alpha);
+  const interactionSource = typeof source.interaction === "string"
+    ? { hitRegion: source.interaction }
+    : record(source.interaction);
+  const interactionFallback = typeof fallback.interaction === "string"
+    ? { hitRegion: fallback.interaction }
+    : record(fallback.interaction);
   const roiMode = enumValue(
     roiSource.mode,
     VISUAL_ROI_MODES,
@@ -114,6 +130,17 @@ export function defineVisualNodeContract(value = {}, defaults = {}) {
         alphaSource.output,
         VISUAL_ALPHA_MODES,
         enumValue(alphaFallback.output, VISUAL_ALPHA_MODES, VISUAL_ALPHA_MODES.PREMULTIPLIED)
+      ),
+    }),
+    interaction: Object.freeze({
+      hitRegion: enumValue(
+        interactionSource.hitRegion,
+        VISUAL_HIT_REGION_MODES,
+        enumValue(
+          interactionFallback.hitRegion,
+          VISUAL_HIT_REGION_MODES,
+          VISUAL_HIT_REGION_MODES.RENDERED_ALPHA
+        )
       ),
     }),
   });

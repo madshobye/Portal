@@ -108,6 +108,7 @@ export class VisualPlanRuntime {
         }`,
       );
     }
+    this.host.previewHitCoverage?.prepareRootRequest(component, renderRequest);
     this.retainPlanMediaResources(plan);
     const restoreControls =
       plan.controlProgram?.apply({
@@ -562,6 +563,14 @@ export class VisualPlanRuntime {
                 externalInputStates,
               ),
           );
+          host.previewHitCoverage?.recordRaster(
+            component,
+            renderedItem,
+            sourceState,
+            renderRequest,
+            roiRequest.roi,
+            operation?.contract?.interaction?.hitRegion,
+          );
           state = host.compositeRuntime.renderBoundedLayerNodeState(
             nodeId,
             state,
@@ -609,6 +618,14 @@ export class VisualPlanRuntime {
               operation,
               externalInputStates,
             ),
+        );
+        host.previewHitCoverage?.recordRaster(
+          component,
+          renderedItem,
+          sourceState,
+          renderRequest,
+          null,
+          operation?.contract?.interaction?.hitRegion,
         );
         state = host.compositeRuntime.renderLayerNodeState(
           nodeId,
@@ -777,6 +794,13 @@ export class VisualPlanRuntime {
                 operation?.contract?.roi?.coordinateSpace,
             })
           : renderRequest;
+        if (bounded) {
+          host.previewHitCoverage?.prepareRegionRequest(
+            component,
+            renderRequest,
+            groupRequest,
+          );
+        }
         if (groupRequest.empty) continue;
         host.componentRenderRuntime.recordResolution(
           component,
@@ -813,6 +837,7 @@ export class VisualPlanRuntime {
           component,
         );
         let groupState;
+        let isolatedGroupOutputState = null;
         try {
           const compiledGroup =
             operation?.backend === "compiled-visual-group";
@@ -866,6 +891,10 @@ export class VisualPlanRuntime {
               operation,
               groupState,
             );
+            isolatedGroupOutputState =
+              rawOutputs.get(operation.outputPort) ||
+              rawOutputs.values().next().value ||
+              groupState;
             for (const [publicId, rawOutputState] of rawOutputs) {
               const outputNodeId =
                 rawOutputs.size === 1
@@ -902,10 +931,25 @@ export class VisualPlanRuntime {
               operation.runtimeOutputStates.get(operation.outputPort) ||
               operation.runtimeOutputStates.values().next().value ||
               groupState;
+          } else {
+            isolatedGroupOutputState = groupState;
           }
         } finally {
           restoreGroupControls?.();
         }
+        // A compound is one semantic visual item even when its optimized
+        // implementation contains many child render operations. Publish the
+        // compound's isolated public output under the outer item identity so
+        // interaction never falls back to its full boundary merely because
+        // the compiler lowered it into child nodes.
+        host.previewHitCoverage?.recordRaster(
+          component,
+          renderedItem,
+          isolatedGroupOutputState,
+          renderRequest,
+          bounded ? groupRequest.roi : null,
+          operation?.contract?.interaction?.hitRegion,
+        );
         state =
           operation?.backend === "compiled-visual-group"
             ? groupState

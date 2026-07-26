@@ -385,6 +385,7 @@ export class ComponentPreviewInteraction {
     // that visible object into a Composition-wide invisible pointer catcher.
     // Once a real boundary is authored, the boundary is the interaction and
     // render contract like every other physical node.
+    let inside;
     if (
       component?.type === "scene" &&
       item?.kind === "source" &&
@@ -392,16 +393,27 @@ export class ComponentPreviewInteraction {
       isFullNodeBoundary(item.boundary)
     ) {
       const geometry = this.chainItemPreviewGeometry(component, item);
-      return !!geometry && pointInTransformedRect(
+      inside = !!geometry && pointInTransformedRect(
         x,
         y,
         geometry.frame,
         geometry.baseRect,
         geometry.transform
       );
+    } else {
+      const boundary = this.chainItemBoundaryPreviewGeometry(component, item, frame);
+      inside = !!boundary && pointInOrientedRect(x, y, boundary);
     }
-    const boundary = this.chainItemBoundaryPreviewGeometry(component, item, frame);
-    return !!boundary && pointInOrientedRect(x, y, boundary);
+    if (!inside || item?.kind !== "source") return inside;
+    const coverage = this.renderer.previewHitCoverage?.contains(
+      component,
+      item,
+      frame,
+      x,
+      y,
+      4 * this.uiPixelScale(),
+    );
+    return coverage == null ? true : coverage;
   }
 
   selectChainItemAtPoint(x, y, knownHit = null) {

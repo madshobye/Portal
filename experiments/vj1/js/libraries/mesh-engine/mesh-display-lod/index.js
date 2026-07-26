@@ -25,7 +25,7 @@ export const MeshDisplayLodNode = defineNode({
       },
       defaultValue: "surface",
     },
-    geometryDetail: { type: "number", defaultValue: 0.5, allowedRange: [0, 1], clamp: true },
+    geometryDetail: { type: "number", defaultValue: 0.5, allowedRange: [0, 2], clamp: true },
     wireDetail: { type: "number", defaultValue: 0.25, allowedRange: [0, 1], clamp: true },
   },
   outlets: {

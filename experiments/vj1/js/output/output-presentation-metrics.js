@@ -78,12 +78,13 @@ export class OutputPresentationMetrics {
         // Diagnostics must not interfere while p5 reallocates its canvas.
       }
     }
-    return [
+    const geometry = [
       `<span>${Math.round(this.smoothedFps || fps)} fps</span><span class="output-resolution">render ${this.resolutionLabel(render)}</span><span>${this.host.presentationGeometry.viewportLabel()}</span><span>pan ${viewport.x},${viewport.y}</span>`,
       `<span>p5 canvas ${logical.width}x${logical.height}</span><span>backing ${backingWidth}x${backingHeight}</span>`,
       `<span>windowWidth ${p5WindowWidth}</span><span>windowHeight ${p5WindowHeight}</span><span>browser ${browserWidth}x${browserHeight}</span><span>host ${hostWidth}x${hostHeight}</span>`,
       `<span>density param ${formatDensity(configuredDensity)}x</span><span>preview scale ${formatDensity(previewScale)}x</span><span>effective ${formatDensity(effectiveDensity)}x</span><span>p5 ${formatDensity(actualP5Density)}x</span>`,
     ].map((line) => `<span class="preview-debug-line">${line}</span>`).join("");
+    return `${geometry}${this.renderChainListMarkup()}`;
   }
 
   outputChainMarkup(fps, render = this.host.state?.render || {}) {
@@ -91,6 +92,13 @@ export class OutputPresentationMetrics {
       `<span>${Math.round(this.smoothedFps || fps)} fps</span>`,
       `<span class="output-resolution">${this.resolutionLabel(render)}</span>`,
     ].join("");
+    return [
+      `<span class="output-hud-summary">${summary}</span>`,
+      this.renderChainListMarkup(),
+    ].join("");
+  }
+
+  renderChainListMarkup() {
     const seen = new Set();
     const rows = [];
     for (const entry of this.host.componentRenderRuntime.lastResolutionTrace || []) {
@@ -112,12 +120,9 @@ export class OutputPresentationMetrics {
         `</span>`
       );
     }
-    return [
-      `<span class="output-hud-summary">${summary}</span>`,
-      rows.length
-        ? `<span class="output-chain-list">${rows.join("")}</span>`
-        : "",
-    ].join("");
+    return rows.length
+      ? `<span class="output-chain-list">${rows.join("")}</span>`
+      : "";
   }
 
   update({ frameStart } = {}) {

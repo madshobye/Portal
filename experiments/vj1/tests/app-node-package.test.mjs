@@ -829,6 +829,58 @@ test("model media compiles as an editable mesh-to-Scene node Group", () => {
     true,
     "compiled introspection tells editors which terminal operation is host-lowered",
   );
+
+  const staticItem = {
+    ...component.chain[0],
+    source: {
+      ...component.chain[0].source,
+      params: {
+        ...component.chain[0].source.params,
+        spinY: 0,
+        geometryDetail: 0.4,
+      },
+    },
+  };
+  program.replaceChainItem(staticItem.id, staticItem);
+  operation.valueProgram.evaluate({
+    componentTime: 1,
+    renderRequest: { width: 640, height: 360 },
+    runtimeContext: { resolveMesh: () => mesh },
+  });
+  const firstStaticSceneIdentity =
+    render.runtimeValueIdentityInputs.get("scene");
+  operation.valueProgram.evaluate({
+    componentTime: 1,
+    renderRequest: { width: 640, height: 360 },
+    runtimeContext: { resolveMesh: () => mesh },
+  });
+  assert.equal(
+    render.runtimeValueIdentityInputs.get("scene"),
+    firstStaticSceneIdentity,
+    "an unchanged static mesh graph retains its Scene identity",
+  );
+
+  const editedStaticItem = {
+    ...staticItem,
+    source: {
+      ...staticItem.source,
+      params: {
+        ...staticItem.source.params,
+        geometryDetail: 0.8,
+      },
+    },
+  };
+  program.replaceChainItem(editedStaticItem.id, editedStaticItem);
+  operation.valueProgram.evaluate({
+    componentTime: 1,
+    renderRequest: { width: 640, height: 360 },
+    runtimeContext: { resolveMesh: () => mesh },
+  });
+  assert.notEqual(
+    render.runtimeValueIdentityInputs.get("scene"),
+    firstStaticSceneIdentity,
+    "an authored STL render parameter advances the retained Scene identity even while spin is zero",
+  );
 });
 
 test("Project Media compiles reusable resource, image, control, and alpha stages", () => {

@@ -3,14 +3,25 @@ import { listType, numberType, recordType } from "../../node-engine/node-types.j
 import { attachLegacyTriangleView, MeshType, modelTriangleCount } from "../mesh-types.js";
 import { buildMeshoptimizerLods, indexedMeshToTriangleSoup } from "../meshoptimizer-simplifier.js";
 
-export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([80000, 50000, 25000, 12000, 6000]);
+export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([
+  250000,
+  160000,
+  80000,
+  50000,
+  25000,
+  12000,
+  6000,
+]);
 // Geometry detail is a visual control, not an unrestricted simplifier target.
 // Keep both ends useful across every draw mode: the low end must retain enough
 // topology for coherent outlines, while the high end must not make a filled
-// surface needlessly expensive. Surface and outline deliberately share this
-// range and the same selected LOD.
+// surface needlessly expensive. Values from 0–1 preserve the established
+// 6k–80k response for saved projects. The extended 1–2 range is reserved for
+// dense meshes that visibly benefit from up to 250k triangles. Surface and
+// outline deliberately share this range and the same selected LOD.
 const MIN_DISPLAY_TRIANGLES = 6000;
-const MAX_DISPLAY_TRIANGLES = 80000;
+const STANDARD_DISPLAY_TRIANGLES = 80000;
+const MAX_DISPLAY_TRIANGLES = 250000;
 
 const MeshResolutionStatsType = recordType("mesh-resolution-stats", {
   sourceTriangles: numberType(),
@@ -71,6 +82,7 @@ export const MeshResolutionNode = defineNode({
       ],
       source: [
         `const MIN_DISPLAY_TRIANGLES = ${MIN_DISPLAY_TRIANGLES};
+const STANDARD_DISPLAY_TRIANGLES = ${STANDARD_DISPLAY_TRIANGLES};
 const MAX_DISPLAY_TRIANGLES = ${MAX_DISPLAY_TRIANGLES};`,
         buildAutomaticModelLods,
         simplifyMeshByQuadricError,
@@ -155,10 +167,19 @@ export function selectModelLod(mesh = {}, targetTriangles = Infinity) {
 // therefore produces a useful visual change across both small and very dense
 // meshes instead of spending most of the control range near the maximum.
 export function modelGeometryTriangleBudget(detail = 0.5) {
-  const normalized = Math.max(0, Math.min(1, Number(detail) || 0));
+  const normalized = Math.max(0, Math.min(2, Number(detail) || 0));
+  if (normalized <= 1) {
+    return Math.round(
+      MIN_DISPLAY_TRIANGLES *
+      Math.pow(STANDARD_DISPLAY_TRIANGLES / MIN_DISPLAY_TRIANGLES, normalized)
+    );
+  }
   return Math.round(
-    MIN_DISPLAY_TRIANGLES *
-    Math.pow(MAX_DISPLAY_TRIANGLES / MIN_DISPLAY_TRIANGLES, normalized)
+    STANDARD_DISPLAY_TRIANGLES *
+    Math.pow(
+      MAX_DISPLAY_TRIANGLES / STANDARD_DISPLAY_TRIANGLES,
+      normalized - 1,
+    )
   );
 }
 

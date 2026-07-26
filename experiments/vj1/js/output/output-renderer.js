@@ -27,6 +27,7 @@ import {
 } from "./visual-plan-runtime.js";
 import { SourceRenderRuntime } from "./source-render-runtime.js";
 import { ComponentPreviewInteraction } from "./component-preview-interaction.js";
+import { PreviewHitCoverage } from "./preview-hit-coverage.js";
 import { OutputRenderProfile } from "./output-render-profile.js";
 import { OutputPresentationMetrics } from "./output-presentation-metrics.js";
 import { PresentationGeometryRuntime } from "./presentation-geometry-runtime.js";
@@ -176,6 +177,7 @@ export class OutputRenderer {
     this.surfaceRuntime = new OutputSurfaceRuntime(this, {
       resolveTransition: (...args) => this.transitionRuntime.resolve(...args),
     });
+    this.previewHitCoverage = new PreviewHitCoverage(this);
     this.previewInteraction = new ComponentPreviewInteraction(this);
     this.presentationRuntime = new OutputPresentationRuntime(this);
     this.presentationMetrics = new OutputPresentationMetrics(this);
@@ -244,6 +246,7 @@ export class OutputRenderer {
   }
 
   dispose() {
+    this.previewHitCoverage.dispose();
     this.previewInteraction.dispose();
     this.thumbnailRuntime.dispose();
     this.presentationRuntime.dispose();

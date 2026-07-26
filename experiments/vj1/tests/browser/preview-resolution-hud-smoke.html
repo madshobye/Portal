@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Preview Resolution HUD Contract</title>
+    <link rel="stylesheet" href="../../style.css" />
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #08090b;
+      }
+
+      .preview-fps.is-diagnostic {
+        right: 16px;
+        bottom: 16px;
+        border-radius: 6px;
+        padding: 8px 10px;
+        color: rgba(255, 255, 255, 0.78);
+        background: rgba(0, 0, 0, 0.78);
+        font-family: var(--mono);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="preview-hud"
+      class="preview-fps is-diagnostic"
+      aria-label="Preview diagnostics"
+    ></div>
+    <pre id="preview-hud-results">initializing...</pre>
+    <script type="module">
+      import {
+        OutputPresentationMetrics,
+      } from "../../js/output/output-presentation-metrics.js";
+
+      const render = {
+        hostViewport: { width: 640, height: 360, mode: "preview" },
+        pixelDensity: 2,
+        previewRasterScale: 1,
+      };
+      const host = {
+        mode: "component",
+        state: { render },
+        presentationGeometry: {
+          viewport: { x: 0, y: 0 },
+          displayCanvasSize: () => ({ width: 640, height: 360 }),
+          pixelDensity: () => 2,
+          viewportLabel: () => "0.61x view",
+        },
+        resourceRuntime: { lastPixelDensity: 2 },
+        componentRenderRuntime: {
+          lastResolutionTrace: [
+            {
+              componentId: "component",
+              itemId: "component",
+              kind: "component",
+              name: "Cow Component",
+              width: 1280,
+              height: 720,
+              depth: 0,
+            },
+            {
+              componentId: "component",
+              itemId: "source",
+              kind: "source",
+              name: "brown-Guernsey-cow.webp",
+              width: 960,
+              height: 540,
+              depth: 1,
+            },
+          ],
+        },
+      };
+      const metrics = new OutputPresentationMetrics(host);
+      metrics.smoothedFps = 60;
+      metrics.presentedResolution = { width: 1280, height: 720, density: 2 };
+
+      const hud = document.querySelector("#preview-hud");
+      hud.innerHTML = metrics.previewDiagnosticMarkup(60, render);
+      const rows = [...hud.querySelectorAll(".output-chain-row")];
+      const result = {
+        ok:
+          rows.length === 2 &&
+          hud.textContent.includes("Cow Component") &&
+          hud.textContent.includes("1280x720") &&
+          hud.textContent.includes("brown-Guernsey-cow.webp") &&
+          hud.textContent.includes("960x540"),
+        rows: rows.map((row) => row.textContent.trim()),
+      };
+      document.querySelector("#preview-hud-results").textContent =
+        JSON.stringify(result, null, 2);
+      document.documentElement.dataset.status = result.ok ? "ok" : "failed";
+    </script>
+  </body>
+</html>

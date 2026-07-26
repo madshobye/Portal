@@ -54,6 +54,7 @@ import {
 import {
   defineVisualNodeContract,
   visualContractsCompatible,
+  VISUAL_HIT_REGION_MODES,
   VISUAL_ROI_MODES,
   VISUAL_TRANSFORM_DOMAINS,
 } from "../js/libraries/render-engine/visual-node-contract.js";
@@ -171,7 +172,7 @@ test("Groups declaratively project public controls through semantic child bindin
   }), /NODE_GROUP_CONTROL_PARAMETER_UNKNOWN/);
 });
 
-test("visual contracts normalize transform ROI allocation and alpha independently of backend", () => {
+test("visual contracts normalize transform ROI allocation alpha and interaction independently of backend", () => {
   const generator = defineVisualNodeContract({
     transform: { domain: VISUAL_TRANSFORM_DOMAINS.CONTENT },
     roi: { mode: VISUAL_ROI_MODES.NEIGHBORHOOD, halo: 8 },
@@ -185,6 +186,17 @@ test("visual contracts normalize transform ROI allocation and alpha independentl
   assert.equal(generator.roi.halo, 8);
   assert.equal(generator.roi.inputMapping, "identity");
   assert.equal(generator.alpha.output, "premultiplied");
+  assert.equal(
+    generator.interaction.hitRegion,
+    VISUAL_HIT_REGION_MODES.RENDERED_ALPHA,
+    "visual outputs expose their rendered coverage to editor and interactive consumers by default",
+  );
+  assert.equal(
+    defineVisualNodeContract({
+      interaction: { hitRegion: VISUAL_HIT_REGION_MODES.BOUNDARY },
+    }).interaction.hitRegion,
+    VISUAL_HIT_REGION_MODES.BOUNDARY,
+  );
   assert.deepEqual(compatibility, { coordinates: true, alpha: true });
 });
 

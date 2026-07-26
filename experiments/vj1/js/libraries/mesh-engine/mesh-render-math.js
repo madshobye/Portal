@@ -181,7 +181,7 @@ export function rawModelMatrices(
 export function applyModelViewportProjection(target, cameraFov = Math.PI / 3, viewport = {}) {
   const width = Math.max(1, Number(viewport.width) || Number(target?.width) || 1);
   const height = Math.max(1, Number(viewport.height) || Number(target?.height) || 1);
-  const uv = normalizeRenderUvRect(viewport.uvRect);
+  const uv = rawWebglProjectionUvRect(viewport.uvRect);
   const { near, far } = modelCameraClipPlanes(height);
   if (isFullUvRect(uv) || typeof target?.frustum !== "function") {
     target?.perspective?.(cameraFov, width / height, near, far);
@@ -300,7 +300,7 @@ function mat4Orthographic(left, right, bottom, top, near, far) {
 }
 
 function mat4ViewportCrop(value) {
-  const uv = normalizeRenderUvRect(value);
+  const uv = rawWebglProjectionUvRect(value);
   const scaleX = 1 / uv[2];
   const scaleY = 1 / uv[3];
   return new Float32Array([
@@ -312,6 +312,21 @@ function mat4ViewportCrop(value) {
     0,
     1,
   ]);
+}
+
+function rawWebglProjectionUvRect(value) {
+  const uv = normalizeRenderUvRect(value);
+  // RenderView/ROI coordinates are canonically top-left. Raw WebGL writes
+  // into bottom-left framebuffer storage, whose presentation is inverted by
+  // the retained-target boundary. Convert only the cropped projection window
+  // here; changing model coordinates or final presentation would also flip
+  // full-frame meshes and reintroduce per-renderer correction chains.
+  return [
+    uv[0],
+    1 - uv[1] - uv[3],
+    uv[2],
+    uv[3],
+  ];
 }
 
 function isFullUvRect(uv) {

@@ -187,6 +187,10 @@ Hard invariants:
 3. Boundary placement/allocation and content-domain transforms are separate.
 4. Every visual operation declares ROI mapping, halo, coordinate space, and
    local/global dependency.
+   Its visual contract also declares an interaction hit region:
+   rendered alpha, authored boundary, or none. Compounds publish the isolated
+   public output under their outer identity so editor picking and future
+   pointer/event nodes never depend on hidden child-render IDs.
 5. ROI output equals cropping the full render. ROI may reduce work, never alter
    visual math, centering, or aspect.
 6. Allocation follows visible boundary footprint; source detail follows backing

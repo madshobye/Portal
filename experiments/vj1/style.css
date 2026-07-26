@@ -2297,6 +2297,11 @@ button.text-list-main:hover {
   white-space: normal;
 }
 
+.preview-fps.is-diagnostic .output-chain-list {
+  max-height: min(42vh, 360px);
+  overflow-y: auto;
+}
+
 .preview-debug-line {
   display: flex;
   flex-wrap: wrap;

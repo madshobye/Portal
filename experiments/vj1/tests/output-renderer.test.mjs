@@ -2599,6 +2599,45 @@ test("Output HUD presents every authored render-chain allocation on its own line
   assert.equal((markup.match(/output-chain-row/g) || []).length, 2);
 });
 
+test("Preview diagnostics append the shared render-chain allocation list", () => {
+  const renderer = new OutputRenderer({ mode: "component" });
+  renderer.state = {
+    render: {
+      outputs: [{ id: "output-main", aspectRatio: 16 / 9 }],
+      hostViewport: { width: 640, height: 360, mode: "preview", outputId: "" },
+    },
+  };
+  renderer.componentRenderRuntime.lastResolutionTrace = [
+    {
+      componentId: "component",
+      itemId: "component",
+      kind: "component",
+      name: "Cow Component",
+      width: 1280,
+      height: 720,
+      depth: 0,
+    },
+    {
+      componentId: "component",
+      itemId: "source",
+      kind: "source",
+      name: "brown-Guernsey-cow.webp",
+      width: 960,
+      height: 540,
+      depth: 1,
+    },
+  ];
+
+  const markup = renderer.presentationMetrics.previewDiagnosticMarkup(60);
+
+  assert.match(markup, /preview-debug-line/);
+  assert.match(markup, /Cow Component/);
+  assert.match(markup, /brown-Guernsey-cow\.webp/);
+  assert.match(markup, /1280x720/);
+  assert.match(markup, /960x540/);
+  assert.equal((markup.match(/output-chain-row/g) || []).length, 2);
+});
+
 test("cached Components replay their retained resolution trace without rerendering it", () => {
   const renderer = new OutputRenderer({ mode: "output" });
   const component = { id: "component", name: "Component", type: "component" };
@@ -3714,6 +3753,78 @@ test("component groups render isolated from earlier parent layers", () => {
   assert.ok(groupRenderSource.includes("host.compositeRuntime.renderBoundedLayerNodeState("));
   assert.ok(groupRenderSource.includes("host.compositeRuntime.renderLayerNodeState("));
   assert.ok(!groupRenderSource.includes("drawBuffer(groupState.buffer, state.buffer"));
+});
+
+test("compiled visual Groups publish their isolated public output as the outer interaction region", () => {
+  const parentState = { buffer: { id: "parent" }, instanceInvariant: true };
+  const isolatedState = { buffer: { id: "isolated-group" }, instanceInvariant: true };
+  const compositedState = { buffer: { id: "composited" }, instanceInvariant: true };
+  const coverageRecords = [];
+  let transparentCalls = 0;
+  const host = {
+    compositeRuntime: {
+      transparentChainState: () => (
+        transparentCalls++ === 0 ? parentState : isolatedState
+      ),
+      renderLayerNodeState: () => compositedState,
+      renderBoundedLayerNodeState: () => compositedState,
+    },
+    componentRenderRuntime: { recordResolution() {} },
+    previewHitCoverage: {
+      recordRaster(...args) {
+        coverageRecords.push(args);
+      },
+    },
+    mediaRuntime: null,
+    media: new Map(),
+    specializedSources: {
+      capabilityReadiness: () => null,
+    },
+  };
+  const runtime = new VisualPlanRuntime(host);
+  const component = { id: "component", name: "Component" };
+  const outerItem = {
+    id: "model-group",
+    kind: "source",
+    enabled: true,
+    boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 },
+    source: { type: "generator", generatorId: "modelMedia" },
+  };
+  const operation = {
+    id: outerItem.id,
+    opcode: "group",
+    backend: "compiled-visual-group",
+    configuration: outerItem,
+    operations: [],
+    runtimeStates: new Map(),
+    runtimeOutputStates: new Map(),
+    outputPorts: ["texture"],
+    outputBindings: {},
+    outputPort: "texture",
+    publicTextureInputs: {},
+    contract: {
+      interaction: { hitRegion: "rendered-alpha" },
+      roi: { halo: 0, coordinateSpace: "boundary" },
+    },
+  };
+
+  const result = runtime.renderOperations(
+    component,
+    [operation],
+    0,
+    { role: "component", width: 800, height: 450 },
+  );
+
+  assert.strictEqual(result, compositedState);
+  assert.equal(coverageRecords.length, 1);
+  assert.strictEqual(coverageRecords[0][0], component);
+  assert.strictEqual(coverageRecords[0][1], outerItem);
+  assert.strictEqual(
+    coverageRecords[0][2],
+    isolatedState,
+    "hit coverage cannot include pixels from earlier parent layers",
+  );
+  assert.equal(coverageRecords[0][5], "rendered-alpha");
 });
 
 test("disabled compiled visual Groups do not evaluate values or child render operations", () => {

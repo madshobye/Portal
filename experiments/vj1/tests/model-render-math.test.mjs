@@ -97,6 +97,49 @@ test("model ROI keeps the full boundary camera and uses an off-axis projection",
   assert.ok(Math.abs(matrices.mvp[12] / matrices.mvp[15] + 1) < 1e-6, "full-boundary center maps to the ROI's left edge");
 });
 
+test("model ROI converts canonical top-left Y only at raw WebGL projection", () => {
+  const top = rawModelMatrices(
+    100,
+    100,
+    1,
+    1,
+    [0, 0, 0],
+    {},
+    Math.PI / 3,
+    [0, 0, 1, 0.5],
+  );
+  const bottom = rawModelMatrices(
+    100,
+    100,
+    1,
+    1,
+    [0, 0, 0],
+    {},
+    Math.PI / 3,
+    [0, 0.5, 1, 0.5],
+  );
+
+  assert.ok(
+    Math.abs(top.mvp[13] / top.mvp[15] - 1) < 1e-6,
+    "the displayed top ROI selects bottom-left framebuffer storage",
+  );
+  assert.ok(
+    Math.abs(bottom.mvp[13] / bottom.mvp[15] + 1) < 1e-6,
+    "the displayed bottom ROI selects top-left framebuffer storage",
+  );
+
+  let topFrustum = null;
+  let bottomFrustum = null;
+  applyModelViewportProjection({
+    frustum: (...args) => { topFrustum = args; },
+  }, Math.PI / 3, { width: 100, height: 100, uvRect: [0, 0, 1, 0.5] });
+  applyModelViewportProjection({
+    frustum: (...args) => { bottomFrustum = args; },
+  }, Math.PI / 3, { width: 100, height: 100, uvRect: [0, 0.5, 1, 0.5] });
+  assert.ok(topFrustum[3] <= 0, "top-origin ROI selects the lower raw frustum");
+  assert.ok(bottomFrustum[2] >= 0, "bottom-origin ROI selects the upper raw frustum");
+});
+
 test("raw mesh content Y converts screen-down authoring to WebGL world-up without frame accumulation", () => {
   const movedUp = rawModelMatrices(
     400,

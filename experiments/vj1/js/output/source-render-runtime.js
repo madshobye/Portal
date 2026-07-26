@@ -262,6 +262,7 @@ export class SourceRenderRuntime {
     this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
     this.nodeRuntimes = new Map();
+    this.directPlacementResults = new Map();
     this.compiledNodeProcessContexts = new WeakMap();
     this.nativeRendererRegistry =
       nativeRendererRegistry || new NativeRendererRegistry();
@@ -278,12 +279,15 @@ export class SourceRenderRuntime {
     this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
     this.nodeRuntimes.clear();
+    this.directPlacementResults.clear();
   }
 
   invalidateStructure() {
     this.host.recordSignal?.("cacheInvalidations", 1, "source-structure");
+    this.host.previewHitCoverage?.invalidateStructure();
     this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
+    this.directPlacementResults.clear();
   }
 
   measureOperation(component, item, renderRequest, render) {
@@ -1488,6 +1492,7 @@ export class SourceRenderRuntime {
           evaluationRequest,
           operation,
         );
+        this.directPlacementResults.set(nodeId, { signature, placed });
         const clipRect = isFullNodeBoundary(item.boundary)
           ? null
           : nodeBoundaryPixelRect(item.boundary, renderRequest);
@@ -1501,6 +1506,16 @@ export class SourceRenderRuntime {
       "direct-source",
       { instanceInvariant },
     );
+    const placedRecord = this.directPlacementResults.get(nodeId);
+    if (placedRecord?.signature === signature && placedRecord.placed) {
+      host.previewHitCoverage?.recordPlaced(
+        component,
+        item,
+        placedRecord.placed,
+        renderRequest,
+        operation?.contract?.interaction?.hitRegion,
+      );
+    }
     return result;
   }
 

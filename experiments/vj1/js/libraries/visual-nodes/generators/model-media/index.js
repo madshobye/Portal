@@ -66,7 +66,7 @@ const manifest = Object.freeze({
     },
     createNumberParam("geometryDetail", "Geometry detail", {
       min: 0,
-      max: 1,
+      max: 2,
       step: 0.01,
       defaultValue: 0.5,
     }),

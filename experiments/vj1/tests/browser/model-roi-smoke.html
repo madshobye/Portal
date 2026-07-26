@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Model ROI Contract</title>
+  </head>
+  <body>
+    <pre id="model-roi-results">initializing...</pre>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <script type="module">
+      import {
+        drawRawParsedModelMode,
+        disposeRawModelItemResources,
+      } from "../../js/libraries/mesh-engine/mesh-render/index.js";
+      import {
+        createSharedFramebufferTarget,
+      } from "../../js/output/shared-framebuffer-target.js";
+
+      const resultElement = document.querySelector("#model-roi-results");
+      const owners = [];
+      const targets = [];
+
+      window.addEventListener("error", (event) => reportFailure(
+        event.error?.stack || event.message || "MODEL_ROI_SMOKE_SCRIPT_ERROR",
+      ));
+      window.addEventListener("unhandledrejection", (event) => reportFailure(
+        event.reason?.stack || event.reason?.message || String(event.reason || "MODEL_ROI_SMOKE_REJECTION"),
+      ));
+
+      function reportFailure(error) {
+        resultElement.textContent = JSON.stringify({ ok: false, error }, null, 2);
+        document.documentElement.dataset.status = "error";
+      }
+
+      globalThis.setup = () => {
+        try {
+          createCanvas(160, 120, WEBGL);
+          pixelDensity(1);
+          noLoop();
+          const full = renderView([0, 0, 1, 1], 120);
+          const top = renderView([0, 0, 1, 0.5], 60);
+          const bottom = renderView([0, 0.5, 1, 0.5], 60);
+          const ok =
+            full.top.blue > full.bottom.blue &&
+            full.bottom.red > full.top.red &&
+            top.total.blue > top.total.red * 2 &&
+            bottom.total.red > bottom.total.blue * 2;
+          resultElement.textContent = JSON.stringify({
+            ok,
+            full,
+            top,
+            bottom,
+          }, null, 2);
+          document.documentElement.dataset.status = ok ? "ok" : "failed";
+        } catch (error) {
+          reportFailure(error?.stack || error?.message || String(error));
+        } finally {
+          for (const owner of owners) disposeRawModelItemResources(owner);
+          for (const target of targets) target.remove();
+        }
+      };
+
+      function renderView(uvRect, height) {
+        const target = createSharedFramebufferTarget(120, height, { depth: true });
+        targets.push(target);
+        const topMesh = triangleMesh(38);
+        const bottomMesh = triangleMesh(-38);
+        const topOwner = { modelData: topMesh };
+        const bottomOwner = { modelData: bottomMesh };
+        owners.push(topOwner, bottomOwner);
+        target.drawWebGL(() => {
+          target.clear();
+          drawRawParsedModelMode(
+            target,
+            topOwner,
+            meshParams(),
+            0,
+            "surface",
+            [255, 0, 0, 255],
+            [0, 0, 0, 0],
+            4000,
+            {
+              width: target.width,
+              height: target.height,
+              logicalWidth: 120,
+              logicalHeight: 120,
+              uvRect,
+            },
+            {},
+            topMesh,
+          );
+          drawRawParsedModelMode(
+            target,
+            bottomOwner,
+            meshParams(),
+            0,
+            "surface",
+            [0, 0, 255, 255],
+            [0, 0, 0, 0],
+            4000,
+            {
+              width: target.width,
+              height: target.height,
+              logicalWidth: 120,
+              logicalHeight: 120,
+              uvRect,
+            },
+            {},
+            bottomMesh,
+          );
+        });
+        target.framebuffer.loadPixels();
+        return summarize(target.framebuffer);
+      }
+
+      function triangleMesh(y) {
+        const vertices = [
+          [-26, y - 18, 0],
+          [26, y - 18, 0],
+          [0, y + 18, 0],
+        ];
+        return {
+          bounds: {
+            min: [-26, y - 18, 0],
+            max: [26, y + 18, 0],
+          },
+          triangleCount: 1,
+          triangles: [{
+            normal: [0, 0, 1],
+            vertices,
+          }],
+        };
+      }
+
+      function meshParams() {
+        return {
+          modelScale: 1,
+          depth: 1,
+          focalLength: 20.7846096908,
+          visibleDepth: 1,
+          rotationX: 0,
+          rotationY: 0,
+          rotationZ: 0,
+          spinX: 0,
+          spinY: 0,
+          spinZ: 0,
+          __importBasis: [0, 0, 0],
+        };
+      }
+
+      function summarize(framebuffer) {
+        const width = framebuffer.width;
+        const height = framebuffer.height;
+        const halves = {
+          top: { red: 0, blue: 0 },
+          bottom: { red: 0, blue: 0 },
+          total: { red: 0, blue: 0 },
+        };
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const offset = (y * width + x) * 4;
+            const red = framebuffer.pixels[offset];
+            const blue = framebuffer.pixels[offset + 2];
+            const bucket = y < height * 0.5 ? halves.top : halves.bottom;
+            if (red > blue + 20) {
+              bucket.red++;
+              halves.total.red++;
+            } else if (blue > red + 20) {
+              bucket.blue++;
+              halves.total.blue++;
+            }
+          }
+        }
+        return halves;
+      }
+
+      new p5();
+    </script>
+  </body>
+</html>

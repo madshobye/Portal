@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Preview Hit Coverage</title>
+    <style>
+      body {
+        margin: 0;
+        background: #08090b;
+        color: #eef2ef;
+        font: 13px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+
+      pre {
+        margin: 16px;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <pre id="coverage-results">initializing...</pre>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <script type="module">
+      import { PreviewHitCoverage } from "../../js/output/preview-hit-coverage.js";
+      import { createSharedFramebufferTarget } from "../../js/output/shared-framebuffer-target.js";
+      import { withRenderTarget2D } from "../../js/output/render-target-contract.js";
+
+      const resultElement = document.querySelector("#coverage-results");
+
+      window.addEventListener("error", (event) => reportFailure(
+        event.error?.stack || event.message || "PREVIEW_COVERAGE_SMOKE_SCRIPT_ERROR",
+      ));
+      window.addEventListener("unhandledrejection", (event) => reportFailure(
+        event.reason?.stack || event.reason?.message || String(event.reason || "PREVIEW_COVERAGE_SMOKE_REJECTION"),
+      ));
+
+      function reportFailure(error) {
+        resultElement.textContent = JSON.stringify({ ok: false, error }, null, 2);
+        document.documentElement.dataset.status = "error";
+      }
+
+      globalThis.setup = () => {
+        let target = null;
+        try {
+          createCanvas(32, 32, WEBGL);
+          pixelDensity(1);
+          noLoop();
+          target = createSharedFramebufferTarget(32, 32);
+          withRenderTarget2D(target, () => {
+            target.clear();
+            target.noStroke();
+            target.fill(255, 255, 255, 1);
+            target.rect(16, 16, 1, 1);
+          });
+
+          const item = { id: "wire", kind: "source" };
+          const component = { id: "component" };
+          const host = {
+            mode: "component",
+            state: { ui: { selectedComponentId: component.id } },
+          };
+          const coverage = new PreviewHitCoverage(host);
+          const request = {
+            reason: "component-preview",
+            width: 32,
+            height: 32,
+          };
+          const frame = { x: 0, y: 0, width: 32, height: 32 };
+          coverage.prepareRootRequest(component, request);
+          coverage.recordRaster(component, item, { buffer: target }, request);
+
+          const translucent = coverage.contains(component, item, frame, 16, 16, 0);
+          const transparent = coverage.contains(component, item, frame, 5, 5, 0);
+          const neighborhood = coverage.contains(component, item, frame, 12, 16, 4);
+          const ok = translucent === true && transparent === false && neighborhood === true;
+          resultElement.textContent = JSON.stringify({
+            ok,
+            translucent,
+            transparent,
+            neighborhood,
+          }, null, 2);
+          document.documentElement.dataset.status = ok ? "ok" : "failed";
+        } catch (error) {
+          reportFailure(error?.stack || error?.message || String(error));
+        } finally {
+          target?.remove?.();
+        }
+      };
+
+      new p5();
+    </script>
+  </body>
+</html>

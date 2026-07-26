@@ -11,6 +11,8 @@ export class VisualValueProgram {
     this.resourceObjects = new WeakMap();
     this.nextResourceObjectId = 1;
     this.evaluationRevision = 0;
+    this.stepDependencySignatures = new Map();
+    this.stepDependencyRevisions = new Map();
     this.frameDrivenSteps = new Set();
     this.ready = true;
     this.format = "vj1.visual-value-program@1";
@@ -61,6 +63,13 @@ export class VisualValueProgram {
           throw new Error(`VISUAL_VALUE_INLET_REQUIRED:${this.id}:${step.id}.${id}`);
         }
       }
+      const dependencyRevision = frameDriven
+        ? 0
+        : this.updateStepDependencyRevision(
+            step,
+            renderRequest,
+            sourceDetail,
+          );
       const context = step.processContext;
       context.componentTime = componentTime;
       context.timestamp = timestamp;
@@ -90,6 +99,7 @@ export class VisualValueProgram {
             this.resourceObjects,
             () => this.nextResourceObjectId++,
             frameDriven ? this.evaluationRevision : 0,
+            frameDriven ? 0 : dependencyRevision,
           ),
         );
       }
@@ -176,8 +186,41 @@ export class VisualValueProgram {
     }
     this.outputs.clear();
     this.outputIdentities.clear();
+    this.stepDependencySignatures.clear();
+    this.stepDependencyRevisions.clear();
     this.frameDrivenSteps.clear();
     this.ready = false;
+  }
+
+  updateStepDependencyRevision(step, renderRequest, sourceDetail) {
+    const signature = stableValueIdentity({
+      parameters: Object.fromEntries(
+        step.parameterIds.map((id) => [id, step.parameters[id]]),
+      ),
+      inputs: step.inputs.map((edge) => [
+        edge.targetPortId,
+        this.outputIdentities.get(
+          `${edge.sourceStepId}.${edge.sourcePortId}`,
+        ) || "",
+      ]),
+      // A frame-triggered provider may be request-driven without being
+      // wall-clock-driven (for example mesh LOD selection). Treat the request
+      // as a semantic dependency, not as permission to evaluate every frame.
+      context: step.trigger === "frame"
+        ? retainedRenderContextIdentity(renderRequest, sourceDetail)
+        : null,
+    });
+    if (this.stepDependencySignatures.get(step.id) !== signature) {
+      this.stepDependencySignatures.set(step.id, signature);
+      this.stepDependencyRevisions.set(
+        step.id,
+        Math.max(
+          0,
+          Number(this.stepDependencyRevisions.get(step.id)) || 0,
+        ) + 1,
+      );
+    }
+    return this.stepDependencyRevisions.get(step.id) || 0;
   }
 }
 
@@ -560,6 +603,7 @@ function retainedValueIdentity(
   objectIds,
   allocateObjectId,
   signalRevision = 0,
+  dependencyRevision = 0,
 ) {
   const type = valueTypeId(specification || "any");
   if (value === null || value === undefined) return `${type}:missing`;
@@ -571,21 +615,91 @@ function retainedValueIdentity(
     objectId = allocateObjectId();
     objectIds.set(value, objectId);
   }
-  const identity = value.resourceIdentity
+  const declaredIdentity = value.resourceIdentity
     ?? value.id
     ?? value.providerId
-    ?? value.kind
-    ?? `object-${objectId}`;
+    ?? value.kind;
+  // Allocation identity is only a fallback for values without a semantic
+  // dependency revision. Ordinary retained value providers may construct a
+  // fresh array/record while representing the same value; allowing that
+  // incidental allocation to dirty downstream nodes would defeat retained
+  // execution. The compiled step dependency revision is their authority.
+  const identity = declaredIdentity
+    ?? (dependencyRevision ? "value" : `object-${objectId}`);
   const declaredRevision = value.resourceRevision
     ?? value.revision
-    ?? value.version
     ?? value.signature;
   const revision = signalRevision
     ? declaredRevision === undefined
       ? `signal-${signalRevision}`
       : `${String(declaredRevision)}+signal-${signalRevision}`
-    : declaredRevision ?? 0;
+    : declaredRevision === undefined && dependencyRevision
+      ? `dependency-${dependencyRevision}`
+      : declaredRevision ?? value.version ?? 0;
   return `${type}:${String(identity)}@${String(revision)}`;
+}
+
+function retainedRenderContextIdentity(renderRequest, sourceDetail) {
+  const request = renderRequest || {};
+  const detail = sourceDetail || {};
+  return {
+    request: {
+      role: String(request.role || ""),
+      width: finiteIdentityNumber(request.width),
+      height: finiteIdentityNumber(request.height),
+      logicalWidth: finiteIdentityNumber(request.logicalWidth),
+      logicalHeight: finiteIdentityNumber(request.logicalHeight),
+      pixelRatio: finiteIdentityNumber(request.pixelRatio),
+      uvRect: request.uvRect || null,
+      roi: request.roi || null,
+    },
+    sourceDetail: {
+      width: finiteIdentityNumber(detail.width),
+      height: finiteIdentityNumber(detail.height),
+      physicalWidth: finiteIdentityNumber(detail.physicalWidth),
+      physicalHeight: finiteIdentityNumber(detail.physicalHeight),
+      contentScale: finiteIdentityNumber(detail.contentScale),
+    },
+  };
+}
+
+function finiteIdentityNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function stableValueIdentity(value, seen = new WeakSet()) {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : JSON.stringify(String(value));
+  }
+  if (
+    typeof value === "string" ||
+    typeof value === "boolean"
+  ) {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "bigint") return JSON.stringify(String(value));
+  if (typeof value === "function") {
+    return JSON.stringify(`[function:${value.name || "anonymous"}]`);
+  }
+  if (typeof value !== "object") return JSON.stringify(String(value));
+  if (seen.has(value)) return JSON.stringify("[circular]");
+  seen.add(value);
+  let result;
+  if (Array.isArray(value) || ArrayBuffer.isView(value)) {
+    result = `[${Array.from(value, (item) =>
+      stableValueIdentity(item, seen)).join(",")}]`;
+  } else {
+    result = `{${Object.keys(value)
+      .sort()
+      .map((key) =>
+        `${JSON.stringify(key)}:${stableValueIdentity(value[key], seen)}`)
+      .join(",")}}`;
+  }
+  seen.delete(value);
+  return result;
 }
 
 function retainedExternalResolver(definition, node, path) {
