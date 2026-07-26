@@ -9,7 +9,21 @@ const manifest = Object.freeze({
     params: [
       createEnumParam("mode", "Mode", ["linear", "radial", "single"], "linear"),
       createNumberParam("colorCount", "Colors", { min: 2, max: 4, step: 1, defaultValue: 2 }),
-      createNumberParam("angle", "Angle", { min: -3.14, max: 3.14, step: 0.01, defaultValue: 0 }),
+      createNumberParam("angle", "Angle", {
+        min: -3.14,
+        max: 3.14,
+        step: 0.01,
+        defaultValue: 0,
+        suggestedAnimations: [{
+          id: "rotate",
+          label: "Rotate continuously",
+          mode: "loop",
+          from: -3.14,
+          to: 3.14,
+          duration: 8,
+          curve: "linear",
+        }],
+      }),
       createNumberParam("offset", "Offset", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),
       createNumberParam("softness", "Softness", { min: 0.1, max: 2, step: 0.01, defaultValue: 1 }),
       createColorParam("colorA", "Color 1", "#ff4f92ff"),

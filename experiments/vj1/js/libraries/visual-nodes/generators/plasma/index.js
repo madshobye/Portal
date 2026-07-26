@@ -20,7 +20,21 @@ const manifest = Object.freeze({
       createNumberParam("complexity", "Complexity", { min: 0, max: 1, step: 0.01, defaultValue: 0.7 }),
       createNumberParam("distortion", "Distortion", { min: 0, max: 2, step: 0.01, defaultValue: 0.55 }),
       createNumberParam("colorSpeed", "Color motion", { min: -2, max: 2, step: 0.01, defaultValue: 0.22 }),
-      createNumberParam("hueShift", "Hue shift", { min: 0, max: 1, step: 0.001, defaultValue: 0 }),
+      createNumberParam("hueShift", "Hue shift", {
+        min: 0,
+        max: 1,
+        step: 0.001,
+        defaultValue: 0,
+        suggestedAnimations: [{
+          id: "hue-cycle",
+          label: "Cycle hue",
+          mode: "loop",
+          from: 0,
+          to: 1,
+          duration: 8,
+          curve: "linear",
+        }],
+      }),
     ],
   });
 

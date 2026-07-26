@@ -24,6 +24,12 @@ const CURVE_LABELS = Object.freeze({
   "sine-in-out": "Sine in-out",
 });
 
+const COMBINATION_LABELS = Object.freeze({
+  replace: "Replace base value",
+  add: "Add to base value",
+  multiply: "Multiply base value",
+});
+
 export function parameterAnimationViewTemplate({
   state = {},
   componentId = "",
@@ -41,6 +47,9 @@ export function parameterAnimationViewTemplate({
   const parameterById = new Map(numeric.map((param) => [param.id, param]));
   const animated = new Set(tracks.map((track) => track.parameterId));
   const available = numeric.filter((param) => !animated.has(param.id));
+  const suggestions = available.flatMap((param) =>
+    (param.suggestedAnimations || []).map((suggestion) => ({ param, suggestion }))
+  );
 
   return `
     <section class="parameter-animation-editor" data-animation-editor data-animation-component-id="${esc(componentId)}" data-animation-target-node-id="${esc(targetNodeId)}">
@@ -53,6 +62,14 @@ export function parameterAnimationViewTemplate({
           )).join("")
           : `<div class="soft-note parameter-animation-empty">No parameter animations.</div>`}
       </div>
+      ${suggestions.length ? `
+        <div class="parameter-animation-suggestions">
+          <span class="soft-note">Suggested</span>
+          ${suggestions.map(({ param, suggestion }) =>
+            animationSuggestionTemplate(param, suggestion)
+          ).join("")}
+        </div>
+      ` : ""}
       ${available.length ? `
         <div class="parameter-animation-add">
           <select class="param-select" data-animation-new-parameter aria-label="Parameter to animate">
@@ -76,6 +93,7 @@ function animationTrackTemplate(track, parameter = {}, componentId = "") {
     ? Number(parameter.max)
     : Math.max(track.from, track.to);
   const step = Math.abs(Number(parameter.step)) || Math.max(0.001, Math.abs(max - min) / 100);
+  const mapping = animationMappingRange(track.combination, min, max);
   const triggerAddress = parameterAnimationTriggerAddress(componentId, track.id);
   const common = `data-animation-track-id="${esc(track.id)}" data-animation-trigger-address="${esc(triggerAddress)}"`;
   return `
@@ -123,13 +141,21 @@ function animationTrackTemplate(track, parameter = {}, componentId = "") {
           `).join("")}
         </select>
       </label>
+      <label class="field">
+        <span>Combine</span>
+        <select class="param-select" data-animation-track-field="combination">
+          ${Object.entries(COMBINATION_LABELS).map(([mode, modeLabel]) => `
+            <option value="${esc(mode)}" ${track.combination === mode ? "selected" : ""}>${esc(modeLabel)}</option>
+          `).join("")}
+        </select>
+      </label>
       ${track.mode === "ping-pong" ? `
         <button type="button" class="animation-return-toggle ${track.returnMode === "repeat" ? "is-selected" : ""}" data-toggle-animation-return aria-pressed="${track.returnMode === "repeat"}" title="Apply the selected curve independently on the return leg">
           ${icon("swap_vert")}<span>Invert curve on return</span>
         </button>
       ` : ""}
-      ${animationRangeTemplate("From", "from", track.from, min, max, step)}
-      ${animationRangeTemplate("To", "to", track.to, min, max, step)}
+      ${animationRangeTemplate("From", "from", track.from, mapping.min, mapping.max, mapping.step || step)}
+      ${animationRangeTemplate("To", "to", track.to, mapping.min, mapping.max, mapping.step || step)}
       ${animationRangeTemplate("Cycle duration", "duration", track.duration, 0.05, 60, 0.05, " s")}
       ${animationRangeTemplate("End pause", "pause", track.pause, 0, 30, 0.05, " s")}
       ${track.runMode === "automatic"
@@ -143,6 +169,38 @@ function animationParameterOption(param) {
   const value = clamp(Number(param.value), Number(param.min), Number(param.max));
   const to = approximatelyEqual(value, Number(param.max)) ? Number(param.min) : Number(param.max);
   return `<option value="${esc(param.id)}" data-animation-from="${esc(value)}" data-animation-to="${esc(to)}" data-animation-min="${esc(param.min)}" data-animation-max="${esc(param.max)}">${esc(param.label || param.id)}</option>`;
+}
+
+function animationSuggestionTemplate(param, suggestion = {}) {
+  const value = clamp(Number(param.value), Number(param.min), Number(param.max));
+  const from = Number.isFinite(Number(suggestion.from)) ? Number(suggestion.from) : value;
+  const to = Number.isFinite(Number(suggestion.to))
+    ? Number(suggestion.to)
+    : approximatelyEqual(value, Number(param.max))
+      ? Number(param.min)
+      : Number(param.max);
+  return `
+    <button
+      type="button"
+      class="secondary"
+      data-add-animation-suggestion
+      data-animation-parameter="${esc(param.id)}"
+      data-animation-base="${esc(value)}"
+      data-animation-min="${esc(param.min)}"
+      data-animation-max="${esc(param.max)}"
+      data-animation-from="${esc(from)}"
+      data-animation-to="${esc(to)}"
+      data-animation-mode="${esc(suggestion.mode || "loop")}"
+      data-animation-duration="${esc(suggestion.duration ?? 2)}"
+      data-animation-curve="${esc(suggestion.curve || "linear")}"
+      data-animation-return-mode="${esc(suggestion.returnMode || "retrace")}"
+      data-animation-pause="${esc(suggestion.pause ?? 0)}"
+      data-animation-run-mode="${esc(suggestion.runMode || "automatic")}"
+      data-animation-trigger-behavior="${esc(suggestion.triggerBehavior || "full-sequence")}"
+      data-animation-random-rate="${esc(suggestion.randomRate ?? 0)}"
+      data-animation-combination="${esc(suggestion.combination || "replace")}"
+    >${icon("animation")}<span>${esc(suggestion.label || `Animate ${param.label || param.id}`)}</span></button>
+  `;
 }
 
 function animationRangeTemplate(label, field, value, min, max, step, suffix = "") {
@@ -162,4 +220,17 @@ function clamp(value, min, max) {
 
 function approximatelyEqual(left, right) {
   return Math.abs(Number(left) - Number(right)) <= 1e-9;
+}
+
+function animationMappingRange(combination, min, max) {
+  const low = Math.min(Number(min), Number(max));
+  const high = Math.max(Number(min), Number(max));
+  if (combination === "add") {
+    const span = Math.max(high - low, 0.000001);
+    return { min: -span, max: span, step: span / 100 };
+  }
+  if (combination === "multiply") {
+    return { min: -4, max: 4, step: 0.01 };
+  }
+  return { min: low, max: high };
 }

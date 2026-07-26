@@ -6,6 +6,7 @@ import { componentSelectedChainSettingsTemplate } from "../js/control/component-
 import { createInitialState, createSceneComponent } from "../js/domain/models.js";
 import {
   addParameterAnimationTrack,
+  PARAMETER_ANIMATION_STAGES,
   parameterAnimationTracks,
   parameterAnimationTriggerAddress,
   removeParameterAnimationTrack,
@@ -18,6 +19,10 @@ import {
 } from "../js/libraries/composition-engine/shared/chain-general-control-parameters.js";
 import { serializeNodeProjectData } from "../js/libraries/node-engine/node-project.js";
 import { ControlSignalRuntime } from "../js/output/control-signal-runtime.js";
+import {
+  getEffectNodeComponent,
+  getGeneratorNodeComponent,
+} from "../js/libraries/visual-nodes/index.js";
 
 function plasmaState() {
   const packageRoot = createVj1NodePackage();
@@ -143,6 +148,77 @@ test("Animation tracks author the existing Component control graph and restore i
   assert.ok(!restored.nodes.some((node) => node.nodeId === "core.control.animation-curve"));
 });
 
+test("Numeric animation tracks materialize all six stages and combine with the live authored base", () => {
+  const { packageRoot, state, componentId, targetNodeId } = plasmaState();
+  let nodes = addParameterAnimationTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "speed",
+    combination: "add",
+    from: 0,
+    to: 2,
+    duration: 2,
+  });
+  const [track] = parameterAnimationTracks(nodes, componentId, targetNodeId);
+  const group = nodes.groups.find((entry) => entry.componentId === componentId);
+  const owned = group.nodes.filter((node) =>
+    node.animationTrack?.id === track.id || node.animationTrackOwnerId === track.id
+  );
+  const stages = new Set([
+    ...group.nodes.filter((node) => node.animationTimeSource).map((node) => node.animationStage),
+    ...owned.map((node) => node.animationTrackStage),
+    ...group.connections
+      .filter((edge) => edge.semantic === "parameter-animation-track")
+      .map((edge) => edge.animationStage)
+      .filter(Boolean),
+  ]);
+  assert.deepEqual([...PARAMETER_ANIMATION_STAGES].filter((stage) => !stages.has(stage)), []);
+  assert.ok(owned.some((node) => node.nodeId === "core.control.map-range"));
+  assert.ok(owned.some((node) =>
+    node.nodeId === "core.control.numeric-combine" &&
+    node.parameters.mode === "add"
+  ));
+  const base = group.nodes.find((node) =>
+    node.targetNodeId === targetNodeId && node.targetParameterId === "speed"
+  );
+  assert.ok(group.connections.some((edge) =>
+    edge.from === `${base.id}.value` &&
+    edge.to === `${track.id}:combination.base`
+  ));
+
+  const program = compileComponentRenderPrograms(state.components, nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(componentId);
+  const operation = program.plan.operations.find((entry) => entry.id === targetNodeId);
+  operation.configuration.source.params.speed = 2;
+  program.plan.controlProgram.syncGeneratedControlsFromConfiguration();
+  const restore = program.plan.controlProgram.apply({ componentTime: 0.5 });
+  assert.equal(operation.configuration.source.params.speed, 2.5);
+  restore();
+  assert.equal(operation.configuration.source.params.speed, 2);
+
+  nodes = updateParameterAnimationTrack(nodes, {
+    componentId,
+    targetNodeId,
+    trackId: track.id,
+    patch: {
+      combination: "multiply",
+      from: 1,
+      to: 1.5,
+    },
+  });
+  const multipliedProgram = compileComponentRenderPrograms(state.components, nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(componentId);
+  const multipliedOperation = multipliedProgram.plan.operations.find((entry) => entry.id === targetNodeId);
+  multipliedOperation.configuration.source.params.speed = 2;
+  multipliedProgram.plan.controlProgram.syncGeneratedControlsFromConfiguration();
+  const restoreMultiplied = multipliedProgram.plan.controlProgram.apply({ componentTime: 0.5 });
+  assert.equal(multipliedOperation.configuration.source.params.speed, 2.25);
+  restoreMultiplied();
+  assert.equal(multipliedOperation.configuration.source.params.speed, 2);
+});
+
 test("Animation graph fragments survive project serialization and ordinary parameter reconciliation", () => {
   const { packageRoot, state, componentId, targetNodeId } = plasmaState();
   const animatedNodes = addParameterAnimationTrack(state.nodes, {
@@ -188,7 +264,7 @@ test("Animation graph fragments survive project serialization and ordinary param
   assert.ok(baseControl);
   assert.notEqual(baseControl.parameters.value, 0, "the refreshed generated fallback follows the authored base value");
   assert.ok(group.connections.some((edge) =>
-    edge.from === `${track.id}:curve.value` &&
+    edge.from === `${track.id}:combination.value` &&
     edge.to === `${targetNodeId}.$parameter.speed`
   ));
 });
@@ -239,11 +315,17 @@ test("Animation tracks execute through the allocation-stable compiled control pr
   assert.equal(program.plan.controlProgram.steps.some((step) => step.nodeId === "core.control.animation-sequencer"), true);
   assert.equal(program.plan.controlProgram.steps.some((step) => step.nodeId === "core.control.animation-curve"), true);
   assert.equal(String(program.plan.controlProgram.constructor.name).includes("NodeGraph"), false);
+  const retainedOutputs = program.plan.controlProgram.steps.map((step) => step.outputValues);
 
   const restore = program.plan.controlProgram.apply({ componentTime: 1 });
   assert.equal(operation.configuration.source.params.speed, 2);
   restore();
   assert.equal(operation.configuration.source.params.speed, 1);
+  const restoreAgain = program.plan.controlProgram.apply({ componentTime: 1.25 });
+  assert.ok(program.plan.controlProgram.steps.every((step, index) =>
+    step.outputValues === retainedOutputs[index]
+  ));
+  restoreAgain();
 });
 
 test("General parameter animations use the same direct control program and restore retained configuration", () => {
@@ -398,6 +480,7 @@ test("Triggered animation tracks compile one sequencer fragment with transient a
     runMode: "triggered",
     triggerBehavior: "next-leg",
     randomRate: 12,
+    combination: "replace",
   });
   const group = nodes.groups.find((entry) => entry.componentId === componentId);
   const owned = group.nodes.filter((node) =>
@@ -409,6 +492,8 @@ test("Triggered animation tracks compile one sequencer fragment with transient a
       "core.control.animation-curve",
       "core.control.animation-sequencer",
       "core.control.host-input",
+      "core.control.map-range",
+      "core.control.numeric-combine",
       "core.control.random-trigger",
     ].sort(),
   );
@@ -549,6 +634,22 @@ test("Manual animation events advance compiled Preview and Output programs throu
   signals.dispose();
 });
 
+test("Visual parameters expose editable suggested animations without a separate runtime", () => {
+  const suggestions = [
+    [getGeneratorNodeComponent("gradient"), "angle", "Rotate continuously"],
+    [getGeneratorNodeComponent("plasma"), "hueShift", "Cycle hue"],
+    [getEffectNodeComponent("spinRotate"), "amount", "Pulse amount"],
+  ];
+  for (const [component, parameterId, label] of suggestions) {
+    const parameter = component.params.find((entry) => entry.id === parameterId);
+    assert.equal(parameter.suggestedAnimations?.[0]?.label, label);
+    assert.equal(
+      component.nodeDefinition.parameters[parameterId].metadata.suggestedAnimations?.[0]?.label,
+      label,
+    );
+  }
+});
+
 test("Component and Scene inspectors share one Animation tab before General", () => {
   const fixture = plasmaState();
   let state = fixture.state;
@@ -560,6 +661,8 @@ test("Component and Scene inspectors share one Animation tab before General", ()
   assert.match(html, /value="speed"/);
   assert.match(html, /value="\$general\.opacity"/);
   assert.match(html, />Boundary scale<\/option>/);
+  assert.match(html, /data-add-animation-suggestion/);
+  assert.match(html, />Cycle hue<\/span>/);
 
   state = {
     ...state,
@@ -579,6 +682,7 @@ test("Component and Scene inspectors share one Animation tab before General", ()
   assert.match(html, /data-animation-track-field="curve"/);
   assert.match(html, /data-animation-track-field="runMode"/);
   assert.match(html, /data-animation-track-field="pause"/);
+  assert.match(html, /data-animation-track-field="combination"/);
   const [uiTrack] = parameterAnimationTracks(state.nodes, fixture.componentId, fixture.targetNodeId);
   state = {
     ...state,
@@ -591,6 +695,7 @@ test("Component and Scene inspectors share one Animation tab before General", ()
         runMode: "triggered",
         triggerBehavior: "next-leg",
         randomRate: 6,
+        combination: "multiply",
       },
     }),
   };
@@ -599,6 +704,8 @@ test("Component and Scene inspectors share one Animation tab before General", ()
   assert.match(html, /data-toggle-animation-return/);
   assert.match(html, /data-animation-track-field="triggerBehavior"/);
   assert.match(html, /data-animation-track-field="randomRate"/);
+  assert.match(html, /data-animation-track-field="combination"/);
+  assert.match(html, /value="multiply" selected/);
   assert.match(html, /Stop at each end/);
 
   const scene = createSceneComponent(0);

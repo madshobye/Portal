@@ -88,10 +88,15 @@ graph-driven inlet.
 Numeric parameter Animation tracks are authored control fragments inside the
 owning Component/Scene program, never a second animation runtime or parallel
 Component property. The shared Animation inspector projects tagged
-`Component Time -> Animation Sequencer -> Animation Curve -> $parameter`
-wiring. The Sequencer owns automatic/triggered loop and ping-pong timing,
-endpoint pauses, and one-leg/full-sequence trigger semantics. The Curve node is
-a pure bounded mapper and owns easing plus explicit return-leg behavior.
+`Source -> Transport -> Shape -> Mapping -> Combination -> Sink` wiring:
+`Component Time -> Animation Sequencer -> Animation Curve -> Map Range ->
+Numeric Combine -> $parameter`. The Sequencer owns automatic/triggered loop and
+ping-pong timing, endpoint pauses, and one-leg/full-sequence trigger semantics.
+The Curve node is a pure bounded mapper and owns easing plus explicit return-leg
+behavior. Mapping converts normalized curve output into parameter units.
+Combination explicitly replaces, adds to, or multiplies the authored base
+value; the generated scalar control remains the base authority rather than
+becoming separate animation state.
 Deterministic random triggers are separate Component-Time event nodes. Manual
 trigger buttons publish sequence-stamped application control signals to Preview
 and Output; they never write project state, create history, autosave, or
@@ -105,7 +110,10 @@ refresh compiler-owned visual configuration while preserving authored controls.
 The generated scalar control remains dormant as the exact base-value fallback
 and is reconnected when a track is disabled or removed. Evaluation stays in the
 retained direct control program and never writes per-frame values to project
-state.
+state. The first Animation iteration is numeric-only. Color interpolation,
+Probe/global signal routing, and format-specific conveniences such as ISF
+parameter metadata are later typed extensions of this control graph, not new
+animation engines.
 
 Reference patterns:
 

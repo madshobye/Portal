@@ -66,6 +66,31 @@ export function createInputController({
           duration: 2,
         }));
       });
+      editor.querySelectorAll("[data-add-animation-suggestion]").forEach((button) => {
+        button.addEventListener("click", () => {
+          commitAnimationEdit("suggestion", () => addParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            parameterId: button.dataset.animationParameter,
+            baseValue: Number(button.dataset.animationBase),
+            targetRange: [
+              Number(button.dataset.animationMin),
+              Number(button.dataset.animationMax),
+            ],
+            from: Number(button.dataset.animationFrom),
+            to: Number(button.dataset.animationTo),
+            mode: button.dataset.animationMode,
+            duration: Number(button.dataset.animationDuration),
+            curve: button.dataset.animationCurve,
+            returnMode: button.dataset.animationReturnMode,
+            pause: Number(button.dataset.animationPause),
+            runMode: button.dataset.animationRunMode,
+            triggerBehavior: button.dataset.animationTriggerBehavior,
+            randomRate: Number(button.dataset.animationRandomRate),
+            combination: button.dataset.animationCombination,
+          }));
+        });
+      });
       editor.querySelectorAll("[data-animation-track-id]").forEach((track) => {
         const trackId = track.dataset.animationTrackId;
         track.querySelector("[data-toggle-parameter-animation]")?.addEventListener("click", (event) => {
@@ -109,7 +134,7 @@ export function createInputController({
           }
           input.addEventListener("change", () => {
             const field = input.dataset.animationTrackField;
-            const value = ["mode", "curve", "runMode", "triggerBehavior"].includes(field)
+            const value = ["mode", "curve", "runMode", "triggerBehavior", "combination"].includes(field)
               ? input.value
               : Number(input.value);
             commitAnimationEdit(field, () => updateParameterAnimationTrack(getState().nodes, {

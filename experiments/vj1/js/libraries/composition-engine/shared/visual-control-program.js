@@ -8,6 +8,7 @@ import {
   HostControlInputNode,
   MapRangeControlNode,
   MidiControlInputNode,
+  NumericCombineControlNode,
   OscillatorControlNode,
   OscControlInputNode,
   RandomTriggerControlNode,
@@ -39,6 +40,7 @@ const BUILT_IN_CONTROL_DEFINITIONS = new Map([
   OscillatorControlNode,
   RandomTriggerControlNode,
   MapRangeControlNode,
+  NumericCombineControlNode,
   ScalarMathControlNode,
   Vector2ControlNode,
   Vector3ControlNode,
@@ -128,13 +130,32 @@ export class VisualControlProgram {
   }
 
   syncGeneratedControlsFromConfiguration() {
+    // Persisted direct bindings identify their compatibility control through
+    // the parameter edge. Keep that established synchronization path intact.
     for (const binding of this.bindings) {
       if (!binding.generatedControl) continue;
       const step = this.steps.find((item) => item.id === binding.sourceStepId);
-      if (!step || binding.sourcePortId !== "value") continue;
+      const value = readVisualParameter(binding.operation, binding.parameterId);
+      if (!step || value === undefined) continue;
+      step.parameters.value = mapControlValue(
+        value,
+        binding.targetRange,
+        binding.sourceRange,
+      );
+    }
+    // Newer authored fragments can place the generated fallback upstream from
+    // the final parameter edge. Their compiler metadata points at the same
+    // authoritative configuration without adding work to frame evaluation.
+    for (const step of this.steps) {
+      const binding = step.generatedParameterBinding;
+      if (!binding) continue;
       const value = readVisualParameter(binding.operation, binding.parameterId);
       if (value === undefined) continue;
-      step.parameters.value = mapControlValue(value, binding.targetRange, binding.sourceRange);
+      step.parameters[binding.controlParameterId] = mapControlValue(
+        value,
+        binding.targetRange,
+        binding.sourceRange,
+      );
     }
   }
 
@@ -230,6 +251,7 @@ function compileScope(group, operations, path, context) {
     }
     const state = {};
     const outputValues = {};
+    const generatedParameterBinding = compilerGeneratedParameterBinding(node, operationById);
     context.steps.push(Object.freeze({
       id: scopedNodeId(path, node.id),
       instanceId: String(node.id || ""),
@@ -248,6 +270,7 @@ function compileScope(group, operations, path, context) {
       controlSignalDependency: definition.metadata?.controlSignalDependency
         ? Object.freeze({ ...definition.metadata.controlSignalDependency })
         : null,
+      generatedParameterBinding,
       state,
       processContext: {
         componentTime: 0,
@@ -393,6 +416,23 @@ function validateControlDefinition(node, definition, path) {
   if (definition.process.constructor?.name === "AsyncFunction") {
     throw new Error(`VISUAL_CONTROL_ASYNC_PROCESS:${path}:${node.id}`);
   }
+}
+
+function compilerGeneratedParameterBinding(node, operationById) {
+  if (
+    node.generatedBy !== "vj1-component-compiler" ||
+    !node.targetNodeId ||
+    !node.targetParameterId
+  ) return null;
+  const operation = operationById.get(String(node.targetNodeId));
+  if (!operation) return null;
+  return Object.freeze({
+    operation,
+    parameterId: String(node.targetParameterId),
+    controlParameterId: "value",
+    sourceRange: normalizedRange(node.sourceRange),
+    targetRange: normalizedRange(node.targetRange),
+  });
 }
 
 function writeVisualParameter(operation, parameterId, value, restorations, index) {

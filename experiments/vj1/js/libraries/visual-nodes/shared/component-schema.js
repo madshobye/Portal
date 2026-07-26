@@ -53,6 +53,7 @@ export function createNumberParam(id, label, {
   rangeKind = "",
   rangeDisplay = "number",
   renderQualityScaling = null,
+  suggestedAnimations = [],
 } = {}) {
   return {
     id,
@@ -73,6 +74,11 @@ export function createNumberParam(id, label, {
         minimum: Math.max(0, Number(renderQualityScaling.minimum) || 0),
         maximum: Math.max(0, Number(renderQualityScaling.maximum) || 0),
       }),
+    } : {}),
+    ...(suggestedAnimations.length ? {
+      suggestedAnimations: Object.freeze(suggestedAnimations.map((suggestion) =>
+        Object.freeze({ ...suggestion })
+      )),
     } : {}),
   };
 }
@@ -248,6 +254,12 @@ function nodeParameterSpec(param = {}) {
     allowedRange: Number.isFinite(param.min) && Number.isFinite(param.max) ? [param.min, param.max] : null,
     displayRange: Number.isFinite(param.min) && Number.isFinite(param.max) ? [param.min, param.max] : null,
     editor: { type: param.ui || (type === "number" ? "slider" : type === "boolean" ? "toggle" : type === "enum" ? "select" : "input") },
+    metadata: {
+      ...(param.metadata || {}),
+      ...(param.suggestedAnimations?.length ? {
+        suggestedAnimations: param.suggestedAnimations.map((suggestion) => ({ ...suggestion })),
+      } : {}),
+    },
   };
 }
 

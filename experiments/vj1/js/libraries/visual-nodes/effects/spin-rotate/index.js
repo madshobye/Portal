@@ -12,7 +12,21 @@ const manifest = Object.freeze({
       timeDependent: (params = {}) => Math.abs(Number(params.speed) || 0) > 0.0001,
     },
     params: [
-      createNumberParam("amount", "Amount", { min: 0, max: 1, step: 0.01, defaultValue: 0.35 }),
+      createNumberParam("amount", "Amount", {
+        min: 0,
+        max: 1,
+        step: 0.01,
+        defaultValue: 0.35,
+        suggestedAnimations: [{
+          id: "pulse",
+          label: "Pulse amount",
+          mode: "ping-pong",
+          from: 0,
+          to: 0.7,
+          duration: 2,
+          curve: "sine-in-out",
+        }],
+      }),
       createNumberParam("turns", "Turns", { min: -2, max: 2, step: 0.01, defaultValue: 0.25 }),
       createNumberParam("speed", "Speed", { min: -3, max: 3, step: 0.01, defaultValue: 0.2 }),
     ],

@@ -3349,6 +3349,20 @@ button.text-list-main:hover {
   font-size: 17px;
 }
 
+.parameter-animation-suggestions {
+  display: grid;
+  gap: 6px;
+}
+
+.parameter-animation-suggestions > button {
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.parameter-animation-suggestions > button .material-symbols-rounded {
+  font-size: 1rem;
+}
+
 .chain-param {
   min-width: 0;
 }

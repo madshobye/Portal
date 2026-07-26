@@ -4,9 +4,18 @@ import {
   withChainGeneralControlValue,
 } from "./chain-general-control-parameters.js";
 import { ANIMATION_CURVES } from "../../control-engine/animation-curve/index.js";
+import { NUMERIC_COMBINATION_MODES } from "../../control-engine/numeric-combine/index.js";
 
 export const PARAMETER_ANIMATION_AUTHOR = "vj1-animation-editor";
 export const PARAMETER_ANIMATION_FEATURE = "parameter-animation-track";
+export const PARAMETER_ANIMATION_STAGES = Object.freeze([
+  "source",
+  "transport",
+  "shape",
+  "mapping",
+  "combination",
+  "sink",
+]);
 
 const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 const TIME_NODE_ID = "animation:component-time";
@@ -16,6 +25,8 @@ const MAX_PAUSE = 3600;
 const MAX_RANDOM_RATE = 120;
 const ANIMATION_SEQUENCER_NODE_ID = "core.control.animation-sequencer";
 const ANIMATION_CURVE_NODE_ID = "core.control.animation-curve";
+const ANIMATION_MAP_NODE_ID = "core.control.map-range";
+const ANIMATION_COMBINE_NODE_ID = "core.control.numeric-combine";
 const ANIMATION_RANDOM_NODE_ID = "core.control.random-trigger";
 const HOST_INPUT_NODE_ID = "core.control.host-input";
 
@@ -48,6 +59,7 @@ export function addParameterAnimationTrack(nodes = {}, {
   runMode = "automatic",
   triggerBehavior = "full-sequence",
   randomRate = 0,
+  combination = "replace",
   baseValue,
   targetRange,
 } = {}) {
@@ -78,15 +90,17 @@ export function addParameterAnimationTrack(nodes = {}, {
     if (!baseConnection || !validRange(baseConnection.targetRange)) {
       throw new Error(`PARAMETER_ANIMATION_TARGET_UNAVAILABLE:${componentId}:${targetNodeId}:${parameterId}`);
     }
-    const range = baseConnection.targetRange.map(Number);
+    const parameterRange = baseConnection.targetRange.map(Number);
     const current = mapRange(
       Number(baseControl.parameters?.value),
       baseConnection.sourceRange,
-      range,
+      parameterRange,
     );
-    const safeFrom = clampFinite(from, range, current);
-    const defaultTo = approximatelyEqual(current, range[1]) ? range[0] : range[1];
-    const safeTo = clampFinite(to, range, defaultTo);
+    const safeCombination = normalizeCombination(combination);
+    const mappingBounds = modulationRange(safeCombination, parameterRange);
+    const defaults = defaultModulationRange(safeCombination, current, parameterRange);
+    const safeFrom = clampFinite(from, mappingBounds, defaults[0]);
+    const safeTo = clampFinite(to, mappingBounds, defaults[1]);
     const timeNode = scope.nodes.find(isAnimationTimeNode) ||
       createAnimationTimeNode(uniqueNodeId(scope.nodes, TIME_NODE_ID));
     const trackId = uniqueNodeId(
@@ -107,7 +121,10 @@ export function addParameterAnimationTrack(nodes = {}, {
       runMode,
       triggerBehavior,
       randomRate,
+      combination: safeCombination,
       range: [safeFrom, safeTo],
+      parameterRange,
+      baseControl,
       timeNodeId: timeNode.id,
     });
     const nodesWithTime = scope.nodes.includes(timeNode) ? scope.nodes : [...scope.nodes, timeNode];
@@ -119,9 +136,8 @@ export function addParameterAnimationTrack(nodes = {}, {
         from: `${fragment.valueNodeId}.value`,
         to: target,
         type: "number",
-        sourceRange: [0, 1],
-        targetRange: [safeFrom, safeTo],
         semantic: PARAMETER_ANIMATION_FEATURE,
+        animationStage: "sink",
       },
     ];
   });
@@ -154,9 +170,11 @@ export function updateParameterAnimationTrack(nodes = {}, {
     if (!validRange(baseRange)) {
       throw new Error(`PARAMETER_ANIMATION_RANGE_MISSING:${componentId}:${trackId}`);
     }
+    const combination = normalizeCombination(patch.combination ?? projected.combination);
+    const mappingBounds = modulationRange(combination, baseRange);
     const range = [
-      clampFinite(patch.from, baseRange, projected.from),
-      clampFinite(patch.to, baseRange, projected.to),
+      clampFinite(patch.from, mappingBounds, projected.from),
+      clampFinite(patch.to, mappingBounds, projected.to),
     ];
     const next = normalizedTrackConfiguration({
       ...projected,
@@ -166,6 +184,7 @@ export function updateParameterAnimationTrack(nodes = {}, {
       id: projected.id,
       targetNodeId: projected.targetNodeId,
       parameterId: projected.parameterId,
+      combination,
     });
     const ownerIds = animationTrackNodeIds(scope.nodes, current);
     const timeNode = scope.nodes.find(isAnimationTimeNode) ||
@@ -176,6 +195,8 @@ export function updateParameterAnimationTrack(nodes = {}, {
       componentId,
       ...next,
       range,
+      parameterRange: baseRange,
+      baseControl,
       timeNodeId: timeNode.id,
     });
     scope.nodes = [...nodesWithTime, ...fragment.nodes];
@@ -191,9 +212,8 @@ export function updateParameterAnimationTrack(nodes = {}, {
         from: `${fragment.valueNodeId}.value`,
         to: target,
         type: "number",
-        sourceRange: [0, 1],
-        targetRange: range,
         semantic: PARAMETER_ANIMATION_FEATURE,
+        animationStage: "sink",
       });
   });
 }
@@ -395,6 +415,7 @@ function createAnimationTimeNode(id = TIME_NODE_ID) {
     parameters: { scale: 1, offset: 0 },
     authoredBy: PARAMETER_ANIMATION_AUTHOR,
     animationTimeSource: true,
+    animationStage: "source",
   };
 }
 
@@ -412,7 +433,10 @@ function createAnimationTrackFragment({
   runMode,
   triggerBehavior,
   randomRate,
+  combination,
   range,
+  parameterRange,
+  baseControl,
   timeNodeId,
 }) {
   const configuration = normalizedTrackConfiguration({
@@ -425,9 +449,14 @@ function createAnimationTrackFragment({
     runMode,
     triggerBehavior,
     randomRate,
+    combination,
   });
   const owner = String(id || "");
   const curveId = `${owner}:curve`;
+  const mappingId = `${owner}:mapping`;
+  const combinationId = `${owner}:combination`;
+  const safeParameterRange = validRange(parameterRange) ? parameterRange.map(Number) : [0, 1];
+  const safeRange = validRange(range) ? range.map(Number) : [0, 1];
   const nodes = [{
     id,
     nodeId: ANIMATION_SEQUENCER_NODE_ID,
@@ -442,14 +471,16 @@ function createAnimationTrackFragment({
       phase: configuration.phase,
     },
     authoredBy: PARAMETER_ANIMATION_AUTHOR,
+    animationTrackStage: "transport",
     animationTrack: {
       feature: PARAMETER_ANIMATION_FEATURE,
-      version: 2,
+      version: 3,
       id,
       targetNodeId: String(targetNodeId || ""),
       parameterId: String(parameterId || ""),
-      range: validRange(range) ? range.map(Number) : [0, 1],
+      range: safeRange,
       randomRate: configuration.randomRate,
+      combination: configuration.combination,
     },
   }, {
     id: curveId,
@@ -462,12 +493,55 @@ function createAnimationTrackFragment({
     },
     authoredBy: PARAMETER_ANIMATION_AUTHOR,
     animationTrackOwnerId: owner,
-    animationTrackRole: "curve",
+    animationTrackRole: "shape",
+    animationTrackStage: "shape",
+  }, {
+    id: mappingId,
+    nodeId: ANIMATION_MAP_NODE_ID,
+    nodeVersion: "0.1.0",
+    role: "control",
+    parameters: {
+      inputMin: 0,
+      inputMax: 1,
+      outputMin: safeRange[0],
+      outputMax: safeRange[1],
+      clamp: true,
+    },
+    authoredBy: PARAMETER_ANIMATION_AUTHOR,
+    animationTrackOwnerId: owner,
+    animationTrackRole: "mapping",
+    animationTrackStage: "mapping",
+  }, {
+    id: combinationId,
+    nodeId: ANIMATION_COMBINE_NODE_ID,
+    nodeVersion: "0.1.0",
+    role: "control",
+    parameters: {
+      mode: configuration.combination,
+      clamp: true,
+      minimum: Math.min(...safeParameterRange),
+      maximum: Math.max(...safeParameterRange),
+    },
+    authoredBy: PARAMETER_ANIMATION_AUTHOR,
+    animationTrackOwnerId: owner,
+    animationTrackRole: "combination",
+    animationTrackStage: "combination",
   }];
   const connections = [
     animationConnection(`${timeNodeId}.time`, `${owner}.time`, "number"),
     animationConnection(`${owner}.progress`, `${curveId}.progress`, "number"),
     animationConnection(`${owner}.direction`, `${curveId}.direction`, "number"),
+    animationConnection(`${curveId}.value`, `${mappingId}.value`, "number"),
+    animationConnection(`${mappingId}.value`, `${combinationId}.modulation`, "number"),
+    {
+      from: `${baseControl.id}.value`,
+      to: `${combinationId}.base`,
+      type: "number",
+      sourceRange: validRange(baseControl.sourceRange) ? [...baseControl.sourceRange] : [0, 1],
+      targetRange: safeParameterRange,
+      semantic: PARAMETER_ANIMATION_FEATURE,
+      animationStage: "combination",
+    },
   ];
   if (configuration.runMode === "triggered") {
     const triggerId = `${owner}:trigger`;
@@ -508,7 +582,7 @@ function createAnimationTrackFragment({
       );
     }
   }
-  return { nodes, connections, valueNodeId: curveId };
+  return { nodes, connections, valueNodeId: combinationId };
 }
 
 function animationTrackProjection(node, nodes, connections) {
@@ -521,8 +595,22 @@ function animationTrackProjection(node, nodes, connections) {
     String(candidate.from || "") === `${valueNodeId}.value` &&
     String(candidate.to || "") === target
   );
-  const range = validRange(edge?.targetRange)
-    ? edge.targetRange.map(Number)
+  const mappingNode = nodes.find((candidate) =>
+    candidate.animationTrackOwnerId === node.animationTrack.id &&
+    candidate.animationTrackRole === "mapping"
+  );
+  const combinationNode = nodes.find((candidate) =>
+    candidate.animationTrackOwnerId === node.animationTrack.id &&
+    candidate.animationTrackRole === "combination"
+  );
+  const mappedRange = [
+    mappingNode?.parameters?.outputMin,
+    mappingNode?.parameters?.outputMax,
+  ];
+  const range = validRange(mappedRange)
+    ? mappedRange.map(Number)
+    : validRange(edge?.targetRange)
+      ? edge.targetRange.map(Number)
     : validRange(node.animationTrack?.range)
       ? node.animationTrack.range.map(Number)
       : [0, 1];
@@ -538,11 +626,12 @@ function animationTrackProjection(node, nodes, connections) {
       to: range[1],
       duration: frequency > 0 ? 1 / frequency : 1,
       phase: normalizePhase(node.parameters?.phase),
+      combination: "replace",
     });
   }
   const curveNode = nodes.find((candidate) =>
     candidate.animationTrackOwnerId === node.animationTrack.id &&
-    candidate.animationTrackRole === "curve"
+    ["shape", "curve"].includes(candidate.animationTrackRole)
   );
   return normalizedTrackConfiguration({
     id: node.animationTrack.id,
@@ -560,6 +649,7 @@ function animationTrackProjection(node, nodes, connections) {
     runMode: node.parameters?.runMode,
     triggerBehavior: node.parameters?.triggerBehavior,
     randomRate: node.animationTrack?.randomRate,
+    combination: combinationNode?.parameters?.mode || node.animationTrack?.combination,
   });
 }
 
@@ -681,10 +771,13 @@ function animationTrackNodeIds(nodes, track) {
 
 function animationTrackValueNodeId(track, nodes) {
   if (track?.nodeId === ANIMATION_SEQUENCER_NODE_ID) {
-    return nodes.find((node) =>
+    const owned = nodes.filter((node) =>
       String(node.animationTrackOwnerId || "") === String(track.animationTrack?.id || "") &&
-      node.animationTrackRole === "curve"
-    )?.id || `${track.id}:curve`;
+      ["combination", "shape", "curve"].includes(node.animationTrackRole)
+    );
+    return owned.find((node) => node.animationTrackRole === "combination")?.id ||
+      owned.find((node) => ["shape", "curve"].includes(node.animationTrackRole))?.id ||
+      `${track.id}:curve`;
   }
   return track?.id;
 }
@@ -711,11 +804,38 @@ function normalizedTrackConfiguration(configuration = {}) {
     runMode: configuration.runMode === "triggered" ? "triggered" : "automatic",
     triggerBehavior: configuration.triggerBehavior === "next-leg" ? "next-leg" : "full-sequence",
     randomRate: Math.min(MAX_RANDOM_RATE, Math.max(0, Number(configuration.randomRate) || 0)),
+    combination: normalizeCombination(configuration.combination),
   };
 }
 
 function normalizeCurve(value) {
   return ANIMATION_CURVES.includes(value) ? value : "linear";
+}
+
+function normalizeCombination(value) {
+  return NUMERIC_COMBINATION_MODES.includes(value) ? value : "replace";
+}
+
+function modulationRange(combination, parameterRange) {
+  const low = Math.min(Number(parameterRange[0]), Number(parameterRange[1]));
+  const high = Math.max(Number(parameterRange[0]), Number(parameterRange[1]));
+  if (combination === "add") {
+    const span = Math.max(Math.abs(high - low), 0.000001);
+    return [-span, span];
+  }
+  if (combination === "multiply") return [-4, 4];
+  return [low, high];
+}
+
+function defaultModulationRange(combination, current, parameterRange) {
+  if (combination === "add") {
+    return [0, Math.abs(Number(parameterRange[1]) - Number(parameterRange[0]))];
+  }
+  if (combination === "multiply") return [1, 0];
+  return [
+    current,
+    approximatelyEqual(current, parameterRange[1]) ? parameterRange[0] : parameterRange[1],
+  ];
 }
 
 function stableAnimationSeed(componentId, trackId) {

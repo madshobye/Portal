@@ -7,6 +7,7 @@ import {
   frameDelayControlProcess,
   hostSignalControlProcess,
   mapRangeControlProcess,
+  numericCombineControlProcess,
   oscillatorControlProcess,
   sampleHoldControlProcess,
   scalarMathControlProcess,
@@ -30,6 +31,25 @@ test("reusable modulation nodes provide time, waveforms, mapping, and scalar com
   }), { value: 20 });
   assert.deepEqual(scalarMathControlProcess({ a: 4, b: 3, operation: "multiply" }), { value: 12 });
   assert.deepEqual(scalarMathControlProcess({ a: 4, b: 0, operation: "divide" }), { value: 0 });
+  assert.deepEqual(
+    numericCombineControlProcess({ base: 0.4, modulation: 0.8, mode: "replace" }),
+    { value: 0.8 },
+  );
+  assert.deepEqual(
+    numericCombineControlProcess({
+      base: 0.7,
+      modulation: 0.5,
+      mode: "add",
+      clamp: true,
+      minimum: 0,
+      maximum: 1,
+    }),
+    { value: 1 },
+  );
+  assert.deepEqual(
+    numericCombineControlProcess({ base: 0.4, modulation: 1.5, mode: "multiply" }),
+    { value: 0.6000000000000001 },
+  );
 });
 
 test("vector selection and stateful signal operators retain their frame-loop storage", () => {
