@@ -35,6 +35,8 @@ test("project rail renders each workspace through one view boundary", () => {
   assert.match(live, /data-live-source-filter="scenes" aria-pressed="true"/);
   assert.match(live, /data-live-source-filter="components" aria-pressed="true"/);
   assert.match(live, /class="sculpt-card parameter-surface live-timing-params"/);
+  assert.match(live, /<span>Live<\/span><button[^>]+data-reset-live-session/);
+  assert.match(live, /aria-label="Reset Live output state"/);
   assert.match(live, /<select class="param-select" data-update="ui\.live\.transitionId">/);
   assert.match(live, /data-update="global\.timeStretch"/);
   assert.match(mapping, /data-scroll-key="mapping-catalog"/);

@@ -996,7 +996,7 @@ test("Live scenes expose separate scene-transition and parameter-fade durations"
 test("Live exposes a phase-continuous global visual time stretch", () => {
   const source = readFileSync(new URL("../js/control/project-rail-view.js", import.meta.url), "utf8");
 
-  assert.match(source, /function liveToolsTemplate[\s\S]*?title: "Sources"[\s\S]*?data-live-source-filter="scenes"[\s\S]*?data-live-source-filter="components"[\s\S]*?scene-card-list live-scene-list[\s\S]*?Timing[\s\S]*?live-timing-params[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
+  assert.match(source, /function liveToolsTemplate[\s\S]*?title: "Sources"[\s\S]*?data-live-source-filter="scenes"[\s\S]*?data-live-source-filter="components"[\s\S]*?scene-card-list live-scene-list[\s\S]*?<span>Live<\/span>[\s\S]*?data-reset-live-session[\s\S]*?live-timing-params[\s\S]*?live-time-scale[\s\S]*?live-transition-duration[\s\S]*?live-param-fade-duration/);
   assert.ok(source.includes("Time stretch"));
   assert.ok(source.includes('data-update="global.timeStretch"'));
   assert.ok(source.includes('min="-4" max="4" step="0.01"'));

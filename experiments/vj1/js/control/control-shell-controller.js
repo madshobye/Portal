@@ -1710,6 +1710,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         store.resetLiveTarget?.(button.dataset.resetLiveTarget);
       });
     });
+    refs.projectRail.querySelector("[data-reset-live-session]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      store.resetLiveSession?.();
+    });
     refs.projectRail.querySelectorAll("[data-delete-mapping]").forEach((button) => {
       button.addEventListener("click", () => store.deleteMapping(button.dataset.deleteMapping));
     });

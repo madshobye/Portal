@@ -228,6 +228,92 @@ test("Live Scene and projection preferences restore atomically without history",
   assert.equal(observedEvent?.history, "none");
 });
 
+test("a Live session restores multi-Surface routing and resets atomically to clean defaults", () => {
+  const initial = createInitialState();
+  const source = initial.components[0];
+  const firstScene = createSceneComponent(0, source.id);
+  const secondScene = createSceneComponent(1, source.id);
+  initial.components.push(firstScene, secondScene);
+  const firstSurface = initial.mappings[0].surfaces[0];
+  const secondSurface = {
+    ...structuredClone(firstSurface),
+    id: "surface-live-b",
+    name: "Surface B",
+  };
+  initial.mappings[0].surfaces.push(secondSurface);
+  const store = createAppState(initial);
+  const events = [];
+  store.subscribe((_state, _reason, event) => {
+    if (event.reason.startsWith("live:session-")) events.push(event);
+  });
+
+  store.restoreLiveSession({
+    version: 1,
+    selectedMappingId: initial.mappings[0].id,
+    timeStretch: -1.5,
+    live: {
+      selectedSceneId: secondScene.id,
+      selectedComponentId: secondScene.id,
+      overallSourceCleared: false,
+      sceneMappingVisible: false,
+      previewSurfaceId: secondSurface.id,
+      surfacePatches: {
+        [firstSurface.id]: firstScene.id,
+        [secondSurface.id]: source.id,
+      },
+      surfaceVisibility: {
+        [firstSurface.id]: false,
+        [secondSurface.id]: true,
+      },
+      componentOverrides: {
+        [source.id]: { opacity: 0.35 },
+      },
+      sceneOverrides: {
+        [secondScene.id]: {
+          [source.id]: { opacity: 0.35 },
+        },
+      },
+      transitionId: "org.vj1.transition.soft-wipe",
+      transitionParameters: { softness: 0.25 },
+      transitionDuration: 2,
+      paramFadeDuration: 0.5,
+    },
+  });
+
+  let live = store.getState().ui.live;
+  assert.equal(store.getState().global.timeStretch, -1.5);
+  assert.equal(live.selectedSceneId, secondScene.id);
+  assert.equal(live.previewSurfaceId, secondSurface.id);
+  assert.deepEqual(live.surfacePatches, {
+    [firstSurface.id]: firstScene.id,
+    [secondSurface.id]: source.id,
+  });
+  assert.deepEqual(live.surfaceVisibility, {
+    [firstSurface.id]: false,
+    [secondSurface.id]: true,
+  });
+  assert.equal(live.componentOverrides[source.id].opacity, 0.35);
+  assert.equal(live.transition, null);
+  assert.equal(events.at(-1).scope, "live");
+  assert.equal(events.at(-1).history, "none");
+
+  store.resetLiveSession();
+  live = store.getState().ui.live;
+  assert.equal(live.selectedSceneId, firstScene.id);
+  assert.equal(live.selectedComponentId, firstScene.id);
+  assert.equal(live.sceneMappingVisible, true);
+  assert.equal(live.previewSurfaceId, "__mapping__");
+  assert.deepEqual(live.surfacePatches, {});
+  assert.deepEqual(live.surfaceVisibility, {});
+  assert.deepEqual(live.componentOverrides, {});
+  assert.deepEqual(live.sceneOverrides, {});
+  assert.equal(live.transitionId, "org.vj1.transition.soft-wipe");
+  assert.equal(live.transitionDuration, 2);
+  assert.equal(events.at(-1).reason, "live:session-reset");
+  assert.equal(events.at(-1).scope, "live");
+  assert.equal(events.at(-1).history, "none");
+});
+
 test("Scene Mapping preview monitors its mounted source while guiding the compiled output matrix", () => {
   const state = createInitialState();
   const scene = createSceneComponent(0, state.components[0].id);

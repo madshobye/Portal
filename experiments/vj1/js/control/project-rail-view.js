@@ -203,7 +203,7 @@ function liveToolsTemplate(
     scrollKey: `live-sources:${showScenes ? "s" : ""}${showComponents ? "c" : ""}`,
     sectionAttributes: "data-component-filter-scope",
   })}<div class="ui-section rail-section">
-      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">tune</span><span>Timing</span></div>
+      <div class="ui-section-header rail-title"><span class="material-symbols-rounded">tune</span><span>Live</span><button class="rail-title-add" type="button" data-reset-live-session title="Reset Live output state" aria-label="Reset Live output state">${icon("restart_alt")}</button></div>
       <div class="sculpt-card parameter-surface live-timing-params">
       <label class="field">
         <span>Transition style</span>

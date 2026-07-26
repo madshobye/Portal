@@ -216,6 +216,105 @@ export function createAppState(initial = null, {
     }, "live:reset");
   }
 
+  function restoreLiveSession(session = {}, {
+    reason = "live:session-restore",
+  } = {}) {
+    const savedLive = session?.live;
+    if (!savedLive || typeof savedLive !== "object") return false;
+    updateLive((draft) => {
+      const mapping = draft.mappings.find(
+        (item) => String(item.id) === String(session.selectedMappingId || ""),
+      ) || draft.mappings.find(
+        (item) => String(item.id) === String(draft.ui.selectedMappingId || ""),
+      ) || draft.mappings[0];
+      if (!mapping) return;
+      draft.ui.selectedMappingId = mapping.id;
+      projectSelectedMapping(draft, mapping);
+      draft.global.timeStretch = Math.max(
+        -4,
+        Math.min(4, Number(session.timeStretch) || 0),
+      );
+      draft.ui.live.selectedSceneId = String(savedLive.selectedSceneId || "");
+      draft.ui.live.selectedComponentId = String(savedLive.selectedComponentId || "");
+      draft.ui.live.overallSourceCleared = savedLive.overallSourceCleared === true;
+      draft.ui.live.sceneMappingVisible = savedLive.sceneMappingVisible !== false;
+      draft.ui.live.inspectedComponentId = "";
+      draft.ui.live.patchSourceId = "";
+      draft.ui.live.surfacePatches = clone(savedLive.surfacePatches || {});
+      draft.ui.live.surfaceVisibility = clone(savedLive.surfaceVisibility || {});
+      draft.ui.live.componentOverrides = clone(savedLive.componentOverrides || {});
+      draft.ui.live.sceneOverrides = clone(savedLive.sceneOverrides || {});
+      draft.ui.live.transitionId = String(
+        savedLive.transitionId || draft.ui.live.transitionId || "vj1.transition.dissolve",
+      );
+      draft.ui.live.transitionParameters = clone(savedLive.transitionParameters || {});
+      draft.ui.live.transitionDuration = Math.max(
+        0,
+        Math.min(30, Number(savedLive.transitionDuration) || 0),
+      );
+      draft.ui.live.paramFadeDuration = Math.max(
+        0,
+        Math.min(30, Number(savedLive.paramFadeDuration) || 0),
+      );
+      draft.ui.live.transition = null;
+      const requestedSurfaceId = String(savedLive.previewSurfaceId || "");
+      const surfaceIsValid = requestedSurfaceId === "__mapping__"
+        || mapping.surfaces?.some(
+          (surface) => String(surface.id) === requestedSurfaceId,
+        );
+      draft.ui.live.previewSurfaceId = surfaceIsValid
+        ? requestedSurfaceId
+        : draft.ui.live.sceneMappingVisible
+          ? "__mapping__"
+          : firstEnabledLiveSurfaceId(mapping, draft.ui.live) || "__mapping__";
+      draft.ui.previewViewports ||= {};
+      draft.ui.previewViewports.live = {
+        zoom: 1,
+        x: 0,
+        y: 0,
+        fit: "frame",
+      };
+    }, { reason, history: "none" });
+    return true;
+  }
+
+  function resetLiveSession() {
+    updateLive((draft) => {
+      const mapping = draft.mappings.find(
+        (item) => String(item.id) === String(draft.ui.selectedMappingId || ""),
+      ) || draft.mappings[0];
+      const scene = draft.components.find((item) => item.type === "scene");
+      const sceneMappingVisible = draft.ui.live?.sceneMappingInLive !== false;
+      draft.ui.live.selectedSceneId = String(scene?.id || "");
+      draft.ui.live.selectedComponentId = String(scene?.id || "");
+      draft.ui.live.overallSourceCleared = !scene;
+      draft.ui.live.sceneMappingVisible = sceneMappingVisible;
+      draft.ui.live.inspectedComponentId = "";
+      draft.ui.live.previewSurfaceId = sceneMappingVisible
+        ? "__mapping__"
+        : firstEnabledLiveSurfaceId(mapping, {
+            ...draft.ui.live,
+            sceneMappingVisible,
+            surfacePatches: {},
+            surfaceVisibility: {},
+          }) || "__mapping__";
+      draft.ui.live.patchSourceId = "";
+      draft.ui.live.surfacePatches = {};
+      draft.ui.live.surfaceVisibility = {};
+      draft.ui.live.componentOverrides = {};
+      draft.ui.live.sceneOverrides = {};
+      draft.ui.live.transition = null;
+      draft.ui.previewViewports ||= {};
+      draft.ui.previewViewports.live = {
+        zoom: 1,
+        x: 0,
+        y: 0,
+        fit: "frame",
+      };
+    }, { reason: "live:session-reset", history: "none" });
+    return true;
+  }
+
   function updateMapping(mappingId, mapping, status = "Mapping updated", change = "mapping-state") {
     // Mapping feedback is a small, already-normalized renderer payload. Do not
     // send it through the generic whole-project clone/sanitize path: large
@@ -898,45 +997,23 @@ export function createAppState(initial = null, {
         draft.ui.live.selectedComponentId = scene.id;
       }, { reason: "live:scene-restore", history: "none" });
     },
+    restoreLiveSession,
     restoreLivePreference({ sceneId = "", previewSurfaceId = "" } = {}) {
-      updateLive((draft) => {
-        const scene = draft.components.find(
-          (item) => item.type === "scene" && String(item.id) === String(sceneId),
-        );
-        const mapping = draft.mappings.find(
-          (item) => String(item.id) === String(draft.ui.selectedMappingId || ""),
-        ) || draft.mappings[0];
-        const requestedSurfaceId = String(previewSurfaceId || "");
-        const surfaceIsValid =
-          requestedSurfaceId === "__mapping__" ||
-          mapping?.surfaces?.some(
-            (surface) => String(surface.id) === requestedSurfaceId,
-          );
-        if (scene) {
-          draft.ui.live.sceneOverrides ||= {};
-          draft.ui.live.overallSourceCleared = false;
-          draft.ui.live.selectedSceneId = scene.id;
-          draft.ui.live.selectedComponentId = scene.id;
-          draft.ui.live.inspectedComponentId = "";
-          draft.ui.live.surfacePatches = {};
-          draft.ui.live.patchSourceId = "";
-          draft.ui.live.componentOverrides = clone(
-            draft.ui.live.sceneOverrides[scene.id] || {},
-          );
-          draft.ui.live.transition = null;
-        }
-        if (surfaceIsValid) {
-          draft.ui.live.previewSurfaceId = requestedSurfaceId;
-          draft.ui.previewViewports ||= {};
-          draft.ui.previewViewports.live = {
-            zoom: 1,
-            x: 0,
-            y: 0,
-            fit: "frame",
-          };
-        }
-      }, { reason: "live:preference-restore", history: "none" });
+      return restoreLiveSession({
+        selectedMappingId: state.ui.selectedMappingId,
+        timeStretch: state.global.timeStretch,
+        live: {
+          ...state.ui.live,
+          selectedSceneId: sceneId,
+          selectedComponentId: sceneId,
+          previewSurfaceId,
+          surfacePatches: {},
+          surfaceVisibility: {},
+          transition: null,
+        },
+      }, { reason: "live:preference-restore" });
     },
+    resetLiveSession,
     resetLiveTarget,
     // Backwards-compatible API for integrations which still call the former
     // Scene-specific name. Scenes and Parts now share one Live target contract.

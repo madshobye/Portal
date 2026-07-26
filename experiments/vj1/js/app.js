@@ -1,6 +1,12 @@
 import { createAppState } from "./app-state.js";
 import { createControlShell } from "./control/control-shell-controller.js";
-import { getInitialWorkspace, getClientMode, persistLivePreference, persistWorkspace, preferredLivePreference } from "./view-routing.js";
+import {
+  getInitialWorkspace,
+  getClientMode,
+  persistLiveSession,
+  persistWorkspace,
+  preferredLiveSession,
+} from "./view-routing.js";
 import { createMediaLibrary } from "./services/media-library-service.js";
 import { createProjectFolderService } from "./services/project-folder-service.js";
 import { createControlBridge } from "./services/output-bridge-service.js";
@@ -186,22 +192,20 @@ async function installControlApp() {
 
   store.subscribe((state, reason, change) => {
     if (reason === "workspace") persistWorkspace(state.ui.workspace);
-    if (reason === "live:scene" || reason === "live:preview-surface") {
-      persistLivePreference(state);
-    }
     if (change.projectRestore) {
-      const preferred = preferredLivePreference(state);
-      if (
-        (preferred.sceneId &&
-          preferred.sceneId !== String(state.ui.live?.selectedSceneId || "")) ||
-        (preferred.previewSurfaceId &&
-          preferred.previewSurfaceId !==
-            String(state.ui.live?.previewSurfaceId || "__mapping__"))
-      ) {
-        store.restoreLivePreference(preferred);
+      const session = preferredLiveSession(state);
+      if (session) {
+        store.restoreLiveSession(session);
         return;
       }
     }
+    const liveSessionCommit =
+      change.phase === "commit" &&
+      (change.scope === "live" ||
+        change.scope === "project" ||
+        reason === "select-mapping" ||
+        reason === "live:preview-surface");
+    if (liveSessionCommit) persistLiveSession(state);
     // The compiled state.snapshot edges decide whether Live transport and
     // storage receive this emission. Dispatch is event-driven and happens
     // only on store changes; it never enters the visual frame loop.

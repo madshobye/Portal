@@ -388,6 +388,13 @@ Persistence and transport rules:
 - Canonical state must remain structured-cloneable.
 - Required browser/WebGL capabilities fail explicitly rather than selecting a
   hidden weaker renderer.
+- Live session state is a versioned, project-scoped local checkpoint. It retains
+  the selected Mapping and Overall target, per-Surface patches and visibility,
+  presentation settings, and temporary parameter override banks across Control
+  reloads. Restore validates every Mapping, Surface, Scene, and Component
+  identity before one atomic Live activation. Active transition progress and
+  runtime resources are never checkpointed. The Live reset command clears
+  routes and temporary overrides without changing authored project data.
 
 ## Remaining Work
 
@@ -451,7 +458,7 @@ shaders, transitions and endpoint equivalence, ROI crop equivalence, ordinary
 and retained-value Groups, semantic 3D, aggregate CPU/Overall metrics, resource
 revisions, and balanced GPU/browser resources.
 
-At source coherence revision **175**, semantic sources, typed
+At source coherence revision **186**, semantic sources, typed
 resource/capability readiness, progressive primary-media restore, aggregate
 metrics, atomic retained framebuffer passes, and the complete browser import
 chain share one cache identity. A retained render result renews the lifetime of
@@ -462,7 +469,7 @@ specialized child values; native terminal operations remain explicit optimized
 backends rather than hidden parent programs. Output scheduling, signatures,
 dependency/media state, and thumbnails consume compiled-program APIs; raw
 Component chains are limited to migration and explicit editor projections. The
-automated suite passes **1,415 tests**. The top-bar Signal load indicator and
+automated suite passes **1,420 tests**. The top-bar Signal load indicator and
 ten-second report expose state, invalidation, compile, resource, cache, and
 presentation rates without classifying ordinary presentation or cache reuse as
 coordination pressure.
