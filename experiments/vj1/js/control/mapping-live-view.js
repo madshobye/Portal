@@ -146,8 +146,6 @@ export function liveScenePillTemplate(scene, state) {
     ? live.patchSourceId || ""
     : (live.overallSourceCleared === true ? "" : live.selectedComponentId || liveSelectedSceneId(state)));
   const selected = selectedTargetId === String(scene.id);
-  const sceneOverrides = state.ui?.live?.sceneOverrides?.[scene.id] || (selected ? state.ui?.live?.componentOverrides || {} : {});
-  const hasOverrides = Object.keys(sceneOverrides).length > 0;
   return `
     <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(scene))}">
       <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
@@ -155,7 +153,7 @@ export function liveScenePillTemplate(scene, state) {
         ${componentCardBarTemplate(scene.name, UI_ICONS.scene)}
       </button>
       ${catalogMarkerButtonTemplate(scene, "scene")}
-      ${hasOverrides ? `<button type="button" class="component-card-remove" data-reset-live-scene="${esc(scene.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(scene.name)}">${icon("restart_alt")}</button>` : ""}
+      ${liveTargetResetButtonTemplate(scene, state)}
     </div>
   `;
 }
@@ -173,8 +171,23 @@ export function liveTargetComponentPillTemplate(component, state) {
         ${componentCardBarTemplate(component.name, UI_ICONS.component)}
       </button>
       ${catalogMarkerButtonTemplate(component, "component")}
+      ${liveTargetResetButtonTemplate(component, state)}
     </div>
   `;
+}
+
+function liveTargetResetButtonTemplate(target, state) {
+  const live = state.ui?.live || {};
+  // `sceneOverrides` is the retained override bank for every Live target,
+  // including Parts. The legacy name is persisted for project compatibility.
+  const retainedOverrides = live.sceneOverrides?.[target.id] || {};
+  const activeTargetId = String(live.selectedComponentId || live.selectedSceneId || "");
+  const activeOverrides = activeTargetId === String(target.id) ? live.componentOverrides || {} : {};
+  const hasOverrides =
+    Object.keys(retainedOverrides).length > 0 ||
+    Object.keys(activeOverrides).length > 0;
+  if (!hasOverrides) return "";
+  return `<button type="button" class="component-card-remove" data-reset-live-target="${esc(target.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(target.name)}">${icon("restart_alt")}</button>`;
 }
 
 export function liveInspectorTemplate(state) {

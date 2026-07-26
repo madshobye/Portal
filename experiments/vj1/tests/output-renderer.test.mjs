@@ -2153,13 +2153,26 @@ test("standalone output consumes its handshake baseline without requesting dupli
   assert.ok(appSource.includes("await initialStateGate.ready;"));
   const importedFiles = appSource.indexOf("renderer.importFiles(acceptedFiles);");
   const compiledState = appSource.indexOf("await renderer.setup(", importedFiles);
+  const initialStateStart = appSource.lastIndexOf("const initialState", importedFiles);
   const setupEnd = appSource.indexOf("\n  };", importedFiles);
+  const initialActivation = appSource.slice(initialStateStart, compiledState);
   const setupTail = appSource.slice(importedFiles, setupEnd);
 
   assert.ok(importedFiles >= 0);
+  assert.ok(initialStateStart >= 0);
   assert.ok(
     compiledState > importedFiles,
     "the Output must install its media baseline before compiling the activating state",
+  );
+  assert.match(
+    initialActivation,
+    /const initialState = pendingState;/,
+    "the first activation must compile the prepared transport state just like every later activation",
+  );
+  assert.equal(
+    initialActivation.includes("sanitizeState(pendingState)"),
+    false,
+    "Output must not rebuild authored mappings and discard Control's derived Live route bindings",
   );
   assert.ok(setupEnd > importedFiles);
   assert.equal(setupTail.includes("bridge?.requestState();"), false);

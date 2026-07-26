@@ -15,6 +15,20 @@ export function componentRenderPatchesForChange(state, change = {}) {
   return [{ componentId: String(component.id), path, value: resolution.value }];
 }
 
+// A project command can have different executable projections for the local
+// editor preview and the external Live/Output program. Prefer the explicitly
+// authored Output projection here; forwarding an editor-only Surface route
+// graph would replace the independently mounted Live source.
+export function outputRenderPatchesForChange(state, change = {}) {
+  if (Array.isArray(change.outputRenderPatches)) {
+    return change.outputRenderPatches;
+  }
+  if (Array.isArray(change.renderPatches) && change.renderPatches.length) {
+    return change.renderPatches;
+  }
+  return componentRenderPatchesForChange(state, change);
+}
+
 function isRenderableComponentPath(path) {
   const root = String(path).split(".")[0];
   return !["activity", "thumbnail", "name"].includes(root);

@@ -1290,10 +1290,29 @@ test("Live temporary overrides persist per authored Scene until explicitly reset
   }, "live:update");
   store.selectLiveScene(firstScene.id);
   assert.equal(store.getState().ui.live.componentOverrides[source.id].opacity, 0.25);
-  store.resetLiveScene(firstScene.id);
+  store.resetLiveTarget(firstScene.id);
   assert.deepEqual(store.getState().ui.live.componentOverrides, {});
   store.selectLiveScene(secondScene.id);
   assert.equal(store.getState().ui.live.componentOverrides[source.id].speed, 2);
+});
+
+test("Live Part temporary overrides reset through the shared target contract", () => {
+  const state = createInitialState();
+  const part = state.components[0];
+  state.ui.live.selectedComponentId = part.id;
+  state.ui.live.selectedSceneId = "";
+  state.ui.live.componentOverrides = {
+    [part.id]: { opacity: 0.4 },
+  };
+  state.ui.live.sceneOverrides = {
+    [part.id]: state.ui.live.componentOverrides,
+  };
+  const store = createAppState(state);
+
+  store.resetLiveTarget(part.id);
+
+  assert.deepEqual(store.getState().ui.live.componentOverrides, {});
+  assert.equal(store.getState().ui.live.sceneOverrides[part.id], undefined);
 });
 
 test("persistent component edits overwrite conflicting Live params but retain unrelated temporary params", () => {
@@ -2076,10 +2095,20 @@ test("Component and Scene visibility toggles are scoped project transactions", (
 
 test("Mapping Surface visibility commits one scoped route transaction", () => {
   const initial = createInitialState();
+  const liveComponent = initial.components[0];
+  liveComponent.id = "component-mounted-to-live-output";
+  const editorScene = createSceneComponent(0, liveComponent.id);
+  editorScene.id = "scene-open-in-editor";
+  initial.components.push(editorScene);
   const mapping = initial.mappings[0];
   const surface = mapping.surfaces[0];
   surface.activity.updatedAt = "2020-01-01T00:00:00.000Z";
   initial.ui.selectedMappingId = mapping.id;
+  initial.ui.mappingTestPattern = false;
+  initial.ui.workspaceSelectionIds.scene = editorScene.id;
+  initial.ui.live.selectedComponentId = liveComponent.id;
+  initial.ui.live.selectedSceneId = "";
+  initial.ui.live.overallSourceCleared = false;
   let prepareCount = 0;
   const store = createAppState(initial, {
     prepareState(value) {
@@ -2104,13 +2133,24 @@ test("Mapping Surface visibility commits one scoped route transaction", () => {
   assert.equal(prepareCount, 1);
   assert.equal(events.at(-1).scope, "project");
   assert.equal(events.at(-1).history, "record");
+  const previewRoute = events.at(-1).renderPatches[0].value.find((item) => item.id === surface.id);
+  const outputRoute = events.at(-1).outputRenderPatches[0].value.find((item) => item.id === surface.id);
   assert.deepEqual(events.at(-1).renderPatches, [{
     target: "state",
     path: "surfaces",
     value: events.at(-1).renderPatches[0].value,
   }]);
+  assert.equal(previewRoute?.enabled, false);
+  assert.equal(previewRoute?.componentId, editorScene.id, "Scene preview retains its editor source");
+  assert.deepEqual(events.at(-1).outputRenderPatches, [{
+    target: "state",
+    path: "surfaces",
+    value: events.at(-1).outputRenderPatches[0].value,
+  }]);
+  assert.equal(outputRoute?.enabled, false);
   assert.equal(
-    events.at(-1).renderPatches[0].value.find((item) => item.id === surface.id)?.enabled,
-    false,
+    outputRoute?.componentId,
+    liveComponent.id,
+    "Surface visibility cannot replace the independently mounted Live/Output source",
   );
 });

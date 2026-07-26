@@ -199,6 +199,23 @@ export function createAppState(initial = null, {
     emit({ ...supplied, scope: "live" });
   }
 
+  function resetLiveTarget(id) {
+    updateLive((draft) => {
+      const targetId = String(
+        id ||
+        draft.ui.live?.selectedComponentId ||
+        draft.ui.live?.selectedSceneId ||
+        "",
+      );
+      if (!targetId) return;
+      draft.ui.live.sceneOverrides ||= {};
+      delete draft.ui.live.sceneOverrides[targetId];
+      if (String(draft.ui.live.selectedComponentId || "") === targetId) {
+        draft.ui.live.componentOverrides = {};
+      }
+    }, "live:reset");
+  }
+
   function updateMapping(mappingId, mapping, status = "Mapping updated", change = "mapping-state") {
     // Mapping feedback is a small, already-normalized renderer payload. Do not
     // send it through the generic whole-project clone/sanitize path: large
@@ -332,6 +349,9 @@ export function createAppState(initial = null, {
       pendingEditBaseline = null;
       const changeReason = reason ||
         `toggle:mappings.${mappingIndex}.surfaces.${surfaceIndex}.enabled`;
+      const committedMapping = state.mappings.find((entry) => entry.id === mappingId) || nextMapping;
+      const previewSurfaceRoutes = mappingPreviewSurfaceRoutes(state, committedMapping);
+      const outputSurfaceRoutes = compileLiveProjectionProgram(state).currentRoutes.surfaces;
       emit({
         reason: changeReason,
         scope: "project",
@@ -342,7 +362,16 @@ export function createAppState(initial = null, {
         renderPatches: [{
           target: "state",
           path: "surfaces",
-          value: mappingPreviewSurfaceRoutes(next, nextMapping),
+          value: previewSurfaceRoutes,
+        }],
+        // Scene/Mapping view previews the editor's selected Scene, while the
+        // external Output must retain its independently mounted Live source.
+        // These are two projections of one authored visibility bit, not one
+        // interchangeable Surface route program.
+        outputRenderPatches: [{
+          target: "state",
+          path: "surfaces",
+          value: outputSurfaceRoutes,
         }],
       });
       return true;
@@ -908,17 +937,10 @@ export function createAppState(initial = null, {
         }
       }, { reason: "live:preference-restore", history: "none" });
     },
-    resetLiveScene(id) {
-      updateLive((draft) => {
-        const sceneId = String(id || draft.ui.live?.selectedSceneId || "");
-        if (!sceneId) return;
-        draft.ui.live.sceneOverrides ||= {};
-        delete draft.ui.live.sceneOverrides[sceneId];
-        if (String(draft.ui.live.selectedComponentId || "") === sceneId) {
-          draft.ui.live.componentOverrides = {};
-        }
-      }, "live:reset");
-    },
+    resetLiveTarget,
+    // Backwards-compatible API for integrations which still call the former
+    // Scene-specific name. Scenes and Parts now share one Live target contract.
+    resetLiveScene: resetLiveTarget,
     deleteMapping(id) {
       update((draft) => {
         draft.mappings = draft.mappings.filter((scene) => String(scene.id) !== String(id));

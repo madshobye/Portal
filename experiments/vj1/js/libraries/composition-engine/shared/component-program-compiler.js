@@ -12,6 +12,7 @@ import {
   VISUAL_TRANSFORM_DOMAINS,
 } from "../../render-engine/visual-node-contract.js";
 import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js";
+import { inheritAuthoredControlTopology } from "./parameter-animation-tracks.js";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";
@@ -87,7 +88,10 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
     && componentSignature !== projectionMarker;
 
   if (compatibilityEdit) {
-    const group = inheritGroupNodeLayout(compileComponentGroupTopology(component, options), existingGroup);
+    const group = inheritAuthoredControlTopology(
+      inheritGroupNodeLayout(compileComponentGroupTopology(component, options), existingGroup),
+      existingGroup,
+    );
     return {
       component: withProjectedChain(component, component.chain || [], group.projectionSignature),
       group,

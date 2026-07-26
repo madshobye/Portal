@@ -4,6 +4,10 @@ import { esc, formatRangeValue, paramContextAttributes, paramRangePairTemplate }
 import { markdownToEditorHtml } from "./markdown-editor.js";
 import { screenCaptureStatus } from "../output/screen-capture-service.js";
 import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
+import {
+  CHAIN_GENERAL_CONTROL_PATHS,
+  chainGeneralControlParameterId,
+} from "../libraries/composition-engine/shared/chain-general-control-parameters.js";
 
 export function shaderParamControlsTemplate(component, pass, basePath, options = {}) {
   const params = options.params || component?.params || [];
@@ -45,10 +49,11 @@ export function componentParamViews(component = {}) {
   };
 }
 
-export function chainParamViewDefinitions(primary = "", details = "", general = "") {
+export function chainParamViewDefinitions(primary = "", details = "", general = "", animation = "") {
   return [
     { id: "content", label: details ? "Primary" : "Content", html: primary },
     ...(details ? [{ id: "details", label: "Details", html: details }] : []),
+    ...(animation ? [{ id: "animation", label: "Animation", html: animation }] : []),
     { id: "general", label: "General", html: general },
   ];
 }
@@ -167,6 +172,42 @@ export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) 
     }
   );
   return `<div class="chain-param-list chain-general-param-list">${general}${boundaryPosition}${boundaryScale}</div>`;
+}
+
+export function chainGeneralAnimationParameters(item = {}) {
+  const transformParams = chainTransformParams(item?.transform);
+  const normalizedBoundary = normalizeNodeBoundary(item?.boundary);
+  const boundaryParams = chainBoundaryPositionParams(normalizedBoundary);
+  const byPath = [
+    {
+      param: CHAIN_COMPOSITE_PARAMS.find((param) => param.id === "opacity"),
+      path: CHAIN_GENERAL_CONTROL_PATHS.OPACITY,
+      value: normalizeParamValue(
+        CHAIN_COMPOSITE_PARAMS.find((param) => param.id === "opacity"),
+        item?.opacity,
+      ),
+    },
+    ...transformParams.map((param) => ({
+      param,
+      path: `transform.${param.id}`,
+      value: normalizeParamValue(param, item?.transform?.[param.id]),
+    })),
+    ...boundaryParams.map((param) => ({
+      param,
+      path: `boundary.${param.id}`,
+      value: normalizeParamValue(param, normalizedBoundary[param.id]),
+    })),
+    {
+      param: CHAIN_BOUNDARY_SCALE_PARAM,
+      path: CHAIN_GENERAL_CONTROL_PATHS.BOUNDARY_SCALE,
+      value: nodeBoundaryUniformScale(normalizedBoundary),
+    },
+  ];
+  return byPath.filter(({ param }) => param?.type === "number").map(({ param, path, value }) => ({
+    ...param,
+    id: chainGeneralControlParameterId(path),
+    value,
+  }));
 }
 
 export function chainRenderQualityTarget(item = {}, basePath = "") {

@@ -249,6 +249,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     resetProjectMapping,
     currentWorkspace,
     refreshSelectedMappingProjection,
+    setStatus,
   });
   const embeddedPreview = createEmbeddedPreviewApp({
     store,
@@ -1688,10 +1689,10 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         ui.live.inspectedComponentId = button.dataset.liveComponent;
       }, "select-live-inspected-component"));
     });
-    refs.projectRail.querySelectorAll("[data-reset-live-scene]").forEach((button) => {
+    refs.projectRail.querySelectorAll("[data-reset-live-target]").forEach((button) => {
       button.addEventListener("click", (event) => {
         event.stopPropagation();
-        store.resetLiveScene?.(button.dataset.resetLiveScene);
+        store.resetLiveTarget?.(button.dataset.resetLiveTarget);
       });
     });
     refs.projectRail.querySelectorAll("[data-delete-mapping]").forEach((button) => {

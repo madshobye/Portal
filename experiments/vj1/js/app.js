@@ -5,7 +5,7 @@ import { createMediaLibrary } from "./services/media-library-service.js";
 import { createProjectFolderService } from "./services/project-folder-service.js";
 import { createControlBridge } from "./services/output-bridge-service.js";
 import { installOutputApp } from "./output/output-app.js";
-import { componentRenderPatchesForChange } from "./domain/render-transport-patch.js";
+import { outputRenderPatchesForChange } from "./domain/render-transport-patch.js";
 import { createRenderStatePatch } from "./domain/live-render-patch.js";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
 import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js";
@@ -167,9 +167,7 @@ async function installControlApp() {
       bridge.command("sync-global", { global: state.global });
       return;
     }
-    const renderPatches = Array.isArray(change.renderPatches) && change.renderPatches.length
-      ? change.renderPatches
-      : componentRenderPatchesForChange(state, change);
+    const renderPatches = outputRenderPatchesForChange(state, change);
     if (renderPatches.length) {
       bridge.sendRenderPatches(renderPatches, { coalesce: change.phase === "scrub" });
       return;

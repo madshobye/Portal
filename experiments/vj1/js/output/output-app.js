@@ -159,14 +159,14 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       requestPresentationFrame: wakeOutputPresentation,
       installedNodePackages,
     });
-    // Fixture preparation above has already normalized the model and compiled
-    // its node-project projections. Sanitizing it a second time would
-    // intentionally strip renderer-derived route bindings before setup.
-    const initialState = pendingState
-      ? fixtureUrl
-        ? pendingState
-        : sanitizeState(pendingState)
-      : null;
+    // Both startup sources already provide a prepared render state: Control
+    // materializes Live route bindings before transport, while fixture
+    // preparation does the equivalent locally. Output must not sanitize that
+    // state again. Sanitization reconstructs authored mappings and therefore
+    // strips the derived route bindings that tell the first frame what to
+    // render. Later state packets already compile the prepared state directly;
+    // startup must have exactly the same ownership boundary.
+    const initialState = pendingState;
     // The controller sends packages and media before state; install the
     // buffered media before state compilation as well. State is the startup
     // activation barrier, not a request to compile an incomplete graph that

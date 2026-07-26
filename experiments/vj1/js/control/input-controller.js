@@ -5,6 +5,11 @@ import { createLiveRenderPatch } from "../domain/live-render-patch.js";
 import { applyEditorSelection } from "../domain/editor-selection.js";
 import { bindMarkdownEditors } from "./markdown-editor.js";
 import { nodeBoundaryWithUniformScale } from "../libraries/render-engine/roi/index.js";
+import {
+  addParameterAnimationTrack,
+  removeParameterAnimationTrack,
+  updateParameterAnimationTrack,
+} from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
 
 export function createInputController({
   store,
@@ -15,6 +20,7 @@ export function createInputController({
   resetProjectMapping,
   currentWorkspace,
   refreshSelectedMappingProjection,
+  setStatus = () => {},
 }) {
   const paramContextScopes = new WeakSet();
 
@@ -31,9 +37,84 @@ export function createInputController({
     bindSelectionAndSourceButtons(scope);
     bindSceneAndRouteButtons(scope);
     bindChainControls(scope);
+    bindParameterAnimationControls(scope);
     bindRemovalAndMappingButtons(scope);
     bindParamContextMenus(scope);
     bindComponentContextMenus(scope);
+  }
+
+  function bindParameterAnimationControls(scope) {
+    scope.querySelectorAll("[data-animation-editor]").forEach((editor) => {
+      const componentId = editor.dataset.animationComponentId;
+      const targetNodeId = editor.dataset.animationTargetNodeId;
+      editor.querySelector("[data-add-parameter-animation]")?.addEventListener("click", () => {
+        const select = editor.querySelector("[data-animation-new-parameter]");
+        const option = select?.selectedOptions?.[0];
+        if (!select?.value || !option) return;
+        commitAnimationEdit("add", () => addParameterAnimationTrack(getState().nodes, {
+          componentId,
+          targetNodeId,
+          parameterId: select.value,
+          from: Number(option.dataset.animationFrom),
+          to: Number(option.dataset.animationTo),
+          baseValue: Number(option.dataset.animationFrom),
+          targetRange: [
+            Number(option.dataset.animationMin),
+            Number(option.dataset.animationMax),
+          ],
+          duration: 2,
+        }));
+      });
+      editor.querySelectorAll("[data-animation-track-id]").forEach((track) => {
+        const trackId = track.dataset.animationTrackId;
+        track.querySelector("[data-toggle-parameter-animation]")?.addEventListener("click", (event) => {
+          const enabled = event.currentTarget.getAttribute("aria-pressed") !== "true";
+          commitAnimationEdit("toggle", () => updateParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            trackId,
+            patch: { enabled },
+          }));
+        });
+        track.querySelector("[data-remove-parameter-animation]")?.addEventListener("click", () => {
+          commitAnimationEdit("remove", () => removeParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            trackId,
+          }));
+        });
+        track.querySelectorAll("[data-animation-track-field]").forEach((input) => {
+          if (input.type === "range") {
+            input.addEventListener("input", () => syncRangeValue(input));
+          }
+          input.addEventListener("change", () => {
+            const field = input.dataset.animationTrackField;
+            const value = field === "mode" ? input.value : Number(input.value);
+            commitAnimationEdit(field, () => updateParameterAnimationTrack(getState().nodes, {
+              componentId,
+              targetNodeId,
+              trackId,
+              patch: { [field]: value },
+            }));
+          });
+        });
+      });
+    });
+  }
+
+  function commitAnimationEdit(action, edit) {
+    try {
+      const nextNodes = edit();
+      store.update((draft) => {
+        draft.nodes = nextNodes;
+      }, {
+        reason: `update:parameter-animation-${action}`,
+        structural: true,
+      });
+    } catch (error) {
+      console.error("[VJ1_PARAMETER_ANIMATION_EDIT_FAILED]", error);
+      setStatus(`Animation was not updated: ${error?.message || error}`);
+    }
   }
 
   function bindComponentContextMenus(scope) {
@@ -640,8 +721,11 @@ function activeLiveOverrideBank(state) {
   state.ui.live ||= {};
   state.ui.live.componentOverrides ||= {};
   state.ui.live.sceneOverrides ||= {};
-  const sceneId = String(state.ui.live.selectedSceneId || "");
-  if (sceneId) state.ui.live.sceneOverrides[sceneId] = state.ui.live.componentOverrides;
+  // `sceneOverrides` is the legacy persisted name for per-Live-target banks.
+  // Key the active bank by the selected target so Parts can retain and reset
+  // temporary parameters exactly like Scenes.
+  const targetId = String(state.ui.live.selectedComponentId || state.ui.live.selectedSceneId || "");
+  if (targetId) state.ui.live.sceneOverrides[targetId] = state.ui.live.componentOverrides;
   return state.ui.live.componentOverrides;
 }
 

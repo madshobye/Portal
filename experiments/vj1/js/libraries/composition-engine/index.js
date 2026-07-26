@@ -14,3 +14,5 @@ export * from "./shared/visual-render-plan.js";
 export * from "./shared/visual-control-program.js";
 export * from "./shared/visual-value-program.js";
 export * from "./shared/program-graph-compiler.js";
+export * from "./shared/parameter-animation-tracks.js";
+export * from "./shared/chain-general-control-parameters.js";

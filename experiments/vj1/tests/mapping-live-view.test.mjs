@@ -340,13 +340,20 @@ test("Mapping cards intentionally avoid render thumbnails", () => {
   assert.match(html, /select_all/);
 });
 
-test("Live Scene reset is absent until temporary parameters exist", () => {
+test("Live target reset is shown on Scene and Part thumbnails with temporary parameters", () => {
   const { state, liveScene } = stateWithScene();
-  assert.doesNotMatch(liveScenePillTemplate(liveScene, state), /data-reset-live-scene/);
+  const component = state.components.find((item) => item.kind !== "scene");
+  assert.doesNotMatch(liveScenePillTemplate(liveScene, state), /data-reset-live-target/);
+  assert.doesNotMatch(liveTargetComponentPillTemplate(component, state), /data-reset-live-target/);
 
   state.ui.live.componentOverrides = { [state.components[0].id]: { opacity: 0.5 } };
   state.ui.live.sceneOverrides[liveScene.id] = state.ui.live.componentOverrides;
-  assert.match(liveScenePillTemplate(liveScene, state), /data-reset-live-scene/);
+  assert.match(liveScenePillTemplate(liveScene, state), /data-reset-live-target/);
+
+  state.ui.live.selectedComponentId = component.id;
+  state.ui.live.componentOverrides = { [component.id]: { opacity: 0.25 } };
+  state.ui.live.sceneOverrides[component.id] = state.ui.live.componentOverrides;
+  assert.match(liveTargetComponentPillTemplate(component, state), /data-reset-live-target/);
 });
 
 test("Mapping Surface inspectors expose calibration only; source routing belongs to the Live program", () => {

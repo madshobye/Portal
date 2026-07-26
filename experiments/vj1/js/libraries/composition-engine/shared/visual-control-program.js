@@ -20,6 +20,11 @@ import {
 import { InstanceTimeNode, RateClockNode, VisualTimeScaleNode } from "../../timing-engine/index.js";
 import { NestedNoiseMotionNode, OrbitMotionNode } from "../../motion-engine/index.js";
 import { TerrainFlightControllerNode } from "../../terrain-engine/index.js";
+import {
+  chainGeneralControlValue,
+  chainGeneralControlWrites,
+  isChainGeneralControlParameter,
+} from "./chain-general-control-parameters.js";
 
 const PARAMETER_SEGMENT = "$parameter";
 const BUILT_IN_CONTROL_DEFINITIONS = new Map([
@@ -272,7 +277,11 @@ function compileScope(group, operations, path, context) {
   }
 
   for (const node of controls) {
-    if (!required.has(node.id)) {
+    // Compiler-generated parameter controls intentionally remain dormant when
+    // an authored control fragment (for example an Animation track) owns the
+    // parameter socket. They are retained as the exact authored-value fallback
+    // and therefore are not an invalid unused graph node.
+    if (!required.has(node.id) && node.generatedBy !== "vj1-component-compiler") {
       context.diagnostics.push({
         code: "VISUAL_CONTROL_UNUSED_NODE",
         path: `${path}/${node.id}`,
@@ -408,6 +417,12 @@ function writeVisualParameter(operation, parameterId, value, restorations, index
 function writeDirectVisualParameter(operation, parameterId, value, restorations, index) {
   const configuration = operation?.configuration;
   if (!configuration) return index;
+  if (isChainGeneralControlParameter(parameterId)) {
+    for (const write of chainGeneralControlWrites(configuration, parameterId, value)) {
+      index = writeProperty(write.target, write.key, write.value, restorations, index);
+    }
+    return index;
+  }
   if (operation.opcode === "effect") {
     index = writeProperty(configuration.params || (configuration.params = {}), parameterId, value, restorations, index);
     return index;
@@ -429,6 +444,9 @@ function writeDirectVisualParameter(operation, parameterId, value, restorations,
 function readVisualParameter(operation, parameterId) {
   const configuration = operation?.configuration;
   if (!configuration) return undefined;
+  if (isChainGeneralControlParameter(parameterId)) {
+    return chainGeneralControlValue(configuration, parameterId);
+  }
   if (operation.opcode === "effect") {
     return configuration.params?.[parameterId];
   }
@@ -461,6 +479,12 @@ export function setCompiledVisualParameter(operation, parameterId, value) {
 function setDirectVisualParameter(operation, parameterId, value) {
   const configuration = operation?.configuration;
   if (!configuration) return;
+  if (isChainGeneralControlParameter(parameterId)) {
+    for (const write of chainGeneralControlWrites(configuration, parameterId, value)) {
+      write.target[write.key] = write.value;
+    }
+    return;
+  }
   if (operation.opcode === "effect") {
     (configuration.params || (configuration.params = {}))[parameterId] = value;
     return;

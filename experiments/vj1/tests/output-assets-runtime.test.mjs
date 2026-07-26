@@ -2792,6 +2792,75 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
   );
 });
 
+test("Live render patches are acknowledged only by an active compiled visual target", () => {
+  const visualComponent = (id, sourceId, scale) => ({
+    id,
+    type: "chain",
+    chain: [{
+      id: sourceId,
+      kind: "source",
+      enabled: true,
+      opacity: 1,
+      blend: "normal",
+      transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+      source: {
+        type: "generator",
+        generatorId: "noise",
+        params: { scale },
+      },
+    }],
+  });
+  const componentA = visualComponent("component-a", "source-a", 1);
+  const componentB = visualComponent("component-b", "source-b", 2);
+  const renderer = new OutputRenderer({ mode: "component" });
+  renderer.state = {
+    components: [componentA, componentB],
+    nodes: {
+      groups: [
+        compileComponentGroupTopology(componentA),
+        compileComponentGroupTopology(componentB),
+      ],
+    },
+    frames: [],
+    surfaces: [],
+    ui: {
+      selectedComponentId: componentB.id,
+      live: { paramFadeDuration: 0 },
+    },
+  };
+  renderer.componentProgramRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuildLookups();
+  assert.equal(
+    renderer.componentProgramRuntime.programs.has(componentA.id),
+    false,
+    "the Component preview compiles only its selected visual root",
+  );
+  assert.equal(renderer.componentProgramRuntime.programs.has(componentB.id), true);
+
+  const result = renderer.livePatchRuntime.applyLive([
+    createLiveRenderPatch(componentA.id, "chain.0.source.params.scale", 4),
+  ]);
+
+  assert.equal(
+    result.applied,
+    false,
+    "mutating projected state is not a successful visual patch without a compiled target",
+  );
+  assert.equal(result.stateApplied, true);
+  assert.equal(result.configurationApplied, false);
+  assert.equal(result.failedPatch?.componentId, componentA.id);
+  assert.equal(
+    componentA.chain[0].source.params.scale,
+    4,
+    "the receiver retains the authored value while its caller reconciles the active projection",
+  );
+  assert.equal(
+    renderer.componentProgramRuntime.programs.has(componentA.id),
+    false,
+    "a retry does not broaden the active preview roots merely to conceal stale target identity",
+  );
+});
+
 test("Live numeric patches preserve target truth while the renderer interpolates display values", () => {
   const renderer = new OutputRenderer({ mode: "output" });
   renderer.state = {

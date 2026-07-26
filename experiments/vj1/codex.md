@@ -85,6 +85,21 @@ allocate generic packets each frame. Public controls bind to the child parameter
 or unconnected inlet that owns the behavior; a public control cannot override a
 graph-driven inlet.
 
+Numeric parameter Animation tracks are authored control fragments inside the
+owning Component/Scene program, never a second animation runtime or parallel
+Component property. The shared Animation inspector projects tagged
+`Component Time -> Oscillator -> $parameter` wiring. Loop and ping-pong lower to
+saw and triangle oscillators with their authored range on the parameter edge.
+General opacity, Content placement, and Boundary placement use reserved
+`$general.*` parameter sockets on that same operation; Boundary scale lowers to
+one aspect-preserving width/height write rather than becoming duplicate state.
+Animated groups persist as project-diff graphs; compatibility parameter edits
+refresh compiler-owned visual configuration while preserving authored controls.
+The generated scalar control remains dormant as the exact base-value fallback
+and is reconnected when a track is disabled or removed. Evaluation stays in the
+retained direct control program and never writes per-frame values to project
+state.
+
 Reference patterns:
 
 ```text

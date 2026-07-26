@@ -4,7 +4,7 @@ import { materializeProjectNodeDefinition } from "./node-editor-view.js";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js";
 import { generatorIcon } from "./picker-view.js";
-import { chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, parameterGroupTemplate, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js";
+import { chainGeneralAnimationParameters, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, parameterGroupTemplate, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js";
 import { deepEditButtonTemplate, editableSectionTitleTemplate, elementListTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js";
@@ -14,6 +14,7 @@ import {
   isAutomaticMediaSourceName,
   sourceBackedMediaId,
 } from "../domain/models.js";
+import { parameterAnimationViewTemplate } from "./animation-view.js";
 
 
 export function sceneInspectorTemplate(component, state) {
@@ -235,6 +236,11 @@ function selectedChainItemTemplate(item, component, state, base, nodeEditorHtml 
   const tabName = `chain-param-view-${item.id}`;
   const views = chainParamViewDefinitions(content, details, chainGeneralControlsTemplate(item, base, {
     isSignificant: (_param, path) => componentParamIsSignificant(component, state, path),
+  }), parameterAnimationViewTemplate({
+    state,
+    componentId: component.id,
+    targetNodeId: item.id,
+    parameters: selectedChainItemAnimationParameters(item, state),
   }));
   if (nodeEditorHtml) views.push({ id: "node", label: "Node", html: nodeEditorHtml });
   return `
@@ -269,6 +275,25 @@ function selectedChainItemContentTemplate(item, component, state, base, paramVie
   if (item.kind === "source") return sourceChainItemTemplate(item, component, state, base, paramView);
   if (item.kind === "group") return paramView === "primary" ? groupChainItemTemplate(item, component, state, base) : "";
   return effectChainItemTemplate(item, component, state, base, paramView);
+}
+
+function selectedChainItemAnimationParameters(item, state) {
+  let definition = null;
+  let values = {};
+  if (item.kind === "effect") {
+    definition = visualEffectComponent(state, item.componentId);
+    values = item.params || {};
+  } else if (item.kind === "source" && item.source?.type === "generator") {
+    definition = visualGeneratorComponent(state, item.source.generatorId);
+    values = item.source.params || {};
+  }
+  return [
+    ...(definition?.params || []).map((param) => ({
+      ...param,
+      value: paramCurrentValue(definition, { params: values }, param),
+    })),
+    ...chainGeneralAnimationParameters(item),
+  ];
 }
 
 function effectChainItemTemplate(item, component, state, base, paramView = "primary") {

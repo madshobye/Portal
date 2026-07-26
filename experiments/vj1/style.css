@@ -3259,6 +3259,76 @@ button.text-list-main:hover {
   gap: var(--param-stack-gap);
 }
 
+.parameter-animation-editor,
+.parameter-animation-track-list,
+.parameter-animation-track {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+}
+
+.parameter-animation-editor {
+  gap: 8px;
+}
+
+.parameter-animation-track-list {
+  gap: 6px;
+}
+
+.parameter-animation-track {
+  gap: var(--param-stack-gap);
+  padding: 6px;
+  border-radius: var(--radius-section-inner);
+  background: var(--panel-soft);
+}
+
+.parameter-animation-track > header {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) 28px;
+  align-items: center;
+  gap: 6px;
+}
+
+.parameter-animation-track > header strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  font-size: var(--control-font-size);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.animation-track-enable,
+.animation-track-remove {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  padding: 0;
+}
+
+.animation-track-enable.is-selected {
+  color: var(--ink);
+  background: var(--accent);
+}
+
+.parameter-animation-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  padding-top: 2px;
+}
+
+.parameter-animation-add > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--control-height);
+}
+
+.parameter-animation-add > button .material-symbols-rounded {
+  font-size: 17px;
+}
+
 .chain-param {
   min-width: 0;
 }

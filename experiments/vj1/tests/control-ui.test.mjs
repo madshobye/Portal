@@ -967,12 +967,12 @@ test("component catalogs expose stable per-view sorting modes", () => {
   assert.ok(source.includes('componentCatalogToolsTemplate("scene", catalogSortMode("scene"), "Filter scenes")'));
 });
 
-test("Live scene cards expose reset only for retained temporary overrides", () => {
+test("Live target cards share reset for retained temporary overrides", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const sceneLiveSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
-  assert.ok(sceneLiveSource.includes("data-reset-live-scene"));
-  assert.ok(sceneLiveSource.includes("state.ui?.live?.sceneOverrides"));
-  assert.ok(source.includes("store.resetLiveScene"));
+  assert.ok(sceneLiveSource.includes("data-reset-live-target"));
+  assert.ok(sceneLiveSource.includes("live.sceneOverrides"));
+  assert.ok(source.includes("store.resetLiveTarget"));
 });
 
 test("Live scenes expose separate scene-transition and parameter-fade durations", () => {
@@ -1853,6 +1853,7 @@ test("opening an output never changes the Live Scene", () => {
   assert.ok(appSource.includes('createRenderStatePatch("mappingCalibration"'));
   assert.ok(!appSource.includes('bridge.command("sync-mapping"'));
   assert.ok(appSource.includes("bridge.sendState();"));
+  assert.ok(appSource.includes("outputRenderPatchesForChange(state, change)"));
   assert.match(
     appSource,
     /if \(renderPatches\.length\) \{[\s\S]*?bridge\.sendRenderPatches\(renderPatches,[\s\S]*?return;[\s\S]*?bridge\.sendState\(\);/,
