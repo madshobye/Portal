@@ -586,14 +586,14 @@ export class VjMapper {
 }
 
 export function mapperVertexShaderSource() {
-  return `
+  return `#version 300 es
       precision highp float;
-      attribute vec3 aPosition;
+      in vec3 aPosition;
       uniform mat4 uProjectionMatrix;
       uniform mat4 uModelViewMatrix;
       uniform mat3 uHinv;
       uniform vec2 uCanvasSize;
-      varying vec3 vProjectiveUv;
+      out vec3 vProjectiveUv;
       void main() {
         // Projective sampling belongs to authored canvas coordinates. The p5
         // model matrix may contain an editor-only viewport zoom/pan, which
@@ -689,9 +689,9 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
         inside *= viewInside;
         vec2 viewUv = (sampleUv - uTextureView.xy) / max(uTextureView.zw, vec2(1e-9));
         vec2 textureUv = uSourceRect.xy + clamp(viewUv, vec2(0.0), vec2(1.0)) * uSourceRect.zw;
-        vec4 color = texture2D(tex, textureUv) * inside * uOpacity;
+        vec4 color = texture(tex, textureUv) * inside * uOpacity;
         ${featherCode}
-        gl_FragColor = color;
+        vj1TransitionOutput = color;
       }
     `;
 }
@@ -721,7 +721,7 @@ export function mapperTransitionFragmentShaderSource({
         vec2 toFeatherUv = uToUseSourceFit ? toSourceTargetUv : (uToProjectionFit >= 1.5 ? toUv : uv);
         float toFeatherAspect = uToUseSourceFit ? uToSourceTargetAspect : (uToProjectionFit >= 1.5 ? uToSourceAspect : uTargetAspect);
         toColor *= roundedFeatherMask(toFeatherUv, toFeatherAspect);` : "";
-  return `
+  return `#version 300 es
       precision highp float;
       uniform sampler2D fromTex;
       uniform sampler2D toTex;
@@ -744,7 +744,8 @@ export function mapperTransitionFragmentShaderSource({
       uniform float uToProjectionFit;
       uniform float uTransition;
       ${featherUniform}
-      varying vec3 vProjectiveUv;
+      in vec3 vProjectiveUv;
+      out vec4 vj1TransitionOutput;
       ${featherFunction}
       ${transitionKernel?.source || DissolveTransitionKernel.source}
       ${fitTargetUvToSourceUvShaderSource()}

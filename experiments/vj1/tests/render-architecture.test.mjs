@@ -347,6 +347,12 @@ test("shared framebuffer clear establishes writable attachments without querying
 test("mapper applies homography per vertex and draws centered projective quads", () => {
   const vertexSource = mapperVertexShaderSource();
   const fragmentSource = mapperFragmentShaderSource();
+  assert.match(vertexSource, /^#version 300 es/);
+  assert.match(fragmentSource, /^#version 300 es/);
+  assert.doesNotMatch(
+    `${vertexSource}\n${fragmentSource}`,
+    /\b(?:attribute|varying|texture2D|gl_FragColor)\b/,
+  );
   assert.match(vertexSource, /vProjectiveUv\s*=\s*uHinv\s*\*/);
   assert.doesNotMatch(fragmentSource, /uHinv\s*\*/);
   assert.deepEqual(surfaceQuadVertices([
@@ -446,7 +452,7 @@ test("projection mapping exposes cover contain and stretch without another rende
   assert.match(fragmentSource, /uniform vec4 uTextureView/);
   assert.match(fragmentSource, /viewUv = \(sampleUv - uTextureView\.xy\)/);
   assert.match(fragmentSource, /textureUv = uSourceRect\.xy \+ clamp\(viewUv/);
-  assert.match(fragmentSource, /texture2D\(tex, textureUv\)/);
+  assert.match(fragmentSource, /texture\(tex, textureUv\)/);
   assert.deepEqual(normalizedSourceRect(
     { width: 1000, height: 500 },
     { x: 250, y: 100, width: 500, height: 200 }
