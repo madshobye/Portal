@@ -7,6 +7,7 @@ import { bindMarkdownEditors } from "./markdown-editor.js";
 import { nodeBoundaryWithUniformScale } from "../libraries/render-engine/roi/index.js";
 import {
   addParameterAnimationTrack,
+  addParameterEventTrack,
   removeParameterAnimationTrack,
   updateParameterAnimationTrack,
 } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
@@ -22,6 +23,7 @@ export function createInputController({
   refreshSelectedMappingProjection,
   setStatus = () => {},
   triggerParameterAnimation = () => {},
+  triggerIsfEvent = () => {},
 }) {
   const paramContextScopes = new WeakSet();
 
@@ -34,6 +36,7 @@ export function createInputController({
     bindPersistentInputs(scope);
     bindMarkdownEditors(scope);
     bindPathButtons(scope);
+    bindIsfEventButtons(scope);
     bindLiveInputs(scope);
     bindSelectionAndSourceButtons(scope);
     bindSceneAndRouteButtons(scope);
@@ -42,6 +45,18 @@ export function createInputController({
     bindRemovalAndMappingButtons(scope);
     bindParamContextMenus(scope);
     bindComponentContextMenus(scope);
+  }
+
+  function bindIsfEventButtons(scope) {
+    scope.querySelectorAll("[data-trigger-isf-event]").forEach((button) => {
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const path = String(button.dataset.triggerIsfEvent || "");
+        const target = isfEventTarget(getState(), path);
+        if (!target) return;
+        triggerIsfEvent(target);
+      });
+    });
   }
 
   function bindParameterAnimationControls(scope) {
@@ -65,6 +80,19 @@ export function createInputController({
           ],
           duration: 2,
         }));
+      });
+      editor.querySelector("[data-add-parameter-event]")?.addEventListener("click", () => {
+        const select = editor.querySelector("[data-animation-new-event]");
+        if (!select?.value) return;
+        commitAnimationEdit("add-event", () => addParameterEventTrack(
+          getState().nodes,
+          {
+            componentId,
+            targetNodeId,
+            parameterId: select.value,
+            triggerKind: "manual",
+          },
+        ));
       });
       editor.querySelectorAll("[data-add-animation-suggestion]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -121,18 +149,21 @@ export function createInputController({
         track.querySelector("[data-animation-target-parameter]")?.addEventListener("change", (event) => {
           const option = event.currentTarget.selectedOptions?.[0];
           if (!option) return;
+          const eventTrack = track.dataset.animationTrackKind === "event";
           commitAnimationEdit("target-parameter", () => updateParameterAnimationTrack(getState().nodes, {
             componentId,
             targetNodeId,
             trackId,
-            patch: {
-              parameterId: option.value,
-              baseValue: Number(option.dataset.animationBase),
-              targetRange: [
-                Number(option.dataset.animationMin),
-                Number(option.dataset.animationMax),
-              ],
-            },
+            patch: eventTrack
+              ? { parameterId: option.value }
+              : {
+                  parameterId: option.value,
+                  baseValue: Number(option.dataset.animationBase),
+                  targetRange: [
+                    Number(option.dataset.animationMin),
+                    Number(option.dataset.animationMax),
+                  ],
+                },
           }));
         });
         track.querySelector("[data-animation-driver]")?.addEventListener("change", (event) => {
@@ -852,6 +883,22 @@ export function createInputController({
   }
 
   return { bind };
+}
+
+export function isfEventTarget(state = {}, path = "") {
+  const segments = String(path || "").split(".").filter(Boolean);
+  const paramsIndex = segments.lastIndexOf("params");
+  const parameterId = paramsIndex >= 0 ? segments[paramsIndex + 1] : "";
+  if (!parameterId) return null;
+  const ownerSegments = segments.slice(0, paramsIndex);
+  if (ownerSegments.at(-1) === "source") ownerSegments.pop();
+  let owner = getByPath(state, ownerSegments.join("."));
+  if (!owner?.id && ownerSegments.length) {
+    ownerSegments.pop();
+    owner = getByPath(state, ownerSegments.join("."));
+  }
+  const target = String(owner?.id || "");
+  return target ? { target, parameterId } : null;
 }
 
 export function isBoundaryScaleInput(input, path = "") {

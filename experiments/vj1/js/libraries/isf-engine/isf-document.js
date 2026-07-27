@@ -21,6 +21,10 @@ export function parseIsfDocument(source = "", { path = "" } = {}) {
   }
   const inputs = normalizeInputs(metadata.INPUTS, path);
   const passes = normalizePasses(metadata.PASSES, path);
+  const imported = normalizeImported(metadata.IMPORTED, path, [
+    ...inputs.map((input) => input.name),
+    ...passes.map((pass) => pass.target).filter(Boolean),
+  ]);
   const imageNames = inputs.filter((input) => input.type === "image").map((input) => input.name);
   const kind = imageNames.includes("startImage") && imageNames.includes("endImage") && inputs.some((input) => input.name === "progress")
     ? "transition"
@@ -42,6 +46,7 @@ export function parseIsfDocument(source = "", { path = "" } = {}) {
     categories: Object.freeze(Array.isArray(metadata.CATEGORIES) ? metadata.CATEGORIES.map(String) : []),
     metadata: Object.freeze({ ...metadata }),
     inputs: Object.freeze(inputs),
+    imported: Object.freeze(imported),
     passes: Object.freeze(passes),
     kind,
     fragmentSource,
@@ -50,6 +55,50 @@ export function parseIsfDocument(source = "", { path = "" } = {}) {
     // Multipass targets remain full-boundary until their own ROI views exist.
     roiSafe: passes.length === 1 && !passes.some((pass) => pass.persistent),
     sourceHash: sourceHash(text),
+  });
+}
+
+function normalizeImported(value, path, reservedNames = []) {
+  if (value === undefined) return [];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw isfError(
+      "VJ1_ISF_IMPORTED_INVALID",
+      path,
+      "IMPORTED must be an object",
+    );
+  }
+  const names = new Set(reservedNames);
+  return Object.entries(value).map(([name, specification]) => {
+    if (!GLSL_IDENTIFIER.test(name)) {
+      throw isfError(
+        "VJ1_ISF_IMPORTED_NAME_INVALID",
+        path,
+        `IMPORTED has an invalid name ${name}`,
+      );
+    }
+    if (names.has(name)) {
+      throw isfError(
+        "VJ1_ISF_IMPORTED_DUPLICATE",
+        path,
+        `Duplicate ISF image name ${name}`,
+      );
+    }
+    const resourcePath = String(specification?.PATH || "").trim();
+    if (
+      !resourcePath ||
+      resourcePath.startsWith("/") ||
+      resourcePath.includes("\\") ||
+      resourcePath.split("/").includes("..") ||
+      /^[A-Za-z][A-Za-z0-9+.-]*:/.test(resourcePath)
+    ) {
+      throw isfError(
+        "VJ1_ISF_IMPORTED_PATH_INVALID",
+        path,
+        `IMPORTED.${name}.PATH must be a safe relative resource path`,
+      );
+    }
+    names.add(name);
+    return Object.freeze({ name, path: resourcePath });
   });
 }
 

@@ -30,6 +30,7 @@ export function compileIsfFragmentSource(document, { kind = document?.kind || "g
     );
   const imageNames = uniqueIdentifiers([
     ...document.inputs.filter((input) => ["image", "audio", "audioFFT"].includes(input.type)).map((input) => input.name),
+    ...(document.imported || []).map((resource) => resource.name),
     ...document.passes.map((pass) => pass.target).filter(Boolean),
     ...(effect ? ["inputImage"] : []),
   ]);
@@ -51,10 +52,17 @@ export function compileIsfFragmentSource(document, { kind = document?.kind || "g
     .map((input) => [isfGlslType(input.type), input.name])
     .filter(([, name]) => !effect || name !== "amount")
     .filter(([, name]) => !declared.has(name));
+  const importedUniforms = (document.imported || [])
+    .map((resource) => ["sampler2D", resource.name])
+    .filter(([, name]) => !declared.has(name));
   if (effect && !declared.has("inputImage") && !inputUniforms.some(([, name]) => name === "inputImage")) {
     inputUniforms.unshift(["sampler2D", "inputImage"]);
   }
-  const reserved = new Set([...declared, ...inputUniforms.map(([, name]) => name)]);
+  const reserved = new Set([
+    ...declared,
+    ...inputUniforms.map(([, name]) => name),
+    ...importedUniforms.map(([, name]) => name),
+  ]);
   const targetUniforms = document.passes
     .map((pass) => pass.target)
     .filter(Boolean)
@@ -74,7 +82,7 @@ uniform vec4 renderUvRect;
 uniform mat3 ${effect ? "effectUvMatrix" : "contentUvMatrix"};
 uniform float ${effect ? "amount" : "useContentTransform"};
 uniform bool vj1IsfFinalPass;
-${[...standard, ...inputUniforms, ...targetUniforms, ...imageSizeUniforms, ...imageFlipUniforms].map(([type, name]) => `uniform ${type} ${name};`).join("\n")}
+${[...standard, ...inputUniforms, ...importedUniforms, ...targetUniforms, ...imageSizeUniforms, ...imageFlipUniforms].map(([type, name]) => `uniform ${type} ${name};`).join("\n")}
 
 vec2 vj1IsfBoundaryUv() {
   vec2 baseUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;

@@ -3277,23 +3277,29 @@ button.text-list-main:hover {
 
 .parameter-animation-track {
   gap: var(--param-stack-gap);
-  padding: 6px;
+  padding: var(--section-inset);
+  padding-bottom: var(--param-section-bottom-inset);
   border-radius: var(--radius-section-inner);
-  background: var(--panel-soft);
+  background: var(--panel-2);
 }
 
 .parameter-animation-track > header {
   display: grid;
   grid-template-columns: 28px minmax(0, 1fr) 28px;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
+  min-height: var(--text-list-row-height);
+  padding: 3px;
+  border-radius: var(--radius-section-inner);
+  background: var(--section-header);
 }
 
 .parameter-animation-track > header strong {
   min-width: 0;
   overflow: hidden;
+  padding-inline: 7px;
   color: var(--ink);
-  font-size: var(--control-font-size);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -3303,7 +3309,14 @@ button.text-list-main:hover {
   width: 28px;
   min-width: 28px;
   height: 28px;
+  min-height: 28px;
   padding: 0;
+  background: transparent;
+}
+
+.animation-track-enable .material-symbols-rounded,
+.animation-track-remove .material-symbols-rounded {
+  font-size: 16px;
 }
 
 .animation-track-enable.is-selected {
@@ -3375,10 +3388,23 @@ button.text-list-main:hover {
 }
 
 .parameter-animation-add > .parameter-animation-add-button {
-  width: var(--control-height);
-  min-width: var(--control-height);
+  width: var(--slider-height);
+  min-width: var(--slider-height);
+  height: var(--slider-height);
+  min-height: var(--slider-height);
   padding: 0;
+  align-self: center;
   justify-content: center;
+  background: var(--slider-track);
+  color: var(--ink);
+}
+
+.parameter-animation-add > .parameter-animation-add-button:hover {
+  background: var(--slider-thumb);
+}
+
+.parameter-animation-add > .parameter-animation-add-button .material-symbols-rounded {
+  font-size: 14px;
 }
 
 .parameter-animation-suggestions {
@@ -4464,6 +4490,13 @@ button.text-list-main:hover {
   scrollbar-width: thin;
   border-radius: var(--radius-section-inner);
   background: var(--panel-2);
+}
+
+.chain-param-view-panel.chain-param-view-animation {
+  padding: 0;
+  padding-bottom: var(--param-section-bottom-inset);
+  border-radius: 0;
+  background: transparent;
 }
 
 .chain-param-view-input:not(:checked) + .chain-param-view-tab + .chain-param-view-panel { display: none; }

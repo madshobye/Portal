@@ -407,6 +407,34 @@ analyser: one retained waveform texture and one retained FFT texture are
 updated once per analysis frame and reused by every audio shader. Audio inputs
 do not become graph texture ports and do not create a second analyser.
 
+The event tranche brings the collection to 47 shaders (13 generators, 21
+effects, and 13 transitions). Shockwave Pulse and FFT Spectrogram retain their
+upstream fragment text. An ISF `event` input materializes as a momentary
+control, schedules an `isf-event` for the owning visual instance and parameter,
+and is true only while that frame's drained event list is rendered. It resets
+on the next frame without entering project state, history, or autosave. The
+Animation editor can also author a typed event-automation track whose manual,
+periodic, random, pointer, audio-beat, or Probe source feeds the visual event
+parameter directly. Stable graph event tokens become one-frame shader pulses;
+holding the same token never retriggers, and multipass shaders see the pulse
+consistently in every pass of that frame. Each renderer treats its first
+observed token as a baseline, so opening Live or a standalone Output never
+replays an event that happened before that renderer joined. Live's
+`componentOutput` map is per-frame: it is cleared once before Surface routing,
+then shared by all Surfaces in that frame. Frame-dynamic control programs
+therefore continue to execute in Live without sacrificing same-frame fanout.
+
+The imported-image tranche brings the collection to 49 shaders (14 generators,
+22 effects, and 13 transitions). Cursor and Cursor Overlay retain their
+upstream fragment text and share the exact pinned `cursor.png` payload.
+`IMPORTED` paths are validated as safe relative paths, resolved by the
+built-in repository into closed immutable descriptors, and loaded lazily by
+one renderer-owned retained cache. A resource is uploaded once and reused by
+every shader instance; readiness changes the normal external-resource cache
+key and invalidates presentation once, without making a static shader
+frame-dynamic. The resource cache follows the same prune/dispose lifecycle as
+other ISF state.
+
 The ISF backend owns retained pass state generically. Persistent passes use
 instance-owned ping-pong framebuffers, including float attachments, and
 full-screen shader writes replace their destination without blending. A

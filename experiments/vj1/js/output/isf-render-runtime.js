@@ -6,6 +6,7 @@ import {
 } from "./shared-framebuffer-target.js";
 import { renderTargetNeedsShaderSampleFlip } from "./render-target-contract.js";
 import { IsfAudioTextureRuntime } from "./isf-audio-texture-runtime.js";
+import { IsfImportedImageRuntime } from "./isf-imported-image-runtime.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
@@ -30,9 +31,11 @@ export class IsfRenderRuntime {
     this.setShaderParams = setShaderParams;
     this.passTargets = new Map();
     this.programStates = new Map();
+    this.eventSignals = new Map();
     this.targetTextures = new Map();
     this.dateUniform = [0, 0, 0, 0];
     this.audioTextures = new IsfAudioTextureRuntime(host);
+    this.importedImages = new IsfImportedImageRuntime(host);
   }
 
   needsPassRuntime(component) {
@@ -54,8 +57,10 @@ export class IsfRenderRuntime {
     }
     this.passTargets.clear();
     this.programStates.clear();
+    this.eventSignals.clear();
     this.targetTextures.clear();
     this.audioTextures.dispose();
+    this.importedImages.dispose();
   }
 
   prune(maxIdleFrames = 600) {
@@ -70,6 +75,12 @@ export class IsfRenderRuntime {
         this.programStates.delete(key);
       }
     }
+    for (const [key, entry] of this.eventSignals) {
+      if (frameIndex - entry.lastUsed > maxIdleFrames) {
+        this.eventSignals.delete(key);
+      }
+    }
+    this.importedImages.prune(maxIdleFrames);
   }
 
   getPassTarget(component, instanceId, pass, widthPx, heightPx) {
@@ -277,6 +288,7 @@ export class IsfRenderRuntime {
         setShaderUniformIfPresent(shader, "vj1IsfFinalPass", finalPass);
         this.setShaderParams(shader, component, params, {
           onlyPresent: true,
+          instanceId,
         });
         drawShaderTargetRect(destination, widthPx, heightPx);
         resetShaderTarget(destination);
@@ -410,6 +422,24 @@ export class IsfRenderRuntime {
         this.imageNeedsStorageFlip(texture),
       );
     }
+    for (const importedDefinition of component?.isf?.imported || []) {
+      const texture = this.importedImages.texture(
+        component,
+        importedDefinition,
+      );
+      if (!texture) continue;
+      const name = importedDefinition.name;
+      setShaderUniformIfPresent(shader, name, texture);
+      setShaderUniformIfPresent(shader, `${name}_imgSize`, [
+        Math.max(1, texture.width || 1),
+        Math.max(1, texture.height || 1),
+      ]);
+      setShaderUniformIfPresent(
+        shader,
+        `${name}_flipY`,
+        this.imageNeedsStorageFlip(texture),
+      );
+    }
     for (const [name, texture] of targetTextures || []) {
       if (!texture) continue;
       setShaderUniformIfPresent(shader, name, unwrapRenderTarget(texture));
@@ -432,5 +462,47 @@ export class IsfRenderRuntime {
       texture,
       this.host.renderTargetRuntime?.isShaderBuffer?.(texture) === true,
     );
+  }
+
+  importedResourceRevision(component) {
+    return this.importedImages.externalKey(component);
+  }
+
+  eventPulse(instanceId, parameterId, signal = null) {
+    const target = String(instanceId || "");
+    const parameter = String(parameterId || "");
+    if (!target || !parameter) return false;
+    const scheduled = (this.host.frameRuntime?.scheduledEvents || []).some((event) =>
+      event?.type === "isf-event" &&
+      String(event.target || "") === target &&
+      String(event.payload?.parameterId || "") === parameter
+    );
+    const frameIndex = Math.max(
+      0,
+      Number(this.host.frameRuntime?.frameIndex) || 0,
+    );
+    const key = `${target}:${parameter}`;
+    let automated = false;
+    let entry = this.eventSignals.get(key);
+    if (!entry) {
+      // The first value observed by a newly-created Preview or Output renderer
+      // is a baseline, not a new event. This prevents periodic tracks from
+      // firing once merely because a view/window was opened. A null baseline
+      // still lets the first later manual token produce a real pulse.
+      entry = { token: signal, pulseFrame: -1, lastUsed: frameIndex };
+      this.eventSignals.set(key, entry);
+    } else if (
+      signal !== null &&
+      signal !== undefined &&
+      signal !== false
+    ) {
+      if (!Object.is(entry.token, signal)) {
+        entry.token = signal;
+        entry.pulseFrame = frameIndex;
+      }
+      automated = entry.pulseFrame === frameIndex;
+    }
+    entry.lastUsed = frameIndex;
+    return scheduled || automated;
   }
 }

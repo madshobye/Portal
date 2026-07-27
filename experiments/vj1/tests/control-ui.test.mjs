@@ -23,7 +23,7 @@ import {
   restoreViewControlStates,
 } from "../js/control/dom-utils.js";
 import { panelTemplate, railListSectionTemplate, scrollRegionTemplate } from "../js/control/view-primitives.js";
-import { applyOptimisticToggleIntent, boundaryFromScaleInput, isBoundaryScaleInput } from "../js/control/input-controller.js";
+import { applyOptimisticToggleIntent, boundaryFromScaleInput, isBoundaryScaleInput, isfEventTarget } from "../js/control/input-controller.js";
 import { activeRenderCost, activeWorkMetric, createLiveTransitionExpiryScheduler, mergeControlRenderRequests, performanceHealthStep, rememberParamViewSelections, restoreParamViewSelections } from "../js/control/control-shell-controller.js";
 import { nextPickerFilter, sourceForCatalogMedia } from "../js/control/modal-controller.js";
 import { mediaDisplayName, mediaPickerCardTemplate } from "../js/control/media-view.js";
@@ -33,8 +33,40 @@ import { componentCatalogSearchText } from "../js/control/catalog-view.js";
 import {
   chainBoundaryPositionParams,
   chainTransformParams,
+  paramControlTemplate,
   placementAxisRange,
 } from "../js/control/parameter-view.js";
+
+test("ISF events render as transient trigger buttons and resolve their chain instance", () => {
+  const html = paramControlTemplate(
+    { id: "clear", label: "Clear", type: "event", defaultValue: false },
+    "components.0.chain.1.params.clear",
+    false,
+  );
+  assert.match(html, /data-trigger-isf-event="components\.0\.chain\.1\.params\.clear"/);
+  assert.doesNotMatch(html, /data-toggle-path|type="checkbox"|aria-pressed/);
+  assert.deepEqual(isfEventTarget({
+    components: [{
+      chain: [
+        { id: "source-a", source: { params: {} } },
+        { id: "effect-a", params: {} },
+      ],
+    }],
+  }, "components.0.chain.1.params.clear"), {
+    target: "effect-a",
+    parameterId: "clear",
+  });
+  assert.deepEqual(isfEventTarget({
+    components: [{
+      chain: [
+        { id: "source-a", source: { params: {} } },
+      ],
+    }],
+  }, "components.0.chain.0.source.params.restart"), {
+    target: "source-a",
+    parameterId: "restart",
+  });
+});
 
 test("catalog media enters Components through editable typed media Groups", () => {
   const state = {

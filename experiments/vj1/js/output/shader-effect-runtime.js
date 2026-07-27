@@ -201,8 +201,11 @@ export class ShaderEffectRuntime {
       return inputState;
     }
     const runtimeContext = this.runtimeContext(componentTime);
-    const external =
-      component.runtime?.externalKey?.(params, runtimeContext) ?? null;
+    const externalParts = [
+      component.runtime?.externalKey?.(params, runtimeContext) ?? null,
+      host.isfRuntime?.importedResourceRevision?.(component) ?? null,
+    ].filter((value) => value !== null);
+    const external = externalParts.length ? externalParts : null;
     const namedStatesInvariant =
       !inputStates?.size ||
       [...inputStates.values()].every(
@@ -542,7 +545,9 @@ export class ShaderEffectRuntime {
               });
             }
             setShaderUniformIfPresent(shader, "vj1IsfFinalPass", true);
-            this.setParamUniforms(shader, job.component, pass.params);
+            this.setParamUniforms(shader, job.component, pass.params, {
+              instanceId: pass.instanceId || pass.id,
+            });
           }
           drawShaderTargetRect(target, rw, rh);
           resetShaderTarget(target);
@@ -661,6 +666,7 @@ export class ShaderEffectRuntime {
           shaderProgram,
           job.component,
           job.pass.params,
+          { instanceId: job.pass.instanceId || job.pass.id },
         );
         drawShaderTargetRect(
           target,
@@ -700,7 +706,13 @@ export class ShaderEffectRuntime {
   setParamUniforms(shader, component, params = {}, options = {}) {
     const vectors = new Map();
     for (const param of component?.params || []) {
-      const value = normalizeParamValue(param, params[param.id]);
+      const value = param.isfUniformType === "event"
+        ? this.host.isfRuntime?.eventPulse?.(
+            options.instanceId,
+            param.id,
+            params[param.id],
+          ) === true
+        : normalizeParamValue(param, params[param.id]);
       const uniformId = `${options.uniformPrefix || ""}${param.id}`;
       if (Number.isInteger(param.isfVectorIndex) && param.isfUniform) {
         const vectorUniform = `${options.uniformPrefix || ""}${param.isfUniform}`;
@@ -710,7 +722,7 @@ export class ShaderEffectRuntime {
         continue;
       }
       if (options.onlyPresent && !shader?.uniforms?.[uniformId]) continue;
-      if (param.type === "boolean") {
+      if (param.type === "boolean" || param.isfUniformType === "event") {
         shader.setUniform(uniformId, value !== false);
       } else if (param.type === "color") {
         shader.setUniform(uniformId, colorUniform(value));

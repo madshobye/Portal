@@ -10,6 +10,7 @@ import { ComponentPreviewInteraction, stateWithSurfaceRect, stateWithChainItemBo
 import { compileOutputGroupTopology, compileMappingGroupTopology } from "../js/libraries/composition-engine/index.js";
 import { IsfRenderRuntime } from "../js/output/isf-render-runtime.js";
 import { IsfAudioTextureRuntime } from "../js/output/isf-audio-texture-runtime.js";
+import { IsfImportedImageRuntime } from "../js/output/isf-imported-image-runtime.js";
 import { TextureOperatorRuntime } from "../js/output/texture-operator-runtime.js";
 import { ShaderEffectRuntime } from "../js/output/shader-effect-runtime.js";
 import { ShaderGeneratorRuntime } from "../js/output/shader-generator-runtime.js";
@@ -17,6 +18,7 @@ import { CompositeRenderRuntime } from "../js/output/composite-render-runtime.js
 import { TransitionRuntime } from "../js/output/transition-runtime.js";
 import { ComponentRenderRuntime } from "../js/output/component-render-runtime.js";
 import { OutputRenderProfile } from "../js/output/output-render-profile.js";
+import { OutputSurfaceRuntime } from "../js/output/output-surface-runtime.js";
 import { VisualPlanRuntime } from "../js/output/visual-plan-runtime.js";
 import { compiledSourceRenderTargetOptions, mediaSourceDemandSize, operationMediaResourceIds, runtimeValueMediaResourceIds, SourceRenderRuntime } from "../js/output/source-render-runtime.js";
 import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-source-runtime.js";
@@ -248,6 +250,77 @@ test("ISF audio textures upload each analyser frame once and reuse retained imag
   assert.equal(fft.removed, true);
 });
 
+test("ISF imported images load once, share by resource identity, and invalidate on readiness", () => {
+  const callbacks = [];
+  const invalidations = [];
+  const image = { width: 64, height: 105, remove() { this.removed = true; } };
+  const runtime = new IsfImportedImageRuntime({
+    frameRuntime: { frameIndex: 4 },
+    invalidatePresentation(reason) {
+      invalidations.push(reason);
+    },
+  }, {
+    loadImage(url, onLoad, onError) {
+      callbacks.push({ url, onLoad, onError });
+      return image;
+    },
+  });
+  const descriptor = Object.freeze({
+    id: "vidvox/cursor.png",
+    url: "data:image/png;base64,cursor",
+  });
+  const generator = {
+    isfImportedResources: { cursorImage: descriptor },
+  };
+  const effect = {
+    isfImportedResources: { cursorImage: descriptor },
+  };
+  const imported = { name: "cursorImage", path: "cursor.png" };
+
+  assert.equal(runtime.texture(generator, imported), null);
+  assert.equal(runtime.texture(effect, imported), null);
+  assert.equal(callbacks.length, 1);
+  assert.match(runtime.externalKey(generator), /loading/);
+  callbacks[0].onLoad(image);
+  assert.strictEqual(runtime.texture(effect, imported), image);
+  assert.equal(callbacks.length, 1);
+  assert.match(runtime.externalKey(effect), /ready/);
+  assert.deepEqual(invalidations, ["isf-imported-image-ready"]);
+  runtime.dispose();
+  assert.equal(image.removed, true);
+});
+
+test("a failed imported image load retries on a later render frame", () => {
+  const host = {
+    frameRuntime: { frameIndex: 7 },
+    invalidatePresentation() {},
+  };
+  const attempts = [];
+  const image = { width: 2, height: 2 };
+  const runtime = new IsfImportedImageRuntime(host, {
+    loadImage(_url, onLoad, onError) {
+      attempts.push({ onLoad, onError });
+      return image;
+    },
+  });
+  const component = {
+    isfImportedResources: {
+      noiseTex: { id: "noise", url: "data:image/png;base64,noise" },
+    },
+  };
+  const imported = { name: "noiseTex", path: "noise.png" };
+
+  runtime.texture(component, imported);
+  attempts[0].onError(new Error("decode failed"));
+  assert.equal(runtime.texture(component, imported), null);
+  assert.equal(attempts.length, 1, "multipass calls do not retry in the failed frame");
+  host.frameRuntime.frameIndex++;
+  assert.equal(runtime.texture(component, imported), null);
+  assert.equal(attempts.length, 2);
+  attempts[1].onLoad(image);
+  assert.strictEqual(runtime.texture(component, imported), image);
+});
+
 test("typed media resource inputs carry runtime readiness into retained source identity", () => {
   const resource = {
     kind: "project-media-resource",
@@ -428,6 +501,68 @@ test("the dedicated ISF backend owns and prunes retained pass targets", () => {
   assert.match(backendSource, /frameIndex: programState\.frameIndex/);
 });
 
+test("ISF automation tokens become one-frame pulses shared by every pass", () => {
+  const frameRuntime = { frameIndex: 10, scheduledEvents: [] };
+  const runtime = new IsfRenderRuntime({ frameRuntime });
+
+  assert.equal(
+    runtime.eventPulse("shockwave", "pulse", 4),
+    false,
+    "a renderer joining an existing event stream establishes a baseline",
+  );
+  assert.equal(
+    runtime.eventPulse("shockwave", "pulse", 4),
+    false,
+    "the baseline is not converted into a pulse by another pass",
+  );
+  frameRuntime.frameIndex = 11;
+  assert.equal(runtime.eventPulse("shockwave", "pulse", 4), false);
+  frameRuntime.frameIndex = 12;
+  assert.equal(runtime.eventPulse("shockwave", "pulse", 5), true);
+  assert.equal(
+    runtime.eventPulse("shockwave", "pulse", 5),
+    true,
+    "multipass reads in the triggering frame retain the pulse",
+  );
+  assert.equal(
+    runtime.eventPulse("manual", "pulse", null),
+    false,
+    "an idle manual event establishes a null baseline",
+  );
+  frameRuntime.frameIndex = 13;
+  assert.equal(runtime.eventPulse("manual", "pulse", 1), true);
+  frameRuntime.scheduledEvents = [{
+    type: "isf-event",
+    target: "shockwave",
+    payload: { parameterId: "pulse" },
+  }];
+  frameRuntime.frameIndex = 14;
+  assert.equal(runtime.eventPulse("shockwave", "pulse", 5), true);
+
+  runtime.dispose();
+  assert.equal(runtime.eventSignals.size, 0);
+});
+
+test("Live presentation clears Component sharing once per frame", () => {
+  const componentOutput = new Map([["stale", { frame: 1 }]]);
+  const renderer = {
+    state: {},
+    resourceRuntime: { componentOutput },
+  };
+  const runtime = new OutputSurfaceRuntime(renderer);
+  let renderedFrames = 0;
+  runtime.releaseTransitionSurfaceTextures = () => {};
+  runtime.renderMappingSurfaces = () => {
+    assert.equal(componentOutput.size, 0);
+    componentOutput.set("shared-in-frame", { frame: ++renderedFrames });
+  };
+
+  runtime.renderSurfaces();
+  assert.equal(componentOutput.get("shared-in-frame").frame, 1);
+  runtime.renderSurfaces();
+  assert.equal(componentOutput.get("shared-in-frame").frame, 2);
+});
+
 test("the texture-operator backend owns retained delay state and shader disposal", () => {
   const targets = new Map();
   const createTarget = (key) => ({
@@ -545,7 +680,12 @@ test("the shader-effect backend owns program caching uniforms and GL disposal", 
     code: "vec4 effect(vec4 color, vec2 uv) { return color; }",
     params: [],
   };
-  const runtime = new ShaderEffectRuntime({}, {
+  const runtime = new ShaderEffectRuntime({
+    isfRuntime: {
+      eventPulse: (instanceId, parameterId) =>
+        instanceId === "effect-instance" && parameterId === "clear",
+    },
+  }, {
     getCustomCode: () => "",
     getComponent: () => component,
   });
@@ -561,6 +701,7 @@ test("the shader-effect backend owns program caching uniforms and GL disposal", 
       { id: "enabled", type: "boolean", defaultValue: true },
       { id: "tint", type: "color", defaultValue: "#ff0000" },
       { id: "mode", type: "enum", values: ["a", "b"], defaultValue: "a" },
+      { id: "clear", type: "event", defaultValue: false, isfUniformType: "event" },
       { id: "x", type: "number", defaultValue: 0, isfUniform: "point", isfVectorIndex: 0 },
       { id: "y", type: "number", defaultValue: 0, isfUniform: "point", isfVectorIndex: 1 },
     ],
@@ -570,10 +711,11 @@ test("the shader-effect backend owns program caching uniforms and GL disposal", 
     mode: "b",
     x: 0.25,
     y: 0.75,
-  });
+  }, { instanceId: "effect-instance" });
   assert.equal(uniforms.get("enabled"), false);
   assert.deepEqual(uniforms.get("tint"), [0, 1, 0, 1]);
   assert.equal(uniforms.get("mode"), 1);
+  assert.equal(uniforms.get("clear"), true);
   assert.deepEqual(uniforms.get("point"), [0.25, 0.75]);
   assert.equal(uniforms.get("amount"), 0);
 

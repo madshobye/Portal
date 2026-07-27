@@ -82,7 +82,10 @@ export function parameterAnimationViewTemplate({
     Number.isFinite(Number(param.max)) &&
     Number(param.min) !== Number(param.max)
   );
+  const events = parameters.filter((param) => param?.type === "event");
   const tracks = parameterAnimationTracks(state.nodes, componentId, targetNodeId);
+  const numericTracks = tracks.filter((track) => track.kind !== "event");
+  const eventTracks = tracks.filter((track) => track.kind === "event");
   const signalSources = parameterAnimationSignalSources(
     state.nodes,
     componentId,
@@ -94,8 +97,14 @@ export function parameterAnimationViewTemplate({
     targetNodeId,
   );
   const parameterById = new Map(numeric.map((param) => [param.id, param]));
-  const animated = new Set(tracks.map((track) => track.parameterId));
+  const animated = new Set(numericTracks.map((track) => track.parameterId));
+  const automatedEvents = new Set(
+    eventTracks.map((track) => track.parameterId),
+  );
   const available = numeric.filter((param) => !animated.has(param.id));
+  const availableEvents = events.filter((param) =>
+    !automatedEvents.has(param.id)
+  );
   const parameterSuggestions = available.flatMap((param) =>
     parameterAnimationSuggestions(param).map((suggestion) => ({ param, suggestion }))
   );
@@ -104,16 +113,27 @@ export function parameterAnimationViewTemplate({
     <section class="parameter-animation-editor" data-animation-editor data-animation-component-id="${esc(componentId)}" data-animation-target-node-id="${esc(targetNodeId)}">
       <div class="parameter-animation-track-list">
         ${tracks.length
-          ? tracks.map((track) => animationTrackTemplate(
-            track,
-            parameterById.get(track.parameterId),
-            componentId,
-            signalSources,
-            triggerSources,
-            numeric.filter((param) =>
-              param.id === track.parameterId || !animated.has(param.id)
-            ),
-          )).join("")
+          ? tracks.map((track) => track.kind === "event"
+            ? eventAnimationTrackTemplate(
+                track,
+                events.find((param) => param.id === track.parameterId),
+                componentId,
+                triggerSources,
+                events.filter((param) =>
+                  param.id === track.parameterId ||
+                  !automatedEvents.has(param.id)
+                ),
+              )
+            : animationTrackTemplate(
+                track,
+                parameterById.get(track.parameterId),
+                componentId,
+                signalSources,
+                triggerSources,
+                numeric.filter((param) =>
+                  param.id === track.parameterId || !animated.has(param.id)
+                ),
+              )).join("")
           : `<div class="soft-note parameter-animation-empty">No parameter animations.</div>`}
       </div>
       ${available.length ? `
@@ -145,7 +165,30 @@ export function parameterAnimationViewTemplate({
         </div>
       ` : numeric.length
         ? `<div class="soft-note">Every numeric parameter already has an animation track.</div>`
-        : `<div class="soft-note">This element does not expose numeric parameters yet.</div>`}
+        : events.length
+          ? ""
+          : `<div class="soft-note">This element does not expose numeric parameters yet.</div>`}
+      ${events.length ? `
+        <div class="parameter-animation-suggestions">
+          <span class="soft-note">Event automation</span>
+        </div>
+        ${availableEvents.length ? `
+          <div class="parameter-animation-add">
+            <select class="param-select" data-animation-new-event aria-label="Event to automate">
+              ${availableEvents.map((param) =>
+                `<option value="${esc(param.id)}">${esc(param.label || param.id)}</option>`
+              ).join("")}
+            </select>
+            <button
+              type="button"
+              class="icon-buttonish parameter-animation-add-button"
+              data-add-parameter-event
+              title="Add event automation"
+              aria-label="Add event automation"
+            >${icon("add")}</button>
+          </div>
+        ` : `<div class="soft-note">Every event already has an automation track.</div>`}
+      ` : ""}
     </section>
   `;
 }
@@ -295,6 +338,42 @@ function animationTrackTemplate(
         ? animationRangeTemplate("Phase", "phase", track.phase, 0, 1, 0.01)
         : ""}
       ` : ""}
+    </article>
+  `;
+}
+
+function eventAnimationTrackTemplate(
+  track,
+  parameter = {},
+  componentId = "",
+  triggerSources = [],
+  eventTargets = [],
+) {
+  const label = parameter.label || track.parameterId;
+  const triggerAddress = parameterAnimationTriggerAddress(componentId, track.id);
+  return `
+    <article class="parameter-animation-track is-event-track ${track.enabled ? "is-enabled" : ""}"
+      data-animation-track-id="${esc(track.id)}"
+      data-animation-track-kind="event"
+      data-animation-trigger-address="${esc(triggerAddress)}">
+      <header>
+        <button type="button" class="animation-track-enable ${track.enabled ? "is-selected" : ""}" data-toggle-parameter-animation aria-pressed="${track.enabled}" title="${track.enabled ? "Disable" : "Enable"} ${esc(label)} automation">
+          ${icon(track.enabled ? "bolt" : "motion_photos_off")}
+        </button>
+        <strong>${esc(label)}</strong>
+        <button type="button" class="animation-track-remove" data-remove-parameter-animation title="Remove ${esc(label)} automation" aria-label="Remove ${esc(label)} automation">${icon("close")}</button>
+      </header>
+      <label class="field">
+        <span>Event</span>
+        <select class="param-select" data-animation-target-parameter>
+          ${eventTargets.map((target) => `
+            <option value="${esc(target.id)}" ${target.id === track.parameterId ? "selected" : ""}>
+              ${esc(target.label || target.id)}
+            </option>
+          `).join("")}
+        </select>
+      </label>
+      ${animationTriggerTemplate(track, triggerSources)}
     </article>
   `;
 }

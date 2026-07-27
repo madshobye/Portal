@@ -13,11 +13,16 @@ import {
   parseIsfDocument,
 } from "../js/libraries/isf-engine/index.js";
 import { getEffectNodeComponent } from "../js/libraries/visual-nodes/catalog.js";
+import {
+  defaultParamValues,
+  normalizeParamValues,
+} from "../js/libraries/visual-nodes/shared/component-schema.js";
 import { mapperTransitionFragmentShaderSource } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 import { serializeNodeProjectData } from "../js/libraries/node-engine/node-project.js";
 import { createProjectNodeFork } from "../js/libraries/node-engine/node-editor.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/project-visual-node-resolver.js";
 import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
+import { compileShaderSchedule } from "../js/graph/shader-scheduler.js";
 
 const FILTER = `/*{
   "ISFVSN": "2.0",
@@ -55,6 +60,36 @@ test("ISF parser validates metadata and identifies filters", () => {
   assert.equal(document.inputs.length, 3);
   assert.equal(document.passes.length, 1);
   assert.equal(document.roiSafe, true);
+});
+
+test("ISF imported images become validated sampler contracts", () => {
+  const source = `/*{
+    "ISFVSN": "2",
+    "IMPORTED": { "noiseTex": { "PATH": "textures/noise.png" } }
+  }*/
+  void main() {
+    gl_FragColor = IMG_NORM_PIXEL(noiseTex, isf_FragNormCoord);
+  }`;
+  const document = parseIsfDocument(source, {
+    path: "shaders/imported.fs",
+  });
+  const compiled = compileIsfFragmentSource(document);
+
+  assert.deepEqual(document.imported, [{
+    name: "noiseTex",
+    path: "textures/noise.png",
+  }]);
+  assert.match(compiled, /uniform sampler2D noiseTex;/);
+  assert.match(compiled, /uniform vec2 noiseTex_imgSize;/);
+  assert.match(compiled, /uniform bool noiseTex_flipY;/);
+  assert.match(compiled, /VJ1_IMG_NORM_PIXEL_noiseTex/);
+  assert.throws(
+    () => parseIsfDocument(
+      source.replace("textures/noise.png", "../noise.png"),
+      { path: "shaders/unsafe.fs" },
+    ),
+    /VJ1_ISF_IMPORTED_PATH_INVALID/,
+  );
 });
 
 test("single-pass ISF transitions compile into the mapper transition kernel contract", () => {
@@ -130,6 +165,30 @@ test("audio and FFT inputs materialize as host resources without graph texture i
   assert.equal(components[0].isf.dynamic, true);
   assert.match(components[0].code, /uniform sampler2D waveform;/);
   assert.match(components[0].code, /uniform sampler2D spectrum;/);
+});
+
+test("ISF event inputs materialize as transient event parameters", () => {
+  const component = createIsfVisualComponent({
+    path: "shaders/event.fs",
+    source: `/*{
+      "ISFVSN": "2.0",
+      "INPUTS": [{ "NAME": "restart", "LABEL": "Restart", "TYPE": "event" }]
+    }*/
+    void main() { gl_FragColor = restart ? vec4(1.0) : vec4(0.0); }`,
+  });
+  const restart = component.params.find((param) => param.id === "restart");
+  assert.equal(restart.type, "event");
+  assert.equal(restart.isfUniformType, "event");
+  assert.equal("restart" in defaultParamValues(component), false);
+  assert.equal(normalizeParamValues(component, { restart: 7 }).restart, 7);
+  assert.equal(compileShaderSchedule([{
+    id: component.id,
+    instanceId: "event-instance",
+    params: { restart: 7, renderQuality: 0.5 },
+  }], {
+    getEffectComponent: () => component,
+  })[0].pass.params.restart, 7);
+  assert.equal(component.runtime.cacheable, false);
 });
 
 test("named multi-image ISF files materialize as executable visual graph nodes", () => {

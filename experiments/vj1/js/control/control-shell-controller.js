@@ -276,6 +276,16 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       embeddedPreview?.command(CONTROL_SIGNAL_COMMAND, payload);
       bridge.command(CONTROL_SIGNAL_COMMAND, payload);
     },
+    triggerIsfEvent({ target, parameterId }) {
+      if (!target || !parameterId) return;
+      const payload = {
+        type: "isf-event",
+        target,
+        payload: { parameterId },
+      };
+      embeddedPreview?.command("schedule", payload);
+      bridge.command("schedule", payload);
+    },
   });
   embeddedPreview = createEmbeddedPreviewApp({
     store,

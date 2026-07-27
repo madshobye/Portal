@@ -1424,16 +1424,21 @@ export class SourceRenderRuntime {
       ...(source.params || {}),
       ...(owner.params || {}),
     });
-    return (
-      component.runtime?.externalKey?.(params, runtimeContext) ?? null
-    );
+    const external = [
+      component.runtime?.externalKey?.(params, runtimeContext) ?? null,
+      host.isfRuntime?.importedResourceRevision?.(component) ?? null,
+    ].filter((value) => value !== null);
+    return external.length ? external : null;
   }
 
   sourceUsesExternalRevision(source = {}, operation = null) {
     if (sourceOperationUsesExternalRevision(operation)) return true;
     if (source?.type !== "generator") return false;
-    return this.host.visualNodeRuntime.generator(source.generatorId)
-      ?.runtime?.externalRevisionDependent === true;
+    const component = this.host.visualNodeRuntime.generator(
+      source.generatorId,
+    );
+    return component?.runtime?.externalRevisionDependent === true ||
+      (component?.isf?.imported?.length || 0) > 0;
   }
 
   prune() {

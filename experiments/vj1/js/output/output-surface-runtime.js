@@ -98,6 +98,12 @@ export class OutputSurfaceRuntime {
   }
 
   renderSurfaces() {
+    // componentOutput is a per-presentation-frame sharing map. Component view
+    // already clears it before rendering; Live routes must do the same or a
+    // frame-dynamic Component is evaluated once and then reused forever.
+    // Clearing once here still lets every Surface in this frame share the
+    // retained result.
+    this.renderer.resourceRuntime.componentOutput.clear();
     const transitions = this.currentLiveTransitions();
     if (transitions.length > 1) return this.renderConcurrentTransitionSurfaces(transitions);
     if (transitions[0]) return this.renderTransitionSurfaces(transitions[0]);

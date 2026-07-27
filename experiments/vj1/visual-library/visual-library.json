@@ -1,7 +1,15 @@
 {
   "formatVersion": 1,
   "id": "vj1.built-in.visuals",
-  "version": "1.7.0",
+  "version": "1.9.0",
+  "resources": {
+    "vidvox/cursor.png": {
+      "mediaType": "image/png",
+      "encoding": "base64",
+      "sha256": "2dfcb704d42098c84da42dd8affd5e7c22c80de2a5f9753ef061b2ee870db7d7",
+      "data": "iVBORw0KGgoAAAANSUhEUgAAAEAAAABpCAYAAACKyiUgAAAEsmlUWHRYTUw6Y29tLmFkb2JlLnhtcAAAAAAAPD94cGFja2V0IGJlZ2luPSLvu78iIGlkPSJXNU0wTXBDZWhpSHpyZVN6TlRjemtjOWQiPz4KPHg6eG1wbWV0YSB4bWxuczp4PSJhZG9iZTpuczptZXRhLyIgeDp4bXB0az0iWE1QIENvcmUgNS41LjAiPgogPHJkZjpSREYgeG1sbnM6cmRmPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5LzAyLzIyLXJkZi1zeW50YXgtbnMjIj4KICA8cmRmOkRlc2NyaXB0aW9uIHJkZjphYm91dD0iIgogICAgeG1sbnM6ZXhpZj0iaHR0cDovL25zLmFkb2JlLmNvbS9leGlmLzEuMC8iCiAgICB4bWxuczp0aWZmPSJodHRwOi8vbnMuYWRvYmUuY29tL3RpZmYvMS4wLyIKICAgIHhtbG5zOnBob3Rvc2hvcD0iaHR0cDovL25zLmFkb2JlLmNvbS9waG90b3Nob3AvMS4wLyIKICAgIHhtbG5zOnhtcD0iaHR0cDovL25zLmFkb2JlLmNvbS94YXAvMS4wLyIKICAgIHhtbG5zOnhtcE1NPSJodHRwOi8vbnMuYWRvYmUuY29tL3hhcC8xLjAvbW0vIgogICAgeG1sbnM6c3RFdnQ9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC9zVHlwZS9SZXNvdXJjZUV2ZW50IyIKICAgZXhpZjpQaXhlbFhEaW1lbnNpb249IjY0IgogICBleGlmOlBpeGVsWURpbWVuc2lvbj0iMTA1IgogICBleGlmOkNvbG9yU3BhY2U9IjEiCiAgIHRpZmY6SW1hZ2VXaWR0aD0iNjQiCiAgIHRpZmY6SW1hZ2VMZW5ndGg9IjEwNSIKICAgdGlmZjpSZXNvbHV0aW9uVW5pdD0iMiIKICAgdGlmZjpYUmVzb2x1dGlvbj0iNzIvMSIKICAgdGlmZjpZUmVzb2x1dGlvbj0iNzIvMSIKICAgcGhvdG9zaG9wOkNvbG9yTW9kZT0iMyIKICAgcGhvdG9zaG9wOklDQ1Byb2ZpbGU9InNSR0IgSUVDNjE5NjYtMi4xIgogICB4bXA6TW9kaWZ5RGF0ZT0iMjAyNC0wNy0xNlQyMjoxNTo0OC0wNDowMCIKICAgeG1wOk1ldGFkYXRhRGF0ZT0iMjAyNC0wNy0xNlQyMjoxNTo0OC0wNDowMCI+CiAgIDx4bXBNTTpIaXN0b3J5PgogICAgPHJkZjpTZXE+CiAgICAgPHJkZjpsaQogICAgICBzdEV2dDphY3Rpb249InByb2R1Y2VkIgogICAgICBzdEV2dDpzb2Z0d2FyZUFnZW50PSJBZmZpbml0eSBQaG90byAxLjEwLjgiCiAgICAgIHN0RXZ0OndoZW49IjIwMjQtMDctMTZUMjI6MTU6NDgtMDQ6MDAiLz4KICAgIDwvcmRmOlNlcT4KICAgPC94bXBNTTpIaXN0b3J5PgogIDwvcmRmOkRlc2NyaXB0aW9uPgogPC9yZGY6UkRGPgo8L3g6eG1wbWV0YT4KPD94cGFja2V0IGVuZD0iciI/Pp9wIeoAAAGAaUNDUHNSR0IgSUVDNjE5NjYtMi4xAAAokXWR3yuDURjHP8aasEZcuHCxNK5MQy1ulEmoJc2U4WZ790vtx9v7bmm5VW4VJW78uuAv4Fa5VopIyfWuiRvW63m31ZbsOT3n+ZzvOc/TOc8BSzClpPUWD6QzOS0w63OuhFadtiI2urBgxxpWdHVqcdFPQ/t6osmMD26zVuNz/1p7NKYr0NQqPKmoWk54Tti/mVNN3hfuUZLhqPCl8JAmFxR+NPVIhYsmJyr8Y7IWDEyDpVPYmajjSB0rSS0tLC/HlU7llep9zJd0xDLLSxL7xfvQCTCLDyfzzDCNlxEmZPbiZpRhWdEg31POXyAruYrMKgU0NkiQJMeQqHmpHpMYFz0mI0XB7P/fvurxsdFK9Q4fWN8M42MAbHtQ2jWM71PDKJ1B8yvcZGr52RMY/xR9t6a5jsGxDVe3NS1yANc70PuihrVwWWoWt8Tj8H4B9hB030PbWqVn1X3OnyG4JV91B4dHMCjnHeu/3Tlnp6nfA/sAAAAJcEhZcwAACxMAAAsTAQCanBgAABOGSURBVHic5VxpdFTVlv7uTQ0kgSogCQgog68JSTA8Ag0aBEWmBnlJBBawGAK0Ln2ylIc2wgoCja2ovLYljxUbFAEhQOgwDwqohIUYEFBCTCWKYQgEhRCoVFLUeKfTP25d6k4JlZHh7bXOqmTfe889+zv7nLP3PvtceDyePwGgVOWfhwRBsFVXV/8ZQFig0PhnAkIQhFJCiPfChQsJVqvVDMAAJRAPN/E8f4GIxFy/fj0NQCsARohAPPwgsCx7kQSJs9vtbwCIBCBpw8MNAsMwcgAIIUSoqan5O4DW0ILw8AHhcrnOEh26ffv254888ogF4pB4eEFwOp0/6wFACCFer/dQcnJyewTnhTA8bCBUV1fbagOAEEIYhimaNm1aDIBwPIwgVFVVFdcFACGEsCxbMH369A54GEGoqKg4LRd28+bNxOv16mlCwfLly7viYQPh2rVrJ+WCvvzyy2T48OGkpqZGTxPOZmdn98TDBIIeAADIk08+Sex2uwYEjuPOf/HFF7F4WECoDQAApEePHrogCILgzMnJiQMQgQccBNrr9dbIGR06dLjzd1lZGTp27Ai73a54iKKoNlOmTLHt2bPncQQBeCDtBJqi6m4vx3GIj4/H+fPn1ZcMqamp+fn5+X9G0IF64FxqOpSbbt68ieHDh6O4uFjBpyjKmpycvLekpGQotEPhgQCBpiiKyBm1acTVq1cxcuRI/Pjjj8oKaDomLi5u0y+//DIUDyAItMfjccoZMTExtd5cUVGBMWPG4NSpU8pKaLp9XFzc9qKioiFGo9EEcUg8ECCENATkZLfbMWTIEBQVFSn4FEWFJyYmHiwqKhphsVgemImx3gAAAMuy6Nu3L7777jvNtbi4uF2FhYUpAEx4AECgeZ7n5Izw8PCQHiSEYPTo0dizZ4/6EtWjR48vKisr/wr9JfK+AoL2+XweOaNNmzYhP+zz+TBlyhSsXbtWfckcExPzwc2bN1+HFgTgPgKhQUNATj6fD3PmzNEDwRQdHf2e3W6f/+ijj9634TUNAHczjPTI5/Ph1Vdfxfr16yEIgvySoX379ovPnDkze9iwYeG4HyNLeXl5H8vt/Ly8vDu+QENKVlYW4ThO4z/Y7fYPBwwY0BbaENu9paYGAAB5//33NQAQQkhNTc0nANrgPgLhrr5AQ2jJkiWYO3euhm+xWF5zu92fQrvvcM+GBM2yLCtnWCyWRlcqCAKysrLw2muvaa5FRERM8Xg8axEEQTKdgXsAAs0wjAKAVq1aNUnFhBCsXr0a6enp4DiFqUGFh4dP8nq9OTNmzLAguCd5b0D48ssv35WPU5vN1ug5QF1mzZpFPB6PZk7weDxfLl26tAuC0aWWXyH279//X/JGlZSUNDkAAMjzzz9P/H6/BgSfz3dsypQp8rB7y4KwdevWDHmDbty40SwAACCjR4/WXR1Ylj0bGxvb7l6A0GhLsD506NAhDBkyRG0swWAw9C0uLj4SGxsrGUstNie0KAAAkJ+fjyFDhsDv9yv4RqOxb0lJyfeLFy+OgjJHAWhOENasWfOGXB15nm+2ISAvsbGxuhFnnuevbNmyRQq7Sy518w2H1atX/03diJYAQALh+vXreiBcO3jwYB+0QNi9xYeAnEpLS9GvXz/cunVLwadputOoUaPy1q1b9yiUgRWgiUGg3W63X81sCmswVLp+/Tr69++PqqoqZcNoOnrWrFkntm7d2h3KmALQhCDQDMPwGibdsopRXl6OPn364Nq1a+p2RE2aNOloc4JAQxyP95z++OMPJCUl4cKFCwo+TdPRkydP/uHUqVMD0Awg0H6/n1MzzWZzY+ttEFVWVuKJJ57A2bNnFXyKotoMGDDg68LCwqfRxCDQTqdTMwc0lUPUEPL7/UhOTsaZM2cUfIqiTH369NlfUlLyHJoQhGaJBzSW/H4/Bg4ciJMnTyr4FEWZEhIS9hYXFw9FE23K0oIgaOYAo9HYkLqalARBwIgRI/DDDz+oL9EJCQk7zp07Nwr6ew/1AoK+du2aV82MjIxsWKubmNxuN0aOHImvvvpKwacoqlWvXr3+78qVK+OhBQGoBwj3zSpQG7ndbqSlpWH//v3qS6auXbtuvHLlyiQ0Yu+B5jhOA0BYWFgjmtz0xPM8UlNTkZOTo7nWtWvXdRUVFa+goSD069dvhNoWf/bZZ1vMH6hv2bBhg25M4caNG29BjDjXK733nvoCDaFZs2ZhzZo1Gn6HDh0+qqysnEtRVP3mhAdNAwAQg8FA3nvvPT1F4Kqrq/9hNpv19h70QTCbzYPUtaSkpNxzIUMB4cMPPySCIGi8aYfD8d9WqzXkRO9kdQ2pqan3XMBQy9KlSwnP8xpVqKqq+qBdu3YhgfDUgwxAXSDU1NSsTEhI0NuPVIDwlN/vd8gfnDFjxj0Xqr4lIyNDbzgQp9O5KiIiQk8T7tCTPp/P/qADAIBMnz5dAwAhhNjt9g+gv0Te/5ZgfSgnJweTJ0/WhN3bt28//+LFixOg40DRAMCyrEv+wP3iC9yNoqOj0bFjR8THx2PAgAF45plnwPM8Dhw4oL7V8Pjjj6+32WwjoQqyGgCA53lGcbfB0KwNt1gsmDZtGgAxJyksLAxt27YFTdOwWq2IiIiA2WyGxWKByWSCxWJBZGQkTCYTrFYrzGZzQzqJ6t2795bTp0+nDhw48CREzecBYGB1dfV5+ZiZM2dOs45Vs9lMbt26pTtem5t4nr914MCB/hCPBppoAOB5XhEVau6QmN/vR3p6Oghp+emHpumoUaNG7cjIyGgPIIwGQBiGUcwBoeYKNoa+/vprVFRUNPt7OI5jXC6X3ePx3HQ4HL/U1NSc9fl81+fNm/c6gGYe7HWQIAhYsWIFPvroIwXfZrPtczgcVS6Xy+10Ol0ul8tXXl7u4DhO8Pv9gtfr5RiGIW63W3C5XALDMLTD4SBerzfM7XYbHA4HBcBYU1MjEFHFWABeAC4ATgA1geICEGYINEYRGW5oSKxnz55o27atJqO8Nlq5ciXeeOMNdOnS5Q4vOjq6R9++fTcL4lomnzskknt4FMQlTcoyMQQKi+ASz0Gc7IjqfhoATQMgXq9XkTHekGUwOTkZNpsN2dnZMJlMIT3Dsixyc3MVvE6dOiWOHTu2G0SjRZ5HpBcFlmZyDgADwAfAA7F3bwd+3RA1wB+4hwcgGQpUk8QDhg0bhvz8fJjNZsTFxWHo0KEhP7ts2TK43W4Fb+HChaMCfwoQhWMhCiAVr6q4oVXxagCOwK+k8h6IILGBegVJTRSmU31C5WPGjEFeXp5iO23BggUh1+FwOLB+/XoFLzk5eeSYMWOs0PaoU1bkgspLFQC7rFQhCIQaBJ4GAJfL5ZA3wGq1htT4mTNnYt++fRr+sGHDMHjw4JDqAIBVq1ZpeIsWLRoEsWdvQymoA0GB5L9VqmKX/ToCdTgDdfogDge2wb7A3Llz8emnn+pajRRF6SZK1kbnzp3D5s2bFbyBAwemxcfHA0EQnAiqc43sb7UG1KiKM/D87UBdHgTnAw4A+hUWFm6SW0vr1q2r1YqjKIrMnTuXsCxbp8Xl8/lIbGxsyNZhUlKSpg6bzfa/AHoBeAxARwBRANoCsAKwBEqbQGmtKpGqEgEx66QVxL0EySdA0vHjx1fLX7xt2zbdRtI0TRYuXKgr8MWLF0+reTt27AgZAIqiyKlTp9QgXmnXrl0vAJ0AtAsIFg5xhTAHBJEXYx1FWiLlKwoNAElHjhz5h/zFu3bt0jTQYDCQJUuWaAQXBEE4ffr01wDSz5w5c1R+zel0ksjIyJBB6N27tyayU1RUtCQAQFsE0+jkgqgFulvRfDLorgBQFEU++eQTvY4Xjh07th/ALAAvA3iZZVmf/IZNmzaFDIDBYCA3btxQvMDv95cFhkB76OcM1adoiAYATpXMq7YEt2zZgtmzZ2se3r17d/bw4cN3IHhMji4vL1ccMR03bhxat26t924NcRyHtLQ0Bc9kMnXbvn27lByhl15fH09Ul5Jyc3P/U476kSNH7vTI7t27NbE2QRCEnJyc1eHh4dMBzICoAS8CeGnQoEH/wXGcYobMyMiol7v822+/Kd7HsmxFbGxsd4jzgPrkSaOoVkswPDwc69atwwsvvKAwagRB4Hbs2LEmPT39O6/Xy0FcUnwQLTLfiRMnbl6+fNkmr+udd95BVFRUyI3KzMxU/G8wGDosXrw4HtoEykaTbkWRkZHYsGEDZsyYoeDzPO/Pzc1dM2nSpCOB43Z+iOuq3O72ffbZZ3sICTr7ZrMZKSkpITdqzZo1uHTpkpxFjR8//r3OnTu3gmoGbwpKyszMnKM3w8mJ4zhm48aNWQAmAhgPIAXAKABDAQwB8AyA4QD+AmBCeXm54vM8lZWVJDw8PORhsGjRIk0btm/f/hcAMRDX9drmhHoRDYDobZHLiRAifPzxxx/PnDkzH6I35YfSTJUsLsnW9u/cuVOR1RATE4OJEyeG3LAVK1bA5VLEafDcc8+9SNO03kmTBlNIajR//vxlGRkZP0M0HSXhJe9LMjOlIeAB4H/77bfPOByOcnk9b731VsgN83q9WL58uYIXFRWVtnbt2gQ04UcbaABSgrSGeJ7nlixZ8j8rVqw4TwjhIE52bgR7Xy60VLwAfF6v15+dnb1JXl9iYiImTJgQcuOys7PVMX567NixM6F/3qhBRAOAz+dj1Rd4nuc+//zzLcuWLSshhLAICi8PNkgCewPX/bJfZuXKlTaGYRTOfn2cpKtXr2LlypUKXnR09Lh58+Z1RnApbFyWGERLT8EUBIHftm3b3tmzZ+dD9JqkmJpc3eVCs4H7JAB8APxlZWWujRs3rpbX/fTTT6N///4hNzArK0vZYJqOnD9//t/QRJ/8owFA/hUJQgjZtWvXvqlTp34DZUBCXqSgguRSSkUOhB8A8+677/7IsuwdLaBpWtf/r43KysqQl5en4EVFRT0fHx8fCe3HH+sNBA2AyDPG9+7du2vixIlfBYSUxrrU61LPq+NrUlGHr5jff//dnZ+fv1f+0qSkpHqF3seNGwf58UaDwRB96NAhSQsa9fVLGoAQFhZGAOD777/fPX369H1QjnVpppcLz0IpvBRW46HVAjYlJWWXz+erll5qNBrx7bffhtxIl8ul+YBLly5dpnfr1k1yjhqeKAmANxqNXGlp6cGUlJRNbrdbElZPeEYlvDR0JANGitBKWuADwLjdbn9paelp+YuTk5PRuXPnkBpJCEF6ejp4PpjZHxYW1m7nzp2paIK5oGd8fHwyRGtuOIAREK26fwUQD9EVjYIYjKjtDI883t4Kou/eJfB8MoB/S0pKSmcYRnF6MjMzs15O0okTJxSWIc/z7rS0tF5opJPUHUBvAP0BPAlgIIC+EENRj8qEv9tHEKgAAMbA/TEAHgeQBNFcTrHZbN+ozdvHHnssZABSU1M1numxY8deBNABYlhM3kEhEY3gMicf93WN+dp8a3lj1XMBA4DNzMzcTwhRWDbSNnkotG/fPhQUFCh4Tz311Ls9e/aMgPYMcsgUDaAzgK4AukFU+UcgRmCkng91ppW0wBR4tgOAPwHoB+A5ACnnzp07Ju9Bv99PIiIiQtaC9PR0jZN0/Pjxf4eocdIwDXkYSBogrffS0idf6jjU3ut6pF4R5Ds67MaNGxVOkslk0j1mXxvl5uairKxMwUtKSnoTouANiheEQ3Qv5eFk6dBiQ775IdeCNhDD2f8CcY4ZZjab0yoqKn6R9+DFixcJTdMha4FeMlRBQcHraKAWGAMPyEPNjfG2pBXBADGI2R7isHoCwGAAY9588835agFeeeWVkAGwWq2kurpa8bzP5yvt1KlTV4grkJQSF1Lb1VvLTeFmSlpghqgFjwDoCXFpHREVFTXe6/UqchOLi4vrFNpsNpPExETy0ksvkcOHD2s0gBBCLl++/CGUWhDSpCj1mF7cvKGkpwVdASRCtDeeX7x48SJCiGJNGzx4sCIUb7VaSXx8PFm1apXutwfUxHHczV69enWDUgtCGgpNIbRenZIWWCBqQSxEO2Ok0Wh8we12KxI0L126RGiaJlOnTiUlJSXE7/frZn/WRXa7PQfiyiaFzerUAmlnM9QZvr4krQhq89jMsqzp4MGD2ydMmPBX6ebu3bvD7XbX69ie0+msLCwszD98+PDRX3/99cLBgwcvoh4OUnOfmZOGghGiJkRA1AYrAGurVq3a3Lp169PIyMjaP2KoIq/XW22z2X46evTob998883vR48evcHzvAfKneIaBF12udOmoZZIktJzkvwAGJ/Px/z888/5gwYNGlfbw4IgcHa7vfTChQslO3fuLMjKyipnGObOzi5k2R7Q2itqf0Wj6S1xalKaCwwQtSASoha0BWBNSEjoUFhY+JnRaLwTIPB4PFUOh+P3kydPfr9gwYJjly5dYqDdCAVEodURKyk6LRlzdZrwLQWA3DgKh7g0WgPFcuLEiZcSExMHFxQUnJw3b95XP/30UzWUsQZ5W4nsmuRvSJasFLCVJ0GoXXdN41qCpCVW0oLWkIEQERFh4TjOzDCMvGd5BBvPq3h6Ibg723MIOnDyFDldAFoqUVLuJUobK5IFavR4PHSAL21LS8JyOoVFUDhG9isFaxgo54U6qaUBIFBOhh4EJzMOQfNV7kyphZX+l/8tB0uuOXfdGv9/dhc7248vcyUAAAAASUVORK5CYII="
+    }
+  },
   "artifacts": [
     {
       "id": "vj1.visual.generator.black",
@@ -1296,6 +1304,124 @@
       ],
       "attribution": {
         "credit": "icalvin102 (calvin@icalvin.de)",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-shockwave-pulse-15dp72",
+      "visualId": "isf-shaders-isf-effects-shockwave-pulse-15dp72",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-shockwave-pulse-15dp72",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Shockwave Pulse",
+      "description": "Triggers a radial distortion pulse from a configurable center point",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/shockwave-pulse.fs",
+      "categories": [
+        "ISF",
+        "Distortion Effect"
+      ],
+      "tags": [
+        "isf",
+        "event",
+        "shockwave",
+        "effect",
+        "isf-event"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-fft-spectrogram-1kyu3hl",
+      "visualId": "isf-shaders-isf-generators-fft-spectrogram-1kyu3hl",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-fft-spectrogram-1kyu3hl",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "FFT Spectrogram",
+      "description": "Buffers incoming FFT data into a scrolling spectrogram",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/fft-spectrogram.fs",
+      "categories": [
+        "ISF",
+        "Audio Visualizer"
+      ],
+      "tags": [
+        "isf",
+        "audio",
+        "fft",
+        "event",
+        "generator",
+        "isf-event"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-cursor-2mxmij",
+      "visualId": "isf-shaders-isf-generators-cursor-2mxmij",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-cursor-2mxmij",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Cursor",
+      "description": "Draws a cursor.",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/cursor.fs",
+      "importedResources": {
+        "cursor.png": "vidvox/cursor.png"
+      },
+      "categories": [
+        "ISF",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "imported-image",
+        "cursor",
+        "generator"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-cursor-overlay-sfr8t2",
+      "visualId": "isf-shaders-isf-effects-cursor-overlay-sfr8t2",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-cursor-overlay-sfr8t2",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Cursor Overlay",
+      "description": "Draws a cursor on top of the input image.",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/cursor-overlay.fs",
+      "importedResources": {
+        "cursor.png": "vidvox/cursor.png"
+      },
+      "categories": [
+        "ISF",
+        "Overlay",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "imported-image",
+        "cursor",
+        "effect"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"

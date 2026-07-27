@@ -217,6 +217,65 @@ export function addParameterAnimationTrack(nodes = {}, {
   });
 }
 
+export function addParameterEventTrack(nodes = {}, {
+  componentId = "",
+  targetNodeId = "",
+  parameterId = "",
+  enabled = true,
+  triggerKind = "manual",
+  triggerAddress = "",
+  triggerThreshold = 0.5,
+  triggerInterval = 1,
+  randomRate = 30,
+} = {}) {
+  return updateAnimationScope(nodes, componentId, targetNodeId, (scope) => {
+    const target = targetParameterEndpoint(targetNodeId, parameterId);
+    if (scope.nodes.some((node) =>
+      isAnimationTrackNode(node) &&
+      String(node.animationTrack?.targetNodeId || "") === String(targetNodeId) &&
+      String(node.animationTrack?.parameterId || "") === String(parameterId)
+    )) {
+      throw new Error(
+        `PARAMETER_ANIMATION_EXISTS:${componentId}:${targetNodeId}:${parameterId}`,
+      );
+    }
+    const id = uniqueNodeId(
+      scope.nodes,
+      `animation:${nodeIdToken(targetNodeId)}:${nodeIdToken(parameterId)}`,
+    );
+    const configuration = normalizedEventTrackConfiguration({
+      id,
+      targetNodeId,
+      parameterId,
+      enabled,
+      triggerKind,
+      triggerAddress,
+      triggerThreshold,
+      triggerInterval,
+      randomRate,
+    });
+    const needsTime = ["periodic", "random"].includes(configuration.triggerKind);
+    const timeNode = needsTime
+      ? scope.nodes.find(isAnimationTimeNode) ||
+        createAnimationTimeNode(uniqueNodeId(scope.nodes, TIME_NODE_ID))
+      : null;
+    const fragment = createEventAnimationTrackFragment({
+      componentId,
+      ...configuration,
+      target,
+      timeNodeId: timeNode?.id || "",
+    });
+    const nodesWithTime = timeNode && !scope.nodes.includes(timeNode)
+      ? [...scope.nodes, timeNode]
+      : scope.nodes;
+    scope.nodes = [...nodesWithTime, ...fragment.nodes];
+    scope.connections = [
+      ...scope.connections.filter((edge) => String(edge.to || "") !== target),
+      ...fragment.connections,
+    ];
+  });
+}
+
 export function initializeDefaultParameterAnimations(group = {}, {
   definitions = new Map(),
 } = {}) {
@@ -390,6 +449,15 @@ export function updateParameterAnimationTrack(nodes = {}, {
     if (index < 0) throw new Error(`PARAMETER_ANIMATION_MISSING:${componentId}:${trackId}`);
     const current = scope.nodes[index];
     const projected = animationTrackProjection(current, scope.nodes, scope.connections);
+    if (projected.kind === "event") {
+      updateEventTrackInScope(scope, {
+        componentId,
+        current,
+        projected,
+        patch,
+      });
+      return;
+    }
     const {
       baseValue: requestedBaseValue,
       targetRange: requestedTargetRange,
@@ -522,6 +590,19 @@ export function removeParameterAnimationTrack(nodes = {}, {
       track.animationTrack.targetNodeId,
       track.animationTrack.parameterId,
     );
+    if (track.animationTrack.kind === "event") {
+      const ownerIds = animationTrackNodeIds(scope.nodes, track);
+      scope.nodes = scope.nodes.filter((node) =>
+        !ownerIds.has(String(node.id || ""))
+      );
+      scope.connections = scope.connections.filter((edge) =>
+        !ownerIds.has(endpointNodeId(edge.from)) &&
+        !ownerIds.has(endpointNodeId(edge.to)) &&
+        String(edge.to || "") !== target
+      );
+      removeUnusedAnimationTimeNode(scope);
+      return;
+    }
     const baseControl = generatedParameterControl(
       scope.nodes,
       track.animationTrack.targetNodeId,
@@ -1240,11 +1321,222 @@ function appendAnimationTriggerFragment({
   }
 }
 
+function createEventAnimationTrackFragment({
+  componentId,
+  id,
+  targetNodeId,
+  parameterId,
+  enabled,
+  triggerKind,
+  triggerAddress,
+  triggerThreshold,
+  triggerInterval,
+  randomRate,
+  target,
+  timeNodeId,
+}) {
+  const nodes = [];
+  const connections = [];
+  const owned = {
+    authoredBy: PARAMETER_ANIMATION_AUTHOR,
+    animationTrackOwnerId: id,
+    animationTrackRole: "event-source",
+    animationTrackStage: "source",
+  };
+  const animationTrack = {
+    feature: PARAMETER_ANIMATION_FEATURE,
+    kind: "event",
+    id,
+    targetNodeId,
+    parameterId,
+    enabled,
+    triggerKind,
+    triggerAddress,
+    triggerThreshold,
+    triggerInterval,
+    randomRate,
+  };
+  let eventEndpoint = "";
+  if (triggerKind === "periodic") {
+    nodes.push({
+      id,
+      nodeId: ANIMATION_PERIODIC_TRIGGER_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: { interval: triggerInterval, phase: 0 },
+      ...owned,
+      animationTrack,
+    });
+    connections.push(
+      animationConnection(`${timeNodeId}.time`, `${id}.time`, "number"),
+    );
+    eventEndpoint = `${id}.event`;
+  } else if (triggerKind === "random") {
+    nodes.push({
+      id,
+      nodeId: ANIMATION_RANDOM_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: {
+        ratePerMinute: randomRate,
+        seed: stableAnimationSeed(componentId, id),
+      },
+      ...owned,
+      animationTrack,
+    });
+    connections.push(
+      animationConnection(`${timeNodeId}.time`, `${id}.time`, "number"),
+    );
+    eventEndpoint = `${id}.event`;
+  } else if (triggerKind === "probe") {
+    const sourceId = `${id}:source`;
+    nodes.push({
+      id: sourceId,
+      nodeId: PROBE_INPUT_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: {
+        kind: "probe",
+        address: triggerAddress,
+        fallback: 0,
+      },
+      ...owned,
+    }, {
+      id,
+      nodeId: ANIMATION_EVENT_TRIGGER_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: { threshold: triggerThreshold },
+      ...owned,
+      animationTrack,
+    });
+    connections.push(
+      animationConnection(`${sourceId}.number`, `${id}.value`, "number"),
+    );
+    eventEndpoint = `${id}.event`;
+  } else if (triggerKind === "pointer" || triggerKind === "audio") {
+    nodes.push({
+      id,
+      nodeId: liveSignalNodeId(triggerKind),
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: {
+        kind: triggerKind,
+        address: triggerAddress,
+        fallback: 0,
+      },
+      ...owned,
+      animationTrack,
+    });
+    eventEndpoint = `${id}.event`;
+  } else {
+    nodes.push({
+      id,
+      nodeId: HOST_INPUT_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: {
+        kind: "control",
+        address: parameterAnimationTriggerAddress(componentId, id),
+        fallback: 0,
+      },
+      ...owned,
+      animationTrack,
+    });
+    eventEndpoint = `${id}.event`;
+  }
+  if (enabled) {
+    connections.push({
+      from: eventEndpoint,
+      to: target,
+      type: "event",
+      semantic: PARAMETER_ANIMATION_FEATURE,
+      animationStage: "sink",
+    });
+  }
+  return { nodes, connections };
+}
+
+function updateEventTrackInScope(scope, {
+  componentId,
+  current,
+  projected,
+  patch,
+}) {
+  const currentTargetNodeId = String(current.animationTrack.targetNodeId || "");
+  const currentParameterId = String(current.animationTrack.parameterId || "");
+  const nextParameterId = String(patch.parameterId || currentParameterId);
+  if (nextParameterId !== currentParameterId && scope.nodes.some((node) =>
+    isAnimationTrackNode(node) &&
+    String(node.animationTrack?.id || "") !== String(projected.id || "") &&
+    String(node.animationTrack?.targetNodeId || "") === currentTargetNodeId &&
+    String(node.animationTrack?.parameterId || "") === nextParameterId
+  )) {
+    throw new Error(
+      `PARAMETER_ANIMATION_EXISTS:${componentId}:${currentTargetNodeId}:${nextParameterId}`,
+    );
+  }
+  const currentTarget = targetParameterEndpoint(
+    currentTargetNodeId,
+    currentParameterId,
+  );
+  const nextTarget = targetParameterEndpoint(
+    currentTargetNodeId,
+    nextParameterId,
+  );
+  const next = normalizedEventTrackConfiguration({
+    ...projected,
+    ...patch,
+    id: projected.id,
+    targetNodeId: currentTargetNodeId,
+    parameterId: nextParameterId,
+  });
+  const ownerIds = animationTrackNodeIds(scope.nodes, current);
+  const retainedNodes = scope.nodes.filter((node) =>
+    !ownerIds.has(String(node.id || ""))
+  );
+  const needsTime = ["periodic", "random"].includes(next.triggerKind);
+  const timeNode = needsTime
+    ? retainedNodes.find(isAnimationTimeNode) ||
+      createAnimationTimeNode(uniqueNodeId(retainedNodes, TIME_NODE_ID))
+    : null;
+  const nodesWithTime = timeNode && !retainedNodes.includes(timeNode)
+    ? [...retainedNodes, timeNode]
+    : retainedNodes;
+  const fragment = createEventAnimationTrackFragment({
+    componentId,
+    ...next,
+    target: nextTarget,
+    timeNodeId: timeNode?.id || "",
+  });
+  scope.nodes = [...nodesWithTime, ...fragment.nodes];
+  scope.connections = [
+    ...scope.connections.filter((edge) =>
+      !ownerIds.has(endpointNodeId(edge.from)) &&
+      !ownerIds.has(endpointNodeId(edge.to)) &&
+      String(edge.to || "") !== currentTarget &&
+      String(edge.to || "") !== nextTarget
+    ),
+    ...fragment.connections,
+  ];
+  removeUnusedAnimationTimeNode(scope);
+}
+
 function animationTrackProjection(node, nodes, connections) {
   const target = targetParameterEndpoint(
     node.animationTrack.targetNodeId,
     node.animationTrack.parameterId,
   );
+  if (node.animationTrack.kind === "event") {
+    const ownerIds = animationTrackNodeIds(nodes, node);
+    return normalizedEventTrackConfiguration({
+      ...node.animationTrack,
+      enabled: connections.some((edge) =>
+        String(edge.to || "") === target &&
+        ownerIds.has(endpointNodeId(edge.from))
+      ),
+    });
+  }
   const valueNodeId = animationTrackValueNodeId(node, nodes);
   const edge = connections.find((candidate) =>
     String(candidate.from || "") === `${valueNodeId}.value` &&
@@ -1535,6 +1827,37 @@ function normalizedTrackConfiguration(configuration = {}) {
     ...(configuration.defaultAnimationId
       ? { defaultAnimationId: String(configuration.defaultAnimationId) }
       : {}),
+  };
+}
+
+function normalizedEventTrackConfiguration(configuration = {}) {
+  const triggerKind = ANIMATION_TRIGGER_KINDS.has(configuration.triggerKind)
+    ? configuration.triggerKind
+    : "manual";
+  return {
+    kind: "event",
+    id: String(configuration.id || ""),
+    targetNodeId: String(configuration.targetNodeId || ""),
+    parameterId: String(configuration.parameterId || ""),
+    enabled: configuration.enabled !== false,
+    triggerKind,
+    triggerAddress: String(
+      configuration.triggerAddress || defaultTriggerAddress(triggerKind),
+    ),
+    triggerThreshold: Math.min(1, Math.max(
+      0,
+      Number.isFinite(Number(configuration.triggerThreshold))
+        ? Number(configuration.triggerThreshold)
+        : 0.5,
+    )),
+    triggerInterval: Math.min(
+      MAX_DURATION,
+      Math.max(0.01, Number(configuration.triggerInterval) || 1),
+    ),
+    randomRate: Math.min(
+      MAX_RANDOM_RATE,
+      Math.max(0, Number(configuration.randomRate) || 0),
+    ),
   };
 }
 

@@ -8,7 +8,7 @@ const BUILT_IN_MANIFEST_URL = new URL(
   "../../../visual-library/visual-library.json",
   import.meta.url,
 );
-const BUILT_IN_RESOURCE_REVISION = "isf-audio-textures-1";
+const BUILT_IN_RESOURCE_REVISION = "isf-imported-images-1";
 
 export async function loadBuiltInIsfRepository({
   manifestUrl = BUILT_IN_MANIFEST_URL,
@@ -23,6 +23,9 @@ export async function loadBuiltInIsfRepository({
   const libraryId = requiredText(
     manifest.id,
     "BUILT_IN_VISUAL_LIBRARY_ID_MISSING",
+  );
+  const importedResources = normalizeImportedResourceManifest(
+    manifest.resources,
   );
   const records = [];
   const ids = new Set();
@@ -70,6 +73,12 @@ export async function loadBuiltInIsfRepository({
       source,
       origin: "built-in",
     });
+    const resolvedImportedResources = resolveImportedResources(
+      definition.metadata?.isf,
+      artifact?.importedResources,
+      importedResources,
+      id,
+    );
     if (definition.id !== nodeId) {
       throw new Error(
         `BUILT_IN_VISUAL_NODE_ID_MISMATCH:${nodeId}:${definition.id}`,
@@ -94,6 +103,7 @@ export async function loadBuiltInIsfRepository({
         ),
         definition,
         resource,
+        isfImportedResources: resolvedImportedResources,
         origin: Object.freeze({ kind: "built-in", id: libraryId }),
       })
       : null;
@@ -108,6 +118,7 @@ export async function loadBuiltInIsfRepository({
         description: String(
           artifact.description || materializedComponent.description || "",
         ),
+        isfImportedResources: resolvedImportedResources,
       })
       : null;
     const materializedKind = transition ? "transition" : component.kind;
@@ -139,6 +150,7 @@ export async function loadBuiltInIsfRepository({
     id: libraryId,
     version: String(manifest.version || "1.0.0"),
     manifestUrl: String(manifestUrl),
+    resources: importedResources,
     records: Object.freeze(records),
     components: Object.freeze(
       records.map((record) => record.component).filter(Boolean),
@@ -177,4 +189,81 @@ function requiredText(value, error) {
   const text = String(value || "").trim();
   if (!text) throw new Error(error);
   return text;
+}
+
+function normalizeImportedResourceManifest(value) {
+  if (value === undefined) return Object.freeze({});
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("BUILT_IN_VISUAL_RESOURCES_INVALID");
+  }
+  const normalized = {};
+  for (const [id, descriptor] of Object.entries(value)) {
+    const resourceId = requiredText(
+      id,
+      "BUILT_IN_VISUAL_RESOURCE_ID_MISSING",
+    );
+    const mediaType = requiredText(
+      descriptor?.mediaType,
+      `BUILT_IN_VISUAL_RESOURCE_MEDIA_TYPE_MISSING:${resourceId}`,
+    );
+    const encoding = String(descriptor?.encoding || "");
+    const data = String(descriptor?.data || "");
+    if (
+      encoding !== "base64" ||
+      !data ||
+      data.length % 4 !== 0 ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(data)
+    ) {
+      throw new Error(
+        `BUILT_IN_VISUAL_RESOURCE_DATA_INVALID:${resourceId}`,
+      );
+    }
+    normalized[resourceId] = Object.freeze({
+      id: resourceId,
+      mediaType,
+      encoding,
+      data,
+      url: `data:${mediaType};base64,${data}`,
+      sha256: String(descriptor?.sha256 || ""),
+    });
+  }
+  return Object.freeze(normalized);
+}
+
+function resolveImportedResources(
+  isf = {},
+  value,
+  resources,
+  artifactId,
+) {
+  const required = isf?.imported || [];
+  const mappings = value === undefined ? {} : value;
+  if (!mappings || typeof mappings !== "object" || Array.isArray(mappings)) {
+    throw new Error(
+      `BUILT_IN_VISUAL_IMPORTED_RESOURCES_INVALID:${artifactId}`,
+    );
+  }
+  const requiredPaths = new Set(required.map((entry) => entry.path));
+  for (const path of Object.keys(mappings)) {
+    if (!requiredPaths.has(path)) {
+      throw new Error(
+        `BUILT_IN_VISUAL_IMPORTED_RESOURCE_UNUSED:${artifactId}:${path}`,
+      );
+    }
+  }
+  const resolved = {};
+  for (const imported of required) {
+    const resourceId = requiredText(
+      mappings[imported.path],
+      `BUILT_IN_VISUAL_IMPORTED_RESOURCE_MISSING:${artifactId}:${imported.path}`,
+    );
+    const descriptor = resources[resourceId];
+    if (!descriptor) {
+      throw new Error(
+        `BUILT_IN_VISUAL_IMPORTED_RESOURCE_UNKNOWN:${artifactId}:${resourceId}`,
+      );
+    }
+    resolved[imported.name] = descriptor;
+  }
+  return Object.freeze(resolved);
 }

@@ -280,6 +280,7 @@ export class ShaderGeneratorRuntime {
           {
             setDefaultAmount: false,
             onlyPresent: shadertoyInterface || isfInterface,
+            instanceId,
           },
         );
         drawShaderTargetRect(

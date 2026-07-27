@@ -13,6 +13,7 @@ export const PARAM_TYPES = Object.freeze({
   ENUM: "enum",
   COLOR: "color",
   TEXT: "text",
+  EVENT: "event",
 });
 
 export const RENDER_SIZE_POLICIES = Object.freeze({
@@ -130,6 +131,15 @@ export function createBooleanParam(id, label, defaultValue = false) {
     label,
     type: PARAM_TYPES.BOOLEAN,
     defaultValue: !!defaultValue,
+  };
+}
+
+export function createEventParam(id, label) {
+  return {
+    id,
+    label,
+    type: PARAM_TYPES.EVENT,
+    defaultValue: false,
   };
 }
 
@@ -360,11 +370,20 @@ export function runtimeRoiContract(runtimePolicy = {}, params = {}, context = {}
 
 export function normalizeParamValues(component, values = {}) {
   const params = {};
+  const transientIds = new Set();
   for (const param of component?.params || []) {
+    if (param.type === PARAM_TYPES.EVENT) {
+      transientIds.add(param.id);
+      const signal = values?.[param.id];
+      if (signal !== undefined && signal !== null && signal !== false) {
+        params[param.id] = signal;
+      }
+      continue;
+    }
     params[param.id] = normalizeParamValue(param, values[param.id]);
   }
   for (const [key, value] of Object.entries(values || {})) {
-    if (!(key in params)) params[key] = value;
+    if (!(key in params) && !transientIds.has(key)) params[key] = value;
   }
   return params;
 }
@@ -375,6 +394,7 @@ export function defaultParamValues(component) {
 
 export function normalizeParamValue(param, value) {
   if (!param) return value;
+  if (param.type === PARAM_TYPES.EVENT) return false;
   if (param.type === PARAM_TYPES.BOOLEAN) return value === undefined ? !!param.defaultValue : value !== false;
   if (param.type === PARAM_TYPES.ENUM) {
     const fallback = param.defaultValue ?? param.values?.[0] ?? "";

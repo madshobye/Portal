@@ -6,7 +6,7 @@ under `visual-library/shaders/isf`.
 - Upstream: https://github.com/Vidvox/ISF-Files
 - Upstream tree: `395072d48b3ce7351ccb20a5fda54470591324df`
 - License: MIT; see `LICENSE`
-- Imported resources: 45 original ISF 2 fragment shaders
+- Imported resources: 49 original ISF 2 fragment shaders and one shared PNG
 
 The first proof slice contains 23 single-pass shaders: six generators, eight
 effects, and nine transitions. The second tranche adds 17 shaders: four
@@ -24,10 +24,18 @@ Displace. They use the shared native Web Audio analyser through retained
 waveform and FFT textures; analysis is performed once per frame and reused by
 all audio ISF instances.
 
-The collection still excludes custom vertex shaders, imported image resources,
-event inputs, and non-transition shaders with multiple image inputs. Those
-capabilities require their own user-facing input contracts before they should
-be presented as built-ins.
+An event tranche adds Shockwave Pulse and FFT Spectrogram. Their momentary
+event inputs use VJ1's existing transient frame scheduler and never become
+saved boolean state. Together they exercise events with persistent,
+floating-point multipass targets and the shared FFT texture.
+
+An imported-image tranche adds Cursor and Cursor Overlay. Both retain their
+upstream fragment source and share the exact upstream `cursor.png` bytes through
+the built-in repository's retained resource cache.
+
+The collection still excludes custom vertex shaders and non-transition shaders
+with multiple image inputs. Those capabilities require their own user-facing
+input contracts before they should be presented as built-ins.
 
 The `.fs` resources retain the upstream shader text; repository import
 normalizes the final newline only. VJ1 identity, classification, attribution,

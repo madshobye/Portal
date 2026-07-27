@@ -266,6 +266,14 @@ export function paramControlsTemplate(params = [], {
 export function paramControlTemplate(param, path, value, attrs = "data-update", { significant = false, relatedControls = new Map(), context = true, extraInputAttrs = "" } = {}) {
   const contextAttrs = paramContextAttributes(path, param.defaultValue, attrs, context);
   const significantClass = significant ? " is-significant" : "";
+  if (param.type === "event") {
+    const label = param.label || param.id;
+    return `
+      <div class="field chain-param param-toggle-control${significantClass}">
+        <button type="button" class="param-toggle-button param-event-button" data-trigger-isf-event="${esc(path)}" title="Trigger ${esc(label)}" aria-label="Trigger ${esc(label)}">${esc(label)}</button>
+      </div>
+    `;
+  }
   if (param.type === "boolean") {
     if (param.isfUniformType === "bool") {
       const enabled = value === true;

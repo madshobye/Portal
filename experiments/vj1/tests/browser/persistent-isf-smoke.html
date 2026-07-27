@@ -39,6 +39,10 @@
         fftColorLinesSource,
         fftFilledWaveformSource,
         waveformDisplaceSource,
+        shockwavePulseSource,
+        fftSpectrogramSource,
+        cursorSource,
+        cursorOverlaySource,
       ] = await Promise.all([
         fetch("./fixtures/random-freeze.fs").then((response) => {
           if (!response.ok) {
@@ -85,6 +89,30 @@
         fetch("../../visual-library/shaders/isf/effects/waveform-displace.fs").then(
           (response) => {
             if (!response.ok) throw new Error(`WAVEFORM_DISPLACE_SOURCE_${response.status}`);
+            return response.text();
+          },
+        ),
+        fetch("../../visual-library/shaders/isf/effects/shockwave-pulse.fs").then(
+          (response) => {
+            if (!response.ok) throw new Error(`SHOCKWAVE_PULSE_SOURCE_${response.status}`);
+            return response.text();
+          },
+        ),
+        fetch("../../visual-library/shaders/isf/generators/fft-spectrogram.fs").then(
+          (response) => {
+            if (!response.ok) throw new Error(`FFT_SPECTROGRAM_SOURCE_${response.status}`);
+            return response.text();
+          },
+        ),
+        fetch("../../visual-library/shaders/isf/generators/cursor.fs").then(
+          (response) => {
+            if (!response.ok) throw new Error(`CURSOR_SOURCE_${response.status}`);
+            return response.text();
+          },
+        ),
+        fetch("../../visual-library/shaders/isf/effects/cursor-overlay.fs").then(
+          (response) => {
+            if (!response.ok) throw new Error(`CURSOR_OVERLAY_SOURCE_${response.status}`);
             return response.text();
           },
         ),
@@ -218,6 +246,65 @@
             path: "visual-library/shaders/isf/effects/waveform-displace.fs",
             source: waveformDisplaceSource,
           });
+          const shockwavePulse = createIsfVisualComponent({
+            path: "visual-library/shaders/isf/effects/shockwave-pulse.fs",
+            source: shockwavePulseSource,
+          });
+          const fftSpectrogram = createIsfVisualComponent({
+            path: "visual-library/shaders/isf/generators/fft-spectrogram.fs",
+            source: fftSpectrogramSource,
+          });
+          const importedResourceDescriptor = Object.freeze({
+            id: "smoke/cursor.png",
+            url: "smoke://cursor.png",
+          });
+          const cursor = Object.freeze({
+            ...createIsfVisualComponent({
+              path: "visual-library/shaders/isf/generators/cursor.fs",
+              source: cursorSource,
+            }),
+            isfImportedResources: Object.freeze({
+              cursorImage: importedResourceDescriptor,
+            }),
+          });
+          const cursorOverlay = Object.freeze({
+            ...createIsfVisualComponent({
+              path: "visual-library/shaders/isf/effects/cursor-overlay.fs",
+              source: cursorOverlaySource,
+            }),
+            isfImportedResources: Object.freeze({
+              cursorImage: importedResourceDescriptor,
+            }),
+          });
+          const eventProbe = createIsfVisualComponent({
+            path: "tests/browser/event-pulse.fs",
+            source: `/*{
+              "ISFVSN": "2",
+              "INPUTS": [
+                { "NAME": "trigger", "TYPE": "event" }
+              ]
+            }*/
+            void main() {
+              gl_FragColor = trigger
+                ? vec4(1.0, 1.0, 1.0, 1.0)
+                : vec4(0.0, 0.0, 0.0, 1.0);
+            }`,
+          });
+          const eventEffectProbe = createIsfVisualComponent({
+            path: "tests/browser/event-effect-pulse.fs",
+            source: `/*{
+              "ISFVSN": "2",
+              "INPUTS": [
+                { "NAME": "inputImage", "TYPE": "image" },
+                { "NAME": "trigger", "TYPE": "event" }
+              ]
+            }*/
+            void main() {
+              gl_FragColor = trigger
+                ? vec4(1.0, 1.0, 1.0, 1.0)
+                : vec4(0.0, 0.0, 0.0, 1.0);
+            }`,
+          });
           const input = createSharedFramebufferTarget(8, 8);
           const finalTarget = createSharedFramebufferTarget(8, 8);
           resources.push(input, finalTarget);
@@ -226,6 +313,7 @@
             visualTime: 0,
             visualDeltaSeconds: 1 / 60,
             isPlaybackActive: () => true,
+            scheduledEvents: [],
           };
           const audioFrame = {
             sequence: 1,
@@ -249,10 +337,26 @@
               },
             },
           };
-          const runtime = new IsfRenderRuntime(host, {
-            setShaderParams: (shader, _component, params = {}) => {
+          let runtime = null;
+          runtime = new IsfRenderRuntime(host, {
+            setShaderParams: (shader, component, params = {}, options = {}) => {
               for (const [name, value] of Object.entries(params)) {
                 if (shader.uniforms?.[name]) shader.setUniform(name, value);
+              }
+              for (const param of component.params || []) {
+                if (
+                  param.isfUniformType === "event" &&
+                  shader.uniforms?.[param.id]
+                ) {
+                  shader.setUniform(
+                    param.id,
+                    runtime.eventPulse(
+                      options.instanceId,
+                      param.id,
+                      params[param.id],
+                    ),
+                  );
+                }
               }
               if (shader.uniforms?.amount) shader.setUniform("amount", 1);
               if (shader.uniforms?.renderQuality) {
@@ -269,6 +373,12 @@
             [fftColorLines.id, fftColorLines],
             [fftFilledWaveform.id, fftFilledWaveform],
             [waveformDisplace.id, waveformDisplace],
+            [shockwavePulse.id, shockwavePulse],
+            [fftSpectrogram.id, fftSpectrogram],
+            [cursor.id, cursor],
+            [cursorOverlay.id, cursorOverlay],
+            [eventProbe.id, eventProbe],
+            [eventEffectProbe.id, eventEffectProbe],
             ...multipassComparisons.map((entry) => [entry.id, entry]),
           ]);
           const builder = createShaderBuilder({
@@ -323,6 +433,72 @@
             posterizeTopPixel[2] <= 10 &&
             posterizeBottomPixel[0] <= 10 &&
             posterizeBottomPixel[2] >= 245;
+
+          const cursorTexture = createImage(2, 2);
+          resources.push(cursorTexture);
+          cursorTexture.loadPixels();
+          cursorTexture.pixels.fill(255);
+          cursorTexture.updatePixels();
+          runtime.importedImages.texture = () => cursorTexture;
+          runtime.importedImages.externalKey = () => "smoke/cursor.png:ready:1";
+          const cursorTarget = createSharedFramebufferTarget(8, 8);
+          const cursorOverlayInput = createSharedFramebufferTarget(8, 8);
+          const cursorOverlayTarget = createSharedFramebufferTarget(8, 8);
+          resources.push(
+            cursorTarget,
+            cursorOverlayInput,
+            cursorOverlayTarget,
+          );
+          solid(cursorOverlayInput, [0, 255, 0, 255]);
+          const cursorParams = {
+            amount: 1,
+            cursor_scale: 2,
+            cursor_position: [0.5, 0.5],
+            bgColor: [0, 0, 0, 1],
+          };
+          const cursorRendered = runtime.renderProgram({
+            component: cursor,
+            shader: builder.getShader({
+              id: cursor.id,
+              component: cursor,
+            }, cursorTarget),
+            finalTarget: cursorTarget,
+            renderRequest,
+            timeSeconds: 0,
+            params: cursorParams,
+            instanceId: "cursor-imported-resource-smoke",
+          });
+          const cursorOverlayRendered = runtime.renderProgram({
+            component: cursorOverlay,
+            shader: builder.getShader({
+              id: cursorOverlay.id,
+              component: cursorOverlay,
+            }, cursorOverlayTarget),
+            input: cursorOverlayInput,
+            finalTarget: cursorOverlayTarget,
+            renderRequest,
+            timeSeconds: 0,
+            params: cursorParams,
+            instanceId: "cursor-overlay-imported-resource-smoke",
+            effectTransform: {},
+          });
+          const cursorPixels = pixelData(cursorRendered);
+          const cursorOverlayPixels = pixelData(cursorOverlayRendered);
+          const cursorImportedImageVisible = cursorPixels.some(
+            (value, index) => index % 4 !== 3 && value >= 245,
+          );
+          let cursorOverlayChangedPixels = 0;
+          for (let offset = 0; offset < cursorOverlayPixels.length; offset += 4) {
+            if (
+              cursorOverlayPixels[offset] >= 245 &&
+              cursorOverlayPixels[offset + 1] >= 245 &&
+              cursorOverlayPixels[offset + 2] >= 245
+            ) {
+              cursorOverlayChangedPixels++;
+            }
+          }
+          const cursorOverlayImportedImageVisible =
+            cursorOverlayChangedPixels > 0;
 
           const renderPersistentFixture = (fixture, params, instanceId) => {
             const fixtureInput = createSharedFramebufferTarget(8, 8);
@@ -601,6 +777,40 @@
           const productionGhostingVisible =
             productionGhostingPixels[0][0] >= 100 &&
             productionGhostingPixels[3][0] <= 10;
+          const renderProductionEventProbe = (token) => {
+            const rendered = productionEffectRuntime.renderNodeState(
+              "production-event-probe",
+              {
+                buffer: productionHandoffInput,
+                outputVersion: frameRuntime.frameIndex,
+                nodeKey: "production-event-input",
+                instanceInvariant: false,
+              },
+              {
+                id: "production-event-probe-instance",
+                componentId: eventEffectProbe.id,
+                enabled: true,
+                opacity: 1,
+                blend: "normal",
+                params: { amount: 1, trigger: token },
+              },
+              1,
+              renderRequest,
+            );
+            return sampledCenterPixel(rendered.buffer);
+          };
+          const productionEventBaseline = renderProductionEventProbe(null);
+          frameRuntime.frameIndex++;
+          const productionEventFirst = renderProductionEventProbe(21);
+          frameRuntime.frameIndex++;
+          const productionEventHeld = renderProductionEventProbe(21);
+          frameRuntime.frameIndex++;
+          const productionEventChanged = renderProductionEventProbe(22);
+          const productionEventTokensPulse =
+            productionEventBaseline[0] <= 2 &&
+            productionEventFirst[0] >= 253 &&
+            productionEventHeld[0] <= 2 &&
+            productionEventChanged[0] >= 253;
           const multipassComparisonInput =
             createSharedFramebufferTarget(32, 16);
           resources.push(multipassComparisonInput);
@@ -783,6 +993,203 @@
             loudFftPixel[1] >= 90 &&
             loudFftPixel[2] >= 180;
 
+          const eventTarget = createSharedFramebufferTarget(32, 16);
+          resources.push(eventTarget);
+          const shockwaveShader = builder.getShader({
+            id: shockwavePulse.id,
+            component: shockwavePulse,
+          }, eventTarget);
+          const fftSpectrogramShader = builder.getShader({
+            id: fftSpectrogram.id,
+            component: fftSpectrogram,
+          }, eventTarget);
+          if (!shockwaveShader || !fftSpectrogramShader) {
+            throw new Error("EVENT_ISF_SHADER_UNAVAILABLE");
+          }
+          const eventRenderRequest = {
+            ...renderRequest,
+            width: 32,
+            height: 16,
+            logicalWidth: 32,
+            logicalHeight: 16,
+          };
+          const shockwaveParams = {
+            amount: 1,
+            rate: 1,
+            magnitude: 0.08,
+            distortion: 10,
+            center: [0.5, 0.5],
+          };
+          for (let frame = 0; frame < 12; frame++) {
+            runtime.renderProgram({
+              component: shockwavePulse,
+              shader: shockwaveShader,
+              input: multipassComparisonInput,
+              finalTarget: eventTarget,
+              renderRequest: eventRenderRequest,
+              timeSeconds: frame / 60,
+              params: shockwaveParams,
+              instanceId: "shockwave-event-smoke",
+              effectTransform: {},
+            });
+          }
+          const shockwavePassKey = [
+            shockwavePulse.id,
+            shockwavePulse.isf.sourceHash,
+            "shockwave-event-smoke",
+            "lastTime",
+          ].join(":");
+          const shockwavePass = runtime.passTargets.get(shockwavePassKey);
+          const lastWrittenTarget = (entry) =>
+            entry.targets[entry.current === 0 ? 1 : 0];
+          const shockwaveBeforePulse = sampledCenterPixel(
+            lastWrittenTarget(shockwavePass),
+          );
+          frameRuntime.scheduledEvents = [{
+            type: "isf-event",
+            target: "shockwave-event-smoke",
+            payload: { parameterId: "pulse" },
+          }];
+          runtime.renderProgram({
+            component: shockwavePulse,
+            shader: shockwaveShader,
+            input: multipassComparisonInput,
+            finalTarget: eventTarget,
+            renderRequest: eventRenderRequest,
+            timeSeconds: 12 / 60,
+            params: shockwaveParams,
+            instanceId: "shockwave-event-smoke",
+            effectTransform: {},
+          });
+          const shockwaveDuringPulse = sampledCenterPixel(
+            lastWrittenTarget(shockwavePass),
+          );
+          frameRuntime.scheduledEvents = [];
+          runtime.renderProgram({
+            component: shockwavePulse,
+            shader: shockwaveShader,
+            input: multipassComparisonInput,
+            finalTarget: eventTarget,
+            renderRequest: eventRenderRequest,
+            timeSeconds: 13 / 60,
+            params: shockwaveParams,
+            instanceId: "shockwave-event-smoke",
+            effectTransform: {},
+          });
+          const shockwaveAfterPulse = sampledCenterPixel(
+            lastWrittenTarget(shockwavePass),
+          );
+          const shockwaveRenders = !!shockwavePass;
+
+          const eventProbeShader = builder.getShader({
+            id: eventProbe.id,
+            component: eventProbe,
+          }, eventTarget);
+          if (!eventProbeShader) {
+            throw new Error("EVENT_PROBE_SHADER_UNAVAILABLE");
+          }
+          const renderEventProbe = () => runtime.renderProgram({
+            component: eventProbe,
+            shader: eventProbeShader,
+            finalTarget: eventTarget,
+            renderRequest: eventRenderRequest,
+            timeSeconds: 1,
+            instanceId: "event-probe-smoke",
+          });
+          const eventProbeBefore = sampledCenterPixel(renderEventProbe());
+          frameRuntime.scheduledEvents = [{
+            type: "isf-event",
+            target: "event-probe-smoke",
+            payload: { parameterId: "trigger" },
+          }];
+          const eventProbeDuring = sampledCenterPixel(renderEventProbe());
+          frameRuntime.scheduledEvents = [];
+          const eventProbeAfter = sampledCenterPixel(renderEventProbe());
+          const eventPulseIsTransient =
+            eventProbeBefore[0] <= 2 &&
+            eventProbeDuring[0] >= 253 &&
+            eventProbeAfter[0] <= 2;
+          const automatedEventBaseline = sampledCenterPixel(
+            runtime.renderProgram({
+              component: eventProbe,
+              shader: eventProbeShader,
+              finalTarget: eventTarget,
+              renderRequest: eventRenderRequest,
+              timeSeconds: 1,
+              instanceId: "automated-event-probe",
+            }),
+          );
+          frameRuntime.frameIndex++;
+          const automatedEventFirst = sampledCenterPixel(
+            runtime.renderProgram({
+              component: eventProbe,
+              shader: eventProbeShader,
+              finalTarget: eventTarget,
+              renderRequest: eventRenderRequest,
+              timeSeconds: 1,
+              params: { trigger: 7 },
+              instanceId: "automated-event-probe",
+            }),
+          );
+          frameRuntime.frameIndex++;
+          const automatedEventHeld = sampledCenterPixel(
+            runtime.renderProgram({
+              component: eventProbe,
+              shader: eventProbeShader,
+              finalTarget: eventTarget,
+              renderRequest: eventRenderRequest,
+              timeSeconds: 1 + 1 / 60,
+              params: { trigger: 7 },
+              instanceId: "automated-event-probe",
+            }),
+          );
+          frameRuntime.frameIndex++;
+          const automatedEventChanged = sampledCenterPixel(
+            runtime.renderProgram({
+              component: eventProbe,
+              shader: eventProbeShader,
+              finalTarget: eventTarget,
+              renderRequest: eventRenderRequest,
+              timeSeconds: 1 + 2 / 60,
+              params: { trigger: 8 },
+              instanceId: "automated-event-probe",
+            }),
+          );
+          const automatedEventTokensPulse =
+            automatedEventBaseline[0] <= 2 &&
+            automatedEventFirst[0] >= 253 &&
+            automatedEventHeld[0] <= 2 &&
+            automatedEventChanged[0] >= 253;
+
+          frameRuntime.scheduledEvents = [{
+            type: "isf-event",
+            target: "fft-spectrogram-event-smoke",
+            payload: { parameterId: "clear" },
+          }];
+          const clearedSpectrogram = runtime.renderProgram({
+            component: fftSpectrogram,
+            shader: fftSpectrogramShader,
+            finalTarget: eventTarget,
+            renderRequest: eventRenderRequest,
+            timeSeconds: 1,
+            params: {
+              gain: 1,
+              range: 1,
+              axis_scale: 1.25,
+              lumaMode: false,
+              color1: [0, 0.5, 1, 1],
+              color2: [1, 0, 0, 1],
+              color3: [0, 1, 0, 1],
+            },
+            instanceId: "fft-spectrogram-event-smoke",
+          });
+          frameRuntime.scheduledEvents = [];
+          const clearedSpectrogramPixel = sampledCenterPixel(clearedSpectrogram);
+          const fftSpectrogramClearWorks =
+            clearedSpectrogramPixel[0] <= 2 &&
+            clearedSpectrogramPixel[1] <= 2 &&
+            clearedSpectrogramPixel[2] <= 2;
+
           solid(input, [255, 0, 0, 255]);
           const redInputPixel = centerPixel(input);
           const first = runtime.renderProgram({
@@ -827,14 +1234,21 @@
           );
           const ok =
             posterizeKeepsOrientation &&
+            cursorImportedImageVisible &&
+            cursorOverlayImportedImageVisible &&
             randomFreezeFirstFrame.visible &&
             cometTailsFirstFrame.visible &&
             ghostingPassVisible &&
             ghostingDisplacesHighlights &&
             productionHandoffVisible &&
             productionGhostingVisible &&
+            productionEventTokensPulse &&
             multipassComparisonsVisible &&
             fftRespondsToAudio &&
+            shockwaveRenders &&
+            eventPulseIsTransient &&
+            automatedEventTokensPulse &&
+            fftSpectrogramClearWorks &&
             firstIsRed &&
             secondRetainsHistory &&
             targets?.targets?.length === 2;
@@ -843,6 +1257,9 @@
             posterizeTopPixel,
             posterizeBottomPixel,
             posterizeKeepsOrientation,
+            cursorImportedImageVisible,
+            cursorOverlayChangedPixels,
+            cursorOverlayImportedImageVisible,
             randomFreezeFirstFrame,
             cometTailsFirstFrame,
             ghostingIntermediatePixel,
@@ -854,11 +1271,31 @@
             productionHandoffVisible,
             productionGhostingPixels,
             productionGhostingVisible,
+            productionEventBaseline,
+            productionEventFirst,
+            productionEventHeld,
+            productionEventChanged,
+            productionEventTokensPulse,
             multipassComparisonResults,
             multipassComparisonsVisible,
             quietFftPixel,
             loudFftPixel,
             fftRespondsToAudio,
+            shockwaveBeforePulse,
+            shockwaveDuringPulse,
+            shockwaveAfterPulse,
+            shockwaveRenders,
+            eventProbeBefore,
+            eventProbeDuring,
+            eventProbeAfter,
+            eventPulseIsTransient,
+            automatedEventBaseline,
+            automatedEventFirst,
+            automatedEventHeld,
+            automatedEventChanged,
+            automatedEventTokensPulse,
+            clearedSpectrogramPixel,
+            fftSpectrogramClearWorks,
             redInputPixel,
             blueInputPixel,
             firstPixel,

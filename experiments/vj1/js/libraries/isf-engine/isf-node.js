@@ -3,6 +3,7 @@ import {
   createBooleanParam,
   createColorParam,
   createEnumParam,
+  createEventParam,
   createNumberParam,
   defineVisualComponent,
   textureInlet,
@@ -493,8 +494,10 @@ function isfParameters(document, visualKind) {
       params.push({ ...createNumberParam(`${input.name}Y`, `${input.label} Y`, { min: min[1], max: max[1], defaultValue: defaults[1] }), isfUniform: input.name, isfVectorIndex: 1 });
     } else if (input.type === "color") {
       params.push({ ...createColorParam(input.name, input.label, colorHex(input.defaultValue)), isfUniformType: "color" });
-    } else if (input.type === "bool" || input.type === "event") {
+    } else if (input.type === "bool") {
       params.push({ ...createBooleanParam(input.name, input.label, input.defaultValue === true), isfUniformType: input.type });
+    } else if (input.type === "event") {
+      params.push({ ...createEventParam(input.name, input.label), isfUniformType: input.type });
     } else if (input.type === "long" && input.values?.length) {
       const labels = input.labels?.length === input.values.length ? input.labels : input.values.map(String);
       const defaultIndex = Math.max(0, input.values.findIndex((value) => value === input.defaultValue));
@@ -525,6 +528,7 @@ function isfMetadata(document) {
     credit: document.credit,
     passes: document.passes,
     inputs: document.inputs,
+    imported: document.imported,
     sourceHash: document.sourceHash,
     dynamic: document.dynamic,
     roiSafe: document.roiSafe,

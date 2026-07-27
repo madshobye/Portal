@@ -11,6 +11,7 @@ import {
 } from "../js/domain/models.js";
 import {
   addParameterAnimationTrack,
+  addParameterEventTrack,
   PARAMETER_ANIMATION_STAGES,
   parameterAnimationSignalSources,
   parameterAnimationTriggerSources,
@@ -531,6 +532,120 @@ test("animation trigger catalog exposes manual periodic random pointer audio and
       ["audio", "beat:high"],
     ],
   );
+});
+
+test("event automation connects trigger tokens directly to transient visual parameters", () => {
+  const { packageRoot, state, componentId, targetNodeId } = plasmaState();
+  let nodes = addParameterEventTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "pulse",
+    triggerKind: "periodic",
+    triggerInterval: 0.5,
+  });
+  let [track] = parameterAnimationTracks(nodes, componentId, targetNodeId);
+  assert.deepEqual(track, {
+    kind: "event",
+    id: track.id,
+    targetNodeId,
+    parameterId: "pulse",
+    enabled: true,
+    triggerKind: "periodic",
+    triggerAddress: "",
+    triggerThreshold: 0.5,
+    triggerInterval: 0.5,
+    randomRate: 30,
+  });
+  let group = nodes.groups.find((entry) => entry.componentId === componentId);
+  assert.ok(group.nodes.some((node) =>
+    node.id === track.id &&
+    node.nodeId === "core.control.periodic-trigger"
+  ));
+  assert.ok(group.connections.some((edge) =>
+    edge.from === `${track.id}.event` &&
+    edge.to === `${targetNodeId}.$parameter.pulse` &&
+    edge.type === "event"
+  ));
+
+  const program = compileComponentRenderPrograms(state.components, nodes.groups, {
+    resolveNodeDefinition: (node) =>
+      packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(componentId);
+  const operation = program.plan.operations.find((entry) =>
+    entry.id === targetNodeId
+  );
+  const restore = program.plan.controlProgram.apply({ componentTime: 0.5 });
+  assert.equal(operation.configuration.source.params.pulse, 2);
+  restore();
+  assert.equal("pulse" in operation.configuration.source.params, false);
+
+  nodes = updateParameterAnimationTrack(nodes, {
+    componentId,
+    targetNodeId,
+    trackId: track.id,
+    patch: {
+      triggerKind: "audio",
+      triggerAddress: "beat:low",
+    },
+  });
+  [track] = parameterAnimationTracks(nodes, componentId, targetNodeId);
+  assert.equal(track.triggerKind, "audio");
+  assert.equal(track.triggerAddress, "beat:low");
+  group = nodes.groups.find((entry) => entry.componentId === componentId);
+  assert.ok(group.nodes.some((node) =>
+    node.id === track.id &&
+    node.nodeId === "core.control.audio-input"
+  ));
+
+  nodes = removeParameterAnimationTrack(nodes, {
+    componentId,
+    targetNodeId,
+    trackId: track.id,
+  });
+  assert.deepEqual(
+    parameterAnimationTracks(nodes, componentId, targetNodeId),
+    [],
+  );
+  group = nodes.groups.find((entry) => entry.componentId === componentId);
+  assert.equal(group.connections.some((edge) =>
+    edge.to === `${targetNodeId}.$parameter.pulse`
+  ), false);
+});
+
+test("event parameters expose first-class automation controls in the Animation tab", () => {
+  const { state, componentId, targetNodeId } = plasmaState();
+  const eventParameter = {
+    id: "pulse",
+    label: "Pulse",
+    type: "event",
+    defaultValue: false,
+  };
+  let html = parameterAnimationViewTemplate({
+    state,
+    componentId,
+    targetNodeId,
+    parameters: [eventParameter],
+  });
+  assert.match(html, /Event automation/);
+  assert.match(html, /data-animation-new-event/);
+  assert.match(html, /data-add-parameter-event/);
+  const nodes = addParameterEventTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "pulse",
+    triggerKind: "random",
+    randomRate: 12,
+  });
+  html = parameterAnimationViewTemplate({
+    state: { ...state, nodes },
+    componentId,
+    targetNodeId,
+    parameters: [eventParameter],
+  });
+  assert.match(html, /data-animation-track-kind="event"/);
+  assert.match(html, /<strong>Pulse<\/strong>/);
+  assert.match(html, /data-animation-trigger-source/);
+  assert.match(html, /data-animation-track-field="randomRate"/);
 });
 
 test("General parameter animations use the same direct control program and restore retained configuration", () => {
