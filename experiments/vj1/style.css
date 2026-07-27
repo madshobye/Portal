@@ -3359,7 +3359,7 @@ button.text-list-main:hover {
 .parameter-animation-add {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
+  gap: 4px;
   padding-top: 2px;
 }
 
@@ -3372,6 +3372,13 @@ button.text-list-main:hover {
 
 .parameter-animation-add > button .material-symbols-rounded {
   font-size: 17px;
+}
+
+.parameter-animation-add > .parameter-animation-add-button {
+  width: var(--control-height);
+  min-width: var(--control-height);
+  padding: 0;
+  justify-content: center;
 }
 
 .parameter-animation-suggestions {

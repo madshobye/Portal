@@ -107,28 +107,29 @@ test("multipass ISF transitions are rejected until they have an explicit retaine
   assert.throws(() => compileIsfTransitionKernel(document), /VJ1_ISF_TRANSITION_MULTIPASS_UNSUPPORTED/);
 });
 
-test("unsupported audio-texture ISF definitions warn once across cloned output states", () => {
-  const unsupported = createIsfNodeDefinition({
+test("audio and FFT inputs materialize as host resources without graph texture inlets", () => {
+  const definition = createIsfNodeDefinition({
     path: "shaders/audio-input.fs",
     source: `/*{
       "ISFVSN": "2.0",
       "INPUTS": [
-        { "NAME": "waveform", "TYPE": "audio" }
+        { "NAME": "waveform", "TYPE": "audio" },
+        { "NAME": "spectrum", "TYPE": "audioFFT" }
       ]
     }*/
-    void main() { gl_FragColor = IMG_THIS_PIXEL(waveform); }`,
+    void main() {
+      gl_FragColor = IMG_THIS_PIXEL(waveform) + IMG_THIS_PIXEL(spectrum);
+    }`,
   });
-  const warnings = [];
-  const originalWarn = console.warn;
-  console.warn = (...args) => warnings.push(args);
-  try {
-    assert.deepEqual(listProjectIsfVisualComponents({ nodes: { definitions: [{ ...unsupported }] } }), []);
-    assert.deepEqual(listProjectIsfVisualComponents({ nodes: { definitions: [{ ...unsupported }] } }), []);
-  } finally {
-    console.warn = originalWarn;
-  }
-  assert.equal(warnings.length, 1);
-  assert.equal(warnings[0][0], "[VJ1_ISF_DEFINITION_INVALID]");
+  const components = listProjectIsfVisualComponents({
+    nodes: { definitions: [{ ...definition }] },
+  });
+  assert.equal(components.length, 1);
+  assert.deepEqual(components[0].inlets, []);
+  assert.equal(components[0].runtime.cacheable, false);
+  assert.equal(components[0].isf.dynamic, true);
+  assert.match(components[0].code, /uniform sampler2D waveform;/);
+  assert.match(components[0].code, /uniform sampler2D spectrum;/);
 });
 
 test("named multi-image ISF files materialize as executable visual graph nodes", () => {

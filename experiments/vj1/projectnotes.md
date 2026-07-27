@@ -37,14 +37,15 @@ single semantic frame contract rather than copied dimensions.
 
 how close are we to important the isf shader library into the app as base shaders to use for different things? ISF has this repository https://github.com/Vidvox/ISF-Files/tree/master/ISF and I would like to import ideally all of them. Some use a vertex shader i think? and they have different porpuses. i assume the simple shaders is not a problem. but i would also like for the shaders that are e.g. transitions to be imported and used as transitions. i suggest that we create a transition generator that can be inserted in the chain. The concept would be the following: when a isf transition is inserted it be becomes an element that can contain children like a group and maybe two coloumns such that one can create two list underneath it for each transition. I would like for there also to be a mode where it can transition between what come before the isf shader and what is inside its group. either there should be a toggle as a param or a logic based on whether both coloumns has been filled out. Similarly sound should be implimented so it is compatible with isf. I suggest that we create some settings in input sources for sound and that we have a basic fft library to create fft textures (i think isf has this logic right?). be aware that the current version of p5 v2 does not seems to have a strong sound implimentation and i suggest that we bypas p5 and use tone js instead https://tonejs.github.io/ 
 
-**The application now carries 42 pinned, original fragment-only ISF files (10
-generators, 19 effects, and 13 transitions). The collection includes
+**The application now carries 45 pinned, original fragment-only ISF files (12
+generators, 20 effects, and 13 transitions). The collection includes
 persistent, float-target, and multipass examples backed by the shared runtime.
 Dilate and Erode form a focused full-size, two-pass comparison set for the
-non-persistent multipass path used by Ghosting. A repeatable repository
-inventory reports capabilities before selection. Custom vertex, audio/FFT,
-imported-image, event, and extra non-transition image-input contracts remain
-part of this open item.**
+non-persistent multipass path used by Ghosting. FFT Color Lines, FFT Filled
+Waveform, and Waveform Displace prove shared native Web Audio waveform/FFT
+textures without a second analyser. A repeatable repository inventory reports
+capabilities before selection. Custom vertex, imported-image, event, and extra
+non-transition image-input contracts remain part of this open item.**
 
 relating to the above and in general we need to work with live input like mouse, multitouch and webcam tracking. i suggest that we start to develop a logic where the system has a multitouch input bus attached to both output window and when the preview window in such a way that we can ahve a drawing shader that one can draw on top of live when the system is running. I want it to be in such a way that drawing in live view preview also produces touch signals to the output window. have a look at the portals multitouch code and copy it in or make your own iteration in the system. Further more i would like that settings has a hand tracking setting such that one can start a hand tracker that is converted into touch gestures as if it was a tablet or a touchpad. I would like for the system to use the following modes: 1. Click: use two fingers to "click" and it is detected as a click then movement from there is recorded either relatively or as absolutes. 2. a multi touch mode where all visible fingers are avaliable for finger painting etc. 
 

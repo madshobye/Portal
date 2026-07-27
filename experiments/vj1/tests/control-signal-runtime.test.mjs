@@ -322,6 +322,9 @@ test("audio analysis owns lazy permission retained features device identity and 
   });
 
   assert.equal(streamRequests, 0);
+  const idleAnalysis = runtime.analysisFrame("audio");
+  assert.equal(idleAnalysis.sequence, 0);
+  assert.equal(idleAnalysis.timeData, null);
   assert.equal(runtime.resolve("audio", "level"), undefined);
   await runtime.whenReady("audio");
   assert.equal(streamRequests, 1);
@@ -337,6 +340,18 @@ test("audio analysis owns lazy permission retained features device identity and 
   }]);
   runtime.resolve("audio", "bin:2");
   runtime.beginFrame();
+  const analysis = runtime.analysisFrame("audio");
+  assert.strictEqual(analysis, idleAnalysis);
+  assert.ok(analysis.timeData instanceof Uint8Array);
+  assert.ok(analysis.frequencyData instanceof Uint8Array);
+  assert.strictEqual(runtime.analysisFrame("audio").timeData, analysis.timeData);
+  assert.strictEqual(
+    runtime.analysisFrame("audio").frequencyData,
+    analysis.frequencyData,
+  );
+  assert.equal(analysis.timeData[0], 255);
+  assert.equal(analysis.frequencyData[2], 48);
+  assert.equal(analysis.sequence, 1);
   const level = runtime.resolve("audio", "level");
   const peak = runtime.resolve("audio", "peak");
   assert.ok(level.value > 0 && level.value < 1);

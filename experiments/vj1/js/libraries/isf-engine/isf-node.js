@@ -49,7 +49,7 @@ export function createIsfNodeDefinition({
   const declaredId = String(document.metadata?.VJ1?.ID || "").trim();
   const visualId = declaredId || `isf-${slug(path || document.name)}-${sourceHash(path || document.name)}`;
   const params = isfParameters(document, visualKind);
-  const inlets = document.inputs.filter((input) => ["image", "audio", "audioFFT"].includes(input.type))
+  const inlets = document.inputs.filter((input) => input.type === "image")
     .map((input) => textureInlet(input.name, input.label));
   if (visualKind === "effect" && !inlets.some((inlet) => inlet.id === "inputImage")) {
     inlets.unshift(textureInlet("inputImage", "Input Image"));
@@ -121,7 +121,6 @@ export function materializeIsfNodeDefinition(definition = {}) {
   if (document.kind === "transition") {
     throw new Error(`VJ1_ISF_TRANSITION_NOT_COMPONENT:${document.path || document.name}`);
   }
-  assertComponentInputSupport(document);
   const optimizedLowering = String(
     document.metadata?.VJ1?.LOWERING ||
     definition.metadata?.optimizedIsfLowering ||
@@ -567,18 +566,6 @@ function isfVisualExecutionMetadata(component = {}) {
       contract,
     }),
   };
-}
-
-function assertComponentInputSupport(document) {
-  const unsupported = document.inputs.filter((input) =>
-    ["audio", "audioFFT"].includes(input.type)
-  );
-  if (!unsupported.length) return;
-  const names = unsupported.map((input) => input.name).join(", ");
-  // Named image ports are executable through the compiled texture DAG. Audio
-  // textures still need their own typed resource/clock contract; transitions
-  // remain first-class transition nodes rather than ordinary Components.
-  throw new Error(`VJ1_ISF_AUDIO_TEXTURE_HOST_UNAVAILABLE:${document.path || document.name}:${names}`);
 }
 
 function finite(value, fallback) {

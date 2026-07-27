@@ -32,6 +32,43 @@ const COMBINATION_LABELS = Object.freeze({
   multiply: "Multiply base value",
 });
 
+const GENERIC_ANIMATION_SUGGESTIONS = Object.freeze([
+  {
+    id: "generic-triggered-envelope",
+    label: "Triggered envelope",
+    transportKind: "envelope",
+    triggerKind: "manual",
+    envelopeSegments: [
+      { duration: 0.1, value: 1, curve: "quad-out" },
+      { duration: 0.35, value: 0, curve: "quad-in" },
+    ],
+  },
+  {
+    id: "generic-noise-drift",
+    label: "Noise drift",
+    transportKind: "noise",
+    noiseRate: 0.6,
+    noiseDetail: 2,
+    noiseRoughness: 0.45,
+    smoothing: 0.08,
+  },
+  {
+    id: "generic-noise-burst",
+    label: "Triggered noise burst",
+    transportKind: "noise",
+    noiseBurst: true,
+    triggerKind: "manual",
+    noiseRate: 8,
+    noiseDetail: 3,
+    noiseRoughness: 0.65,
+    envelopeSegments: [
+      { duration: 0.03, value: 1, curve: "quad-out" },
+      { duration: 0.45, value: 0, curve: "cubic-out" },
+    ],
+    smoothing: 0.02,
+  },
+]);
+
 export function parameterAnimationViewTemplate({
   state = {},
   componentId = "",
@@ -59,8 +96,8 @@ export function parameterAnimationViewTemplate({
   const parameterById = new Map(numeric.map((param) => [param.id, param]));
   const animated = new Set(tracks.map((track) => track.parameterId));
   const available = numeric.filter((param) => !animated.has(param.id));
-  const suggestions = available.flatMap((param) =>
-    animationSuggestions(param).map((suggestion) => ({ param, suggestion }))
+  const parameterSuggestions = available.flatMap((param) =>
+    parameterAnimationSuggestions(param).map((suggestion) => ({ param, suggestion }))
   );
 
   return `
@@ -73,23 +110,38 @@ export function parameterAnimationViewTemplate({
             componentId,
             signalSources,
             triggerSources,
+            numeric.filter((param) =>
+              param.id === track.parameterId || !animated.has(param.id)
+            ),
           )).join("")
           : `<div class="soft-note parameter-animation-empty">No parameter animations.</div>`}
       </div>
-      ${suggestions.length ? `
-        <div class="parameter-animation-suggestions">
-          <span class="soft-note">Suggested animations</span>
-          ${suggestions.map(({ param, suggestion }) =>
-            animationSuggestionTemplate(param, suggestion)
-          ).join("")}
-        </div>
-      ` : ""}
       ${available.length ? `
         <div class="parameter-animation-add">
           <select class="param-select" data-animation-new-parameter aria-label="Parameter to animate">
             ${available.map((param) => animationParameterOption(param)).join("")}
           </select>
-          <button type="button" data-add-parameter-animation>${icon("add")}<span>Add animation</span></button>
+          <button
+            type="button"
+            class="icon-buttonish parameter-animation-add-button"
+            data-add-parameter-animation
+            title="Add animation for selected parameter"
+            aria-label="Add animation for selected parameter"
+          >${icon("add")}</button>
+        </div>
+        ${parameterSuggestions.length ? `
+          <div class="parameter-animation-suggestions">
+            <span class="soft-note">Recommended for this element</span>
+            ${parameterSuggestions.map(({ param, suggestion }) =>
+              animationSuggestionTemplate(param, suggestion, { showParameter: true })
+            ).join("")}
+          </div>
+        ` : ""}
+        <div class="parameter-animation-suggestions">
+          <span class="soft-note">Animation recipes for selected parameter</span>
+          ${GENERIC_ANIMATION_SUGGESTIONS.map((suggestion) =>
+            animationSuggestionTemplate(null, suggestion)
+          ).join("")}
         </div>
       ` : numeric.length
         ? `<div class="soft-note">Every numeric parameter already has an animation track.</div>`
@@ -104,6 +156,7 @@ function animationTrackTemplate(
   componentId = "",
   signalSources = [],
   triggerSources = [],
+  parameterTargets = [],
 ) {
   const label = parameter.label || track.parameterId;
   const min = Number.isFinite(Number(parameter.min))
@@ -125,6 +178,14 @@ function animationTrackTemplate(
         <strong>${esc(label)}</strong>
         <button type="button" class="animation-track-remove" data-remove-parameter-animation title="Remove ${esc(label)} animation" aria-label="Remove ${esc(label)} animation">${icon("close")}</button>
       </header>
+      <label class="field">
+        <span>Parameter</span>
+        <select class="param-select" data-animation-target-parameter>
+          ${parameterTargets.map((target) =>
+            animationTargetParameterOption(target, track.parameterId)
+          ).join("")}
+        </select>
+      </label>
       <label class="field">
         <span>Driver</span>
         <select class="param-select" data-animation-driver>
@@ -309,44 +370,23 @@ function animationParameterOption(param) {
   return `<option value="${esc(param.id)}" data-animation-from="${esc(value)}" data-animation-to="${esc(to)}" data-animation-min="${esc(param.min)}" data-animation-max="${esc(param.max)}">${esc(param.label || param.id)}</option>`;
 }
 
-function animationSuggestions(param = {}) {
+function animationTargetParameterOption(param, selectedParameterId = "") {
+  const value = clamp(Number(param.value), Number(param.min), Number(param.max));
+  return `
+    <option
+      value="${esc(param.id)}"
+      data-animation-base="${esc(value)}"
+      data-animation-min="${esc(param.min)}"
+      data-animation-max="${esc(param.max)}"
+      ${param.id === selectedParameterId ? "selected" : ""}
+    >${esc(param.label || param.id)}</option>
+  `;
+}
+
+function parameterAnimationSuggestions(param = {}) {
   const templates = [
     ...(param.defaultAnimation ? [param.defaultAnimation] : []),
     ...(param.suggestedAnimations || []),
-    {
-      id: "generic-triggered-envelope",
-      label: "Triggered envelope",
-      transportKind: "envelope",
-      triggerKind: "manual",
-      envelopeSegments: [
-        { duration: 0.1, value: 1, curve: "quad-out" },
-        { duration: 0.35, value: 0, curve: "quad-in" },
-      ],
-    },
-    {
-      id: "generic-noise-drift",
-      label: "Noise drift",
-      transportKind: "noise",
-      noiseRate: 0.6,
-      noiseDetail: 2,
-      noiseRoughness: 0.45,
-      smoothing: 0.08,
-    },
-    {
-      id: "generic-noise-burst",
-      label: "Triggered noise burst",
-      transportKind: "noise",
-      noiseBurst: true,
-      triggerKind: "manual",
-      noiseRate: 8,
-      noiseDetail: 3,
-      noiseRoughness: 0.65,
-      envelopeSegments: [
-        { duration: 0.03, value: 1, curve: "quad-out" },
-        { duration: 0.45, value: 0, curve: "cubic-out" },
-      ],
-      smoothing: 0.02,
-    },
   ];
   const seen = new Set();
   return templates.filter((template) => {
@@ -359,25 +399,33 @@ function animationSuggestions(param = {}) {
   });
 }
 
-function animationSuggestionTemplate(param, suggestion = {}) {
-  const value = clamp(Number(param.value), Number(param.min), Number(param.max));
+function animationSuggestionTemplate(param, suggestion = {}, { showParameter = false } = {}) {
+  const hasParameter = !!param?.id;
+  const value = hasParameter
+    ? clamp(Number(param.value), Number(param.min), Number(param.max))
+    : 0;
   const from = Number.isFinite(Number(suggestion.from)) ? Number(suggestion.from) : value;
   const to = Number.isFinite(Number(suggestion.to))
     ? Number(suggestion.to)
-    : approximatelyEqual(value, Number(param.max))
+    : hasParameter && approximatelyEqual(value, Number(param.max))
       ? Number(param.min)
-      : Number(param.max);
-  return `
-    <button
-      type="button"
-      class="secondary"
-      data-add-animation-suggestion
+      : hasParameter ? Number(param.max) : 1;
+  const targetAttributes = hasParameter
+    ? `
       data-animation-parameter="${esc(param.id)}"
       data-animation-base="${esc(value)}"
       data-animation-min="${esc(param.min)}"
       data-animation-max="${esc(param.max)}"
       data-animation-from="${esc(from)}"
-      data-animation-to="${esc(to)}"
+      data-animation-to="${esc(to)}"`
+    : `data-animation-use-selected-parameter="true"`;
+  const label = `${showParameter ? `${param.label || param.id} · ` : ""}${suggestion.label || "Animation"}`;
+  return `
+    <button
+      type="button"
+      class="secondary"
+      data-add-animation-suggestion
+      ${targetAttributes}
       data-animation-mode="${esc(suggestion.mode || "loop")}"
       data-animation-duration="${esc(suggestion.duration ?? 2)}"
       data-animation-phase="${esc(suggestion.phase ?? 0)}"
@@ -401,7 +449,7 @@ function animationSuggestionTemplate(param, suggestion = {}) {
       data-animation-noise-roughness="${esc(suggestion.noiseRoughness ?? 0.5)}"
       data-animation-noise-burst="${suggestion.noiseBurst === true}"
       data-animation-smoothing="${esc(suggestion.smoothing ?? 0)}"
-    >${icon("animation")}<span>${esc(suggestion.label || `Animate ${param.label || param.id}`)}</span></button>
+    >${icon("animation")}<span>${esc(label)}</span></button>
   `;
 }
 

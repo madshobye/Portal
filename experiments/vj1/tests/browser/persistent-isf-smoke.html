@@ -36,6 +36,9 @@
         ghostingSource,
         dilateSource,
         erodeSource,
+        fftColorLinesSource,
+        fftFilledWaveformSource,
+        waveformDisplaceSource,
       ] = await Promise.all([
         fetch("./fixtures/random-freeze.fs").then((response) => {
           if (!response.ok) {
@@ -66,6 +69,24 @@
               return response.text();
             },
           )
+        ),
+        fetch("../../visual-library/shaders/isf/generators/fft-color-lines.fs").then(
+          (response) => {
+            if (!response.ok) throw new Error(`FFT_COLOR_LINES_SOURCE_${response.status}`);
+            return response.text();
+          },
+        ),
+        fetch("../../visual-library/shaders/isf/generators/fft-filled-waveform.fs").then(
+          (response) => {
+            if (!response.ok) throw new Error(`FFT_FILLED_WAVEFORM_SOURCE_${response.status}`);
+            return response.text();
+          },
+        ),
+        fetch("../../visual-library/shaders/isf/effects/waveform-displace.fs").then(
+          (response) => {
+            if (!response.ok) throw new Error(`WAVEFORM_DISPLACE_SOURCE_${response.status}`);
+            return response.text();
+          },
         ),
       ]);
       const resources = [];
@@ -185,6 +206,18 @@
             path: `visual-library/shaders/isf/effects/${name}.fs`,
             source,
           }));
+          const fftColorLines = createIsfVisualComponent({
+            path: "visual-library/shaders/isf/generators/fft-color-lines.fs",
+            source: fftColorLinesSource,
+          });
+          const fftFilledWaveform = createIsfVisualComponent({
+            path: "visual-library/shaders/isf/generators/fft-filled-waveform.fs",
+            source: fftFilledWaveformSource,
+          });
+          const waveformDisplace = createIsfVisualComponent({
+            path: "visual-library/shaders/isf/effects/waveform-displace.fs",
+            source: waveformDisplaceSource,
+          });
           const input = createSharedFramebufferTarget(8, 8);
           const finalTarget = createSharedFramebufferTarget(8, 8);
           resources.push(input, finalTarget);
@@ -194,8 +227,17 @@
             visualDeltaSeconds: 1 / 60,
             isPlaybackActive: () => true,
           };
+          const audioFrame = {
+            sequence: 1,
+            lifecycleRevision: 1,
+            timeData: new Uint8Array(1024).fill(128),
+            frequencyData: new Uint8Array(512),
+          };
           const host = {
             frameRuntime,
+            controlSignalRuntime: {
+              analysisFrame: () => audioFrame,
+            },
             renderTargetRuntime: {
               isShaderBuffer: (target) => !!target?.__vj1SharedFramebuffer,
             },
@@ -224,6 +266,9 @@
             [randomFreeze.id, randomFreeze],
             [cometTails.id, cometTails],
             [ghosting.id, ghosting],
+            [fftColorLines.id, fftColorLines],
+            [fftFilledWaveform.id, fftFilledWaveform],
+            [waveformDisplace.id, waveformDisplace],
             ...multipassComparisons.map((entry) => [entry.id, entry]),
           ]);
           const builder = createShaderBuilder({
@@ -678,6 +723,66 @@
           const multipassComparisonsVisible =
             multipassComparisonResults.every((entry) => entry.visible);
 
+          const fftTarget = createSharedFramebufferTarget(32, 16);
+          resources.push(fftTarget);
+          const fftShader = builder.getShader({
+            id: fftFilledWaveform.id,
+            component: fftFilledWaveform,
+          }, fftTarget);
+          const fftColorShader = builder.getShader({
+            id: fftColorLines.id,
+            component: fftColorLines,
+          }, fftTarget);
+          const waveformDisplaceShader = builder.getShader({
+            id: waveformDisplace.id,
+            component: waveformDisplace,
+          }, fftTarget);
+          if (!fftShader || !fftColorShader || !waveformDisplaceShader) {
+            throw new Error("AUDIO_ISF_SHADER_UNAVAILABLE");
+          }
+          const audioRenderRequest = {
+            ...renderRequest,
+            width: 32,
+            height: 16,
+            logicalWidth: 32,
+            logicalHeight: 16,
+          };
+          const fftParams = {
+            strokeSize: 0,
+            gain: 3,
+            minRange: 0,
+            maxRange: 1,
+            topColor: [0, 0, 0, 1],
+            bottomColor: [0, 0.5, 0.9, 1],
+            strokeColor: [0.25, 0.25, 0.25, 1],
+          };
+          const quietFft = runtime.renderProgram({
+            component: fftFilledWaveform,
+            shader: fftShader,
+            finalTarget: fftTarget,
+            renderRequest: audioRenderRequest,
+            timeSeconds: 1,
+            params: fftParams,
+            instanceId: "fft-audio-smoke",
+          });
+          const quietFftPixel = sampledCenterPixel(quietFft);
+          audioFrame.frequencyData.fill(255);
+          audioFrame.sequence++;
+          const loudFft = runtime.renderProgram({
+            component: fftFilledWaveform,
+            shader: fftShader,
+            finalTarget: fftTarget,
+            renderRequest: audioRenderRequest,
+            timeSeconds: 1 + 1 / 60,
+            params: fftParams,
+            instanceId: "fft-audio-smoke",
+          });
+          const loudFftPixel = sampledCenterPixel(loudFft);
+          const fftRespondsToAudio =
+            quietFftPixel[2] <= 10 &&
+            loudFftPixel[1] >= 90 &&
+            loudFftPixel[2] >= 180;
+
           solid(input, [255, 0, 0, 255]);
           const redInputPixel = centerPixel(input);
           const first = runtime.renderProgram({
@@ -729,6 +834,7 @@
             productionHandoffVisible &&
             productionGhostingVisible &&
             multipassComparisonsVisible &&
+            fftRespondsToAudio &&
             firstIsRed &&
             secondRetainsHistory &&
             targets?.targets?.length === 2;
@@ -750,6 +856,9 @@
             productionGhostingVisible,
             multipassComparisonResults,
             multipassComparisonsVisible,
+            quietFftPixel,
+            loudFftPixel,
+            fftRespondsToAudio,
             redInputPixel,
             blueInputPixel,
             firstPixel,

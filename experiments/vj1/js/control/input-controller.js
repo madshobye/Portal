@@ -68,17 +68,26 @@ export function createInputController({
       });
       editor.querySelectorAll("[data-add-animation-suggestion]").forEach((button) => {
         button.addEventListener("click", () => {
+          const parameterSelect = editor.querySelector("[data-animation-new-parameter]");
+          const explicitParameterId = button.dataset.animationParameter || "";
+          const parameterOption = explicitParameterId
+            ? [...(parameterSelect?.options || [])].find((option) =>
+                option.value === explicitParameterId
+              )
+            : parameterSelect?.selectedOptions?.[0];
+          const parameterId = explicitParameterId || parameterOption?.value || "";
+          if (!parameterId || !parameterOption) return;
           commitAnimationEdit("suggestion", () => addParameterAnimationTrack(getState().nodes, {
             componentId,
             targetNodeId,
-            parameterId: button.dataset.animationParameter,
-            baseValue: Number(button.dataset.animationBase),
+            parameterId,
+            baseValue: Number(button.dataset.animationBase ?? parameterOption.dataset.animationFrom),
             targetRange: [
-              Number(button.dataset.animationMin),
-              Number(button.dataset.animationMax),
+              Number(button.dataset.animationMin ?? parameterOption.dataset.animationMin),
+              Number(button.dataset.animationMax ?? parameterOption.dataset.animationMax),
             ],
-            from: Number(button.dataset.animationFrom),
-            to: Number(button.dataset.animationTo),
+            from: Number(button.dataset.animationFrom ?? parameterOption.dataset.animationFrom),
+            to: Number(button.dataset.animationTo ?? parameterOption.dataset.animationTo),
             mode: button.dataset.animationMode,
             duration: Number(button.dataset.animationDuration),
             phase: Number(button.dataset.animationPhase),
@@ -109,6 +118,23 @@ export function createInputController({
       });
       editor.querySelectorAll("[data-animation-track-id]").forEach((track) => {
         const trackId = track.dataset.animationTrackId;
+        track.querySelector("[data-animation-target-parameter]")?.addEventListener("change", (event) => {
+          const option = event.currentTarget.selectedOptions?.[0];
+          if (!option) return;
+          commitAnimationEdit("target-parameter", () => updateParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            trackId,
+            patch: {
+              parameterId: option.value,
+              baseValue: Number(option.dataset.animationBase),
+              targetRange: [
+                Number(option.dataset.animationMin),
+                Number(option.dataset.animationMax),
+              ],
+            },
+          }));
+        });
         track.querySelector("[data-animation-driver]")?.addEventListener("change", (event) => {
           const option = event.currentTarget.selectedOptions?.[0];
           if (!option) return;

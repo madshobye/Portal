@@ -5,6 +5,7 @@ import {
   unwrapRenderTarget,
 } from "./shared-framebuffer-target.js";
 import { renderTargetNeedsShaderSampleFlip } from "./render-target-contract.js";
+import { IsfAudioTextureRuntime } from "./isf-audio-texture-runtime.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
@@ -31,6 +32,7 @@ export class IsfRenderRuntime {
     this.programStates = new Map();
     this.targetTextures = new Map();
     this.dateUniform = [0, 0, 0, 0];
+    this.audioTextures = new IsfAudioTextureRuntime(host);
   }
 
   needsPassRuntime(component) {
@@ -53,6 +55,7 @@ export class IsfRenderRuntime {
     this.passTargets.clear();
     this.programStates.clear();
     this.targetTextures.clear();
+    this.audioTextures.dispose();
   }
 
   prune(maxIdleFrames = 600) {
@@ -384,6 +387,22 @@ export class IsfRenderRuntime {
       setShaderUniformIfPresent(shader, `${name}_imgSize`, [
         Math.max(1, texture.width || logicalWidth),
         Math.max(1, texture.height || logicalHeight),
+      ]);
+      setShaderUniformIfPresent(
+        shader,
+        `${name}_flipY`,
+        this.imageNeedsStorageFlip(texture),
+      );
+    }
+    for (const inputDefinition of component?.isf?.inputs || []) {
+      if (!["audio", "audioFFT"].includes(inputDefinition.type)) continue;
+      const texture = this.audioTextures.texture(inputDefinition.type);
+      if (!texture) continue;
+      const name = inputDefinition.name;
+      setShaderUniformIfPresent(shader, name, texture);
+      setShaderUniformIfPresent(shader, `${name}_imgSize`, [
+        Math.max(1, texture.width || 1),
+        Math.max(1, texture.height || 2),
       ]);
       setShaderUniformIfPresent(
         shader,

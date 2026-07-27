@@ -121,7 +121,7 @@ test("the static built-in catalog is projected into the common visual-library mo
 
 test("the built-in proving set is file-backed ISF with stable node identity and explicit lowering", () => {
   assert.equal(BuiltInIsfRepository.id, BuiltInVisualLibraryLayer.id);
-  assert.equal(BuiltInIsfRepository.records.length, 47);
+  assert.equal(BuiltInIsfRepository.records.length, 50);
   const black = BuiltInIsfRepository.records.find((record) => record.visualId === "black");
   const invert = BuiltInIsfRepository.records.find((record) => record.visualId === "invert");
   const gray = BuiltInIsfRepository.records.find((record) => record.visualId === "gray");
@@ -214,8 +214,8 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
   const multipassComparison = collection.filter((record) =>
     record.tags.includes("isf-multipass-comparison")
   );
-  assert.equal(collection.length, 42);
-  assert.equal(proof.length, 23);
+  assert.equal(collection.length, 45);
+  assert.equal(proof.length, 26);
   assert.equal(tranche2.length, 17);
   assert.equal(multipassComparison.length, 2);
   assert.deepEqual(
@@ -223,7 +223,7 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
       kind,
       collection.filter((record) => record.artifactType === kind).length,
     ])),
-    { generator: 10, effect: 19, transition: 13 },
+    { generator: 12, effect: 20, transition: 13 },
   );
   for (const record of collection) {
     const sourcePart = record.definition.parts.find((part) =>
@@ -235,7 +235,7 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
     assert.equal(sourcePart?.stage, "fragment", record.resource);
     assert.doesNotMatch(sourcePart?.source || "", /"IMPORTED"\s*:/, record.resource);
     assert.equal(document?.inputs?.some((input) =>
-      ["audio", "audioFFT", "event"].includes(input.type)
+      input.type === "event"
     ), false, record.resource);
     assert.equal(
       document?.inputs?.filter((input) => input.type === "image").length <=
@@ -267,6 +267,11 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
       );
     }
   }
+  assert.equal(collection.filter((record) =>
+    record.component?.isf?.inputs?.some((input) =>
+      ["audio", "audioFFT"].includes(input.type)
+    )
+  ).length, 3);
   for (const record of proof) {
     const document = record.component?.isf ||
       record.transition?.definition?.metadata?.isf;
@@ -302,7 +307,7 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
   const proofArtifacts = listBuiltInVisualArtifacts().filter((artifact) =>
     artifact.implementation.resourceId?.startsWith("shaders/isf/")
   );
-  assert.equal(proofArtifacts.length, 42);
+  assert.equal(proofArtifacts.length, 45);
   assert.equal(
     proofArtifacts.every((artifact) =>
       artifact.implementation.format === "isf" &&

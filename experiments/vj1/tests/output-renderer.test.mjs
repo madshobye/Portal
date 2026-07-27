@@ -9,6 +9,7 @@ import { disposeP5Shader, mapperFragmentShaderSource, mapperTransitionFragmentSh
 import { ComponentPreviewInteraction, stateWithSurfaceRect, stateWithChainItemBoundary, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
 import { compileOutputGroupTopology, compileMappingGroupTopology } from "../js/libraries/composition-engine/index.js";
 import { IsfRenderRuntime } from "../js/output/isf-render-runtime.js";
+import { IsfAudioTextureRuntime } from "../js/output/isf-audio-texture-runtime.js";
 import { TextureOperatorRuntime } from "../js/output/texture-operator-runtime.js";
 import { ShaderEffectRuntime } from "../js/output/shader-effect-runtime.js";
 import { ShaderGeneratorRuntime } from "../js/output/shader-generator-runtime.js";
@@ -187,6 +188,64 @@ test("named ISF image ports bind retained textures and participate in dirty iden
   assert.equal(primaryTextureInputPort({
     textureInputPorts: ["overlayImage", "inputImage"],
   }), "inputImage", "an ISF effect always preserves its semantic base image");
+});
+
+test("ISF audio textures upload each analyser frame once and reuse retained images", () => {
+  const frame = {
+    sequence: 1,
+    lifecycleRevision: 1,
+    timeData: new Uint8Array([0, 128, 255]),
+    frequencyData: new Uint8Array([10, 20]),
+  };
+  const created = [];
+  const runtime = new IsfAudioTextureRuntime({
+    controlSignalRuntime: {
+      analysisFrame: () => frame,
+    },
+  }, {
+    createImage(width, height) {
+      const image = {
+        width,
+        height,
+        pixels: new Uint8ClampedArray(width * height * 4),
+        uploads: 0,
+        loadPixels() {},
+        updatePixels() {
+          this.uploads++;
+        },
+        remove() {
+          this.removed = true;
+        },
+      };
+      created.push(image);
+      return image;
+    },
+  });
+
+  const waveform = runtime.texture("audio");
+  assert.strictEqual(runtime.texture("audio"), waveform);
+  assert.equal(waveform.uploads, 1);
+  assert.deepEqual([...waveform.pixels.slice(0, 12)], [
+    0, 0, 0, 255,
+    128, 128, 128, 255,
+    255, 255, 255, 255,
+  ]);
+  assert.deepEqual(
+    [...waveform.pixels.slice(0, 12)],
+    [...waveform.pixels.slice(12, 24)],
+    "mono analyser data is duplicated into the ISF stereo rows",
+  );
+
+  const fft = runtime.texture("audioFFT");
+  assert.equal(fft.uploads, 1);
+  assert.equal(created.length, 2);
+  frame.sequence++;
+  runtime.texture("audio");
+  runtime.texture("audio");
+  assert.equal(waveform.uploads, 2);
+  runtime.dispose();
+  assert.equal(waveform.removed, true);
+  assert.equal(fft.removed, true);
 });
 
 test("typed media resource inputs carry runtime readiness into retained source identity", () => {

@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "id": "vj1.built-in.visuals",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "artifacts": [
     {
       "id": "vj1.visual.generator.black",
@@ -1214,6 +1214,88 @@
       ],
       "attribution": {
         "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-fft-color-lines-18ecbn5",
+      "visualId": "isf-shaders-isf-generators-fft-color-lines-18ecbn5",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-fft-color-lines-18ecbn5",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "FFT Color Lines",
+      "description": "Visualizes FFT frequency data and the audio waveform with configurable colors",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/fft-color-lines.fs",
+      "categories": [
+        "ISF",
+        "Audio Visualizer"
+      ],
+      "tags": [
+        "isf",
+        "audio",
+        "fft",
+        "generator"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-fft-filled-waveform-17sctfy",
+      "visualId": "isf-shaders-isf-generators-fft-filled-waveform-17sctfy",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-fft-filled-waveform-17sctfy",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "FFT Filled Waveform",
+      "description": "Visualizes FFT frequency data as a filled spectrum",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/fft-filled-waveform.fs",
+      "categories": [
+        "ISF",
+        "Audio Visualizer"
+      ],
+      "tags": [
+        "isf",
+        "audio",
+        "fft",
+        "generator"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-waveform-displace-cekg4",
+      "visualId": "isf-shaders-isf-effects-waveform-displace-cekg4",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-waveform-displace-cekg4",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Waveform Displace",
+      "description": "Displaces an image with the live audio waveform",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/waveform-displace.fs",
+      "categories": [
+        "ISF",
+        "Audio Visualizer",
+        "Distortion Effect"
+      ],
+      "tags": [
+        "isf",
+        "audio",
+        "waveform",
+        "effect"
+      ],
+      "attribution": {
+        "credit": "icalvin102 (calvin@icalvin.de)",
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"

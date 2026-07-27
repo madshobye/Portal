@@ -114,6 +114,10 @@ export class ControlSignalRuntime {
     return this.adapters.get(String(kind || ""))?.whenReady?.(options) || Promise.resolve(null);
   }
 
+  analysisFrame(kind) {
+    return this.adapters.get(String(kind || ""))?.analysisFrame?.() || null;
+  }
+
   revisionFor(requirements = []) {
     const parts = [];
     const seen = new Set();
@@ -449,6 +453,12 @@ export class AudioControlAdapter {
     this.lifecycleRevision = 0;
     this.timeData = null;
     this.frequencyData = null;
+    this.analysisFrameState = {
+      sequence: 0,
+      lifecycleRevision: 0,
+      timeData: null,
+      frequencyData: null,
+    };
     this.beatDetectors = new Map();
     this.disposed = false;
     this.reportedError = "";
@@ -496,6 +506,16 @@ export class AudioControlAdapter {
   whenReady() {
     this.ensureAccess();
     return this.accessPromise || Promise.resolve(this.stream);
+  }
+
+  analysisFrame() {
+    this.ensureAccess();
+    const frame = this.analysisFrameState;
+    frame.sequence = this.sequence;
+    frame.lifecycleRevision = this.lifecycleRevision;
+    frame.timeData = this.timeData;
+    frame.frequencyData = this.frequencyData;
+    return frame;
   }
 
   ensureAccess() {

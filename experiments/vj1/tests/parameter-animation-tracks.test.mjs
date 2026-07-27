@@ -840,6 +840,82 @@ test("Manual animation events advance compiled Preview and Output programs throu
   signals.dispose();
 });
 
+test("Generic animation recipes render once and target the selected parameter", () => {
+  const html = parameterAnimationViewTemplate({
+    state: { nodes: {} },
+    componentId: "component-a",
+    targetNodeId: "node-a",
+    parameters: [
+      { id: "first", label: "First", type: "number", min: 0, max: 1, value: 0.25 },
+      { id: "second", label: "Second", type: "number", min: -1, max: 1, value: 0 },
+      { id: "third", label: "Third", type: "number", min: 0, max: 10, value: 5 },
+    ],
+  });
+  assert.equal((html.match(/>Triggered envelope<\/span>/g) || []).length, 1);
+  assert.equal((html.match(/>Noise drift<\/span>/g) || []).length, 1);
+  assert.equal((html.match(/>Triggered noise burst<\/span>/g) || []).length, 1);
+  assert.equal((html.match(/data-animation-use-selected-parameter="true"/g) || []).length, 3);
+  assert.match(html, /data-animation-new-parameter/);
+  assert.match(html, /value="first"/);
+  assert.match(html, /value="second"/);
+  assert.match(html, /value="third"/);
+});
+
+test("An animation track can move to another unclaimed numeric parameter", () => {
+  const fixture = plasmaState();
+  let nodes = addParameterAnimationTrack(fixture.state.nodes, {
+    componentId: fixture.componentId,
+    targetNodeId: fixture.targetNodeId,
+    parameterId: "speed",
+    from: 0,
+    to: 2,
+    duration: 3,
+  });
+  const [track] = parameterAnimationTracks(
+    nodes,
+    fixture.componentId,
+    fixture.targetNodeId,
+  );
+  nodes = updateParameterAnimationTrack(nodes, {
+    componentId: fixture.componentId,
+    targetNodeId: fixture.targetNodeId,
+    trackId: track.id,
+    patch: {
+      parameterId: "hueShift",
+      baseValue: 0,
+      targetRange: [-1, 1],
+    },
+  });
+  const [retargeted] = parameterAnimationTracks(
+    nodes,
+    fixture.componentId,
+    fixture.targetNodeId,
+  );
+  assert.equal(retargeted.id, track.id);
+  assert.equal(retargeted.parameterId, "hueShift");
+  assert.equal(retargeted.defaultAnimationId, undefined);
+
+  const group = nodes.groups.find((entry) => entry.componentId === fixture.componentId);
+  const speedControl = group.nodes.find((node) =>
+    node.targetNodeId === fixture.targetNodeId && node.targetParameterId === "speed"
+  );
+  const hueControl = group.nodes.find((node) =>
+    node.targetNodeId === fixture.targetNodeId && node.targetParameterId === "hueShift"
+  );
+  assert.ok(group.connections.some((edge) =>
+    edge.from === `${speedControl.id}.value` &&
+    edge.to === `${fixture.targetNodeId}.$parameter.speed`
+  ));
+  assert.ok(!group.connections.some((edge) =>
+    edge.from === `${hueControl.id}.value` &&
+    edge.to === `${fixture.targetNodeId}.$parameter.hueShift`
+  ));
+  assert.ok(group.connections.some((edge) =>
+    edge.semantic === "parameter-animation-track" &&
+    edge.to === `${fixture.targetNodeId}.$parameter.hueShift`
+  ));
+});
+
 test("Visual parameters expose editable suggested animations without a separate runtime", () => {
   const suggestions = [
     [getGeneratorNodeComponent("gradient"), "angle", "Rotate continuously"],
@@ -890,10 +966,10 @@ test("Plasma exposes one editable default track and ordinary addable animation s
   });
   assert.match(html, /<strong>Motion phase<\/strong>/);
   assert.match(html, /data-remove-parameter-animation/);
-  assert.match(html, />Orbit direction<\/span>/);
-  assert.match(html, />Breathe cell scale<\/span>/);
-  assert.match(html, />Breathe distortion<\/span>/);
-  assert.match(html, />Cycle hue<\/span>/);
+  assert.match(html, /Orbit direction<\/span>/);
+  assert.match(html, /Breathe cell scale<\/span>/);
+  assert.match(html, /Breathe distortion<\/span>/);
+  assert.match(html, /Cycle hue<\/span>/);
   assert.doesNotMatch(html, />Motion<\/span>\\s*<select/);
 
   const removedState = fixture.packageRoot.prepareProjectState({
@@ -922,7 +998,7 @@ test("Plasma exposes one editable default track and ordinary addable animation s
       value: source.source.params[parameter.id] ?? parameter.defaultValue,
     })),
   });
-  assert.match(removedHtml, />Plasma motion<\/span>/);
+  assert.match(removedHtml, /Plasma motion<\/span>/);
   const staticProgram = compileComponentRenderPrograms(
     removedState.components,
     removedState.nodes.groups,
@@ -1012,7 +1088,7 @@ test("Obvious built-in shader motion is authored once as an editable default ani
     targetNodeId: effect.id,
     parameters: [{ ...phaseParameter, value: 0 }],
   });
-  assert.match(html, />Continuous rotation<\/span>/);
+  assert.match(html, /Continuous rotation<\/span>/);
   assert.match(html, /data-animation-phase="0.5"/);
 });
 
@@ -1115,7 +1191,7 @@ test("Component and Scene inspectors share one Animation tab before General", ()
   assert.match(html, /value="\$general\.opacity"/);
   assert.match(html, />Boundary scale<\/option>/);
   assert.match(html, /data-add-animation-suggestion/);
-  assert.match(html, />Cycle hue<\/span>/);
+  assert.match(html, /Cycle hue<\/span>/);
 
   state = {
     ...state,

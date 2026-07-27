@@ -390,35 +390,82 @@ export function updateParameterAnimationTrack(nodes = {}, {
     if (index < 0) throw new Error(`PARAMETER_ANIMATION_MISSING:${componentId}:${trackId}`);
     const current = scope.nodes[index];
     const projected = animationTrackProjection(current, scope.nodes, scope.connections);
-    const target = targetParameterEndpoint(
-      current.animationTrack.targetNodeId,
-      current.animationTrack.parameterId,
+    const {
+      baseValue: requestedBaseValue,
+      targetRange: requestedTargetRange,
+      ...trackPatch
+    } = patch;
+    const currentTargetNodeId = String(current.animationTrack.targetNodeId || "");
+    const currentParameterId = String(current.animationTrack.parameterId || "");
+    const nextParameterId = String(trackPatch.parameterId || currentParameterId);
+    const retargeting = nextParameterId !== currentParameterId;
+    if (retargeting && scope.nodes.some((node) =>
+      isAnimationTrackNode(node) &&
+      String(node.animationTrack?.id || "") !== String(trackId || "") &&
+      String(node.animationTrack?.targetNodeId || "") === currentTargetNodeId &&
+      String(node.animationTrack?.parameterId || "") === nextParameterId
+    )) {
+      throw new Error(
+        `PARAMETER_ANIMATION_EXISTS:${componentId}:${currentTargetNodeId}:${nextParameterId}`,
+      );
+    }
+    const currentTarget = targetParameterEndpoint(
+      currentTargetNodeId,
+      currentParameterId,
     );
-    const baseControl = generatedParameterControl(
+    const nextTarget = targetParameterEndpoint(
+      currentTargetNodeId,
+      nextParameterId,
+    );
+    const currentBaseControl = generatedParameterControl(
       scope.nodes,
-      current.animationTrack.targetNodeId,
-      current.animationTrack.parameterId,
+      currentTargetNodeId,
+      currentParameterId,
     );
+    const ensured = retargeting
+      ? ensureGeneratedParameterControl(scope.nodes, {
+          targetNodeId: currentTargetNodeId,
+          parameterId: nextParameterId,
+          baseValue: requestedBaseValue,
+          targetRange: requestedTargetRange,
+        })
+      : { nodes: scope.nodes, control: currentBaseControl, created: false };
+    scope.nodes = ensured.nodes;
+    const baseControl = ensured.control;
+    if (ensured.created) {
+      scope.connections.push(generatedParameterConnection(baseControl, nextTarget));
+    }
     const baseRange = baseControl.targetRange ||
-      scope.connections.find((edge) => String(edge.from || "") === `${baseControl.id}.value`)?.targetRange;
+      scope.connections.find((edge) =>
+        String(edge.from || "") === `${baseControl.id}.value`
+      )?.targetRange;
     if (!validRange(baseRange)) {
       throw new Error(`PARAMETER_ANIMATION_RANGE_MISSING:${componentId}:${trackId}`);
     }
-    const combination = normalizeCombination(patch.combination ?? projected.combination);
+    const combination = normalizeCombination(trackPatch.combination ?? projected.combination);
     const mappingBounds = modulationRange(combination, baseRange);
+    const baseValue = mapRange(
+      Number(baseControl.parameters?.value),
+      validRange(baseControl.sourceRange) ? baseControl.sourceRange : [0, 1],
+      baseRange,
+    );
+    const defaults = retargeting
+      ? defaultModulationRange(combination, baseValue, baseRange)
+      : [projected.from, projected.to];
     const range = [
-      clampFinite(patch.from, mappingBounds, projected.from),
-      clampFinite(patch.to, mappingBounds, projected.to),
+      clampFinite(trackPatch.from, mappingBounds, defaults[0]),
+      clampFinite(trackPatch.to, mappingBounds, defaults[1]),
     ];
     const next = normalizedTrackConfiguration({
       ...projected,
-      ...patch,
+      ...trackPatch,
       from: range[0],
       to: range[1],
       id: projected.id,
       targetNodeId: projected.targetNodeId,
-      parameterId: projected.parameterId,
+      parameterId: nextParameterId,
       combination,
+      ...(retargeting ? { defaultAnimationId: "" } : {}),
     });
     const ownerIds = animationTrackNodeIds(scope.nodes, current);
     const timeNode = next.sourceKind === "timeline"
@@ -441,14 +488,18 @@ export function updateParameterAnimationTrack(nodes = {}, {
     scope.connections = scope.connections.filter((edge) =>
       !ownerIds.has(endpointNodeId(edge.from)) &&
       !ownerIds.has(endpointNodeId(edge.to)) &&
-      String(edge.to || "") !== target
+      String(edge.to || "") !== currentTarget &&
+      String(edge.to || "") !== nextTarget
     );
     scope.connections.push(...fragment.connections);
+    if (retargeting) {
+      scope.connections.push(generatedParameterConnection(currentBaseControl, currentTarget));
+    }
     scope.connections.push(next.enabled === false
-      ? generatedParameterConnection(baseControl, target)
+      ? generatedParameterConnection(baseControl, nextTarget)
       : {
         from: `${fragment.valueNodeId}.value`,
-        to: target,
+        to: nextTarget,
         type: "number",
         semantic: PARAMETER_ANIMATION_FEATURE,
         animationStage: "sink",

@@ -384,7 +384,7 @@ transition lowering. The first curated Vidvox proof slice adds 23 original
 fragment sources under `visual-library/shaders/isf/`: 6 generators, 8 effects,
 and 9 transitions. The second tranche brings the collection to 40 shaders:
 10 generators, 17 effects, and 13 transitions pinned to upstream commit
-`395072d48b3ce7351ccb20a5fda54470591324df`. It deliberately excludes custom
+`395072d48b3ce7351ccb20a5fda54470591324df`. At that stage it excluded custom
 vertex stages, audio/FFT, imported images, events, and extra non-transition
 image inputs. Tranche two deliberately includes persistent, float-buffer, and
 multipass shaders supported by the common runtime. Source text remains the
@@ -394,10 +394,18 @@ effect cards remain in their ordinary categories and are additionally
 discoverable through the `ISF` picker filter. Metadata declares host contracts;
 it never embeds arbitrary JavaScript.
 
-A focused multipass comparison tranche brings the collection to 42 shaders
-(10 generators, 19 effects, and 13 transitions). Dilate and Erode retain their
+A focused multipass comparison tranche brings the collection to 42 shaders.
+Dilate and Erode retain their
 upstream fragment text and exercise the same full-size, two-pass,
 non-persistent named-target path as Ghosting.
+
+The audio tranche brings the collection to 45 shaders (12 generators, 20
+effects, and 13 transitions). FFT Color Lines, FFT Filled Waveform, and
+Waveform Displace retain their upstream fragment text. ISF `audio` and
+`audioFFT` inputs are host resources backed by the existing native Web Audio
+analyser: one retained waveform texture and one retained FFT texture are
+updated once per analysis frame and reused by every audio shader. Audio inputs
+do not become graph texture ports and do not create a second analyser.
 
 The ISF backend owns retained pass state generically. Persistent passes use
 instance-owned ping-pong framebuffers, including float attachments, and
