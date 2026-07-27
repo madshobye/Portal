@@ -1,7 +1,7 @@
 import { createOutputDefinition, normalizeRenderSettings } from "../domain/render-settings.js";
 import { sortComponentCatalog } from "./catalog-view.js";
 import { setClass, setText } from "./dom-utils.js";
-import { getByPath, readInputValue, setByPath, syncRangeValue } from "./path-input-utils.js";
+import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js";
 import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js";
 import { configuredOutputsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js";
 import { mergeSourceChoice } from "../domain/source-choice.js";
@@ -114,6 +114,12 @@ export function createModalController({
     );
     host.querySelectorAll("[data-pick-source-generator]").forEach((button) => {
       button.addEventListener("click", () => chooseSource({ type: "generator", generatorId: button.dataset.pickSourceGenerator }));
+    });
+    host.querySelectorAll("[data-pick-source-component]").forEach((button) => {
+      button.addEventListener("click", () => chooseSource({
+        type: "component",
+        componentId: button.dataset.pickSourceComponent,
+      }));
     });
   }
 
@@ -580,8 +586,14 @@ export function createModalController({
     render();
   }
 
-  function openSourceChoicePicker(path, allowedCategory = "") {
-    openChoicePicker({ path, allowedCategory, filter: allowedCategory || "all" });
+  function openSourceChoicePicker(path, allowedCategory = "", options = {}) {
+    openChoicePicker({
+      path,
+      allowedCategory,
+      filter: allowedCategory || "all",
+      allowComponents: options.allowComponents === true,
+      ownerComponentId: String(options.ownerComponentId || ""),
+    });
   }
 
   function openChoicePicker(picker) {
@@ -608,7 +620,7 @@ export function createModalController({
     if (!target?.path) return;
     store.update((draft) => {
       const previous = getByPath(draft, target.path) || {};
-      setByPath(draft, target.path, mergeSourceChoice(
+      setByPathCreate(draft, target.path, mergeSourceChoice(
         previous,
         source?.type === "media"
           ? sourceForCatalogMedia(source.mediaId, draft)

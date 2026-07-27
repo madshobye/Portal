@@ -435,15 +435,22 @@ key and invalidates presentation once, without making a static shader
 frame-dynamic. The resource cache follows the same prune/dispose lifecycle as
 other ISF state.
 
-The compatible-library import brings the built-in collection to 249 pinned
-fragment shaders: 43 generators, 144 effects, and 62 transitions. A
+The compatible-library import brings the built-in collection to 260 pinned
+fragment shaders: 46 generators, 152 effects, and 62 transitions. A
 deterministic importer checks the upstream tree against the runtime's existing
 pass, input, and resource contracts, preserves the original fragment text, and
-adds 200 compatible files to the earlier proof tranches. The real-WebGL
+adds 211 compatible files to the earlier proof tranches. Effects keep their
+preceding composition texture as the automatic `inputImage`; generators and
+effects persist any additional named image inlet as an authored visual source.
+Compilation lowers those choices into ordinary hidden source nodes and explicit
+texture-DAG edges, so media, generators, and Components reuse the same retained
+render path without per-frame graph traversal. ISF image rectangles, sizes, and
+storage orientation are host uniforms derived from those retained textures.
+The real-WebGL
 architecture smoke compiles the complete installed catalog in Chrome. Paired custom vertex
-stages, shaders needing additional live image connections (including two
-three-image transitions), unbundled imported resources, and 24 files that do
-not compile under the current WebGL 1 contract remain excluded.
+stages, two three-image Live transitions whose extra input belongs to the
+Surface-transition renderer, unbundled imported resources, and 25 files that
+do not compile under the current WebGL 1 contract remain excluded.
 The repository loader fetches the expanded source set with bounded concurrency
 while preserving manifest order and strict identity validation.
 

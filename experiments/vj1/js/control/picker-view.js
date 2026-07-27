@@ -47,6 +47,12 @@ export function generatorIcon(id) {
 export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
   const source = currentSourceValue(picker, state);
   const allowedCategory = picker?.allowedCategory || "";
+  const components = picker?.allowComponents
+    ? (state.components || []).filter((component) =>
+      component.type !== "scene" &&
+      component.id !== picker.ownerComponentId
+    )
+    : [];
   const mediaSortMode = state.ui?.catalogSortModes?.media || "recent";
   const allMediaItems = sortComponentCatalog(state.media || [], mediaSortMode);
   const mediaItems = allowedCategory
@@ -84,9 +90,24 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
         mediaItems: allMediaItems,
         allowedCategory,
         hasIsf,
+        hasComponents: components.length > 0,
       })}
 
       <div class="element-modal-body" data-scroll-region data-scroll-key="source-picker-results">
+        ${components.length ? `<section class="ui-section element-section" data-element-section>
+          <div class="ui-section-header rail-title"><span class="material-symbols-rounded">${UI_ICONS.component}</span><span>Components</span></div>
+          <div class="element-grid media-element-grid">
+            ${components.map((component) => `
+              <button type="button" class="element-card media-element-card ${source.type === "component" && source.componentId === component.id ? "is-selected" : ""}" data-pick-source-component="${esc(component.id)}" data-element-category="component" data-element-search-card="${esc(elementSearchText(component.name, "component source"))}">
+                ${thumbnailTemplate(component.thumbnail, UI_ICONS.component, component.id)}
+                <strong>${esc(component.name)}</strong>
+                <small>component</small>
+              </button>
+            `).join("")}
+          </div>
+          <div class="soft-note" data-element-empty hidden>No matching components.</div>
+        </section>` : ""}
+
         ${mediaPickerSectionTemplate(mediaItems, mediaLibrary, {
           action: "pick",
           selectedMediaId: selectedSourceMediaId(source),
@@ -137,6 +158,7 @@ function sourceFilterBarTemplate({
   mediaItems = [],
   allowedCategory = "",
   hasIsf = false,
+  hasComponents = false,
 } = {}) {
   if (allowedCategory) {
     const label = allowedCategory === "model" ? "3D" : allowedCategory === "image" ? "Images" : allowedCategory;
@@ -150,6 +172,7 @@ function sourceFilterBarTemplate({
   }
   const availableMedia = new Set(mediaItems.map(mediaCategory));
   const filters = [
+    ...(hasComponents ? [["component", "Components", UI_ICONS.component]] : []),
     ...(availableMedia.has("image") ? [["image", "Images", "image"]] : []),
     ...(availableMedia.has("video") ? [["video", "Videos", "movie"]] : []),
     ...(availableMedia.has("model") ? [["model", "3D", "deployed_code"]] : []),

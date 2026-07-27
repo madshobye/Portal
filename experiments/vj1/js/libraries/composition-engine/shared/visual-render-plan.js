@@ -605,6 +605,10 @@ export function compileVisualContractPasses(operations = [], diagnostics = []) {
       const sourceId = endpointNode(sourceValueId);
       demandById.set(sourceId, mergeRoiDemand(demandById.get(sourceId), inputDemand));
     }
+    if (operation.compositionInput && !isExternalTextureSource(operation.compositionInput)) {
+      const sourceId = endpointNode(operation.compositionInput);
+      demandById.set(sourceId, mergeRoiDemand(demandById.get(sourceId), inputDemand));
+    }
     if (!hasAuthoredBindings && index > 0) {
       const sourceId = normalized[index - 1].id;
       demandById.set(sourceId, mergeRoiDemand(demandById.get(sourceId), inputDemand));
@@ -614,7 +618,9 @@ export function compileVisualContractPasses(operations = [], diagnostics = []) {
 }
 
 export function visualRenderPlanConfiguration(plan = {}) {
-  return (plan.operations || []).map(operationConfiguration);
+  return (plan.operations || [])
+    .filter((operation) => !operation.configuration?.auxiliaryFor)
+    .map(operationConfiguration);
 }
 
 export class VisualRenderPlanIntrospection {
@@ -846,6 +852,7 @@ function compileOperations(nodes, connections, currentChain, path, hooks, diagno
       ),
     });
     const textureInputs = textureInputBindings(node.id, connections);
+    const compositionInput = compositionInputBinding(node.id, connections);
     if (compilerHook?.id === VISUAL_COMPILER_HOOKS.TEXTURE_OPERATOR) {
       validateTextureOperatorInputs(node, definition, textureInputs, path);
     }
@@ -858,6 +865,7 @@ function compileOperations(nodes, connections, currentChain, path, hooks, diagno
       ...compiled,
       textureInputs: Object.freeze(textureInputs),
       textureInputPorts: Object.freeze(Object.keys(textureInputs)),
+      compositionInput,
       mediaDependencies,
       // Runtime values are written into this retained map by the optimized
       // texture-DAG executor. Graph topology never becomes per-frame packets.
@@ -1108,7 +1116,9 @@ function operationConfiguration(operation) {
   }
   return {
     ...operation.configuration,
-    chain: (operation.operations || []).map(operationConfiguration),
+    chain: (operation.operations || [])
+      .filter((child) => !child.configuration?.auxiliaryFor)
+      .map(operationConfiguration),
   };
 }
 
@@ -1689,6 +1699,20 @@ function textureInputBindings(nodeId, connections) {
       : visualTextureValueReference(edge.from);
   }
   return result;
+}
+
+function compositionInputBinding(nodeId, connections) {
+  const edge = (connections || []).find((candidate) =>
+    endpointNode(candidate.to) === String(nodeId || "") &&
+    candidate.semantic === "composition" &&
+    (candidate.type === "texture" ||
+      isTextureEndpoint(candidate.from) ||
+      isTextureEndpoint(candidate.to))
+  );
+  if (!edge) return "";
+  return endpointNode(edge.from) === "$in"
+    ? `$in.${endpointPort(edge.from) || "texture"}`
+    : visualTextureValueReference(edge.from);
 }
 
 function compoundVisualConnections(definition, graph, path, selectedOutputs) {

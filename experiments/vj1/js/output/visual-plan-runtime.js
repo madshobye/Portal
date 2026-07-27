@@ -189,6 +189,12 @@ export class VisualPlanRuntime {
         continue;
       }
       const item = operation.configuration || operation;
+      const compositionState = this.textureValueState(
+        plan,
+        operation.compositionInput,
+        transparent,
+        externalInputStates,
+      );
       let state;
       if (
         framebufferSequence?.phase === "begin"
@@ -229,7 +235,7 @@ export class VisualPlanRuntime {
           plan,
           operation,
           primaryTextureInputPort(operation),
-          transparent,
+          compositionState,
           externalInputStates,
         );
       } else if (operation.opcode === "source") {
@@ -246,7 +252,7 @@ export class VisualPlanRuntime {
           renderRequest,
           renderBufferKey(scopeId, operation.id),
           inheritedTransform,
-          transparent,
+          compositionState,
           inputStates,
         );
       } else if (
@@ -256,7 +262,7 @@ export class VisualPlanRuntime {
           plan,
           operation,
           primaryTextureInputPort(operation),
-          transparent,
+          compositionState,
           externalInputStates,
         );
         this.host.probeRuntime?.observe(
@@ -288,7 +294,7 @@ export class VisualPlanRuntime {
           renderRequest,
           renderBufferKey(scopeId, operation.id),
           inheritedTransform,
-          inputStates.get(firstPort) || transparent,
+          inputStates.get(firstPort) || compositionState,
           inputStates,
         );
       } else if (operation.opcode === "select") {
@@ -336,6 +342,20 @@ export class VisualPlanRuntime {
     externalInputStates = null,
   ) {
     const sourceId = operation.textureInputs?.[port];
+    return this.textureValueState(
+      plan,
+      sourceId,
+      fallback,
+      externalInputStates,
+    );
+  }
+
+  textureValueState(
+    plan,
+    sourceId,
+    fallback,
+    externalInputStates = null,
+  ) {
     if (!sourceId) return fallback;
     if (String(sourceId).split(".")[0] === "$in") {
       const publicId =

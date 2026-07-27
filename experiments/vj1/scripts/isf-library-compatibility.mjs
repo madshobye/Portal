@@ -8,6 +8,7 @@ const WEBGL1_COMPILE_EXCLUSIONS = new Set([
   "Color Replacement.fs",
   "Dilate-Fast.fs",
   "Doom Screen Transition.fs",
+  "Duotone From Histogram.fs",
   "Erode-Fast.fs",
   "God Rays.fs",
   "Hexagonalize.fs",
@@ -39,14 +40,11 @@ export function currentIsfLibraryCompatibility(document, filename, entries) {
   const imageInputs = document.inputs
     .filter((input) => input.type === "image")
     .map((input) => input.name);
-  if (document.kind === "generator" && imageInputs.length) {
-    return { compatible: false, reason: "unbound-generator-image-input" };
-  }
   if (
     document.kind === "effect" &&
-    (imageInputs.length !== 1 || imageInputs[0] !== "inputImage")
+    !imageInputs.includes("inputImage")
   ) {
-    return { compatible: false, reason: "extra-effect-image-input" };
+    return { compatible: false, reason: "effect-without-primary-image-input" };
   }
   if (document.kind === "transition") {
     if (

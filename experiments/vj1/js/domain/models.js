@@ -1231,6 +1231,7 @@ export function normalizeComponentChainItem(item = {}) {
       name: item.name || pass.id,
       enabled: pass.enabled,
       params: pass.params,
+      imageInputs: normalizeImageInputs(item.imageInputs),
       transform: normalizeTransform(item.transform),
       boundary: normalizeNodeBoundary(item.boundary),
       opacity: clamp01(item.opacity ?? 1),
@@ -1267,11 +1268,20 @@ export function normalizeComponentChainItem(item = {}) {
     name,
     enabled: item.enabled !== false,
     source,
+    imageInputs: normalizeImageInputs(item.imageInputs),
     opacity: clamp01(item.opacity ?? 1),
     blend: item.blend || "normal",
     transform: normalizeTransform(item.transform),
     boundary: normalizeNodeBoundary(item.boundary),
   };
+}
+
+function normalizeImageInputs(imageInputs = {}) {
+  if (!imageInputs || typeof imageInputs !== "object" || Array.isArray(imageInputs)) return {};
+  return Object.fromEntries(Object.entries(imageInputs).flatMap(([port, source]) => {
+    if (!/^[A-Za-z_]\w*$/.test(port) || !source) return [];
+    return [[port, normalizeSource(source)]];
+  }));
 }
 
 export function isAutomaticMediaSourceName(name = "", source = {}) {

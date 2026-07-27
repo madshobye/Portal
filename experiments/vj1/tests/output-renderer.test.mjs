@@ -4948,6 +4948,94 @@ test("compiled visual Groups publish distinct retained output states by public p
   assert.strictEqual(result, alternate);
 });
 
+test("texture DAG composition forwards disabled chain nodes before a named-image effect", () => {
+  const transparent = { buffer: { id: "transparent" } };
+  const base = { buffer: { id: "base" } };
+  const displacement = { buffer: { id: "displacement" } };
+  const output = { buffer: { id: "output" } };
+  const host = {
+    compositeRuntime: {
+      transparentChainState: () => transparent,
+    },
+  };
+  const runtime = new VisualPlanRuntime(host);
+  const operations = [
+    {
+      id: "base",
+      opcode: "source",
+      configuration: { enabled: true },
+      textureInputs: {},
+      textureInputPorts: [],
+      runtimeInputStates: new Map(),
+      compositionInput: "$in.texture",
+    },
+    {
+      id: "disabled-generator",
+      opcode: "source",
+      configuration: { enabled: false },
+      textureInputs: {},
+      textureInputPorts: [],
+      runtimeInputStates: new Map(),
+      compositionInput: "base",
+    },
+    {
+      id: "displacement",
+      opcode: "source",
+      configuration: { enabled: true, auxiliaryFor: { nodeId: "displace", port: "displaceImage" } },
+      textureInputs: {},
+      textureInputPorts: [],
+      runtimeInputStates: new Map(),
+      compositionInput: "",
+    },
+    {
+      id: "displace",
+      opcode: "effect",
+      configuration: { enabled: true },
+      textureInputs: {
+        inputImage: "disabled-generator",
+        displaceImage: "displacement",
+      },
+      textureInputPorts: ["inputImage", "displaceImage"],
+      runtimeInputStates: new Map(),
+      compositionInput: "",
+    },
+  ];
+  const plan = { operations, runtimeStates: new Map() };
+  runtime.renderOperations = (_component, [operation], _time, _request, _key, _transform, input, inputs) => {
+    if (operation.id === "base") return base;
+    if (operation.id === "displacement") return displacement;
+    assert.equal(operation.id, "displace");
+    assert.strictEqual(input, base, "the disabled generator forwards the composed base");
+    assert.strictEqual(inputs.get("displaceImage"), displacement);
+    return output;
+  };
+
+  assert.strictEqual(
+    runtime.executeTextureDag(
+      plan,
+      { id: "component" },
+      0,
+      { width: 64, height: 64 },
+      "component",
+    ),
+    output,
+  );
+  assert.strictEqual(plan.runtimeStates.get("disabled-generator"), base);
+
+  operations[3].configuration.enabled = false;
+  assert.strictEqual(
+    runtime.executeTextureDag(
+      plan,
+      { id: "component" },
+      0,
+      { width: 64, height: 64 },
+      "component",
+    ),
+    base,
+    "disabling the named-image effect forwards inputImage",
+  );
+});
+
 test("compiled framebuffer passes execute atomically and publish one retained state", () => {
   const transparent = { buffer: { id: "transparent" } };
   const retained = {

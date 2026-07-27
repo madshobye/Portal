@@ -82,6 +82,7 @@ test("ISF imported images become validated sampler contracts", () => {
   assert.match(compiled, /uniform sampler2D noiseTex;/);
   assert.match(compiled, /uniform vec2 noiseTex_imgSize;/);
   assert.match(compiled, /uniform bool noiseTex_flipY;/);
+  assert.match(compiled, /uniform vec4 _noiseTex_imgRect;/);
   assert.match(compiled, /VJ1_IMG_NORM_PIXEL_noiseTex/);
   assert.throws(
     () => parseIsfDocument(

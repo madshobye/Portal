@@ -121,7 +121,7 @@ test("the static built-in catalog is projected into the common visual-library mo
 
 test("the built-in proving set is file-backed ISF with stable node identity and explicit lowering", () => {
   assert.equal(BuiltInIsfRepository.id, BuiltInVisualLibraryLayer.id);
-  assert.equal(BuiltInIsfRepository.records.length, 254);
+  assert.equal(BuiltInIsfRepository.records.length, 265);
   const black = BuiltInIsfRepository.records.find((record) => record.visualId === "black");
   const invert = BuiltInIsfRepository.records.find((record) => record.visualId === "invert");
   const gray = BuiltInIsfRepository.records.find((record) => record.visualId === "gray");
@@ -226,19 +226,44 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
   const compatibleLibrary = collection.filter((record) =>
     record.tags.includes("isf-compatible-library")
   );
-  assert.equal(collection.length, 249);
+  assert.equal(collection.length, 260);
   assert.equal(proof.length, 26);
   assert.equal(tranche2.length, 17);
   assert.equal(multipassComparison.length, 2);
   assert.equal(eventTranche.length, 2);
   assert.equal(importedImageTranche.length, 2);
-  assert.equal(compatibleLibrary.length, 200);
+  assert.equal(compatibleLibrary.length, 211);
   assert.deepEqual(
     Object.fromEntries(["generator", "effect", "transition"].map((kind) => [
       kind,
       collection.filter((record) => record.artifactType === kind).length,
     ])),
-    { generator: 43, effect: 144, transition: 62 },
+    { generator: 46, effect: 152, transition: 62 },
+  );
+  const additionalImageInputs = collection.filter((record) => {
+    const imageInputs = record.definition.metadata?.isf?.inputs
+      ?.filter((input) => input.type === "image") || [];
+    return record.artifactType === "generator"
+      ? imageInputs.length > 0
+      : record.artifactType === "effect"
+        ? imageInputs.some((input) => input.name !== "inputImage")
+        : false;
+  });
+  assert.deepEqual(
+    additionalImageInputs.map((record) => record.name).sort(),
+    [
+      "Auto Colors Histogram",
+      "Color Relookup",
+      "Displace",
+      "Glitch Shifter",
+      "Histogram Viewer",
+      "Layer Mask",
+      "Micro Buffer RGB",
+      "Multi Gradient",
+      "RE RGB Gradient Generator",
+      "Trail Mask",
+      "v002 Glitch Analog",
+    ].sort(),
   );
   for (const record of collection) {
     const sourcePart = record.definition.parts.find((part) =>
@@ -259,8 +284,8 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
       assert.doesNotMatch(sourcePart?.source || "", /"IMPORTED"\s*:/, record.resource);
     }
     assert.equal(
-      document?.inputs?.filter((input) => input.type === "image").length <=
-        (record.artifactType === "transition" ? 2 : 1),
+      record.artifactType !== "transition" ||
+        document?.inputs?.filter((input) => input.type === "image").length <= 2,
       true,
       record.resource,
     );
@@ -352,7 +377,7 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
   const libraryArtifacts = listBuiltInVisualArtifacts().filter((artifact) =>
     artifact.implementation.resourceId?.startsWith("shaders/isf/")
   );
-  assert.equal(libraryArtifacts.length, 249);
+  assert.equal(libraryArtifacts.length, 260);
   assert.equal(
     libraryArtifacts.every((artifact) =>
       artifact.implementation.format === "isf" &&

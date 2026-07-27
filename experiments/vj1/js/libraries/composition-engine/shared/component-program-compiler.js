@@ -486,6 +486,40 @@ function replaceMaterializedChainItem(chain = [], itemId, nextItem) {
 function compileChainNodes(chain, path, definitions) {
   return (chain || []).filter((item) => item?.id).flatMap((item, index) => {
     const itemPath = `${path}.${index}`;
+    const auxiliaryNodes = Object.entries(item.imageInputs || {}).flatMap(([port, source]) => {
+      if (!source?.type || !/^[A-Za-z_]\w*$/.test(port)) return [];
+      const auxiliaryItem = {
+        id: `${item.id}:image:${port}`,
+        kind: "source",
+        name: port,
+        enabled: true,
+        source,
+        opacity: 1,
+        blend: "normal",
+        transform: {},
+        boundary: {},
+        auxiliaryFor: { nodeId: String(item.id), port },
+      };
+      const auxiliaryNode = {
+        id: auxiliaryItem.id,
+        nodeId: nodeTypeForItem(auxiliaryItem),
+        nodeVersion: "0.1.0",
+        role: "source",
+        parameters: parametersForItem(auxiliaryItem),
+        configuration: cloneChainItem(auxiliaryItem),
+        compilerHook: visualCompilerHookFor(
+          auxiliaryItem,
+          definitions.get(nodeTypeForItem(auxiliaryItem)),
+        ),
+        statePath: `${itemPath}.imageInputs.${port}`,
+        auxiliaryFor: auxiliaryItem.auxiliaryFor,
+        generatedBy: COMPONENT_PROGRAM_GENERATOR,
+      };
+      return [
+        ...parameterControlNodes(auxiliaryNode, definitions.get(auxiliaryNode.nodeId)),
+        auxiliaryNode,
+      ];
+    });
     const node = {
       id: String(item.id),
       nodeId: nodeTypeForItem(item),
@@ -501,7 +535,11 @@ function compileChainNodes(chain, path, definitions) {
       node.nodes = compileChainNodes(item.chain || [], `${itemPath}.chain`, definitions);
       node.connections = linearConnections(node.nodes, definitions);
     }
-    return [...parameterControlNodes(node, definitions.get(node.nodeId)), node];
+    return [
+      ...auxiliaryNodes,
+      ...parameterControlNodes(node, definitions.get(node.nodeId)),
+      node,
+    ];
   });
 }
 
@@ -617,7 +655,8 @@ function parametersForItem(item = {}) {
 
 function linearConnections(nodes = [], definitions = new Map()) {
   const connections = [];
-  const renderNodes = nodes.filter((node) => node.role !== "control");
+  const renderNodes = nodes.filter((node) => node.role !== "control" && !node.auxiliaryFor);
+  const auxiliaryNodes = nodes.filter((node) => node.auxiliaryFor);
   for (const control of nodes.filter((node) => node.role === "control")) {
     connections.push({
       from: `${control.id}.value`,
@@ -628,15 +667,40 @@ function linearConnections(nodes = [], definitions = new Map()) {
     });
   }
   for (let index = 0; index < renderNodes.length; index++) {
+    const node = renderNodes[index];
+    const hasAuxiliaryImages = auxiliaryNodes.some(
+      (candidate) => candidate.auxiliaryFor?.nodeId === node.id,
+    );
     connections.push({
       from: index === 0 ? "$in.texture" : `${renderNodes[index - 1].id}.texture`,
-      to: `${renderNodes[index].id}.${textureInletId(renderNodes[index], definitions)}`,
+      to: `${node.id}.${compositionTextureInletId(node, auxiliaryNodes, definitions)}`,
       type: "texture",
-      semantic: "composition",
+      // Once an effect has another named texture dependency the executor
+      // switches to DAG mode. Its preceding composition texture must then be
+      // an explicit inputImage binding instead of only an ordering edge.
+      semantic: node.role === "effect" && hasAuxiliaryImages
+        ? "primary-image"
+        : "composition",
+    });
+  }
+  for (const auxiliary of auxiliaryNodes) {
+    connections.push({
+      from: `${auxiliary.id}.texture`,
+      to: `${auxiliary.auxiliaryFor.nodeId}.${auxiliary.auxiliaryFor.port}`,
+      type: "texture",
+      semantic: "auxiliary-image",
     });
   }
   if (renderNodes.length) connections.push({ from: `${renderNodes[renderNodes.length - 1].id}.texture`, to: "$out.texture", type: "texture" });
   return connections;
+}
+
+function compositionTextureInletId(node, auxiliaryNodes, definitions) {
+  const occupied = new Set(auxiliaryNodes
+    .filter((candidate) => candidate.auxiliaryFor?.nodeId === node.id)
+    .map((candidate) => candidate.auxiliaryFor.port));
+  const preferred = textureInletId(node, definitions);
+  return occupied.has(preferred) ? "texture" : preferred;
 }
 
 function annotateComponentCompositionTopology(nodes = [], definitions = new Map()) {
@@ -652,7 +716,7 @@ function annotateComponentCompositionTopology(nodes = [], definitions = new Map(
 }
 
 function markCompositionConnections(connections = [], nodes = [], definitions = new Map()) {
-  const renderNodes = nodes.filter((node) => node.role !== "control");
+  const renderNodes = nodes.filter((node) => node.role !== "control" && !node.auxiliaryFor);
   const canonical = new Set(renderNodes.map((node, index) => (
     `${index === 0 ? "$in" : renderNodes[index - 1].id}\u0000${node.id}`
   )));
@@ -688,7 +752,7 @@ function collectInstances(nodes, groupId, result) {
 
 function materializeChain(topologyNodes, currentChain, groupId) {
   const byId = new Map((currentChain || []).map((item) => [String(item.id || ""), item]));
-  return topologyNodes.filter((node) => node.role !== "control").map((node) => {
+  return topologyNodes.filter((node) => node.role !== "control" && !node.auxiliaryFor).map((node) => {
     const item = node.configuration || byId.get(String(node.id || ""));
     if (!item) throw new Error(`COMPONENT_PROGRAM_ITEM_MISSING:${groupId}:${node.id}`);
     if (node.role !== "group") return item;
@@ -723,6 +787,7 @@ function componentChainSignature(chain) {
 function cloneChainItem(item, { includeChildren = true } = {}) {
   const value = { ...(item || {}) };
   if (value.source) value.source = cloneJson(value.source);
+  if (value.imageInputs) value.imageInputs = cloneJson(value.imageInputs);
   if (value.params) value.params = cloneJson(value.params);
   if (value.transform) value.transform = cloneJson(value.transform);
   if (value.kind === "group") value.chain = includeChildren ? cloneJson(value.chain || []) : [];

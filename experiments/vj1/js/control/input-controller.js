@@ -447,7 +447,11 @@ export function createInputController({
     scope.querySelectorAll("[data-open-source-choice]").forEach((button) => {
       button.addEventListener("click", () => modals.openSourceChoicePicker(
         button.dataset.openSourceChoice,
-        button.dataset.sourceChoiceCategory || ""
+        button.dataset.sourceChoiceCategory || "",
+        {
+          allowComponents: button.dataset.sourceChoiceComponents === "true",
+          ownerComponentId: button.dataset.sourceChoiceOwner || "",
+        },
       ));
     });
     scope.querySelectorAll("[data-set-component]").forEach((button) => {

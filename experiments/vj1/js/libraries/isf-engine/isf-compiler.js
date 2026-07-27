@@ -75,6 +75,9 @@ export function compileIsfFragmentSource(document, { kind = document?.kind || "g
   const imageFlipUniforms = imageNames
     .map((name) => ["bool", `${name}_flipY`])
     .filter(([, name]) => !declared.has(name));
+  const imageRectUniforms = imageNames
+    .map((name) => ["vec4", `_${name}_imgRect`])
+    .filter(([, name]) => !declared.has(name));
   return `
 precision highp float;
 varying vec2 vTexCoord;
@@ -82,7 +85,7 @@ uniform vec4 renderUvRect;
 uniform mat3 ${effect ? "effectUvMatrix" : "contentUvMatrix"};
 uniform float ${effect ? "amount" : "useContentTransform"};
 uniform bool vj1IsfFinalPass;
-${[...standard, ...inputUniforms, ...importedUniforms, ...targetUniforms, ...imageSizeUniforms, ...imageFlipUniforms].map(([type, name]) => `uniform ${type} ${name};`).join("\n")}
+${[...standard, ...inputUniforms, ...importedUniforms, ...targetUniforms, ...imageSizeUniforms, ...imageFlipUniforms, ...imageRectUniforms].map(([type, name]) => `uniform ${type} ${name};`).join("\n")}
 
 vec2 vj1IsfBoundaryUv() {
   vec2 baseUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;

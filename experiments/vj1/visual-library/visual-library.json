@@ -1566,6 +1566,34 @@
       }
     },
     {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-auto-colors-histogram-172fu4s",
+      "visualId": "isf-shaders-isf-effects-auto-colors-histogram-172fu4s",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-auto-colors-histogram-172fu4s",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Auto Colors Histogram",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/auto-colors-histogram.fs",
+      "categories": [
+        "ISF",
+        "Color Adjustment",
+        "Histogram"
+      ],
+      "tags": [
+        "isf",
+        "auto-colors-histogram",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-bad-tv-z5j233",
       "visualId": "isf-shaders-isf-effects-bad-tv-z5j233",
       "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-bad-tv-z5j233",
@@ -2219,6 +2247,33 @@
       }
     },
     {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-color-relookup-o8j9i0",
+      "visualId": "isf-shaders-isf-effects-color-relookup-o8j9i0",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-color-relookup-o8j9i0",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Color Relookup",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/color-relookup.fs",
+      "categories": [
+        "ISF",
+        "Glitch"
+      ],
+      "tags": [
+        "isf",
+        "color-relookup",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-color-scales-1j5fvee",
       "visualId": "isf-shaders-isf-generators-color-scales-1j5fvee",
       "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-color-scales-1j5fvee",
@@ -2703,6 +2758,33 @@
       ],
       "attribution": {
         "credit": "Inigo Quilez ported by @colin_movecraft and VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-displace-1254e4a",
+      "visualId": "isf-shaders-isf-effects-displace-1254e4a",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-displace-1254e4a",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Displace",
+      "description": "Simple Displace",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/displace.fs",
+      "categories": [
+        "ISF",
+        "Distortion Effect"
+      ],
+      "tags": [
+        "isf",
+        "displace",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by @colin_movecraft",
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
@@ -3251,6 +3333,33 @@
       }
     },
     {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-glitch-shifter-2v13si",
+      "visualId": "isf-shaders-isf-effects-glitch-shifter-2v13si",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-glitch-shifter-2v13si",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Glitch Shifter",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/glitch-shifter.fs",
+      "categories": [
+        "ISF",
+        "Glitch"
+      ],
+      "tags": [
+        "isf",
+        "glitch-shifter",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-graph-paper-1r805q0",
       "visualId": "isf-shaders-isf-generators-graph-paper-1r805q0",
       "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-graph-paper-1r805q0",
@@ -3404,6 +3513,34 @@
       "tags": [
         "isf",
         "heart",
+        "generator",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-histogram-viewer-5pmeeo",
+      "visualId": "isf-shaders-isf-generators-histogram-viewer-5pmeeo",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-histogram-viewer-5pmeeo",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Histogram Viewer",
+      "description": "Draws an RGB histogram from a provided histogram image",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/histogram-viewer.fs",
+      "categories": [
+        "ISF",
+        "Histogram",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "histogram-viewer",
         "generator",
         "isf-compatible-library"
       ],
@@ -3690,6 +3827,35 @@
       }
     },
     {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-layer-mask-19232pb",
+      "visualId": "isf-shaders-isf-effects-layer-mask-19232pb",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-layer-mask-19232pb",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Layer Mask",
+      "description": "Takes a mask image and applies it to the input image's alpha channel.",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/layer-mask.fs",
+      "categories": [
+        "ISF",
+        "Masking",
+        "Color Effect",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "layer-mask",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-layer-position-14nr89e",
       "visualId": "isf-shaders-isf-effects-layer-position-14nr89e",
       "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-layer-position-14nr89e",
@@ -3939,6 +4105,33 @@
       }
     },
     {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-micro-buffer-rgb-s2g4b6",
+      "visualId": "isf-shaders-isf-effects-micro-buffer-rgb-s2g4b6",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-micro-buffer-rgb-s2g4b6",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Micro Buffer RGB",
+      "description": "Buffers 8 recent frames",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/micro-buffer-rgb.fs",
+      "categories": [
+        "ISF",
+        "Glitch"
+      ],
+      "tags": [
+        "isf",
+        "micro-buffer-rgb",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-micro-buffer-1eo57y0",
       "visualId": "isf-shaders-isf-effects-micro-buffer-1eo57y0",
       "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-micro-buffer-1eo57y0",
@@ -4042,6 +4235,33 @@
       ],
       "attribution": {
         "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/morph.glsl",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-multi-gradient-1loin2x",
+      "visualId": "isf-shaders-isf-generators-multi-gradient-1loin2x",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-multi-gradient-1loin2x",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Multi Gradient",
+      "description": "",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/multi-gradient.fs",
+      "categories": [
+        "ISF",
+        "Color"
+      ],
+      "tags": [
+        "isf",
+        "multi-gradient",
+        "generator",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by Carter Rosenberg",
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
@@ -4561,6 +4781,34 @@
       ],
       "attribution": {
         "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-re-rgb-gradient-generator-sfifbv",
+      "visualId": "isf-shaders-isf-generators-re-rgb-gradient-generator-sfifbv",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-re-rgb-gradient-generator-sfifbv",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "RE RGB Gradient Generator",
+      "description": "",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/re-rgb-gradient-generator.fs",
+      "categories": [
+        "ISF",
+        "Color",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "re-rgb-gradient-generator",
+        "generator",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by Carter Rosenberg",
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
@@ -5930,6 +6178,33 @@
       }
     },
     {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-trail-mask-12tek72",
+      "visualId": "isf-shaders-isf-effects-trail-mask-12tek72",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-trail-mask-12tek72",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Trail Mask",
+      "description": "Pixels update only based on the masking image",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/trail-mask.fs",
+      "categories": [
+        "ISF",
+        "Glitch"
+      ],
+      "tags": [
+        "isf",
+        "trail-mask",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-trapezoid-distortion-1kmpsb",
       "visualId": "isf-shaders-isf-effects-trapezoid-distortion-1kmpsb",
       "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-trapezoid-distortion-1kmpsb",
@@ -6796,6 +7071,35 @@
       ],
       "attribution": {
         "credit": "by v002",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-glitch-analog-iaekfk",
+      "visualId": "isf-shaders-isf-effects-v002-glitch-analog-iaekfk",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-v002-glitch-analog-iaekfk",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "v002 Glitch Analog",
+      "description": "Emulates classic analog video interference, distortion and sync issues.",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/v002-glitch-analog.fs",
+      "categories": [
+        "ISF",
+        "Glitch",
+        "Distortion Effect",
+        "v002"
+      ],
+      "tags": [
+        "isf",
+        "v002-glitch-analog",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "Vade / VIDVOX",
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"

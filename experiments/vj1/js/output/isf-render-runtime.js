@@ -393,6 +393,12 @@ export class IsfRenderRuntime {
         Math.max(1, input.width || logicalWidth),
         Math.max(1, input.height || logicalHeight),
       ]);
+      setShaderUniformIfPresent(shader, "_inputImage_imgRect", [
+        0,
+        0,
+        Math.max(1, input.width || logicalWidth),
+        Math.max(1, input.height || logicalHeight),
+      ]);
       setShaderUniformIfPresent(
         shader,
         "inputImage_flipY",
@@ -404,6 +410,12 @@ export class IsfRenderRuntime {
       if (!texture) continue;
       setShaderUniformIfPresent(shader, name, unwrapRenderTarget(texture));
       setShaderUniformIfPresent(shader, `${name}_imgSize`, [
+        Math.max(1, texture.width || logicalWidth),
+        Math.max(1, texture.height || logicalHeight),
+      ]);
+      setShaderUniformIfPresent(shader, `_${name}_imgRect`, [
+        0,
+        0,
         Math.max(1, texture.width || logicalWidth),
         Math.max(1, texture.height || logicalHeight),
       ]);
@@ -420,6 +432,12 @@ export class IsfRenderRuntime {
       const name = inputDefinition.name;
       setShaderUniformIfPresent(shader, name, texture);
       setShaderUniformIfPresent(shader, `${name}_imgSize`, [
+        Math.max(1, texture.width || 1),
+        Math.max(1, texture.height || 2),
+      ]);
+      setShaderUniformIfPresent(shader, `_${name}_imgRect`, [
+        0,
+        0,
         Math.max(1, texture.width || 1),
         Math.max(1, texture.height || 2),
       ]);
@@ -441,6 +459,12 @@ export class IsfRenderRuntime {
         Math.max(1, texture.width || 1),
         Math.max(1, texture.height || 1),
       ]);
+      setShaderUniformIfPresent(shader, `_${name}_imgRect`, [
+        0,
+        0,
+        Math.max(1, texture.width || 1),
+        Math.max(1, texture.height || 1),
+      ]);
       setShaderUniformIfPresent(
         shader,
         `${name}_flipY`,
@@ -451,6 +475,12 @@ export class IsfRenderRuntime {
       if (!texture) continue;
       setShaderUniformIfPresent(shader, name, unwrapRenderTarget(texture));
       setShaderUniformIfPresent(shader, `${name}_imgSize`, [
+        Math.max(1, texture.width || 1),
+        Math.max(1, texture.height || 1),
+      ]);
+      setShaderUniformIfPresent(shader, `_${name}_imgRect`, [
+        0,
+        0,
         Math.max(1, texture.width || 1),
         Math.max(1, texture.height || 1),
       ]);

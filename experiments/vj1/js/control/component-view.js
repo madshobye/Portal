@@ -316,9 +316,18 @@ function selectedChainItemAnimationParameters(item, state) {
 function effectChainItemTemplate(item, component, state, base, paramView = "primary") {
   const effectComponent = visualEffectComponent(state, item.componentId);
   const params = (componentParamViews(effectComponent)[paramView] || []).map(effectDisplayParam);
-  if (!params.length) return "";
+  const imageInputs = isfImageInputControlsTemplate(
+    item,
+    effectComponent,
+    base,
+    state,
+    component,
+    paramView,
+  );
+  if (!params.length && !imageInputs) return "";
   return `
     <section class="chain-item-editor">
+      ${imageInputs}
       ${shaderParamControlsTemplate(effectComponent, item, base, {
         params,
         isSignificant: (_param, path) => componentParamIsSignificant(component, state, path),
@@ -348,13 +357,13 @@ function sourceChainItemTemplate(item, ownerComponent, state, base, paramView = 
       const generator = visualGeneratorComponent(state, item.source.generatorId);
       if (!componentParamViews(generator).details.length) return "";
     } else return "";
-    return `<section class="chain-item-editor">${sourcePickerTemplate(item, state, base, "details")}</section>`;
+    return `<section class="chain-item-editor">${sourcePickerTemplate(item, state, base, "details", ownerComponent)}</section>`;
   }
   return `
     <section class="chain-item-editor">
       ${item.source?.type === "component"
         ? (isSceneComponentPlacement ? "" : `<label class="field"><span>Component</span>${componentSelectTemplate(`${base}.source.componentId`, state, item.source.componentId)}</label>`)
-        : sourcePickerTemplate(item, state, base, paramView)}
+        : sourcePickerTemplate(item, state, base, paramView, ownerComponent)}
       ${item.source?.type === "generator" && item.source.generatorId === "sdfSketch"
         ? sdfSketchContentEditorTemplate(state)
         : ""}
@@ -409,14 +418,56 @@ function selectedChainItemSelection(component, state) {
   return selected || firstChainItemSelection(component.chain || [], base);
 }
 
-function sourcePickerTemplate(item, state, base, paramView = "primary") {
+function sourcePickerTemplate(item, state, base, paramView = "primary", ownerComponent = null) {
   const source = item.source;
   const media = state.media.find((item) => item.id === sourceBackedMediaId(source));
+  const generator = source.type === "generator"
+    ? visualGeneratorComponent(state, source.generatorId)
+    : null;
   return `
     <div class="source-section">
+      ${isfImageInputControlsTemplate(item, generator, base, state, ownerComponent, paramView)}
       ${source.type === "generator" ? generatorParamControlsTemplate(`${base}.source`, source, state, paramView) : ""}
     </div>
   `;
+}
+
+function isfImageInputControlsTemplate(
+  item,
+  visualComponent,
+  base,
+  state,
+  ownerComponent,
+  paramView = "primary",
+) {
+  if (paramView !== "primary") return "";
+  const inputs = (visualComponent?.nodeDefinition?.metadata?.isf?.inputs || [])
+    .filter((input) =>
+      input.type === "image" &&
+      !(visualComponent.kind === "effect" && input.name === "inputImage")
+    );
+  if (!inputs.length) return "";
+  return `<div class="chain-param-list isf-image-input-list">
+    ${inputs.map((input) => {
+      const source = item.imageInputs?.[input.name] || null;
+      const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(source)) || null;
+      const component = state.components?.find((entry) => entry.id === source?.componentId) || null;
+      const title = source
+        ? sourceTitle(source, media, component, state)
+        : "Choose image source";
+      return `<label class="field">
+        <span>${esc(input.label || input.name)}</span>
+        <button type="button" class="source-choice-button"
+          data-open-source-choice="${esc(`${base}.imageInputs.${input.name}`)}"
+          data-source-choice-components="true"
+          data-source-choice-owner="${esc(ownerComponent?.id || "")}">
+          ${icon(source ? sourceIcon(source) : "image")}
+          <span><strong>${esc(title)}</strong><small>${esc(input.name)}</small></span>
+          ${icon("chevron_right")}
+        </button>
+      </label>`;
+    }).join("")}
+  </div>`;
 }
 
 function sourceTitle(source = {}, media = null, component = null, state = null) {
@@ -535,7 +586,7 @@ export function videoTrimValues(source = {}, media = null) {
 
 function generatorParamControlsTemplate(base, source = {}, state = {}, paramView = "primary") {
   const component = visualGeneratorComponent(state, source.generatorId);
-  if (!component?.params?.length) return "";
+  if (!component) return "";
   const params = (componentParamViews(component)[paramView] || []).filter(
     (param) => component.id !== "mediaImage" ||
       !["start", "end", "speed"].includes(param.id)

@@ -37,8 +37,8 @@ single semantic frame contract rather than copied dimensions.
 
 how close are we to important the isf shader library into the app as base shaders to use for different things? ISF has this repository https://github.com/Vidvox/ISF-Files/tree/master/ISF and I would like to import ideally all of them. Some use a vertex shader i think? and they have different porpuses. i assume the simple shaders is not a problem. but i would also like for the shaders that are e.g. transitions to be imported and used as transitions. i suggest that we create a transition generator that can be inserted in the chain. The concept would be the following: when a isf transition is inserted it be becomes an element that can contain children like a group and maybe two coloumns such that one can create two list underneath it for each transition. I would like for there also to be a mode where it can transition between what come before the isf shader and what is inside its group. either there should be a toggle as a param or a logic based on whether both coloumns has been filled out. Similarly sound should be implimented so it is compatible with isf. I suggest that we create some settings in input sources for sound and that we have a basic fft library to create fft textures (i think isf has this logic right?). be aware that the current version of p5 v2 does not seems to have a strong sound implimentation and i suggest that we bypas p5 and use tone js instead https://tonejs.github.io/ 
 
-**The application now carries 249 pinned, original fragment-only ISF files (43
-generators, 144 effects, and 62 transitions). The collection includes
+**The application now carries 260 pinned, original fragment-only ISF files (46
+generators, 152 effects, and 62 transitions). The collection includes
 persistent, float-target, and multipass examples backed by the shared runtime.
 Dilate and Erode form a focused full-size, two-pass comparison set for the
 non-persistent multipass path used by Ghosting. FFT Color Lines, FFT Filled
@@ -50,13 +50,16 @@ typed Animation tracks backed by the existing manual, periodic, random,
 pointer, audio-beat, and Probe trigger graph. Cursor and Cursor Overlay prove
 safe `IMPORTED` image resolution through a shared lazy retained texture cache;
 both use one exact pinned upstream PNG and static shaders rerender only when
-that resource becomes ready. A repeatable inventory and importer select the 200
-additional shaders compatible with the current runtime and confirmed by the
-whole-catalog Chrome WebGL compile smoke. Paired custom vertex
-stages, additional live image-input contracts, and unbundled imported resources
-remain intentionally excluded rather than appearing as broken catalog items;
-24 otherwise compatible files are also withheld for current WebGL 1 compile
-incompatibilities.**
+that resource becomes ready. ISF effects and generators may persist explicit
+media, generator, or Component sources for additional named image inlets. The
+compiler lowers those choices into ordinary hidden source nodes and named
+texture-DAG edges; the automatic preceding effect image remains `inputImage`.
+A repeatable inventory and importer select the 211 additional shaders compatible
+with the current runtime and confirmed by the whole-catalog Chrome WebGL compile
+smoke. Paired custom vertex stages, two Live transitions needing a third
+Surface-renderer image, and unbundled imported resources remain intentionally
+excluded rather than appearing as broken catalog items; 25 otherwise compatible
+files are also withheld for current WebGL 1 compile incompatibilities.**
 
 relating to the above and in general we need to work with live input like mouse, multitouch and webcam tracking. i suggest that we start to develop a logic where the system has a multitouch input bus attached to both output window and when the preview window in such a way that we can ahve a drawing shader that one can draw on top of live when the system is running. I want it to be in such a way that drawing in live view preview also produces touch signals to the output window. have a look at the portals multitouch code and copy it in or make your own iteration in the system. Further more i would like that settings has a hand tracking setting such that one can start a hand tracker that is converted into touch gestures as if it was a tablet or a touchpad. I would like for the system to use the following modes: 1. Click: use two fingers to "click" and it is detected as a click then movement from there is recorded either relatively or as absolutes. 2. a multi touch mode where all visible fingers are avaliable for finger painting etc. 
 

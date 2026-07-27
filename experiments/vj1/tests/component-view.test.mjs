@@ -88,6 +88,38 @@ test("visual placements use clean catalog names, identify ISF, and remain rename
   );
 });
 
+test("ISF image inlets use persisted source-picker controls without exposing the automatic effect input", () => {
+  const state = createInitialState();
+  const layerMask = listEffectNodeComponents().find((component) =>
+    component.nodeDefinition?.metadata?.projectAssetPath ===
+      "shaders/isf/effects/layer-mask.fs"
+  );
+  const effect = normalizeComponentChainItem({
+    ...createComponentEffect(layerMask.id),
+    imageInputs: {
+      maskImage: { type: "component", componentId: "mask-component" },
+    },
+  });
+  const component = state.components.find((item) => item.type !== "scene");
+  component.chain = [effect];
+  state.components.push({
+    id: "mask-component",
+    name: "Mask Source",
+    type: "component",
+    chain: [],
+  });
+  state.ui.selectedComponentId = component.id;
+  state.ui.selectedChainItemId = effect.id;
+
+  const html = componentSelectedChainSettingsTemplate(component, state);
+  assert.equal(effect.imageInputs.maskImage.componentId, "mask-component");
+  assert.match(html, />mask image</i);
+  assert.match(html, />Mask Source</);
+  assert.match(html, /data-open-source-choice="components\.[0-9]+\.chain\.0\.imageInputs\.maskImage"/);
+  assert.match(html, /data-source-choice-components="true"/);
+  assert.doesNotMatch(html, /\.imageInputs\.inputImage/);
+});
+
 test("Component and Canvas chain presentation lives outside the control orchestrator", () => {
   const state = createInitialState();
   const component = state.components.find((item) => item.type !== "scene");

@@ -12,6 +12,7 @@ import {
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
 import { createAuthoredMediaSource } from "../js/domain/authored-visual-source.js";
 import { getGeneratorNodeComponent } from "../js/libraries/visual-nodes/catalog.js";
+import { createIsfNodeDefinition } from "../js/libraries/isf-engine/index.js";
 
 test("analyzes component graph shape and missing media", () => {
   const state = createInitialState();
@@ -47,6 +48,53 @@ test("analyzes component graph shape and missing media", () => {
   assert.ok(metrics.engineHotspots.some((item) => item.step === "Heavy shader components"));
   assert.ok(metrics.bottlenecks.some((item) => item.severity === "critical" && item.message.includes("missing")));
   assert.ok(metrics.bottlenecks.some((item) => item.scope === "Stress" && item.message.includes("enabled effects")));
+});
+
+test("component topology lowers persisted ISF image choices into named texture dependencies", () => {
+  const definition = createIsfNodeDefinition({
+    path: "tests/auxiliary-mask.fs",
+    source: `/*{
+      "ISFVSN": "2.0",
+      "LABEL": "Auxiliary Mask",
+      "INPUTS": [
+        { "NAME": "inputImage", "TYPE": "image" },
+        { "NAME": "maskImage", "TYPE": "image" }
+      ]
+    }*/
+    void main() {
+      gl_FragColor = IMG_THIS_PIXEL(inputImage)
+        * IMG_THIS_PIXEL(maskImage).a;
+    }`,
+  });
+  const effect = createComponentEffect(definition.metadata.visualId);
+  effect.imageInputs = {
+    maskImage: { type: "component", componentId: "mask-component" },
+  };
+  const component = createDefaultComponent(0);
+  component.chain = [
+    createComponentLayer(0, { type: "generator", generatorId: "black" }),
+    effect,
+  ];
+  const group = compileComponentGroupTopology(component, {
+    definitions: new Map([[definition.id, definition]]),
+    initializeDefaultAnimations: false,
+  });
+  const auxiliary = group.nodes.find((node) => node.auxiliaryFor?.port === "maskImage");
+
+  assert.equal(auxiliary.configuration.source.componentId, "mask-component");
+  assert.deepEqual(auxiliary.auxiliaryFor, {
+    nodeId: effect.id,
+    port: "maskImage",
+  });
+  assert.ok(group.connections.some((edge) =>
+    edge.from === `${auxiliary.id}.texture` &&
+    edge.to === `${effect.id}.maskImage` &&
+    edge.semantic === "auxiliary-image"
+  ));
+  assert.ok(group.connections.some((edge) =>
+    edge.to === `${effect.id}.inputImage` &&
+    edge.semantic === "primary-image"
+  ));
 });
 
 test("analyzes graph-authoritative Components without a persisted chain projection", () => {
