@@ -56,13 +56,14 @@ test("component topology lowers persisted ISF image choices into named texture d
     source: `/*{
       "ISFVSN": "2.0",
       "LABEL": "Auxiliary Mask",
+      "VJ1": { "PROFILE": "vj1-isf-webgl2@1" },
       "INPUTS": [
         { "NAME": "inputImage", "TYPE": "image" },
         { "NAME": "maskImage", "TYPE": "image" }
       ]
     }*/
     void main() {
-      gl_FragColor = IMG_THIS_PIXEL(inputImage)
+      isf_FragColor = IMG_THIS_PIXEL(inputImage)
         * IMG_THIS_PIXEL(maskImage).a;
     }`,
   });

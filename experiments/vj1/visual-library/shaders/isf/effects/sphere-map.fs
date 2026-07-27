@@ -1,53 +1,53 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "Maps video onto a sphere",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "LABEL": "Image Scale",
-            "MAX": 1,
-            "MIN": 0.125,
-            "NAME": "imageScale",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Radius Scale",
-            "MAX": 1.999,
-            "MIN": 0,
-            "NAME": "radiusScale",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0
-            ],
-            "LABEL": "Rotate",
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "pointInput",
-            "TYPE": "point2D"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Distortion Effect"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "Maps video onto a sphere",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "LABEL": "Image Scale",
+      "MAX": 1,
+      "MIN": 0.125,
+      "NAME": "imageScale",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Radius Scale",
+      "MAX": 1.999,
+      "MIN": 0,
+      "NAME": "radiusScale",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0
+      ],
+      "LABEL": "Rotate",
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "pointInput",
+      "TYPE": "point2D"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -72,5 +72,5 @@ void main()	{
 	//	both of these are also the same
 	//inputPixelColor = IMG_NORM_PIXEL(inputImage, loc);
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

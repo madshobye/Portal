@@ -1,63 +1,64 @@
 /*{
-    "CATEGORIES": [
-        "Kaleidoscope",
-        "Stylize"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 6,
-            "MAX": 32,
-            "MIN": 1,
-            "NAME": "sides",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": -1,
-            "NAME": "angle",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "slidex",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "slidey",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "center",
-            "TYPE": "point2D"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Kaleidoscope",
+    "Stylize"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 6,
+      "MAX": 32,
+      "MIN": 1,
+      "NAME": "sides",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "angle",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "slidex",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "slidey",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "center",
+      "TYPE": "point2D"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float tau = 6.28318530718;
 
@@ -95,5 +96,5 @@ void main() {
 	if(loc.y > 1.0)	{
 		loc.y = mod(abs(1.0-loc.y),1.0);	
 	}
-	gl_FragColor = IMG_NORM_PIXEL(inputImage, loc);;
+	isf_FragColor = IMG_NORM_PIXEL(inputImage, loc);;
 }

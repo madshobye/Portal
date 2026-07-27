@@ -1023,8 +1023,12 @@ test("compiled static media models remain revision-driven", () => {
 test("animated file-backed shader definitions remain frame-dependent without host-specific exceptions", () => {
   const definition = createIsfNodeDefinition({
     path: "shaders/animated.fs",
-    source: `/*{ "ISFVSN": "2.0", "LABEL": "Animated" }*/
-      void main() { gl_FragColor = vec4(fract(TIME)); }`,
+    source: `/*{
+      "ISFVSN": "2.0",
+      "LABEL": "Animated",
+      "VJ1": { "PROFILE": "vj1-isf-webgl2@1" }
+    }*/
+      void main() { isf_FragColor = vec4(fract(TIME)); }`,
   });
   const node = {
     id: "animated-isf",
@@ -1059,13 +1063,14 @@ test("named multi-image ISF nodes lower directly onto the compiled texture DAG",
     source: `/*{
       "ISFVSN": "2.0",
       "LABEL": "Two Image Compositor",
+      "VJ1": { "PROFILE": "vj1-isf-webgl2@1" },
       "INPUTS": [
         { "NAME": "foreground", "TYPE": "image" },
         { "NAME": "background", "TYPE": "image" }
       ]
     }*/
     void main() {
-      gl_FragColor = mix(
+      isf_FragColor = mix(
         IMG_THIS_NORM_PIXEL(background),
         IMG_THIS_NORM_PIXEL(foreground),
         0.5

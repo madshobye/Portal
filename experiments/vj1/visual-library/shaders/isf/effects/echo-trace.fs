@@ -1,55 +1,56 @@
 /*{
-    "CATEGORIES": [
-        "Feedback"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Pixel with brightness levels below the threshold do not update.",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Threshold",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "thresh",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Gain",
-            "MAX": 2,
-            "MIN": 0,
-            "NAME": "gain",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": true,
-            "LABEL": "Hard Cutoff",
-            "NAME": "hardCutoff",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": false,
-            "LABEL": "Invert",
-            "NAME": "invert",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "FLOAT": true,
-            "PERSISTENT": true,
-            "TARGET": "bufferVariableNameA"
-        },
-        {
-        }
-    ]
-}
-*/
+  "CATEGORIES": [
+    "Feedback"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Pixel with brightness levels below the threshold do not update.",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Threshold",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "thresh",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Gain",
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "gain",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": true,
+      "LABEL": "Hard Cutoff",
+      "NAME": "hardCutoff",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": false,
+      "LABEL": "Invert",
+      "NAME": "invert",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "FLOAT": true,
+      "PERSISTENT": true,
+      "TARGET": "bufferVariableNameA"
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()
 {
@@ -65,5 +66,5 @@ void main()
 		else
 			brightLevel = 0.0;
 	}
-	gl_FragColor = mix(freshPixel,stalePixel, brightLevel);
+	isf_FragColor = mix(freshPixel,stalePixel, brightLevel);
 }

@@ -1,35 +1,37 @@
 /*{
-    "CATEGORIES": [
-        "Stylize",
-        "Blur"
-    ],
-    "CREDIT": "geeks3d",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.01,
-            "LABEL": "Magnitude",
-            "MAX": 0.1,
-            "MIN": 0,
-            "NAME": "magnitude",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.345,
-            "LABEL": "Seed",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "seed",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Stylize",
+    "Blur"
+  ],
+  "CREDIT": "geeks3d",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.01,
+      "LABEL": "Magnitude",
+      "MAX": 0.1,
+      "MIN": 0,
+      "NAME": "magnitude",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.345,
+      "LABEL": "Seed",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "seed",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 /*
 
@@ -127,5 +129,5 @@ void main()	{
 	vec4 result = spline(n,C00,C01,C02,C10,C11,C12,C20,C21,C22);
 	tc = result.rgba;  
 
-	gl_FragColor = tc;
+	isf_FragColor = tc;
 }

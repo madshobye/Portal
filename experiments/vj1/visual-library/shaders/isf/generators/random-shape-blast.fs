@@ -1,80 +1,82 @@
 /*{
-    "CATEGORIES": [
-        "Geometry"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "DEFAULT": 0.5,
-            "LABEL": "Saturation",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "saturation",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Brightness",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "brightness",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Mix Amount",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "mixAmount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Mask Shape Mode",
-            "LABELS": [
-                "Random",
-                "Rectangle",
-                "Triangle",
-                "Circle",
-                "Diamond"
-            ],
-            "NAME": "maskShapeMode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2,
-                3,
-                4
-            ]
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Anchor To Bottom",
-            "NAME": "anchorToBottom",
-            "TYPE": "bool"
-        },
-        {
-            "LABEL": "Reset",
-            "NAME": "resetImage",
-            "TYPE": "event"
-        }
-    ],
-    "ISFVSN": "2",
-    "KEYWORDS": [
-        "Abstract",
-        "Geometric"
-    ],
-    "PASSES": [
-        {
-            "DESCRIPTION": "Holds the last render state for drawing over",
-            "PERSISTENT": true,
-            "TARGET": "lastState"
-        }
-    ]
-}
-*/
+  "CATEGORIES": [
+    "Geometry"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "DEFAULT": 0.5,
+      "LABEL": "Saturation",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "saturation",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Brightness",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "brightness",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Mix Amount",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "mixAmount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Mask Shape Mode",
+      "LABELS": [
+        "Random",
+        "Rectangle",
+        "Triangle",
+        "Circle",
+        "Diamond"
+      ],
+      "NAME": "maskShapeMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Anchor To Bottom",
+      "NAME": "anchorToBottom",
+      "TYPE": "bool"
+    },
+    {
+      "LABEL": "Reset",
+      "NAME": "resetImage",
+      "TYPE": "event"
+    }
+  ],
+  "ISFVSN": "2",
+  "KEYWORDS": [
+    "Abstract",
+    "Geometric"
+  ],
+  "PASSES": [
+    {
+      "DESCRIPTION": "Holds the last render state for drawing over",
+      "PERSISTENT": true,
+      "TARGET": "lastState"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float rand(vec2 co){
     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
@@ -120,7 +122,7 @@ vec2 rotatePoint(vec2 pt, float angle, vec2 center)
 	return returnMe;
 }
 
-float sign(vec2 p1, vec2 p2, vec2 p3)
+float vj1_sign(vec2 p1, vec2 p2, vec2 p3)
 {
 	return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
 }
@@ -133,9 +135,9 @@ bool RotatedPointInTriangle(vec2 pt, vec2 v1, vec2 v2, vec2 v3, vec2 center)
 	vec2 v2r = v2;
 	vec2 v3r = v3;
 
-	b1 = sign(pt, v1r, v2r) < 0.0;
-	b2 = sign(pt, v2r, v3r) < 0.0;
-	b3 = sign(pt, v3r, v1r) < 0.0;
+	b1 = vj1_sign(pt, v1r, v2r) < 0.0;
+	b2 = vj1_sign(pt, v2r, v3r) < 0.0;
+	b3 = vj1_sign(pt, v3r, v1r) < 0.0;
 
 	return ((b1 == b2) && (b2 == b3));
 }
@@ -220,5 +222,5 @@ void main()	{
 		returnMe = mix(returnMe,newColor,mixAmount);
 	}
 	
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }

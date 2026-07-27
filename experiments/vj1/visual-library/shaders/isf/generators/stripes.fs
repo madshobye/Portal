@@ -1,57 +1,57 @@
 /*{
-    "CATEGORIES": [
-        "Geometry"
-    ],
-    "CREDIT": "VIDVOX",
-    "INPUTS": [
-        {
-            "DEFAULT": 0.25,
-            "NAME": "width",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "NAME": "offset",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "NAME": "vertical",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": [
-                1,
-                1,
-                1,
-                1
-            ],
-            "NAME": "color1",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                0,
-                1
-            ],
-            "NAME": "color2",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "splitPos",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Geometry"
+  ],
+  "CREDIT": "VIDVOX",
+  "INPUTS": [
+    {
+      "DEFAULT": 0.25,
+      "NAME": "width",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "NAME": "offset",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "NAME": "vertical",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "NAME": "color1",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "NAME": "color2",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "splitPos",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main() {
 	//	determine if we are on an even or odd line
@@ -72,5 +72,5 @@ void main() {
 		out_color = color1;
 	}
 	
-	gl_FragColor = out_color;
+	isf_FragColor = out_color;
 }

@@ -1,45 +1,48 @@
 /*{
-	"CREDIT": "by zoidberg",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color Adjustment", "Utility"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "bright",
-			"TYPE": "float",
-			"MIN": -1.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "contrast",
-			"TYPE": "float",
-			"MIN": -4.0,
-			"MAX": 4.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "hue",
-			"TYPE": "float",
-			"MIN": -1.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "saturation",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 4.0,
-			"DEFAULT": 1.0
-		}
-	]
+  "CREDIT": "by zoidberg",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color Adjustment",
+    "Utility"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "bright",
+      "TYPE": "float",
+      "MIN": -1,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "contrast",
+      "TYPE": "float",
+      "MIN": -4,
+      "MAX": 4,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "hue",
+      "TYPE": "float",
+      "MIN": -1,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "saturation",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 4,
+      "DEFAULT": 1
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 vec3 rgb2hsv(vec3 c);
 vec3 hsv2rgb(vec3 c);
@@ -69,7 +72,7 @@ void main() {
 	tmpColorA.a = tmpColorB.a;
 	
 	
-	gl_FragColor = clamp(tmpColorA, 0.0, 1.0);
+	isf_FragColor = clamp(tmpColorA, 0.0, 1.0);
 }
 
 

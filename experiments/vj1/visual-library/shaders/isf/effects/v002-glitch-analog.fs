@@ -1,73 +1,74 @@
-/*
-{
-  "CATEGORIES" : [
-    "Glitch", "Distortion Effect", "v002"
+/*{
+  "CATEGORIES": [
+    "Glitch",
+    "Distortion Effect",
+    "v002"
   ],
-  "DESCRIPTION" : "Emulates classic analog video interference, distortion and sync issues.",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "Emulates classic analog video interference, distortion and sync issues.",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "inputDistortionImage",
-      "TYPE" : "image"
+      "NAME": "inputDistortionImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "inputDistortion",
-      "TYPE" : "float",
-      "MAX" : 5,
-      "DEFAULT" : 0.0,
-      "LABEL" : "Distortion",
-      "MIN" : 0
+      "NAME": "inputDistortion",
+      "TYPE": "float",
+      "MAX": 5,
+      "DEFAULT": 0,
+      "LABEL": "Distortion",
+      "MIN": 0
     },
     {
-      "NAME" : "inputBarsAmount",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.25,
-      "LABEL" : "Distortion Mix",
-      "MIN" : 0
+      "NAME": "inputBarsAmount",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.25,
+      "LABEL": "Distortion Mix",
+      "MIN": 0
     },
     {
-      "NAME" : "inputVSYNC",
-      "TYPE" : "float",
-      "MAX" : 2,
-      "DEFAULT" : 0.0,
-      "LABEL" : "V Sync",
-      "MIN" : 0
+      "NAME": "inputVSYNC",
+      "TYPE": "float",
+      "MAX": 2,
+      "DEFAULT": 0,
+      "LABEL": "V Sync",
+      "MIN": 0
     },
     {
-      "NAME" : "inputHSYNC",
-      "TYPE" : "float",
-      "MAX" : 2,
-      "DEFAULT" : 0.0,
-      "LABEL" : "H Sync",
-      "MIN" : 0
+      "NAME": "inputHSYNC",
+      "TYPE": "float",
+      "MAX": 2,
+      "DEFAULT": 0,
+      "LABEL": "H Sync",
+      "MIN": 0
     },
     {
-      "NAME" : "inputResolution",
-      "TYPE" : "float",
-      "MAX" : 10,
-      "DEFAULT" : 5,
-      "LABEL" : "Scan Line Size",
-      "MIN" : 1
+      "NAME": "inputResolution",
+      "TYPE": "float",
+      "MAX": 10,
+      "DEFAULT": 5,
+      "LABEL": "Scan Line Size",
+      "MIN": 1
     },
     {
-      "NAME" : "inputResolutionMix",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.5,
-      "LABEL" : "Scan Lin Mix",
-      "MIN" : 0
+      "NAME": "inputResolutionMix",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.5,
+      "LABEL": "Scan Lin Mix",
+      "MIN": 0
     }
   ],
-  "CREDIT" : "Vade / VIDVOX"
-}
-*/
-
-
+  "CREDIT": "Vade / VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Original v002 Analog Glitch by Vade
 //	https://github.com/v002/v002-Glitch/blob/master/v002AnalogGlitchPlugIn.m
@@ -103,5 +104,5 @@ void main (void) 	{
 	vec4 result = IMG_PIXEL(inputImage, texcoord * RENDERSIZE);
 	result.rgb = result.rgb * scanlineMask;
     
-    gl_FragColor = mix(result, bars*result, inputBarsAmount);
+    isf_FragColor = mix(result, bars*result, inputBarsAmount);
 }

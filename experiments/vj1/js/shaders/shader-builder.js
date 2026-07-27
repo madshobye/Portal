@@ -15,7 +15,11 @@ export function createShaderBuilder({
     const contextId = getContextId(target);
     const paramsKey = (component?.params || []).map((param) => `${param.type}:${param.id}`).join(",");
     const transformMode = component?.transformSource === false ? "field-transform" : "source-transform";
-    const key = `${contextId}:${pass.id}:${component?.type || "effect"}:${transformMode}:${paramsKey}:${code}`;
+    const shaderProfile = component?.type === "isf" ? "vj1-isf-webgl2" : "legacy";
+    const vertexCode = component?.type === "isf"
+      ? String(component?.vertexCode || "")
+      : "";
+    const key = `${contextId}:${pass.id}:${component?.type || "effect"}:${shaderProfile}:${transformMode}:${paramsKey}:${vertexCode}:${code}`;
     if (cache.has(key)) return cache.get(key);
     try {
       const factory = typeof target?.createShader === "function" ? target : globalThis;
@@ -23,7 +27,12 @@ export function createShaderBuilder({
         ? shadertoyFragmentSource(code, component)
         : component?.type === "isf" ? code
           : component?.type === "fragment" ? standaloneFragmentSource(code, component) : fragmentShaderSource(code, component);
-      const shader = factory.createShader(vertexShaderSource(), fragmentSource);
+      const shader = factory.createShader(
+        component?.type === "isf"
+          ? vertexCode || webgl2VertexShaderSource()
+          : vertexShaderSource(),
+        fragmentSource,
+      );
       cache.set(key, shader);
       onStatus?.("Shader ready", "");
       return shader;
@@ -103,6 +112,20 @@ attribute vec2 aTexCoord;
 uniform mat4 uModelViewMatrix;
 uniform mat4 uProjectionMatrix;
 varying vec2 vTexCoord;
+void main() {
+  vTexCoord = aTexCoord;
+  gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+}`;
+}
+
+function webgl2VertexShaderSource() {
+  return `#version 300 es
+precision highp float;
+in vec3 aPosition;
+in vec2 aTexCoord;
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
+out vec2 vTexCoord;
 void main() {
   vTexCoord = aTexCoord;
   gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);

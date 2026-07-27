@@ -1,25 +1,27 @@
 /*{
-	"CREDIT": "by zoidberg",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color Adjustment", "Utility"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "gamma",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.5
-		}
-	]
+  "CREDIT": "by zoidberg",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color Adjustment",
+    "Utility"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "gamma",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.5
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 void main() {
 	//	the input gamma range is 0.0-1.0 (normalized).  the actual gamma range i want to use is 0.0 - 5.0.
@@ -29,5 +31,5 @@ void main() {
 	vec4		tmpColorB;
 	tmpColorB.rgb = pow(tmpColorA.rgb, vec3(1.0/realGamma));
 	tmpColorB.a = tmpColorA.a;
-	gl_FragColor = tmpColorB;
+	isf_FragColor = tmpColorB;
 }

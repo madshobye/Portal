@@ -1,46 +1,46 @@
 /*{
-	"DESCRIPTION": "Solarizes an image",
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color Effect"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "centerBrightness",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.5
-		},
-		{
-			"NAME": "powerCurve",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 4.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "colorize",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "inverse",
-			"TYPE": "bool",
-			"DEFAULT": 1.0
-		}
-	]
+  "DESCRIPTION": "Solarizes an image",
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color Effect"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "centerBrightness",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.5
+    },
+    {
+      "NAME": "powerCurve",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 4,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "colorize",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "inverse",
+      "TYPE": "bool",
+      "DEFAULT": 1
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
-
 
 vec3 rgb2hsv(vec3 c)	{
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -87,5 +87,5 @@ void main()
 	//	convert back to rgb
 	outColor.rgb = hsv2rgb(outColor.rgb);
 	
-	gl_FragColor = outColor;
+	isf_FragColor = outColor;
 }

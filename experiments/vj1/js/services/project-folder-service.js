@@ -459,11 +459,11 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
         ? projectData.media.map((item) => ({ ...item }))
         : mergeMediaCatalogMarkers(imported.media, projectData.media),
       nodes: mergeProjectIsfDefinitions(projectData.nodes || currentState.nodes, imported.shaders),
-      shaders: imported.shaders[0]
+      shaders: firstFragmentShader(imported.shaders)
         ? {
             ...(projectData.shaders || store.getState().shaders),
-            customName: imported.shaders[0].name,
-            customCode: imported.shaders[0].code,
+            customName: firstFragmentShader(imported.shaders).name,
+            customCode: firstFragmentShader(imported.shaders).code,
           }
         : (projectData.shaders || currentState.shaders),
     };
@@ -679,11 +679,11 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       draft.project.warnings = (draft.project.warnings || []).filter((warning) => !String(warning).startsWith("Folder change ("));
       draft.media = mergeMediaCatalogMarkers(imported.media, draft.media);
       draft.nodes = mergeProjectIsfDefinitions(draft.nodes, imported.shaders, { authoritative: true });
-      if (imported.shaders[0]) {
+      if (firstFragmentShader(imported.shaders)) {
         draft.shaders = {
           ...draft.shaders,
-          customName: imported.shaders[0].name,
-          customCode: imported.shaders[0].code,
+          customName: firstFragmentShader(imported.shaders).name,
+          customCode: firstFragmentShader(imported.shaders).code,
         };
       }
     }, {
@@ -1040,8 +1040,9 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       // Imported ISF is project-authored node code and must use the persistent
       // update path. Ordinary shader/media observation remains derived state.
       if (hasProjectIsf) draft.nodes = mergeProjectIsfDefinitions(draft.nodes, imported.shaders);
-      if (imported.shaders?.[0]) {
-        draft.shaders = { ...draft.shaders, customName: imported.shaders[0].name, customCode: imported.shaders[0].code };
+      if (firstFragmentShader(imported.shaders)) {
+        const shader = firstFragmentShader(imported.shaders);
+        draft.shaders = { ...draft.shaders, customName: shader.name, customCode: shader.code };
       }
     };
     if (hasProjectIsf) {
@@ -1090,6 +1091,12 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     writeMediaRendition: (...args) => derivedAssets.writeMediaRendition(...args),
     writeComponentThumbnail: (...args) => derivedAssets.writeComponentThumbnail(...args),
   };
+}
+
+function firstFragmentShader(shaders = []) {
+  return (shaders || []).find((shader) =>
+    !/\.vs$/i.test(shader?.path || shader?.name || "")
+  ) || null;
 }
 
 export function loadedProjectPersistenceSignature(state, savedAt = "", { requiresSave = false } = {}) {

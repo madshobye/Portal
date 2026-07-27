@@ -35,15 +35,14 @@ export function compileIsfFragmentSource(document, { kind = document?.kind || "g
     ...(effect ? ["inputImage"] : []),
   ]);
   const adaptedSource = adaptImageMacros(
-    normalizeParameterBoundedLoops(
-      String(document.fragmentSource),
-      document.inputs,
-    )
+    String(document.fragmentSource)
       .replace(/\bvarying\s+vec2\s+vTexCoord\s*;/g, "")
+      .replace(/\bin\s+vec2\s+vTexCoord\s*;/g, "")
       // VJ1 may render only a physical ROI or a lower-resolution preview while
       // preserving the full logical ISF pass. Raw WebGL gl_FragCoord belongs
       // to that storage target, so expose the semantic pass coordinate instead.
-      .replace(/\bgl_FragCoord\b/g, "vj1IsfFragCoord"),
+      .replace(/\bgl_FragCoord\b/g, "vj1IsfFragCoord")
+      .replace(/\bgl_FragColor\b/g, "isf_FragColor"),
     imageNames,
   );
   const source = renameMain(adaptedSource);
@@ -78,9 +77,11 @@ export function compileIsfFragmentSource(document, { kind = document?.kind || "g
   const imageRectUniforms = imageNames
     .map((name) => ["vec4", `_${name}_imgRect`])
     .filter(([, name]) => !declared.has(name));
-  return `
+  return `#version 300 es
 precision highp float;
-varying vec2 vTexCoord;
+precision highp int;
+in vec2 vTexCoord;
+out vec4 isf_FragColor;
 uniform vec4 renderUvRect;
 uniform mat3 ${effect ? "effectUvMatrix" : "contentUvMatrix"};
 uniform float ${effect ? "amount" : "useContentTransform"};
@@ -101,48 +102,85 @@ vec2 vj1IsfSamplerUv(vec2 isfUv, bool storageFlipY) {
 #define vj1IsfFragCoord vec4(vj1IsfBoundaryUv() * RENDERSIZE, 0.0, 1.0)
 #define isf_FragNormCoord (vj1IsfBoundaryUv())
 ${imageNames.map((name) => `
-#define VJ1_IMG_NORM_PIXEL_${name}(coord) texture2D(${name}, vj1IsfSamplerUv((coord), ${name}_flipY))
-#define VJ1_IMG_PIXEL_${name}(coord) texture2D(${name}, vj1IsfSamplerUv((coord) / max(${name}_imgSize, vec2(1.0)), ${name}_flipY))`).join("\n")}
+#define VJ1_IMG_NORM_PIXEL_${name}(coord) texture(${name}, vj1IsfSamplerUv((coord), ${name}_flipY))
+#define VJ1_IMG_PIXEL_${name}(coord) texture(${name}, vj1IsfSamplerUv((coord) / max(${name}_imgSize, vec2(1.0)), ${name}_flipY))`).join("\n")}
 
 ${source}
 
 void main() {
   vj1IsfUserMain();
-  ${effect && !explicitEffectAmount ? "if (vj1IsfFinalPass) gl_FragColor = mix(VJ1_IMG_NORM_PIXEL_inputImage(vj1IsfBoundaryUv()), gl_FragColor, clamp(amount, 0.0, 1.0));" : ""}
-  ${transition ? "" : "if (vj1IsfFinalPass) gl_FragColor.rgb *= gl_FragColor.a;"}
+  ${effect && !explicitEffectAmount ? "if (vj1IsfFinalPass) isf_FragColor = mix(VJ1_IMG_NORM_PIXEL_inputImage(vj1IsfBoundaryUv()), isf_FragColor, clamp(amount, 0.0, 1.0));" : ""}
+  ${transition ? "" : "if (vj1IsfFinalPass) isf_FragColor.rgb *= isf_FragColor.a;"}
 }`.trim();
 }
 
-// WebGL 1 requires statically bounded loops. Some valid desktop ISF shaders
-// use a numeric input as the upper bound instead. Keep the imported source
-// unchanged and port only the narrow form whose finite maximum is declared in
-// the ISF header; the early break preserves the requested runtime radius.
-function normalizeParameterBoundedLoops(source, inputs = []) {
-  const numericInputs = new Map(
-    inputs
-      .filter((input) => ["float", "long"].includes(input.type))
-      .map((input) => [input.name, input]),
+export function compileIsfVertexSource(
+  document,
+  vertexSource,
+  { kind = document?.kind || "generator" } = {},
+) {
+  if (!document?.fragmentSource) throw new Error("VJ1_ISF_DOCUMENT_REQUIRED");
+  const effect = kind === "effect";
+  const source = renameMain(
+    String(vertexSource || "")
+      .replace(/\/\*\s*VJ1_ISF_VERTEX_PROFILE:[^*]*\*\//g, "")
+      .replace(/\bin\s+vec2\s+vTexCoord\s*;/g, "")
+      .trim(),
+    "vj1IsfVertexUserMain",
   );
-  const parameterBoundedLoop =
-    /for\s*\(\s*float\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*;\s*\1\s*<=\s*float\s*\(\s*int\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)\s*;\s*\+\+\s*\1\s*\)\s*\{/g;
+  if (!source) {
+    throw new Error(
+      `VJ1_ISF_VERTEX_SOURCE_REQUIRED:${document.path || document.name}`,
+    );
+  }
+  const declared = declaredUniformNames(source);
+  const uniforms = [
+    ...STANDARD_UNIFORMS,
+    ...document.inputs.map((input) => [isfGlslType(input.type), input.name]),
+    ...document.inputs
+      .filter((input) => ["image", "audio", "audioFFT"].includes(input.type))
+      .flatMap((input) => [
+        ["vec2", `${input.name}_imgSize`],
+        ["bool", `${input.name}_flipY`],
+        ["vec4", `_${input.name}_imgRect`],
+      ]),
+  ].filter(([, name], index, entries) =>
+    !declared.has(name) &&
+    (!effect || name !== "amount") &&
+    entries.findIndex((entry) => entry[1] === name) === index
+  );
+  return `#version 300 es
+precision highp float;
+precision highp int;
+in vec3 aPosition;
+in vec2 aTexCoord;
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
+uniform vec4 renderUvRect;
+uniform mat3 ${effect ? "effectUvMatrix" : "contentUvMatrix"};
+uniform float ${effect ? "amount" : "useContentTransform"};
+${uniforms.map(([type, name]) => `uniform ${type} ${name};`).join("\n")}
+out vec2 vTexCoord;
+vec2 isf_FragNormCoord;
 
-  return String(source).replace(
-    parameterBoundedLoop,
-    (loop, indexName, startLiteral, parameterName) => {
-      const input = numericInputs.get(parameterName);
-      const maximum = Math.trunc(Number(input?.max));
-      const start = Number(startLiteral);
-      if (
-        !Number.isFinite(maximum) ||
-        !Number.isFinite(start) ||
-        maximum < start ||
-        maximum > 256
-      ) {
-        return loop;
-      }
-      return `for (float ${indexName}=${startLiteral}; ${indexName}<=${maximum}.0; ++${indexName}) {\nif (${indexName} > float(int(${parameterName}))) break;`;
-    },
-  );
+vec2 vj1IsfVertexBoundaryUv() {
+  vec2 baseUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;
+  ${effect
+    ? "vec2 topLeftUv = (effectUvMatrix * vec3(baseUv, 1.0)).xy; return vec2(topLeftUv.x, 1.0 - topLeftUv.y);"
+    : "vec2 transformedUv = (contentUvMatrix * vec3(baseUv, 1.0)).xy; vec2 topLeftUv = mix(baseUv, transformedUv, step(0.5, useContentTransform)); return vec2(topLeftUv.x, 1.0 - topLeftUv.y);"}
+}
+
+void isf_vertShaderInit() {
+  vTexCoord = aTexCoord;
+  gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+  isf_FragNormCoord = vj1IsfVertexBoundaryUv();
+}
+
+${source}
+
+void main() {
+  vj1IsfVertexUserMain();
+}`.trim();
 }
 
 // A deliberately narrow optimization contract for portable built-in ISF.
@@ -239,11 +277,12 @@ export function compileIsfTransitionKernel(document, {
 
   let source = String(document.fragmentSource)
     .replace(/\bvarying\s+vec2\s+vTexCoord\s*;/g, "")
+    .replace(/\bin\s+vec2\s+vTexCoord\s*;/g, "")
     .replace(/\buniform\s+\w+\s+(?:startImage|endImage|progress)\s*;/g, "")
     .replace(/\bgl_FragCoord\b/g, "vec4(vj1IsfUv * RENDERSIZE, 0.0, 1.0)")
     .replace(/\bisf_FragNormCoord\b/g, "vj1IsfUv")
     .replace(/\bprogress\b/g, "vj1IsfProgress")
-    .replace(/\bgl_FragColor\b/g, "vj1IsfOutput");
+    .replace(/\b(?:isf_FragColor|gl_FragColor)\b/g, "vj1IsfOutput");
   source = adaptTransitionImageMacros(source, "startImage", "vj1IsfStartColor", "vj1IsfSampleStart", "vj1IsfSampleStartPixel");
   source = adaptTransitionImageMacros(source, "endImage", "vj1IsfEndColor", "vj1IsfSampleEnd", "vj1IsfSampleEndPixel");
   source = renameMain(source);
@@ -263,10 +302,10 @@ vec2 vj1IsfUv;
 float vj1IsfProgress;
 
 vec4 vj1IsfSampleStart(vec2 uv) {
-  return texture2D(fromTex, uFromSourceRect.xy + clamp(uv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw) * uFromOpacity;
+  return texture(fromTex, uFromSourceRect.xy + clamp(uv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw) * uFromOpacity;
 }
 vec4 vj1IsfSampleEnd(vec2 uv) {
-  return texture2D(toTex, uToSourceRect.xy + clamp(uv, vec2(0.0), vec2(1.0)) * uToSourceRect.zw) * uToOpacity;
+  return texture(toTex, uToSourceRect.xy + clamp(uv, vec2(0.0), vec2(1.0)) * uToSourceRect.zw) * uToOpacity;
 }
 vec4 vj1IsfSampleStartPixel(vec2 pixelCoord) {
   return vj1IsfSampleStart(pixelCoord / max(startImage_imgSize, vec2(1.0)));
@@ -337,11 +376,11 @@ export function isfGlslType(type) {
   return "sampler2D";
 }
 
-function renameMain(source) {
+function renameMain(source, name = "vj1IsfUserMain") {
   let replaced = false;
   const result = String(source).replace(/\bvoid\s+main\s*\(/, () => {
     replaced = true;
-    return "void vj1IsfUserMain(";
+    return `void ${name}(`;
   });
   if (!replaced) throw new Error("VJ1_ISF_MAIN_MISSING");
   return result;
@@ -413,7 +452,9 @@ function assertOptimizedIsfSymbols(source, {
 }
 
 function ensureFragmentPrecision(source) {
-  const text = String(source || "").trim();
+  const text = String(source || "")
+    .replace(/\bisf_FragColor\b/g, "gl_FragColor")
+    .trim();
   return /\bprecision\s+(?:lowp|mediump|highp)\s+float\s*;/.test(text)
     ? text
     : `precision mediump float;\n${text}`;
@@ -437,7 +478,7 @@ function compileLocalEffectBody(source, path = "") {
       "vj1IsfInput",
     )
     .replace(/\bisf_FragNormCoord\b/g, "uv")
-    .replace(/\bgl_FragColor\b/g, "vj1IsfOutput");
+    .replace(/\b(?:isf_FragColor|gl_FragColor)\b/g, "vj1IsfOutput");
   if (/\b(?:IMG_[A-Z_]+|discard|return)\b/.test(body)) {
     throw new Error(
       `VJ1_ISF_LOCAL_EFFECT_BODY_UNSUPPORTED:${path || "inline"}`,

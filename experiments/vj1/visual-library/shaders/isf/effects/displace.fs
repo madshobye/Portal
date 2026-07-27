@@ -1,39 +1,38 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Distortion Effect"
   ],
-  "DESCRIPTION" : "Simple Displace",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "Simple Displace",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "displaceImage",
-      "TYPE" : "image",
-      "LABEL" : "displace image"
+      "NAME": "displaceImage",
+      "TYPE": "image",
+      "LABEL": "displace image"
     },
     {
-      "NAME" : "uDisplaceAmt",
-      "TYPE" : "float",
-      "MAX" : 2,
-      "DEFAULT" : 0,
-      "MIN" : -2
+      "NAME": "uDisplaceAmt",
+      "TYPE": "float",
+      "MAX": 2,
+      "DEFAULT": 0,
+      "MIN": -2
     },
     {
-      "LABELS" : [
+      "LABELS": [
         "Luma",
         "R",
         "G",
         "B",
         "A"
       ],
-      "NAME" : "xComponent",
-      "TYPE" : "long",
-      "DEFAULT" : 1,
-      "VALUES" : [
+      "NAME": "xComponent",
+      "TYPE": "long",
+      "DEFAULT": 1,
+      "VALUES": [
         0,
         1,
         2,
@@ -42,17 +41,17 @@
       ]
     },
     {
-      "LABELS" : [
+      "LABELS": [
         "Luma",
         "R",
         "G",
         "B",
         "A"
       ],
-      "NAME" : "yComponent",
-      "TYPE" : "long",
-      "DEFAULT" : 2,
-      "VALUES" : [
+      "NAME": "yComponent",
+      "TYPE": "long",
+      "DEFAULT": 2,
+      "VALUES": [
         0,
         1,
         2,
@@ -61,16 +60,16 @@
       ]
     },
     {
-      "NAME" : "relativeShift",
-      "TYPE" : "bool",
-      "DEFAULT" : 0
+      "NAME": "relativeShift",
+      "TYPE": "bool",
+      "DEFAULT": 0
     }
   ],
-  "CREDIT" : "by @colin_movecraft"
-}
-*/
-
-
+  "CREDIT": "by @colin_movecraft",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main(){
 	vec2	p = isf_FragNormCoord.xy;
@@ -104,5 +103,5 @@ void main(){
     displace = (relativeShift) ? 2.0 * (displace - vec2(0.5)) : displace;
     displace *= uDisplaceAmt;
     
-	gl_FragColor = IMG_NORM_PIXEL(inputImage,p+displace);
+	isf_FragColor = IMG_NORM_PIXEL(inputImage,p+displace);
 }

@@ -1,68 +1,70 @@
 /*{
-    "CATEGORIES": [
-        "Stylize"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.125,
-            "MAX": 0.5,
-            "MIN": 0.001,
-            "NAME": "cell_size",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.05000000074505806,
-            "MAX": 0.5,
-            "MIN": 0.001,
-            "NAME": "min_cell_size",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "rSeed",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABELS": [
-                "Square",
-                "Rectangle"
-            ],
-            "NAME": "shape",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1
-            ]
-        },
-        {
-            "DEFAULT": 2,
-            "LABELS": [
-                "Off",
-                "2",
-                "3",
-                "5"
-            ],
-            "NAME": "round_to_divisions",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                2,
-                3,
-                5
-            ]
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Stylize"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.125,
+      "MAX": 0.5,
+      "MIN": 0.001,
+      "NAME": "cell_size",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.05000000074505806,
+      "MAX": 0.5,
+      "MIN": 0.001,
+      "NAME": "min_cell_size",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "rSeed",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABELS": [
+        "Square",
+        "Rectangle"
+      ],
+      "NAME": "shape",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1
+      ]
+    },
+    {
+      "DEFAULT": 2,
+      "LABELS": [
+        "Off",
+        "2",
+        "3",
+        "5"
+      ],
+      "NAME": "round_to_divisions",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        2,
+        3,
+        5
+      ]
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 #ifndef GL_ES
 float distance (vec2 center, vec2 pt)
@@ -81,7 +83,7 @@ void main()
 // CALCULATE EDGES OF CURRENT CELL
 	//	At 0.0 just do a pass-thru
 	if (cell_size == 0.0)	{
-		gl_FragColor = IMG_THIS_PIXEL(inputImage);
+		isf_FragColor = IMG_THIS_PIXEL(inputImage);
 	}
 		else	{
 		// Position of current pixel
@@ -134,6 +136,6 @@ void main()
 		vec4 avgC = IMG_NORM_PIXEL(inputImage, vec2(x1+(CellWidth/2.0), y2+(CellHeight/2.0)));	// Average the averages + centre
 		vec4 avgClr = (avgX+avgY+avgC) / 3.0;
 
-		gl_FragColor = vec4(avgClr);
+		isf_FragColor = vec4(avgClr);
 	}
 }

@@ -294,9 +294,34 @@ async function hydrateFileBackedIsfDefinitions(nodePackage, directory, manifestP
       continue;
     }
     const source = await file.text();
+    const vertexResourceId = String(
+      artifact.implementation?.vertexResourceId || "",
+    );
+    const vertexResource = vertexResourceId
+      ? resources.get(vertexResourceId)
+      : null;
+    if (vertexResourceId && !vertexResource) {
+      throw new Error(
+        `NODE_PACKAGE_VISUAL_VERTEX_RESOURCE_MISSING:${artifact.id}:${vertexResourceId}`,
+      );
+    }
+    const vertexFile = vertexResource
+      ? await resourceFile(directory, vertexResource.path, manifestPath)
+      : null;
+    if (vertexFile) {
+      await verifyResourceIntegrity(
+        vertexFile,
+        vertexResource,
+        manifestPath,
+      );
+    }
     const definition = createIsfNodeDefinition({
       path: `${manifestPath.slice(0, -NODE_PACKAGE_MANIFEST_NAME.length)}${resource.path}`,
       source,
+      vertexPath: vertexResource
+        ? `${manifestPath.slice(0, -NODE_PACKAGE_MANIFEST_NAME.length)}${vertexResource.path}`
+        : "",
+      vertexSource: vertexFile ? await vertexFile.text() : "",
     });
     const kind = String(definition.metadata?.isf?.kind || "");
     if (kind !== artifact.artifactType) {

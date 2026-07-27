@@ -1,144 +1,142 @@
 /*{
-    "CATEGORIES": [
-        "Color Effect"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Creates variations on a base color using a given algorithm.",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Sample Mode",
-            "LABELS": [
-                "Base Color",
-                "Pixel Follow",
-                "Color Average"
-            ],
-            "NAME": "sampleMode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2
-            ]
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Color Mode",
-            "LABELS": [
-                "Basic Complementary",
-                "Split Complementary",
-                "Compound Complementary",
-                "Spectrum",
-                "Shades",
-                "Analogous",
-                "Compound Analogous"
-            ],
-            "NAME": "colorModeOverride",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6
-            ]
-        },
-        {
-            "DEFAULT": 7,
-            "LABEL": "Color Count",
-            "LABELS": [
-                "2",
-                "3",
-                "4",
-                "5",
-                "6",
-                "7",
-                "8",
-                "9",
-                "10",
-                "11",
-                "12",
-                "13",
-                "14",
-                "15",
-                "16"
-            ],
-            "NAME": "colorCount",
-            "TYPE": "long",
-            "VALUES": [
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8,
-                9,
-                10,
-                11,
-                12,
-                13,
-                14,
-                15,
-                16
-            ]
-        },
-        {
-            "DEFAULT": [
-                0.25,
-                0.59,
-                0.9,
-                1
-            ],
-            "LABEL": "Base Color",
-            "NAME": "baseColor",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "LABEL": "Pixel Point",
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "pixelFollowLocation",
-            "TYPE": "point2D"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "HEIGHT": "$HEIGHT / 100.0",
-            "TARGET": "bufferPassA",
-            "WIDTH": "$WIDTH / 100.0"
-        },
-        {
-            "HEIGHT": "1.0",
-            "TARGET": "autoColorBuffer",
-            "WIDTH": "1.0",
-            "persistent": true
-        },
-        {
-        }
-    ]
-}
-*/
-
-
-
+  "CATEGORIES": [
+    "Color Effect"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Creates variations on a base color using a given algorithm.",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Sample Mode",
+      "LABELS": [
+        "Base Color",
+        "Pixel Follow",
+        "Color Average"
+      ],
+      "NAME": "sampleMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Color Mode",
+      "LABELS": [
+        "Basic Complementary",
+        "Split Complementary",
+        "Compound Complementary",
+        "Spectrum",
+        "Shades",
+        "Analogous",
+        "Compound Analogous"
+      ],
+      "NAME": "colorModeOverride",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ]
+    },
+    {
+      "DEFAULT": 7,
+      "LABEL": "Color Count",
+      "LABELS": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15",
+        "16"
+      ],
+      "NAME": "colorCount",
+      "TYPE": "long",
+      "VALUES": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15,
+        16
+      ]
+    },
+    {
+      "DEFAULT": [
+        0.25,
+        0.59,
+        0.9,
+        1
+      ],
+      "LABEL": "Base Color",
+      "NAME": "baseColor",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "LABEL": "Pixel Point",
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "pixelFollowLocation",
+      "TYPE": "point2D"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "HEIGHT": "$HEIGHT / 100.0",
+      "TARGET": "bufferPassA",
+      "WIDTH": "$WIDTH / 100.0"
+    },
+    {
+      "HEIGHT": "1.0",
+      "TARGET": "autoColorBuffer",
+      "WIDTH": "1.0",
+      "persistent": true
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec3 rgb2hsv(vec3 c)	{
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -166,12 +164,12 @@ void main()
 {
 	if (PASSINDEX == 0)	{
 		vec4 		inputColor = IMG_NORM_PIXEL(inputImage, isf_FragNormCoord);
-		gl_FragColor = inputColor;
+		isf_FragColor = inputColor;
 	}
 	else if (PASSINDEX == 1)	{
 		vec4 		inputColor = IMG_NORM_PIXEL(bufferPassA, isf_FragNormCoord);
 		vec4 		oldColor = IMG_NORM_PIXEL(autoColorBuffer, vec2(0.5,0.5));
-		gl_FragColor = mix(inputColor, oldColor, 0.8);
+		isf_FragColor = mix(inputColor, oldColor, 0.8);
 	}
 	else if (PASSINDEX == 2)	{
 		vec4 		inputColor = IMG_THIS_PIXEL(inputImage);
@@ -342,6 +340,6 @@ void main()
 			}
 		}
 	
-		gl_FragColor = vec4(hsv2rgb(outColor.rgb), inColor.a);
+		isf_FragColor = vec4(hsv2rgb(outColor.rgb), inColor.a);
 	}
 }

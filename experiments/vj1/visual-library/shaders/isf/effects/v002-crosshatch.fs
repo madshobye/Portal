@@ -1,65 +1,68 @@
 /*{
-	"CREDIT": "by v002",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Halftone Effect", "v002"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "invert",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "separation",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 0.5,
-			"DEFAULT": 0.25
-		},
-		{
-			"NAME": "greyscale",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.75
-		},
-		{
-			"NAME": "thickness",
-			"TYPE": "float",
-			"MIN": 0.5,
-			"MAX": 1.0,
-			"DEFAULT": 0.75
-		},
-		{
-			"NAME": "front",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.5,
-				0.0,
-				0.25,
-				1.0
-			]
-		},
-		{
-			"NAME": "back",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.2,
-				0.75,
-				0.5,
-				1.0
-			]
-		}
-	]
+  "CREDIT": "by v002",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Halftone Effect",
+    "v002"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "invert",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "separation",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 0.5,
+      "DEFAULT": 0.25
+    },
+    {
+      "NAME": "greyscale",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.75
+    },
+    {
+      "NAME": "thickness",
+      "TYPE": "float",
+      "MIN": 0.5,
+      "MAX": 1,
+      "DEFAULT": 0.75
+    },
+    {
+      "NAME": "front",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.5,
+        0,
+        0.25,
+        1
+      ]
+    },
+    {
+      "NAME": "back",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.2,
+        0.75,
+        0.5,
+        1
+      ]
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 //Original Source
 //http://learningwebgl.com/blog/?p=2858
@@ -86,29 +89,29 @@ void main()
     
     vec4 cout = mix(color,colora, greyscale);
 
-    gl_FragColor = colorb;
+    isf_FragColor = colorb;
     
     if (lum > 1.00)
     {
         if (mod(coord.x + coord.y, thickness) >= separation)
-            gl_FragColor = cout;
+            isf_FragColor = cout;
     }
     
     if (lum > 0.75)
     {
         if (mod(coord.x - coord.y, thickness) >= separation )
-            gl_FragColor = cout;
+            isf_FragColor = cout;
     }
     
     if (lum > 0.50)
     {
         if (mod(coord.x + coord.y - (thickness * 0.5), thickness) >= separation)
-            gl_FragColor = cout;
+            isf_FragColor = cout;
     }
     
     if (lum > 0.3)
     {
         if (mod(coord.x - coord.y - (thickness * 0.5), thickness) >= separation)
-            gl_FragColor = cout;
+            isf_FragColor = cout;
     }
 }

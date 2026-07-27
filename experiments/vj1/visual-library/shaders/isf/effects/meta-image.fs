@@ -1,50 +1,54 @@
 /*{
-	"CREDIT": "by Toneburst",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Stylize", "Tile Effect"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "cell_size",
-			"TYPE": "float",
-			"MIN": 0.001,
-			"MAX": 1.0,
-			"DEFAULT": 0.125
-		},
-		{
-			"NAME": "zoom_tile",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 2.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "mixAmt",
-			"LABEL": "mix",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.5
-		},
-		{
-			"NAME": "mode",
-			"VALUES": [
-				0,
-				1
-			],
-			"LABELS": [
-				"Multiply",
-				"Mix"
-			],
-			"DEFAULT": 0,
-			"TYPE": "long"
-		}
-	]
+  "CREDIT": "by Toneburst",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Stylize",
+    "Tile Effect"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "cell_size",
+      "TYPE": "float",
+      "MIN": 0.001,
+      "MAX": 1,
+      "DEFAULT": 0.125
+    },
+    {
+      "NAME": "zoom_tile",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 2,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "mixAmt",
+      "LABEL": "mix",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.5
+    },
+    {
+      "NAME": "mode",
+      "VALUES": [
+        0,
+        1
+      ],
+      "LABELS": [
+        "Multiply",
+        "Mix"
+      ],
+      "DEFAULT": 0,
+      "TYPE": "long"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 void main()
@@ -91,9 +95,9 @@ void main()
 	
 	// MULTIPLY LITTLE IMAGE COLOUR WITH AVERAGE CELL COLOUR AND OUTPUT
 	if (mode == 0)	{
-		gl_FragColor = vec4(littlePix * avgClr);
+		isf_FragColor = vec4(littlePix * avgClr);
 	}
 	else	{
-		gl_FragColor = vec4(mix(littlePix, avgClr, mixAmt));
+		isf_FragColor = vec4(mix(littlePix, avgClr, mixAmt));
 	}
 }

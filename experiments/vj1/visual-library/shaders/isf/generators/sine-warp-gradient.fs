@@ -1,82 +1,82 @@
 /*{
-    "CATEGORIES": [
-        "Color"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "size",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "rotation",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "angle",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "shift",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": [
-                1,
-                0.5,
-                0,
-                1
-            ],
-            "NAME": "xcolor",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0.5,
-                1,
-                1
-            ],
-            "NAME": "ycolor",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                0,
-                0
-            ],
-            "NAME": "background",
-            "TYPE": "color"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Color"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "size",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "rotation",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "angle",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "shift",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": [
+        1,
+        0.5,
+        0,
+        1
+      ],
+      "NAME": "xcolor",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0.5,
+        1,
+        1
+      ],
+      "NAME": "ycolor",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "NAME": "background",
+      "TYPE": "color"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Basically just uses the same gradient as the Sine Warp Tile but uses the x/y values as the mix amounts for our colors
 
@@ -115,5 +115,5 @@ void main() {
 
 	vec2 pat = pattern();
 
-	gl_FragColor = background + pat.x * xcolor + pat.y * ycolor;
+	isf_FragColor = background + pat.x * xcolor + pat.y * ycolor;
 }

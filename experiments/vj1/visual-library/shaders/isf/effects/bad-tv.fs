@@ -1,72 +1,75 @@
-
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Glitch", "Retro"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "noiseLevel",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.5
-		},
-		{
-			"NAME": "distortion1",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 5.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "distortion2",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 5.0,
-			"DEFAULT": 5.0
-		},
-		{
-			"NAME": "speed",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.3
-		},
-		{
-			"NAME": "scroll",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "scanLineThickness",
-			"TYPE": "float",
-			"MIN": 1.0,
-			"MAX": 50.0,
-			"DEFAULT": 25.0
-		},
-		{
-			"NAME": "scanLineIntensity",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.5
-		},
-		{
-			"NAME": "scanLineOffset",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		}		
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Glitch",
+    "Retro"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "noiseLevel",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.5
+    },
+    {
+      "NAME": "distortion1",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 5,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "distortion2",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 5,
+      "DEFAULT": 5
+    },
+    {
+      "NAME": "speed",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.3
+    },
+    {
+      "NAME": "scroll",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "scanLineThickness",
+      "TYPE": "float",
+      "MIN": 1,
+      "MAX": 50,
+      "DEFAULT": 25
+    },
+    {
+      "NAME": "scanLineIntensity",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.5
+    },
+    {
+      "NAME": "scanLineOffset",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 //	Adapted from http://www.airtightinteractive.com/demos/js/badtvshader/js/BadTVShader.js
@@ -180,6 +183,6 @@ void main() {
 	vec2 pat = pattern(adjusted);
 	vec3 shift = scanLineIntensity * vec3(0.3 * pat.x, 0.59 * pat.y, 0.11) / 2.0;
 	result.rgb = (1.0 + scanLineIntensity / 2.0) * result.rgb + shift + (rand(adjusted * TIME) - 0.5) * noiseLevel;
-	gl_FragColor = result;
+	isf_FragColor = result;
 
 }

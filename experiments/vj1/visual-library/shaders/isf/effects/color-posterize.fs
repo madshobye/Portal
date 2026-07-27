@@ -1,25 +1,27 @@
 /*{
-    "CATEGORIES": [
-        "Color Effect",
-        "Retro"
-    ],
-    "CREDIT": "by zoidberg",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 30,
-            "MAX": 30,
-            "MIN": 2,
-            "NAME": "levels",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Color Effect",
+    "Retro"
+  ],
+  "CREDIT": "by zoidberg",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 30,
+      "MAX": 30,
+      "MIN": 2,
+      "NAME": "levels",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main() {
 	//	get the src pixel, convert to HSL, posterize the 'L', convert back to RGB
@@ -28,5 +30,5 @@ void main() {
 	vec4		numOfLevels = floor(srcPixel/amountPerLevel);
 	vec4		outColor = numOfLevels * (vec4(1.0) / (vec4(levels) - vec4(1.0)));
 	outColor.a = srcPixel.a;
-	gl_FragColor = outColor;
+	isf_FragColor = outColor;
 }

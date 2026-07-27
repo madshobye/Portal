@@ -1,67 +1,69 @@
 /*{
-    "CATEGORIES": [
-        "Glitch",
-        "Stylize"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Simulates the visual artifacts of an over-compressed or partially-corrupted JPEG.",
-    "ISFVSN": "2",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 8.0,
-            "LABEL": "Block Size (px)",
-            "MAX": 64.0,
-            "MIN": 2.0,
-            "NAME": "blockSize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "LABEL": "Quantize (Flatten)",
-            "MAX": 1.0,
-            "MIN": 0.0,
-            "NAME": "quantize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 2.0,
-            "LABEL": "Chroma Subsample",
-            "MAX": 4.0,
-            "MIN": 1.0,
-            "NAME": "chromaSubsample",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.0,
-            "LABEL": "DC Corruption",
-            "MAX": 0.5,
-            "MIN": 0.0,
-            "NAME": "dcCorrupt",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.0,
-            "LABEL": "Block Displace",
-            "MAX": 1.0,
-            "MIN": 0.0,
-            "NAME": "blockDisplace",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.0,
-            "LABEL": "Seed",
-            "MAX": 100.0,
-            "MIN": 0.0,
-            "NAME": "seed",
-            "TYPE": "float"
-        }
-    ]
+  "CATEGORIES": [
+    "Glitch",
+    "Stylize"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Simulates the visual artifacts of an over-compressed or partially-corrupted JPEG.",
+  "ISFVSN": "2",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 8,
+      "LABEL": "Block Size (px)",
+      "MAX": 64,
+      "MIN": 2,
+      "NAME": "blockSize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "LABEL": "Quantize (Flatten)",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "quantize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 2,
+      "LABEL": "Chroma Subsample",
+      "MAX": 4,
+      "MIN": 1,
+      "NAME": "chromaSubsample",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "DC Corruption",
+      "MAX": 0.5,
+      "MIN": 0,
+      "NAME": "dcCorrupt",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Block Displace",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "blockDisplace",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Seed",
+      "MAX": 100,
+      "MIN": 0,
+      "NAME": "seed",
+      "TYPE": "float"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 //	2D hash returning (0..1, 0..1) per integer-grid input.
 vec2 hash2(vec2 p)	{
@@ -123,5 +125,5 @@ void main()	{
 	float G = Y - 0.344 * Cb - 0.714 * Cr;
 	float B = Y + 1.772 * Cb;
 	
-	gl_FragColor = vec4(R, G, B, lumaSrc.a);
+	isf_FragColor = vec4(R, G, B, lumaSrc.a);
 }

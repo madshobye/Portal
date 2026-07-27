@@ -1,47 +1,48 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Geometry Adjustment"
   ],
-  "DESCRIPTION" : "",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "xShiftAmount",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "xShiftAmount",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "yShiftAmount",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "yShiftAmount",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "xTileSize",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.25,
-      "MIN" : 0
+      "NAME": "xTileSize",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.25,
+      "MIN": 0
     },
     {
-      "NAME" : "yTileSize",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.25,
-      "MIN" : 0
+      "NAME": "yTileSize",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.25,
+      "MIN": 0
     }
   ],
-  "CREDIT" : ""
-}
-*/
+  "CREDIT": "",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()	{
 	vec2		loc = isf_FragNormCoord.xy;
@@ -72,5 +73,5 @@ void main()	{
 	
 	loc.y = mod(loc.y + shiftAmount.y, 1.0);
 	
-	gl_FragColor = IMG_NORM_PIXEL(inputImage, loc);
+	isf_FragColor = IMG_NORM_PIXEL(inputImage, loc);
 }

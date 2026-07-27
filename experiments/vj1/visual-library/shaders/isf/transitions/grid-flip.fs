@@ -1,78 +1,78 @@
 /*{
-    "CATEGORIES": [
-        "Wipe"
-    ],
-    "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/GridFlip.glsl",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "startImage",
-            "TYPE": "image"
-        },
-        {
-            "NAME": "endImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "progress",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.1,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "pause",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.05,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "dividerWidth",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.1,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "randomness",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                0,
-                1
-            ],
-            "NAME": "bgcolor",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                4,
-                4
-            ],
-            "MAX": [
-                10,
-                10
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "size",
-            "TYPE": "point2D"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Wipe"
+  ],
+  "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/GridFlip.glsl",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "startImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "endImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "progress",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.1,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "pause",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.05,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "dividerWidth",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.1,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "randomness",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "NAME": "bgcolor",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        4,
+        4
+      ],
+      "MAX": [
+        10,
+        10
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "size",
+      "TYPE": "point2D"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec4 getFromColor(vec2 inUV)	{
 	return IMG_NORM_PIXEL(startImage, inUV);
@@ -154,5 +154,5 @@ vec4 transition(vec2 p) {
 
 
 void main()	{
-	gl_FragColor = transition(isf_FragNormCoord.xy);
+	isf_FragColor = transition(isf_FragNormCoord.xy);
 }

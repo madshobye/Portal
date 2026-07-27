@@ -1,22 +1,21 @@
 /*{
-    "CATEGORIES": [
-        "Color Effect",
-        "Utility"
-    ],
-    "CREDIT": "by zoidberg",
-    "DESCRIPTION": "swizzles RGBA to BGRA and vice versa",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
-
+  "CATEGORIES": [
+    "Color Effect",
+    "Utility"
+  ],
+  "CREDIT": "by zoidberg",
+  "DESCRIPTION": "swizzles RGBA to BGRA and vice versa",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec3 rgb2hsv(vec3 c)	{
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -42,5 +41,5 @@ vec3 hsv2rgb(vec3 c)	{
 void main()
 {
 	vec4		inColor = IMG_NORM_PIXEL(inputImage, isf_FragNormCoord);
-	gl_FragColor = vec4(rgb2hsv(inColor.rgb), inColor.a);
+	isf_FragColor = vec4(rgb2hsv(inColor.rgb), inColor.a);
 }

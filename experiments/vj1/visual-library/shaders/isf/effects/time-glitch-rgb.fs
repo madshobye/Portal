@@ -1,124 +1,123 @@
 /*{
-	"DESCRIPTION": "Buffers 8 recent frames",
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Glitch"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "inputDelay",
-			"LABEL": "Buffer",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.25,
-				0.5,
-				0.75,
-				0.5
-			]
-		},
-		{
-			"NAME": "inputRate",
-			"LABEL": "Buffer Lag",
-			"TYPE": "float",
-			"MIN": 1.0,
-			"MAX": 20.0,
-			"DEFAULT": 4.0
-		},
-		{
-			"NAME": "glitch_size",
-			"LABEL": "Size",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 0.5,
-			"DEFAULT": 0.1
-		},
-		{
-			"NAME": "glitch_horizontal",
-			"LABEL": "Horizontal Amount",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.2
-		},
-		{
-			"NAME": "glitch_vertical",
-			"LABEL": "Vertical Amount",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "randomize_size",
-			"LABEL": "Randomize Size",
-			"TYPE": "bool",
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "randomize_position",
-			"LABEL": "Randomize Position",
-			"TYPE": "bool",
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "randomize_zoom",
-			"LABEL": "Randomize Zoom",
-			"TYPE": "bool",
-			"DEFAULT": 0.0
-		}
-	],
-	"PASSES": [
-		{
-			"TARGET":"lastRow",
-			"WIDTH": "1",
-			"HEIGHT": "1",
-			"PERSISTENT": true,
-			"DESCRIPTION": "this buffer stores the last frame's odd / even state"
-		},
-		{
-			"TARGET":"buffer8",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer7",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer6",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer5",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer4",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer3",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer2",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer1",
-			"PERSISTENT": true
-		},
-		{
-		
-		}
-	]
-	
+  "DESCRIPTION": "Buffers 8 recent frames",
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Glitch"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "inputDelay",
+      "LABEL": "Buffer",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.25,
+        0.5,
+        0.75,
+        0.5
+      ]
+    },
+    {
+      "NAME": "inputRate",
+      "LABEL": "Buffer Lag",
+      "TYPE": "float",
+      "MIN": 1,
+      "MAX": 20,
+      "DEFAULT": 4
+    },
+    {
+      "NAME": "glitch_size",
+      "LABEL": "Size",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 0.5,
+      "DEFAULT": 0.1
+    },
+    {
+      "NAME": "glitch_horizontal",
+      "LABEL": "Horizontal Amount",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.2
+    },
+    {
+      "NAME": "glitch_vertical",
+      "LABEL": "Vertical Amount",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "randomize_size",
+      "LABEL": "Randomize Size",
+      "TYPE": "bool",
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "randomize_position",
+      "LABEL": "Randomize Position",
+      "TYPE": "bool",
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "randomize_zoom",
+      "LABEL": "Randomize Zoom",
+      "TYPE": "bool",
+      "DEFAULT": 0
+    }
+  ],
+  "PASSES": [
+    {
+      "TARGET": "lastRow",
+      "WIDTH": "1",
+      "HEIGHT": "1",
+      "PERSISTENT": true,
+      "DESCRIPTION": "this buffer stores the last frame's odd / even state"
+    },
+    {
+      "TARGET": "buffer8",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer7",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer6",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer5",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer4",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer3",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer2",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer1",
+      "PERSISTENT": true
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 float rand(vec2 co){
     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
@@ -148,78 +147,78 @@ void main()
 				srcPixel.x = 0.0;
 			}
 		}
-		gl_FragColor = srcPixel;
+		isf_FragColor = srcPixel;
 	}
 	if (PASSINDEX == 1)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer7);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer7);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer8);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer8);
 		}
 	}
 	else if (PASSINDEX == 2)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer6);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer6);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer7);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer7);
 		}
 	}
 	else if (PASSINDEX == 3)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer5);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer5);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer6);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer6);
 		}
 	}
 	else if (PASSINDEX == 4)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer4);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer4);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer5);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer5);
 		}
 	}
 	else if (PASSINDEX == 5)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer4);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer4);
 		}
 	}
 	else if (PASSINDEX == 6)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
 		}
 	}
 	else if (PASSINDEX == 7)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
 		}
 	}
 	else if (PASSINDEX == 8)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(inputImage);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(inputImage);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
 		}
 	}
 	else if (PASSINDEX == 9)	{
@@ -456,6 +455,6 @@ void main()
 			color.a = IMG_NORM_PIXEL(buffer8, tex).a;
 		}
 
-		gl_FragColor = color;
+		isf_FragColor = color;
 	}
 }

@@ -1,48 +1,50 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect"
-    ],
-    "CREDIT": "by carter rosenberg",
-    "DESCRIPTION": "Bends and distorts the image",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": -1,
-            "NAME": "level",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "radius",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "center",
-            "TYPE": "point2D"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Distortion Effect"
+  ],
+  "CREDIT": "by carter rosenberg",
+  "DESCRIPTION": "Bends and distorts the image",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "level",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "radius",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "center",
+      "TYPE": "point2D"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -82,9 +84,9 @@ void main() {
 	vec2 loc = tc / texSize;
 
 	if ((loc.x < 0.0)||(loc.y < 0.0)||(loc.x > 1.0)||(loc.y > 1.0))	{
-		gl_FragColor = vec4(0.0);
+		isf_FragColor = vec4(0.0);
 	}
 	else	{
-		gl_FragColor = IMG_NORM_PIXEL(inputImage, loc);
+		isf_FragColor = IMG_NORM_PIXEL(inputImage, loc);
 	}
 }

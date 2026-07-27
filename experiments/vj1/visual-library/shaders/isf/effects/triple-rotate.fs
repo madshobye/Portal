@@ -1,67 +1,69 @@
 /*{
-    "CATEGORIES": [
-        "Geometry Adjustment"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Performs three different rotations",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "angle1",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "angle2",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "angle3",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "angle4",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.15,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "radius1",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.15,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "radius2",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.15,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "radius3",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Geometry Adjustment"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Performs three different rotations",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "angle1",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "angle2",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "angle3",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "angle4",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.15,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "radius1",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.15,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "radius2",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.15,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "radius3",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -88,9 +90,9 @@ void main()	{
 	loc = loc / RENDERSIZE + vec2(0.5);
 	
 	if ((loc.x < 0.0)||(loc.y < 0.0)||(loc.x > 1.0)||(loc.y > 1.0))	{
-		gl_FragColor = vec4(0.0);
+		isf_FragColor = vec4(0.0);
 	}
 	else	{
-		gl_FragColor = IMG_NORM_PIXEL(inputImage,loc);
+		isf_FragColor = IMG_NORM_PIXEL(inputImage,loc);
 	}
 }

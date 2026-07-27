@@ -1,26 +1,27 @@
 /*{
-    "CATEGORIES": [
-        "Color Effect",
-        "Retro"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.8,
-            "MAX": 1.2,
-            "MIN": 0.8,
-            "NAME": "contrast",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Color Effect",
+    "Retro"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.8,
+      "MAX": 1.2,
+      "MIN": 0.8,
+      "NAME": "contrast",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Adapted from https://www.omniref.com/ruby/gems/essytas/0.0.1/files/lib/glsl/sepia.frag
 
@@ -39,6 +40,6 @@ void main() {
 	sepia = sepia + vec4(bright, bright, bright, 0.0);
 	sepia.rgb = ((vec3(2.0) * (sepia.rgb - vec3(0.5))) * vec3(contrast) / vec3(2.0)) + vec3(0.5);
 	sepia.a = rawColor.a;
-	gl_FragColor = sepia;
+	isf_FragColor = sepia;
 
 }

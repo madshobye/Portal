@@ -1,51 +1,53 @@
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Blur"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "width",
-			"LABEL": "Width",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "angle",
-			"LABEL": "Angle",
-			"TYPE": "float",
-			"MIN": -1.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.125
-		},
-		{
-			"NAME": "quality",
-			"LABEL": "Quality",
-			"VALUES": [
-				12,
-				8,
-				4,
-				2
-			],
-			"LABELS": [
-				"Low",
-				"Mid",
-				"High",
-				"Best"
-			],
-			"DEFAULT": 4,
-			"TYPE": "long"
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Blur"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "width",
+      "LABEL": "Width",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "angle",
+      "LABEL": "Angle",
+      "TYPE": "float",
+      "MIN": -1,
+      "MAX": 1,
+      "DEFAULT": 0.125
+    },
+    {
+      "NAME": "quality",
+      "LABEL": "Quality",
+      "VALUES": [
+        12,
+        8,
+        4,
+        2
+      ],
+      "LABELS": [
+        "Low",
+        "Mid",
+        "High",
+        "Best"
+      ],
+      "DEFAULT": 4,
+      "TYPE": "long"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 const float pi = 3.14159265359;
 
@@ -78,5 +80,5 @@ void main() {
 	else	{
 		returnMe = IMG_THIS_PIXEL(inputImage);
 	}
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }

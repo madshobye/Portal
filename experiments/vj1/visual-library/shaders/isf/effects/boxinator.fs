@@ -1,57 +1,69 @@
 /*{
-	"CREDIT": "by mojovideotech",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Stylize"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "rate",
-			"TYPE": "float",
-			"DEFAULT": 2.5,
-			"MIN": 0.0,
-			"MAX": 10.0
-		},
-		{
-			"NAME": "edge",
-			"TYPE": "float",
-			"DEFAULT": 0.001,
-			"MIN": 0.0,
-			"MAX": 0.01
-		},
-		{
-			"NAME": "blend",
-			"TYPE": "float",
-			"DEFAULT": 0.95,
-			"MIN": -1.0,
-			"MAX": 1.0
-		},
-		{
-			"NAME": "randomize",
-			"TYPE": "float",
-			"DEFAULT": 0.5,
-			"MIN": 0.0,
-			"MAX": 1.0
-		},
-		{
-			"NAME": "gamma",
-			"TYPE": "float",
-			"DEFAULT": -0.3,
-			"MIN": -0.5,
-			"MAX": 0.2
-		},
-		{
-			"NAME": "grid",
-			"TYPE": "point2D",
-			"DEFAULT": [ 64.0, 36.0 ],
-			"MIN": [ 1.5, 1.5 ],
-			"MAX": [ 900.0, 600.0 ]
-		}
-	]
+  "CREDIT": "by mojovideotech",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Stylize"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "rate",
+      "TYPE": "float",
+      "DEFAULT": 2.5,
+      "MIN": 0,
+      "MAX": 10
+    },
+    {
+      "NAME": "edge",
+      "TYPE": "float",
+      "DEFAULT": 0.001,
+      "MIN": 0,
+      "MAX": 0.01
+    },
+    {
+      "NAME": "blend",
+      "TYPE": "float",
+      "DEFAULT": 0.95,
+      "MIN": -1,
+      "MAX": 1
+    },
+    {
+      "NAME": "randomize",
+      "TYPE": "float",
+      "DEFAULT": 0.5,
+      "MIN": 0,
+      "MAX": 1
+    },
+    {
+      "NAME": "gamma",
+      "TYPE": "float",
+      "DEFAULT": -0.3,
+      "MIN": -0.5,
+      "MAX": 0.2
+    },
+    {
+      "NAME": "grid",
+      "TYPE": "point2D",
+      "DEFAULT": [
+        64,
+        36
+      ],
+      "MIN": [
+        1.5,
+        1.5
+      ],
+      "MAX": [
+        900,
+        600
+      ]
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 ////////////////////////////////////////////////////////////////////
@@ -141,5 +153,5 @@ void main(void){
     vec3 color = vec3(S*T);
 	float n = snoise(color+IMG_NORM_PIXEL(inputImage, uv.xy).xyz*blend);  
 
-    gl_FragColor = sqrt(max(vec4(vec3(n, n, n ),1.0)+IMG_NORM_PIXEL(inputImage, uv.xy),0.0)+gamma);
+    isf_FragColor = sqrt(max(vec4(vec3(n, n, n ),1.0)+IMG_NORM_PIXEL(inputImage, uv.xy),0.0)+gamma);
 }

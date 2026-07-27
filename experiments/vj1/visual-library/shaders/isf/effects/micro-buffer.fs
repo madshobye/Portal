@@ -1,108 +1,108 @@
 /*{
-	"DESCRIPTION": "Buffers 8 recent frames",
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Glitch"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "inputDelay",
-			"LABEL": "Buffer",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 9.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "inputDelay2",
-			"LABEL": "Buffer 2",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 9.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "inputDelay3",
-			"LABEL": "Buffer 3",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 9.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "inputRate",
-			"LABEL": "Buffer Lag",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 20.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "mode",
-			"VALUES": [
-				0,
-				1,
-				2
-			],
-			"LABELS": [
-				"Single",
-				"Double",
-				"Triple"
-			],
-			"DEFAULT": 0,
-			"TYPE": "long"
-		}
-	],
-	"PASSES": [
-		{
-			"TARGET":"lastRow",
-			"WIDTH": "1",
-			"HEIGHT": "1",
-			"PERSISTENT": true,
-			"DESCRIPTION": "this buffer stores the last frame's odd / even state"
-		},
-		{
-			"TARGET":"buffer8",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer7",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer6",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer5",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer4",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer3",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer2",
-			"PERSISTENT": true
-		},
-		{
-			"TARGET":"buffer1",
-			"PERSISTENT": true
-		},
-		{
-		
-		}
-	]
-	
+  "DESCRIPTION": "Buffers 8 recent frames",
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Glitch"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "inputDelay",
+      "LABEL": "Buffer",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 9,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "inputDelay2",
+      "LABEL": "Buffer 2",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 9,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "inputDelay3",
+      "LABEL": "Buffer 3",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 9,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "inputRate",
+      "LABEL": "Buffer Lag",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 20,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "mode",
+      "VALUES": [
+        0,
+        1,
+        2
+      ],
+      "LABELS": [
+        "Single",
+        "Double",
+        "Triple"
+      ],
+      "DEFAULT": 0,
+      "TYPE": "long"
+    }
+  ],
+  "PASSES": [
+    {
+      "TARGET": "lastRow",
+      "WIDTH": "1",
+      "HEIGHT": "1",
+      "PERSISTENT": true,
+      "DESCRIPTION": "this buffer stores the last frame's odd / even state"
+    },
+    {
+      "TARGET": "buffer8",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer7",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer6",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer5",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer4",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer3",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer2",
+      "PERSISTENT": true
+    },
+    {
+      "TARGET": "buffer1",
+      "PERSISTENT": true
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 void main()
@@ -128,78 +128,78 @@ void main()
 				srcPixel.x = 0.0;
 			}
 		}
-		gl_FragColor = srcPixel;
+		isf_FragColor = srcPixel;
 	}
 	if (PASSINDEX == 1)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer7);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer7);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer8);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer8);
 		}
 	}
 	else if (PASSINDEX == 2)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer6);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer6);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer7);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer7);
 		}
 	}
 	else if (PASSINDEX == 3)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer5);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer5);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer6);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer6);
 		}
 	}
 	else if (PASSINDEX == 4)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer4);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer4);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer5);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer5);
 		}
 	}
 	else if (PASSINDEX == 5)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer4);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer4);
 		}
 	}
 	else if (PASSINDEX == 6)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
 		}
 	}
 	else if (PASSINDEX == 7)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
 		}
 	}
 	else if (PASSINDEX == 8)	{
 		vec4		lastRow = IMG_PIXEL(lastRow,vec2(0.5));
 		if (lastRow.x == 0.0)	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(inputImage);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(inputImage);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
 		}
 	}
 	else if (PASSINDEX == 9)	{
@@ -307,6 +307,6 @@ void main()
 		
 		returnMe = returnMe / (1.0+float(mode));
 
-		gl_FragColor = returnMe;
+		isf_FragColor = returnMe;
 	}
 }

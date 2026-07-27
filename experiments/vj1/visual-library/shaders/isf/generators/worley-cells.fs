@@ -1,119 +1,123 @@
 /*{
-    "CATEGORIES": [
-        "Generator", "Geometry", "Noise"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Worley/Voronoi cellular noise generator.",
-    "ISFVSN": "2",
-    "INPUTS": [
-        {
-            "DEFAULT": 10.0,
-            "LABEL": "Density",
-            "MAX": 50.0,
-            "MIN": 1.0,
-            "NAME": "density",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1.0,
-            "LABEL": "Jitter",
-            "MAX": 1.0,
-            "MIN": 0.0,
-            "NAME": "jitter",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.0,
-            "LABEL": "Speed",
-            "MAX": 2.0,
-            "MIN": 0.0,
-            "NAME": "speed",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Distance Metric",
-            "LABELS": [
-                "Euclidean (Round)",
-                "Manhattan (Diamond)",
-                "Chebyshev (Square)"
-            ],
-            "NAME": "metric",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2
-            ]
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Color Mode",
-            "LABELS": [
-                "Random Per Cell",
-                "Distance Gradient",
-                "F1 Grayscale"
-            ],
-            "NAME": "colorMode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2
-            ]
-        },
-        {
-            "DEFAULT": [
-                0.1,
-                0.4,
-                0.8,
-                1.0
-            ],
-            "LABEL": "Color 1",
-            "NAME": "cellColor1",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0.9,
-                0.7,
-                0.2,
-                1.0
-            ],
-            "LABEL": "Color 2",
-            "NAME": "cellColor2",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": 0.05,
-            "LABEL": "Border Width",
-            "MAX": 0.5,
-            "MIN": 0.0,
-            "NAME": "borderWidth",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "LABEL": "Border Color",
-            "NAME": "borderColor",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": 0.0,
-            "LABEL": "Seed",
-            "MAX": 100.0,
-            "MIN": 0.0,
-            "NAME": "seed",
-            "TYPE": "float"
-        }
-    ]
+  "CATEGORIES": [
+    "Generator",
+    "Geometry",
+    "Noise"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Worley/Voronoi cellular noise generator.",
+  "ISFVSN": "2",
+  "INPUTS": [
+    {
+      "DEFAULT": 10,
+      "LABEL": "Density",
+      "MAX": 50,
+      "MIN": 1,
+      "NAME": "density",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Jitter",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "jitter",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Speed",
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "speed",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Distance Metric",
+      "LABELS": [
+        "Euclidean (Round)",
+        "Manhattan (Diamond)",
+        "Chebyshev (Square)"
+      ],
+      "NAME": "metric",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Color Mode",
+      "LABELS": [
+        "Random Per Cell",
+        "Distance Gradient",
+        "F1 Grayscale"
+      ],
+      "NAME": "colorMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "DEFAULT": [
+        0.1,
+        0.4,
+        0.8,
+        1
+      ],
+      "LABEL": "Color 1",
+      "NAME": "cellColor1",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0.9,
+        0.7,
+        0.2,
+        1
+      ],
+      "LABEL": "Color 2",
+      "NAME": "cellColor2",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": 0.05,
+      "LABEL": "Border Width",
+      "MAX": 0.5,
+      "MIN": 0,
+      "NAME": "borderWidth",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "LABEL": "Border Color",
+      "NAME": "borderColor",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Seed",
+      "MAX": 100,
+      "MIN": 0,
+      "NAME": "seed",
+      "TYPE": "float"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 #define TAU 6.28318530717958647692
 
@@ -213,5 +217,5 @@ void main()	{
 	
 	vec3 finalColor = mix(fill, borderColor.rgb, borderAmount * borderColor.a);
 	
-	gl_FragColor = vec4(finalColor, 1.0);
+	isf_FragColor = vec4(finalColor, 1.0);
 }

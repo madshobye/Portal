@@ -3,6 +3,7 @@
   "CATEGORIES" : ["Glitch"],
   "DESCRIPTION" : "Causes only part of an image to update",
   "ISFVSN" : "2",
+  "VJ1" : { "PROFILE" : "vj1-isf-webgl2@1" },
   "INPUTS" : [
     { "NAME" : "inputImage", "TYPE" : "image" },
     {
@@ -74,5 +75,5 @@ void main() {
     newColor.a = 1.0;
     returnMe = mix(newColor, returnMe, mixAmount);
   }
-  gl_FragColor = returnMe;
+  isf_FragColor = returnMe;
 }

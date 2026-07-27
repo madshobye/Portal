@@ -1,32 +1,31 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Distortion"
   ],
   "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/GlitchDisplace.glsl",
   "DESCRIPTION": "",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "TYPE" : "image",
-      "NAME" : "startImage"
+      "TYPE": "image",
+      "NAME": "startImage"
     },
     {
-      "TYPE" : "image",
-      "NAME" : "endImage"
+      "TYPE": "image",
+      "NAME": "endImage"
     },
     {
-      "DEFAULT" : 0,
-      "MAX" : 1,
-      "NAME" : "progress",
-      "MIN" : 0,
-      "TYPE" : "float"
+      "DEFAULT": 0,
+      "MAX": 1,
+      "NAME": "progress",
+      "MIN": 0,
+      "TYPE": "float"
     }
-  ]
-}
-*/
-
-
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec4 getFromColor(vec2 inUV)	{
 	return IMG_NORM_PIXEL(startImage, inUV);
@@ -108,13 +107,13 @@ vec4 transition(vec2 uv) {
   color1 = mix(color1, dColor2, smoothstep(0.0, 0.5, progress));
   color2 = mix(color2, dColor1, smoothstep(1.0, 0.5, progress));
   return mix(color1, color2, val);
-  //gl_FragColor = mix(gl_FragColor, dColor, smoothstep(0.0, 0.5, progress));
+  //isf_FragColor = mix(isf_FragColor, dColor, smoothstep(0.0, 0.5, progress));
   
-   //gl_FragColor = mix(texture2D(from, p), texture2D(to, p), progress);
+   //isf_FragColor = mix(texture(from, p), texture(to, p), progress);
 }
 
 
 
 void main()	{
-	gl_FragColor = transition(isf_FragNormCoord.xy);
+	isf_FragColor = transition(isf_FragNormCoord.xy);
 }

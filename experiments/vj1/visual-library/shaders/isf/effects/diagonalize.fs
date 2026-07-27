@@ -1,33 +1,36 @@
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Stylize", "Distortion Effect"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "width",
-			"LABEL": "Width",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "angle",
-			"LABEL": "Angle",
-			"TYPE": "float",
-			"MIN": -0.5,
-			"MAX": 0.5,
-			"DEFAULT": 0.125
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Stylize",
+    "Distortion Effect"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "width",
+      "LABEL": "Width",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "angle",
+      "LABEL": "Angle",
+      "TYPE": "float",
+      "MIN": -0.5,
+      "MAX": 0.5,
+      "DEFAULT": 0.125
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 const float pi = 3.14159265359;
 
@@ -101,5 +104,5 @@ void main() {
 	vec4 returnMe = (IMG_PIXEL(inputImage, p1) + IMG_PIXEL(inputImage, (p1 + mid) / 2.0) + IMG_PIXEL(inputImage, mid) + IMG_PIXEL(inputImage, (p2 + mid) / 2.0) + IMG_PIXEL(inputImage, p2)) / 5.0;
 	//vec4 returnMe = IMG_PIXEL(inputImage, p2);
 
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }

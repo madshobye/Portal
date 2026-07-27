@@ -1,74 +1,76 @@
 /*{
-    "CATEGORIES": [
-        "Glitch",
-        "Geometry Adjustment"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "randomFrequency",
-            "TYPE": "float"
-        },
-        {
-            "NAME": "glitchNow",
-            "TYPE": "event"
-        },
-        {
-            "DEFAULT": 2,
-            "MAX": 10,
-            "MIN": 0.01,
-            "NAME": "levelX",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 2,
-            "MAX": 10,
-            "MIN": 0.01,
-            "NAME": "levelY",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "center",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": true,
-            "NAME": "randomizeWidth",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": true,
-            "NAME": "randomizeHeight",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": true,
-            "NAME": "randomizeCenter",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Glitch",
+    "Geometry Adjustment"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "randomFrequency",
+      "TYPE": "float"
+    },
+    {
+      "NAME": "glitchNow",
+      "TYPE": "event"
+    },
+    {
+      "DEFAULT": 2,
+      "MAX": 10,
+      "MIN": 0.01,
+      "NAME": "levelX",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 2,
+      "MAX": 10,
+      "MIN": 0.01,
+      "NAME": "levelY",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "center",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": true,
+      "NAME": "randomizeWidth",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": true,
+      "NAME": "randomizeHeight",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": true,
+      "NAME": "randomizeCenter",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float random (vec2 st) {
     return fract(sin(dot(st.xy,vec2(12.9898,78.233)))*43758.5453123);
@@ -107,9 +109,9 @@ void main() {
 	loc.x = (loc.x - modifiedCenter.x)*(1.0/newWidth) + modifiedCenter.x;
 	loc.y = (loc.y - modifiedCenter.y)*(1.0/newHeight) + modifiedCenter.y;
 	if ((loc.x < 0.0)||(loc.y < 0.0)||(loc.x > 1.0)||(loc.y > 1.0))	{
-		gl_FragColor = vec4(0.0);
+		isf_FragColor = vec4(0.0);
 	}
 	else	{
-		gl_FragColor = IMG_NORM_PIXEL(inputImage,loc);
+		isf_FragColor = IMG_NORM_PIXEL(inputImage,loc);
 	}
 }

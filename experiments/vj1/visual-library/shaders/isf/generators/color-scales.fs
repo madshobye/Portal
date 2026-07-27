@@ -1,13 +1,12 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Color"
   ],
-  "DESCRIPTION" : "",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "LABELS" : [
+      "LABELS": [
         "Comparison Mode",
         "Newton",
         "Castel",
@@ -23,11 +22,11 @@
         "Belmont",
         "Zieverink"
       ],
-      "NAME" : "iAuthor",
-      "TYPE" : "long",
-      "DEFAULT" : 0,
-      "LABEL" : "Author",
-      "VALUES" : [
+      "NAME": "iAuthor",
+      "TYPE": "long",
+      "DEFAULT": 0,
+      "LABEL": "Author",
+      "VALUES": [
         0,
         1,
         2,
@@ -45,23 +44,24 @@
       ]
     },
     {
-      "NAME" : "iNote",
-      "TYPE" : "float",
-      "MAX" : 11,
-      "DEFAULT" : 0,
-      "MIN" : 0,
-      "LABEL" : "Note"
+      "NAME": "iNote",
+      "TYPE": "float",
+      "MAX": 11,
+      "DEFAULT": 0,
+      "MIN": 0,
+      "LABEL": "Note"
     },
     {
-      "NAME" : "iPreviewMode",
-      "TYPE" : "bool",
-      "DEFAULT" : 0
+      "NAME": "iPreviewMode",
+      "TYPE": "bool",
+      "DEFAULT": 0
     }
   ],
-  "CREDIT" : "VIDVOX"
-}
-*/
-
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 /*
 //	Color Scales via http://rhythmiclight.com/archives/ideas/colorscales.html
@@ -501,5 +501,5 @@ void main()	{
 	
 	inputPixelColor.rgb = mix(c1,c2,mixPoint);
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

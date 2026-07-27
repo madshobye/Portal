@@ -1,77 +1,78 @@
 /*{
-	"DESCRIPTION": "Visualizes an FFT analysis image with custom set colors for frequency domain",
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Audio Visualizer"
-	],
-	"INPUTS": [
-		{
-			"NAME": "fftImage",
-			"TYPE": "audioFFT"
-		},
-		{
-			"NAME": "strokeSize",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 0.25,
-			"DEFAULT": 0.1
-		},
-		{
-			"NAME": "gain",
-			"TYPE": "float",
-			"MIN": 1.0,
-			"MAX": 5.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "minRange",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "maxRange",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "topColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.0,
-				0.0,
-				0.0,
-				0.0
-			]
-		},
-		{
-			"NAME": "bottomColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.0,
-				0.5,
-				0.9,
-				1.0
-			]
-		},
-		{
-			"NAME": "strokeColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.25,
-				0.25,
-				0.25,
-				1.0
-			]
-		}
-	]
+  "DESCRIPTION": "Visualizes an FFT analysis image with custom set colors for frequency domain",
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Audio Visualizer"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "fftImage",
+      "TYPE": "audioFFT"
+    },
+    {
+      "NAME": "strokeSize",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 0.25,
+      "DEFAULT": 0.1
+    },
+    {
+      "NAME": "gain",
+      "TYPE": "float",
+      "MIN": 1,
+      "MAX": 5,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "minRange",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "maxRange",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "topColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    {
+      "NAME": "bottomColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        0,
+        0.5,
+        0.9,
+        1
+      ]
+    },
+    {
+      "NAME": "strokeColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.25,
+        0.25,
+        0.25,
+        1
+      ]
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 void main() {
 	
@@ -91,5 +92,5 @@ void main() {
 	}
 	
 	//(smoothstep(0.0, stroke, abs(fftVal - loc.y))) * strokeColor);
-	gl_FragColor = fft;
+	isf_FragColor = fft;
 }

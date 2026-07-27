@@ -24,7 +24,8 @@
       "tags": [
         "black",
         "utility"
-      ]
+      ],
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.invert",
@@ -39,7 +40,8 @@
       "tags": [
         "invert",
         "color"
-      ]
+      ],
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.gray",
@@ -55,7 +57,8 @@
         "gray",
         "grayscale",
         "filter"
-      ]
+      ],
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.threshold",
@@ -71,7 +74,8 @@
         "threshold",
         "luminance",
         "filter"
-      ]
+      ],
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.transition.dissolve",
@@ -89,7 +93,8 @@
         "dissolve",
         "crossfade",
         "transition"
-      ]
+      ],
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-brick-pattern-1wvuzyb",
@@ -116,7 +121,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-checkerboard-1dw5i9y",
@@ -143,7 +149,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-linear-gradient-s9hst",
@@ -169,7 +176,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-noise-1tihyuz",
@@ -195,7 +203,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-radial-gradient-959l8n",
@@ -221,7 +230,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-worley-cells-1d1c1i3",
@@ -249,7 +259,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-bright-93hjmb",
@@ -275,7 +286,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-chromatic-aberration-dpw2p9",
@@ -302,7 +314,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-dither-bayer-i0f6kh",
@@ -329,7 +342,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-duotone-c8rd2n",
@@ -355,7 +369,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-kaleidoscope-1lczfnk",
@@ -382,7 +397,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-posterize-14osnbo",
@@ -410,7 +426,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-sepia-tone-1tauneo",
@@ -437,7 +454,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-exposure-adjust-6lbv3m",
@@ -463,7 +481,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-bow-tie-horizontal-1lkeruf",
@@ -489,7 +508,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-circle-open-1nfr6lc",
@@ -515,7 +535,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-crosszoom-1w80bzo",
@@ -541,7 +562,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-directional-wipe-cpp9l5",
@@ -567,7 +589,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-heart-transition-u45q6d",
@@ -594,7 +617,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-crosswarp-1ekhm8f",
@@ -620,7 +644,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-ripple-transition-1i7job7",
@@ -647,7 +672,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-simple-zoom-transition-1tp6wmj",
@@ -674,7 +700,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-swirl-161wmo",
@@ -700,7 +727,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-solid-color-siilmq",
@@ -728,7 +756,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-random-checkerboard-uxe1o8",
@@ -756,7 +785,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-stripes-1e2y2zr",
@@ -783,7 +813,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-color-invert-y7pu2l",
@@ -811,7 +842,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-color-monochrome-bfb9tu",
@@ -839,7 +871,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-color-controls-1g6u3nn",
@@ -867,7 +900,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-gamma-correction-12f8cpz",
@@ -895,7 +929,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-false-color-mryxlg",
@@ -922,7 +957,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-freeze-frame-g1meua",
@@ -949,7 +985,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-comet-tails-5m8x61",
@@ -977,7 +1014,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-slit-scan-ibtjb",
@@ -1004,7 +1042,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-ghosting-ocd408",
@@ -1033,7 +1072,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-dilate-q3a9x2",
@@ -1060,7 +1100,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-erode-k4dvea",
@@ -1087,7 +1128,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-fade-hpoyq7",
@@ -1114,7 +1156,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-swap-transition-6k1a3u",
@@ -1142,7 +1185,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-wipe-left-1o8ivcg",
@@ -1169,7 +1213,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-wipe-down-puvwz",
@@ -1196,7 +1241,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-color-test-grid-n41khq",
@@ -1225,7 +1271,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-fft-color-lines-18ecbn5",
@@ -1252,7 +1299,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-fft-filled-waveform-17sctfy",
@@ -1279,7 +1327,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-waveform-displace-cekg4",
@@ -1307,7 +1356,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-shockwave-pulse-15dp72",
@@ -1335,7 +1385,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-fft-spectrogram-1kyu3hl",
@@ -1364,7 +1415,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-cursor-2mxmij",
@@ -1394,7 +1446,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-cursor-overlay-sfr8t2",
@@ -1425,7 +1478,38 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-3d-rotate-1wo5x9k",
+      "visualId": "isf-shaders-isf-effects-3d-rotate-1wo5x9k",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-3d-rotate-1wo5x9k",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "3d Rotate",
+      "description": "performs a 3d rotation",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/3d-rotate.fs",
+      "vertexResource": "shaders/isf/effects/3d-rotate.vs",
+      "categories": [
+        "ISF",
+        "Geometry Adjustment",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "3d-rotate",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-ascii-art-3lyn8y",
@@ -1453,7 +1537,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-angular-1x7yo53",
@@ -1480,7 +1565,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-apply-alpha-1000igs",
@@ -1509,7 +1595,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-audio-waveform-shape-ikmxr",
@@ -1536,7 +1623,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-auto-color-tone-bhd4mv",
@@ -1563,7 +1651,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-auto-colors-histogram-172fu4s",
@@ -1591,7 +1680,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-auto-levels-1mpq60o",
+      "visualId": "isf-shaders-isf-effects-auto-levels-1mpq60o",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-auto-levels-1mpq60o",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Auto Levels",
+      "description": "Auto Levels",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/auto-levels.fs",
+      "vertexResource": "shaders/isf/effects/auto-levels.vs",
+      "categories": [
+        "ISF",
+        "Color Effect"
+      ],
+      "tags": [
+        "isf",
+        "auto-levels",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by Carter Rosenberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-bad-tv-z5j233",
@@ -1619,7 +1738,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-basic-shape-1guje4z",
@@ -1646,7 +1766,38 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-bloom-yge5ni",
+      "visualId": "isf-shaders-isf-effects-bloom-yge5ni",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-bloom-yge5ni",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Bloom",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/bloom.fs",
+      "vertexResource": "shaders/isf/effects/bloom.vs",
+      "categories": [
+        "ISF",
+        "Blur",
+        "Film"
+      ],
+      "tags": [
+        "isf",
+        "bloom",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-bounce-1lxw55",
@@ -1673,7 +1824,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-bow-tie-vertical-11lc7vd",
@@ -1700,7 +1852,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-boxinator-fka0qh",
@@ -1727,7 +1880,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-broken-lcd-1emgequ",
@@ -1755,7 +1909,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-bump-distortion-zuw81v",
@@ -1782,7 +1937,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-burn-vmhv12",
@@ -1809,7 +1965,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-butterfly-wave-scrawler-131mplm",
@@ -1836,7 +1993,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-cmyk-halftone-lookaround-5wgc1i",
+      "visualId": "isf-shaders-isf-effects-cmyk-halftone-lookaround-5wgc1i",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-cmyk-halftone-lookaround-5wgc1i",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "CMYK Halftone-Lookaround",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/cmyk-halftone-lookaround.fs",
+      "categories": [
+        "ISF",
+        "Halftone Effect",
+        "Retro"
+      ],
+      "tags": [
+        "isf",
+        "cmyk-halftone-lookaround",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-cmyk-halftone-15sts0h",
@@ -1864,7 +2051,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-channel-slide-14hhepi",
@@ -1891,7 +2079,66 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-chroma-desaturation-mask-1wx3kpw",
+      "visualId": "isf-shaders-isf-effects-chroma-desaturation-mask-1wx3kpw",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-chroma-desaturation-mask-1wx3kpw",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Chroma Desaturation Mask",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/chroma-desaturation-mask.fs",
+      "categories": [
+        "ISF",
+        "Masking",
+        "Color Effect"
+      ],
+      "tags": [
+        "isf",
+        "chroma-desaturation-mask",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-chroma-mask-3kwsw0",
+      "visualId": "isf-shaders-isf-effects-chroma-mask-3kwsw0",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-chroma-mask-3kwsw0",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Chroma Mask",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/chroma-mask.fs",
+      "categories": [
+        "ISF",
+        "Masking",
+        "Color Effect"
+      ],
+      "tags": [
+        "isf",
+        "chroma-mask",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-chroma-zoom-1llh2j1",
@@ -1919,34 +2166,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
-    },
-    {
-      "id": "isf-shaders-isf-transitions-circle-crop-vd1hqq",
-      "visualId": "isf-shaders-isf-transitions-circle-crop-vd1hqq",
-      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-circle-crop-vd1hqq",
-      "nodeVersion": "0.1.0",
-      "version": "0.1.0",
-      "name": "Circle Crop",
-      "description": "",
-      "artifactType": "transition",
-      "resource": "shaders/isf/transitions/circle-crop.fs",
-      "categories": [
-        "ISF",
-        "Wipe"
-      ],
-      "tags": [
-        "isf",
-        "circle-crop",
-        "transition",
-        "isf-compatible-library"
-      ],
-      "attribution": {
-        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/CircleCrop.glsl",
-        "license": "MIT",
-        "source": "https://github.com/Vidvox/ISF-Files",
-        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-circle-splash-distortion-10d1gnr",
@@ -1973,7 +2194,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-circle-trails-1juqt4n",
@@ -2000,7 +2222,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-circle-warp-1h7ek4w",
@@ -2027,7 +2250,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-circle-wrap-distortion-1hl26s8",
@@ -2054,7 +2278,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-circle-seov8t",
@@ -2081,7 +2306,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-circular-feedback-mask-zyoi0h",
@@ -2108,7 +2334,66 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-circular-screen-1nhzluz",
+      "visualId": "isf-shaders-isf-effects-circular-screen-1nhzluz",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-circular-screen-1nhzluz",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Circular Screen",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/circular-screen.fs",
+      "vertexResource": "shaders/isf/effects/circular-screen.vs",
+      "categories": [
+        "ISF",
+        "Halftone Effect"
+      ],
+      "tags": [
+        "isf",
+        "circular-screen",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-city-lights-9gutzy",
+      "visualId": "isf-shaders-isf-effects-city-lights-9gutzy",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-city-lights-9gutzy",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "City Lights",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/city-lights.fs",
+      "vertexResource": "shaders/isf/effects/city-lights.vs",
+      "categories": [
+        "ISF",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "city-lights",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-collage-glcl20",
@@ -2135,7 +2420,66 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-color-bars-1pyezmt",
+      "visualId": "isf-shaders-isf-generators-color-bars-1pyezmt",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-color-bars-1pyezmt",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Color Bars",
+      "description": "",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/color-bars.fs",
+      "categories": [
+        "ISF",
+        "Utility",
+        "Test Pattern"
+      ],
+      "tags": [
+        "isf",
+        "color-bars",
+        "generator",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-color-blowout-1aus6h",
+      "visualId": "isf-shaders-isf-effects-color-blowout-1aus6h",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-color-blowout-1aus6h",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Color Blowout",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/color-blowout.fs",
+      "vertexResource": "shaders/isf/effects/color-blowout.vs",
+      "categories": [
+        "ISF",
+        "Color Effect"
+      ],
+      "tags": [
+        "isf",
+        "color-blowout",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-color-history-syf0kf",
@@ -2162,7 +2506,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-color-levels-2769k",
@@ -2189,7 +2534,36 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-color-organ-polyphonic-1mfx7la",
+      "visualId": "isf-shaders-isf-generators-color-organ-polyphonic-1mfx7la",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-color-organ-polyphonic-1mfx7la",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Color Organ Polyphonic",
+      "description": "",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/color-organ-polyphonic.fs",
+      "categories": [
+        "ISF",
+        "Color"
+      ],
+      "tags": [
+        "isf",
+        "color-organ-polyphonic",
+        "generator",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-color-phase-dgej7y",
@@ -2216,7 +2590,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-color-posterize-z6kf92",
@@ -2244,7 +2619,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-color-relookup-o8j9i0",
@@ -2271,7 +2647,36 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-color-replacement-n0uwyd",
+      "visualId": "isf-shaders-isf-effects-color-replacement-n0uwyd",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-color-replacement-n0uwyd",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Color Replacement",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/color-replacement.fs",
+      "categories": [
+        "ISF",
+        "Color Effect"
+      ],
+      "tags": [
+        "isf",
+        "color-replacement",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-color-scales-1j5fvee",
@@ -2298,7 +2703,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-color-schemes-j3417",
@@ -2325,7 +2731,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-colour-distance-9znn3h",
@@ -2353,7 +2760,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-constantalpha-89jk1v",
@@ -2380,7 +2788,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-convergence-7l8p14",
@@ -2408,7 +2817,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-corner-color-tint-1cwx9na",
@@ -2435,7 +2845,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-corner-colors-131x8l1",
@@ -2462,7 +2873,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-crazy-parametric-fun-udzhov",
@@ -2489,7 +2901,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-crop-and-feather-1cs14gz",
@@ -2516,7 +2929,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-crosshatch-yk8epb",
@@ -2543,7 +2957,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-cubic-warp-11577ya",
@@ -2570,7 +2985,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-deinterlace-dpp0i3",
@@ -2597,7 +3013,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-diagonal-blur-yzzliy",
@@ -2624,7 +3041,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-diagonalize-1m63e7y",
@@ -2652,7 +3070,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-digital-clock-1mzcm64",
@@ -2679,7 +3098,36 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-dilate-fast-17avxn3",
+      "visualId": "isf-shaders-isf-effects-dilate-fast-17avxn3",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-dilate-fast-17avxn3",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Dilate-Fast",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/dilate-fast.fs",
+      "categories": [
+        "ISF",
+        "Blur"
+      ],
+      "tags": [
+        "isf",
+        "dilate-fast",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-directional-warp-1wegepa",
@@ -2706,7 +3154,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-directional-1rdz7p1",
@@ -2733,7 +3182,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-dirty-lens-1a356f2",
@@ -2761,7 +3211,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-displace-1254e4a",
@@ -2788,7 +3239,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-doodler-overlay-1y87ztj",
@@ -2815,7 +3267,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-doodler-1sowgvi",
@@ -2842,7 +3295,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-doorway-549e2w",
@@ -2869,7 +3323,38 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-dot-screen-lnjdrd",
+      "visualId": "isf-shaders-isf-effects-dot-screen-lnjdrd",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-dot-screen-lnjdrd",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Dot Screen",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/dot-screen.fs",
+      "vertexResource": "shaders/isf/effects/dot-screen.vs",
+      "categories": [
+        "ISF",
+        "Halftone Effect",
+        "Retro"
+      ],
+      "tags": [
+        "isf",
+        "dot-screen",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-double-vision-244oqf",
@@ -2896,34 +3381,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
-    },
-    {
-      "id": "isf-shaders-isf-transitions-dreamy-zoom-qfvt07",
-      "visualId": "isf-shaders-isf-transitions-dreamy-zoom-qfvt07",
-      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-dreamy-zoom-qfvt07",
-      "nodeVersion": "0.1.0",
-      "version": "0.1.0",
-      "name": "Dreamy Zoom",
-      "description": "",
-      "artifactType": "transition",
-      "resource": "shaders/isf/transitions/dreamy-zoom.fs",
-      "categories": [
-        "ISF",
-        "Distortion"
-      ],
-      "tags": [
-        "isf",
-        "dreamy-zoom",
-        "transition",
-        "isf-compatible-library"
-      ],
-      "attribution": {
-        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/DreamyZoom.glsl",
-        "license": "MIT",
-        "source": "https://github.com/Vidvox/ISF-Files",
-        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-dreamy-182wetr",
@@ -2950,7 +3409,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-dual-side-scroller-and-flip-ya829s",
@@ -2977,7 +3437,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-duotone-from-histogram-2m5g27",
+      "visualId": "isf-shaders-isf-effects-duotone-from-histogram-2m5g27",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-duotone-from-histogram-2m5g27",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Duotone From Histogram",
+      "description": "Adjusts an image to use colors determined from a histogram",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/duotone-from-histogram.fs",
+      "categories": [
+        "ISF",
+        "Color Effect",
+        "Histogram"
+      ],
+      "tags": [
+        "isf",
+        "duotone-from-histogram",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-echo-trace-r9fvko",
@@ -3004,7 +3494,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-edge-blowout-17xbaxj",
@@ -3031,7 +3522,181 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-edge-blur-haykpw",
+      "visualId": "isf-shaders-isf-effects-edge-blur-haykpw",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-edge-blur-haykpw",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Edge Blur",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/edge-blur.fs",
+      "vertexResource": "shaders/isf/effects/edge-blur.vs",
+      "categories": [
+        "ISF",
+        "Blur"
+      ],
+      "tags": [
+        "isf",
+        "edge-blur",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-edge-distort-1y6mbx2",
+      "visualId": "isf-shaders-isf-effects-edge-distort-1y6mbx2",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-edge-distort-1y6mbx2",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Edge Distort",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/edge-distort.fs",
+      "vertexResource": "shaders/isf/effects/edge-distort.vs",
+      "categories": [
+        "ISF",
+        "Distortion Effect"
+      ],
+      "tags": [
+        "isf",
+        "edge-distort",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-edge-trace-1gbibgg",
+      "visualId": "isf-shaders-isf-effects-edge-trace-1gbibgg",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-edge-trace-1gbibgg",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Edge Trace",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/edge-trace.fs",
+      "vertexResource": "shaders/isf/effects/edge-trace.vs",
+      "categories": [
+        "ISF",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "edge-trace",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-edges-14x1nop",
+      "visualId": "isf-shaders-isf-effects-edges-14x1nop",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-edges-14x1nop",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Edges",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/edges.fs",
+      "vertexResource": "shaders/isf/effects/edges.vs",
+      "categories": [
+        "ISF",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "edges",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-emboss-diwoga",
+      "visualId": "isf-shaders-isf-effects-emboss-diwoga",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-emboss-diwoga",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Emboss",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/emboss.fs",
+      "vertexResource": "shaders/isf/effects/emboss.vs",
+      "categories": [
+        "ISF",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "emboss",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-erode-fast-1g7jij",
+      "visualId": "isf-shaders-isf-effects-erode-fast-1g7jij",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-erode-fast-1g7jij",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Erode-Fast",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/erode-fast.fs",
+      "categories": [
+        "ISF",
+        "Blur"
+      ],
+      "tags": [
+        "isf",
+        "erode-fast",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-etch-a-sketch-168ng5o",
@@ -3058,7 +3723,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-fade-color-alh0th",
@@ -3085,7 +3751,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-fade-gray-scale-vwxyou",
@@ -3112,7 +3779,67 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-fast-blur-nk9ql7",
+      "visualId": "isf-shaders-isf-effects-fast-blur-nk9ql7",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-fast-blur-nk9ql7",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Fast Blur",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/fast-blur.fs",
+      "vertexResource": "shaders/isf/effects/fast-blur.vs",
+      "categories": [
+        "ISF",
+        "Blur"
+      ],
+      "tags": [
+        "isf",
+        "fast-blur",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by zoidberg WOOP WOOP WOOP WOOP WOOP",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-fastmosh-1copc50",
+      "visualId": "isf-shaders-isf-effects-fastmosh-1copc50",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-fastmosh-1copc50",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "FastMosh",
+      "description": "Does a fast faked data-mosh style",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/fastmosh.fs",
+      "vertexResource": "shaders/isf/effects/fastmosh.vs",
+      "categories": [
+        "ISF",
+        "Feedback",
+        "Glitch"
+      ],
+      "tags": [
+        "isf",
+        "fastmosh",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-film-burn-1xvtaul",
@@ -3139,7 +3866,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-flip-h-t8vae5",
@@ -3166,7 +3894,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-flip-v-15hcwfz",
@@ -3193,7 +3922,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-flipbook-1gy6ugl",
@@ -3220,7 +3950,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-fly-eye-fzy54q",
@@ -3247,7 +3978,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-frosted-glass-3fowx5",
@@ -3275,7 +4007,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-glitch-displace-13tj048",
@@ -3302,7 +4035,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-glitch-memories-15bha9g",
@@ -3330,7 +4064,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-glitch-shifter-2v13si",
@@ -3357,7 +4092,124 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-gloom-5hagqv",
+      "visualId": "isf-shaders-isf-effects-gloom-5hagqv",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-gloom-5hagqv",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Gloom",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/gloom.fs",
+      "vertexResource": "shaders/isf/effects/gloom.vs",
+      "categories": [
+        "ISF",
+        "Blur",
+        "Film"
+      ],
+      "tags": [
+        "isf",
+        "gloom",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-glow-fast-1szw8rh",
+      "visualId": "isf-shaders-isf-effects-glow-fast-1szw8rh",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-glow-fast-1szw8rh",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Glow-Fast",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/glow-fast.fs",
+      "vertexResource": "shaders/isf/effects/glow-fast.vs",
+      "categories": [
+        "ISF",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "glow-fast",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-glow-x3vfew",
+      "visualId": "isf-shaders-isf-effects-glow-x3vfew",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-glow-x3vfew",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Glow",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/glow.fs",
+      "vertexResource": "shaders/isf/effects/glow.vs",
+      "categories": [
+        "ISF",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "glow",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-god-rays-10ttx5n",
+      "visualId": "isf-shaders-isf-effects-god-rays-10ttx5n",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-god-rays-10ttx5n",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "God Rays",
+      "description": "adapted from https://github.com/neilmendoza/ofxPostProcessing/blob/master/src/GodRaysPass.cpp",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/god-rays.fs",
+      "categories": [
+        "ISF",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "god-rays",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-graph-paper-1r805q0",
@@ -3385,7 +4237,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-grid-flip-xd28i5",
@@ -3412,7 +4265,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-grid-warp-jr4l6q",
@@ -3439,7 +4293,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-hsvtorgb-rxsre",
@@ -3467,7 +4322,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-hatch-blur-1o382tv",
@@ -3494,7 +4350,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-heart-1no0o3h",
@@ -3521,7 +4378,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-histogram-viewer-5pmeeo",
@@ -3549,7 +4407,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-horizverthold-1leqvzb",
@@ -3576,7 +4435,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-hyperspace-195v863",
@@ -3603,7 +4463,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-interlace-mirror-1juucc6",
@@ -3631,7 +4492,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-interlace-1stl5gc",
@@ -3659,35 +4521,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
-    },
-    {
-      "id": "isf-shaders-isf-transitions-inverted-page-curl-llevzp",
-      "visualId": "isf-shaders-isf-transitions-inverted-page-curl-llevzp",
-      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-inverted-page-curl-llevzp",
-      "nodeVersion": "0.1.0",
-      "version": "0.1.0",
-      "name": "Inverted Page Curl",
-      "description": "Automatically converted from https://gl-transitions.com/",
-      "artifactType": "transition",
-      "resource": "shaders/isf/transitions/inverted-page-curl.fs",
-      "categories": [
-        "ISF",
-        "Wipe",
-        "Retro"
-      ],
-      "tags": [
-        "isf",
-        "inverted-page-curl",
-        "transition",
-        "isf-compatible-library"
-      ],
-      "attribution": {
-        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/InvertedPageCurl.glsl",
-        "license": "MIT",
-        "source": "https://github.com/Vidvox/ISF-Files",
-        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-jpeg-block-corruption-1bwmh7j",
@@ -3715,7 +4550,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-kaleidoscope-tile-l06nmr",
@@ -3743,7 +4579,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-kaleidoscope-transition-18npkmo",
@@ -3770,7 +4607,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-key-frame-artifacts-5b58fs",
@@ -3797,7 +4635,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-lgg-1jig689",
@@ -3824,7 +4663,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-layer-mask-19232pb",
@@ -3853,7 +4693,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-layer-position-14nr89e",
@@ -3881,7 +4722,95 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-lens-flare-a4cgus",
+      "visualId": "isf-shaders-isf-effects-lens-flare-a4cgus",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-lens-flare-a4cgus",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Lens Flare",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/lens-flare.fs",
+      "vertexResource": "shaders/isf/effects/lens-flare.vs",
+      "categories": [
+        "ISF",
+        "Film"
+      ],
+      "tags": [
+        "isf",
+        "lens-flare",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-life-19dhp9v",
+      "visualId": "isf-shaders-isf-generators-life-19dhp9v",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-life-19dhp9v",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Life",
+      "description": "Based on Conway Game of Life",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/life.fs",
+      "vertexResource": "shaders/isf/generators/life.vs",
+      "categories": [
+        "ISF",
+        "Noise"
+      ],
+      "tags": [
+        "isf",
+        "life",
+        "generator",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-line-screen-1ytpuks",
+      "visualId": "isf-shaders-isf-effects-line-screen-1ytpuks",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-line-screen-1ytpuks",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Line Screen",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/line-screen.fs",
+      "vertexResource": "shaders/isf/effects/line-screen.vs",
+      "categories": [
+        "ISF",
+        "Halftone Effect"
+      ],
+      "tags": [
+        "isf",
+        "line-screen",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-linear-blur-v97mfq",
@@ -3908,7 +4837,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-lines-1uyj4hw",
@@ -3935,7 +4865,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-long-exposure-enn9j7",
@@ -3964,34 +4895,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
-    },
-    {
-      "id": "isf-shaders-isf-transitions-luminance-melt-1nryrxw",
-      "visualId": "isf-shaders-isf-transitions-luminance-melt-1nryrxw",
-      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-luminance-melt-1nryrxw",
-      "nodeVersion": "0.1.0",
-      "version": "0.1.0",
-      "name": "Luminance Melt",
-      "description": "",
-      "artifactType": "transition",
-      "resource": "shaders/isf/transitions/luminance-melt.fs",
-      "categories": [
-        "ISF",
-        "Dissolve"
-      ],
-      "tags": [
-        "isf",
-        "luminance-melt",
-        "transition",
-        "isf-compatible-library"
-      ],
-      "attribution": {
-        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/luminance_melt.glsl",
-        "license": "MIT",
-        "source": "https://github.com/Vidvox/ISF-Files",
-        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-luminance-posterize-suj4qt",
@@ -4019,7 +4924,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-maximum-component-1lsxdxz",
@@ -4047,7 +4953,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-median-2aszj9",
@@ -4074,7 +4981,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-meta-image-wiajwk",
@@ -4102,7 +5010,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-micro-buffer-rgb-s2g4b6",
@@ -4129,7 +5038,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-micro-buffer-1eo57y0",
@@ -4156,7 +5066,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-minimum-component-jz5za5",
@@ -4184,7 +5095,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-mirror-edge-1h6312m",
+      "visualId": "isf-shaders-isf-effects-mirror-edge-1h6312m",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-mirror-edge-1h6312m",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Mirror Edge",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/mirror-edge.fs",
+      "vertexResource": "shaders/isf/effects/mirror-edge.vs",
+      "categories": [
+        "ISF",
+        "Tile Effect"
+      ],
+      "tags": [
+        "isf",
+        "mirror-edge",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-mirror-vzus1y",
@@ -4211,7 +5152,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-morph-ifxasv",
@@ -4238,7 +5180,65 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-motion-heat-map-1pin32n",
+      "visualId": "isf-shaders-isf-effects-motion-heat-map-1pin32n",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-motion-heat-map-1pin32n",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Motion Heat Map",
+      "description": "Shows where there is motion between frames",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/motion-heat-map.fs",
+      "categories": [
+        "ISF",
+        "Color Effect",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "motion-heat-map",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-motion-mask-wa3rjg",
+      "visualId": "isf-shaders-isf-effects-motion-mask-wa3rjg",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-motion-mask-wa3rjg",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Motion Mask",
+      "description": "Masks an image based on the amount of motion",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/motion-mask.fs",
+      "categories": [
+        "ISF",
+        "Masking"
+      ],
+      "tags": [
+        "isf",
+        "motion-mask",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-multi-gradient-1loin2x",
@@ -4265,7 +5265,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-multi-hue-shift-1092g62",
@@ -4292,7 +5293,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-multi-pass-gaussian-blur-1bu556m",
+      "visualId": "isf-shaders-isf-effects-multi-pass-gaussian-blur-1bu556m",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-multi-pass-gaussian-blur-1bu556m",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Multi Pass Gaussian Blur",
+      "description": "Performs a deep blur",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/multi-pass-gaussian-blur.fs",
+      "vertexResource": "shaders/isf/effects/multi-pass-gaussian-blur.vs",
+      "categories": [
+        "ISF",
+        "Blur"
+      ],
+      "tags": [
+        "isf",
+        "multi-pass-gaussian-blur",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "original implementation as v002.blur in QC by anton marini and tom butterworth, ported by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-multi-pixellate-s4yt0r",
@@ -4319,7 +5350,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-multiframe-2x2-11lzbhq",
@@ -4347,7 +5379,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-multiframe-3x3-185u69i",
@@ -4375,7 +5408,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-multiply-blend-37cha7",
@@ -4402,7 +5436,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-neon-1q56jpz",
+      "visualId": "isf-shaders-isf-effects-neon-1q56jpz",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-neon-1q56jpz",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Neon",
+      "description": "adapted from https://github.com/neilmendoza/ofxPostProcessing/blob/master/src/GodRaysPass.cpp",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/neon.fs",
+      "vertexResource": "shaders/isf/effects/neon.vs",
+      "categories": [
+        "ISF",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "neon",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-noise-adapt-oob1wy",
@@ -4429,7 +5493,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-noise-displace-8wd7j9",
@@ -4457,7 +5522,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-noise-pixellate-s5pmva",
@@ -4485,7 +5551,38 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-optical-flow-distort-mvko7g",
+      "visualId": "isf-shaders-isf-effects-optical-flow-distort-mvko7g",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-optical-flow-distort-mvko7g",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Optical Flow Distort",
+      "description": "Uses an optical flow mask to create a distortion",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/optical-flow-distort.fs",
+      "vertexResource": "shaders/isf/effects/optical-flow-distort.vs",
+      "categories": [
+        "ISF",
+        "Distortion Effect",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "optical-flow-distort",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX, based on original implementation by Andrew Benson and v002",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-optical-flow-generator-cpiry6",
@@ -4513,7 +5610,36 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-pattern-glitch-1acvpx7",
+      "visualId": "isf-shaders-isf-effects-pattern-glitch-1acvpx7",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-pattern-glitch-1acvpx7",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Pattern Glitch",
+      "description": "Applies randomized effects to different parts of the image.",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/pattern-glitch.fs",
+      "categories": [
+        "ISF",
+        "Glitch"
+      ],
+      "tags": [
+        "isf",
+        "pattern-glitch",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-perlin-transition-1n6xtgz",
@@ -4540,7 +5666,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-pinwheel-14bkfb3",
@@ -4567,7 +5694,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-pixel-shifter-rgbr3t",
@@ -4594,7 +5722,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-pixellate-1m86l8r",
@@ -4621,7 +5750,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-polar-function-18y3j9w",
@@ -4648,7 +5778,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-polka-dots-curtain-18k5ghi",
@@ -4675,7 +5806,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-poly-star-1b98wcu",
@@ -4702,7 +5834,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-power-warp-1vkfiw1",
@@ -4729,7 +5862,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-quad-mask-cww3vx",
@@ -4757,7 +5891,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-quad-tile-115zl2p",
@@ -4784,7 +5919,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-re-rgb-gradient-generator-sfifbv",
@@ -4812,7 +5948,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-rgb-eq-11iwdrf",
@@ -4839,7 +5976,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-rgb-halftone-lookaround-1x5rzkf",
+      "visualId": "isf-shaders-isf-effects-rgb-halftone-lookaround-1x5rzkf",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-rgb-halftone-lookaround-1x5rzkf",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "RGB Halftone-lookaround",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/rgb-halftone-lookaround.fs",
+      "categories": [
+        "ISF",
+        "Halftone Effect",
+        "Retro"
+      ],
+      "tags": [
+        "isf",
+        "rgb-halftone-lookaround",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-rgb-halftone-8q5x5a",
@@ -4867,7 +6034,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-rgb-invert-1rdug2l",
@@ -4895,7 +6063,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-rgb-strobe-wzniky",
@@ -4922,7 +6091,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-rgb-trails-3-0-shoifh",
@@ -4950,7 +6120,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-rgba-swap-1g3obad",
@@ -4977,7 +6148,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-rgbtohsv-1xaunea",
@@ -5005,7 +6177,36 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-radial-replicate-5h3oo4",
+      "visualId": "isf-shaders-isf-effects-radial-replicate-5h3oo4",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-radial-replicate-5h3oo4",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Radial Replicate",
+      "description": "Repllcates a radial slice of an image",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/radial-replicate.fs",
+      "categories": [
+        "ISF",
+        "Kaleidoscope"
+      ],
+      "tags": [
+        "isf",
+        "radial-replicate",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-radial-spectrogram-1tzhz40",
@@ -5032,7 +6233,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-radial-hypt58",
@@ -5059,7 +6261,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-random-freeze-10jn2ik",
@@ -5086,7 +6289,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-random-lines-1alm9um",
@@ -5113,7 +6317,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-random-shape-blast-1wvrp95",
@@ -5140,7 +6345,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-random-shape-iqqcwk",
@@ -5167,7 +6373,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-random-squares-mask-1osezl4",
@@ -5194,7 +6401,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-random-squares-1rsnn97",
@@ -5221,7 +6429,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-random-stripes-1b59o1p",
@@ -5249,7 +6458,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-replicate-random-3c02hc",
@@ -5276,7 +6486,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-replicate-1082ata",
@@ -5303,7 +6514,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-resize-glitch-1pqnzyt",
@@ -5331,7 +6543,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-ridgelines-wf14in",
@@ -5359,7 +6572,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-ripples-nawepe",
@@ -5386,7 +6600,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-rotate-scale-fade-1duerta",
@@ -5413,7 +6628,67 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-rotate-nykdmy",
+      "visualId": "isf-shaders-isf-effects-rotate-nykdmy",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-rotate-nykdmy",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Rotate",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/rotate.fs",
+      "vertexResource": "shaders/isf/effects/rotate.vs",
+      "categories": [
+        "ISF",
+        "Geometry Adjustment",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "rotate",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-saturation-bleed-d3jhcs",
+      "visualId": "isf-shaders-isf-effects-saturation-bleed-d3jhcs",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-saturation-bleed-d3jhcs",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Saturation Bleed",
+      "description": "Applies a blur to the saturation levels of pixels.",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/saturation-bleed.fs",
+      "vertexResource": "shaders/isf/effects/saturation-bleed.vs",
+      "categories": [
+        "ISF",
+        "Color Effect"
+      ],
+      "tags": [
+        "isf",
+        "saturation-bleed",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-set-alpha-g0r5wc",
@@ -5441,7 +6716,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-shake-1azn999",
@@ -5469,7 +6745,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-shape-mask-h7i29j",
@@ -5496,7 +6773,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-shape-morph-feedback-mask-nerrg0",
@@ -5523,7 +6801,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-shape-morph-wrap-1ds7y2g",
@@ -5550,7 +6829,66 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-sharpen-luminance-1e4m3jv",
+      "visualId": "isf-shaders-isf-effects-sharpen-luminance-1e4m3jv",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-sharpen-luminance-1e4m3jv",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Sharpen Luminance",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/sharpen-luminance.fs",
+      "vertexResource": "shaders/isf/effects/sharpen-luminance.vs",
+      "categories": [
+        "ISF",
+        "Sharpen"
+      ],
+      "tags": [
+        "isf",
+        "sharpen-luminance",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-sharpen-rgb-1or4zt4",
+      "visualId": "isf-shaders-isf-effects-sharpen-rgb-1or4zt4",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-sharpen-rgb-1or4zt4",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Sharpen RGB",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/sharpen-rgb.fs",
+      "vertexResource": "shaders/isf/effects/sharpen-rgb.vs",
+      "categories": [
+        "ISF",
+        "Sharpen"
+      ],
+      "tags": [
+        "isf",
+        "sharpen-rgb",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-shockwave-1uj6pcy",
@@ -5577,7 +6915,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-show-alpha-uh8nlr",
@@ -5604,7 +6943,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-side-scroller-and-flip-pq2txb",
@@ -5631,7 +6971,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-simplex-noise-ld8qye",
@@ -5659,7 +7000,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-sine-warp-gradient-1m0tpe",
@@ -5686,7 +7028,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-sine-warp-tile-fo8rdk",
@@ -5714,7 +7057,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-sketch-g9i2w3",
+      "visualId": "isf-shaders-isf-effects-sketch-g9i2w3",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-sketch-g9i2w3",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Sketch",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/sketch.fs",
+      "vertexResource": "shaders/isf/effects/sketch.vs",
+      "categories": [
+        "ISF",
+        "Stylize"
+      ],
+      "tags": [
+        "isf",
+        "sketch",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-sliding-strips-18x0rs5",
@@ -5741,7 +7114,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-slit-scan-mask-hx6hla",
@@ -5768,7 +7142,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-smoke-screen-1s4agcv",
@@ -5795,7 +7170,67 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-smudged-lens-1mvh485",
+      "visualId": "isf-shaders-isf-effects-smudged-lens-1mvh485",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-smudged-lens-1mvh485",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Smudged Lens",
+      "description": "Blurs parts of an image as if the lens is smudged",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/smudged-lens.fs",
+      "vertexResource": "shaders/isf/effects/smudged-lens.vs",
+      "categories": [
+        "ISF",
+        "Film",
+        "Blur"
+      ],
+      "tags": [
+        "isf",
+        "smudged-lens",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "Inigo Quilez ported by @colin_movecraft and VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-soft-blur-rzu8pp",
+      "visualId": "isf-shaders-isf-effects-soft-blur-rzu8pp",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-soft-blur-rzu8pp",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Soft Blur",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/soft-blur.fs",
+      "vertexResource": "shaders/isf/effects/soft-blur.vs",
+      "categories": [
+        "ISF",
+        "Blur"
+      ],
+      "tags": [
+        "isf",
+        "soft-blur",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-soft-flip-1x17v3v",
@@ -5822,7 +7257,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-solarize-2gvrwc",
@@ -5849,7 +7285,38 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-sorting-smear-1bb31k0",
+      "visualId": "isf-shaders-isf-effects-sorting-smear-1bb31k0",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-sorting-smear-1bb31k0",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Sorting Smear",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/sorting-smear.fs",
+      "vertexResource": "shaders/isf/effects/sorting-smear.vs",
+      "categories": [
+        "ISF",
+        "Glitch",
+        "Feedback"
+      ],
+      "tags": [
+        "isf",
+        "sorting-smear",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-sphere-map-wi89x5",
@@ -5876,7 +7343,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-spiral-3ucmlm",
@@ -5903,7 +7371,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-squares-wire-1xnzl7b",
@@ -5930,7 +7399,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-squeeze-7b2wcl",
@@ -5957,7 +7427,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-star-1jr8xzd",
@@ -5984,35 +7455,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
-    },
-    {
-      "id": "isf-shaders-isf-transitions-stereo-viewer-12xfrma",
-      "visualId": "isf-shaders-isf-transitions-stereo-viewer-12xfrma",
-      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-stereo-viewer-12xfrma",
-      "nodeVersion": "0.1.0",
-      "version": "0.1.0",
-      "name": "Stereo Viewer",
-      "description": "",
-      "artifactType": "transition",
-      "resource": "shaders/isf/transitions/stereo-viewer.fs",
-      "categories": [
-        "ISF",
-        "Wipe",
-        "Retro"
-      ],
-      "tags": [
-        "isf",
-        "stereo-viewer",
-        "transition",
-        "isf-compatible-library"
-      ],
-      "attribution": {
-        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/StereoViewer.glsl",
-        "license": "MIT",
-        "source": "https://github.com/Vidvox/ISF-Files",
-        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-strobe-pkzce4",
@@ -6039,7 +7483,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-stylize-glitch-1h5y9u1",
@@ -6066,7 +7511,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-tv-static-1x7az28",
@@ -6093,7 +7539,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-test-pattern-generator-6lr9mo",
@@ -6121,7 +7568,38 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-thermal-camera-1mx1hdo",
+      "visualId": "isf-shaders-isf-effects-thermal-camera-1mx1hdo",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-thermal-camera-1mx1hdo",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Thermal Camera",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/thermal-camera.fs",
+      "vertexResource": "shaders/isf/effects/thermal-camera.vs",
+      "categories": [
+        "ISF",
+        "Stylize",
+        "Color Effect"
+      ],
+      "tags": [
+        "isf",
+        "thermal-camera",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-time-glitch-rgb-1oxs3ey",
@@ -6148,7 +7626,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-toon-hozrcz",
@@ -6175,7 +7654,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-trail-mask-12tek72",
@@ -6202,7 +7682,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-trapezoid-distortion-1kmpsb",
@@ -6229,7 +7710,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-triangle-mosaic-jo9uqy",
@@ -6256,7 +7738,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-triangle-warp-1gmzn8o",
@@ -6283,7 +7766,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-triangle-32nqd1",
@@ -6310,7 +7794,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-triangles-toz2os",
@@ -6337,7 +7822,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-trio-tone-gjqio8",
@@ -6364,7 +7850,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-triple-rotate-2l9us7",
@@ -6391,7 +7878,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-truchet-tile-om970z",
@@ -6418,7 +7906,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-twirl-r1g26d",
@@ -6445,7 +7934,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-undulating-burn-out-1gedgoj",
@@ -6472,7 +7962,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-unsharp-mask-1vizp97",
+      "visualId": "isf-shaders-isf-effects-unsharp-mask-1vizp97",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-unsharp-mask-1vizp97",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Unsharp Mask",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/unsharp-mask.fs",
+      "vertexResource": "shaders/isf/effects/unsharp-mask.vs",
+      "categories": [
+        "ISF",
+        "Sharpen"
+      ],
+      "tags": [
+        "isf",
+        "unsharp-mask",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-vhs-glitch-p79kmm",
@@ -6500,7 +8020,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.generator.isf-shaders-isf-generators-vu-meter-i5xf0y",
@@ -6527,7 +8048,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-vvmotionblur-3-0-67t87p",
@@ -6554,7 +8076,37 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-vertex-manipulator-1fqfdyy",
+      "visualId": "isf-shaders-isf-effects-vertex-manipulator-1fqfdyy",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-vertex-manipulator-1fqfdyy",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Vertex Manipulator",
+      "description": "Moves the vertex points to the specified locations without correction",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/vertex-manipulator.fs",
+      "vertexResource": "shaders/isf/effects/vertex-manipulator.vs",
+      "categories": [
+        "ISF",
+        "Geometry Adjustment"
+      ],
+      "tags": [
+        "isf",
+        "vertex-manipulator",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-vertical-tearing-rp15ne",
@@ -6581,7 +8133,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-vibrance-18ng7dl",
@@ -6608,7 +8161,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-video-bricks-am5r47",
@@ -6635,7 +8189,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-video-snake-16roxyd",
@@ -6663,7 +8218,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-water-drop-15gp8lg",
@@ -6690,7 +8246,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-white-point-adjust-1b6jj5",
@@ -6717,7 +8274,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-wind-4h12gn",
@@ -6744,7 +8302,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-window-blinds-15n4ge8",
@@ -6771,7 +8330,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-window-slice-i2pe1g",
@@ -6798,7 +8358,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-wipe-right-x4qyg9",
@@ -6825,7 +8386,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-wipe-up-hhzsnc",
@@ -6852,7 +8414,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-xyzoom-h5zjez",
@@ -6879,7 +8442,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-y-c-time-blur-t0flna",
@@ -6907,34 +8471,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
-    },
-    {
-      "id": "isf-shaders-isf-transitions-zoom-in-circles-l4wixi",
-      "visualId": "isf-shaders-isf-transitions-zoom-in-circles-l4wixi",
-      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-zoom-in-circles-l4wixi",
-      "nodeVersion": "0.1.0",
-      "version": "0.1.0",
-      "name": "Zoom In Circles",
-      "description": "",
-      "artifactType": "transition",
-      "resource": "shaders/isf/transitions/zoom-in-circles.fs",
-      "categories": [
-        "ISF",
-        "Wipe"
-      ],
-      "tags": [
-        "isf",
-        "zoom-in-circles",
-        "transition",
-        "isf-compatible-library"
-      ],
-      "attribution": {
-        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/ZoomInCircles.glsl",
-        "license": "MIT",
-        "source": "https://github.com/Vidvox/ISF-Files",
-        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-zoom-vcvjuy",
@@ -6961,7 +8499,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-zooming-feedback-1awgmqu",
@@ -6989,7 +8528,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "isf-shaders-isf-transitions-cube-izb3j2",
@@ -7017,7 +8557,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-bleach-bypass-xvtek6",
@@ -7046,7 +8587,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-crosshatch-uk37go",
@@ -7074,7 +8616,68 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-dilate-1k9j83f",
+      "visualId": "isf-shaders-isf-effects-v002-dilate-1k9j83f",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-v002-dilate-1k9j83f",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "v002 Dilate",
+      "description": "messed up version of v002 dilate",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/v002-dilate.fs",
+      "vertexResource": "shaders/isf/effects/v002-dilate.vs",
+      "categories": [
+        "ISF",
+        "Blur",
+        "v002"
+      ],
+      "tags": [
+        "isf",
+        "v002-dilate",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by carter rosenberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-erode-1a959k1",
+      "visualId": "isf-shaders-isf-effects-v002-erode-1a959k1",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-v002-erode-1a959k1",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "v002 Erode",
+      "description": "messed up version of v002 erode",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/v002-erode.fs",
+      "vertexResource": "shaders/isf/effects/v002-erode.vs",
+      "categories": [
+        "ISF",
+        "Blur",
+        "v002"
+      ],
+      "tags": [
+        "isf",
+        "v002-erode",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by carter rosenberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-glitch-analog-iaekfk",
@@ -7103,7 +8706,39 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-light-leak-9tvksy",
+      "visualId": "isf-shaders-isf-effects-v002-light-leak-9tvksy",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-v002-light-leak-9tvksy",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "v002 Light Leak",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/v002-light-leak.fs",
+      "vertexResource": "shaders/isf/effects/v002-light-leak.vs",
+      "categories": [
+        "ISF",
+        "Film",
+        "Stylize",
+        "v002"
+      ],
+      "tags": [
+        "isf",
+        "v002-light-leak",
+        "effect",
+        "isf-compatible-library"
+      ],
+      "attribution": {
+        "credit": "by v002",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-technicolor-o9qrdg",
@@ -7133,7 +8768,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-vignette-rp4phw",
@@ -7161,7 +8797,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     },
     {
       "id": "vj1.visual.effect.isf-shaders-isf-effects-v002-crt-displacement-16ak5jt",
@@ -7190,7 +8827,8 @@
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
-      }
+      },
+      "shaderProfile": "vj1-isf-webgl2@1"
     }
   ]
 }

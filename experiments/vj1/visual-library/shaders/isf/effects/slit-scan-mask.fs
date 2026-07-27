@@ -1,54 +1,55 @@
 /*{
-    "CATEGORIES": [
-        "Masking"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Pixels update only if within range of the specified lines to create a slit scan style",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 1.5,
-            "MIN": 0,
-            "NAME": "spacing",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.33,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "line_width",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": -1,
-            "NAME": "angle",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "shift",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "edgeSharpness",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Masking"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Pixels update only if within range of the specified lines to create a slit scan style",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 1.5,
+      "MIN": 0,
+      "NAME": "spacing",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.33,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "line_width",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "angle",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "shift",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "edgeSharpness",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -87,5 +88,5 @@ void main()
 		//result = vec4(percent,percent,percent,1.0);
 		//result = clamp(result+edgeSharpness, 0.0, 1.0);
 	}
-	gl_FragColor = result;
+	isf_FragColor = result;
 }

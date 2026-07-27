@@ -17,6 +17,7 @@ import {
   listBuiltInVisualArtifacts,
 } from "../js/libraries/visual-nodes/catalog.js";
 import { createIsfNodeDefinition, evaluateIsfDimension } from "../js/libraries/isf-engine/index.js";
+import { canonicalizeIsfWebgl2Source } from "../js/libraries/isf-engine/isf-webgl2-profile.js";
 import { resolveProjectVisualLibrary } from "../js/libraries/visual-nodes/project-visual-library.js";
 import {
   createProjectVisualNodeResolver,
@@ -121,7 +122,7 @@ test("the static built-in catalog is projected into the common visual-library mo
 
 test("the built-in proving set is file-backed ISF with stable node identity and explicit lowering", () => {
   assert.equal(BuiltInIsfRepository.id, BuiltInVisualLibraryLayer.id);
-  assert.equal(BuiltInIsfRepository.records.length, 265);
+  assert.equal(BuiltInIsfRepository.records.length, 312);
   const black = BuiltInIsfRepository.records.find((record) => record.visualId === "black");
   const invert = BuiltInIsfRepository.records.find((record) => record.visualId === "invert");
   const gray = BuiltInIsfRepository.records.find((record) => record.visualId === "gray");
@@ -200,7 +201,7 @@ test("the built-in proving set is file-backed ISF with stable node identity and 
   );
 });
 
-test("the curated ISF collection is fragment-only, attributed, and catalogued by capability", () => {
+test("the curated ISF collection is WebGL2-profiled, attributed, and catalogued by capability", () => {
   const collection = BuiltInIsfRepository.records.filter((record) =>
     record.resource.startsWith("shaders/isf/")
   );
@@ -226,19 +227,19 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
   const compatibleLibrary = collection.filter((record) =>
     record.tags.includes("isf-compatible-library")
   );
-  assert.equal(collection.length, 260);
+  assert.equal(collection.length, 307);
   assert.equal(proof.length, 26);
   assert.equal(tranche2.length, 17);
   assert.equal(multipassComparison.length, 2);
   assert.equal(eventTranche.length, 2);
   assert.equal(importedImageTranche.length, 2);
-  assert.equal(compatibleLibrary.length, 211);
+  assert.equal(compatibleLibrary.length, 258);
   assert.deepEqual(
     Object.fromEntries(["generator", "effect", "transition"].map((kind) => [
       kind,
       collection.filter((record) => record.artifactType === kind).length,
     ])),
-    { generator: 46, effect: 152, transition: 62 },
+    { generator: 49, effect: 202, transition: 56 },
   );
   const additionalImageInputs = collection.filter((record) => {
     const imageInputs = record.definition.metadata?.isf?.inputs
@@ -255,6 +256,7 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
       "Auto Colors Histogram",
       "Color Relookup",
       "Displace",
+      "Duotone From Histogram",
       "Glitch Shifter",
       "Histogram Viewer",
       "Layer Mask",
@@ -263,7 +265,26 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
       "RE RGB Gradient Generator",
       "Trail Mask",
       "v002 Glitch Analog",
+      "v002 Light Leak",
     ].sort(),
+  );
+  const customVertexStages = collection.filter((record) =>
+    record.vertexResource
+  );
+  assert.equal(customVertexStages.length, 38);
+  assert.equal(
+    customVertexStages.every((record) =>
+      record.vertexResource.endsWith(".vs") &&
+      record.definition.metadata?.isf?.customVertexStage === true &&
+      record.definition.parts.some((part) =>
+        part.stage === "vertex" &&
+        part.source.includes(
+          "VJ1_ISF_VERTEX_PROFILE: vj1-isf-webgl2@1",
+        )
+      ) &&
+      record.component?.vertexCode?.startsWith("#version 300 es")
+    ),
+    true,
   );
   for (const record of collection) {
     const sourcePart = record.definition.parts.find((part) =>
@@ -377,7 +398,7 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
   const libraryArtifacts = listBuiltInVisualArtifacts().filter((artifact) =>
     artifact.implementation.resourceId?.startsWith("shaders/isf/")
   );
-  assert.equal(libraryArtifacts.length, 260);
+  assert.equal(libraryArtifacts.length, 307);
   assert.equal(
     libraryArtifacts.every((artifact) =>
       artifact.implementation.format === "isf" &&
@@ -402,7 +423,7 @@ test("built-in repository manifests fail closed when header identity or version 
       resource: "shaders/expected.fs",
     }],
   };
-  const shader = `/*{
+  const shader = canonicalizeIsfWebgl2Source(`/*{
     "ISFVSN": "2.0",
     "LABEL": "Expected",
     "VJ1": {
@@ -412,7 +433,7 @@ test("built-in repository manifests fail closed when header identity or version 
     },
     "INPUTS": []
   }*/
-  void main() { gl_FragColor = vec4(0.0); }`;
+  void main() { gl_FragColor = vec4(0.0); }`);
   const readText = async (url) =>
     url.pathname.endsWith("visual-library.json")
       ? JSON.stringify(manifest)
@@ -433,7 +454,7 @@ test("built-in repository manifests fail closed when header identity or version 
 test("project ISF transitions join the same layered catalog without becoming effects", () => {
   const definition = createIsfNodeDefinition({
     path: "shaders/transitions/wipe.fs",
-    source: `/*{
+    source: canonicalizeIsfWebgl2Source(`/*{
       "ISFVSN": "2.0",
       "LABEL": "Wipe",
       "VJ1": { "ID": "org.example.transition.wipe", "VERSION": "1.0.0" },
@@ -443,7 +464,7 @@ test("project ISF transitions join the same layered catalog without becoming eff
         { "NAME": "progress", "TYPE": "float" }
       ]
     }*/
-    void main() { gl_FragColor = mix(IMG_THIS_NORM_PIXEL(startImage), IMG_THIS_NORM_PIXEL(endImage), progress); }`,
+    void main() { gl_FragColor = mix(IMG_THIS_NORM_PIXEL(startImage), IMG_THIS_NORM_PIXEL(endImage), progress); }`),
   });
   const library = resolveProjectVisualLibrary({ nodes: { definitions: [definition] } });
   const transition = library.get("org.example.transition.wipe");
@@ -458,7 +479,7 @@ test("installed transitions join the same active transition entries used by runt
   const definition = createIsfNodeDefinition({
     path: "shaders/transitions/package-wipe.fs",
     origin: "package",
-    source: `/*{
+    source: canonicalizeIsfWebgl2Source(`/*{
       "ISFVSN": "2.0",
       "LABEL": "Package Wipe",
       "VJ1": { "ID": "org.example.transition.package-wipe", "VERSION": "1.0.0" },
@@ -474,7 +495,7 @@ test("installed transitions join the same active transition entries used by runt
         IMG_THIS_NORM_PIXEL(endImage),
         step(isf_FragNormCoord.x, progress)
       );
-    }`,
+    }`),
   });
   const nodePackage = defineNodePackage({
     id: "org.example.transition-library",

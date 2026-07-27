@@ -2,18 +2,24 @@
   "ISFVSN": "2.0",
   "LABEL": "Black",
   "DESCRIPTION": "An opaque black frame.",
-  "CATEGORIES": ["Utility"],
+  "CATEGORIES": [
+    "Utility"
+  ],
   "INPUTS": [],
   "VJ1": {
     "ID": "black",
     "VERSION": "0.1.0",
     "LOWERING": "fragment-generator",
-    "TAGS": ["black", "utility"],
+    "TAGS": [
+      "black",
+      "utility"
+    ],
     "ALPHA": "premultiplied",
-    "ROI": "local"
+    "ROI": "local",
+    "PROFILE": "vj1-isf-webgl2@1"
   }
 }*/
 
 void main() {
-  gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+  isf_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
 }

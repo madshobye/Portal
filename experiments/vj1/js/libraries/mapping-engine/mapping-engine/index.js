@@ -474,7 +474,7 @@ export class VjMapper {
     let shaderProgram = this.transitionShaders.get(key);
     if (!shaderProgram) {
       shaderProgram = createShader(
-        mapperVertexShaderSource(),
+        mapperTransitionVertexShaderSource(),
         mapperTransitionFragmentShaderSource({ feather: withFeather, transitionKernel })
       );
       this.transitionShaders.set(key, shaderProgram);
@@ -609,6 +609,25 @@ export function mapperVertexShaderSource() {
     `;
 }
 
+export function mapperTransitionVertexShaderSource() {
+  return `#version 300 es
+      precision highp float;
+      in vec3 aPosition;
+      uniform mat4 uProjectionMatrix;
+      uniform mat4 uModelViewMatrix;
+      uniform mat3 uHinv;
+      uniform vec2 uCanvasSize;
+      out vec3 vProjectiveUv;
+      void main() {
+        vec2 authoredScreen = vec2(
+          aPosition.x + uCanvasSize.x * 0.5,
+          aPosition.y + uCanvasSize.y * 0.5
+        );
+        vProjectiveUv = uHinv * vec3(authoredScreen, 1.0);
+        gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
+      }`;
+}
+
 export function mapperFragmentShaderSource({ feather = false } = {}) {
   const featherUniform = feather ? "uniform float uFeather;" : "";
   const featherFunction = feather ? `
@@ -629,7 +648,7 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
         float featherAspect = uUseSourceFit ? uSourceTargetAspect : (uProjectionFit >= 1.5 ? uSourceAspect : uTargetAspect);
         float featherMask = roundedFeatherMask(featherUv, featherAspect);
         color *= featherMask;` : "";
-  return `
+  return `#version 300 es
       precision highp float;
       uniform sampler2D tex;
       uniform vec4 uSourceRect;
@@ -642,7 +661,8 @@ export function mapperFragmentShaderSource({ feather = false } = {}) {
       uniform float uSourceFit;
       uniform float uOpacity;
       ${featherUniform}
-      varying vec3 vProjectiveUv;
+      in vec3 vProjectiveUv;
+      out vec4 vj1TransitionOutput;
       ${featherFunction}
       ${fitTargetUvToSourceUvShaderSource()}
       void main() {
@@ -775,11 +795,11 @@ export function mapperTransitionFragmentShaderSource({
         vec2 toViewUv = (toUv - uToTextureView.xy) / max(uToTextureView.zw, vec2(1e-9));
         vec2 fromTextureUv = uFromSourceRect.xy + clamp(fromViewUv, vec2(0.0), vec2(1.0)) * uFromSourceRect.zw;
         vec2 toTextureUv = uToSourceRect.xy + clamp(toViewUv, vec2(0.0), vec2(1.0)) * uToSourceRect.zw;
-        vec4 fromColor = texture2D(fromTex, fromTextureUv) * fromInside * uFromOpacity;
-        vec4 toColor = texture2D(toTex, toTextureUv) * toInside * uToOpacity;
+        vec4 fromColor = texture(fromTex, fromTextureUv) * fromInside * uFromOpacity;
+        vec4 toColor = texture(toTex, toTextureUv) * toInside * uToOpacity;
         ${featherCode}
         vec4 color = vj1Transition(fromColor, toColor, uv, clamp(uTransition, 0.0, 1.0));
-        gl_FragColor = color;
+        vj1TransitionOutput = color;
       }
     `;
 }

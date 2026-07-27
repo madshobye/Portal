@@ -1,27 +1,29 @@
 /*{
-    "CATEGORIES": [
-        "Color",
-        "Utility"
-    ],
-    "CREDIT": "by Carter Rosenberg",
-    "DESCRIPTION": "demonstrates the use of color-type image inputs",
-    "INPUTS": [
-        {
-            "DEFAULT": [
-                1,
-                0,
-                0,
-                1
-            ],
-            "NAME": "Color",
-            "TYPE": "color"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Color",
+    "Utility"
+  ],
+  "CREDIT": "by Carter Rosenberg",
+  "DESCRIPTION": "demonstrates the use of color-type image inputs",
+  "INPUTS": [
+    {
+      "DEFAULT": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "NAME": "Color",
+      "TYPE": "color"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()
 {
-	gl_FragColor = Color;
+	isf_FragColor = Color;
 }

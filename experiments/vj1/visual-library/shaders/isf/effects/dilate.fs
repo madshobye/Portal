@@ -1,40 +1,39 @@
 /*{
-    "CATEGORIES": [
-        "Blur"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "intensity",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 2,
-            "MAX": 15,
-            "MIN": 1,
-            "NAME": "radius",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "TARGET": "firstPass"
-        },
-        {
-        }
-    ]
-}
-*/
-
-
+  "CATEGORIES": [
+    "Blur"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "intensity",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 2,
+      "MAX": 15,
+      "MIN": 1,
+      "NAME": "radius",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "TARGET": "firstPass"
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec3 rgb2hsv(vec3 c);
 
@@ -78,7 +77,7 @@ void main()
 				}
 			}
 		}
-		gl_FragColor = maxLumaRGBColor;
+		isf_FragColor = maxLumaRGBColor;
 		
 	}
 	else if (PASSINDEX==1)	{
@@ -111,7 +110,7 @@ void main()
 				}
 			}
 		}
-		gl_FragColor = maxLumaRGBColor;
+		isf_FragColor = maxLumaRGBColor;
 		
 	}
 	
@@ -129,4 +128,3 @@ vec3 rgb2hsv(vec3 c)	{
 	float e = 1.0e-10;
 	return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);
 }
-

@@ -1,25 +1,27 @@
 /*{
-    "CATEGORIES": [
-        "Color Effect",
-        "Retro"
-    ],
-    "CREDIT": "by zoidberg",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 30,
-            "MAX": 30,
-            "MIN": 2,
-            "NAME": "levels",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Color Effect",
+    "Retro"
+  ],
+  "CREDIT": "by zoidberg",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 30,
+      "MAX": 30,
+      "MIN": 2,
+      "NAME": "levels",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec3 rgb2hsv(vec3 c);
 vec3 hsv2rgb(vec3 c);
@@ -33,8 +35,8 @@ void main() {
 	float		amountPerLevel = 1.0/(levels);
 	float		numOfLevels = floor(tmpColor.z/amountPerLevel);
 	tmpColor.z = numOfLevels*(1.0/(levels-1.0));
-	gl_FragColor.rgb = hsv2rgb(tmpColor.xyz);
-	gl_FragColor.a = srcPixel.a;
+	isf_FragColor.rgb = hsv2rgb(tmpColor.xyz);
+	isf_FragColor.a = srcPixel.a;
 	
 }
 

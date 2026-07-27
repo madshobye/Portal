@@ -387,21 +387,22 @@ and 9 transitions. The second tranche brings the collection to 40 shaders:
 `395072d48b3ce7351ccb20a5fda54470591324df`. At that stage it excluded custom
 vertex stages, audio/FFT, imported images, events, and extra non-transition
 image inputs. Tranche two deliberately includes persistent, float-buffer, and
-multipass shaders supported by the common runtime. Source text remains the
-portable authority; catalog metadata supplies stable application identity and
+multipass shaders supported by the common runtime. Canonical VJ1-profile source
+remains the file-backed authority; catalog metadata supplies stable application identity and
 presentation without merging shader bodies into JavaScript. Generator and
 effect cards remain in their ordinary categories and are additionally
 discoverable through the `ISF` picker filter. Metadata declares host contracts;
 it never embeds arbitrary JavaScript.
 
 A focused multipass comparison tranche brings the collection to 42 shaders.
-Dilate and Erode retain their
-upstream fragment text and exercise the same full-size, two-pass,
+Dilate and Erode retain their upstream behavior and attribution after
+canonicalization and exercise the same full-size, two-pass,
 non-persistent named-target path as Ghosting.
 
 The audio tranche brings the collection to 45 shaders (12 generators, 20
 effects, and 13 transitions). FFT Color Lines, FFT Filled Waveform, and
-Waveform Displace retain their upstream fragment text. ISF `audio` and
+Waveform Displace retain their upstream behavior and attribution after
+canonicalization. ISF `audio` and
 `audioFFT` inputs are host resources backed by the existing native Web Audio
 analyser: one retained waveform texture and one retained FFT texture are
 updated once per analysis frame and reused by every audio shader. Audio inputs
@@ -409,7 +410,7 @@ do not become graph texture ports and do not create a second analyser.
 
 The event tranche brings the collection to 47 shaders (13 generators, 21
 effects, and 13 transitions). Shockwave Pulse and FFT Spectrogram retain their
-upstream fragment text. An ISF `event` input materializes as a momentary
+upstream behavior and attribution after canonicalization. An ISF `event` input materializes as a momentary
 control, schedules an `isf-event` for the owning visual instance and parameter,
 and is true only while that frame's drained event list is rendered. It resets
 on the next frame without entering project state, history, or autosave. The
@@ -426,7 +427,8 @@ therefore continue to execute in Live without sacrificing same-frame fanout.
 
 The imported-image tranche brings the collection to 49 shaders (14 generators,
 22 effects, and 13 transitions). Cursor and Cursor Overlay retain their
-upstream fragment text and share the exact pinned `cursor.png` payload.
+upstream behavior and attribution after canonicalization and share the exact
+pinned `cursor.png` payload.
 `IMPORTED` paths are validated as safe relative paths, resolved by the
 built-in repository into closed immutable descriptors, and loaded lazily by
 one renderer-owned retained cache. A resource is uploaded once and reused by
@@ -435,22 +437,35 @@ key and invalidates presentation once, without making a static shader
 frame-dynamic. The resource cache follows the same prune/dispose lifecycle as
 other ISF state.
 
-The compatible-library import brings the built-in collection to 260 pinned
-fragment shaders: 46 generators, 152 effects, and 62 transitions. A
-deterministic importer checks the upstream tree against the runtime's existing
-pass, input, and resource contracts, preserves the original fragment text, and
-adds 211 compatible files to the earlier proof tranches. Effects keep their
+The compatible-library import brings the built-in collection to 307 pinned
+ISF files: 49 generators, 202 effects, and 56 transitions. Thirty-eight files
+have a paired custom vertex stage. All repository
+sources use the VJ1-owned `vj1-isf-webgl2@1` profile and execute on a dedicated
+GLSL ES 3.00/WebGL2 shader path; ordinary non-ISF rendering remains unchanged.
+Legacy project/library files are canonicalized at the project-ingestion
+boundary, including the older empty `IMPORTED: []` spelling, while their files
+remain untouched and the parser/compiler/runtime stay profile-strict.
+A deterministic importer checks the upstream tree against the runtime's existing
+pass, input, and resource contracts, canonicalizes legacy fragment syntax
+offline, and adds 258 compatible files to the earlier proof tranches. Effects keep their
 preceding composition texture as the automatic `inputImage`; generators and
 effects persist any additional named image inlet as an authored visual source.
 Compilation lowers those choices into ordinary hidden source nodes and explicit
 texture-DAG edges, so media, generators, and Components reuse the same retained
 render path without per-frame graph traversal. ISF image rectangles, sizes, and
 storage orientation are host uniforms derived from those retained textures.
-The real-WebGL
-architecture smoke compiles the complete installed catalog in Chrome. Paired custom vertex
-stages, two three-image Live transitions whose extra input belongs to the
-Surface-transition renderer, unbundled imported resources, and 25 files that
-do not compile under the current WebGL 1 contract remain excluded.
+Runtime node creation rejects missing or legacy profile markers, so compatibility
+work never enters the frame loop. The rules and migration check live in
+`visual-library/ISF-WEBGL2-PROFILE.md`. The real-WebGL
+architecture smoke compiles the complete installed catalog in Chrome. Optional
+same-stem `.vs` files are canonicalized offline, carried by repository,
+project-folder, and package descriptors, and paired with their fragment stage
+in the retained WebGL2 program cache. Their source hash participates in program
+identity so edits invalidate exactly the affected programs. Custom vertex
+stages on transitions are still rejected because transition kernels use a
+separate host geometry contract. Two three-image Live transitions whose extra
+input belongs to the Surface-transition renderer, unbundled imported resources,
+and 17 files that do not compile under the WebGL2 profile remain excluded.
 The repository loader fetches the expanded source set with bounded concurrency
 while preserving manifest order and strict identity validation.
 

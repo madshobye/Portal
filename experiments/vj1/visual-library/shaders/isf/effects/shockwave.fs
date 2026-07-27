@@ -31,17 +31,17 @@
       "DEFAULT": 0.08
     },
     {
-      "NAME" : "center",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "center",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.5
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
@@ -51,10 +51,11 @@
       "TYPE": "bool",
       "DEFAULT": 1
     }
-  ]
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 void main()
 {
@@ -78,5 +79,5 @@ void main()
 	else if (background)	{
 		color = IMG_NORM_PIXEL(inputImage, texCoord);
 	}
-	gl_FragColor = color;
+	isf_FragColor = color;
 }

@@ -1,95 +1,98 @@
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color Effect"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"LABEL": "Red",
-			"NAME": "redInput",
-			"TYPE": "long",
-			"VALUES": [
-				0,
-				1,
-				2,
-				3,
-				4
-			],
-			"LABELS": [
-				"R",
-				"G",
-				"B",
-				"A",
-				"Average"
-			],
-			"DEFAULT": 0
-		},
-		{
-			"LABEL": "Green",
-			"NAME": "greenInput",
-			"TYPE": "long",
-			"VALUES": [
-				0,
-				1,
-				2,
-				3,
-				4
-			],
-			"LABELS": [
-				"R",
-				"G",
-				"B",
-				"A",
-				"Average"
-			],
-			"DEFAULT": 1
-		},
-		{
-			"LABEL": "Blue",
-			"NAME": "blueInput",
-			"TYPE": "long",
-			"VALUES": [
-				0,
-				1,
-				2,
-				3,
-				4
-			],
-			"LABELS": [
-				"R",
-				"G",
-				"B",
-				"A",
-				"Average"
-			],
-			"DEFAULT": 2
-		},
-		{
-			"LABEL": "Alpha",
-			"NAME": "alphaInput",
-			"TYPE": "long",
-			"VALUES": [
-				0,
-				1,
-				2,
-				3,
-				4
-			],
-			"LABELS": [
-				"R",
-				"G",
-				"B",
-				"A",
-				"Average"
-			],
-			"DEFAULT": 3
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color Effect"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "LABEL": "Red",
+      "NAME": "redInput",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "LABELS": [
+        "R",
+        "G",
+        "B",
+        "A",
+        "Average"
+      ],
+      "DEFAULT": 0
+    },
+    {
+      "LABEL": "Green",
+      "NAME": "greenInput",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "LABELS": [
+        "R",
+        "G",
+        "B",
+        "A",
+        "Average"
+      ],
+      "DEFAULT": 1
+    },
+    {
+      "LABEL": "Blue",
+      "NAME": "blueInput",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "LABELS": [
+        "R",
+        "G",
+        "B",
+        "A",
+        "Average"
+      ],
+      "DEFAULT": 2
+    },
+    {
+      "LABEL": "Alpha",
+      "NAME": "alphaInput",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4
+      ],
+      "LABELS": [
+        "R",
+        "G",
+        "B",
+        "A",
+        "Average"
+      ],
+      "DEFAULT": 3
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 void main() {
@@ -162,5 +165,5 @@ void main() {
 		outputPixel.a = avgVal;
 	}
 	
-	gl_FragColor = outputPixel;
+	isf_FragColor = outputPixel;
 }

@@ -1,19 +1,18 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Stylize"
   ],
-  "DESCRIPTION" : "A smoke screen overlay effect",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "A smoke screen overlay effect",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "smokeColor",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "smokeColor",
+      "TYPE": "color",
+      "DEFAULT": [
         0.75,
         0.75,
         0.75,
@@ -21,34 +20,34 @@
       ]
     },
     {
-      "NAME" : "smokeIntensity",
-      "TYPE" : "float",
-      "MAX" : 10,
-      "DEFAULT" : 1,
-      "MIN" : 0
+      "NAME": "smokeIntensity",
+      "TYPE": "float",
+      "MAX": 10,
+      "DEFAULT": 1,
+      "MIN": 0
     },
     {
-      "NAME" : "smokeDirection",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "smokeDirection",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.75
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     }
   ],
-  "CREDIT" : "jackdavenport"
-}
-*/
-
-
+  "CREDIT": "jackdavenport",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Converted from https://www.shadertoy.com/view/4t2SRz by jackdavenport
 
@@ -100,5 +99,5 @@ void main() {
 	vec4	inputPixel = IMG_NORM_PIXEL(inputImage,uv);
     vec4	final = mix(vec4(x * smokeColor.rgb,max(x,inputPixel.a)), inputPixel, pow(abs(uv.y),pow(smokeColor.a*smokeIntensity*x,2.0)));
     
-    gl_FragColor = final;
+    isf_FragColor = final;
 }

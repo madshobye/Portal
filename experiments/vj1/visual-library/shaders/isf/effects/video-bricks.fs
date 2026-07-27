@@ -1,69 +1,70 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Tile Effect"
   ],
-  "DESCRIPTION" : "Tiles the incoming image using a basic brick pattern",
-  "ISFVSN" : "2",
-  "INPUTS" : [
-	{
-		"NAME": "inputImage",
-		"TYPE": "image"
-	},
+  "DESCRIPTION": "Tiles the incoming image using a basic brick pattern",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "brickSize",
-      "LABEL" : "Brick Size",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.25,
-      "MIN" : 0
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "borderSize",
-      "LABEL" : "Border Size",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.05,
-      "MIN" : 0
+      "NAME": "brickSize",
+      "LABEL": "Brick Size",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.25,
+      "MIN": 0
     },
     {
-      "NAME" : "borderColor",
-      "LABEL" : "Border Color",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "borderSize",
+      "LABEL": "Border Size",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.05,
+      "MIN": 0
+    },
+    {
+      "NAME": "borderColor",
+      "LABEL": "Border Color",
+      "TYPE": "color",
+      "DEFAULT": [
         0,
         0,
         0,
         1
       ]
     },
-	{
-		"NAME": "crop",
-		"LABEL" : "Crop Image",
-		"TYPE": "bool",
-		"DEFAULT": 0.0
-	},
     {
-      "NAME" : "brickOffset",
-      "LABEL" : "Brick Offset",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "crop",
+      "LABEL": "Crop Image",
+      "TYPE": "bool",
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "brickOffset",
+      "LABEL": "Brick Offset",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0,
         0
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     }
   ],
-  "CREDIT" : "adapted from patriciogv bricks.fs by vidvox"
-}
-*/
+  "CREDIT": "adapted from patriciogv bricks.fs by vidvox",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 // Based on Brick example from https://thebookofshaders.com/09/
 // Author @patriciogv ( patriciogonzalezvivo.com ) - 2015
@@ -111,5 +112,5 @@ void main(void){
     // Uncomment to see the space coordinates
     //color.rgb = vec3(st,0.0);
 
-    gl_FragColor = color;
+    isf_FragColor = color;
 }

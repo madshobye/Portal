@@ -1,45 +1,47 @@
 /*{
- "CREDIT": "BrianChasalow",
- "ISFVSN": "2",
- "CATEGORIES": [
- "Geometry Adjustment"
- ],
- "INPUTS": [
- {
- "NAME": "inputImage",
- "TYPE": "image"
- },
- {
- "NAME": "slide",
- "TYPE": "float",
- "MIN": 0.0,
- "MAX": 2.0,
- "DEFAULT": 0.0
- },
- {
- "NAME": "shift",
- "TYPE": "float",
- "MIN": 0.0,
- "MAX": 2.0,
- "DEFAULT": 0.0
- },
- {
- "NAME": "mirrorHorizontal",
- "TYPE": "bool",
- "MIN": false,
- "MAX": true,
- "DEFAULT": true
- },
- {
- "NAME": "mirrorVertical",
- "TYPE": "bool",
- "MIN": false,
- "MAX": true,
- "DEFAULT": true
- }
- 
- ]
- }*/
+  "CREDIT": "BrianChasalow",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Geometry Adjustment"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "slide",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 2,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "shift",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 2,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "mirrorHorizontal",
+      "TYPE": "bool",
+      "MIN": false,
+      "MAX": true,
+      "DEFAULT": true
+    },
+    {
+      "NAME": "mirrorVertical",
+      "TYPE": "bool",
+      "MIN": false,
+      "MAX": true,
+      "DEFAULT": true
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main(void)
 {
@@ -54,5 +56,5 @@ void main(void)
 		moddedRetard = vec2(moddedRetard.x, 1.0-moddedRetard.y);
 	
 	vec4 pixel = IMG_NORM_PIXEL(inputImage, moddedRetard);
-	gl_FragColor = pixel;
+	isf_FragColor = pixel;
 }

@@ -1,77 +1,78 @@
 /*{
-    "CATEGORIES": [
-        "Tile Effect"
-    ],
-    "CREDIT": "",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "IDENTITY": 1,
-            "MAX": 2,
-            "MIN": 0,
-            "NAME": "startSize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "startOpacity",
-            "TYPE": "float"
-        },
-        {
-            "NAME": "startCenter",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "startPadding",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 2,
-            "MIN": 0,
-            "NAME": "endSize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "endOpacity",
-            "TYPE": "float"
-        },
-        {
-            "NAME": "endCenter",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": 0.1,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "endPadding",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 5,
-            "MAX": 15,
-            "MIN": 1,
-            "NAME": "repetitions",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Tile Effect"
+  ],
+  "CREDIT": "",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "IDENTITY": 1,
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "startSize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "startOpacity",
+      "TYPE": "float"
+    },
+    {
+      "NAME": "startCenter",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "startPadding",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "endSize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "endOpacity",
+      "TYPE": "float"
+    },
+    {
+      "NAME": "endCenter",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": 0.1,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "endPadding",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 5,
+      "MAX": 15,
+      "MIN": 1,
+      "NAME": "repetitions",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec2 paddedZoomedPosition(vec2 loc, float zl, vec2 c, float p)	{
 	vec2		returnMe = loc;
@@ -123,5 +124,5 @@ void main()	{
 		}
 	}
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

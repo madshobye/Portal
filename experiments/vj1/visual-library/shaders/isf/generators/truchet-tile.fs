@@ -1,59 +1,59 @@
 /*{
-    "CATEGORIES": [
-        "Geometry"
-    ],
-    "CREDIT": "pjkarlik",
-    "DESCRIPTION": "Creates a Truchet Tile pattern",
-    "INPUTS": [
-        {
-            "DEFAULT": 0.1,
-            "LABEL": "Size",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "tSize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.35,
-            "LABEL": "Noise Seed",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "nSeed",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                1,
-                1,
-                1,
-                1
-            ],
-            "LABEL": "Color 1",
-            "NAME": "color1",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                0,
-                1
-            ],
-            "LABEL": "Color 2",
-            "NAME": "color2",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": 0,
-            "NAME": "lineMode",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Geometry"
+  ],
+  "CREDIT": "pjkarlik",
+  "DESCRIPTION": "Creates a Truchet Tile pattern",
+  "INPUTS": [
+    {
+      "DEFAULT": 0.1,
+      "LABEL": "Size",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "tSize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.35,
+      "LABEL": "Noise Seed",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "nSeed",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "LABEL": "Color 1",
+      "NAME": "color1",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "LABEL": "Color 2",
+      "NAME": "color2",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": 0,
+      "NAME": "lineMode",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	adapted from https://github.com/pjkarlik/TruchetTiles/blob/master/src/shader/truchet/fragmentShader.js
 
@@ -106,5 +106,5 @@ void main() {
   uv *= fScale;
   vec3 colour = pattern(uv);
   vec4 returnMe = (colour.r == 1.0) ? color1 : color2;
-  gl_FragColor = returnMe;
+  isf_FragColor = returnMe;
 }

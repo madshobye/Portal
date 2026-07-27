@@ -43,6 +43,8 @@
         fftSpectrogramSource,
         cursorSource,
         cursorOverlaySource,
+        dotScreenSource,
+        dotScreenVertexSource,
       ] = await Promise.all([
         fetch("./fixtures/random-freeze.fs").then((response) => {
           if (!response.ok) {
@@ -113,6 +115,18 @@
         fetch("../../visual-library/shaders/isf/effects/cursor-overlay.fs").then(
           (response) => {
             if (!response.ok) throw new Error(`CURSOR_OVERLAY_SOURCE_${response.status}`);
+            return response.text();
+          },
+        ),
+        fetch("../../visual-library/shaders/isf/effects/dot-screen.fs").then(
+          (response) => {
+            if (!response.ok) throw new Error(`DOT_SCREEN_SOURCE_${response.status}`);
+            return response.text();
+          },
+        ),
+        fetch("../../visual-library/shaders/isf/effects/dot-screen.vs").then(
+          (response) => {
+            if (!response.ok) throw new Error(`DOT_SCREEN_VERTEX_SOURCE_${response.status}`);
             return response.text();
           },
         ),
@@ -192,6 +206,7 @@
             path: "tests/persistent-history.fs",
             source: `/*{
               "ISFVSN": "2",
+              "VJ1": { "PROFILE": "vj1-isf-webgl2@1" },
               "INPUTS": [
                 { "NAME": "inputImage", "TYPE": "image" }
               ],
@@ -206,7 +221,7 @@
             void main() {
               vec4 fresh = IMG_THIS_PIXEL(inputImage);
               vec4 stale = IMG_THIS_PIXEL(history);
-              gl_FragColor = FRAMEINDEX == 0
+              isf_FragColor = FRAMEINDEX == 0
                 ? fresh
                 : mix(fresh, stale, 0.5);
             }`,
@@ -276,16 +291,23 @@
               cursorImage: importedResourceDescriptor,
             }),
           });
+          const dotScreen = createIsfVisualComponent({
+            path: "visual-library/shaders/isf/effects/dot-screen.fs",
+            source: dotScreenSource,
+            vertexPath: "visual-library/shaders/isf/effects/dot-screen.vs",
+            vertexSource: dotScreenVertexSource,
+          });
           const eventProbe = createIsfVisualComponent({
             path: "tests/browser/event-pulse.fs",
             source: `/*{
               "ISFVSN": "2",
+              "VJ1": { "PROFILE": "vj1-isf-webgl2@1" },
               "INPUTS": [
                 { "NAME": "trigger", "TYPE": "event" }
               ]
             }*/
             void main() {
-              gl_FragColor = trigger
+              isf_FragColor = trigger
                 ? vec4(1.0, 1.0, 1.0, 1.0)
                 : vec4(0.0, 0.0, 0.0, 1.0);
             }`,
@@ -294,13 +316,14 @@
             path: "tests/browser/event-effect-pulse.fs",
             source: `/*{
               "ISFVSN": "2",
+              "VJ1": { "PROFILE": "vj1-isf-webgl2@1" },
               "INPUTS": [
                 { "NAME": "inputImage", "TYPE": "image" },
                 { "NAME": "trigger", "TYPE": "event" }
               ]
             }*/
             void main() {
-              gl_FragColor = trigger
+              isf_FragColor = trigger
                 ? vec4(1.0, 1.0, 1.0, 1.0)
                 : vec4(0.0, 0.0, 0.0, 1.0);
             }`,
@@ -377,6 +400,7 @@
             [fftSpectrogram.id, fftSpectrogram],
             [cursor.id, cursor],
             [cursorOverlay.id, cursorOverlay],
+            [dotScreen.id, dotScreen],
             [eventProbe.id, eventProbe],
             [eventEffectProbe.id, eventEffectProbe],
             ...multipassComparisons.map((entry) => [entry.id, entry]),
@@ -433,6 +457,35 @@
             posterizeTopPixel[2] <= 10 &&
             posterizeBottomPixel[0] <= 10 &&
             posterizeBottomPixel[2] >= 245;
+
+          const dotScreenTarget = createSharedFramebufferTarget(8, 8);
+          resources.push(dotScreenTarget);
+          const dotScreenRendered = runtime.renderProgram({
+            component: dotScreen,
+            shader: builder.getShader({
+              id: dotScreen.id,
+              component: dotScreen,
+            }, dotScreenTarget),
+            input: orientationInput,
+            finalTarget: dotScreenTarget,
+            renderRequest,
+            timeSeconds: 0,
+            params: {
+              amount: 1,
+              sharpness: 1,
+              angle: 0.25,
+              scale: 1,
+              colorize: 0,
+            },
+            instanceId: "custom-vertex-dot-screen-smoke",
+            effectTransform: {},
+          });
+          const dotScreenPixels = pixelData(dotScreenRendered);
+          const customVertexStageVisible =
+            dotScreen.vertexCode.startsWith("#version 300 es") &&
+            dotScreenPixels.some((value, index) =>
+              index % 4 !== 3 && value > 0
+            );
 
           const cursorTexture = createImage(2, 2);
           resources.push(cursorTexture);
@@ -500,6 +553,7 @@
           const cursorOverlayImportedImageVisible =
             cursorOverlayChangedPixels > 0;
 
+          const persistentFixtures = new Map();
           const renderPersistentFixture = (fixture, params, instanceId) => {
             const fixtureInput = createSharedFramebufferTarget(8, 8);
             const fixtureTarget = createSharedFramebufferTarget(8, 8);
@@ -533,6 +587,13 @@
             if (!rendered) {
               throw new Error(`${instanceId.toUpperCase()}_RENDER_UNAVAILABLE`);
             }
+            persistentFixtures.set(instanceId, {
+              fixture,
+              input: fixtureInput,
+              target: fixtureTarget,
+              shader: fixtureShader,
+              params: { amount: 1, ...params },
+            });
             const top = sampledPixel(rendered, 0.5, 0.25);
             const bottom = sampledPixel(rendered, 0.5, 0.75);
             return {
@@ -562,6 +623,28 @@
             },
             "comet-tails-smoke",
           );
+          const cometFixture = persistentFixtures.get("comet-tails-smoke");
+          solid(cometFixture.input, [0, 0, 0, 255]);
+          const cometSecondRendered = runtime.renderProgram({
+            component: cometFixture.fixture,
+            shader: cometFixture.shader,
+            input: cometFixture.input,
+            finalTarget: cometFixture.target,
+            renderRequest,
+            timeSeconds: 2,
+            params: cometFixture.params,
+            instanceId: "comet-tails-smoke",
+            effectTransform: {},
+          });
+          const cometSecondTop = sampledPixel(
+            cometSecondRendered,
+            0.5,
+            0.25,
+          );
+          const cometTailsPersistentHistoryVisible =
+            cometSecondTop[0] >= 40 &&
+            cometSecondTop[1] <= 10 &&
+            cometSecondTop[2] <= 10;
 
           const ghostingInput = createSharedFramebufferTarget(32, 8);
           const ghostingTarget = createSharedFramebufferTarget(32, 8);
@@ -1234,10 +1317,12 @@
           );
           const ok =
             posterizeKeepsOrientation &&
+            customVertexStageVisible &&
             cursorImportedImageVisible &&
             cursorOverlayImportedImageVisible &&
             randomFreezeFirstFrame.visible &&
             cometTailsFirstFrame.visible &&
+            cometTailsPersistentHistoryVisible &&
             ghostingPassVisible &&
             ghostingDisplacesHighlights &&
             productionHandoffVisible &&
@@ -1257,11 +1342,14 @@
             posterizeTopPixel,
             posterizeBottomPixel,
             posterizeKeepsOrientation,
+            customVertexStageVisible,
             cursorImportedImageVisible,
             cursorOverlayChangedPixels,
             cursorOverlayImportedImageVisible,
             randomFreezeFirstFrame,
             cometTailsFirstFrame,
+            cometSecondTop,
+            cometTailsPersistentHistoryVisible,
             ghostingIntermediatePixel,
             ghostingOutputPixels,
             ghostingPassVisible,

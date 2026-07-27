@@ -1,78 +1,80 @@
 /*{
-    "CATEGORIES": [
-        "Masking",
-        "Color Effect",
-        "Utility"
-    ],
-    "CREDIT": "by zoidberg",
-    "DESCRIPTION": "Takes a mask image and applies it to the input image's alpha channel.",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "LABEL": "mask image",
-            "NAME": "maskImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "mask size mode",
-            "LABELS": [
-                "Fit",
-                "Fill",
-                "Stretch",
-                "Copy"
-            ],
-            "NAME": "maskSizingMode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2,
-                3
-            ]
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": -1,
-            "NAME": "bright",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 4,
-            "MIN": -4,
-            "NAME": "contrast",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 2,
-            "LABEL": "Alpha Mode",
-            "LABELS": [
-                "Additive",
-                "Multiply",
-                "Replace"
-            ],
-            "NAME": "alphaMode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2
-            ]
-        },
-        {
-            "DEFAULT": 0,
-            "NAME": "applyAlpha",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Masking",
+    "Color Effect",
+    "Utility"
+  ],
+  "CREDIT": "by zoidberg",
+  "DESCRIPTION": "Takes a mask image and applies it to the input image's alpha channel.",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "LABEL": "mask image",
+      "NAME": "maskImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "mask size mode",
+      "LABELS": [
+        "Fit",
+        "Fill",
+        "Stretch",
+        "Copy"
+      ],
+      "NAME": "maskSizingMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "bright",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 4,
+      "MIN": -4,
+      "NAME": "contrast",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 2,
+      "LABEL": "Alpha Mode",
+      "LABELS": [
+        "Additive",
+        "Multiply",
+        "Replace"
+      ],
+      "NAME": "alphaMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "DEFAULT": 0,
+      "NAME": "applyAlpha",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const vec4		lumcoeff = vec4(0.299, 0.587, 0.114, 0.0);
 
@@ -115,9 +117,9 @@ void main() {
 	}
 	
 	if (applyAlpha)
-		gl_FragColor = vec4(luminance*srcPixel.r, luminance*srcPixel.g, luminance*srcPixel.b, 1.0);
+		isf_FragColor = vec4(luminance*srcPixel.r, luminance*srcPixel.g, luminance*srcPixel.b, 1.0);
 	else
-		gl_FragColor = vec4(srcPixel.r, srcPixel.g, srcPixel.b, luminance);
+		isf_FragColor = vec4(srcPixel.r, srcPixel.g, srcPixel.b, luminance);
 }
 
 

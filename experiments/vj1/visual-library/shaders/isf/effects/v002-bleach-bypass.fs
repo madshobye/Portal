@@ -1,26 +1,28 @@
 /*{
-    "CATEGORIES": [
-        "Color Adjustment",
-        "Film",
-        "v002"
-    ],
-    "CREDIT": "by v002",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "amount",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Color Adjustment",
+    "Film",
+    "v002"
+  ],
+  "CREDIT": "by v002",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "amount",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Based on v002 bleach bypass – https://github.com/v002/v002-Film-Effects/
 
@@ -50,6 +52,6 @@ void main (void)
 
 	vec4 luma = vec4(dot(input0,lumcoeff));
 
-	gl_FragColor = overlay(luma, input0, vec4(amount));
+	isf_FragColor = overlay(luma, input0, vec4(amount));
 
 }

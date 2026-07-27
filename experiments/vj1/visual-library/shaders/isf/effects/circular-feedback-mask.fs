@@ -1,68 +1,67 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Feedback"
   ],
-  "DESCRIPTION" : "",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "maskRadius",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.25,
-      "MIN" : 0
+      "NAME": "maskRadius",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.25,
+      "MIN": 0
     },
     {
-      "NAME" : "feedbackRate",
-      "TYPE" : "float",
-      "MAX" : 16,
-      "DEFAULT" : 1,
-      "MIN" : 0
+      "NAME": "feedbackRate",
+      "TYPE": "float",
+      "MAX": 16,
+      "DEFAULT": 1,
+      "MIN": 0
     },
     {
-      "NAME" : "twirlAmount",
-      "TYPE" : "float",
-      "MAX" : 0.25,
-      "DEFAULT" : 0,
-      "MIN" : -0.25
+      "NAME": "twirlAmount",
+      "TYPE": "float",
+      "MAX": 0.25,
+      "DEFAULT": 0,
+      "MIN": -0.25
     },
     {
-      "NAME" : "fadeRate",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "fadeRate",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "centerFeedback",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "centerFeedback",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "feedbackCenter",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "feedbackCenter",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.5
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     },
     {
-      "LABELS" : [
+      "LABELS": [
         "Mask",
         "CenteredMask",
         "Scaled",
@@ -70,10 +69,10 @@
         "MirrorWrap",
         "InvertedMask"
       ],
-      "NAME" : "styleMode",
-      "TYPE" : "long",
-      "DEFAULT" : 2,
-      "VALUES" : [
+      "NAME": "styleMode",
+      "TYPE": "long",
+      "DEFAULT": 2,
+      "VALUES": [
         0,
         1,
         2,
@@ -83,19 +82,21 @@
       ]
     },
     {
-      "NAME" : "clearBuffer",
-      "TYPE" : "event"
+      "NAME": "clearBuffer",
+      "TYPE": "event"
     }
   ],
-  "PASSES" : [
+  "PASSES": [
     {
-      "TARGET" : "feedbackBuffer",
-      "PERSISTENT" : true
+      "TARGET": "feedbackBuffer",
+      "PERSISTENT": true
     }
   ],
-  "CREDIT" : "VIDVOX"
-}
-*/
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.1415926535897932384626433832795;
 const float tau =  6.2831853071795864769252867665590;
@@ -154,5 +155,5 @@ void main()	{
 		//inputPixelColor = vec4(shift.x*2.0-1.0,shift.y*2.0-1.0,0.0,1.0);
 	}
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

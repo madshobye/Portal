@@ -9,6 +9,11 @@ import {
   materializeIsfTransitionDefinition,
 } from "../js/libraries/isf-engine/isf-node.js";
 import { parseIsfDocument } from "../js/libraries/isf-engine/isf-document.js";
+import {
+  canonicalizeIsfWebgl2Source,
+  canonicalizeIsfWebgl2VertexSource,
+  VJ1_ISF_WEBGL2_PROFILE,
+} from "../js/libraries/isf-engine/isf-webgl2-profile.js";
 import { currentIsfLibraryCompatibility } from "./isf-library-compatibility.mjs";
 
 const UPSTREAM_COMMIT = "395072d48b3ce7351ccb20a5fda54470591324df";
@@ -33,6 +38,20 @@ if (!process.argv[2] || !fs.existsSync(upstreamRoot)) {
     }
     const destination = path.join(projectRoot, "visual-library", resource);
     if (fs.existsSync(destination)) fs.unlinkSync(destination);
+    const vertexResource = String(artifact.vertexResource || "");
+    if (vertexResource) {
+      if (!vertexResource.startsWith("shaders/isf/")) {
+        throw new Error(
+          `ISF_IMPORT_UNSAFE_RECONCILE_RESOURCE:${vertexResource}`,
+        );
+      }
+      const vertexDestination = path.join(
+        projectRoot,
+        "visual-library",
+        vertexResource,
+      );
+      if (fs.existsSync(vertexDestination)) fs.unlinkSync(vertexDestination);
+    }
   }
   manifest.artifacts = (manifest.artifacts || []).filter((artifact) =>
     !artifact.tags?.includes("isf-compatible-library")
@@ -45,10 +64,14 @@ if (!process.argv[2] || !fs.existsSync(upstreamRoot)) {
 
   for (const filename of upstreamEntries.filter(isFragmentFile).sort()) {
     const sourcePath = path.join(upstreamRoot, filename);
-    const source = normalizeFinalNewline(fs.readFileSync(sourcePath, "utf8"));
-    const document = parseIsfDocument(source, { path: filename });
+    const upstreamSource = normalizeFinalNewline(
+      fs.readFileSync(sourcePath, "utf8"),
+    );
+    const upstreamDocument = parseIsfDocument(upstreamSource, {
+      path: filename,
+    });
     const compatibility = currentIsfLibraryCompatibility(
-      document,
+      upstreamDocument,
       filename,
       upstreamEntries,
     );
@@ -56,20 +79,50 @@ if (!process.argv[2] || !fs.existsSync(upstreamRoot)) {
       excluded.push({ file: filename, reason: compatibility.reason });
       continue;
     }
+    const source = canonicalizeIsfWebgl2Source(upstreamSource, {
+      path: filename,
+    });
+    const document = parseIsfDocument(source, { path: filename });
+    const upstreamVertexName = `${filename.slice(0, -3)}.vs`;
+    const hasVertexStage = upstreamEntries.includes(upstreamVertexName);
+    const vertexSource = hasVertexStage
+      ? canonicalizeIsfWebgl2VertexSource(
+        normalizeFinalNewline(
+          fs.readFileSync(
+            path.join(upstreamRoot, upstreamVertexName),
+            "utf8",
+          ),
+        ),
+        { path: upstreamVertexName },
+      )
+      : "";
 
     const basename = `${slug(filename.replace(/\.fs$/i, ""))}.fs`;
     const kindDirectory = `${document.kind}s`;
     const resource = `shaders/isf/${kindDirectory}/${basename}`;
+    const vertexResource = vertexSource
+      ? resource.replace(/\.fs$/i, ".vs")
+      : "";
     if (existingResources.has(resource)) continue;
 
     const destination = path.join(shaderRoot, kindDirectory, basename);
+    const vertexDestination = vertexResource
+      ? destination.replace(/\.fs$/i, ".vs")
+      : "";
     if (fs.existsSync(destination)) {
       throw new Error(`ISF_IMPORT_UNMANIFESTED_RESOURCE:${resource}`);
+    }
+    if (vertexDestination && fs.existsSync(vertexDestination)) {
+      throw new Error(
+        `ISF_IMPORT_UNMANIFESTED_RESOURCE:${vertexResource}`,
+      );
     }
 
     const definition = createIsfNodeDefinition({
       path: resource,
       source,
+      vertexPath: vertexResource,
+      vertexSource,
       origin: "built-in",
     });
     const materialized = document.kind === "transition"
@@ -88,6 +141,7 @@ if (!process.argv[2] || !fs.existsSync(upstreamRoot)) {
       description: document.description,
       artifactType: document.kind,
       resource,
+      ...(vertexResource ? { vertexResource } : {}),
       categories: unique(["ISF", ...document.categories]),
       tags: unique([
         "isf",
@@ -101,14 +155,25 @@ if (!process.argv[2] || !fs.existsSync(upstreamRoot)) {
         source: "https://github.com/Vidvox/ISF-Files",
         upstreamCommit: UPSTREAM_COMMIT,
       },
+      shaderProfile: VJ1_ISF_WEBGL2_PROFILE,
     };
-    imported.push({ artifact, destination, source });
+    imported.push({
+      artifact,
+      destination,
+      source,
+      vertexDestination,
+      vertexSource,
+    });
     existingResources.add(resource);
+    if (vertexResource) existingResources.add(vertexResource);
   }
 
   for (const entry of imported) {
     fs.mkdirSync(path.dirname(entry.destination), { recursive: true });
     fs.writeFileSync(entry.destination, entry.source);
+    if (entry.vertexDestination) {
+      fs.writeFileSync(entry.vertexDestination, entry.vertexSource);
+    }
   }
   manifest.version = "2.0.0";
   manifest.artifacts.push(...imported.map((entry) => entry.artifact));

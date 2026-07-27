@@ -1,106 +1,104 @@
 /*{
-    "CATEGORIES": [
-        "Stylize",
-        "Feedback",
-        "Color Effect"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": -0.5,
-            "LABEL": "Bias",
-            "MAX": 0,
-            "MIN": -1,
-            "NAME": "uBias",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "LABEL": "Scale",
-            "MAX": 2,
-            "MIN": 0,
-            "NAME": "uScale",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 5,
-            "LABEL": "Ghosts",
-            "MAX": 5,
-            "MIN": 0,
-            "NAME": "uGhosts",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.0125,
-            "LABEL": "Ghost Dispersal",
-            "MAX": 0.1,
-            "MIN": 0,
-            "NAME": "uGhostDispersal",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Additive Mode",
-            "NAME": "uAdditive",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "LABEL": "Direction",
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "uDirection",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": [
-                0.9,
-                0.8,
-                0.7,
-                1
-            ],
-            "LABEL": "Lens Color",
-            "NAME": "uLensColor",
-            "TYPE": "color"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "DESCRIPTION": "Downsample and threshold",
-            "HEIGHT": "floor($HEIGHT/1.0)",
-            "TARGET": "downsampleAndThresholdImage",
-            "WIDTH": "floor($WIDTH/1.0)"
-        },
-        {
-        }
-    ]
-}
-*/
-
-
-
+  "CATEGORIES": [
+    "Stylize",
+    "Feedback",
+    "Color Effect"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": -0.5,
+      "LABEL": "Bias",
+      "MAX": 0,
+      "MIN": -1,
+      "NAME": "uBias",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "LABEL": "Scale",
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "uScale",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 5,
+      "LABEL": "Ghosts",
+      "MAX": 5,
+      "MIN": 0,
+      "NAME": "uGhosts",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.0125,
+      "LABEL": "Ghost Dispersal",
+      "MAX": 0.1,
+      "MIN": 0,
+      "NAME": "uGhostDispersal",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Additive Mode",
+      "NAME": "uAdditive",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "LABEL": "Direction",
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "uDirection",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": [
+        0.9,
+        0.8,
+        0.7,
+        1
+      ],
+      "LABEL": "Lens Color",
+      "NAME": "uLensColor",
+      "TYPE": "color"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "DESCRIPTION": "Downsample and threshold",
+      "HEIGHT": "floor($HEIGHT/1.0)",
+      "TARGET": "downsampleAndThresholdImage",
+      "WIDTH": "floor($WIDTH/1.0)"
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()
 {
 
 	if (PASSINDEX == 0)	{
 		vec2 loc = isf_FragNormCoord;
-		gl_FragColor = max(vec4(0.0), IMG_NORM_PIXEL(inputImage,loc) + uBias) * uScale;
+		isf_FragColor = max(vec4(0.0), IMG_NORM_PIXEL(inputImage,loc) + uBias) * uScale;
 	}
 	else if (PASSINDEX == 1)	{
 		vec2 texcoord = isf_FragNormCoord;
@@ -124,7 +122,7 @@ void main()
 		else	{
 			result = result * IMG_NORM_PIXEL(inputImage, texcoord);
 		}
-		gl_FragColor = result;
+		isf_FragColor = result;
 	}
 
 }

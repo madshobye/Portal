@@ -1,66 +1,67 @@
 /*{
-    "CATEGORIES": [
-        "Geometry"
-    ],
-    "CREDIT": "",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "DEFAULT": 5,
-            "LABEL": "Point Count",
-            "MAX": 20,
-            "MIN": 3,
-            "NAME": "pointCount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 5,
-            "LABEL": "Buldge Amount",
-            "MAX": 10,
-            "MIN": 0,
-            "NAME": "buldge",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.1,
-            "LABEL": "Radius Inside",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "pointRadiusInside",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.1,
-            "LABEL": "Radius Outside",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "pointRadiusOutside",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Rotation",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "pointRotation",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                1,
-                1,
-                1,
-                1
-            ],
-            "LABEL": "Star Color",
-            "NAME": "starColor",
-            "TYPE": "color"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Geometry"
+  ],
+  "CREDIT": "",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "DEFAULT": 5,
+      "LABEL": "Point Count",
+      "MAX": 20,
+      "MIN": 3,
+      "NAME": "pointCount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 5,
+      "LABEL": "Buldge Amount",
+      "MAX": 10,
+      "MIN": 0,
+      "NAME": "buldge",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.1,
+      "LABEL": "Radius Inside",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "pointRadiusInside",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.1,
+      "LABEL": "Radius Outside",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "pointRadiusOutside",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Rotation",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "pointRotation",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "LABEL": "Star Color",
+      "NAME": "starColor",
+      "TYPE": "color"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float rand(vec2 co){
     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
@@ -91,5 +92,5 @@ void main()	{
 	rd = pointRadiusOutside * pow(at,starness) + pointRadiusInside;
 	inputPixelColor = (r < rd) ? starColor : inputPixelColor;
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

@@ -1,62 +1,63 @@
 /*{
-    "CATEGORIES": [
-        "Geometry"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "rotation",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 2,
-            "MAX": 50,
-            "MIN": 0.1,
-            "NAME": "count",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.125,
-            "MAX": 0.25,
-            "MIN": 0,
-            "NAME": "width",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "softness",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                0,
-                0
-            ],
-            "NAME": "color1",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                1,
-                1,
-                1,
-                1
-            ],
-            "NAME": "color2",
-            "TYPE": "color"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Geometry"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "rotation",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 2,
+      "MAX": 50,
+      "MIN": 0.1,
+      "NAME": "count",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.125,
+      "MAX": 0.25,
+      "MIN": 0,
+      "NAME": "width",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "softness",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "NAME": "color1",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "NAME": "color2",
+      "TYPE": "color"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -103,5 +104,5 @@ void main() {
 		}
 	}
 	
-	gl_FragColor = out_color;
+	isf_FragColor = out_color;
 }

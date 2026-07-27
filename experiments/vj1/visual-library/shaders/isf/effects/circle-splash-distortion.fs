@@ -1,51 +1,49 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Distortion Effect"
   ],
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "radius",
-      "TYPE" : "float",
-      "MAX" : 0.75,
-      "DEFAULT" : 0.125,
-      "MIN" : 0
+      "NAME": "radius",
+      "TYPE": "float",
+      "MAX": 0.75,
+      "DEFAULT": 0.125,
+      "MIN": 0
     },
     {
-      "NAME" : "streaks",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "streaks",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "center",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "center",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.5
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     }
   ],
-  "CREDIT" : "by VIDVOX"
-}
-*/
-
-
-
+  "CREDIT": "by VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Pretty simple ‚Äì¬ if we're inside the radius, draw as normal
 //	If we're outside the circle grab the last color along the angle
@@ -88,7 +86,7 @@ void main() {
 	vec2 loc = tc / texSize;
 
 	if ((loc.x < 0.0)||(loc.y < 0.0)||(loc.x > 1.0)||(loc.y > 1.0))	{
-		gl_FragColor = vec4(0.0);
+		isf_FragColor = vec4(0.0);
 	}
 	else	{
 		vec4 result = IMG_NORM_PIXEL(inputImage, loc);
@@ -97,6 +95,6 @@ void main() {
 			vec4 mixColor = IMG_NORM_PIXEL(inputImage, loc2);
 			result = mix(result, mixColor, clamp(2.0*((r - radius_sized)/(render_length))*streaks,0.0,1.0));
 		}
-		gl_FragColor = result;
+		isf_FragColor = result;
 	}
 }

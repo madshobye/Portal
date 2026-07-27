@@ -1,43 +1,44 @@
 /*{
-    "CATEGORIES": [
-        "Stylize",
-        "Film",
-        "Color Effect",
-        "v002"
-    ],
-    "CREDIT": "by v002",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "amount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABELS": [
-                "Strip additive",
-                "Strip subtractive",
-                "Strip matte"
-            ],
-            "NAME": "style",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2
-            ]
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Stylize",
+    "Film",
+    "Color Effect",
+    "v002"
+  ],
+  "CREDIT": "by v002",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "amount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABELS": [
+        "Strip additive",
+        "Strip subtractive",
+        "Strip matte"
+      ],
+      "NAME": "style",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2
+      ]
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Based on v002 technicolor – https://github.com/v002/v002-Film-Effects/
 
@@ -105,5 +106,5 @@ void main (void)
 		result = mix(input0, result, amount);
 		result.a = input0.a;	
 	}
-	gl_FragColor = result;		
+	isf_FragColor = result;
 }

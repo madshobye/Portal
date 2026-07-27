@@ -1,48 +1,49 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "radius",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 10,
-            "MIN": -10,
-            "NAME": "amount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "center",
-            "TYPE": "point2D"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Distortion Effect"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "radius",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 10,
+      "MIN": -10,
+      "NAME": "amount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "center",
+      "TYPE": "point2D"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -67,9 +68,9 @@ void main (void)
 	vec4 color = IMG_NORM_PIXEL(inputImage, loc);
 
 	if ((loc.x < 0.0)||(loc.y < 0.0)||(loc.x > 1.0)||(loc.y > 1.0))	{
-		gl_FragColor = vec4(0.0);
+		isf_FragColor = vec4(0.0);
 	}
 	else	{
-		gl_FragColor = color;
+		isf_FragColor = color;
 	}
 }

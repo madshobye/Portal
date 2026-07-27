@@ -717,7 +717,7 @@ test("portable and code-owned visual primitives compile through their declared d
   const blackDefinition = packageRoot.registry.get(black.nodeId, black.nodeVersion);
   assert.match(
     blackDefinition.parts.find((part) => part.language === "isf")?.source || "",
-    /gl_FragColor = vec4\(0\.0, 0\.0, 0\.0, 1\.0\)/,
+    /isf_FragColor = vec4\(0\.0, 0\.0, 0\.0, 1\.0\)/,
   );
 
   const checker = programs.get("checker-component").plan.operations[0];

@@ -1,68 +1,68 @@
 /*{
-    "CATEGORIES": [
-        "Glitch"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Pixels update only based on the masking image",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "LABEL": "mask image",
-            "NAME": "maskImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "mask size mode",
-            "LABELS": [
-                "Fit",
-                "Fill",
-                "Stretch",
-                "Copy"
-            ],
-            "NAME": "maskSizingMode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2,
-                3
-            ]
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": -1,
-            "NAME": "bright",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 4,
-            "MIN": -4,
-            "NAME": "contrast",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "NAME": "RGB_mode",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "PERSISTENT": true,
-            "TARGET": "bufferVariableNameA"
-        }
-    ]
-}
-*/
-
-
+  "CATEGORIES": [
+    "Glitch"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Pixels update only based on the masking image",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "LABEL": "mask image",
+      "NAME": "maskImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "mask size mode",
+      "LABELS": [
+        "Fit",
+        "Fill",
+        "Stretch",
+        "Copy"
+      ],
+      "NAME": "maskSizingMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "bright",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 4,
+      "MIN": -4,
+      "NAME": "contrast",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "NAME": "RGB_mode",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "PERSISTENT": true,
+      "TARGET": "bufferVariableNameA"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //const vec4		lumcoeff = vec4(0.299, 0.587, 0.114, 0.0);
 const vec4 		lumcoeff = vec4(0.2126, 0.7152, 0.0722, 0.0);
@@ -108,7 +108,7 @@ void main()
 		result = mix(freshPixel, stalePixel, clamp(luminance,0.0,1.0));
 	}
 
-	gl_FragColor = result;
+	isf_FragColor = result;
 }
 
 

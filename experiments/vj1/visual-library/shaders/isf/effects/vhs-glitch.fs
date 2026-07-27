@@ -1,139 +1,138 @@
 /*{
-    "CATEGORIES": [
-        "Glitch",
-        "Retro"
-    ],
-    "CREDIT": "David Lublin, original by Staffan Widegarn Åhlvik",
-    "DESCRIPTION": "VHS Glitch Style",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 1,
-            "NAME": "autoScan",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "xScanline",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "xScanline2",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "yScanline",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "xScanlineSize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "xScanlineSize2",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": -1,
-            "NAME": "yScanlineAmount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 3,
-            "MIN": 0,
-            "NAME": "grainLevel",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "NAME": "scanFollow",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 10,
-            "MIN": 0,
-            "NAME": "analogDistort",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 3,
-            "MIN": 0,
-            "NAME": "bleedAmount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "bleedDistort",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 2,
-            "MIN": 0,
-            "NAME": "bleedRange",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.8,
-                0,
-                0.4,
-                1
-            ],
-            "NAME": "colorBleedL",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0.5,
-                0.75,
-                1
-            ],
-            "NAME": "colorBleedC",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0.8,
-                0,
-                0.4,
-                1
-            ],
-            "NAME": "colorBleedR",
-            "TYPE": "color"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
-
+  "CATEGORIES": [
+    "Glitch",
+    "Retro"
+  ],
+  "CREDIT": "David Lublin, original by Staffan Widegarn Åhlvik",
+  "DESCRIPTION": "VHS Glitch Style",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 1,
+      "NAME": "autoScan",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "xScanline",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "xScanline2",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "yScanline",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "xScanlineSize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "xScanlineSize2",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "yScanlineAmount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 3,
+      "MIN": 0,
+      "NAME": "grainLevel",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "NAME": "scanFollow",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 10,
+      "MIN": 0,
+      "NAME": "analogDistort",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 3,
+      "MIN": 0,
+      "NAME": "bleedAmount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "bleedDistort",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "bleedRange",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0.8,
+        0,
+        0.4,
+        1
+      ],
+      "NAME": "colorBleedL",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0.5,
+        0.75,
+        1
+      ],
+      "NAME": "colorBleedC",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0.8,
+        0,
+        0.4,
+        1
+      ],
+      "NAME": "colorBleedR",
+      "TYPE": "color"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Based on https://github.com/staffantan/unity-vhsglitch
 //	Converted by David Lublin / VIDVOX
@@ -210,5 +209,5 @@ void main()	{
 		else
 			c += bleed * colorBleed;
 	}
-	gl_FragColor = c;
+	isf_FragColor = c;
 }

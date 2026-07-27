@@ -1,78 +1,77 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Film",
     "Masking"
   ],
-  "DESCRIPTION" : "Value Noise",
-  "INPUTS" : [
+  "DESCRIPTION": "Value Noise",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "scale",
-      "TYPE" : "float",
-      "MAX" : 100,
-      "DEFAULT" : 9,
-      "MIN" : 0,
-      "LABEL" : "Dirt Size"
+      "NAME": "scale",
+      "TYPE": "float",
+      "MAX": 100,
+      "DEFAULT": 9,
+      "MIN": 0,
+      "LABEL": "Dirt Size"
     },
     {
-      "NAME" : "brightness",
-      "TYPE" : "float",
-      "MAX" : 4,
-      "DEFAULT" : 0.5,
-      "MIN" : 0,
-      "LABEL" : "Dirt Thickness"
+      "NAME": "brightness",
+      "TYPE": "float",
+      "MAX": 4,
+      "DEFAULT": 0.5,
+      "MIN": 0,
+      "LABEL": "Dirt Thickness"
     },
     {
-      "NAME" : "brightnessCurve",
-      "TYPE" : "float",
-      "MAX" : 4,
-      "DEFAULT" : 1,
-      "LABEL" : "Dirt Shape",
-      "MIN" : 1
+      "NAME": "brightnessCurve",
+      "TYPE": "float",
+      "MAX": 4,
+      "DEFAULT": 1,
+      "LABEL": "Dirt Shape",
+      "MIN": 1
     },
     {
-      "NAME" : "radius",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.5,
-      "LABEL" : "Dirt Spread",
-      "MIN" : 0
+      "NAME": "radius",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.5,
+      "LABEL": "Dirt Spread",
+      "MIN": 0
     },
     {
-      "NAME" : "noiseSeed",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0,
-      "LABEL" : "Dirt Seed"
+      "NAME": "noiseSeed",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0,
+      "LABEL": "Dirt Seed"
     },
     {
-      "LABELS" : [
+      "LABELS": [
         "Original",
         "Multiply",
         "Replace"
       ],
-      "NAME" : "alphaMode",
-      "TYPE" : "long",
-      "IDENTITY" : 0,
-      "LABEL" : "Alpha Mode",
-      "VALUES" : [
+      "NAME": "alphaMode",
+      "TYPE": "long",
+      "IDENTITY": 0,
+      "LABEL": "Alpha Mode",
+      "VALUES": [
         0,
         1,
         2
       ]
     }
   ],
-  "ISFVSN" : "2",
-  "CREDIT" : "Inigo Quilez ported by @colin_movecraft and VIDVOX"
-}
-*/
-
-
+  "ISFVSN": "2",
+  "CREDIT": "Inigo Quilez ported by @colin_movecraft and VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 // Value Noise (http://en.wikipedia.org/wiki/Value_noise), not to be confused with Perlin's
 // Noise, is probably the simplest way to generate noise (a random smooth signal with 
@@ -156,7 +155,7 @@ void main(){
 		returnMe.a *= f;
 	else if (alphaMode == 2)
 		returnMe.a = f;
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }
 
 

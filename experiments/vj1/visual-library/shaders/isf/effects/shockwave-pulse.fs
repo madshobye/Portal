@@ -1,78 +1,75 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Distortion Effect"
   ],
-  "DESCRIPTION" : "",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "pulse",
-      "TYPE" : "event"
+      "NAME": "pulse",
+      "TYPE": "event"
     },
     {
-      "NAME" : "rate",
-      "TYPE" : "float",
-      "MAX" : 4,
-      "DEFAULT" : 1,
-      "LABEL" : "rate",
-      "MIN" : 0
+      "NAME": "rate",
+      "TYPE": "float",
+      "MAX": 4,
+      "DEFAULT": 1,
+      "LABEL": "rate",
+      "MIN": 0
     },
     {
-      "NAME" : "magnitude",
-      "TYPE" : "float",
-      "MAX" : 0.20000000000000001,
-      "DEFAULT" : 0.080000000000000002,
-      "LABEL" : "magnitude",
-      "MIN" : 0
+      "NAME": "magnitude",
+      "TYPE": "float",
+      "MAX": 0.2,
+      "DEFAULT": 0.08,
+      "LABEL": "magnitude",
+      "MIN": 0
     },
     {
-      "NAME" : "distortion",
-      "TYPE" : "float",
-      "MAX" : 20,
-      "DEFAULT" : 10,
-      "LABEL" : "distortion",
-      "MIN" : 0
+      "NAME": "distortion",
+      "TYPE": "float",
+      "MAX": 20,
+      "DEFAULT": 10,
+      "LABEL": "distortion",
+      "MIN": 0
     },
     {
-      "NAME" : "center",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "center",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.5
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     }
   ],
-  "PASSES" : [
+  "PASSES": [
     {
-      "PERSISTENT" : true,
-      "WIDTH" : "1",
-      "DESCRIPTION" : "this buffer stores the last frame's time offset in the first component of its only pixel- note that it's requesting a FLOAT target buffer...",
-      "HEIGHT" : "1",
-      "TARGET" : "lastTime",
-      "FLOAT" : true
+      "PERSISTENT": true,
+      "WIDTH": "1",
+      "DESCRIPTION": "this buffer stores the last frame's time offset in the first component of its only pixel- note that it's requesting a FLOAT target buffer...",
+      "HEIGHT": "1",
+      "TARGET": "lastTime",
+      "FLOAT": true
     },
-    {
-
-    }
+    {}
   ],
-  "CREDIT" : "by VIDVOX"
-}
-*/
-
-
+  "CREDIT": "by VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()
 {
@@ -81,7 +78,7 @@ void main()
 		vec4		srcPixel = IMG_PIXEL(lastTime,vec2(0.5));
 		//	i'm only using the X, which is the last render time we reset
 		srcPixel.r = (pulse && FRAMEINDEX>10) ? 0.0 : clamp(srcPixel.r + rate * 0.01,0.0,1.0);
-		gl_FragColor = srcPixel;
+		isf_FragColor = srcPixel;
 	}
 	//	else this isn't the first pass- read the position value from the buffer which stores it
 	else	{
@@ -100,6 +97,6 @@ void main()
 			vec2 diffUV = normalize(uv - mod_center); 
 			texCoord = uv + (diffUV * diffTime);
 		} 
-		gl_FragColor = IMG_NORM_PIXEL(inputImage, texCoord);
+		isf_FragColor = IMG_NORM_PIXEL(inputImage, texCoord);
 	}
 }

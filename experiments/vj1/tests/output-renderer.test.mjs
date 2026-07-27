@@ -5481,7 +5481,11 @@ test("Preview and Output resolve one project transition kernel and parameter con
     source: `/*{
       "ISFVSN": "2.0",
       "LABEL": "Mode Contract",
-      "VJ1": { "ID": "org.vj1.transition.mode-contract", "VERSION": "1.0.0" },
+      "VJ1": {
+        "ID": "org.vj1.transition.mode-contract",
+        "VERSION": "1.0.0",
+        "PROFILE": "vj1-isf-webgl2@1"
+      },
       "INPUTS": [
         { "NAME": "startImage", "TYPE": "image" },
         { "NAME": "endImage", "TYPE": "image" },
@@ -5491,7 +5495,7 @@ test("Preview and Output resolve one project transition kernel and parameter con
     }*/
     void main() {
       float edge = smoothstep(progress - softness, progress + softness, isf_FragNormCoord.x);
-      gl_FragColor = mix(
+      isf_FragColor = mix(
         IMG_THIS_NORM_PIXEL(startImage),
         IMG_THIS_NORM_PIXEL(endImage),
         edge

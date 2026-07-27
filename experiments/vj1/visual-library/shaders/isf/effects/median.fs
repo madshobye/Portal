@@ -1,28 +1,28 @@
 /*{
-	"DESCRIPTION": "",
-	"CREDIT": "VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Blur"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "radius",
-			"LABEL": "Radius",
-			"TYPE": "float",
-			"DEFAULT": 4.0,
-			"MIN": 0.0,
-			"MAX": 8.0
-		}
-	]
-	
+  "DESCRIPTION": "",
+  "CREDIT": "VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Blur"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "radius",
+      "LABEL": "Radius",
+      "TYPE": "float",
+      "DEFAULT": 4,
+      "MIN": 0,
+      "MAX": 8
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 //	adapted from 
 //	3x3 Median by Morgan McGuire and Kyle Whitson 
@@ -66,5 +66,5 @@ void main()	{
 	mnmx4(v[2], v[3], v[4], v[7]);
 	mnmx3(v[3], v[4], v[8]);
 	
-	gl_FragColor = v[4];
+	isf_FragColor = v[4];
 }

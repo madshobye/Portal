@@ -1,28 +1,27 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Color"
   ],
-  "DESCRIPTION" : "Displays Data Over Time",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "Displays Data Over Time",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "LABELS" : [
+      "LABELS": [
         "Color",
         "Lines"
       ],
-      "NAME" : "displayMode",
-      "TYPE" : "long",
-      "DEFAULT" : 0,
-      "VALUES" : [
+      "NAME": "displayMode",
+      "TYPE": "long",
+      "DEFAULT": 0,
+      "VALUES": [
         0,
         1
       ]
     },
     {
-      "NAME" : "data",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "data",
+      "TYPE": "color",
+      "DEFAULT": [
         0.95,
         0.25,
         0,
@@ -30,21 +29,21 @@
       ]
     }
   ],
-  "PASSES" : [
+  "PASSES": [
     {
-      "PERSISTENT" : true,
-      "WIDTH" : "$WIDTH",
-      "HEIGHT" : "1",
-      "TARGET" : "dataHistory",
-      "FLOAT" : true
+      "PERSISTENT": true,
+      "WIDTH": "$WIDTH",
+      "HEIGHT": "1",
+      "TARGET": "dataHistory",
+      "FLOAT": true
     },
-    {
-
-    }
+    {}
   ],
-  "CREDIT" : "VIDVOX"
-}
-*/
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()	{
 	vec4		inputPixelColor = vec4(0.0);
@@ -84,5 +83,5 @@ void main()	{
 		}
 		
 	}
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

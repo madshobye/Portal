@@ -136,12 +136,23 @@
           preserveDrawingBuffer: true,
         });
         if (!gl) throw new Error("WEBGL_CONTEXT_UNAVAILABLE");
+        const isfCanvas = document.createElement("canvas");
+        isfCanvas.width = 8;
+        isfCanvas.height = 8;
+        const isfGl = isfCanvas.getContext("webgl2", {
+          alpha: true,
+          antialias: false,
+          depth: false,
+          premultipliedAlpha: true,
+          preserveDrawingBuffer: true,
+        });
+        if (!isfGl) throw new Error("WEBGL2_ISF_CONTEXT_UNAVAILABLE");
 
-        const transition = verifyTransition(gl);
+        const transition = verifyTransition(isfGl);
         const transparentLayerBlend = verifyTransparentLayerBlend(gl);
-        const namedIsfInputs = verifyNamedIsfInputs(gl);
+        const namedIsfInputs = verifyNamedIsfInputs(isfGl);
         const builtInIsf = verifyBuiltInIsf(gl);
-        const curatedIsf = verifyCuratedIsf(gl);
+        const curatedIsf = verifyCuratedIsf(isfGl);
         const nativeShaders = [
           compilePair(gl, "mesh-pattern-fill", MESH_PATTERN_FILL_VERTEX_SHADER, MESH_PATTERN_FILL_FRAGMENT_SHADER),
           compilePair(gl, "mesh-pattern-wire", MESH_PATTERN_WIRE_VERTEX_SHADER, MESH_PATTERN_WIRE_FRAGMENT_SHADER),
@@ -226,6 +237,7 @@
           resourceCounts.texturesCreated === resourceCounts.texturesDeleted &&
           resourceCounts.buffersCreated === resourceCounts.buffersDeleted;
         const glError = gl.getError();
+        const isfGlError = isfGl.getError();
         const ok =
           transition.compiled &&
           transition.linked &&
@@ -251,9 +263,9 @@
           builtInIsf.premultipliedThresholdEquivalent &&
           curatedIsf.compiled &&
           curatedIsf.linked &&
-          curatedIsf.generators === 46 &&
-          curatedIsf.effects === 152 &&
-          curatedIsf.transitions === 62 &&
+          curatedIsf.generators === 49 &&
+          curatedIsf.effects === 202 &&
+          curatedIsf.transitions === 56 &&
           nativeShaders.every((entry) => entry.compiled && entry.linked) &&
           compounds.every((entry) => entry.compiledFastPath && entry.graphEditable && entry.activation === "recompile") &&
           compounds.find((entry) => entry.kind === "project-media")?.directPlacement === true &&
@@ -298,13 +310,16 @@
           aggregateMetrics.overallMeasured &&
           aggregateMetrics.gpuPreserved &&
           resourcesBalanced &&
-          glError === gl.NO_ERROR;
+          glError === gl.NO_ERROR &&
+          isfGlError === isfGl.NO_ERROR;
         report({
           ok,
           webgl: {
             renderer: gl.getParameter(gl.RENDERER),
             version: gl.getParameter(gl.VERSION),
             glError,
+            isfVersion: isfGl.getParameter(isfGl.VERSION),
+            isfGlError,
           },
           transition,
           transparentLayerBlend,
@@ -757,8 +772,12 @@
       function verifyTemporalInvalidation() {
         const definition = createIsfNodeDefinition({
           path: "shaders/browser-smoke.fs",
-          source: `/*{ "ISFVSN": "2.0", "LABEL": "Browser Smoke" }*/
-            void main() { gl_FragColor = vec4(fract(TIME)); }`,
+          source: `/*{
+            "ISFVSN": "2.0",
+            "LABEL": "Browser Smoke",
+            "VJ1": { "PROFILE": "vj1-isf-webgl2@1" }
+          }*/
+            void main() { isf_FragColor = vec4(fract(TIME)); }`,
         });
         structuredClone(definition);
         const node = {
@@ -950,10 +969,10 @@
       function verifyTransition(gl) {
         const transitionEntry = DefaultBuiltInTransition;
         const transitionKernel = transitionEntry.kernel;
-        const vertexSource = `
+        const vertexSource = `#version 300 es
           precision highp float;
-          attribute vec2 aPosition;
-          varying vec2 vTexCoord;
+          in vec2 aPosition;
+          out vec2 vTexCoord;
           void main() {
             vTexCoord = aPosition * 0.5 + 0.5;
             gl_Position = vec4(aPosition, 0.0, 1.0);
@@ -1307,10 +1326,10 @@
       }
 
       function verifyCuratedIsf(gl) {
-        const vertexSource = `
+        const vertexSource = `#version 300 es
           precision highp float;
-          attribute vec2 aPosition;
-          varying vec2 vTexCoord;
+          in vec2 aPosition;
+          out vec2 vTexCoord;
           void main() {
             vTexCoord = aPosition * 0.5 + 0.5;
             gl_Position = vec4(aPosition, 0.0, 1.0);
@@ -1331,13 +1350,13 @@
           ...generators.map((component) => compileCuratedPair(
             gl,
             `curated-isf-generator:${component.id}`,
-            vertexSource,
+            component.vertexCode || vertexSource,
             component.code,
           )),
           ...effects.map((component) => compileCuratedPair(
             gl,
             `curated-isf-effect:${component.id}`,
-            vertexSource,
+            component.vertexCode || vertexSource,
             component.code,
           )),
           ...transitions.map((entry) => compileCuratedPair(
@@ -1364,23 +1383,24 @@
           source: `/*{
             "ISFVSN": "2.0",
             "LABEL": "Browser Two Image",
+            "VJ1": { "PROFILE": "vj1-isf-webgl2@1" },
             "INPUTS": [
               { "NAME": "foreground", "TYPE": "image" },
               { "NAME": "background", "TYPE": "image" }
             ]
           }*/
           void main() {
-            gl_FragColor = mix(
+            isf_FragColor = mix(
               IMG_THIS_NORM_PIXEL(background),
               IMG_THIS_NORM_PIXEL(foreground),
               0.5
             );
           }`,
         });
-        const vertexSource = `
+        const vertexSource = `#version 300 es
           precision highp float;
-          attribute vec2 aPosition;
-          varying vec2 vTexCoord;
+          in vec2 aPosition;
+          out vec2 vTexCoord;
           void main() {
             vTexCoord = aPosition * 0.5 + 0.5;
             gl_Position = vec4(aPosition, 0.0, 1.0);

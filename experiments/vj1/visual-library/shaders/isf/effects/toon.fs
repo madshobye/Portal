@@ -1,30 +1,32 @@
-
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Stylize"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "normalEdgeThreshold",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 0.1,
-			"DEFAULT": 0.03
-		},
-		{
-			"NAME": "qLevel",
-			"TYPE": "float",
-			"MIN": 2.0,
-			"MAX": 64.0,
-			"DEFAULT": 32.0
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Stylize"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "normalEdgeThreshold",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 0.1,
+      "DEFAULT": 0.03
+    },
+    {
+      "NAME": "qLevel",
+      "TYPE": "float",
+      "MIN": 2,
+      "MAX": 64,
+      "DEFAULT": 32
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 //	with help from https://github.com/neilmendoza/ofxPostProcessing/blob/master/src/ToonPass.cpp
@@ -60,7 +62,7 @@ void main(void){
 	}
 
 	//end Line;
-	//gl_FragColor = line;
+	//isf_FragColor = line;
 	
 	vec4 color = IMG_THIS_PIXEL(inputImage);
 
@@ -71,6 +73,6 @@ void main(void){
 	// set fragment/pixel color
 	color.a = alpha;
 
-	gl_FragColor = color * line;
+	isf_FragColor = color * line;
 	
 }

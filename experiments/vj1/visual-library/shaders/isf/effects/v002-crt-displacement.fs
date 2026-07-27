@@ -1,27 +1,29 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect",
-        "Retro",
-        "v002"
-    ],
-    "CREDIT": "by vade",
-    "DESCRIPTION": "CRT Displacement, emulating the look of curved CRT Displays",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "Amount",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Distortion Effect",
+    "Retro",
+    "v002"
+  ],
+  "CREDIT": "by vade",
+  "DESCRIPTION": "CRT Displacement, emulating the look of curved CRT Displays",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "Amount",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main (void) 
 { 
@@ -43,13 +45,13 @@ void main (void)
 
 	t2  = ctr + ( t1 - ctr) * sc;
 	
-	gl_FragColor = IMG_PIXEL(inputImage, t2);
+	isf_FragColor = IMG_PIXEL(inputImage, t2);
 			
 	if ((t2.x < 0.0)
 		||(t2.y < 0.0)
 		||(t2.x > RENDERSIZE.x)
 		||(t2.y > RENDERSIZE.y)) 
 	{
-		gl_FragColor = vec4(0.0);
+		isf_FragColor = vec4(0.0);
 	}
 }

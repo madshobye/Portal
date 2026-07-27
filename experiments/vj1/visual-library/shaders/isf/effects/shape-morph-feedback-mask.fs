@@ -1,168 +1,170 @@
 /*{
-    "CATEGORIES": [
-        "Feedback"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "maskRadius",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 16,
-            "MIN": 0,
-            "NAME": "feedbackRate",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "mixPoint",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABELS": [
-                "Circle",
-                "Triangle",
-                "Rect",
-                "Pentagram",
-                "Hexagon",
-                "Star1",
-                "Star2",
-                "Heart",
-                "Rays"
-            ],
-            "NAME": "shape1",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8
-            ]
-        },
-        {
-            "DEFAULT": 1,
-            "LABELS": [
-                "Circle",
-                "Triangle",
-                "Rect",
-                "Pentagram",
-                "Hexagon",
-                "Star1",
-                "Star2",
-                "Heart",
-                "Rays"
-            ],
-            "NAME": "shape2",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5,
-                6,
-                7,
-                8
-            ]
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 2,
-            "MIN": 0,
-            "NAME": "shapeWobble",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 0.25,
-            "MIN": -0.25,
-            "NAME": "twirlAmount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "fadeRate",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.1,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "centerFeedback",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "feedbackCenter",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": 2,
-            "LABELS": [
-                "Mask",
-                "CenteredMask",
-                "Scaled",
-                "Wrap",
-                "MirrorWrap",
-                "InvertedMask"
-            ],
-            "NAME": "styleMode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2,
-                3,
-                4,
-                5
-            ]
-        },
-        {
-            "NAME": "clearBuffer",
-            "TYPE": "event"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "PERSISTENT": true,
-            "TARGET": "feedbackBuffer"
-        }
-    ]
-}
-*/
+  "CATEGORIES": [
+    "Feedback"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "maskRadius",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 16,
+      "MIN": 0,
+      "NAME": "feedbackRate",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "mixPoint",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABELS": [
+        "Circle",
+        "Triangle",
+        "Rect",
+        "Pentagram",
+        "Hexagon",
+        "Star1",
+        "Star2",
+        "Heart",
+        "Rays"
+      ],
+      "NAME": "shape1",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "DEFAULT": 1,
+      "LABELS": [
+        "Circle",
+        "Triangle",
+        "Rect",
+        "Pentagram",
+        "Hexagon",
+        "Star1",
+        "Star2",
+        "Heart",
+        "Rays"
+      ],
+      "NAME": "shape2",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ]
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "shapeWobble",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 0.25,
+      "MIN": -0.25,
+      "NAME": "twirlAmount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "fadeRate",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.1,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "centerFeedback",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "feedbackCenter",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": 2,
+      "LABELS": [
+        "Mask",
+        "CenteredMask",
+        "Scaled",
+        "Wrap",
+        "MirrorWrap",
+        "InvertedMask"
+      ],
+      "NAME": "styleMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    },
+    {
+      "NAME": "clearBuffer",
+      "TYPE": "event"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "PERSISTENT": true,
+      "TARGET": "feedbackBuffer"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.1415926535897932384626433832795;
 const float tau =  6.2831853071795864769252867665590;
@@ -317,5 +319,5 @@ void main()	{
 		//inputPixelColor = vec4(shift.x*2.0-1.0,shift.y*2.0-1.0,0.0,1.0);
 	}
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

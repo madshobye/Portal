@@ -1,66 +1,67 @@
 /*{
-	"CREDIT": "by Carter Rosenberg",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color"
-	],
-	"INPUTS": [
-		{
-			"NAME": "offset",
-			"TYPE": "float",
-			"DEFAULT": 0.5
-		},
-		{
-			"NAME": "frequency",
-			"TYPE": "float",
-			"MAX": 16.0,
-			"MIN": 1.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "curve",
-			"TYPE": "long",
-			"VALUES": [
-				0,
-				1,
-				2
-			],
-			"LABELS": [
-				"Linear",
-				"Sine",
-				"Exponential"
-			],
-			"DEFAULT": 0
-		},
-		{
-			"NAME": "vertical",
-			"TYPE": "bool",
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "startColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				1.0,
-				0.75,
-				0.0,
-				1.0
-			]
-		},
-		{
-			"NAME": "endColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.0,
-				0.25,
-				0.75,
-				1.0
-			]
-		}
-	]
+  "CREDIT": "by Carter Rosenberg",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "offset",
+      "TYPE": "float",
+      "DEFAULT": 0.5
+    },
+    {
+      "NAME": "frequency",
+      "TYPE": "float",
+      "MAX": 16,
+      "MIN": 1,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "curve",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2
+      ],
+      "LABELS": [
+        "Linear",
+        "Sine",
+        "Exponential"
+      ],
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "vertical",
+      "TYPE": "bool",
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "startColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        1,
+        0.75,
+        0,
+        1
+      ]
+    },
+    {
+      "NAME": "endColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        0,
+        0.25,
+        0.75,
+        1
+      ]
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 const float pi = 3.14159265359;
 const float e = 2.71828182846;
@@ -91,5 +92,5 @@ void main() {
 		mixAmount = pow(mixAmount, 2.0);
 	}
 	
-	gl_FragColor = mix(startColor,endColor,mixAmount);
+	isf_FragColor = mix(startColor,endColor,mixAmount);
 }

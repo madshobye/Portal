@@ -1,5 +1,6 @@
 import {
   textureTransitionFragmentShaderSource,
+  textureTransitionVertexShaderSource,
   transitionKernelCacheKey,
   transitionKernelUniformValues,
 } from "../libraries/transition-engine/index.js";
@@ -234,7 +235,7 @@ export class TextureOperatorRuntime {
     if (shaders.has(key)) return shaders.get(key);
     try {
       const shaderProgram = target.createShader(
-        RENDER_PASS_VERTEX_SHADER,
+        textureTransitionVertexShaderSource(),
         textureTransitionFragmentShaderSource(kernel),
       );
       shaders.set(key, shaderProgram);

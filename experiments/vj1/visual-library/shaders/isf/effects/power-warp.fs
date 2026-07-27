@@ -1,73 +1,74 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect"
-    ],
-    "CREDIT": "",
-    "DESCRIPTION": "Power curves distortions with shifting",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 4,
-            "MIN": 0.25,
-            "NAME": "power_x",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 4,
-            "MIN": 0.25,
-            "NAME": "power_y",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "shift_x",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "shift_y",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABELS": [
-                "Style 1",
-                "Style 2"
-            ],
-            "NAME": "mode_x",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1
-            ]
-        },
-        {
-            "DEFAULT": 1,
-            "LABELS": [
-                "Style 1",
-                "Style 2"
-            ],
-            "NAME": "mode_y",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1
-            ]
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Distortion Effect"
+  ],
+  "CREDIT": "",
+  "DESCRIPTION": "Power curves distortions with shifting",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 4,
+      "MIN": 0.25,
+      "NAME": "power_x",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 4,
+      "MIN": 0.25,
+      "NAME": "power_y",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "shift_x",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "shift_y",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABELS": [
+        "Style 1",
+        "Style 2"
+      ],
+      "NAME": "mode_x",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1
+      ]
+    },
+    {
+      "DEFAULT": 1,
+      "LABELS": [
+        "Style 1",
+        "Style 2"
+      ],
+      "NAME": "mode_y",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1
+      ]
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -105,5 +106,5 @@ void main()	{
 	
 	inputPixelColor = IMG_NORM_PIXEL(inputImage, pos);
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

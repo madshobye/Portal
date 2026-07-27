@@ -1,25 +1,28 @@
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Geometry Adjustment"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "horizontal",
-			"TYPE": "bool",
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "vertical",
-			"TYPE": "bool",
-			"DEFAULT": 0.0
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Geometry Adjustment"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "horizontal",
+      "TYPE": "bool",
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "vertical",
+      "TYPE": "bool",
+      "DEFAULT": 0
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 void main() {
@@ -37,5 +40,5 @@ void main() {
 		normSrcCoord.y = (1.0-normSrcCoord.y);
 	}
 	
-	gl_FragColor = IMG_NORM_PIXEL(inputImage, normSrcCoord);
+	isf_FragColor = IMG_NORM_PIXEL(inputImage, normSrcCoord);
 }

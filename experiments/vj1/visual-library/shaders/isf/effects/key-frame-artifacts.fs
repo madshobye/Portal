@@ -1,68 +1,67 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Glitch"
   ],
-  "DESCRIPTION" : "Keeps an accumulation of difference since a key frame",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "Keeps an accumulation of difference since a key frame",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "updateKeyFrame",
-      "TYPE" : "bool",
-      "DEFAULT" : 0,
-      "LABEL" : "Update Key Frame"
+      "NAME": "updateKeyFrame",
+      "TYPE": "bool",
+      "DEFAULT": 0,
+      "LABEL": "Update Key Frame"
     },
     {
-      "NAME" : "adaptRate",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "LABEL" : "Adapt Rate",
-      "MIN" : 0
+      "NAME": "adaptRate",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "LABEL": "Adapt Rate",
+      "MIN": 0
     },
     {
-      "NAME" : "numColors",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 1,
-      "LABEL" : "Color Quality",
-      "MIN" : 0
+      "NAME": "numColors",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 1,
+      "LABEL": "Color Quality",
+      "MIN": 0
     },
     {
-      "NAME" : "buffQuality",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 1.0,
-      "LABEL" : "Buffer Quality",
-      "MIN" : 0
+      "NAME": "buffQuality",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 1,
+      "LABEL": "Buffer Quality",
+      "MIN": 0
     }
   ],
-  "PASSES" : [
+  "PASSES": [
     {
-      "TARGET" : "keyFrame",
-      "PERSISTENT" : true
+      "TARGET": "keyFrame",
+      "PERSISTENT": true
     },
     {
-      "TARGET" : "diffFrame",
-      "PERSISTENT" : true,
-      "WIDTH" : "max(8.0,floor($WIDTH*$buffQuality))",
-      "HEIGHT" : "max(8.0,floor($HEIGHT*$buffQuality))"
+      "TARGET": "diffFrame",
+      "PERSISTENT": true,
+      "WIDTH": "max(8.0,floor($WIDTH*$buffQuality))",
+      "HEIGHT": "max(8.0,floor($HEIGHT*$buffQuality))"
     },
     {
-      "TARGET" : "lastFrame",
-      "PERSISTENT" : true
+      "TARGET": "lastFrame",
+      "PERSISTENT": true
     },
-    {
-
-    }
+    {}
   ],
-  "CREDIT" : "by zoidberg"
-}
-*/
+  "CREDIT": "by zoidberg",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec3 cround (vec3 r)	{
 	vec3 returnMe = r;
@@ -87,7 +86,7 @@ void main()
  			result.rgb = cround(result.rgb);
  			result.rgb = result.rgb / (scaledColors);
 		}
-		gl_FragColor = result;
+		isf_FragColor = result;
 		
 	}
 	//	on the second pass, compare lastFrame to inputImage and add that amount to diffFrame
@@ -107,12 +106,12 @@ void main()
  			result.rgb = result.rgb / (scaledColors);
 		}
 		
-		gl_FragColor = result;
+		isf_FragColor = result;
 		
 	}
 	//	add the new diffFrame to keyFrame to get the new resulting frame
 	else if (PASSINDEX==2)	{
-		gl_FragColor = IMG_THIS_NORM_PIXEL(inputImage);
+		isf_FragColor = IMG_THIS_NORM_PIXEL(inputImage);
 	}
 	else	{
 		vec4		keyFramePixel = IMG_THIS_NORM_PIXEL(keyFrame);
@@ -121,6 +120,6 @@ void main()
 		vec4		result = keyFramePixel + diffPixel;
 		vec4		freshPixel = IMG_THIS_NORM_PIXEL(inputImage);
 		result = mix(result,freshPixel,adaptRate);
-		gl_FragColor = result;
+		isf_FragColor = result;
 	}
 }

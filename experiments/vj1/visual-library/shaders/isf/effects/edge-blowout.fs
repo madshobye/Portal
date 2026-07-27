@@ -1,78 +1,80 @@
 /*{
-    "CATEGORIES": [
-        "Stylize"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "Stretches the edges out a region of the video",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.25,
-            "IDENTITY": 0,
-            "LABEL": "Left Edge",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "leftEdge",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.75,
-            "IDENTITY": 1,
-            "LABEL": "Right Edge",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "rightEdge",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "IDENTITY": 0,
-            "LABEL": "Bottom Edge",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "bottomEdge",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.75,
-            "IDENTITY": 1,
-            "LABEL": "Top Edge",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "topEdge",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": true,
-            "LABEL": "Horizontal Bleed",
-            "NAME": "doHorizontal",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": true,
-            "LABEL": "Vertical Bleed",
-            "NAME": "doVertical",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": true,
-            "LABEL": "Inside Bleed",
-            "NAME": "insideBleed",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": true,
-            "LABEL": "Outside Bleed",
-            "NAME": "outsideBleed",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Stylize"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "Stretches the edges out a region of the video",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.25,
+      "IDENTITY": 0,
+      "LABEL": "Left Edge",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "leftEdge",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.75,
+      "IDENTITY": 1,
+      "LABEL": "Right Edge",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "rightEdge",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "IDENTITY": 0,
+      "LABEL": "Bottom Edge",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "bottomEdge",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.75,
+      "IDENTITY": 1,
+      "LABEL": "Top Edge",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "topEdge",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": true,
+      "LABEL": "Horizontal Bleed",
+      "NAME": "doHorizontal",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": true,
+      "LABEL": "Vertical Bleed",
+      "NAME": "doVertical",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": true,
+      "LABEL": "Inside Bleed",
+      "NAME": "insideBleed",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": true,
+      "LABEL": "Outside Bleed",
+      "NAME": "outsideBleed",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()	{
 	vec4		outputPixelColor;
@@ -226,5 +228,5 @@ void main()	{
 		outputPixelColor = IMG_NORM_PIXEL(inputImage, sampleCoord);
 	}
 	
-	gl_FragColor = outputPixelColor;
+	isf_FragColor = outputPixelColor;
 }

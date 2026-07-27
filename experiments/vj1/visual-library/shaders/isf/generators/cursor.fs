@@ -1,56 +1,57 @@
 /*{
-    "CATEGORIES": [
-        "Utility"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "Draws a cursor.",
-    "INPUTS": [
-		{
-		  "NAME" : "cursor_scale",
-		  "TYPE" : "float",
-		  "MAX" : 2.0,
-		  "DEFAULT" : 1.0,
-		  "MIN" : 0.0,
-		  "LABEL" : "Cursor Size"
-		},
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "cursor_position",
-            "TYPE": "point2D",
-            "LABEL" : "Cursor Pos"
-        },
-		{
-		  "NAME" : "bgColor",
-		  "LABEL" : "BG Color",
-		  "TYPE" : "color",
-		  "DEFAULT" : [
-			0,
-			0,
-			0,
-			0
-		  ]
-		}
-    ],
-	"IMPORTED": {
-		"cursorImage": {
-			"PATH": "cursor.png"
-		}
-	},
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Utility"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "Draws a cursor.",
+  "INPUTS": [
+    {
+      "NAME": "cursor_scale",
+      "TYPE": "float",
+      "MAX": 2,
+      "DEFAULT": 1,
+      "MIN": 0,
+      "LABEL": "Cursor Size"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "cursor_position",
+      "TYPE": "point2D",
+      "LABEL": "Cursor Pos"
+    },
+    {
+      "NAME": "bgColor",
+      "LABEL": "BG Color",
+      "TYPE": "color",
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "IMPORTED": {
+    "cursorImage": {
+      "PATH": "cursor.png"
+    }
+  },
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 bool pointInRect(vec2 pt, vec4 r)
 {
@@ -94,5 +95,5 @@ void main() {
 		}
 	}
 	
-	gl_FragColor = out_color;
+	isf_FragColor = out_color;
 }

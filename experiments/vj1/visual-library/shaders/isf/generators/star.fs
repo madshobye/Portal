@@ -1,52 +1,53 @@
 /*{
-    "CATEGORIES": [
-        "Geometry"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "DEFAULT": 0.25,
-            "LABEL": "Size",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "size",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.01,
-            "LABEL": "Stroke Width",
-            "MAX": 0.1,
-            "MIN": 0,
-            "NAME": "bordersize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                1,
-                0.6,
-                0.75,
-                1
-            ],
-            "LABEL": "Fill Color",
-            "NAME": "color1",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                0,
-                1
-            ],
-            "LABEL": "Stroke Color",
-            "NAME": "color2",
-            "TYPE": "color"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Geometry"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "DEFAULT": 0.25,
+      "LABEL": "Size",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "size",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.01,
+      "LABEL": "Stroke Width",
+      "MAX": 0.1,
+      "MIN": 0,
+      "NAME": "bordersize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        1,
+        0.6,
+        0.75,
+        1
+      ],
+      "LABEL": "Fill Color",
+      "NAME": "color1",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "LABEL": "Stroke Color",
+      "NAME": "color2",
+      "TYPE": "color"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Adapted from https://glsl.io/transition/d1f891c5585fc40b55ea
 
@@ -104,5 +105,5 @@ void main()
 
 	float border = max( c1 - c2, 0.0 );
 
-	gl_FragColor = mix(mix(vec4(0.0), color1, c1), color2, border);
+	isf_FragColor = mix(mix(vec4(0.0), color1, c1), color2, border);
 }

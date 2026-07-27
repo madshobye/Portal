@@ -27,8 +27,15 @@ import {
   compileIsfFragmentSource,
   compileIsfOptimizedFragmentSource,
   compileIsfTransitionKernel,
+  compileIsfVertexSource,
 } from "./isf-compiler.js";
 import { parseIsfDocument, sourceHash } from "./isf-document.js";
+import {
+  assertIsfWebgl2Profile,
+  assertIsfWebgl2VertexProfile,
+  canonicalizeIsfWebgl2Source,
+  canonicalizeIsfWebgl2VertexSource,
+} from "./isf-webgl2-profile.js";
 
 const projectComponentCache = new WeakMap();
 const projectDefinitionCache = new Map();
@@ -36,17 +43,31 @@ const projectTransitionListCache = new WeakMap();
 const projectTransitionDefinitionCache = new Map();
 const PROJECT_DEFINITION_CACHE_LIMIT = 128;
 
-export function createIsfVisualComponent({ path = "", source = "" } = {}) {
-  return materializeIsfNodeDefinition(createIsfNodeDefinition({ path, source }));
+export function createIsfVisualComponent(options = {}) {
+  return materializeIsfNodeDefinition(createIsfNodeDefinition(options));
 }
 
 export function createIsfNodeDefinition({
   path = "",
   source = "",
+  vertexPath = "",
+  vertexSource = "",
   origin = "project",
 } = {}) {
-  const document = parseIsfDocument(source, { path });
+  const document = assertIsfWebgl2Profile(
+    parseIsfDocument(source, { path }),
+  );
   const visualKind = document.kind;
+  const canonicalVertexSource = vertexSource
+    ? assertIsfWebgl2VertexProfile(vertexSource, {
+      path: vertexPath || path.replace(/\.fs$/i, ".vs"),
+    })
+    : "";
+  if (canonicalVertexSource && visualKind === "transition") {
+    throw new Error(
+      `VJ1_ISF_TRANSITION_VERTEX_STAGE_UNSUPPORTED:${path || document.name}`,
+    );
+  }
   const declaredId = String(document.metadata?.VJ1?.ID || "").trim();
   const visualId = declaredId || `isf-${slug(path || document.name)}-${sourceHash(path || document.name)}`;
   const params = isfParameters(document, visualKind);
@@ -97,7 +118,15 @@ export function createIsfNodeDefinition({
       stage: "fragment",
       editable: true,
       source: String(source),
-    }],
+    }, ...(canonicalVertexSource ? [{
+      id: "isf-vertex-source",
+      name: `${document.name} vertex stage`,
+      kind: NODE_PART_KINDS.SHADER,
+      language: "isf",
+      stage: "vertex",
+      editable: true,
+      source: canonicalVertexSource,
+    }] : [])],
     metadata: {
       ...base.nodeDefinition.metadata,
       visualId,
@@ -108,7 +137,7 @@ export function createIsfNodeDefinition({
       shaderInterface: "isf",
       nodeOwnedShader: true,
       ...isfVisualExecutionMetadata(base),
-      isf: isfMetadata(document),
+      isf: isfMetadata(document, canonicalVertexSource),
       projectAssetPath: String(path || ""),
       projectLocalDefinition: origin === "project",
       builtInAssetDefinition: origin === "built-in",
@@ -120,10 +149,18 @@ export function createIsfNodeDefinition({
 }
 
 export function materializeIsfNodeDefinition(definition = {}) {
-  const sourcePart = (definition.parts || []).find((part) => part.language === "isf" || part.id === "isf-source");
+  const sourcePart = isfFragmentPart(definition);
   if (!sourcePart) throw new Error(`VJ1_ISF_SOURCE_PART_MISSING:${definition.id || "unknown"}`);
   const path = definition.metadata?.projectAssetPath || definition.metadata?.isf?.path || "";
-  const document = parseIsfDocument(sourcePart.source, { path });
+  const document = assertIsfWebgl2Profile(
+    parseIsfDocument(sourcePart.source, { path }),
+  );
+  const vertexPart = isfVertexPart(definition);
+  const vertexSource = vertexPart
+    ? assertIsfWebgl2VertexProfile(vertexPart.source, {
+      path: vertexPart.path || path.replace(/\.fs$/i, ".vs"),
+    })
+    : "";
   if (document.kind === "transition") {
     throw new Error(`VJ1_ISF_TRANSITION_NOT_COMPONENT:${document.path || document.name}`);
   }
@@ -168,13 +205,21 @@ export function materializeIsfNodeDefinition(definition = {}) {
     params,
     type: "isf",
     code: document.fragmentSource,
+    vertexCode: vertexSource
+      ? compileIsfVertexSource(document, vertexSource, { kind: visualKind })
+      : "",
     nodeDefinition: definition,
   };
   return componentFromNodeDefinition(base, definition, {
     code: compileIsfFragmentSource(document, { kind: visualKind }),
+    vertexCode: base.vertexCode,
     type: "isf",
     shaderInterface: "isf",
-    isf: document,
+    isf: Object.freeze({
+      ...document,
+      vertexSourceHash: vertexSource ? sourceHash(vertexSource) : "",
+      customVertexStage: !!vertexSource,
+    }),
     renderAuthority: "project-isf-node",
   });
 }
@@ -324,10 +369,12 @@ function cachedProjectIsfTransition(definition = {}) {
   if (previous) return { ...previous, shouldWarn: false };
   let entry;
   try {
-    const sourcePart = (definition.parts || []).find((part) => part.language === "isf" || part.id === "isf-source");
+    const sourcePart = isfFragmentPart(definition);
     if (!sourcePart) throw new Error(`VJ1_ISF_SOURCE_PART_MISSING:${definition.id || "unknown"}`);
     const path = definition.metadata?.projectAssetPath || definition.metadata?.isf?.path || "";
-    const document = parseIsfDocument(sourcePart.source, { path });
+    const document = assertIsfWebgl2Profile(
+      parseIsfDocument(sourcePart.source, { path }),
+    );
     const id = String(document.metadata?.VJ1?.ID || definition.metadata?.visualId || definition.id);
     const version = String(document.metadata?.VJ1?.VERSION || definition.version || "0.1.0");
     const declaredReplaces = document.metadata?.VJ1?.REPLACES;
@@ -361,11 +408,13 @@ export function createProjectIsfVisualLibraryLayer(state = {}) {
   const artifacts = [];
   for (const definition of state?.nodes?.definitions || []) {
     if (!isIsfNodeDefinition(definition)) continue;
-    const sourcePart = (definition.parts || []).find((part) => part.language === "isf" || part.id === "isf-source");
+    const sourcePart = isfFragmentPart(definition);
     if (!sourcePart) continue;
     try {
       const path = definition.metadata?.projectAssetPath || definition.metadata?.isf?.path || "";
-      const document = parseIsfDocument(sourcePart.source, { path });
+      const document = assertIsfWebgl2Profile(
+        parseIsfDocument(sourcePart.source, { path }),
+      );
       const id = String(document.metadata?.VJ1?.ID || definition.metadata?.visualId || definition.id);
       if (document.kind === "transition") {
         compileIsfTransitionKernel(document, {
@@ -431,8 +480,10 @@ function cachedProjectIsfComponent(definition = {}) {
 }
 
 function projectIsfDefinitionKey(definition = {}) {
-  const sourcePart = (definition.parts || []).find((part) => part.language === "isf" || part.id === "isf-source");
-  const source = String(sourcePart?.source || "");
+  const source = (definition.parts || [])
+    .filter((part) => part.language === "isf")
+    .map((part) => `${part.stage || ""}:${part.source || ""}`)
+    .join("\u0001");
   return [
     String(definition.id || ""),
     String(definition.version || ""),
@@ -446,12 +497,39 @@ function projectIsfDefinitionKey(definition = {}) {
 export function mergeProjectIsfDefinitions(nodes = {}, shaders = [], { authoritative = false } = {}) {
   const incoming = [];
   const failedPaths = new Set();
+  const vertexStages = new Map(
+    (shaders || [])
+      .filter((shader) => /\.vs$/i.test(shader?.path || shader?.name || ""))
+      .map((shader) => [
+        shaderStem(shader.path || shader.name),
+        shader,
+      ]),
+  );
   for (const shader of shaders || []) {
     if (!looksLikeIsfSource(shader?.code)) continue;
+    const shaderPath = String(shader.path || shader.name || "");
+    const vertex = vertexStages.get(shaderStem(shaderPath));
     try {
-      incoming.push(createIsfNodeDefinition({ path: shader.path || shader.name || "", source: shader.code || "" }));
+      // Project assets are an import boundary. Canonicalize legacy ISF once
+      // here, then keep the node/compiler/runtime path profile-strict.
+      const source = canonicalizeIsfWebgl2Source(shader.code || "", {
+        path: shaderPath,
+      });
+      const vertexPath = String(vertex?.path || vertex?.name || "");
+      const vertexSource = vertex?.code
+        ? canonicalizeIsfWebgl2VertexSource(vertex.code, {
+          path: vertexPath || shaderPath.replace(/\.fs$/i, ".vs"),
+        })
+        : "";
+      incoming.push(createIsfNodeDefinition({
+        path: shaderPath,
+        source,
+        vertexPath,
+        vertexSource,
+      }));
     } catch (error) {
-      failedPaths.add(String(shader.path || shader.name || ""));
+      failedPaths.add(shaderPath);
+      if (vertex) failedPaths.add(String(vertex.path || vertex.name || ""));
       console.warn("[VJ1_ISF_IMPORT_FAILED]", {
         path: shader.path || shader.name || "",
         fallback: "keep the last valid imported node definition",
@@ -471,6 +549,10 @@ export function mergeProjectIsfDefinitions(nodes = {}, shaders = [], { authorita
     ...(nodes || {}),
     definitions: [...retained, ...incoming],
   };
+}
+
+function shaderStem(value = "") {
+  return String(value || "").replace(/\.(?:frag|glsl|fs|vs)$/i, "");
 }
 
 export function looksLikeIsfSource(source = "") {
@@ -526,20 +608,37 @@ function isfParameters(document, visualKind) {
   return params;
 }
 
-function isfMetadata(document) {
+function isfMetadata(document, vertexSource = "") {
   return {
     format: document.format,
     path: document.path,
     version: document.version,
+    profile: String(document.metadata?.VJ1?.PROFILE || ""),
     kind: document.kind,
     credit: document.credit,
     passes: document.passes,
     inputs: document.inputs,
     imported: document.imported,
     sourceHash: document.sourceHash,
+    vertexSourceHash: vertexSource ? sourceHash(vertexSource) : "",
+    customVertexStage: !!vertexSource,
     dynamic: document.dynamic,
     roiSafe: document.roiSafe,
   };
+}
+
+function isfFragmentPart(definition = {}) {
+  return (definition.parts || []).find((part) =>
+    part.id === "isf-source" ||
+    (part.language === "isf" && part.stage !== "vertex")
+  );
+}
+
+function isfVertexPart(definition = {}) {
+  return (definition.parts || []).find((part) =>
+    part.id === "isf-vertex-source" ||
+    (part.language === "isf" && part.stage === "vertex")
+  );
 }
 
 function isfVisualExecutionMetadata(component = {}) {

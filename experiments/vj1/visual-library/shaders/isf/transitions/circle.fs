@@ -1,57 +1,57 @@
 /*{
-    "CATEGORIES": [
-        "Wipe"
-    ],
-    "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/circle.glsl",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "startImage",
-            "TYPE": "image"
-        },
-        {
-            "NAME": "endImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "progress",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                0,
-                1
-            ],
-            "NAME": "backColor",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "center",
-            "TYPE": "point2D"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Wipe"
+  ],
+  "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/circle.glsl",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "startImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "endImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "progress",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "NAME": "backColor",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "center",
+      "TYPE": "point2D"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec4 getFromColor(vec2 inUV)	{
 	return IMG_NORM_PIXEL(startImage, inUV);
@@ -83,5 +83,5 @@ vec4 transition (vec2 uv) {
 
 
 void main()	{
-	gl_FragColor = transition(isf_FragNormCoord.xy);
+	isf_FragColor = transition(isf_FragNormCoord.xy);
 }

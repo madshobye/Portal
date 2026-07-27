@@ -1,41 +1,41 @@
 /*{
-	"DESCRIPTION": "Performs hue shifts of different amounts depending on brightness levels",
-	"CREDIT": "VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color Effect"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "shiftLow",
-			"TYPE": "float",
-			"DEFAULT": 0.0,
-			"MIN": 0.0,
-			"MAX": 1.0
-		},
-		{
-			"NAME": "shiftMid",
-			"TYPE": "float",
-			"DEFAULT": 0.0,
-			"MIN": 0.0,
-			"MAX": 1.0
-		},
-		{
-			"NAME": "shiftHigh",
-			"TYPE": "float",
-			"DEFAULT": 0.0,
-			"MIN": 0.0,
-			"MAX": 1.0
-		}
-	]
-	
+  "DESCRIPTION": "Performs hue shifts of different amounts depending on brightness levels",
+  "CREDIT": "VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color Effect"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "shiftLow",
+      "TYPE": "float",
+      "DEFAULT": 0,
+      "MIN": 0,
+      "MAX": 1
+    },
+    {
+      "NAME": "shiftMid",
+      "TYPE": "float",
+      "DEFAULT": 0,
+      "MIN": 0,
+      "MAX": 1
+    },
+    {
+      "NAME": "shiftHigh",
+      "TYPE": "float",
+      "DEFAULT": 0,
+      "MIN": 0,
+      "MAX": 1
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 vec3 rgb2hsv(vec3 c)	{
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -85,5 +85,5 @@ void main()	{
 		
 	}
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

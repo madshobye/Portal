@@ -1,60 +1,61 @@
-/*
-{
-  "CATEGORIES" : [
-    "Distortion Effect", "Noise"
+/*{
+  "CATEGORIES": [
+    "Distortion Effect",
+    "Noise"
   ],
-  "DESCRIPTION" : "Displaces image randomly",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "Displaces image randomly",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "displaceX",
-      "TYPE" : "float",
-      "MAX" : 0.1,
-      "DEFAULT" : 0.0,
-      "MIN" : 0.0,
-      "LABEL" : "Displace X"
+      "NAME": "displaceX",
+      "TYPE": "float",
+      "MAX": 0.1,
+      "DEFAULT": 0,
+      "MIN": 0,
+      "LABEL": "Displace X"
     },
     {
-      "NAME" : "displaceY",
-      "TYPE" : "float",
-      "MAX" : 0.1,
-      "DEFAULT" : 0.0,
-      "MIN" : 0.0,
-      "LABEL" : "Displace Y"
+      "NAME": "displaceY",
+      "TYPE": "float",
+      "MAX": 0.1,
+      "DEFAULT": 0,
+      "MIN": 0,
+      "LABEL": "Displace Y"
     },
     {
-      "NAME" : "detailX",
-      "TYPE" : "float",
-      "MAX" : 1.0,
-      "DEFAULT" : 0.1,
-      "MIN" : 0.0,
-      "LABEL" : "Detail X"
+      "NAME": "detailX",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.1,
+      "MIN": 0,
+      "LABEL": "Detail X"
     },
     {
-      "NAME" : "detailY",
-      "TYPE" : "float",
-      "MAX" : 1.0,
-      "DEFAULT" : 0.1,
-      "MIN" : 0.0,
-      "LABEL" : "Detail Y"
+      "NAME": "detailY",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.1,
+      "MIN": 0,
+      "LABEL": "Detail Y"
     },
     {
-      "NAME" : "updateTime",
-      "TYPE" : "float",
-      "MAX" : 0.1,
-      "DEFAULT" : 0.01,
-      "MIN" : 0.0,
-      "LABEL" : "Frequency"
+      "NAME": "updateTime",
+      "TYPE": "float",
+      "MAX": 0.1,
+      "DEFAULT": 0.01,
+      "MIN": 0,
+      "LABEL": "Frequency"
     }
   ],
-  "CREDIT" : "VIDVOX"
-}
-*/
-
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float rand(vec2 co){
     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
@@ -73,5 +74,5 @@ void main()	{
 
 	inputPixelColor = IMG_NORM_PIXEL(inputImage, uv + wave.yx);
 
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

@@ -137,7 +137,11 @@ function transitionPackageTree({ includeUnreferenced = false } = {}) {
   const source = `/*{
     "ISFVSN": "2.0",
     "LABEL": "Package Wipe",
-    "VJ1": { "ID": "org.example.transition.package-wipe", "VERSION": "1.0.0" },
+    "VJ1": {
+      "ID": "org.example.transition.package-wipe",
+      "VERSION": "1.0.0",
+      "PROFILE": "vj1-isf-webgl2@1"
+    },
     "INPUTS": [
       { "NAME": "startImage", "TYPE": "image" },
       { "NAME": "endImage", "TYPE": "image" },
@@ -145,7 +149,7 @@ function transitionPackageTree({ includeUnreferenced = false } = {}) {
     ]
   }*/
   void main() {
-    gl_FragColor = mix(
+    isf_FragColor = mix(
       IMG_THIS_NORM_PIXEL(startImage),
       IMG_THIS_NORM_PIXEL(endImage),
       progress
@@ -363,7 +367,7 @@ test("referenced file-backed ISF packages hydrate exact executable definitions",
   assert.equal(definition.metadata.isf.kind, "transition");
   assert.equal(artifact.implementation.visualId, artifact.id);
   assert.equal(definition.parts[0].source.includes("IMG_THIS_NORM_PIXEL"), true);
-  assert.equal(JSON.stringify(serializeNodePackage(nodePackage)).includes("gl_FragColor"), true);
+  assert.equal(JSON.stringify(serializeNodePackage(nodePackage)).includes("isf_FragColor"), true);
 });
 
 test("referenced packages fail closed when the exact manifest or resource is unavailable", async () => {
@@ -405,14 +409,18 @@ test("project package locks reject same-version executable resource replacement"
     "package-wipe.fs": fileHandle(`/*{
       "ISFVSN":"2.0",
       "LABEL":"Package Wipe",
-      "VJ1":{"ID":"org.example.transition.package-wipe","VERSION":"1.0.0"},
+      "VJ1":{
+        "ID":"org.example.transition.package-wipe",
+        "VERSION":"1.0.0",
+        "PROFILE":"vj1-isf-webgl2@1"
+      },
       "INPUTS":[
         {"NAME":"startImage","TYPE":"image"},
         {"NAME":"endImage","TYPE":"image"},
         {"NAME":"progress","TYPE":"float"}
       ]
     }*/
-    void main(){ gl_FragColor=IMG_THIS_NORM_PIXEL(endImage); }`),
+    void main(){ isf_FragColor=IMG_THIS_NORM_PIXEL(endImage); }`),
   });
   versionDirectory.getDirectoryHandle = async (name) => {
     if (name === "shaders") return changedShaderDirectory;

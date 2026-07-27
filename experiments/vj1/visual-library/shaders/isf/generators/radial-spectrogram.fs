@@ -1,73 +1,74 @@
 /*{
-    "CATEGORIES": [
-        "Audio Visualizer"
-    ],
-    "CREDIT": "icalvin102 (calvin@icalvin.de)",
-    "DESCRIPTION": "Generates a radial audiospectrogram from fft-input",
-    "INPUTS": [
-        {
-            "LABEL": "AudioFFT",
-            "NAME": "audioFFT",
-            "TYPE": "audioFFT"
-        },
-        {
-            "DEFAULT": 0.001,
-            "LABEL": "Size",
-            "MAX": 0.05,
-            "MIN": 1,
-            "NAME": "size",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.99,
-            "LABEL": "Feedback Opacity",
-            "MAX": 1,
-            "MIN": 0.7,
-            "NAME": "feedbackOpacity",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Lowest Frequency",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "low",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Heighest Frequency",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "high",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "FLOAT": true,
-            "HEIGHT": "1",
-            "PERSISTENT": true,
-            "TARGET": "time",
-            "WIDTH": "1"
-        },
-        {
-            "FLOAT": true,
-            "PERSISTENT": true,
-            "TARGET": "buff"
-        },
-        {
-        }
-    ]
-}
-*/
+  "CATEGORIES": [
+    "Audio Visualizer"
+  ],
+  "CREDIT": "icalvin102 (calvin@icalvin.de)",
+  "DESCRIPTION": "Generates a radial audiospectrogram from fft-input",
+  "INPUTS": [
+    {
+      "LABEL": "AudioFFT",
+      "NAME": "audioFFT",
+      "TYPE": "audioFFT"
+    },
+    {
+      "DEFAULT": 0.001,
+      "LABEL": "Size",
+      "MAX": 0.05,
+      "MIN": 1,
+      "NAME": "size",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.99,
+      "LABEL": "Feedback Opacity",
+      "MAX": 1,
+      "MIN": 0.7,
+      "NAME": "feedbackOpacity",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Lowest Frequency",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "low",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Heighest Frequency",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "high",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "FLOAT": true,
+      "HEIGHT": "1",
+      "PERSISTENT": true,
+      "TARGET": "time",
+      "WIDTH": "1"
+    },
+    {
+      "FLOAT": true,
+      "PERSISTENT": true,
+      "TARGET": "buff"
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()	{
 	vec4 inputPixelColor = IMG_THIS_PIXEL(buff);
 	float t = IMG_PIXEL(time, vec2(0.0,0.0)).r;
 	if(PASSINDEX == 0){
-		gl_FragColor = vec4(t+size);
+		isf_FragColor = vec4(t+size);
 		return;
 	}
 	if(PASSINDEX == 1){
@@ -80,5 +81,5 @@ void main()	{
  		}
  		inputPixelColor.a = 1.0;
 	}
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

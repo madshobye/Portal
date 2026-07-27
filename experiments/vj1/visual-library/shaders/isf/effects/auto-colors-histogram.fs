@@ -1,93 +1,93 @@
-/*
-{
-  "CATEGORIES" : [
-    "Color Adjustment", "Histogram"
+/*{
+  "CATEGORIES": [
+    "Color Adjustment",
+    "Histogram"
   ],
-  "DESCRIPTION" : "",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "sourceHistogram",
-      "TYPE" : "image"
-    },
-	{
-		"DEFAULT": 0,
-		"LABEL": "Normalization Mode",
-		"LABELS": [
-			"Average",
-			"Darker",
-			"Brighter",
-			"RGB"
-		],
-		"NAME": "colorMode",
-		"TYPE": "long",
-		"VALUES": [
-			0,
-			1,
-			2,
-			3
-		]
-	},
-	{
-		"DEFAULT": 1,
-		"LABEL": "Adjustment Type",
-		"LABELS": [
-			"Contrast",
-			"Gamma"
-		],
-		"NAME": "colorAdjustment",
-		"TYPE": "long",
-		"VALUES": [
-			0,
-			1
-		]
-	},
-    {
-      "NAME" : "maxGain",
-      "TYPE" : "float",
-      "MAX" : 8,
-      "DEFAULT" : 2,
-      "MIN" : 1
+      "NAME": "sourceHistogram",
+      "TYPE": "image"
     },
     {
-      "NAME" : "threshold",
-      "TYPE" : "float",
-      "MAX" : 1.0,
-      "DEFAULT" : 0.02,
-      "MIN" : 0.0
+      "DEFAULT": 0,
+      "LABEL": "Normalization Mode",
+      "LABELS": [
+        "Average",
+        "Darker",
+        "Brighter",
+        "RGB"
+      ],
+      "NAME": "colorMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3
+      ]
     },
     {
-      "NAME" : "timeSmoothing",
-      "TYPE" : "float",
-      "MAX" : 1.0,
-      "DEFAULT" : 0.0,
-      "MIN" : 0.0
+      "DEFAULT": 1,
+      "LABEL": "Adjustment Type",
+      "LABELS": [
+        "Contrast",
+        "Gamma"
+      ],
+      "NAME": "colorAdjustment",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1
+      ]
+    },
+    {
+      "NAME": "maxGain",
+      "TYPE": "float",
+      "MAX": 8,
+      "DEFAULT": 2,
+      "MIN": 1
+    },
+    {
+      "NAME": "threshold",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.02,
+      "MIN": 0
+    },
+    {
+      "NAME": "timeSmoothing",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     }
   ],
-  "PASSES" : [
+  "PASSES": [
     {
-      "WIDTH" : "2",
-      "TARGET" : "minmax",
-      "HEIGHT" : "1"
+      "WIDTH": "2",
+      "TARGET": "minmax",
+      "HEIGHT": "1"
     },
     {
-      "WIDTH" : "2",
-      "TARGET" : "smoothedminmax",
-      "HEIGHT" : "1",
+      "WIDTH": "2",
+      "TARGET": "smoothedminmax",
+      "HEIGHT": "1",
       "PERSISTENT": true,
       "FLOAT": true
     },
-    {
-
-    }
+    {}
   ],
-  "CREDIT" : "VIDVOX"
-}
-*/
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float minChannel (vec3 c)	{
 	float	tmpVal = c.r;
@@ -250,5 +250,5 @@ void main()	{
 		}
 	}
 	
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }

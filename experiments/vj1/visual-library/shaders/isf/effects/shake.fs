@@ -1,33 +1,34 @@
 /*{
-    "CATEGORIES": [
-        "Noise",
-        "Geometry Adjustment"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 2,
-            "MIN": 0,
-            "NAME": "magnitude",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 10,
-            "MIN": 0,
-            "NAME": "intensity",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Noise",
+    "Geometry Adjustment"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "magnitude",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 10,
+      "MIN": 0,
+      "NAME": "intensity",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -50,5 +51,5 @@ void main(void) {
 	uv.y += yOffset;
 	uv.x += xOffset;
 
-	gl_FragColor = IMG_NORM_PIXEL(inputImage, uv);
+	isf_FragColor = IMG_NORM_PIXEL(inputImage, uv);
 }

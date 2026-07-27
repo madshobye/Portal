@@ -1,46 +1,47 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Glitch"
   ],
-  "DESCRIPTION" : "Causes only part of an image to update",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "Causes only part of an image to update",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "maxUpdateSize",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.5,
-      "LABEL" : "Size",
-      "MIN" : 0
+      "NAME": "maxUpdateSize",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.5,
+      "LABEL": "Size",
+      "MIN": 0
     },
     {
-      "NAME" : "maxBlendAmount",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "maxBlendAmount",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "resetImage",
-      "TYPE" : "event",
-      "LABEL" : "Reset Image"
+      "NAME": "resetImage",
+      "TYPE": "event",
+      "LABEL": "Reset Image"
     }
   ],
-  "PASSES" : [
+  "PASSES": [
     {
-      "TARGET" : "lastState",
-      "PERSISTENT" : true,
-      "DESCRIPTION" : ""
+      "TARGET": "lastState",
+      "PERSISTENT": true,
+      "DESCRIPTION": ""
     }
   ],
-  "CREDIT" : "VIDVOX"
-}
-*/
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float rand(vec2 co){
     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
@@ -93,5 +94,5 @@ void main()	{
 		returnMe = mix(newColor,returnMe,mixAmount);
 	}
 	
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }

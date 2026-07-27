@@ -1,79 +1,80 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Shifts pixels up and down",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Horizontal Phase",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "hPhase",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Horizontal Frequency",
-            "MAX": 16,
-            "MIN": -16,
-            "NAME": "hFrequency",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Horizontal Random",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "hRandom",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Vertical Phase",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "vPhase",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Vertical Frequency",
-            "MAX": 16,
-            "MIN": -16,
-            "NAME": "vFrequency",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Vertical Random",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "vRandom",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Sinusoidal",
-            "NAME": "doSin",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Mirror",
-            "NAME": "mirror",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Distortion Effect"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Shifts pixels up and down",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Horizontal Phase",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "hPhase",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Horizontal Frequency",
+      "MAX": 16,
+      "MIN": -16,
+      "NAME": "hFrequency",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Horizontal Random",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "hRandom",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Vertical Phase",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "vPhase",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Vertical Frequency",
+      "MAX": 16,
+      "MIN": -16,
+      "NAME": "vFrequency",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Vertical Random",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "vRandom",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Sinusoidal",
+      "NAME": "doSin",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Mirror",
+      "NAME": "mirror",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float		PI_CONST = 3.14159265359;
 
@@ -110,5 +111,5 @@ void main()
 	if (loc.y > 1.0)
 		loc.y = 2.0 - loc.y;
 	
-	gl_FragColor = IMG_NORM_PIXEL(inputImage,loc);
+	isf_FragColor = IMG_NORM_PIXEL(inputImage,loc);
 }

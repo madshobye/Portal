@@ -1,81 +1,82 @@
 /*{
-    "CATEGORIES": [
-        "Drawing"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "Draw images one pixel at a time",
-    "INPUTS": [
-        {
-            "NAME": "moveUp",
-            "TYPE": "event"
-        },
-        {
-            "NAME": "moveDown",
-            "TYPE": "event"
-        },
-        {
-            "NAME": "moveLeft",
-            "TYPE": "event"
-        },
-        {
-            "NAME": "moveRight",
-            "TYPE": "event"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5,
-                0.5,
-                1
-            ],
-            "NAME": "penColor",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": 0.05,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "penSize",
-            "TYPE": "float"
-        },
-        {
-            "NAME": "resetPosition",
-            "TYPE": "event"
-        },
-        {
-            "NAME": "clearBuffer",
-            "TYPE": "event"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                0,
-                0
-            ],
-            "NAME": "clearColor",
-            "TYPE": "color"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "FLOAT": true,
-            "HEIGHT": "1",
-            "PERSISTENT": true,
-            "TARGET": "currentPosition",
-            "WIDTH": "1"
-        },
-        {
-            "PERSISTENT": true,
-            "TARGET": "lastState"
-        }
-    ]
-}
-*/
+  "CATEGORIES": [
+    "Drawing"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "Draw images one pixel at a time",
+  "INPUTS": [
+    {
+      "NAME": "moveUp",
+      "TYPE": "event"
+    },
+    {
+      "NAME": "moveDown",
+      "TYPE": "event"
+    },
+    {
+      "NAME": "moveLeft",
+      "TYPE": "event"
+    },
+    {
+      "NAME": "moveRight",
+      "TYPE": "event"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5,
+        0.5,
+        1
+      ],
+      "NAME": "penColor",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": 0.05,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "penSize",
+      "TYPE": "float"
+    },
+    {
+      "NAME": "resetPosition",
+      "TYPE": "event"
+    },
+    {
+      "NAME": "clearBuffer",
+      "TYPE": "event"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "NAME": "clearColor",
+      "TYPE": "color"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "FLOAT": true,
+      "HEIGHT": "1",
+      "PERSISTENT": true,
+      "TARGET": "currentPosition",
+      "WIDTH": "1"
+    },
+    {
+      "PERSISTENT": true,
+      "TARGET": "lastState"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
-
-float round (float x)	{
+float vj1_round (float x)	{
 	if (fract(x) < 0.5)
 		return floor(x);
 	else
@@ -125,8 +126,8 @@ void main()	{
 			vec2		penSizeInPixels = vec2(penSize * min(RENDERSIZE.x,RENDERSIZE.y));
 			penSizeInPixels.x = (penSizeInPixels.x < 1.0) ? (1.0) : (penSizeInPixels.x);
 			penSizeInPixels.y = (penSizeInPixels.y < 1.0) ? (1.0) : (penSizeInPixels.y);
-			//pos.x = round(pos.x);
-			//pos.y = round(pos.y);
+			//pos.x = vj1_round(pos.x);
+			//pos.y = vj1_round(pos.y);
 			if (((gl_FragCoord.x) >= pos.x)&&((gl_FragCoord.y) >= pos.y)&&((gl_FragCoord.x) < pos.x + penSizeInPixels.x)&&((gl_FragCoord.y) < pos.y + penSizeInPixels.y))
 				inputPixelColor = penColor;
 			else
@@ -134,5 +135,5 @@ void main()	{
 		}
 	}
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

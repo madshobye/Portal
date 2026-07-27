@@ -1,56 +1,59 @@
-
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Stylize", "Noise"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "cell_size",
-			"TYPE": "float",
-			"MIN": 0.001,
-			"MAX": 0.5,
-			"DEFAULT": 0.025
-		},
-		{
-			"NAME": "sigGain",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "mode",
-			"VALUES": [
-				0,
-				1
-			],
-			"LABELS": [
-				"Multiply",
-				"Threshold"
-			],
-			"DEFAULT": 1,
-			"TYPE": "long"
-		},
-		{
-			"NAME": "shape",
-			"VALUES": [
-				0,
-				1
-			],
-			"LABELS": [
-				"Square",
-				"Rectangle"
-			],
-			"DEFAULT": 0,
-			"TYPE": "long"
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Stylize",
+    "Noise"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "cell_size",
+      "TYPE": "float",
+      "MIN": 0.001,
+      "MAX": 0.5,
+      "DEFAULT": 0.025
+    },
+    {
+      "NAME": "sigGain",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "mode",
+      "VALUES": [
+        0,
+        1
+      ],
+      "LABELS": [
+        "Multiply",
+        "Threshold"
+      ],
+      "DEFAULT": 1,
+      "TYPE": "long"
+    },
+    {
+      "NAME": "shape",
+      "VALUES": [
+        0,
+        1
+      ],
+      "LABELS": [
+        "Square",
+        "Rectangle"
+      ],
+      "DEFAULT": 0,
+      "TYPE": "long"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 #ifndef GL_ES
@@ -70,7 +73,7 @@ void main()
 // CALCULATE EDGES OF CURRENT CELL
 	//	At 0.0 just do a pass-thru
 	if (cell_size == 0.0)	{
-		gl_FragColor = IMG_THIS_PIXEL(inputImage);
+		isf_FragColor = IMG_THIS_PIXEL(inputImage);
 	}
 	else	{
 		// Position of current pixel
@@ -115,6 +118,6 @@ void main()
 			rVal = (rVal > 1.0) ? 1.0 : rVal;
 			avgClr = (thresh > rVal) ? avgClr : vec4(0.0,0.0,0.0,original.a);
 		}
-		gl_FragColor = avgClr;
+		isf_FragColor = avgClr;
 	}
 }

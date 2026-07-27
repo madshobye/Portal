@@ -1,81 +1,84 @@
 /*{
-    "CATEGORIES": [
-        "Pattern", "Color"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "Creates a stripe pattern with randomized colors",
-    "INPUTS": [
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "width",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "offset",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "hue",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "saturation",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.95,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "brightness",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "NAME": "vertical",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 1,
-            "NAME": "randHue",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 0,
-            "NAME": "randSaturation",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 0,
-            "NAME": "randBright",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 0,
-            "NAME": "randAlpha",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 0.71,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "rSeed",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Pattern",
+    "Color"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "Creates a stripe pattern with randomized colors",
+  "INPUTS": [
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "width",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "offset",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "hue",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "saturation",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.95,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "brightness",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "NAME": "vertical",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 1,
+      "NAME": "randHue",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 0,
+      "NAME": "randSaturation",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 0,
+      "NAME": "randBright",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 0,
+      "NAME": "randAlpha",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 0.71,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "rSeed",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float rand(vec2 co){
     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
@@ -112,5 +115,5 @@ void main() {
 	out_color.rgb = hsv2rgb(hsv.rgb);
 	out_color.a = hsv.a;
 	
-	gl_FragColor = out_color;
+	isf_FragColor = out_color;
 }

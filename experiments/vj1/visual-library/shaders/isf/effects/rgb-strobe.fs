@@ -1,63 +1,61 @@
 /*{
-	"DESCRIPTION": "",
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color Effect"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "r",
-			"TYPE": "bool",
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "g",
-			"TYPE": "bool",
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "b",
-			"TYPE": "bool",
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "a",
-			"TYPE": "bool",
-			"DEFAULT": 0.0
-		},
-		{
-			"NAME": "strobeRates",
-			"LABEL": "Strobe Rates",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.0,
-				0.0,
-				0.0,
-				0.0
-			]
-		}
-	],
-	"PASSES": [
-		{
-			"TARGET":"lastState",
-			"WIDTH": "1",
-			"HEIGHT": "1",
-			"PERSISTENT": true,
-			"DESCRIPTION": "Stores the current strobe state of each of the color channels."
-		},
-		{
-			
-		}
-	]
-	
+  "DESCRIPTION": "",
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color Effect"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "r",
+      "TYPE": "bool",
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "g",
+      "TYPE": "bool",
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "b",
+      "TYPE": "bool",
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "a",
+      "TYPE": "bool",
+      "DEFAULT": 0
+    },
+    {
+      "NAME": "strobeRates",
+      "LABEL": "Strobe Rates",
+      "TYPE": "color",
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "PASSES": [
+    {
+      "TARGET": "lastState",
+      "WIDTH": "1",
+      "HEIGHT": "1",
+      "PERSISTENT": true,
+      "DESCRIPTION": "Stores the current strobe state of each of the color channels."
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 void main()
 {
@@ -89,7 +87,7 @@ void main()
 		else	{
 			srcPixel.a = (mod(TIME, strobeRates.a) <= strobeRates.a / 2.0) ? 1.0 : 0.0;
 		}
-		gl_FragColor = srcPixel;
+		isf_FragColor = srcPixel;
 	}
 	//	else this isn't the first pass- read the position value from the buffer which stores it
 	else	{
@@ -103,6 +101,6 @@ void main()
 		srcPixel.g = (lastStateVector.g == 0.0) ? srcPixel.g : abs(green-srcPixel.g);
 		srcPixel.b = (lastStateVector.b == 0.0) ? srcPixel.b : abs(blue-srcPixel.b);
 		srcPixel.a = (lastStateVector.a == 0.0) ? srcPixel.a : abs(alpha-srcPixel.a);
-		gl_FragColor = srcPixel;
+		isf_FragColor = srcPixel;
 	}
 }

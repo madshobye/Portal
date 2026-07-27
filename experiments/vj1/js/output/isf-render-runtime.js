@@ -95,7 +95,11 @@ export class IsfRenderRuntime {
     }
     const key = [
       component?.id || "isf",
-      component?.isf?.sourceHash || "",
+      `${component?.isf?.sourceHash || ""}${
+        component?.isf?.vertexSourceHash
+          ? `@${component.isf.vertexSourceHash}`
+          : ""
+      }`,
       instanceId || "shared",
       pass.target,
     ].join(":");
@@ -184,7 +188,11 @@ export class IsfRenderRuntime {
     }
     const programKey = [
       component?.id || "isf",
-      component?.isf?.sourceHash || "",
+      `${component?.isf?.sourceHash || ""}${
+        component?.isf?.vertexSourceHash
+          ? `@${component.isf.vertexSourceHash}`
+          : ""
+      }`,
       instanceId || "shared",
       resolvedPasses.map(({ pass, widthPx, heightPx }) =>
         `${pass.index}:${pass.target}:${widthPx}x${heightPx}`

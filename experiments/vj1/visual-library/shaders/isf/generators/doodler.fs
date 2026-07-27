@@ -1,41 +1,40 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Drawing"
   ],
-  "DESCRIPTION" : "Uses a virtual pen to draw colors with a random walk.",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "Uses a virtual pen to draw colors with a random walk.",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "penDown",
-      "TYPE" : "bool",
-      "DEFAULT" : 1,
-      "LABEL" : "Pen Down"
+      "NAME": "penDown",
+      "TYPE": "bool",
+      "DEFAULT": 1,
+      "LABEL": "Pen Down"
     },
     {
-      "NAME" : "eraseMode",
-      "TYPE" : "bool",
-      "DEFAULT" : 0,
-      "LABEL" : "Eraser Mode"
+      "NAME": "eraseMode",
+      "TYPE": "bool",
+      "DEFAULT": 0,
+      "LABEL": "Eraser Mode"
     },
     {
-      "NAME" : "eraseAndReset",
-      "TYPE" : "event",
-      "LABEL" : "Erase All"
+      "NAME": "eraseAndReset",
+      "TYPE": "event",
+      "LABEL": "Erase All"
     },
     {
-      "NAME" : "penRate",
-      "LABEL" : "Auto Rate",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 1,
-      "MIN" : 0
+      "NAME": "penRate",
+      "LABEL": "Auto Rate",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 1,
+      "MIN": 0
     },
     {
-      "NAME" : "drawColor",
-      "LABEL" : "Pen Color",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "drawColor",
+      "LABEL": "Pen Color",
+      "TYPE": "color",
+      "DEFAULT": [
         0,
         0,
         1,
@@ -43,43 +42,43 @@
       ]
     },
     {
-      "NAME" : "penSize",
-      "LABEL" : "Tip Size",
-      "TYPE" : "float",
-      "MAX" : 0.2,
-      "DEFAULT" : 0.01,
-      "MIN" : 0
+      "NAME": "penSize",
+      "LABEL": "Tip Size",
+      "TYPE": "float",
+      "MAX": 0.2,
+      "DEFAULT": 0.01,
+      "MIN": 0
     },
     {
-      "NAME" : "penLoc",
-      "LABEL" : "Pen Start",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "penLoc",
+      "LABEL": "Pen Start",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.5
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     },
     {
-      "NAME" : "dirtyTip",
-      "LABEL" : "Texture",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "dirtyTip",
+      "LABEL": "Texture",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "bgColor",
-      "LABEL" : "Eraser Color",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "bgColor",
+      "LABEL": "Eraser Color",
+      "TYPE": "color",
+      "DEFAULT": [
         0,
         0,
         0,
@@ -87,25 +86,25 @@
       ]
     }
   ],
-  "PASSES" : [
+  "PASSES": [
     {
-      "WIDTH" : "1",
-      "HEIGHT" : "1",
-      "TARGET" : "bufferPosition",
-      "PERSISTENT" : true,
-	  "FLOAT": true
+      "WIDTH": "1",
+      "HEIGHT": "1",
+      "TARGET": "bufferPosition",
+      "PERSISTENT": true,
+      "FLOAT": true
     },
     {
-      "TARGET" : "lastBuffer",
-      "PERSISTENT" : true,
+      "TARGET": "lastBuffer",
+      "PERSISTENT": true,
       "FLOAT": true
     }
   ],
-  "CREDIT" : "VIDVOX"
-}
-*/
-
-
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float seed = 1.239;
 
@@ -179,5 +178,5 @@ void main()	{
 		}
 	}
 	
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }

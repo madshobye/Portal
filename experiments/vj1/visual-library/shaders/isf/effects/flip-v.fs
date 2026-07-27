@@ -1,15 +1,18 @@
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Geometry Adjustment"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Geometry Adjustment"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 void main() {
@@ -20,5 +23,5 @@ void main() {
 
 	normSrcCoord.y = (1.0-normSrcCoord.y);
 
-	gl_FragColor = IMG_NORM_PIXEL(inputImage, normSrcCoord);
+	isf_FragColor = IMG_NORM_PIXEL(inputImage, normSrcCoord);
 }

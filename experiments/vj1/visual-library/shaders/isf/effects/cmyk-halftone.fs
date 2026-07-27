@@ -1,32 +1,34 @@
 /*{
-    "CATEGORIES": [
-        "Halftone Effect",
-        "Retro"
-    ],
-    "CREDIT": "by zoidberg",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 45,
-            "MAX": 256,
-            "MIN": 1,
-            "NAME": "gridSize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.15,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "smoothing",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Halftone Effect",
+    "Retro"
+  ],
+  "CREDIT": "by zoidberg",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 45,
+      "MAX": 256,
+      "MIN": 1,
+      "NAME": "gridSize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.15,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "smoothing",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const vec4		gridRot = vec4(15.0, 45.0, 0.0, 75.0);
 
@@ -83,5 +85,5 @@ void main() {
 		cmykAmounts[i] += smoothstep(dotRadius, dotRadius-(dotRadius*smoothing), fragDistanceToGridCenter);
 	}
 	
-	gl_FragColor = CMYKtoRGBA(cmykAmounts);
+	isf_FragColor = CMYKtoRGBA(cmykAmounts);
 }

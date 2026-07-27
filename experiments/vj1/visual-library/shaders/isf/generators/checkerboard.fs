@@ -1,35 +1,35 @@
-/*
-{
-  "CATEGORIES" : [
-    "Pattern", "Color"
+/*{
+  "CATEGORIES": [
+    "Pattern",
+    "Color"
   ],
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "width",
-      "TYPE" : "float",
-      "DEFAULT" : 0.25
+      "NAME": "width",
+      "TYPE": "float",
+      "DEFAULT": 0.25
     },
     {
-      "NAME" : "offset",
-      "TYPE" : "point2D",
-      "DEFAULT" : [
+      "NAME": "offset",
+      "TYPE": "point2D",
+      "DEFAULT": [
         0,
         0
       ],
-      "MIN" : [
-      	0,
-      	0
+      "MIN": [
+        0,
+        0
       ],
-      "MAX" : [
-      	1,
-      	1
+      "MAX": [
+        1,
+        1
       ]
     },
     {
-      "NAME" : "color1",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "color1",
+      "TYPE": "color",
+      "DEFAULT": [
         1,
         1,
         1,
@@ -37,9 +37,9 @@
       ]
     },
     {
-      "NAME" : "color2",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "color2",
+      "TYPE": "color",
+      "DEFAULT": [
         0,
         0,
         0,
@@ -47,27 +47,27 @@
       ]
     },
     {
-      "NAME" : "splitPos",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "splitPos",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.5
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     }
   ],
-  "CREDIT" : "by VIDVOX"
-}
-*/
-
-
+  "CREDIT": "by VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main() {
 	//	determine if we are on an even or odd line
@@ -88,5 +88,5 @@ void main() {
 		out_color = color1;
 	}
 	
-	gl_FragColor = out_color;
+	isf_FragColor = out_color;
 }

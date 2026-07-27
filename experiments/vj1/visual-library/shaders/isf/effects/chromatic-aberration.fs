@@ -1,74 +1,76 @@
 /*{
-    "CATEGORIES": [
-        "Color Effect",
-        "Distortion"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Radial lens-style chromatic aberration: red and blue channels are displaced along the line from a chromatic center.",
-    "ISFVSN": "2",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.02,
-            "LABEL": "Amount",
-            "MAX": 0.2,
-            "MIN": 0.0,
-            "NAME": "amount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 2.0,
-            "LABEL": "Falloff",
-            "MAX": 4.0,
-            "MIN": 1.0,
-            "NAME": "falloff",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.0,
-            "LABEL": "Red / Blue Balance",
-            "MAX": 1.0,
-            "MIN": -1.0,
-            "NAME": "balance",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "LABEL": "Center",
-            "MAX": [
-                1.0,
-                1.0
-            ],
-            "MIN": [
-                0.0,
-                0.0
-            ],
-            "NAME": "center",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Direction",
-            "LABELS": [
-                "Outward (lens-style)",
-                "Inward (inverted)"
-            ],
-            "NAME": "direction",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1
-            ]
-        }
-    ]
+  "CATEGORIES": [
+    "Color Effect",
+    "Distortion"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Radial lens-style chromatic aberration: red and blue channels are displaced along the line from a chromatic center.",
+  "ISFVSN": "2",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.02,
+      "LABEL": "Amount",
+      "MAX": 0.2,
+      "MIN": 0,
+      "NAME": "amount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 2,
+      "LABEL": "Falloff",
+      "MAX": 4,
+      "MIN": 1,
+      "NAME": "falloff",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Red / Blue Balance",
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "balance",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "LABEL": "Center",
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "center",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Direction",
+      "LABELS": [
+        "Outward (lens-style)",
+        "Inward (inverted)"
+      ],
+      "NAME": "direction",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1
+      ]
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 void main()	{
 	vec2 uv         = isf_FragNormCoord;
@@ -104,5 +106,5 @@ void main()	{
 	float g_chan = greenSample.g;
 	float b_chan = IMG_NORM_PIXEL(inputImage, blueUV).b;
 	
-	gl_FragColor = vec4(r_chan, g_chan, b_chan, greenSample.a);
+	isf_FragColor = vec4(r_chan, g_chan, b_chan, greenSample.a);
 }

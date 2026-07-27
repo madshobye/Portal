@@ -1,61 +1,63 @@
 /*{
-    "CATEGORIES": [
-        "Color"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "Generates a gradient that fades between four different colors.",
-    "INPUTS": [
-        {
-            "DEFAULT": [
-                1,
-                0,
-                0,
-                1
-            ],
-            "NAME": "color1",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0,
-                1,
-                0,
-                1
-            ],
-            "NAME": "color2",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                1,
-                1
-            ],
-            "NAME": "color3",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                1,
-                1,
-                1,
-                1
-            ],
-            "NAME": "color4",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "rotationAngle",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Color"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "Generates a gradient that fades between four different colors.",
+  "INPUTS": [
+    {
+      "DEFAULT": [
+        1,
+        0,
+        0,
+        1
+      ],
+      "NAME": "color1",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0,
+        1,
+        0,
+        1
+      ],
+      "NAME": "color2",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        1,
+        1
+      ],
+      "NAME": "color3",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "NAME": "color4",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "rotationAngle",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.1415926535897932384626433832795;
 
@@ -85,5 +87,5 @@ void main()	{
 	
 	inputPixelColor = (color1 * dist.r + color2 * dist.g + color3 * dist.b + color4 * dist.a) / (dist.r + dist.g + dist.b + dist.a);
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

@@ -1,24 +1,23 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Glitch",
     "Stylize"
   ],
-  "DESCRIPTION" : "Broken LCD using value noise",
-  "INPUTS" : [
+  "DESCRIPTION": "Broken LCD using value noise",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "flickerLevel",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "flickerLevel",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "VALUES" : [
+      "VALUES": [
         0,
         1,
         2,
@@ -30,7 +29,7 @@
         8,
         9
       ],
-      "LABELS" : [
+      "LABELS": [
         "Random1",
         "Random2",
         "Random3",
@@ -42,173 +41,174 @@
         "Stripes",
         "Checkerboard"
       ],
-      "IDENTITY" : 0,
-      "DEFAULT" : 0,
-      "LABEL" : "Pattern Style",
-      "TYPE" : "long",
-      "NAME" : "patternStyle"
+      "IDENTITY": 0,
+      "DEFAULT": 0,
+      "LABEL": "Pattern Style",
+      "TYPE": "long",
+      "NAME": "patternStyle"
     },
     {
-      "NAME" : "glitchBrightness",
-      "TYPE" : "float",
-      "MAX" : 4,
-      "DEFAULT" : 3,
-      "MIN" : 0,
-      "LABEL" : "Glitch Thickness"
+      "NAME": "glitchBrightness",
+      "TYPE": "float",
+      "MAX": 4,
+      "DEFAULT": 3,
+      "MIN": 0,
+      "LABEL": "Glitch Thickness"
     },
     {
-      "NAME" : "glitchBrightnessCurve",
-      "TYPE" : "float",
-      "MAX" : 4,
-      "DEFAULT" : 2,
-      "LABEL" : "Glitch Shape",
-      "MIN" : 1
+      "NAME": "glitchBrightnessCurve",
+      "TYPE": "float",
+      "MAX": 4,
+      "DEFAULT": 2,
+      "LABEL": "Glitch Shape",
+      "MIN": 1
     },
     {
-      "NAME" : "glitchRadius",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.5,
-      "LABEL" : "Glitch Spread",
-      "MIN" : 0
+      "NAME": "glitchRadius",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.5,
+      "LABEL": "Glitch Spread",
+      "MIN": 0
     },
     {
-      "NAME" : "glitchSmoothness",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.5,
-      "MIN" : 0,
-      "LABEL" : "Glitch Edge Smoothness"
+      "NAME": "glitchSmoothness",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.5,
+      "MIN": 0,
+      "LABEL": "Glitch Edge Smoothness"
     },
     {
-      "NAME" : "glitchScale",
-      "TYPE" : "float",
-      "MAX" : 100,
-      "DEFAULT" : 4.1013007164001465,
-      "MIN" : 0,
-      "LABEL" : "Glitch Size"
+      "NAME": "glitchScale",
+      "TYPE": "float",
+      "MAX": 100,
+      "DEFAULT": 4.1013007164001465,
+      "MIN": 0,
+      "LABEL": "Glitch Size"
     },
     {
-      "NAME" : "noiseSeed",
-      "TYPE" : "float",
-      "MAX" : 10,
-      "DEFAULT" : 5.0863485336303711,
-      "MIN" : 0,
-      "LABEL" : "Glitch Seed"
+      "NAME": "noiseSeed",
+      "TYPE": "float",
+      "MAX": 10,
+      "DEFAULT": 5.086348533630371,
+      "MIN": 0,
+      "LABEL": "Glitch Seed"
     },
     {
-      "NAME" : "patternSeed",
-      "TYPE" : "float",
-      "MAX" : 10,
-      "DEFAULT" : 2.3372085094451904,
-      "LABEL" : "Pattern Seed",
-      "MIN" : 0
+      "NAME": "patternSeed",
+      "TYPE": "float",
+      "MAX": 10,
+      "DEFAULT": 2.3372085094451904,
+      "LABEL": "Pattern Seed",
+      "MIN": 0
     },
     {
-      "NAME" : "tintBrightness",
-      "TYPE" : "float",
-      "MAX" : 4,
-      "DEFAULT" : 4,
-      "MIN" : 0
+      "NAME": "tintBrightness",
+      "TYPE": "float",
+      "MAX": 4,
+      "DEFAULT": 4,
+      "MIN": 0
     },
     {
-      "NAME" : "tintRadius",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.22620739042758942,
-      "MIN" : 0
+      "NAME": "tintRadius",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.22620739042758942,
+      "MIN": 0
     },
     {
-      "NAME" : "tintBrightnessCurve",
-      "TYPE" : "float",
-      "MAX" : 4,
-      "DEFAULT" : 1.2606533765792847,
-      "MIN" : 1
+      "NAME": "tintBrightnessCurve",
+      "TYPE": "float",
+      "MAX": 4,
+      "DEFAULT": 1.2606533765792847,
+      "MIN": 1
     },
     {
-      "NAME" : "tintSeed",
-      "TYPE" : "float",
-      "MAX" : 20,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "tintSeed",
+      "TYPE": "float",
+      "MAX": 20,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "tintColor1",
-      "TYPE" : "color",
-      "DEFAULT" : [
-        0.90196079015731812,
-        0.25098040699958801,
-        0.25098040699958801,
+      "NAME": "tintColor1",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.9019607901573181,
+        0.250980406999588,
+        0.250980406999588,
         1
       ]
     },
     {
-      "NAME" : "tintColor2",
-      "TYPE" : "color",
-      "DEFAULT" : [
-        0.25098040699958801,
-        0.50196081399917603,
-        0.90196079015731812,
+      "NAME": "tintColor2",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.250980406999588,
+        0.501960813999176,
+        0.9019607901573181,
         1
       ]
     },
     {
-      "NAME" : "tintScale",
-      "TYPE" : "float",
-      "MAX" : 100,
-      "DEFAULT" : 4,
-      "MIN" : 0
+      "NAME": "tintScale",
+      "TYPE": "float",
+      "MAX": 100,
+      "DEFAULT": 4,
+      "MIN": 0
     },
     {
-      "NAME" : "rowGlitchLevel",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.0099999997764825821,
-      "MIN" : 0
+      "NAME": "rowGlitchLevel",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.009999999776482582,
+      "MIN": 0
     },
     {
-      "NAME" : "rowFlickerLevel",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "MIN" : 0
+      "NAME": "rowFlickerLevel",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "rowGlitchSeed",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.34099999070167542,
-      "MIN" : 0
+      "NAME": "rowGlitchSeed",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.3409999907016754,
+      "MIN": 0
     },
     {
-      "NAME" : "hardEdge",
-      "TYPE" : "bool",
-      "DEFAULT" : true,
-      "LABEL" : "Hard Edge"
+      "NAME": "hardEdge",
+      "TYPE": "bool",
+      "DEFAULT": true,
+      "LABEL": "Hard Edge"
     },
     {
-      "VALUES" : [
+      "VALUES": [
         0,
         1,
         2
       ],
-      "LABELS" : [
+      "LABELS": [
         "Original",
         "Multiply",
         "Replace"
       ],
-      "IDENTITY" : 0,
-      "DEFAULT" : 0,
-      "LABEL" : "Alpha Mode",
-      "TYPE" : "long",
-      "NAME" : "alphaMode"
+      "IDENTITY": 0,
+      "DEFAULT": 0,
+      "LABEL": "Alpha Mode",
+      "TYPE": "long",
+      "NAME": "alphaMode"
     }
   ],
-  "ISFVSN" : "2",
-  "CREDIT" : "VIDVOX"
-}
-*/
-
+  "ISFVSN": "2",
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.1415926535897932384626433832795;
 
@@ -235,7 +235,7 @@ vec2 rotatePoint(vec2 pt, float angle, vec2 center)
 	return returnMe;
 }
 
-float sign(vec2 p1, vec2 p2, vec2 p3)
+float vj1_sign(vec2 p1, vec2 p2, vec2 p3)
 {
 	return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
 }
@@ -244,9 +244,9 @@ bool PointInTriangle(vec2 pt, vec2 v1, vec2 v2, vec2 v3)
 {
 	bool b1, b2, b3;
 
-	b1 = sign(pt, v1, v2) < 0.0;
-	b2 = sign(pt, v2, v3) < 0.0;
-	b3 = sign(pt, v3, v1) < 0.0;
+	b1 = vj1_sign(pt, v1, v2) < 0.0;
+	b2 = vj1_sign(pt, v2, v3) < 0.0;
+	b3 = vj1_sign(pt, v3, v1) < 0.0;
 
 	return ((b1 == b2) && (b2 == b3));
 }
@@ -259,9 +259,9 @@ bool RotatedPointInTriangle(vec2 pt, vec2 v1, vec2 v2, vec2 v3, vec2 center)
 	vec2 v2r = v2;
 	vec2 v3r = v3;
 
-	b1 = sign(pt, v1r, v2r) < 0.0;
-	b2 = sign(pt, v2r, v3r) < 0.0;
-	b3 = sign(pt, v3r, v1r) < 0.0;
+	b1 = vj1_sign(pt, v1r, v2r) < 0.0;
+	b2 = vj1_sign(pt, v2r, v3r) < 0.0;
+	b3 = vj1_sign(pt, v3r, v1r) < 0.0;
 
 	return ((b1 == b2) && (b2 == b3));
 }
@@ -649,7 +649,7 @@ void main(){
 	else if (alphaMode == 2)
 		returnMe.a = f;
 	
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }
 
 

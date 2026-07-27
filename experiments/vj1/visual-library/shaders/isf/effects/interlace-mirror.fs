@@ -1,31 +1,33 @@
 /*{
-    "CATEGORIES": [
-        "Glitch",
-        "Retro"
-    ],
-    "CREDIT": "by Carter Rosenberg",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Horizontal",
-            "NAME": "horizontal",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Vertical",
-            "NAME": "vertical",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Glitch",
+    "Retro"
+  ],
+  "CREDIT": "by Carter Rosenberg",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Horizontal",
+      "NAME": "horizontal",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Vertical",
+      "NAME": "vertical",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()
 {
@@ -41,5 +43,5 @@ void main()
 			loc.x = RENDERSIZE.x - pixelCoord.x;
 		}	
 	}
-	gl_FragColor = IMG_PIXEL(inputImage,loc);
+	isf_FragColor = IMG_PIXEL(inputImage,loc);
 }

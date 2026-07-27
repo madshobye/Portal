@@ -1,91 +1,91 @@
 /*{
-	"DESCRIPTION": "Creates variations on a base color using a given algorithm.",
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color"
-	],
-	"INPUTS": [
-		{
-			"LABEL": "Base Color",
-			"NAME": "baseColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.25,
-				0.59,
-				0.9,
-				1.0
-			]
-		},
-		{
-			"LABEL": "Color Mode",
-			"NAME": "colorModeOverride",
-			"TYPE": "long",
-			"VALUES": [
-				0,
-				1,
-				2,
-				3,
-				4,
-				5,
-				6,
-				7
-			],
-			"LABELS": [
-				"Overview",
-				"Basic Complementary",
-				"Split Complementary",
-				"Compound Complementary",
-				"Spectrum",
-				"Shades",
-				"Analogous",
-				"Compound Analogous"
-			],
-			"DEFAULT": 1
-		},
-		{
-			"LABEL": "Color Count",
-			"NAME": "colorCount",
-			"TYPE": "long",
-			"VALUES": [
-				2,
-				3,
-				4,
-				5,
-				6,
-				7,
-				8,
-				9,
-				10,
-				11,
-				12,
-				13,
-				14,
-				15
-			],
-			"LABELS": [
-				"2",
-				"3",
-				"4",
-				"5",
-				"6",
-				"7",
-				"8",
-				"9",
-				"10",
-				"11",
-				"12",
-				"13",
-				"14",
-				"15"
-			],
-			"DEFAULT": 5
-		}
-	]
+  "DESCRIPTION": "Creates variations on a base color using a given algorithm.",
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color"
+  ],
+  "INPUTS": [
+    {
+      "LABEL": "Base Color",
+      "NAME": "baseColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.25,
+        0.59,
+        0.9,
+        1
+      ]
+    },
+    {
+      "LABEL": "Color Mode",
+      "NAME": "colorModeOverride",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "LABELS": [
+        "Overview",
+        "Basic Complementary",
+        "Split Complementary",
+        "Compound Complementary",
+        "Spectrum",
+        "Shades",
+        "Analogous",
+        "Compound Analogous"
+      ],
+      "DEFAULT": 1
+    },
+    {
+      "LABEL": "Color Count",
+      "NAME": "colorCount",
+      "TYPE": "long",
+      "VALUES": [
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        12,
+        13,
+        14,
+        15
+      ],
+      "LABELS": [
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10",
+        "11",
+        "12",
+        "13",
+        "14",
+        "15"
+      ],
+      "DEFAULT": 5
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
-
 
 vec3 rgb2hsv(vec3 c)	{
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -263,5 +263,5 @@ void main()
 		}	
 	}
 	
-	gl_FragColor = vec4(hsv2rgb(outColor.rgb), inColor.a);
+	isf_FragColor = vec4(hsv2rgb(outColor.rgb), inColor.a);
 }

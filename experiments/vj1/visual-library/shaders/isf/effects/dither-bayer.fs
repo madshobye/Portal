@@ -1,43 +1,43 @@
 /*{
-    "CATEGORIES": [
-        "Halftone Effect",
-        "Retro"
-    ],
-    "CREDIT": "Hugh Kennedy, adapted by David Lublin",
-    "DESCRIPTION": "Bayer style dithering",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "colorize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 2,
-            "LABELS": [
-                "2x2",
-                "4x4",
-                "8x8"
-            ],
-            "NAME": "matrixMode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2
-            ]
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Halftone Effect",
+    "Retro"
+  ],
+  "CREDIT": "Hugh Kennedy, adapted by David Lublin",
+  "DESCRIPTION": "Bayer style dithering",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "colorize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 2,
+      "LABELS": [
+        "2x2",
+        "4x4",
+        "8x8"
+      ],
+      "NAME": "matrixMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2
+      ]
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	based on https://github.com/hughsk/glsl-dither
 
@@ -214,5 +214,5 @@ void main()	{
 	
 	inputPixelColor = inputPixelColor * vec4(val,val,val,1.0);
 
-	gl_FragColor = mix(vec4(val,val,val,inputPixelColor.a),inputPixelColor,colorize);
+	isf_FragColor = mix(vec4(val,val,val,inputPixelColor.a),inputPixelColor,colorize);
 }

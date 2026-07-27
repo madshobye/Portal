@@ -1,52 +1,52 @@
 /*{
-    "CATEGORIES": [
-        "Distortion"
-    ],
-    "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/ButterflyWaveScrawler.glsl",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "startImage",
-            "TYPE": "image"
-        },
-        {
-            "NAME": "endImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "progress",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 5,
-            "MIN": 0,
-            "NAME": "amplitude",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 30,
-            "MAX": 50,
-            "MIN": 0,
-            "NAME": "waves",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.3,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "colorSeparation",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Distortion"
+  ],
+  "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/ButterflyWaveScrawler.glsl",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "startImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "endImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "progress",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 5,
+      "MIN": 0,
+      "NAME": "amplitude",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 30,
+      "MAX": 50,
+      "MIN": 0,
+      "NAME": "waves",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.3,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "colorSeparation",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec4 getFromColor(vec2 inUV)	{
 	return IMG_NORM_PIXEL(startImage, inUV);
@@ -86,5 +86,5 @@ vec4 transition(vec2 uv) {
 
 
 void main()	{
-	gl_FragColor = transition(isf_FragNormCoord.xy);
+	isf_FragColor = transition(isf_FragNormCoord.xy);
 }

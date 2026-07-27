@@ -1,52 +1,54 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "centerX",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 2,
-            "MIN": 0,
-            "NAME": "scrollAmount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "rightScrollOffset",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "IDENTITY": 1,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "midHeight",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "NAME": "seamless",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Distortion Effect"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "centerX",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "scrollAmount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "rightScrollOffset",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "IDENTITY": 1,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "midHeight",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "NAME": "seamless",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()	{
 	vec2		loc = isf_FragNormCoord.xy;
@@ -81,5 +83,5 @@ void main()	{
 	if ((loc.y >= 0.0)&&(loc.y <= 1.0))
 		inputPixelColor = IMG_NORM_PIXEL(inputImage,loc);
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

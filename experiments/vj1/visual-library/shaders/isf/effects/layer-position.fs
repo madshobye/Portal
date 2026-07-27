@@ -1,38 +1,41 @@
 /*{
-	"DESCRIPTION": "",
-	"CREDIT": "",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Geometry Adjustment", "Utility"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "offset",
-			"TYPE": "point2D",
-			"DEFAULT": [
-				0.5,
-				0.5
-			],
-			"MIN": [
-				0.0,
-				0.0
-			],
-			"MAX": [
-				1.0,
-				1.0
-			]
-		},
-		{
-			"NAME": "repeatImage",
-			"TYPE": "bool",
-			"DEFAULT": 0.0
-		}
-	]
-	
+  "DESCRIPTION": "",
+  "CREDIT": "",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Geometry Adjustment",
+    "Utility"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "offset",
+      "TYPE": "point2D",
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "MAX": [
+        1,
+        1
+      ]
+    },
+    {
+      "NAME": "repeatImage",
+      "TYPE": "bool",
+      "DEFAULT": 0
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 void main()	{
@@ -53,5 +56,5 @@ void main()	{
 		outputColor = IMG_PIXEL(inputImage, newLoc);
 	}
 	
-	gl_FragColor = outputColor;
+	isf_FragColor = outputColor;
 }

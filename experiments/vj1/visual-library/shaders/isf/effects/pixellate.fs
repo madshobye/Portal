@@ -1,36 +1,38 @@
-
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Stylize"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "cell_size",
-			"TYPE": "float",
-			"MIN": 0.001,
-			"MAX": 0.5,
-			"DEFAULT": 0.125
-		},
-		{
-			"NAME": "shape",
-			"VALUES": [
-				0,
-				1
-			],
-			"LABELS": [
-				"Square",
-				"Rectangle"
-			],
-			"DEFAULT": 0,
-			"TYPE": "long"
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Stylize"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "cell_size",
+      "TYPE": "float",
+      "MIN": 0.001,
+      "MAX": 0.5,
+      "DEFAULT": 0.125
+    },
+    {
+      "NAME": "shape",
+      "VALUES": [
+        0,
+        1
+      ],
+      "LABELS": [
+        "Square",
+        "Rectangle"
+      ],
+      "DEFAULT": 0,
+      "TYPE": "long"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 #ifndef GL_ES
@@ -46,7 +48,7 @@ void main()
 // CALCULATE EDGES OF CURRENT CELL
 	//	At 0.0 just do a pass-thru
 	if (cell_size == 0.0)	{
-		gl_FragColor = IMG_THIS_PIXEL(inputImage);
+		isf_FragColor = IMG_THIS_PIXEL(inputImage);
 	}
 		else	{
 		// Position of current pixel
@@ -77,6 +79,6 @@ void main()
 		vec4 avgC = IMG_NORM_PIXEL(inputImage, vec2(x1+(CellWidth/2.0), y2+(CellHeight/2.0)));	// Average the averages + centre
 		vec4 avgClr = (avgX+avgY+avgC) / 3.0;
 
-		gl_FragColor = vec4(avgClr);
+		isf_FragColor = vec4(avgClr);
 	}
 }

@@ -1,60 +1,60 @@
 /*{
-    "CATEGORIES": [
-        "Geometry Adjustment"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": -0.25,
-            "MAX": 1,
-            "MIN": -1,
-            "NAME": "angle",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "centerPt",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": 0.1,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "lineWidth",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "NAME": "flipH",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 1,
-            "NAME": "flipV",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Geometry Adjustment"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": -0.25,
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "angle",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "centerPt",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": 0.1,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "lineWidth",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "NAME": "flipH",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 1,
+      "NAME": "flipV",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -105,5 +105,5 @@ void main()	{
 	else	{
 		returnMe = IMG_NORM_PIXEL(inputImage,flipLoc);
 	}
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }

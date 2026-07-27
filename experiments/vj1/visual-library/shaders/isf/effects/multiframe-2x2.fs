@@ -1,55 +1,54 @@
 /*{
-	"DESCRIPTION": "buffers the last 3 frames and draws a 2x2 grid of the 4 current frames available",
-	"ISFVSN": "2",
-	"CREDIT": "by VIDVOX",
-	"CATEGORIES": [
-		"Tile Effect", "Stylize"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "lag",
-			"TYPE": "bool",
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "hueShift",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.0
-		}
-	],
-	"PASSES": [
-		{
-			"TARGET":"buffer3",
-			"PERSISTENT": true,
-			"WIDTH": "$WIDTH/2.0",
-			"HEIGHT": "$HEIGHT/2.0"
-		},
-		{
-			"TARGET":"buffer2",
-			"PERSISTENT": true,
-			"WIDTH": "$WIDTH/2.0",
-			"HEIGHT": "$HEIGHT/2.0"
-		},
-		{
-			"TARGET":"buffer1",
-			"PERSISTENT": true,
-			"WIDTH": "$WIDTH/2.0",
-			"HEIGHT": "$HEIGHT/2.0"
-		},
-		{
-		
-		}
-	]
-	
+  "DESCRIPTION": "buffers the last 3 frames and draws a 2x2 grid of the 4 current frames available",
+  "ISFVSN": "2",
+  "CREDIT": "by VIDVOX",
+  "CATEGORIES": [
+    "Tile Effect",
+    "Stylize"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "lag",
+      "TYPE": "bool",
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "hueShift",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0
+    }
+  ],
+  "PASSES": [
+    {
+      "TARGET": "buffer3",
+      "PERSISTENT": true,
+      "WIDTH": "$WIDTH/2.0",
+      "HEIGHT": "$HEIGHT/2.0"
+    },
+    {
+      "TARGET": "buffer2",
+      "PERSISTENT": true,
+      "WIDTH": "$WIDTH/2.0",
+      "HEIGHT": "$HEIGHT/2.0"
+    },
+    {
+      "TARGET": "buffer1",
+      "PERSISTENT": true,
+      "WIDTH": "$WIDTH/2.0",
+      "HEIGHT": "$HEIGHT/2.0"
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 vec3 rgb2hsv(vec3 c)	{
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -77,28 +76,28 @@ void main()
 	//	apply lag on each pass
 	if (PASSINDEX == 0)	{
 		if ((lag == false)||(mod(floor(TIME*60.0+2.0),6.0)<=1.0))	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer3);
 		}
 	}
 	//	first pass: read the "buffer1" into "buffer2"
 	else if (PASSINDEX == 1)	{
 		if ((lag == false)||(mod(floor(TIME*60.0+2.0),6.0)<=1.0))	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer2);
 		}
 	}
 	//	third pass: read from "inputImage" into "buffer1"
 	else if (PASSINDEX == 2)	{
 		if ((lag == false)||(mod(floor(TIME*60.0+2.0),6.0)<=1.0))	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(inputImage);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(inputImage);
 		}
 		else	{
-			gl_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
+			isf_FragColor = IMG_THIS_NORM_PIXEL(buffer1);
 		}
 	}
 	else if (PASSINDEX == 3)	{
@@ -140,6 +139,6 @@ void main()
 			color.rgb = hsv2rgb(color.rgb);		
 		}
 		//	BL - buffer3
-		gl_FragColor = color;
+		isf_FragColor = color;
 	}
 }

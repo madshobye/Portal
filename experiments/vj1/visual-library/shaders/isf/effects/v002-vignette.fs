@@ -1,40 +1,41 @@
 /*{
-    "CATEGORIES": [
-        "Film",
-        "v002"
-    ],
-    "CREDIT": "by v002",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "vignette",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "vignetteEdge",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "vignetteMix",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Film",
+    "v002"
+  ],
+  "CREDIT": "by v002",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "vignette",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "vignetteEdge",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "vignetteMix",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Based on v002 vignette – https://github.com/v002/v002-Film-Effects/
 
@@ -62,5 +63,5 @@ void main (void)
 	// sharpen via unsharp mask (subtract image from blured image)
 	vec4 input0 = IMG_THIS_PIXEL(inputImage);
 
-	gl_FragColor = mix(input0,vignetteResult * input0, vignette);		
+	isf_FragColor = mix(input0,vignetteResult * input0, vignette);
 }

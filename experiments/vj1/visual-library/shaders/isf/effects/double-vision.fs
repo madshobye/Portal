@@ -1,51 +1,51 @@
 /*{
-    "CATEGORIES": [
-        "Stylize"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "H Shift",
-            "MAX": 0.05,
-            "MIN": -0.05,
-            "NAME": "hShift",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "V Shift",
-            "MAX": 0.05,
-            "MIN": -0.05,
-            "NAME": "vShift",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "LABEL": "Shift Mix",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "mixAmount1",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "LABEL": "Original Mix",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "mixAmount2",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Stylize"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "H Shift",
+      "MAX": 0.05,
+      "MIN": -0.05,
+      "NAME": "hShift",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "V Shift",
+      "MAX": 0.05,
+      "MIN": -0.05,
+      "NAME": "vShift",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "LABEL": "Shift Mix",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "mixAmount1",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "LABEL": "Original Mix",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "mixAmount2",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()
 {
@@ -65,5 +65,5 @@ void main()
 	vec4 outColor = mix(min(colorL, colorR), max(colorL, colorR), mixAmount1);
 	outColor =  mix(min(outColor, color), max(outColor, color), mixAmount2);
 	
-	gl_FragColor = outColor;
+	isf_FragColor = outColor;
 }

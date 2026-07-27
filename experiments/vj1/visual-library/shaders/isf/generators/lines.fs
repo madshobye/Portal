@@ -1,62 +1,63 @@
 /*{
-    "CATEGORIES": [
-        "Geometry"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "spacing",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.05,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "line_width",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "MAX": 1,
-            "MIN": -1,
-            "NAME": "angle",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "shift",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                1,
-                1,
-                1,
-                1
-            ],
-            "NAME": "color1",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": [
-                0,
-                0,
-                0,
-                1
-            ],
-            "NAME": "color2",
-            "TYPE": "color"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Geometry"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "spacing",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.05,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "line_width",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "angle",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "shift",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        1,
+        1,
+        1,
+        1
+      ],
+      "NAME": "color1",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "NAME": "color2",
+      "TYPE": "color"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -94,5 +95,5 @@ void main() {
 		out_color = mix(color2,color1,percent);
 	}
 	
-	gl_FragColor = out_color;
+	isf_FragColor = out_color;
 }

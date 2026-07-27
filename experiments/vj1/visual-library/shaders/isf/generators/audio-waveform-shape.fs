@@ -1,80 +1,79 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Audio Visualizer"
   ],
-  "DESCRIPTION" : "Wraps an audio waveform around a shape and does video feedback.",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "Wraps an audio waveform around a shape and does video feedback.",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "audioWave",
-      "TYPE" : "audio"
+      "NAME": "audioWave",
+      "TYPE": "audio"
     },
     {
-      "NAME" : "audioGain",
-      "TYPE" : "float",
-      "MAX" : 2,
-      "DEFAULT" : 1.0,
-      "MIN" : 0
+      "NAME": "audioGain",
+      "TYPE": "float",
+      "MAX": 2,
+      "DEFAULT": 1,
+      "MIN": 0
     },
     {
-      "NAME" : "lineWidth",
-      "TYPE" : "float",
-      "MAX" : 0.1,
-      "DEFAULT" : 0.01,
-      "MIN" : 0
+      "NAME": "lineWidth",
+      "TYPE": "float",
+      "MAX": 0.1,
+      "DEFAULT": 0.01,
+      "MIN": 0
     },
     {
-      "NAME" : "shapeRadius",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.25,
-      "MIN" : 0
+      "NAME": "shapeRadius",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.25,
+      "MIN": 0
     },
     {
-      "NAME" : "feedbackLevel",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.25,
-      "MIN" : 0
+      "NAME": "feedbackLevel",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.25,
+      "MIN": 0
     },
     {
-      "NAME" : "zoomLevel",
-      "TYPE" : "float",
-      "MAX" : 1.1,
-      "DEFAULT" : 1.01,
-      "MIN" : 0.9,
-      "LABEL" : "Feedback Zoom"
+      "NAME": "zoomLevel",
+      "TYPE": "float",
+      "MAX": 1.1,
+      "DEFAULT": 1.01,
+      "MIN": 0.9,
+      "LABEL": "Feedback Zoom"
     },
     {
-      "NAME" : "mixPoint",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.0,
-      "MIN" : 0
+      "NAME": "mixPoint",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "MIN": 0
     },
     {
-      "NAME" : "waveColor1",
-      "TYPE" : "color",
-      "DEFAULT" : [
-        0.95969659090042114,
-        0.80407930507175662,
-        0.44830461173716851,
+      "NAME": "waveColor1",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.9596965909004211,
+        0.8040793050717566,
+        0.4483046117371685,
         1
       ]
     },
     {
-      "NAME" : "waveColor2",
-      "TYPE" : "color",
-      "DEFAULT" : [
-        0.055977690787502407,
-        0.71078224912611609,
-        0.93459457159042358,
+      "NAME": "waveColor2",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.05597769078750241,
+        0.7107822491261161,
+        0.9345945715904236,
         1
       ]
     },
     {
-      "LABELS" : [
+      "LABELS": [
         "Circle",
         "Triangle",
         "Rect",
@@ -85,10 +84,10 @@
         "Heart",
         "Rays"
       ],
-      "NAME" : "shape1",
-      "TYPE" : "long",
-      "DEFAULT" : 0,
-      "VALUES" : [
+      "NAME": "shape1",
+      "TYPE": "long",
+      "DEFAULT": 0,
+      "VALUES": [
         0,
         1,
         2,
@@ -101,7 +100,7 @@
       ]
     },
     {
-      "LABELS" : [
+      "LABELS": [
         "Circle",
         "Triangle",
         "Rect",
@@ -112,10 +111,10 @@
         "Heart",
         "Rays"
       ],
-      "NAME" : "shape2",
-      "TYPE" : "long",
-      "DEFAULT" : 1,
-      "VALUES" : [
+      "NAME": "shape2",
+      "TYPE": "long",
+      "DEFAULT": 1,
+      "VALUES": [
         0,
         1,
         2,
@@ -128,47 +127,49 @@
       ]
     },
     {
-      "NAME" : "shapeCenter",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "shapeCenter",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.5
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     },
     {
-      "NAME" : "zoomCenter",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "zoomCenter",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.5
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     }
   ],
-  "PASSES" : [
+  "PASSES": [
     {
-      "TARGET" : "feedbackBuffer",
-      "PERSISTENT" : true
+      "TARGET": "feedbackBuffer",
+      "PERSISTENT": true
     }
   ],
-  "CREDIT" : ""
-}
-*/
+  "CREDIT": "",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.1415926535897932384626433832795;
 const float tau =  6.2831853071795864769252867665590;
@@ -286,5 +287,5 @@ void main()	{
 	feedbackColor.a *= pow(feedbackLevel, 0.1);
 	inputPixelColor = mix(inputPixelColor,feedbackColor,1.0-inputPixelColor.a);
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

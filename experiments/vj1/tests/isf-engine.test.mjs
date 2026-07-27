@@ -2,6 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  assertIsfWebgl2Profile,
+  assertIsfWebgl2VertexProfile,
+  canonicalizeIsfWebgl2Source,
+  canonicalizeIsfWebgl2VertexSource,
   compileIsfFragmentSource,
   compileIsfOptimizedFragmentSource,
   compileIsfTransitionKernel,
@@ -10,6 +14,7 @@ import {
   evaluateIsfDimension,
   listProjectIsfTransitions,
   listProjectIsfVisualComponents,
+  mergeProjectIsfDefinitions,
   parseIsfDocument,
 } from "../js/libraries/isf-engine/index.js";
 import { getEffectNodeComponent } from "../js/libraries/visual-nodes/catalog.js";
@@ -24,7 +29,9 @@ import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/pr
 import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
 import { compileShaderSchedule } from "../js/graph/shader-scheduler.js";
 
-const FILTER = `/*{
+const profile = (source) => canonicalizeIsfWebgl2Source(source);
+
+const FILTER = profile(`/*{
   "ISFVSN": "2.0",
   "LABEL": "Tint",
   "DESCRIPTION": "Test filter",
@@ -36,9 +43,9 @@ const FILTER = `/*{
 }*/
 void main() {
   gl_FragColor = IMG_THIS_NORM_PIXEL(inputImage) * vec4(level, center.x, center.y, 1.0);
-}`;
+}`);
 
-const TRANSITION = `/*{
+const TRANSITION = profile(`/*{
   "ISFVSN": "2.0",
   "LABEL": "Soft Wipe",
   "INPUTS": [
@@ -51,7 +58,7 @@ const TRANSITION = `/*{
 void main() {
   float edge = smoothstep(progress - softness, progress + softness, isf_FragNormCoord.x);
   gl_FragColor = mix(IMG_THIS_NORM_PIXEL(startImage), IMG_THIS_NORM_PIXEL(endImage), edge);
-}`;
+}`);
 
 test("ISF parser validates metadata and identifies filters", () => {
   const document = parseIsfDocument(FILTER, { path: "shaders/tint.fs" });
@@ -60,6 +67,127 @@ test("ISF parser validates metadata and identifies filters", () => {
   assert.equal(document.inputs.length, 3);
   assert.equal(document.passes.length, 1);
   assert.equal(document.roiSafe, true);
+});
+
+test("the VJ1 WebGL2 profile canonicalizes at import and rejects legacy runtime sources", () => {
+  const legacy = `/*{ "ISFVSN": "2.0", "LABEL": "Legacy" }*/
+    float sign(float value) { return value < 0.0 ? -1.0 : 1.0; }
+    void main() {
+      gl_FragColor = texture2D(inputImage, vv_FragNormCoord)
+        * sign(vv_FragNormCoord.x);
+    }`;
+  const canonical = canonicalizeIsfWebgl2Source(legacy, {
+    path: "shaders/legacy.fs",
+  });
+  const document = parseIsfDocument(canonical, {
+    path: "shaders/legacy.fs",
+  });
+
+  assert.equal(assertIsfWebgl2Profile(document), document);
+  assert.match(canonical, /"PROFILE": "vj1-isf-webgl2@1"/);
+  assert.match(canonical, /isf_FragColor = texture\(inputImage, isf_FragNormCoord\)/);
+  assert.match(canonical, /float vj1_sign\(float value\)/);
+  assert.doesNotMatch(canonical, /\bgl_FragColor\b|\btexture2D\b|\bvv_FragNormCoord\b/);
+  assert.throws(
+    () => createIsfNodeDefinition({
+      path: "shaders/legacy.fs",
+      source: legacy,
+    }),
+    /VJ1_ISF_PROFILE_REQUIRED/,
+  );
+});
+
+test("project ISF ingestion migrates legacy library files before strict node creation", () => {
+  const legacy = `/*{
+    "ISFVSN": "2",
+    "LABEL": "Legacy Project Shader",
+    "IMPORTED": [],
+    "INPUTS": [{ "NAME": "inputImage", "TYPE": "image" }]
+  }*/
+  void main() {
+    gl_FragColor = IMG_THIS_PIXEL(inputImage);
+  }`;
+  const merged = mergeProjectIsfDefinitions({}, [{
+    path: "shaders/Legacy Project Shader.fs",
+    name: "Legacy Project Shader.fs",
+    code: legacy,
+  }]);
+  const definition = merged.definitions[0];
+  const sourcePart = definition.parts.find((part) => part.id === "isf-source");
+
+  assert.equal(merged.definitions.length, 1);
+  assert.match(sourcePart.source, /"PROFILE": "vj1-isf-webgl2@1"/);
+  assert.match(sourcePart.source, /"IMPORTED": \{\}/);
+  assert.match(sourcePart.source, /isf_FragColor = IMG_THIS_PIXEL/);
+  assert.doesNotMatch(sourcePart.source, /\bgl_FragColor\b/);
+});
+
+test("paired ISF vertex stages compile as first-class WebGL2 node parts", () => {
+  const fragmentSource = profile(`/*{
+    "ISFVSN": "2.0",
+    "LABEL": "Vertex Offset Probe",
+    "INPUTS": [
+      { "NAME": "inputImage", "TYPE": "image" },
+      { "NAME": "spread", "TYPE": "float", "DEFAULT": 1 }
+    ]
+  }*/
+  #if __VERSION__ <= 120
+  varying vec2 offsetCoord;
+  #else
+  in vec2 offsetCoord;
+  #endif
+  void main() {
+    gl_FragColor = IMG_NORM_PIXEL(inputImage, offsetCoord);
+  }`);
+  const vertexSource = canonicalizeIsfWebgl2VertexSource(`
+    #if __VERSION__ <= 120
+    varying vec2 offsetCoord;
+    #else
+    out vec2 offsetCoord;
+    #endif
+    void main() {
+      isf_vertShaderInit();
+      offsetCoord = isf_FragNormCoord + vec2(spread) / RENDERSIZE;
+    }
+  `, { path: "shaders/vertex-offset-probe.vs" });
+  const component = createIsfVisualComponent({
+    path: "shaders/vertex-offset-probe.fs",
+    source: fragmentSource,
+    vertexPath: "shaders/vertex-offset-probe.vs",
+    vertexSource,
+  });
+
+  assert.equal(
+    assertIsfWebgl2VertexProfile(vertexSource, {
+      path: "shaders/vertex-offset-probe.vs",
+    }),
+    vertexSource,
+  );
+  assert.equal(component.nodeDefinition.parts.length, 2);
+  assert.equal(component.nodeDefinition.metadata.isf.customVertexStage, true);
+  assert.match(component.vertexCode, /^#version 300 es/);
+  assert.match(component.vertexCode, /out vec2 offsetCoord;/);
+  assert.match(component.vertexCode, /void isf_vertShaderInit\(\)/);
+  assert.match(component.vertexCode, /uniform float spread;/);
+  assert.match(component.code, /in vec2 offsetCoord;/);
+
+  const merged = mergeProjectIsfDefinitions({}, [
+    {
+      path: "shaders/vertex-offset-probe.fs",
+      name: "vertex-offset-probe.fs",
+      code: fragmentSource,
+    },
+    {
+      path: "shaders/vertex-offset-probe.vs",
+      name: "vertex-offset-probe.vs",
+      code: vertexSource,
+    },
+  ]);
+  assert.equal(merged.definitions.length, 1);
+  assert.equal(
+    merged.definitions[0].parts.some((part) => part.stage === "vertex"),
+    true,
+  );
 });
 
 test("ISF imported images become validated sampler contracts", () => {
@@ -112,8 +240,8 @@ test("single-pass ISF transitions compile into the mapper transition kernel cont
 
 test("project ISF transitions remain first-class transition nodes and compile from stable header identity", () => {
   const source = TRANSITION.replace(
-    '"LABEL": "Soft Wipe",',
-    '"LABEL": "Soft Wipe",\n  "VJ1": { "ID": "org.vj1.transition.soft-wipe", "VERSION": "1.2.0" },'
+    '"PROFILE": "vj1-isf-webgl2@1"',
+    '"PROFILE": "vj1-isf-webgl2@1", "ID": "org.vj1.transition.soft-wipe", "VERSION": "1.2.0"'
   );
   const definition = createIsfNodeDefinition({
     path: "shaders/transitions/soft-wipe.fs",
@@ -146,7 +274,7 @@ test("multipass ISF transitions are rejected until they have an explicit retaine
 test("audio and FFT inputs materialize as host resources without graph texture inlets", () => {
   const definition = createIsfNodeDefinition({
     path: "shaders/audio-input.fs",
-    source: `/*{
+    source: profile(`/*{
       "ISFVSN": "2.0",
       "INPUTS": [
         { "NAME": "waveform", "TYPE": "audio" },
@@ -155,7 +283,7 @@ test("audio and FFT inputs materialize as host resources without graph texture i
     }*/
     void main() {
       gl_FragColor = IMG_THIS_PIXEL(waveform) + IMG_THIS_PIXEL(spectrum);
-    }`,
+    }`),
   });
   const components = listProjectIsfVisualComponents({
     nodes: { definitions: [{ ...definition }] },
@@ -171,11 +299,11 @@ test("audio and FFT inputs materialize as host resources without graph texture i
 test("ISF event inputs materialize as transient event parameters", () => {
   const component = createIsfVisualComponent({
     path: "shaders/event.fs",
-    source: `/*{
+    source: profile(`/*{
       "ISFVSN": "2.0",
       "INPUTS": [{ "NAME": "restart", "LABEL": "Restart", "TYPE": "event" }]
     }*/
-    void main() { gl_FragColor = restart ? vec4(1.0) : vec4(0.0); }`,
+    void main() { gl_FragColor = restart ? vec4(1.0) : vec4(0.0); }`),
   });
   const restart = component.params.find((param) => param.id === "restart");
   assert.equal(restart.type, "event");
@@ -195,7 +323,7 @@ test("ISF event inputs materialize as transient event parameters", () => {
 test("named multi-image ISF files materialize as executable visual graph nodes", () => {
   const definition = createIsfNodeDefinition({
     path: "shaders/two-inputs.fs",
-    source: `/*{
+    source: profile(`/*{
       "ISFVSN": "2.0",
       "LABEL": "Two Images",
       "INPUTS": [
@@ -209,7 +337,7 @@ test("named multi-image ISF files materialize as executable visual graph nodes",
         IMG_THIS_NORM_PIXEL(foreground),
         0.5
       );
-    }`,
+    }`),
   });
   const components = listProjectIsfVisualComponents({
     nodes: { definitions: [definition] },
@@ -233,12 +361,12 @@ test("ISF compiler owns standard declarations without redeclaring shader uniform
   assert.match(source, /void vj1IsfUserMain\(/);
   assert.match(
     source,
-    /mix\(VJ1_IMG_NORM_PIXEL_inputImage\(vj1IsfBoundaryUv\(\)\), gl_FragColor/,
+    /mix\(VJ1_IMG_NORM_PIXEL_inputImage\(vj1IsfBoundaryUv\(\)\), isf_FragColor/,
   );
   assert.match(source, /uniform bool vj1IsfFinalPass/);
 });
 
-test("ISF compiler makes declared parameter-bounded loops portable to WebGL 1", () => {
+test("ISF compiler preserves declared dynamic loops for WebGL 2", () => {
   const document = parseIsfDocument(`/*{
     "ISFVSN": "2.0",
     "LABEL": "Neighborhood",
@@ -257,9 +385,8 @@ test("ISF compiler makes declared parameter-bounded loops portable to WebGL 1", 
   }`);
   const compiled = compileIsfFragmentSource(document);
 
-  assert.match(compiled, /for \(float i=0\.; i<=15\.0; \+\+i\)/);
-  assert.match(compiled, /if \(i > float\(int\(radius\)\)\) break;/);
-  assert.doesNotMatch(compiled, /i<=float\(int\(radius\)\)/);
+  assert.match(compiled, /#version 300 es/);
+  assert.match(compiled, /for \(float i=0\.; i<=float\(int\(radius\)\); \+\+i\)/);
 });
 
 test("an explicit ISF effect amount owns interpolation without a duplicate host mix", () => {
@@ -274,7 +401,7 @@ test("an explicit ISF effect amount owns interpolation without a duplicate host 
   assert.equal((compiled.match(/uniform float amount;/g) || []).length, 1);
   assert.doesNotMatch(
     compiled,
-    /gl_FragColor = mix\(VJ1_IMG_NORM_PIXEL_inputImage/,
+    /isf_FragColor = mix\(VJ1_IMG_NORM_PIXEL_inputImage/,
   );
 });
 
@@ -313,7 +440,7 @@ test("restricted optimized ISF lowerings preserve direct generation, fusion, and
 test("optimized local ISF carries declared float scalars into the fused effect contract", () => {
   const threshold = createIsfVisualComponent({
     path: "shaders/threshold.fs",
-    source: `/*{
+    source: profile(`/*{
       "ISFVSN": "2.0",
       "LABEL": "Threshold",
       "INPUTS": [
@@ -327,7 +454,7 @@ test("optimized local ISF carries declared float scalars into the fused effect c
       vec4 color = IMG_THIS_NORM_PIXEL(inputImage);
       float ink = step(cutoff, dot(color.rgb, vec3(0.2126, 0.7152, 0.0722)));
       gl_FragColor = vec4(mix(color.rgb, vec3(ink), amount), color.a);
-    }`,
+    }`),
   });
   const params = Object.fromEntries(
     threshold.params.map((param) => [param.id, param]),
@@ -390,8 +517,8 @@ test("optimized ISF lowering rejects semantics that cannot stay in the declared 
 
 test("ISF fragment coordinates remain semantic when the physical preview size changes", () => {
   const source = FILTER.replace(
-    "gl_FragColor = IMG_THIS_NORM_PIXEL(inputImage) * vec4(level, center.x, center.y, 1.0);",
-    "vec2 uv = gl_FragCoord.xy / RENDERSIZE.xy;\n  gl_FragColor = vec4(uv, 0.0, 1.0);",
+    "isf_FragColor = IMG_THIS_NORM_PIXEL(inputImage) * vec4(level, center.x, center.y, 1.0);",
+    "vec2 uv = gl_FragCoord.xy / RENDERSIZE.xy;\n  isf_FragColor = vec4(uv, 0.0, 1.0);",
   );
   const compiled = compileIsfFragmentSource(parseIsfDocument(source));
   assert.match(compiled, /vec2 uv = vj1IsfFragCoord\.xy \/ RENDERSIZE\.xy/);
@@ -422,8 +549,8 @@ test("ISF files materialize as typed project visual nodes", () => {
 
 test("animated ISF definitions preserve temporal invalidation at the node compiler boundary", () => {
   const source = FILTER.replace(
-    "gl_FragColor =",
-    "gl_FragColor = vec4(sin(TIME)) +",
+    "isf_FragColor =",
+    "isf_FragColor = vec4(sin(TIME)) +",
   );
   const definition = createIsfNodeDefinition({ path: "shaders/animated.fs", source });
 
@@ -557,7 +684,13 @@ test("component graph compilation treats pending visual files as transparent or 
 });
 
 test("component graph compilation activates a pending ISF source when its definition arrives", () => {
-  const definition = createIsfNodeDefinition({ path: "shaders/tint.fs", source: FILTER.replace('"inputImage", "TYPE": "image"', '"unused", "TYPE": "float"') });
+  const generatorSource = FILTER
+    .replace('"NAME": "inputImage"', '"NAME": "unused"')
+    .replace('"TYPE": "image"', '"TYPE": "float"');
+  const definition = createIsfNodeDefinition({
+    path: "shaders/tint.fs",
+    source: generatorSource,
+  });
   const resolver = createProjectVisualNodeResolver({ nodes: { definitions: [definition] } });
   const patch = compileComponentPatch({
     id: "loaded-component",

@@ -1,24 +1,26 @@
 /*{
-	"CREDIT": "by zoidberg",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color Adjustment"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "vibrance",
-			"TYPE": "float",
-			"MIN": -0.25,
-			"MAX": 0.6,
-			"DEFAULT": 0.0
-		}
-	]
+  "CREDIT": "by zoidberg",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color Adjustment"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "vibrance",
+      "TYPE": "float",
+      "MIN": -0.25,
+      "MAX": 0.6,
+      "DEFAULT": 0
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 vec3 rgb2hsv(vec3 c);
 vec3 hsv2rgb(vec3 c);
@@ -29,7 +31,7 @@ void main() {
 	float		maxDelta = sqrt(tmpColorB.y) - tmpColorB.y;
 	tmpColorB.y = (maxDelta * vibrance) + tmpColorB.y;
 	tmpColorA.rgb = hsv2rgb(tmpColorB.rgb);
-	gl_FragColor = tmpColorA;
+	isf_FragColor = tmpColorA;
 }
 
 

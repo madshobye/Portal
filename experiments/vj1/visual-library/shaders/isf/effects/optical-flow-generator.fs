@@ -1,62 +1,62 @@
 /*{
-    "CATEGORIES": [
-        "Masking",
-        "Utility"
-    ],
-    "CREDIT": "by VIDVOX / v002 / Andrew Benson",
-    "DESCRIPTION": "Creates a raw optical flow mask from the input image",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 10,
-            "LABEL": "Scale",
-            "MAX": 50,
-            "MIN": 0,
-            "NAME": "inputScale",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.01,
-            "LABEL": "Offset",
-            "MAX": 0.5,
-            "MIN": 0,
-            "NAME": "inputOffset",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.2,
-            "LABEL": "Noise Removal",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "inputLambda",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "maskOpacity",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "TARGET": "maskBuffer"
-        },
-        {
-            "PERSISTENT": true,
-            "TARGET": "delayBuffer"
-        },
-        {
-        }
-    ]
-}
-*/
-
+  "CATEGORIES": [
+    "Masking",
+    "Utility"
+  ],
+  "CREDIT": "by VIDVOX / v002 / Andrew Benson",
+  "DESCRIPTION": "Creates a raw optical flow mask from the input image",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 10,
+      "LABEL": "Scale",
+      "MAX": 50,
+      "MIN": 0,
+      "NAME": "inputScale",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.01,
+      "LABEL": "Offset",
+      "MAX": 0.5,
+      "MIN": 0,
+      "NAME": "inputOffset",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.2,
+      "LABEL": "Noise Removal",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "inputLambda",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "maskOpacity",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "TARGET": "maskBuffer"
+    },
+    {
+      "PERSISTENT": true,
+      "TARGET": "delayBuffer"
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	based on v002 Optical Flow which is itself a port of Andrew Bensons HS Flow implementation on the GPU.
 //	https://github.com/v002/v002-Optical-Flow
@@ -110,16 +110,16 @@ void main()
 		vec2 yout = vec2(max(vyd,0.),abs(min(vyd,0.)))*inputScale;
 	
 		vec4 mask = clamp(vec4(xout.xy,yout.xy), 0.0, 1.0);
-		gl_FragColor = mask;
+		isf_FragColor = mask;
 	}
 	else if (PASSINDEX == 1)	{
-		gl_FragColor = IMG_THIS_PIXEL(inputImage);
+		isf_FragColor = IMG_THIS_PIXEL(inputImage);
 	}
 	else	{
 		//	NOW DO SOMETHING WITH THE MASK
 		vec4 mask = IMG_THIS_NORM_PIXEL(maskBuffer);
 		//mask.a = 1.0;
 		mask.a = mix(mask.a, 1.0, maskOpacity);
-		gl_FragColor = mask;
+		isf_FragColor = mask;
 	}
 }

@@ -37,7 +37,17 @@ export async function loadBuiltInIsfRepository({
       artifact?.resource,
       `BUILT_IN_VISUAL_ARTIFACT_RESOURCE_MISSING:${artifact?.id || "unknown"}`,
     );
-    return readText(versionedResourceUrl(new URL(resource, manifestUrl)));
+    const vertexResource = String(artifact?.vertexResource || "").trim();
+    return {
+      fragment: await readText(
+        versionedResourceUrl(new URL(resource, manifestUrl)),
+      ),
+      vertex: vertexResource
+        ? await readText(
+          versionedResourceUrl(new URL(vertexResource, manifestUrl)),
+        )
+        : "",
+    };
   });
   for (const [artifactIndex, artifact] of artifacts.entries()) {
     const id = requiredText(
@@ -64,6 +74,7 @@ export async function loadBuiltInIsfRepository({
       artifact?.resource,
       `BUILT_IN_VISUAL_ARTIFACT_RESOURCE_MISSING:${id}`,
     );
+    const vertexResource = String(artifact?.vertexResource || "").trim();
     if (ids.has(id)) throw new Error(`BUILT_IN_VISUAL_ARTIFACT_DUPLICATE:${id}`);
     if (visualIds.has(visualId)) {
       throw new Error(`BUILT_IN_VISUAL_ID_DUPLICATE:${visualId}`);
@@ -71,13 +82,24 @@ export async function loadBuiltInIsfRepository({
     if (resources.has(resource)) {
       throw new Error(`BUILT_IN_VISUAL_RESOURCE_DUPLICATE:${resource}`);
     }
+    if (
+      vertexResource &&
+      (vertexResource === resource || resources.has(vertexResource))
+    ) {
+      throw new Error(
+        `BUILT_IN_VISUAL_RESOURCE_DUPLICATE:${vertexResource}`,
+      );
+    }
     ids.add(id);
     visualIds.add(visualId);
     resources.add(resource);
+    if (vertexResource) resources.add(vertexResource);
     const source = sources[artifactIndex];
     const definition = createIsfNodeDefinition({
       path: resource,
-      source,
+      source: source.fragment,
+      vertexPath: vertexResource,
+      vertexSource: source.vertex,
       origin: "built-in",
     });
     const resolvedImportedResources = resolveImportedResources(
@@ -147,6 +169,7 @@ export async function loadBuiltInIsfRepository({
       nodeVersion,
       visualId,
       resource,
+      vertexResource,
       definition,
       component,
       transition,

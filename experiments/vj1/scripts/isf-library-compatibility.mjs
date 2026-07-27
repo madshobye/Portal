@@ -1,38 +1,26 @@
-const WEBGL1_COMPILE_EXCLUSIONS = new Set([
+const WEBGL2_PROFILE_COMPILE_EXCLUSIONS = new Set([
   "Bordered Box.fs",
-  "Chroma Desaturation Mask.fs",
-  "Chroma Mask.fs",
-  "CMYK Halftone-Lookaround.fs",
-  "Color Bars.fs",
-  "Color Organ Polyphonic.fs",
-  "Color Replacement.fs",
-  "Dilate-Fast.fs",
+  "Circle Crop.fs",
   "Doom Screen Transition.fs",
-  "Duotone From Histogram.fs",
-  "Erode-Fast.fs",
-  "God Rays.fs",
+  "Dreamy Zoom.fs",
   "Hexagonalize.fs",
   "Highlighter Overlay.fs",
+  "Inverted Page Curl.fs",
   "Line Group.fs",
+  "Luminance Melt.fs",
   "Mosaic.fs",
-  "Motion Heat Map.fs",
-  "Motion Mask.fs",
-  "Pattern Glitch.fs",
   "Pixelize.fs",
   "Poly Glitch.fs",
-  "Radial Replicate.fs",
   "Random Characters.fs",
-  "RGB Halftone-lookaround.fs",
+  "Simple Zoom Transition.fs",
+  "Stereo Viewer.fs",
   "Tiny Date Time Overlay.fs",
+  "Zoom In Circles.fs",
 ]);
 
 export function currentIsfLibraryCompatibility(document, filename, entries) {
-  if (WEBGL1_COMPILE_EXCLUSIONS.has(filename)) {
-    return { compatible: false, reason: "webgl1-compile-failure" };
-  }
-  const stem = filename.slice(0, -3);
-  if (entries.includes(`${stem}.vs`)) {
-    return { compatible: false, reason: "custom-vertex-stage" };
+  if (WEBGL2_PROFILE_COMPILE_EXCLUSIONS.has(filename)) {
+    return { compatible: false, reason: "webgl2-profile-compile-failure" };
   }
   if (document.imported.length) {
     return { compatible: false, reason: "unpackaged-imported-resource" };

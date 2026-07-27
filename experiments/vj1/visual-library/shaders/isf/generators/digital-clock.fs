@@ -1,66 +1,65 @@
 /*{
-    "CATEGORIES": [
-        "Utility"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "Shows the current time of day or time since the composition started",
-    "INPUTS": [
-        {
-            "DEFAULT": [
-                1,
-                0.5899132640831176,
-                0,
-                1
-            ],
-            "LABEL": "Color",
-            "NAME": "colorInput",
-            "TYPE": "color"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Clock Mode",
-            "LABELS": [
-                "Time",
-                "Countdown",
-                "Counter"
-            ],
-            "NAME": "clockMode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1,
-                2
-            ]
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Y Offset",
-            "MAX": 1,
-            "MIN": -1,
-            "NAME": "yOffset",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Blink",
-            "NAME": "blinkingColons",
-            "TYPE": "bool"
-        },
-        {
-            "LABEL": "24 Hour",
-            "NAME": "twentyFourHourStyle",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-        }
-    ]
-}
-*/
-
-
+  "CATEGORIES": [
+    "Utility"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "Shows the current time of day or time since the composition started",
+  "INPUTS": [
+    {
+      "DEFAULT": [
+        1,
+        0.5899132640831176,
+        0,
+        1
+      ],
+      "LABEL": "Color",
+      "NAME": "colorInput",
+      "TYPE": "color"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Clock Mode",
+      "LABELS": [
+        "Time",
+        "Countdown",
+        "Counter"
+      ],
+      "NAME": "clockMode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1,
+        2
+      ]
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Y Offset",
+      "MAX": 1,
+      "MIN": -1,
+      "NAME": "yOffset",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Blink",
+      "NAME": "blinkingColons",
+      "TYPE": "bool"
+    },
+    {
+      "LABEL": "24 Hour",
+      "NAME": "twentyFourHourStyle",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float segment(vec2 uv, bool On) {
 	return (On) ?  (1.0 - smoothstep(0.05,0.15,abs(uv.x))) *
@@ -180,5 +179,5 @@ void main()	{
 	if (seg > 0.0)
 		returnMe = colorInput * seg;
 	
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }

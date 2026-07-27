@@ -1,74 +1,76 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect"
-    ],
-    "CREDIT": "by carter rosenberg",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 32,
-            "MIN": 0.1,
-            "NAME": "level",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "offset",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "x_smear",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0.01,
-            "NAME": "y_smear",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "center",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": 0,
-            "LABELS": [
-                "Single",
-                "Double"
-            ],
-            "NAME": "mode",
-            "TYPE": "long",
-            "VALUES": [
-                0,
-                1
-            ]
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Distortion Effect"
+  ],
+  "CREDIT": "by carter rosenberg",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 32,
+      "MIN": 0.1,
+      "NAME": "level",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "offset",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "x_smear",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0.01,
+      "NAME": "y_smear",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "center",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": 0,
+      "LABELS": [
+        "Single",
+        "Double"
+      ],
+      "NAME": "mode",
+      "TYPE": "long",
+      "VALUES": [
+        0,
+        1
+      ]
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -110,9 +112,9 @@ void main() {
 	vec2 loc = tc / texSize;
 
 	if ((loc.x < 0.0)||(loc.y < 0.0)||(loc.x > 1.0)||(loc.y > 1.0))	{
-		gl_FragColor = vec4(0.0);
+		isf_FragColor = vec4(0.0);
 	}
 	else	{
-		gl_FragColor = IMG_NORM_PIXEL(inputImage, loc);
+		isf_FragColor = IMG_NORM_PIXEL(inputImage, loc);
 	}
 }

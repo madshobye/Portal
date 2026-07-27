@@ -1,181 +1,183 @@
 /*{
-	"DESCRIPTION": "Makes a grid of frame delayed images",
-	"ISFVSN": "2",
-	"CREDIT": "by VIDVOX",
-	"CATEGORIES": [
-		"Tile Effect", "Stylize"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "corner",
-			"LABEL": "Start Corner",
-			"VALUES": [
-				0,
-				1,
-				2,
-				3
-			],
-			"LABELS": [
-				"Top Left",
-				"Top Right",
-				"Bottom Left",
-				"Bottom Right"
-			],
-			"DEFAULT": 0,
-			"TYPE": "long"
-		},
-		{
-			"NAME": "cols",
-			"LABEL": "Columns",
-			"VALUES": [
-				1,
-				2,
-				3,
-				4,
-				5,
-				6,
-				7,
-				8,
-				9,
-				10
-			],
-			"LABELS": [
-				"1",
-				"2",
-				"3",
-				"4",
-				"5",
-				"6",
-				"7",
-				"8",
-				"9",
-				"10"
-			],
-			"DEFAULT": 4,
-			"TYPE": "long"
-		},
-		{
-			"NAME": "rows",
-			"LABEL": "Rows",
-			"VALUES": [
-				1,
-				2,
-				3,
-				4,
-				5,
-				6,
-				7,
-				8,
-				9,
-				10
-			],
-			"LABELS": [
-				"1",
-				"2",
-				"3",
-				"4",
-				"5",
-				"6",
-				"7",
-				"8",
-				"9",
-				"10"
-			],
-			"DEFAULT": 4,
-			"TYPE": "long"
-		},
-		{
-			"NAME": "direction",
-			"LABEL": "Direction",
-			"VALUES": [
-				0,
-				1
-			],
-			"LABELS": [
-				"Horizontal",
-				"Vertical"
-			],
-			"DEFAULT": 0,
-			"TYPE": "long"
-		},
-		{
-			"NAME": "edgeMode",
-			"LABEL": "Edge Mode",
-			"VALUES": [
-				0,
-				1
-			],
-			"LABELS": [
-				"Wrap",
-				"Snake"
-			],
-			"DEFAULT": 1,
-			"TYPE": "long"
-		},
-		{
-			"NAME": "fpsThrottle",
-			"LABEL": "FPS Lag",
-			"TYPE": "float",
-			"DEFAULT": 1.0,
-			"MIN": 0.0,
-			"MAX": 5.0
-		},
-		{
-			"NAME": "imageSizeMode",
-			"LABEL": "Size Mode",
-			"VALUES": [
-				0,
-				1,
-				2
-			],
-			"LABELS": [
-				"Fit",
-				"Fill",
-				"Stretch"
-			],
-			"DEFAULT": 1,
-			"TYPE": "long"
-		},
-		{
-			"NAME": "clear",
-			"LABEL": "Clear Buffer",
-			"TYPE": "event"
-		},
-		{
-			"NAME": "autoClear",
-			"LABEL": "Auto Clear",
-			"TYPE": "bool",
-			"DEFAULT": 1.0
-		}
-	],
-	"PASSES": [
-		{
-			"TARGET":"drawState",
-			"PERSISTENT": true,
-			"FLOAT": true,
-			"WIDTH": "1",
-			"HEIGHT": "1"
-		},
-		{
-			"TARGET":"frameCounter",
-			"PERSISTENT": true,
-			"FLOAT": true,
-			"WIDTH": "1",
-			"HEIGHT": "1"
-		},
-		{
-			"TARGET":"lastBuffer",
-			"FLOAT": true,
-			"PERSISTENT": true
-		}
-	]
-	
+  "DESCRIPTION": "Makes a grid of frame delayed images",
+  "ISFVSN": "2",
+  "CREDIT": "by VIDVOX",
+  "CATEGORIES": [
+    "Tile Effect",
+    "Stylize"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "corner",
+      "LABEL": "Start Corner",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "LABELS": [
+        "Top Left",
+        "Top Right",
+        "Bottom Left",
+        "Bottom Right"
+      ],
+      "DEFAULT": 0,
+      "TYPE": "long"
+    },
+    {
+      "NAME": "cols",
+      "LABEL": "Columns",
+      "VALUES": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "LABELS": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10"
+      ],
+      "DEFAULT": 4,
+      "TYPE": "long"
+    },
+    {
+      "NAME": "rows",
+      "LABEL": "Rows",
+      "VALUES": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9,
+        10
+      ],
+      "LABELS": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5",
+        "6",
+        "7",
+        "8",
+        "9",
+        "10"
+      ],
+      "DEFAULT": 4,
+      "TYPE": "long"
+    },
+    {
+      "NAME": "direction",
+      "LABEL": "Direction",
+      "VALUES": [
+        0,
+        1
+      ],
+      "LABELS": [
+        "Horizontal",
+        "Vertical"
+      ],
+      "DEFAULT": 0,
+      "TYPE": "long"
+    },
+    {
+      "NAME": "edgeMode",
+      "LABEL": "Edge Mode",
+      "VALUES": [
+        0,
+        1
+      ],
+      "LABELS": [
+        "Wrap",
+        "Snake"
+      ],
+      "DEFAULT": 1,
+      "TYPE": "long"
+    },
+    {
+      "NAME": "fpsThrottle",
+      "LABEL": "FPS Lag",
+      "TYPE": "float",
+      "DEFAULT": 1,
+      "MIN": 0,
+      "MAX": 5
+    },
+    {
+      "NAME": "imageSizeMode",
+      "LABEL": "Size Mode",
+      "VALUES": [
+        0,
+        1,
+        2
+      ],
+      "LABELS": [
+        "Fit",
+        "Fill",
+        "Stretch"
+      ],
+      "DEFAULT": 1,
+      "TYPE": "long"
+    },
+    {
+      "NAME": "clear",
+      "LABEL": "Clear Buffer",
+      "TYPE": "event"
+    },
+    {
+      "NAME": "autoClear",
+      "LABEL": "Auto Clear",
+      "TYPE": "bool",
+      "DEFAULT": 1
+    }
+  ],
+  "PASSES": [
+    {
+      "TARGET": "drawState",
+      "PERSISTENT": true,
+      "FLOAT": true,
+      "WIDTH": "1",
+      "HEIGHT": "1"
+    },
+    {
+      "TARGET": "frameCounter",
+      "PERSISTENT": true,
+      "FLOAT": true,
+      "WIDTH": "1",
+      "HEIGHT": "1"
+    },
+    {
+      "TARGET": "lastBuffer",
+      "FLOAT": true,
+      "PERSISTENT": true
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 //	this returns which cell a particular pixel is in, ordered based on the direction / start corner / wrap mode
 float cellForCoord(vec2 st, vec2 size, int dir, int corn, int edge){
@@ -350,7 +352,7 @@ void main()
 		//	fill into the r channel the new number of cols
 		//	fill into the g channel the new number of rows
 		//	fill into the b channel the doClear state
-		gl_FragColor = vec4(cols, rows, doClear, 1.0);
+		isf_FragColor = vec4(cols, rows, doClear, 1.0);
 	}
 	else if (PASSINDEX == 1)	{
 		vec4		srcPixel = IMG_PIXEL(frameCounter,vec2(0.5));
@@ -363,7 +365,7 @@ void main()
 			frameCount += 1.0;
 		}
 		
-		gl_FragColor = vec4(frameCount, 0.0, 0.0, 1.0);
+		isf_FragColor = vec4(frameCount, 0.0, 0.0, 1.0);
 	}
 	else if (PASSINDEX == 2)	{
 		//	get the state pixel, this will tell us if we need to clear
@@ -435,7 +437,7 @@ void main()
 			}
 		}
 		
-		gl_FragColor = color;
+		isf_FragColor = color;
 	}
 }
 

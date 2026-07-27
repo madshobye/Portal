@@ -1,41 +1,43 @@
 /*{
-    "CATEGORIES": [
-        "Geometry Adjustment"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0.01,
-            "NAME": "seed",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.125,
-            "MAX": 1,
-            "MIN": 0.01,
-            "NAME": "cell_size",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "NAME": "allow_flips_h",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": 0,
-            "NAME": "allow_flips_v",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Geometry Adjustment"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0.01,
+      "NAME": "seed",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.125,
+      "MAX": 1,
+      "MIN": 0.01,
+      "NAME": "cell_size",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "NAME": "allow_flips_h",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": 0,
+      "NAME": "allow_flips_v",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float rand(vec2 co){
     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
@@ -46,7 +48,7 @@ void main()
 // CALCULATE EDGES OF CURRENT CELL
 	//	At 0.0 just do a pass-thru
 	if (cell_size == 0.0)	{
-		gl_FragColor = IMG_THIS_PIXEL(inputImage);
+		isf_FragColor = IMG_THIS_PIXEL(inputImage);
 	}
 		else	{
 		// Position of current pixel
@@ -76,16 +78,16 @@ void main()
 		float region = cols*floor(xy.x / CellWidth) + floor(xy.y / CellHeight);
 
 		//	use this to draw the gradient of the regions as gray colors..
-		//gl_FragColor = vec4(vec3(region/count),1.0);
+		//isf_FragColor = vec4(vec3(region/count),1.0);
 		
 		//	now translate this region to another random region using our seed and region
 		float translated = clamp(rand(vec2(region/count, seed)),0.0,1.0);
 		//translated = region/count;
-		//gl_FragColor = vec4(vec3(translated),1.0);
+		//isf_FragColor = vec4(vec3(translated),1.0);
 		
 		//	quantize the translated!
 		translated = floor(count * translated);
-		//gl_FragColor = vec4(vec3(translated),1.0);
+		//isf_FragColor = vec4(vec3(translated),1.0);
 		//	now convert the translated region back to an xy location
 		//	get the relative position within the original block and then add on the translated amount
 		xy.x = (xy.x - floor(xy.x / CellWidth)*CellWidth) + CellWidth * floor(translated / rows);
@@ -106,7 +108,7 @@ void main()
 			}
 		}
 		
-		gl_FragColor = IMG_NORM_PIXEL(inputImage, xy);
+		isf_FragColor = IMG_NORM_PIXEL(inputImage, xy);
 		
 	}
 }

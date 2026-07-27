@@ -1,61 +1,60 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Glitch"
   ],
-  "DESCRIPTION" : "Applies randomized effects to different parts of the image.",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "Applies randomized effects to different parts of the image.",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "maxGlitchSize",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.5,
-      "LABEL" : "Glitch Level",
-      "MIN" : 0
+      "NAME": "maxGlitchSize",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.5,
+      "LABEL": "Glitch Level",
+      "MIN": 0
     },
     {
-      "NAME" : "glitchRate",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0.25,
-      "LABEL" : "Glitch Rate",
-      "MIN" : 0
+      "NAME": "glitchRate",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0.25,
+      "LABEL": "Glitch Rate",
+      "MIN": 0
     },
-	{
-		"NAME": "stylizeMode",
-		"LABEL": "Style Mode",
-		"VALUES": [
-			0,
-			1,
-			2,
-			3
-		],
-		"LABELS": [
-			"Random",
-			"Invert",
-			"Dither",
-			"Hue Shift"
-		],
-		"DEFAULT": 0,
-		"TYPE": "long"
-	}
-  ],
-  "PASSES" : [
     {
-      "TARGET" : "lastState",
-      "PERSISTENT" : true
+      "NAME": "stylizeMode",
+      "LABEL": "Style Mode",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "LABELS": [
+        "Random",
+        "Invert",
+        "Dither",
+        "Hue Shift"
+      ],
+      "DEFAULT": 0,
+      "TYPE": "long"
     }
   ],
-  "CREDIT" : "VIDVOX"
-}
-*/
-
-
+  "PASSES": [
+    {
+      "TARGET": "lastState",
+      "PERSISTENT": true
+    }
+  ],
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 bool pointInRect(vec2 pt, vec4 r)
 {
@@ -342,5 +341,5 @@ void main()	{
 			}
 		}
 	}
-	gl_FragColor = returnMe;
+	isf_FragColor = returnMe;
 }

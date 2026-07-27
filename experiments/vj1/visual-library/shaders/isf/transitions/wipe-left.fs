@@ -1,32 +1,31 @@
-/*
-{
-  "INPUTS" : [
+/*{
+  "INPUTS": [
     {
-      "TYPE" : "image",
-      "NAME" : "startImage"
+      "TYPE": "image",
+      "NAME": "startImage"
     },
     {
-      "TYPE" : "image",
-      "NAME" : "endImage"
+      "TYPE": "image",
+      "NAME": "endImage"
     },
     {
-      "TYPE" : "float",
-      "MAX" : 1,
-      "NAME" : "progress",
-      "MIN" : 0,
-      "DEFAULT" : 0
+      "TYPE": "float",
+      "MAX": 1,
+      "NAME": "progress",
+      "MIN": 0,
+      "DEFAULT": 0
     }
   ],
-  "CATEGORIES" : [
+  "CATEGORIES": [
     "Wipe"
   ],
   "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/wipeLeft.glsl",
   "DESCRIPTION": "",
-  "ISFVSN" : "2"
-}
-*/
-
-
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec4 getFromColor(vec2 inUV)	{
 	return IMG_NORM_PIXEL(startImage, inUV);
@@ -50,5 +49,5 @@ vec4 transition(vec2 uv) {
 
 
 void main()	{
-	gl_FragColor = transition(isf_FragNormCoord.xy);
+	isf_FragColor = transition(isf_FragNormCoord.xy);
 }

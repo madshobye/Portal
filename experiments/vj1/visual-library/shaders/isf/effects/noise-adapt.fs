@@ -1,46 +1,46 @@
 /*{
-    "CATEGORIES": [
-        "Noise"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Pixels that change become noise until they match the input again",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "adaptRate",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.05,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "threshold",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "NAME": "useRGBA",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "PERSISTENT": true,
-            "TARGET": "adaptiveBuffer1"
-        },
-        {
-        }
-    ]
-}
-*/
-
+  "CATEGORIES": [
+    "Noise"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Pixels that change become noise until they match the input again",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "adaptRate",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.05,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "threshold",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "NAME": "useRGBA",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "PERSISTENT": true,
+      "TARGET": "adaptiveBuffer1"
+    },
+    {}
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float	minThresh = 3.0/255.0;
 
@@ -93,6 +93,6 @@ void main()
 			stalePixel.a = steppedRand(gl_FragCoord.xy+TIME+4.479);
 		}
 	}
-	gl_FragColor = mix(stalePixel,freshPixel,adaptRate);
+	isf_FragColor = mix(stalePixel,freshPixel,adaptRate);
 
 }

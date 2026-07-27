@@ -1,65 +1,62 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Color Effect"
   ],
-  "DESCRIPTION" : "",
-  "ISFVSN" : "2",
-  "INPUTS" : [
+  "DESCRIPTION": "",
+  "ISFVSN": "2",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "strobeRate",
-      "TYPE" : "float",
-      "MAX" : 1,
-      "DEFAULT" : 0,
-      "LABEL" : "Strobe Rate",
-      "MIN" : 0
+      "NAME": "strobeRate",
+      "TYPE": "float",
+      "MAX": 1,
+      "DEFAULT": 0,
+      "LABEL": "Strobe Rate",
+      "MIN": 0
     },
     {
-      "LABELS" : [
+      "LABELS": [
         "Invert",
         "Color"
       ],
-      "NAME" : "strobeMode",
-      "TYPE" : "long",
-      "LABEL" : "Strobe Mode",
-      "VALUES" : [
+      "NAME": "strobeMode",
+      "TYPE": "long",
+      "LABEL": "Strobe Mode",
+      "VALUES": [
         0,
         1
       ]
     },
     {
-      "NAME" : "strobeColor",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "strobeColor",
+      "TYPE": "color",
+      "DEFAULT": [
         1,
         1,
         1,
         1
       ],
-      "LABEL" : "Strobe Color"
+      "LABEL": "Strobe Color"
     }
   ],
-  "PASSES" : [
+  "PASSES": [
     {
-      "WIDTH" : "1",
-      "DESCRIPTION" : "this buffer stores the last frame's time offset in the first component of its only pixel- note that it's requesting a FLOAT target buffer...",
-      "HEIGHT" : "1",
-      "TARGET" : "lastState",
-      "PERSISTENT" : true
+      "WIDTH": "1",
+      "DESCRIPTION": "this buffer stores the last frame's time offset in the first component of its only pixel- note that it's requesting a FLOAT target buffer...",
+      "HEIGHT": "1",
+      "TARGET": "lastState",
+      "PERSISTENT": true
     },
-    {
-
-    }
+    {}
   ],
-  "CREDIT" : "by VIDVOX"
-}
-*/
-
-
+  "CREDIT": "by VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()
 {
@@ -73,7 +70,7 @@ void main()
 		else	{
 			srcPixel.r = (mod(TIME, strobeRate) <= strobeRate / 2.0) ? 1.0 : 0.0;
 		}
-		gl_FragColor = srcPixel;
+		isf_FragColor = srcPixel;
 	}
 	//	else this isn't the first pass- read the position value from the buffer which stores it
 	else	{
@@ -86,6 +83,6 @@ void main()
 		else if (strobeMode == 1)	{
 			srcPixel = (lastStateVector.r == 0.0) ? srcPixel : strobeColor;
 		}
-		gl_FragColor = srcPixel;
+		isf_FragColor = srcPixel;
 	}
 }

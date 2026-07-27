@@ -1,49 +1,50 @@
 /*{
-    "CATEGORIES": [
-        "Color", "Utility", "Test Pattern"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "DEFAULT": 16,
-            "LABEL": "Grid Columns",
-            "MAX": 32,
-            "MIN": 1,
-            "NAME": "gridCols",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 9,
-            "LABEL": "Grid Rows",
-            "MAX": 32,
-            "MIN": 1,
-            "NAME": "gridRows",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Color Shift",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "colorShift",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Color Range",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "colorRange",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
-
+  "CATEGORIES": [
+    "Color",
+    "Utility",
+    "Test Pattern"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "DEFAULT": 16,
+      "LABEL": "Grid Columns",
+      "MAX": 32,
+      "MIN": 1,
+      "NAME": "gridCols",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 9,
+      "LABEL": "Grid Rows",
+      "MAX": 32,
+      "MIN": 1,
+      "NAME": "gridRows",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Color Shift",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "colorShift",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Color Range",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "colorRange",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec3 rgb2hsv(vec3 c)	{
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -83,5 +84,5 @@ void main()	{
 	//	finally convert to RGB
 	outputPixelColor.rgb = hsv2rgb(outputPixelColor.rgb);
 	
-	gl_FragColor = outputPixelColor;
+	isf_FragColor = outputPixelColor;
 }

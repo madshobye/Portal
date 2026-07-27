@@ -1,18 +1,21 @@
 /*{
-	"CATEGORIES" : [
-		"Histogram", "Utility"
-  	],
-	"DESCRIPTION": "Draws an RGB histogram from a provided histogram image",
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"INPUTS": [
-		{
-			"NAME": "histogramImage",
-			"TYPE": "image"
-		}
-	]
+  "CATEGORIES": [
+    "Histogram",
+    "Utility"
+  ],
+  "DESCRIPTION": "Draws an RGB histogram from a provided histogram image",
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "INPUTS": [
+    {
+      "NAME": "histogramImage",
+      "TYPE": "image"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 void main()	{
 	vec4        outColor = vec4(0., 0., 0., 0.);
@@ -30,6 +33,6 @@ void main()	{
 		outColor.a = 1.0;
 	}
 	
-	gl_FragColor = outColor;
+	isf_FragColor = outColor;
 	
 }

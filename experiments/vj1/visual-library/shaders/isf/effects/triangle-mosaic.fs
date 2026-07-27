@@ -1,61 +1,63 @@
 /*{
-    "CATEGORIES": [
-        "Stylize"
-    ],
-    "CREDIT": "by VIDVOX",
-    "DESCRIPTION": "Renders the input as a mesh of jittered triangles and lines.",
-    "ISFVSN": "2",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.025,
-            "LABEL": "Cell Size",
-            "MAX": 0.25,
-            "MIN": 0.005,
-            "NAME": "cellSize",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.5,
-            "LABEL": "Jitter",
-            "MAX": 1.0,
-            "MIN": 0.0,
-            "NAME": "jitter",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.0,
-            "LABEL": "Seed",
-            "MAX": 100.0,
-            "MIN": 0.0,
-            "NAME": "seed",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1.0,
-            "LABEL": "Outline Width",
-            "MAX": 5.0,
-            "MIN": 0.0,
-            "NAME": "outlineWidth",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.0,
-                0.0,
-                0.0,
-                1.0
-            ],
-            "LABEL": "Outline Color",
-            "NAME": "outlineColor",
-            "TYPE": "color"
-        }
-    ]
+  "CATEGORIES": [
+    "Stylize"
+  ],
+  "CREDIT": "by VIDVOX",
+  "DESCRIPTION": "Renders the input as a mesh of jittered triangles and lines.",
+  "ISFVSN": "2",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.025,
+      "LABEL": "Cell Size",
+      "MAX": 0.25,
+      "MIN": 0.005,
+      "NAME": "cellSize",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.5,
+      "LABEL": "Jitter",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "jitter",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Seed",
+      "MAX": 100,
+      "MIN": 0,
+      "NAME": "seed",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Outline Width",
+      "MAX": 5,
+      "MIN": 0,
+      "NAME": "outlineWidth",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "LABEL": "Outline Color",
+      "NAME": "outlineColor",
+      "TYPE": "color"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 //	2D hash returning (0..1, 0..1) per integer-grid input.
 //	Standard "iq" sin-based hash; deterministic per input vec2.
@@ -140,5 +142,5 @@ void main()	{
         finalColor = mix(finalColor, outlineColor.rgb, edgeAA * outlineColor.a);
     }
 
-    gl_FragColor = vec4(finalColor, fillColor.a);
+    isf_FragColor = vec4(finalColor, fillColor.a);
 }

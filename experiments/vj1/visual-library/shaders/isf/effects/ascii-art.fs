@@ -1,56 +1,57 @@
 /*{
-	"DESCRIPTION": "ASCII Art",
-	"CREDIT": "by VIDVOX (Ported from https://www.shadertoy.com/view/lssGDj)",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Stylize", "Retro"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "size",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.1
-		},
-		{
-			"NAME": "gamma",
-			"TYPE": "float",
-			"DEFAULT": 1.0,
-			"MIN": 0.5,
-			"MAX": 2.0
-		},
-		{
-			"NAME": "tint",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "tintColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.0,
-				1.0,
-				0.0,
-				1.0
-			]
-		},
-		{
-			"NAME": "alphaMode",
-			"TYPE": "bool",
-			"DEFAULT": 0.0
-		}
-	]
-	
+  "DESCRIPTION": "ASCII Art",
+  "CREDIT": "by VIDVOX (Ported from https://www.shadertoy.com/view/lssGDj)",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Stylize",
+    "Retro"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "size",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.1
+    },
+    {
+      "NAME": "gamma",
+      "TYPE": "float",
+      "DEFAULT": 1,
+      "MIN": 0.5,
+      "MAX": 2
+    },
+    {
+      "NAME": "tint",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "tintColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        0,
+        1,
+        0,
+        1
+      ]
+    },
+    {
+      "NAME": "alphaMode",
+      "TYPE": "bool",
+      "DEFAULT": 0
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 float character(float n, vec2 p) // some compilers have the word "char" reserved
 {
@@ -90,6 +91,6 @@ void main()	{
 		alpha = (alpha > 0.01) ? tintColor.a : alpha;
 	}
 	
-	gl_FragColor = vec4(col,alpha);
+	isf_FragColor = vec4(col,alpha);
 
 }

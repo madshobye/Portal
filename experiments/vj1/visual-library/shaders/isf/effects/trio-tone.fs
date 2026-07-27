@@ -1,47 +1,49 @@
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color Effect"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "darkColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.00,
-				0.164,
-				1.0,
-				1.0
-			]
-		},
-		{
-			"NAME": "midColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.00,
-				1.00,
-				0.00,
-				1.0
-			]
-		},
-		{
-			"NAME": "brightColor",
-			"TYPE": "color",
-			"DEFAULT": [
-				1.0,
-				0.00,
-				0.00,
-				1.0
-			]
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color Effect"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "darkColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        0,
+        0.164,
+        1,
+        1
+      ]
+    },
+    {
+      "NAME": "midColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        0,
+        1,
+        0,
+        1
+      ]
+    },
+    {
+      "NAME": "brightColor",
+      "TYPE": "color",
+      "DEFAULT": [
+        1,
+        0,
+        0,
+        1
+      ]
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
 
 //	partly adapted from http://coding-experiments.blogspot.com/2010/10/thermal-vision-pixel-shader.html
 
@@ -90,6 +92,6 @@ void main ()	{
 	
 	vec4 thermal = mix(color1,color2,(lum-float(ix)*0.33)/0.33);
 	
-	gl_FragColor = vec4(thermal.rgb, pixcol.a);
+	isf_FragColor = vec4(thermal.rgb, pixcol.a);
 
 }

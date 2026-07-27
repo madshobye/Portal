@@ -1,18 +1,17 @@
-/*
-{
-  "CATEGORIES" : [
+/*{
+  "CATEGORIES": [
     "Color Adjustment"
   ],
-  "DESCRIPTION" : "Performs a Lift Gamma Gain Saturation CDL",
-  "INPUTS" : [
+  "DESCRIPTION": "Performs a Lift Gamma Gain Saturation CDL",
+  "INPUTS": [
     {
-      "NAME" : "inputImage",
-      "TYPE" : "image"
+      "NAME": "inputImage",
+      "TYPE": "image"
     },
     {
-      "NAME" : "lift",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "lift",
+      "TYPE": "color",
+      "DEFAULT": [
         0.5,
         0.5,
         0.5,
@@ -20,9 +19,9 @@
       ]
     },
     {
-      "NAME" : "gamma",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "gamma",
+      "TYPE": "color",
+      "DEFAULT": [
         0.25,
         0.25,
         0.25,
@@ -30,9 +29,9 @@
       ]
     },
     {
-      "NAME" : "gain",
-      "TYPE" : "color",
-      "DEFAULT" : [
+      "NAME": "gain",
+      "TYPE": "color",
+      "DEFAULT": [
         0.25,
         0.25,
         0.25,
@@ -40,19 +39,19 @@
       ]
     },
     {
-      "NAME" : "saturation",
-      "TYPE" : "float",
-      "MAX" : 2,
-      "DEFAULT" : 1,
-      "MIN" : 0
+      "NAME": "saturation",
+      "TYPE": "float",
+      "MAX": 2,
+      "DEFAULT": 1,
+      "MIN": 0
     }
   ],
-  "ISFVSN" : "2",
-  "CREDIT" : "VIDVOX"
-}
-*/
-
-
+  "ISFVSN": "2",
+  "CREDIT": "VIDVOX",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()	{
 	vec4		color = IMG_THIS_PIXEL(inputImage);
@@ -70,5 +69,5 @@ void main()	{
 	color.g = clamp(satLuma + (saturation*(color.g - satLuma)), 0.0, 1.0);
 	color.b = clamp(satLuma + (saturation*(color.b - satLuma)), 0.0, 1.0);
 
-	gl_FragColor = color;
+	isf_FragColor = color;
 }

@@ -1,108 +1,109 @@
 /*{
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Color Adjustment"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "minLevel",
-			"LABEL": "Minimum Point",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.2
-		},
-		{
-			"NAME": "midLevel",
-			"LABEL": "Mid Point",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.5
-		},
-		{
-			"NAME": "maxLevel",
-			"LABEL": "Maximum Point",
-			"TYPE": "float",
-			"MIN": 0.0,
-			"MAX": 1.0,
-			"DEFAULT": 0.8
-		},
-		{
-			"NAME": "offset1",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.5,
-				0.5,
-				0.5,
-				0.5
-			]
-		},
-		{
-			"NAME": "offset2",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.5,
-				0.5,
-				0.5,
-				0.5
-			]
-		},
-		{
-			"NAME": "offset3",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.5,
-				0.5,
-				0.5,
-				0.5
-			]
-		},
-		{
-			"NAME": "offset4",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.5,
-				0.5,
-				0.5,
-				0.5
-			]
-		},
-		{
-			"NAME": "offset5",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.5,
-				0.5,
-				0.5,
-				0.5
-			]
-		},
-		{
-			"NAME": "offset6",
-			"TYPE": "color",
-			"DEFAULT": [
-				0.5,
-				0.5,
-				0.5,
-				0.5
-			]
-		},
-		{
-			"NAME": "levelsMode",
-			"LABEL": "Levels Mode",
-			"TYPE": "bool",
-			"DEFAULT": 0.0
-		}
-	]
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Color Adjustment"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "minLevel",
+      "LABEL": "Minimum Point",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.2
+    },
+    {
+      "NAME": "midLevel",
+      "LABEL": "Mid Point",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.5
+    },
+    {
+      "NAME": "maxLevel",
+      "LABEL": "Maximum Point",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.8
+    },
+    {
+      "NAME": "offset1",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "NAME": "offset2",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "NAME": "offset3",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "NAME": "offset4",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "NAME": "offset5",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "NAME": "offset6",
+      "TYPE": "color",
+      "DEFAULT": [
+        0.5,
+        0.5,
+        0.5,
+        0.5
+      ]
+    },
+    {
+      "NAME": "levelsMode",
+      "LABEL": "Levels Mode",
+      "TYPE": "bool",
+      "DEFAULT": 0
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 void main() {
 	vec4		tmpColor = IMG_THIS_PIXEL(inputImage);
@@ -151,5 +152,5 @@ void main() {
 			tmpColor.a = 1.0;
 		}
 	}
-	gl_FragColor = clamp(tmpColor, 0.0, 1.0);
+	isf_FragColor = clamp(tmpColor, 0.0, 1.0);
 }

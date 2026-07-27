@@ -1,42 +1,42 @@
 /*{
-    "CATEGORIES": [
-        "Feedback",
-        "Glitch"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "This does a feedback motion blur based on the brightness of pixels to create an analog recording comet trails effect",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "absorptionRate",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.02,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "dischargeRate",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2",
-    "PASSES": [
-        {
-            "FLOAT": true,
-            "PERSISTENT": true,
-            "TARGET": "feedbackBuffer"
-        }
-    ]
-}
-*/
-
-
+  "CATEGORIES": [
+    "Feedback",
+    "Glitch"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "This does a feedback motion blur based on the brightness of pixels to create an analog recording comet trails effect",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "absorptionRate",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.02,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "dischargeRate",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "PASSES": [
+    {
+      "FLOAT": true,
+      "PERSISTENT": true,
+      "TARGET": "feedbackBuffer"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 //	Comet Tails is a specific type of Image Lag
 //	From https://bavc.github.io/avaa/artifacts/image_lag.html
@@ -95,5 +95,5 @@ void main()
 		feedbackLevel *= (1.0 - dischargeRate);
 	}
 	
-	gl_FragColor = mix(freshPixel,stalePixel,feedbackLevel);
+	isf_FragColor = mix(freshPixel,stalePixel,feedbackLevel);
 }

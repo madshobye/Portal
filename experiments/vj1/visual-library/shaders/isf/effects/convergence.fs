@@ -1,58 +1,59 @@
 /*{
-	"DESCRIPTION": "",
-	"CREDIT": "by VIDVOX",
-	"ISFVSN": "2",
-	"CATEGORIES": [
-		"Glitch", "Color Effect"
-	],
-	"INPUTS": [
-		{
-			"NAME": "inputImage",
-			"TYPE": "image"
-		},
-		{
-			"NAME": "horizontal_magnitude",
-			"TYPE": "float",
-			"MIN": 0.00,
-			"MAX": 1.0,
-			"DEFAULT": 0.125
-		},
-		{
-			"NAME": "vertical_magnitude",
-			"TYPE": "float",
-			"MIN": 0.00,
-			"MAX": 1.0,
-			"DEFAULT": 0.125
-		},
-		{
-			"NAME": "color_magnitude",
-			"TYPE": "float",
-			"MIN": 0.00,
-			"MAX": 2.0,
-			"DEFAULT": 1.0
-		},
-		{
-			"NAME": "mode",
-			"VALUES": [
-				0,
-				1,
-				2,
-				3
-			],
-			"LABELS": [
-				"add",
-				"add mod",
-				"multiply",
-				"difference"
-			],
-			"DEFAULT": 0,
-			"TYPE": "long"
-		}
-	]
-	
+  "DESCRIPTION": "",
+  "CREDIT": "by VIDVOX",
+  "ISFVSN": "2",
+  "CATEGORIES": [
+    "Glitch",
+    "Color Effect"
+  ],
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "horizontal_magnitude",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.125
+    },
+    {
+      "NAME": "vertical_magnitude",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 1,
+      "DEFAULT": 0.125
+    },
+    {
+      "NAME": "color_magnitude",
+      "TYPE": "float",
+      "MIN": 0,
+      "MAX": 2,
+      "DEFAULT": 1
+    },
+    {
+      "NAME": "mode",
+      "VALUES": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "LABELS": [
+        "add",
+        "add mod",
+        "multiply",
+        "difference"
+      ],
+      "DEFAULT": 0,
+      "TYPE": "long"
+    }
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 //	adapted from maxilla inc's https://github.com/maxillacult/ofxPostGlitch/
 
@@ -105,5 +106,5 @@ void main()
 		col = abs(color_shift - col);
 	}
 
-	gl_FragColor = col;
+	isf_FragColor = col;
 }

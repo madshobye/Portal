@@ -1,60 +1,60 @@
 /*{
-    "CATEGORIES": [
-        "Wipe",
-        "Distortion"
-    ],
-    "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/cube.glsl",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "startImage",
-            "TYPE": "image"
-        },
-        {
-            "NAME": "endImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "progress",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.4,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "reflection",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.7,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "persp",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.3,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "unzoom",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 3,
-            "MAX": 10,
-            "MIN": 0,
-            "NAME": "floating",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Wipe",
+    "Distortion"
+  ],
+  "CREDIT": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/cube.glsl",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "startImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "endImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "progress",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.4,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "reflection",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.7,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "persp",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.3,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "unzoom",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 3,
+      "MAX": 10,
+      "MIN": 0,
+      "NAME": "floating",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec4 getFromColor(vec2 inUV)	{
 	return IMG_NORM_PIXEL(startImage, inUV);
@@ -131,5 +131,5 @@ vec4 transition(vec2 op) {
 
 
 void main()	{
-	gl_FragColor = transition(isf_FragNormCoord.xy);
+	isf_FragColor = transition(isf_FragNormCoord.xy);
 }

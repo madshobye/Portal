@@ -155,7 +155,7 @@ vec4 vj1Transition(vec4 startColor, vec4 endColor, vec2 uv, float progress) {
 
 export function textureTransitionFragmentShaderSource(transitionKernel = DissolveTransitionKernel) {
   const kernel = transitionKernel || DissolveTransitionKernel;
-  return `
+  return `#version 300 es
 precision highp float;
 uniform sampler2D fromTex;
 uniform sampler2D toTex;
@@ -164,15 +164,30 @@ uniform vec4 uToSourceRect;
 uniform float uFromOpacity;
 uniform float uToOpacity;
 uniform float uTransition;
-varying vec2 vTexCoord;
+in vec2 vTexCoord;
+out vec4 vj1TransitionOutput;
 ${kernel.source}
 void main() {
   vec2 uv = clamp(vTexCoord, vec2(0.0), vec2(1.0));
-  vec4 startColor = texture2D(fromTex, uFromSourceRect.xy + uv * uFromSourceRect.zw) * uFromOpacity;
-  vec4 endColor = texture2D(toTex, uToSourceRect.xy + uv * uToSourceRect.zw) * uToOpacity;
+  vec4 startColor = texture(fromTex, uFromSourceRect.xy + uv * uFromSourceRect.zw) * uFromOpacity;
+  vec4 endColor = texture(toTex, uToSourceRect.xy + uv * uToSourceRect.zw) * uToOpacity;
   vec4 color = vj1Transition(startColor, endColor, uv, clamp(uTransition, 0.0, 1.0));
   ${kernel.alpha === TRANSITION_ALPHA_MODES.STRAIGHT ? "color.rgb *= color.a;" : ""}
-  gl_FragColor = color;
+  vj1TransitionOutput = color;
+}`.trim();
+}
+
+export function textureTransitionVertexShaderSource() {
+  return `#version 300 es
+precision highp float;
+in vec3 aPosition;
+in vec2 aTexCoord;
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix;
+out vec2 vTexCoord;
+void main() {
+  vTexCoord = aTexCoord;
+  gl_Position = uProjectionMatrix * uModelViewMatrix * vec4(aPosition, 1.0);
 }`.trim();
 }
 

@@ -1,69 +1,93 @@
 /*{
   "DESCRIPTION": "Full-featured scope test shader with rotating patterns, animated luma, and time-controlled generative visuals",
   "CREDIT": "Cornelius // ProjectileObjects",
-  "CATEGORIES": [ "Test Pattern", "Utility" ],
+  "CATEGORIES": [
+    "Test Pattern",
+    "Utility"
+  ],
   "INPUTS": [
     {
       "NAME": "pattern",
       "TYPE": "long",
       "DEFAULT": 0,
       "LABEL": "Pattern Type",
-      "VALUES": [ 0, 1, 2, 3, 4, 5, 6, 7, 8 ],
-      "LABELS": [ "Color Bars", "Luma Gradient", "Hue Ramp", "Saturation Rings", "RGB Ramps", "Noise", "Moiré Grid", "RGB Flow", "Audio Flow" ]
+      "VALUES": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "LABELS": [
+        "Color Bars",
+        "Luma Gradient",
+        "Hue Ramp",
+        "Saturation Rings",
+        "RGB Ramps",
+        "Noise",
+        "Moiré Grid",
+        "RGB Flow",
+        "Audio Flow"
+      ]
     },
     {
       "NAME": "brightness",
       "TYPE": "float",
-      "DEFAULT": 1.0,
-      "MIN": 0.0,
-      "MAX": 2.0
+      "DEFAULT": 1,
+      "MIN": 0,
+      "MAX": 2
     },
     {
       "NAME": "contrast",
       "TYPE": "float",
-      "DEFAULT": 1.0,
-      "MIN": 0.0,
-      "MAX": 2.0
+      "DEFAULT": 1,
+      "MIN": 0,
+      "MAX": 2
     },
     {
       "NAME": "saturation",
       "TYPE": "float",
-      "DEFAULT": 1.0,
-      "MIN": 0.0,
-      "MAX": 2.0
+      "DEFAULT": 1,
+      "MIN": 0,
+      "MAX": 2
     },
     {
       "NAME": "hue",
       "TYPE": "float",
-      "DEFAULT": 0.0,
-      "MIN": -1.0,
-      "MAX": 1.0
+      "DEFAULT": 0,
+      "MIN": -1,
+      "MAX": 1
     },
     {
       "NAME": "rotation",
       "TYPE": "float",
-      "DEFAULT": 0.0,
-      "MIN": 0.0,
-      "MAX": 1.0,
+      "DEFAULT": 0,
+      "MIN": 0,
+      "MAX": 1,
       "LABEL": "Pattern Rotation"
     },
     {
       "NAME": "timeSpeed",
       "TYPE": "float",
-      "DEFAULT": 0.0,
-      "MIN": -2.0,
-      "MAX": 2.0,
+      "DEFAULT": 0,
+      "MIN": -2,
+      "MAX": 2,
       "LABEL": "Animation Speed"
     },
     {
-      "NAME" : "audioFlow",
-      "TYPE" : "audioFFT",
+      "NAME": "audioFlow",
+      "TYPE": "audioFFT",
       "LABEL": "Audio Flow Source"
     }
-  ]
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
-
-
 
 vec3 hsv2rgb(vec3 c) {
 	vec4 K = vec4(1., 2./3., 1./3., 3.);
@@ -164,5 +188,5 @@ void main() {
 	vec2 uv = rotateUV(isf_FragNormCoord, rotRad);
 	vec3 col = patternColor(uv, int(pattern), t);
 	col = adjust(col);
-	gl_FragColor = vec4(col, 1.0);
+	isf_FragColor = vec4(col, 1.0);
 }

@@ -1,42 +1,44 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "Warps the video into a trapezoid shape",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Top Width",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "topWidth",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Bottom Width",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "bottomWidth",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Height",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "heightScale",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Distortion Effect"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "Warps the video into a trapezoid shape",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Top Width",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "topWidth",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Bottom Width",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "bottomWidth",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Height",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "heightScale",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main()	{
 	vec4		inputPixelColor = vec4(0.0);
@@ -54,5 +56,5 @@ void main()	{
 			}
 		}
 	}
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

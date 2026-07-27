@@ -16,22 +16,25 @@
       "DEFAULT": 1
     },
     {
-      "NAME" : "center",
-      "TYPE" : "point2D",
-      "MAX" : [
+      "NAME": "center",
+      "TYPE": "point2D",
+      "MAX": [
         1,
         1
       ],
-      "DEFAULT" : [
+      "DEFAULT": [
         0.5,
         0.5
       ],
-      "MIN" : [
+      "MIN": [
         0,
         0
       ]
     }
-  ]
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
 }*/
 
 const float pi = 3.14159265359;
@@ -74,9 +77,9 @@ void main() {
 	loc.y = f*(loc.y-modifiedCenter.y)/zoom+modifiedCenter.y;
 
 	if ((loc.x < 0.0)||(loc.y < 0.0)||(loc.x > 1.0)||(loc.y > 1.0))	{
-		gl_FragColor = vec4(0.0);
+		isf_FragColor = vec4(0.0);
 	}
 	else	{
-		gl_FragColor = IMG_NORM_PIXEL(inputImage,loc);
+		isf_FragColor = IMG_NORM_PIXEL(inputImage,loc);
 	}
 }

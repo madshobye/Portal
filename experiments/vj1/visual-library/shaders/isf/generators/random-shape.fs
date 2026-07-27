@@ -1,129 +1,129 @@
 /*{
-    "CATEGORIES": [
-        "Geometry"
-    ],
-    "CREDIT": "by VIDVOX",
-    "INPUTS": [
-        {
-            "DEFAULT": 15,
-            "LABEL": "Point Count",
-            "MAX": 90,
-            "MIN": 3,
-            "NAME": "pointCount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.125,
-            "LABEL": "Random Seed",
-            "MAX": 1,
-            "MIN": 0.01,
-            "NAME": "randomSeed",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Wobble Amount",
-            "MAX": 0.25,
-            "MIN": 0,
-            "NAME": "wobbleAmount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.75,
-            "LABEL": "Zoom Start",
-            "MAX": 4,
-            "MIN": 0.001,
-            "NAME": "zoomStart",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Zoom End",
-            "MAX": 4,
-            "MIN": 0.001,
-            "NAME": "zoomEnd",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Winding Start",
-            "MAX": 4,
-            "MIN": -4,
-            "NAME": "rotationStart",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Winding End",
-            "MAX": 4,
-            "MIN": -4,
-            "NAME": "rotationEnd",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Saturation",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "colorSaturation",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.2,
-            "LABEL": "Hue Base",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "hueBase",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.2,
-            "LABEL": "Hue Range",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "hueRange",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": [
-                0.5,
-                0.5
-            ],
-            "MAX": [
-                1,
-                1
-            ],
-            "MIN": [
-                0,
-                0
-            ],
-            "NAME": "offsetEnd",
-            "TYPE": "point2D"
-        },
-        {
-            "DEFAULT": true,
-            "LABEL": "Randomize Brightness",
-            "NAME": "randomizeBrightness",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": false,
-            "LABEL": "Randomize Alpha",
-            "NAME": "randomizeAlpha",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": false,
-            "LABEL": "Randomize Points",
-            "NAME": "randomizeAllPoints",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
-
+  "CATEGORIES": [
+    "Geometry"
+  ],
+  "CREDIT": "by VIDVOX",
+  "INPUTS": [
+    {
+      "DEFAULT": 15,
+      "LABEL": "Point Count",
+      "MAX": 90,
+      "MIN": 3,
+      "NAME": "pointCount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.125,
+      "LABEL": "Random Seed",
+      "MAX": 1,
+      "MIN": 0.01,
+      "NAME": "randomSeed",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Wobble Amount",
+      "MAX": 0.25,
+      "MIN": 0,
+      "NAME": "wobbleAmount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.75,
+      "LABEL": "Zoom Start",
+      "MAX": 4,
+      "MIN": 0.001,
+      "NAME": "zoomStart",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Zoom End",
+      "MAX": 4,
+      "MIN": 0.001,
+      "NAME": "zoomEnd",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Winding Start",
+      "MAX": 4,
+      "MIN": -4,
+      "NAME": "rotationStart",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Winding End",
+      "MAX": 4,
+      "MIN": -4,
+      "NAME": "rotationEnd",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Saturation",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "colorSaturation",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.2,
+      "LABEL": "Hue Base",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "hueBase",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.2,
+      "LABEL": "Hue Range",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "hueRange",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": [
+        0.5,
+        0.5
+      ],
+      "MAX": [
+        1,
+        1
+      ],
+      "MIN": [
+        0,
+        0
+      ],
+      "NAME": "offsetEnd",
+      "TYPE": "point2D"
+    },
+    {
+      "DEFAULT": true,
+      "LABEL": "Randomize Brightness",
+      "NAME": "randomizeBrightness",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": false,
+      "LABEL": "Randomize Alpha",
+      "NAME": "randomizeAlpha",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": false,
+      "LABEL": "Randomize Points",
+      "NAME": "randomizeAllPoints",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.14159265359;
 
@@ -175,16 +175,16 @@ float rand(vec2 co){
 }
 
 
-float sign(vec2 p1, vec2 p2, vec2 p3)	{
+float vj1_sign(vec2 p1, vec2 p2, vec2 p3)	{
 	return (p1.x - p3.x) * (p2.y - p3.y) - (p2.x - p3.x) * (p1.y - p3.y);
 }
 
 bool PointInTriangle(vec2 pt, vec2 v1, vec2 v2, vec2 v3)	{
 	bool b1, b2, b3;
 
-	b1 = sign(pt, v1, v2) < 0.0;
-	b2 = sign(pt, v2, v3) < 0.0;
-	b3 = sign(pt, v3, v1) < 0.0;
+	b1 = vj1_sign(pt, v1, v2) < 0.0;
+	b2 = vj1_sign(pt, v2, v3) < 0.0;
+	b3 = vj1_sign(pt, v3, v1) < 0.0;
 
 	return ((b1 == b2) && (b2 == b3));
 }
@@ -286,5 +286,5 @@ void main() {
 		}
 	}
 	
-	gl_FragColor = result;
+	isf_FragColor = result;
 }

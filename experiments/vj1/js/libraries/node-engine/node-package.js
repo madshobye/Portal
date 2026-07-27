@@ -965,6 +965,7 @@ function assertVisualLibraryReferences(artifacts, resources, definitions, nodeDe
 function visualArtifactResourceIds(artifact) {
   const values = [
     artifact.implementation.resourceId,
+    artifact.implementation.vertexResourceId,
     artifact.implementation.sourceResourceId,
     ...(Array.isArray(artifact.implementation.resourceIds) ? artifact.implementation.resourceIds : []),
     artifact.preview.resourceId,

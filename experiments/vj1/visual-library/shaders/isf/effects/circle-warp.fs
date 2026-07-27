@@ -1,40 +1,41 @@
 /*{
-    "CATEGORIES": [
-        "Distortion Effect"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "Warps an image to fit in a circle by fitting the height of the image to the height of a circle",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "DEFAULT": 0.5,
-            "MAX": 0.5,
-            "MIN": 0,
-            "NAME": "radius",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "MAX": 2,
-            "MIN": 0,
-            "NAME": "width",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "resultRotation",
-            "TYPE": "float"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Distortion Effect"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "Warps an image to fit in a circle by fitting the height of the image to the height of a circle",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "DEFAULT": 0.5,
+      "MAX": 0.5,
+      "MIN": 0,
+      "NAME": "radius",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "MAX": 2,
+      "MIN": 0,
+      "NAME": "width",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "resultRotation",
+      "TYPE": "float"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 const float pi = 3.1415926535897932384626433832795;
 
@@ -74,5 +75,5 @@ void main()	{
 		inputPixelColor = IMG_NORM_PIXEL(inputImage,pt);
 	}
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

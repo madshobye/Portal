@@ -1,86 +1,88 @@
 /*{
-    "CATEGORIES": [
-        "Geometry"
-    ],
-    "CREDIT": "VIDVOX",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "DEFAULT": 15,
-            "LABEL": "Line Count",
-            "MAX": 60,
-            "MIN": 1,
-            "NAME": "lineCount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.025,
-            "LABEL": "Max Line Width",
-            "MAX": 0.25,
-            "MIN": 0,
-            "NAME": "lineWidth",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.25,
-            "LABEL": "Random Seed",
-            "MAX": 1,
-            "MIN": 0.01,
-            "NAME": "randomSeed",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0,
-            "LABEL": "Wobble Amount",
-            "MAX": 0.1,
-            "MIN": 0,
-            "NAME": "wobbleAmount",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 0.2,
-            "LABEL": "Hue Range",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "hueRange",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 1,
-            "LABEL": "Saturation",
-            "MAX": 1,
-            "MIN": 0,
-            "NAME": "colorSaturation",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": true,
-            "LABEL": "Randomize Brightness",
-            "NAME": "randomizeBrightness",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": false,
-            "LABEL": "Randomize Width",
-            "NAME": "randomizeWidth",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": false,
-            "LABEL": "Randomize Points",
-            "NAME": "randomizeAllPoints",
-            "TYPE": "bool"
-        },
-        {
-            "DEFAULT": false,
-            "LABEL": "Randomize Alpha",
-            "NAME": "randomizeAlpha",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
+  "CATEGORIES": [
+    "Geometry"
+  ],
+  "CREDIT": "VIDVOX",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "DEFAULT": 15,
+      "LABEL": "Line Count",
+      "MAX": 60,
+      "MIN": 1,
+      "NAME": "lineCount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.025,
+      "LABEL": "Max Line Width",
+      "MAX": 0.25,
+      "MIN": 0,
+      "NAME": "lineWidth",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.25,
+      "LABEL": "Random Seed",
+      "MAX": 1,
+      "MIN": 0.01,
+      "NAME": "randomSeed",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0,
+      "LABEL": "Wobble Amount",
+      "MAX": 0.1,
+      "MIN": 0,
+      "NAME": "wobbleAmount",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 0.2,
+      "LABEL": "Hue Range",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "hueRange",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 1,
+      "LABEL": "Saturation",
+      "MAX": 1,
+      "MIN": 0,
+      "NAME": "colorSaturation",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": true,
+      "LABEL": "Randomize Brightness",
+      "NAME": "randomizeBrightness",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": false,
+      "LABEL": "Randomize Width",
+      "NAME": "randomizeWidth",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": false,
+      "LABEL": "Randomize Points",
+      "NAME": "randomizeAllPoints",
+      "TYPE": "bool"
+    },
+    {
+      "DEFAULT": false,
+      "LABEL": "Randomize Alpha",
+      "NAME": "randomizeAlpha",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 vec3 rgb2hsv(vec3 c)	{
 	vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);
@@ -296,5 +298,5 @@ void main()	{
 		}
 	}
 	
-	gl_FragColor = result;
+	isf_FragColor = result;
 }

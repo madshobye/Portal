@@ -1,6 +1,8 @@
 /*{
   "ISFVSN": 2,
-  "CATEGORIES": ["Geometry Adjustment"],
+  "CATEGORIES": [
+    "Geometry Adjustment"
+  ],
   "CREDIT": "ProjectileObjects modifed, based on VIDVOX crop",
   "DESCRIPTION": "ISF crop adjustment created to replace VIDVOX Quartz Composer FX, includes four sided feathering",
   "INPUTS": [
@@ -12,42 +14,42 @@
     {
       "NAME": "Top",
       "TYPE": "float",
-      "DEFAULT": 1.0
+      "DEFAULT": 1
     },
     {
       "NAME": "Bottom",
       "TYPE": "float",
-      "DEFAULT": 0.0
+      "DEFAULT": 0
     },
     {
       "NAME": "Left",
       "TYPE": "float",
-      "DEFAULT": 0.0
+      "DEFAULT": 0
     },
     {
       "NAME": "Right",
       "TYPE": "float",
-      "DEFAULT": 1.0
+      "DEFAULT": 1
     },
     {
       "NAME": "TopFeather",
       "TYPE": "float",
-      "DEFAULT": 0.0
+      "DEFAULT": 0
     },
     {
       "NAME": "BottomFeather",
       "TYPE": "float",
-      "DEFAULT": 0.0
+      "DEFAULT": 0
     },
     {
       "NAME": "LeftFeather",
       "TYPE": "float",
-      "DEFAULT": 0.0
+      "DEFAULT": 0
     },
     {
       "NAME": "RightFeather",
       "TYPE": "float",
-      "DEFAULT": 0.0
+      "DEFAULT": 0
     }
   ],
   "PASSES": [
@@ -56,9 +58,11 @@
       "TARGET": "myOutputColor",
       "MAIN": "main"
     }
-  ]
-}
-*/
+  ],
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 void main() {
     // Get the texture coordinates
@@ -94,5 +98,5 @@ void main() {
     color.a = mix(color.a, 0.0, rightFeatherFactor);
 
     // Set the output color
-    gl_FragColor = color;
+    isf_FragColor = color;
 }

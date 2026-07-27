@@ -1,34 +1,35 @@
 /*{
-    "CATEGORIES": [
-        "Tile Effect"
-    ],
-    "CREDIT": "",
-    "DESCRIPTION": "",
-    "INPUTS": [
-        {
-            "NAME": "inputImage",
-            "TYPE": "image"
-        },
-        {
-            "NAME": "randomSeed",
-            "TYPE": "float"
-        },
-        {
-            "DEFAULT": 5,
-            "MAX": 15,
-            "MIN": 1,
-            "NAME": "repetitions",
-            "TYPE": "float"
-        },
-        {
-            "NAME": "randomizeOpacity",
-            "TYPE": "bool"
-        }
-    ],
-    "ISFVSN": "2"
-}
-*/
-
+  "CATEGORIES": [
+    "Tile Effect"
+  ],
+  "CREDIT": "",
+  "DESCRIPTION": "",
+  "INPUTS": [
+    {
+      "NAME": "inputImage",
+      "TYPE": "image"
+    },
+    {
+      "NAME": "randomSeed",
+      "TYPE": "float"
+    },
+    {
+      "DEFAULT": 5,
+      "MAX": 15,
+      "MIN": 1,
+      "NAME": "repetitions",
+      "TYPE": "float"
+    },
+    {
+      "NAME": "randomizeOpacity",
+      "TYPE": "bool"
+    }
+  ],
+  "ISFVSN": "2",
+  "VJ1": {
+    "PROFILE": "vj1-isf-webgl2@1"
+  }
+}*/
 
 float rand(vec2 co){
     return fract(sin(dot(co.xy ,vec2(12.9898,78.233))) * 43758.5453);
@@ -93,5 +94,5 @@ void main()	{
 		
 	}
 	
-	gl_FragColor = inputPixelColor;
+	isf_FragColor = inputPixelColor;
 }

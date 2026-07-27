@@ -5,7 +5,7 @@ import { createModelPreviewUrl } from "../libraries/mesh-engine/convert-3d-file-
 const VIDEO_RE = /\.(mp4|m4v|mov|webm|ogv)$/i;
 const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 const MODEL_RE = /\.(stl|obj)$/i;
-const SHADER_RE = /\.(frag|glsl|fs)$/i;
+const SHADER_RE = /\.(frag|glsl|fs|vs)$/i;
 
 export function createMediaLibrary() {
   const files = new Map();

@@ -172,6 +172,9 @@ function builtInVisualArtifact(component) {
       nodeVersion: component.nodeDefinition.version,
       visualId: component.id,
       resourceId: record.resource,
+      ...(record.vertexResource
+        ? { vertexResourceId: record.vertexResource }
+        : {}),
       lowering: component.nodeDefinition.metadata?.optimizedIsfLowering || "",
     }
     : {

@@ -2,6 +2,7 @@
   "CATEGORIES": ["Feedback", "Glitch"],
   "CREDIT": "VIDVOX",
   "DESCRIPTION": "Feedback motion blur based on pixel brightness",
+  "VJ1": { "PROFILE": "vj1-isf-webgl2@1" },
   "INPUTS": [
     { "NAME": "inputImage", "TYPE": "image" },
     {
@@ -55,5 +56,5 @@ void main() {
     feedbackLevel = 0.0;
   else
     feedbackLevel *= 1.0 - dischargeRate;
-  gl_FragColor = mix(freshPixel, stalePixel, feedbackLevel);
+  isf_FragColor = mix(freshPixel, stalePixel, feedbackLevel);
 }
