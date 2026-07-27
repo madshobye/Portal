@@ -257,6 +257,9 @@ export function sceneSignificantComponentTemplate(component, state) {
 function significantChainControls(chain, options) {
   const { componentId, relativeBase, updateBase, paths, attrs, media = [], state = {} } = options;
   return (chain || []).map((item, index) => {
+    const controlAttrs = attrs.includes("data-live-update")
+      ? liveParamAttrs(componentId, item.id)
+      : attrs;
     const relativePath = `${relativeBase}.${index}`;
     const updatePath = `${updateBase}.${index}`;
     const nested = item.kind === "group" ? significantChainControls(item.chain || [], {
@@ -269,14 +272,14 @@ function significantChainControls(chain, options) {
     const transformControls = significantTransforms.length ? paramControlsTemplate(significantTransforms, {
       pathFor: (param) => `${updatePath}.transform.${param.id}`,
       valueFor: (param) => normalizeParamValue(param, item.transform?.[param.id]),
-      attrs,
+      attrs: controlAttrs,
       isSignificant: () => attrs === "data-update",
     }) : "";
     const significantComposite = CHAIN_COMPOSITE_PARAMS.filter((param) => paths.has(`${relativePath}.${param.id}`));
     const compositeControls = significantComposite.length ? paramControlsTemplate(significantComposite, {
       pathFor: (param) => `${updatePath}.${param.id}`,
       valueFor: (param) => normalizeParamValue(param, item?.[param.id]),
-      attrs,
+      attrs: controlAttrs,
       isSignificant: () => attrs === "data-update",
     }) : "";
     if (item.kind === "group") {
@@ -310,7 +313,7 @@ function significantChainControls(chain, options) {
       valueFor: (param) => item.kind === "effect"
         ? paramCurrentValue(visualEffectComponent(state, item.componentId), values, param)
         : normalizeParamValue(param, values.params[param.id]),
-      attrs,
+      attrs: controlAttrs,
       isSignificant: () => attrs === "data-update",
     }) : "";
     const mediaItem = media.find((entry) => entry.id === item.source?.mediaId) || null;
@@ -412,6 +415,7 @@ function liveChainOutlineItemTemplate(item, componentId, selectedItemId, path, s
     leadingHtml: enableToggleButton({
       livePath: `${path}.enabled`,
       componentId,
+      itemId: item.id,
       value: item.enabled !== false,
       iconName,
       label,
@@ -439,7 +443,7 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
   const primary = liveChainItemContentTemplate(item, componentId, path, "primary", state);
   const details = liveChainItemContentTemplate(item, componentId, path, "details", state);
   const views = chainParamViewDefinitions(primary, details, chainGeneralControlsTemplate(item, path, {
-    attrs: liveParamAttrs(componentId),
+    attrs: liveParamAttrs(componentId, item.id),
   }));
   return `
     <section class="ui-section focus-panel chain-settings-panel live-chain-settings" aria-label="Selected live element parameters">
@@ -520,7 +524,7 @@ function liveShaderParamControlsTemplate(component, item, componentId, itemPath,
       ${paramControlsTemplate(params, {
         pathFor: (param) => `${itemPath}.params.${param.id}`,
         valueFor: (param) => paramCurrentValue(component, item, param),
-        attrs: liveParamAttrs(componentId),
+        attrs: liveParamAttrs(componentId, item.id),
       })}
     </div>
   `;
@@ -534,7 +538,7 @@ function liveSourceParamControlsTemplate(item, componentId, itemPath, params = [
       ${paramControlsTemplate(params, {
         pathFor: (param) => `${itemPath}.source.params.${param.id}`,
         valueFor: (param) => normalizeParamValue(param, values[param.id]),
-        attrs: liveParamAttrs(componentId),
+        attrs: liveParamAttrs(componentId, item.id),
       })}
     </div>
   `;
@@ -556,8 +560,8 @@ function visualEffectComponent(state, id) {
     || getShaderComponent(id);
 }
 
-function liveParamAttrs(componentId) {
-  return `data-live-component-id="${esc(componentId)}" data-live-update`;
+function liveParamAttrs(componentId, itemId = "") {
+  return `data-live-component-id="${esc(componentId)}" ${itemId ? `data-live-item-id="${esc(itemId)}" ` : ""}data-live-update`;
 }
 
 function liveRangeTemplate(label, componentId, path, value, min = 0, max = 1, step = 0.01) {

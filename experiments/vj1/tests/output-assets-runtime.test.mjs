@@ -16,7 +16,7 @@ import {
   OUTPUT_BRIDGE_PROTOCOL_VERSION,
   recoveredOutputProjectState,
 } from "../js/services/output-bridge-service.js";
-import { applyLiveRenderPatches, createLiveRenderPatch, createRenderStatePatch } from "../js/domain/live-render-patch.js";
+import { applyLiveRenderPatches, applyLiveRenderPatchesImmutable, createLiveRenderPatch, createRenderStatePatch } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
@@ -2092,6 +2092,67 @@ test("asset catalog state transport declares scoped activation", () => {
   }
 });
 
+test("full state transport detaches nested transaction values after structural edits", () => {
+  const previousBroadcastChannel = globalThis.BroadcastChannel;
+  const messages = [];
+  let attempts = 0;
+  globalThis.BroadcastChannel = class {
+    postMessage(message) {
+      attempts++;
+      messages.push(structuredClone(message));
+    }
+    close() {}
+  };
+  try {
+    let draftChain = null;
+    const state = produceStructuralShare({
+      project: { folderName: "project" },
+      metrics: { clients: 0, outputs: {} },
+      components: [{
+        id: "component-a",
+        name: "Before",
+        chain: [{ id: "source-a", enabled: true }],
+      }],
+    }, (draft) => {
+      draft.components[0].name = "After";
+      draftChain = draft.components[0].chain;
+    });
+    const projected = {
+      ...state,
+      components: state.components.map((component) => ({
+        ...component,
+        chain: draftChain,
+      })),
+    };
+    assert.throws(() => structuredClone(projected), { name: "DataCloneError" });
+    const bridge = createControlBridge({
+      subscribeStore: false,
+      store: {
+        getLiveRenderState: () => projected,
+        getState: () => state,
+        getMetrics: () => state.metrics,
+        updateRuntime() {},
+      },
+      mediaLibrary: { getAllFiles: () => [] },
+    });
+    const attemptsBeforeState = attempts;
+
+    bridge.sendState();
+
+    const packet = messages.find((message) => message.type === "state");
+    const stateAttempts = attempts - attemptsBeforeState;
+    bridge.close();
+    assert.equal(stateAttempts, 2);
+    assert.deepEqual(packet.state.components[0].chain, [{
+      id: "source-a",
+      enabled: true,
+    }]);
+  } finally {
+    if (previousBroadcastChannel === undefined) delete globalThis.BroadcastChannel;
+    else globalThis.BroadcastChannel = previousBroadcastChannel;
+  }
+});
+
 test("Live Surface visibility sends only the derived route projection", () => {
   const previousBroadcastChannel = globalThis.BroadcastChannel;
   const messages = [];
@@ -2350,6 +2411,31 @@ test("a failed patch delivery is consumed once and does not advance transport re
   assert.equal(packets.length, 1);
 });
 
+test("patch coalescing keeps equal paths for distinct stable chain items", () => {
+  const synchronizer = new LivePatchSynchronizer();
+  synchronizer.queue([
+    createLiveRenderPatch(
+      "component-a",
+      "chain.0.params.amount",
+      0.25,
+      "item-a",
+    ),
+    createLiveRenderPatch(
+      "component-a",
+      "chain.0.params.amount",
+      0.75,
+      "item-b",
+    ),
+  ]);
+
+  const packet = synchronizer.flush();
+  assert.equal(packet.patches.length, 2);
+  assert.deepEqual(packet.patches.map((patch) => patch.itemId), [
+    "item-a",
+    "item-b",
+  ]);
+});
+
 test("mapping scrubs share the patch transport and retain only the latest calibration", async () => {
   const previousBroadcastChannel = globalThis.BroadcastChannel;
   const messages = [];
@@ -2600,6 +2686,47 @@ test("Live render patches mutate only the addressed Component path", () => {
   ]);
   assert.equal(failed.applied, false);
   assert.equal(state.components[0].chain[0].params.amount, beforeAtomicFailure);
+});
+
+test("Live render patches follow stable chain item identity across index drift", () => {
+  const state = {
+    components: [{
+      id: "component-a",
+      chain: [
+        { id: "item-a", params: { amount: 0.1 } },
+        { id: "item-b", params: { amount: 0.2 } },
+      ],
+    }],
+  };
+  const patch = createLiveRenderPatch(
+    "component-a",
+    "chain.0.params.amount",
+    0.8,
+    "item-b",
+  );
+  const immutable = applyLiveRenderPatchesImmutable(state, [patch]);
+
+  assert.equal(immutable.applied, true);
+  assert.equal(immutable.state.components[0].chain[0].params.amount, 0.1);
+  assert.equal(immutable.state.components[0].chain[1].params.amount, 0.8);
+  assert.equal(state.components[0].chain[1].params.amount, 0.2);
+  assert.deepEqual(immutable.configurationTargets, [{
+    componentId: "component-a",
+    itemIds: ["item-b"],
+  }]);
+
+  const mutable = applyLiveRenderPatches(state, [patch]);
+  assert.equal(mutable.applied, true);
+  assert.equal(state.components[0].chain[0].params.amount, 0.1);
+  assert.equal(state.components[0].chain[1].params.amount, 0.8);
+  assert.equal(applyLiveRenderPatches(state, [
+    createLiveRenderPatch(
+      "component-a",
+      "chain.0.params.amount",
+      1,
+      "missing-item",
+    ),
+  ]).applied, false);
 });
 
 test("render-state patches update only allow-listed continuous renderer roots", () => {

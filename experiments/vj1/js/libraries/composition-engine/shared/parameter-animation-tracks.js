@@ -28,10 +28,16 @@ const MAX_DURATION = 3600;
 const MAX_PAUSE = 3600;
 const MAX_RANDOM_RATE = 120;
 const ANIMATION_SEQUENCER_NODE_ID = "core.control.animation-sequencer";
+const ANIMATION_ENVELOPE_NODE_ID = "core.control.segment-envelope";
 const ANIMATION_CURVE_NODE_ID = "core.control.animation-curve";
 const ANIMATION_MAP_NODE_ID = "core.control.map-range";
 const ANIMATION_COMBINE_NODE_ID = "core.control.numeric-combine";
 const ANIMATION_RANDOM_NODE_ID = "core.control.random-trigger";
+const ANIMATION_PERIODIC_TRIGGER_NODE_ID = "core.control.periodic-trigger";
+const ANIMATION_EVENT_TRIGGER_NODE_ID = "core.control.event-trigger";
+const ANIMATION_NOISE_NODE_ID = "core.control.scalar-noise";
+const ANIMATION_SMOOTH_NODE_ID = "core.control.smooth";
+const ANIMATION_SCALAR_MATH_NODE_ID = "core.control.scalar-math";
 const HOST_INPUT_NODE_ID = "core.control.host-input";
 const POINTER_INPUT_NODE_ID = "core.control.pointer-input";
 const AUDIO_INPUT_NODE_ID = "core.control.audio-input";
@@ -46,6 +52,12 @@ const LIVE_SIGNAL_NODE_IDS = new Set([
 ]);
 const DEFAULT_ANIMATION_MARKER_VERSION = 1;
 const LIVE_SIGNAL_KINDS = new Set(["pointer", "audio", "probe", "midi", "osc", "control"]);
+const ANIMATION_TRANSPORT_KINDS = new Set(["sequence", "envelope", "noise"]);
+const ANIMATION_TRIGGER_KINDS = new Set(["manual", "periodic", "random", "pointer", "audio", "probe"]);
+const DEFAULT_ENVELOPE_SEGMENTS = Object.freeze([
+  Object.freeze({ duration: 0.1, value: 1, curve: "quad-out" }),
+  Object.freeze({ duration: 0.3, value: 0, curve: "quad-in" }),
+]);
 
 export function parameterAnimationTriggerAddress(componentId = "", trackId = "") {
   return `animation:${nodeIdToken(componentId)}:${nodeIdToken(trackId)}:trigger`;
@@ -67,7 +79,9 @@ export function parameterAnimationSignalSources(
   targetNodeId = "",
 ) {
   const fixed = [
-    { kind: "timeline", address: "", label: "Timeline" },
+    { kind: "timeline", address: "", transportKind: "sequence", label: "Timeline" },
+    { kind: "timeline", address: "", transportKind: "envelope", label: "Envelope" },
+    { kind: "timeline", address: "", transportKind: "noise", label: "Noise" },
     { kind: "pointer", address: "x", label: "Mouse · X" },
     { kind: "pointer", address: "y", label: "Mouse · Y" },
     { kind: "pointer", address: "down", label: "Mouse · Down" },
@@ -104,6 +118,29 @@ export function parameterAnimationSignalSources(
   return [...fixed, ...probes];
 }
 
+export function parameterAnimationTriggerSources(
+  nodes = {},
+  componentId = "",
+  targetNodeId = "",
+) {
+  const fixed = [
+    { kind: "manual", address: "", label: "Manual button" },
+    { kind: "periodic", address: "", label: "Periodic" },
+    { kind: "random", address: "", label: "Random" },
+    { kind: "pointer", address: "pressed", label: "Mouse · Pressed" },
+    { kind: "audio", address: "beat", label: "Sound · Overall beat" },
+    { kind: "audio", address: "beat:low", label: "Sound · Low beat" },
+    { kind: "audio", address: "beat:mid", label: "Sound · Mid beat" },
+    { kind: "audio", address: "beat:high", label: "Sound · High beat" },
+  ];
+  return [
+    ...fixed,
+    ...parameterAnimationSignalSources(nodes, componentId, targetNodeId)
+      .filter((source) => source.kind === "probe")
+      .map((source) => ({ ...source, label: `${source.label} crosses threshold` })),
+  ];
+}
+
 export function addParameterAnimationTrack(nodes = {}, {
   componentId = "",
   targetNodeId = "",
@@ -126,6 +163,19 @@ export function addParameterAnimationTrack(nodes = {}, {
   defaultAnimationId = "",
   sourceKind = "timeline",
   sourceAddress = "",
+  transportKind = "sequence",
+  envelopeInitial = 0,
+  envelopeSegments = DEFAULT_ENVELOPE_SEGMENTS,
+  triggerKind = "",
+  triggerAddress = "",
+  triggerThreshold = 0.5,
+  triggerInterval = 1,
+  noiseRate = 1,
+  noiseSeed,
+  noiseDetail = 2,
+  noiseRoughness = 0.5,
+  noiseBurst = false,
+  smoothing = 0,
 } = {}) {
   return updateAnimationScope(nodes, componentId, targetNodeId, (scope) => {
     addAnimationTrackToScope(scope, {
@@ -150,6 +200,19 @@ export function addParameterAnimationTrack(nodes = {}, {
       defaultAnimationId,
       sourceKind,
       sourceAddress,
+      transportKind,
+      envelopeInitial,
+      envelopeSegments,
+      triggerKind,
+      triggerAddress,
+      triggerThreshold,
+      triggerInterval,
+      noiseRate,
+      noiseSeed,
+      noiseDetail,
+      noiseRoughness,
+      noiseBurst,
+      smoothing,
     });
   });
 }
@@ -195,6 +258,19 @@ function addAnimationTrackToScope(scope, {
   defaultAnimationId = "",
   sourceKind = "timeline",
   sourceAddress = "",
+  transportKind = "sequence",
+  envelopeInitial = 0,
+  envelopeSegments = DEFAULT_ENVELOPE_SEGMENTS,
+  triggerKind = "",
+  triggerAddress = "",
+  triggerThreshold = 0.5,
+  triggerInterval = 1,
+  noiseRate = 1,
+  noiseSeed,
+  noiseDetail = 2,
+  noiseRoughness = 0.5,
+  noiseBurst = false,
+  smoothing = 0,
 } = {}) {
   const target = targetParameterEndpoint(targetNodeId, parameterId);
   if (scope.nodes.some((node) =>
@@ -265,6 +341,21 @@ function addAnimationTrackToScope(scope, {
     defaultAnimationId,
     sourceKind: safeSourceKind,
     sourceAddress,
+    transportKind,
+    envelopeInitial,
+    envelopeSegments,
+    triggerKind,
+    triggerAddress,
+    triggerThreshold,
+    triggerInterval,
+    noiseRate,
+    noiseSeed: Number.isFinite(Number(noiseSeed))
+      ? Number(noiseSeed)
+      : stableAnimationSeed(componentId, trackId),
+    noiseDetail,
+    noiseRoughness,
+    noiseBurst,
+    smoothing,
   });
   const nodesWithTime = timeNode && !scope.nodes.includes(timeNode)
     ? [...scope.nodes, timeNode]
@@ -585,6 +676,19 @@ function defaultAnimationConfiguration(target, parameter, template) {
     triggerBehavior: template.triggerBehavior,
     randomRate: template.randomRate,
     combination: template.combination,
+    transportKind: template.transportKind,
+    envelopeInitial: template.envelopeInitial,
+    envelopeSegments: template.envelopeSegments,
+    triggerKind: template.triggerKind,
+    triggerAddress: template.triggerAddress,
+    triggerThreshold: template.triggerThreshold,
+    triggerInterval: template.triggerInterval,
+    noiseRate: template.noiseRate,
+    noiseSeed: template.noiseSeed,
+    noiseDetail: template.noiseDetail,
+    noiseRoughness: template.noiseRoughness,
+    noiseBurst: template.noiseBurst,
+    smoothing: template.smoothing,
   };
   const legacyRate = template.legacyRate;
   if (legacyRate?.parameterId) {
@@ -720,6 +824,19 @@ function createAnimationTrackFragment({
   defaultAnimationId,
   sourceKind,
   sourceAddress,
+  transportKind,
+  envelopeInitial,
+  envelopeSegments,
+  triggerKind,
+  triggerAddress,
+  triggerThreshold,
+  triggerInterval,
+  noiseRate,
+  noiseSeed,
+  noiseDetail,
+  noiseRoughness,
+  noiseBurst,
+  smoothing,
 }) {
   const configuration = normalizedTrackConfiguration({
     enabled,
@@ -735,6 +852,21 @@ function createAnimationTrackFragment({
     combination,
     sourceKind,
     sourceAddress,
+    transportKind,
+    envelopeInitial,
+    envelopeSegments,
+    triggerKind,
+    triggerAddress,
+    triggerThreshold,
+    triggerInterval,
+    noiseRate,
+    noiseSeed: Number.isFinite(Number(noiseSeed))
+      ? Number(noiseSeed)
+      : stableAnimationSeed(componentId, id),
+    noiseDetail,
+    noiseRoughness,
+    noiseBurst,
+    smoothing,
   });
   const owner = String(id || "");
   const curveId = `${owner}:curve`;
@@ -745,7 +877,7 @@ function createAnimationTrackFragment({
   const timeline = configuration.sourceKind === "timeline";
   const trackMetadata = {
       feature: PARAMETER_ANIMATION_FEATURE,
-      version: 4,
+      version: 5,
       id,
       targetNodeId: String(targetNodeId || ""),
       parameterId: String(parameterId || ""),
@@ -754,14 +886,33 @@ function createAnimationTrackFragment({
       combination: configuration.combination,
       sourceKind: configuration.sourceKind,
       sourceAddress: configuration.sourceAddress,
+      transportKind: configuration.transportKind,
+      triggerKind: configuration.triggerKind,
+      triggerAddress: configuration.triggerAddress,
+      triggerThreshold: configuration.triggerThreshold,
+      triggerInterval: configuration.triggerInterval,
+      smoothing: configuration.smoothing,
       ...(defaultAnimationId ? { defaultAnimationId: String(defaultAnimationId) } : {}),
   };
+  const envelope = timeline && configuration.transportKind === "envelope";
+  const noise = timeline && configuration.transportKind === "noise";
   const nodes = [timeline ? {
     id,
-    nodeId: ANIMATION_SEQUENCER_NODE_ID,
+    nodeId: envelope
+      ? ANIMATION_ENVELOPE_NODE_ID
+      : noise ? ANIMATION_NOISE_NODE_ID : ANIMATION_SEQUENCER_NODE_ID,
     nodeVersion: "0.1.0",
     role: "control",
-    parameters: {
+    parameters: envelope ? {
+      initial: configuration.envelopeInitial,
+      segments: configuration.envelopeSegments,
+      retrigger: "restart",
+    } : noise ? {
+      rate: configuration.noiseRate,
+      seed: configuration.noiseSeed,
+      detail: configuration.noiseDetail,
+      roughness: configuration.noiseRoughness,
+    } : {
       runMode: configuration.runMode,
       pattern: configuration.mode,
       triggerBehavior: configuration.triggerBehavior,
@@ -785,7 +936,7 @@ function createAnimationTrackFragment({
     authoredBy: PARAMETER_ANIMATION_AUTHOR,
     animationTrackStage: "source",
     animationTrack: trackMetadata,
-  }, ...(timeline ? [{
+  }, ...(timeline && !envelope && !noise ? [{
     id: curveId,
     nodeId: ANIMATION_CURVE_NODE_ID,
     nodeVersion: "0.1.0",
@@ -830,15 +981,76 @@ function createAnimationTrackFragment({
     animationTrackRole: "combination",
     animationTrackStage: "combination",
   }];
-  const connections = [
-    ...(timeline ? [
-      animationConnection(`${timeNodeId}.time`, `${owner}.time`, "number"),
-      animationConnection(`${owner}.progress`, `${curveId}.progress`, "number"),
-      animationConnection(`${owner}.direction`, `${curveId}.direction`, "number"),
-      animationConnection(`${curveId}.value`, `${mappingId}.value`, "number"),
-    ] : [
-      animationConnection(`${owner}.number`, `${mappingId}.value`, "number"),
-    ]),
+  const connections = [];
+  let sourceEndpoint;
+  if (!timeline) {
+    sourceEndpoint = `${owner}.number`;
+  } else {
+    connections.push(animationConnection(`${timeNodeId}.time`, `${owner}.time`, "number"));
+    if (envelope || noise) {
+      sourceEndpoint = `${owner}.value`;
+    } else {
+      connections.push(
+        animationConnection(`${owner}.progress`, `${curveId}.progress`, "number"),
+        animationConnection(`${owner}.direction`, `${curveId}.direction`, "number"),
+      );
+      sourceEndpoint = `${curveId}.value`;
+    }
+  }
+  let burstEnvelopeId = "";
+  if (noise && configuration.noiseBurst) {
+    burstEnvelopeId = `${owner}:burst-envelope`;
+    const gateId = `${owner}:burst-gate`;
+    nodes.push({
+      id: burstEnvelopeId,
+      nodeId: ANIMATION_ENVELOPE_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: {
+        initial: 0,
+        segments: configuration.envelopeSegments,
+        retrigger: "restart",
+      },
+      authoredBy: PARAMETER_ANIMATION_AUTHOR,
+      animationTrackOwnerId: owner,
+      animationTrackRole: "burst-envelope",
+      animationTrackStage: "shape",
+    }, {
+      id: gateId,
+      nodeId: ANIMATION_SCALAR_MATH_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: { operation: "multiply" },
+      authoredBy: PARAMETER_ANIMATION_AUTHOR,
+      animationTrackOwnerId: owner,
+      animationTrackRole: "burst-gate",
+      animationTrackStage: "shape",
+    });
+    connections.push(
+      animationConnection(`${timeNodeId}.time`, `${burstEnvelopeId}.time`, "number"),
+      animationConnection(sourceEndpoint, `${gateId}.a`, "number"),
+      animationConnection(`${burstEnvelopeId}.value`, `${gateId}.b`, "number"),
+    );
+    sourceEndpoint = `${gateId}.value`;
+  }
+  if (configuration.smoothing > 0) {
+    const smoothingId = `${owner}:smoothing`;
+    nodes.push({
+      id: smoothingId,
+      nodeId: ANIMATION_SMOOTH_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: { timeConstant: configuration.smoothing },
+      authoredBy: PARAMETER_ANIMATION_AUTHOR,
+      animationTrackOwnerId: owner,
+      animationTrackRole: "smoothing",
+      animationTrackStage: "shape",
+    });
+    connections.push(animationConnection(sourceEndpoint, `${smoothingId}.value`, "number"));
+    sourceEndpoint = `${smoothingId}.value`;
+  }
+  connections.push(
+    animationConnection(sourceEndpoint, `${mappingId}.value`, "number"),
     animationConnection(`${mappingId}.value`, `${combinationId}.modulation`, "number"),
     {
       from: `${baseControl.id}.value`,
@@ -849,9 +1061,108 @@ function createAnimationTrackFragment({
       semantic: PARAMETER_ANIMATION_FEATURE,
       animationStage: "combination",
     },
-  ];
-  if (timeline && configuration.runMode === "triggered") {
-    const triggerId = `${owner}:trigger`;
+  );
+  if (timeline && (envelope || burstEnvelopeId || configuration.runMode === "triggered")) {
+    appendAnimationTriggerFragment({
+      nodes,
+      connections,
+      componentId,
+      owner,
+      timeNodeId,
+      configuration,
+      envelope: envelope || !!burstEnvelopeId,
+      targetId: burstEnvelopeId || owner,
+    });
+  }
+  return { nodes, connections, valueNodeId: combinationId };
+}
+
+function appendAnimationTriggerFragment({
+  nodes,
+  connections,
+  componentId,
+  owner,
+  timeNodeId,
+  configuration,
+  envelope,
+  targetId = owner,
+}) {
+  const triggerId = `${owner}:trigger`;
+  const role = "trigger";
+  const owned = {
+    authoredBy: PARAMETER_ANIMATION_AUTHOR,
+    animationTrackOwnerId: owner,
+    animationTrackRole: role,
+  };
+  let eventEndpoint = "";
+  let eventTimeEndpoint = "";
+  if (configuration.triggerKind === "periodic") {
+    nodes.push({
+      id: triggerId,
+      nodeId: ANIMATION_PERIODIC_TRIGGER_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: { interval: configuration.triggerInterval, phase: 0 },
+      ...owned,
+    });
+    connections.push(animationConnection(`${timeNodeId}.time`, `${triggerId}.time`, "number"));
+    eventEndpoint = `${triggerId}.event`;
+    eventTimeEndpoint = `${triggerId}.eventTime`;
+  } else if (configuration.triggerKind === "random") {
+    nodes.push({
+      id: triggerId,
+      nodeId: ANIMATION_RANDOM_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: {
+        ratePerMinute: configuration.randomRate,
+        seed: stableAnimationSeed(componentId, owner),
+      },
+      ...owned,
+    });
+    connections.push(animationConnection(`${timeNodeId}.time`, `${triggerId}.time`, "number"));
+    eventEndpoint = `${triggerId}.event`;
+    eventTimeEndpoint = `${triggerId}.eventTime`;
+  } else if (configuration.triggerKind === "probe") {
+    const thresholdId = `${owner}:trigger-threshold`;
+    nodes.push({
+      id: triggerId,
+      nodeId: PROBE_INPUT_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: {
+        kind: "probe",
+        address: configuration.triggerAddress,
+        fallback: 0,
+      },
+      ...owned,
+    }, {
+      id: thresholdId,
+      nodeId: ANIMATION_EVENT_TRIGGER_NODE_ID,
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: { threshold: configuration.triggerThreshold },
+      authoredBy: PARAMETER_ANIMATION_AUTHOR,
+      animationTrackOwnerId: owner,
+      animationTrackRole: "trigger-threshold",
+    });
+    connections.push(animationConnection(`${triggerId}.number`, `${thresholdId}.value`, "number"));
+    eventEndpoint = `${thresholdId}.event`;
+  } else if (configuration.triggerKind === "pointer" || configuration.triggerKind === "audio") {
+    nodes.push({
+      id: triggerId,
+      nodeId: liveSignalNodeId(configuration.triggerKind),
+      nodeVersion: "0.1.0",
+      role: "control",
+      parameters: {
+        kind: configuration.triggerKind,
+        address: configuration.triggerAddress,
+        fallback: 0,
+      },
+      ...owned,
+    });
+    eventEndpoint = `${triggerId}.event`;
+  } else {
     nodes.push({
       id: triggerId,
       nodeId: HOST_INPUT_NODE_ID,
@@ -862,34 +1173,20 @@ function createAnimationTrackFragment({
         address: parameterAnimationTriggerAddress(componentId, owner),
         fallback: 0,
       },
-      authoredBy: PARAMETER_ANIMATION_AUTHOR,
-      animationTrackOwnerId: owner,
-      animationTrackRole: "trigger",
+      ...owned,
     });
-    connections.push(animationConnection(`${triggerId}.event`, `${owner}.trigger`, "event"));
-    if (configuration.randomRate > 0) {
-      const randomId = `${owner}:random`;
-      nodes.push({
-        id: randomId,
-        nodeId: ANIMATION_RANDOM_NODE_ID,
-        nodeVersion: "0.1.0",
-        role: "control",
-        parameters: {
-          ratePerMinute: configuration.randomRate,
-          seed: stableAnimationSeed(componentId, owner),
-        },
-        authoredBy: PARAMETER_ANIMATION_AUTHOR,
-        animationTrackOwnerId: owner,
-        animationTrackRole: "random-trigger",
-      });
-      connections.push(
-        animationConnection(`${timeNodeId}.time`, `${randomId}.time`, "number"),
-        animationConnection(`${randomId}.event`, `${owner}.randomTrigger`, "event"),
-        animationConnection(`${randomId}.eventTime`, `${owner}.randomTriggerTime`, "number"),
-      );
-    }
+    eventEndpoint = `${triggerId}.event`;
   }
-  return { nodes, connections, valueNodeId: combinationId };
+  const triggerInlet = !envelope && configuration.triggerKind === "random"
+    ? "randomTrigger"
+    : "trigger";
+  connections.push(animationConnection(eventEndpoint, `${targetId}.${triggerInlet}`, "event"));
+  if (eventTimeEndpoint && (envelope || configuration.triggerKind === "random")) {
+    const timeInlet = !envelope && configuration.triggerKind === "random"
+      ? "randomTriggerTime"
+      : "triggerTime";
+    connections.push(animationConnection(eventTimeEndpoint, `${targetId}.${timeInlet}`, "number"));
+  }
 }
 
 function animationTrackProjection(node, nodes, connections) {
@@ -940,6 +1237,17 @@ function animationTrackProjection(node, nodes, connections) {
     candidate.animationTrackOwnerId === node.animationTrack.id &&
     ["shape", "curve"].includes(candidate.animationTrackRole)
   );
+  const envelope = node.nodeId === ANIMATION_ENVELOPE_NODE_ID;
+  const noise = node.nodeId === ANIMATION_NOISE_NODE_ID;
+  const burstEnvelope = nodes.find((candidate) =>
+    candidate.animationTrackOwnerId === node.animationTrack.id &&
+    candidate.animationTrackRole === "burst-envelope"
+  );
+  const smoothingNode = nodes.find((candidate) =>
+    candidate.animationTrackOwnerId === node.animationTrack.id &&
+    candidate.animationTrackRole === "smoothing"
+  );
+  const usesTrigger = envelope || !!burstEnvelope || node.parameters?.runMode === "triggered";
   return projectedTrackConfiguration({
     id: node.animationTrack.id,
     targetNodeId: node.animationTrack.targetNodeId,
@@ -957,6 +1265,27 @@ function animationTrackProjection(node, nodes, connections) {
     triggerBehavior: node.parameters?.triggerBehavior,
     randomRate: node.animationTrack?.randomRate,
     combination: combinationNode?.parameters?.mode || node.animationTrack?.combination,
+    transportKind: envelope ? "envelope" : noise ? "noise" : node.animationTrack?.transportKind,
+    ...(envelope || burstEnvelope ? {
+      envelopeInitial: envelope ? node.parameters?.initial : 0,
+      envelopeSegments: envelope
+        ? node.parameters?.segments
+        : burstEnvelope?.parameters?.segments,
+    } : {}),
+    ...(usesTrigger ? {
+      triggerKind: node.animationTrack?.triggerKind,
+      triggerAddress: node.animationTrack?.triggerAddress,
+      triggerThreshold: node.animationTrack?.triggerThreshold,
+      triggerInterval: node.animationTrack?.triggerInterval,
+    } : {}),
+    ...(noise ? {
+      noiseRate: node.parameters?.rate,
+      noiseSeed: node.parameters?.seed,
+      noiseDetail: node.parameters?.detail,
+      noiseRoughness: node.parameters?.roughness,
+      noiseBurst: !!burstEnvelope,
+    } : {}),
+    smoothing: smoothingNode?.parameters?.timeConstant ?? node.animationTrack?.smoothing ?? 0,
     ...(LIVE_SIGNAL_NODE_IDS.has(node.nodeId) ? {
       sourceKind: normalizeAnimationSourceKind(node.parameters?.kind),
       sourceAddress: String(node.parameters?.address || ""),
@@ -1106,6 +1435,12 @@ function normalizedTrackConfiguration(configuration = {}) {
   const { sourceKind: requestedSourceKind, sourceAddress: requestedSourceAddress } = configuration;
   const sourceKind = normalizeAnimationSourceKind(requestedSourceKind);
   const sourceAddress = String(requestedSourceAddress || "");
+  const transportKind = ANIMATION_TRANSPORT_KINDS.has(configuration.transportKind)
+    ? configuration.transportKind
+    : "sequence";
+  const triggerKind = ANIMATION_TRIGGER_KINDS.has(configuration.triggerKind)
+    ? configuration.triggerKind
+    : Number(configuration.randomRate) > 0 ? "random" : "manual";
   return {
     ...configuration,
     enabled: configuration.enabled !== false,
@@ -1121,17 +1456,76 @@ function normalizedTrackConfiguration(configuration = {}) {
     combination: normalizeCombination(configuration.combination),
     sourceKind,
     sourceAddress,
+    transportKind,
+    envelopeInitial: Number.isFinite(Number(configuration.envelopeInitial))
+      ? Number(configuration.envelopeInitial)
+      : 0,
+    envelopeSegments: normalizeEnvelopeSegments(configuration.envelopeSegments),
+    triggerKind,
+    triggerAddress: String(configuration.triggerAddress || defaultTriggerAddress(triggerKind)),
+    triggerThreshold: Math.min(1, Math.max(0,
+      Number.isFinite(Number(configuration.triggerThreshold))
+        ? Number(configuration.triggerThreshold)
+        : 0.5
+    )),
+    triggerInterval: Math.min(MAX_DURATION, Math.max(0.01, Number(configuration.triggerInterval) || 1)),
+    noiseRate: Math.min(120, Math.max(0.01, Number(configuration.noiseRate) || 1)),
+    noiseSeed: Number.isFinite(Number(configuration.noiseSeed))
+      ? Number(configuration.noiseSeed)
+      : 1,
+    noiseDetail: Math.min(4, Math.max(1, Math.round(Number(configuration.noiseDetail) || 2))),
+    noiseRoughness: Math.min(1, Math.max(0,
+      Number.isFinite(Number(configuration.noiseRoughness))
+        ? Number(configuration.noiseRoughness)
+        : 0.5
+    )),
+    noiseBurst: configuration.noiseBurst === true,
+    smoothing: Math.min(60, Math.max(0, Number(configuration.smoothing) || 0)),
     ...(configuration.defaultAnimationId
       ? { defaultAnimationId: String(configuration.defaultAnimationId) }
       : {}),
   };
 }
 
+function normalizeEnvelopeSegments(value) {
+  const source = Array.isArray(value) ? value : DEFAULT_ENVELOPE_SEGMENTS;
+  return source.slice(0, 32).map((segment) => ({
+    duration: Math.min(MAX_DURATION, Math.max(0.001, Number(segment?.duration) || 0.1)),
+    value: Number.isFinite(Number(segment?.value)) ? Number(segment.value) : 0,
+    curve: normalizeCurve(segment?.curve),
+  }));
+}
+
+function defaultTriggerAddress(kind) {
+  if (kind === "pointer") return "pressed";
+  if (kind === "audio") return "beat";
+  return "";
+}
+
 function projectedTrackConfiguration(configuration = {}) {
   const normalized = normalizedTrackConfiguration(configuration);
-  if (normalized.sourceKind !== "timeline") return normalized;
-  const { sourceKind, sourceAddress, ...timeline } = normalized;
-  return timeline;
+  const projected = { ...normalized };
+  if (configuration.envelopeSegments === undefined) {
+    delete projected.envelopeInitial;
+    delete projected.envelopeSegments;
+  }
+  if (configuration.triggerKind === undefined) {
+    delete projected.triggerKind;
+    delete projected.triggerAddress;
+    delete projected.triggerThreshold;
+    delete projected.triggerInterval;
+  }
+  if (configuration.noiseRate === undefined) {
+    delete projected.noiseRate;
+    delete projected.noiseSeed;
+    delete projected.noiseDetail;
+    delete projected.noiseRoughness;
+    delete projected.noiseBurst;
+  }
+  if (normalized.sourceKind !== "timeline") return projected;
+  delete projected.sourceKind;
+  delete projected.sourceAddress;
+  return projected;
 }
 
 function normalizeAnimationSourceKind(value) {

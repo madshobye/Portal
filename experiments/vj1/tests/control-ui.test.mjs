@@ -9,6 +9,7 @@ import {
   isIsfVisualComponent,
   mergeVisualCatalogEntries,
   sourceChoicePickerTemplate,
+  visualPickerDisplayName,
 } from "../js/control/picker-view.js";
 import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState, createSceneComponent } from "../js/domain/models.js";
@@ -324,6 +325,15 @@ test("element picker filters media and render elements by explicit category", ()
     nodeDefinition: { metadata: { visualFamily: "isf" } },
   }), true);
   assert.equal(isIsfVisualComponent(null), false);
+  assert.equal(visualPickerDisplayName({ name: "Dilate" }), "Dilate");
+  assert.equal(
+    visualPickerDisplayName({
+      name: "Dilate",
+      nodeDefinition: { metadata: { visualFamily: "isf" } },
+    }),
+    "Dilate (ISF)",
+  );
+  assert.match(html, />Dilate \(ISF\)<\/strong>/);
 });
 
 test("source chooser exposes category filters and model sources lock it to 3D", () => {
@@ -1846,6 +1856,9 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(stateSource.includes("function updateLive(recipe"));
   assert.ok(inputSource.includes('typeof store.updateLive === "function"'));
   assert.ok(inputSource.includes("createLiveRenderPatch"));
+  assert.ok(inputSource.includes("dataset.liveItemId"));
+  const liveViewSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
+  assert.ok(liveViewSource.includes("data-live-item-id"));
   assert.ok(previewSource.includes("pendingState?.ui?.outputWindowOpen"));
   assert.ok(!previewSource.includes('outputWindowOpen && pendingState?.ui?.workspace !== "live"'));
   assert.ok(previewSource.includes('renderer.setState(previewSizedState(), { normalized: true });'));

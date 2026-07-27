@@ -59,7 +59,7 @@ export function createIsfNodeDefinition({
     timeDependent: () => document.dynamic,
     roi: document.roiSafe
       ? { mode: "local", halo: 0, coordinateSpace: "boundary" }
-      : { mode: "full", halo: 0, coordinateSpace: "boundary", reason: "isf-multipass" },
+      : { mode: "full-frame", halo: 0, coordinateSpace: "boundary", reason: "isf-multipass" },
   };
   const base = defineVisualComponent({
     id: visualId,
@@ -150,7 +150,7 @@ export function materializeIsfNodeDefinition(definition = {}) {
       timeDependent: () => document.dynamic,
       roi: document.roiSafe
         ? { mode: "local", halo: 0, coordinateSpace: "boundary" }
-        : { mode: "full", halo: 0, coordinateSpace: "boundary", reason: "isf-multipass" },
+        : { mode: "full-frame", halo: 0, coordinateSpace: "boundary", reason: "isf-multipass" },
     },
     spatial: false,
     transformSource: true,

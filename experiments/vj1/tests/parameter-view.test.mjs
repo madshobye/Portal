@@ -79,6 +79,42 @@ test("parameter dropdowns use the shared compact select component", () => {
   assert.match(html, /<select class="param-select" data-update="params\.mode">/);
 });
 
+test("ISF booleans use the shared toggle button instead of a checkbox", () => {
+  const persistent = paramControlTemplate(
+    { id: "freeze", label: "Freeze", type: "boolean", isfUniformType: "bool", defaultValue: false },
+    "components.0.chain.2.params.freeze",
+    true
+  );
+  const live = paramControlTemplate(
+    { id: "freeze", label: "Freeze", type: "boolean", isfUniformType: "bool", defaultValue: false },
+    "chain.2.params.freeze",
+    false,
+    'data-live-component-id="component-7" data-live-item-id="item-freeze" data-live-update'
+  );
+
+  assert.match(persistent, /class="param-toggle-button is-enabled"/);
+  assert.match(persistent, /data-toggle-path="components\.0\.chain\.2\.params\.freeze"/);
+  assert.match(persistent, /data-toggle-value="true"/);
+  assert.match(persistent, /aria-pressed="true"/);
+  assert.doesNotMatch(persistent, /type="checkbox"/);
+  assert.match(live, /class="param-toggle-button"/);
+  assert.match(live, /data-live-component-id="component-7"/);
+  assert.match(live, /data-live-item-id="item-freeze"/);
+  assert.match(live, /data-live-toggle="chain\.2\.params\.freeze"/);
+  assert.match(live, /data-toggle-value="false"/);
+  assert.doesNotMatch(live, /type="checkbox"/);
+});
+
+test("ordinary boolean parameters retain their existing checkbox control", () => {
+  const html = paramControlTemplate(
+    { id: "enabled", label: "Enabled", type: "boolean", defaultValue: false },
+    "params.enabled",
+    false
+  );
+  assert.match(html, /type="checkbox"/);
+  assert.doesNotMatch(html, /param-toggle-button/);
+});
+
 test("screen input params keep stable IDs while presenting session names and dimensions", () => {
   const param = { id: "inputId", label: "Input", type: "text", ui: "screen-input", defaultValue: "" };
   const inputs = [

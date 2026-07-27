@@ -30,7 +30,13 @@
         if (!response.ok) throw new Error(`POSTERIZE_SOURCE_${response.status}`);
         return response.text();
       });
-      const [randomFreezeSource, cometTailsSource] = await Promise.all([
+      const [
+        randomFreezeSource,
+        cometTailsSource,
+        ghostingSource,
+        dilateSource,
+        erodeSource,
+      ] = await Promise.all([
         fetch("./fixtures/random-freeze.fs").then((response) => {
           if (!response.ok) {
             throw new Error(`RANDOM_FREEZE_SOURCE_${response.status}`);
@@ -43,6 +49,24 @@
           }
           return response.text();
         }),
+        fetch("../../visual-library/shaders/isf/effects/ghosting.fs").then((response) => {
+          if (!response.ok) {
+            throw new Error(`GHOSTING_SOURCE_${response.status}`);
+          }
+          return response.text();
+        }),
+        ...["dilate", "erode"].map((name) =>
+          fetch(`../../visual-library/shaders/isf/effects/${name}.fs`).then(
+            (response) => {
+              if (!response.ok) {
+                throw new Error(
+                  `MULTIPASS_COMPARISON_SOURCE_${name}_${response.status}`,
+                );
+              }
+              return response.text();
+            },
+          )
+        ),
       ]);
       const resources = [];
       const identity = [
@@ -103,6 +127,13 @@
         return Array.from(image.pixels.slice(offset, offset + 4));
       }
 
+      function pixelData(target) {
+        const image = target.get();
+        resources.push(image);
+        image.loadPixels();
+        return Array.from(image.pixels);
+      }
+
       globalThis.setup = () => {
         try {
           createCanvas(16, 16, WEBGL);
@@ -143,6 +174,17 @@
             path: "tests/browser/fixtures/comet-tails.fs",
             source: cometTailsSource,
           });
+          const ghosting = createIsfVisualComponent({
+            path: "visual-library/shaders/isf/effects/ghosting.fs",
+            source: ghostingSource,
+          });
+          const multipassComparisons = [
+            ["dilate", dilateSource],
+            ["erode", erodeSource],
+          ].map(([name, source]) => createIsfVisualComponent({
+            path: `visual-library/shaders/isf/effects/${name}.fs`,
+            source,
+          }));
           const input = createSharedFramebufferTarget(8, 8);
           const finalTarget = createSharedFramebufferTarget(8, 8);
           resources.push(input, finalTarget);
@@ -181,6 +223,8 @@
             [posterize.id, posterize],
             [randomFreeze.id, randomFreeze],
             [cometTails.id, cometTails],
+            [ghosting.id, ghosting],
+            ...multipassComparisons.map((entry) => [entry.id, entry]),
           ]);
           const builder = createShaderBuilder({
             getComponent: (id) => components.get(id) || null,
@@ -298,6 +342,69 @@
             "comet-tails-smoke",
           );
 
+          const ghostingInput = createSharedFramebufferTarget(32, 8);
+          const ghostingTarget = createSharedFramebufferTarget(32, 8);
+          resources.push(ghostingInput, ghostingTarget);
+          ghostingInput.push();
+          ghostingInput.clear();
+          ghostingInput.noStroke();
+          ghostingInput.fill(0, 0, 0, 255);
+          ghostingInput.rect(0, 0, 32, 8);
+          ghostingInput.fill(255, 255, 255, 255);
+          ghostingInput.rect(4, 0, 4, 8);
+          ghostingInput.pop();
+          const ghostingShader = builder.getShader({
+            id: ghosting.id,
+            component: ghosting,
+          }, ghostingTarget);
+          if (!ghostingShader) {
+            throw new Error("GHOSTING_SHADER_UNAVAILABLE");
+          }
+          const ghostingRequest = {
+            ...renderRequest,
+            width: 32,
+            logicalWidth: 32,
+          };
+          const ghosted = runtime.renderProgram({
+            component: ghosting,
+            shader: ghostingShader,
+            input: ghostingInput,
+            finalTarget: ghostingTarget,
+            renderRequest: ghostingRequest,
+            timeSeconds: 1,
+            params: {
+              amount: 1,
+              uBias: -0.5,
+              uScale: 0.5,
+              uGhosts: 5,
+              uGhostDispersal: 0.1,
+              uAdditive: true,
+              uDirectionX: 0.5,
+              uDirectionY: 0.5,
+              uLensColor: [0.9, 0.8, 0.7, 1],
+            },
+            instanceId: "ghosting-smoke",
+            effectTransform: {},
+          });
+          const ghostingPass = runtime.passTargets.get(
+            `${ghosting.id}:${ghosting.isf.sourceHash}:ghosting-smoke:downsampleAndThresholdImage`,
+          );
+          const ghostingIntermediatePixel = sampledPixel(
+            ghostingPass.targets[0],
+            0.16,
+            0.5,
+          );
+          const ghostingOutputPixels = [0.05, 0.1, 0.2, 0.3, 0.4].map(
+            (x) => sampledPixel(ghosted, x, 0.5),
+          );
+          const ghostingPassVisible =
+            ghostingIntermediatePixel[0] >= 55 &&
+            ghostingIntermediatePixel[1] >= 55 &&
+            ghostingIntermediatePixel[2] >= 55;
+          const ghostingDisplacesHighlights =
+            ghostingOutputPixels[0][0] >= 100 &&
+            ghostingOutputPixels[3][0] <= 10;
+
           const productionHandoffInput =
             createSharedFramebufferTarget(8, 8);
           resources.push(productionHandoffInput);
@@ -414,6 +521,162 @@
             productionHandoffTop[2] <= 10 &&
             productionHandoffBottom[0] <= 10 &&
             productionHandoffBottom[2] >= 245;
+          const productionGhostingState = productionEffectRuntime.renderNodeState(
+            "ghosting-production-handoff",
+            {
+              buffer: ghostingInput,
+              outputVersion: 1,
+              nodeKey: "ghosting-production-input",
+              instanceInvariant: false,
+            },
+            {
+              id: "ghosting-production-instance",
+              componentId: ghosting.id,
+              enabled: true,
+              opacity: 1,
+              blend: "normal",
+              params: {
+                amount: 1,
+                uBias: 0,
+                uScale: 2,
+                uGhostDispersal: 0.1,
+                uAdditive: true,
+                uDirectionX: 0,
+                uDirectionY: 0,
+                uLensColor: "#ffffffff",
+              },
+            },
+            1,
+            ghostingRequest,
+          );
+          const productionGhostingPixels =
+            [0.05, 0.1, 0.2, 0.3, 0.4].map(
+              (x) => sampledPixel(productionGhostingState.buffer, x, 0.5),
+            );
+          const productionGhostingVisible =
+            productionGhostingPixels[0][0] >= 100 &&
+            productionGhostingPixels[3][0] <= 10;
+          const multipassComparisonInput =
+            createSharedFramebufferTarget(32, 16);
+          resources.push(multipassComparisonInput);
+          multipassComparisonInput.push();
+          multipassComparisonInput.clear();
+          multipassComparisonInput.noStroke();
+          multipassComparisonInput.fill(0, 0, 0, 255);
+          multipassComparisonInput.rect(0, 0, 32, 16);
+          multipassComparisonInput.fill(255, 255, 255, 255);
+          multipassComparisonInput.rect(10, 2, 12, 12);
+          multipassComparisonInput.pop();
+          const multipassComparisonRequest = {
+            ...renderRequest,
+            width: 32,
+            height: 16,
+            logicalWidth: 32,
+            logicalHeight: 16,
+          };
+          const multipassComparisonInputPixels =
+            pixelData(multipassComparisonInput);
+          const multipassComparisonResults =
+            multipassComparisons.map((comparison, index) => {
+              const state = productionEffectRuntime.renderNodeState(
+                `multipass-comparison-${comparison.id}`,
+                {
+                  buffer: multipassComparisonInput,
+                  outputVersion: 1,
+                  nodeKey: "multipass-comparison-input",
+                  instanceInvariant: false,
+                },
+                {
+                  id: `multipass-comparison-instance-${index}`,
+                  componentId: comparison.id,
+                  enabled: true,
+                  opacity: 1,
+                  blend: "normal",
+                  params: {
+                    amount: 1,
+                    intensity: 1,
+                    radius: 2,
+                    bleedRadius: 2,
+                  },
+                },
+                1,
+                multipassComparisonRequest,
+              );
+              const pixels = pixelData(state.buffer);
+              let changedRgb = 0;
+              let litRgb = 0;
+              for (let offset = 0; offset < pixels.length; offset += 4) {
+                if (
+                  pixels[offset] !== multipassComparisonInputPixels[offset] ||
+                  pixels[offset + 1] !==
+                    multipassComparisonInputPixels[offset + 1] ||
+                  pixels[offset + 2] !==
+                    multipassComparisonInputPixels[offset + 2]
+                ) changedRgb++;
+                if (
+                  pixels[offset] > 10 ||
+                  pixels[offset + 1] > 10 ||
+                  pixels[offset + 2] > 10
+                ) litRgb++;
+              }
+              const repeatedState = productionEffectRuntime.renderNodeState(
+                `multipass-comparison-${comparison.id}`,
+                {
+                  buffer: multipassComparisonInput,
+                  outputVersion: 1,
+                  nodeKey: "multipass-comparison-input",
+                  instanceInvariant: false,
+                },
+                {
+                  id: `multipass-comparison-instance-${index}`,
+                  componentId: comparison.id,
+                  enabled: true,
+                  opacity: 1,
+                  blend: "normal",
+                  params: {
+                    amount: 1,
+                    intensity: 0.75,
+                    radius: 2,
+                    bleedRadius: 2,
+                  },
+                },
+                2,
+                multipassComparisonRequest,
+              );
+              const repeatedPixels = pixelData(repeatedState.buffer);
+              let repeatedChangedRgb = 0;
+              let repeatedLitRgb = 0;
+              for (let offset = 0; offset < repeatedPixels.length; offset += 4) {
+                if (
+                  repeatedPixels[offset] !==
+                    multipassComparisonInputPixels[offset] ||
+                  repeatedPixels[offset + 1] !==
+                    multipassComparisonInputPixels[offset + 1] ||
+                  repeatedPixels[offset + 2] !==
+                    multipassComparisonInputPixels[offset + 2]
+                ) repeatedChangedRgb++;
+                if (
+                  repeatedPixels[offset] > 10 ||
+                  repeatedPixels[offset + 1] > 10 ||
+                  repeatedPixels[offset + 2] > 10
+                ) repeatedLitRgb++;
+              }
+              return {
+                name: comparison.name,
+                passes: comparison.isf.passes.length,
+                changedRgb,
+                litRgb,
+                repeatedChangedRgb,
+                repeatedLitRgb,
+                visible:
+                  changedRgb > 0 &&
+                  litRgb > 0 &&
+                  repeatedChangedRgb > 0 &&
+                  repeatedLitRgb > 0,
+              };
+            });
+          const multipassComparisonsVisible =
+            multipassComparisonResults.every((entry) => entry.visible);
 
           solid(input, [255, 0, 0, 255]);
           const redInputPixel = centerPixel(input);
@@ -461,7 +724,11 @@
             posterizeKeepsOrientation &&
             randomFreezeFirstFrame.visible &&
             cometTailsFirstFrame.visible &&
+            ghostingPassVisible &&
+            ghostingDisplacesHighlights &&
             productionHandoffVisible &&
+            productionGhostingVisible &&
+            multipassComparisonsVisible &&
             firstIsRed &&
             secondRetainsHistory &&
             targets?.targets?.length === 2;
@@ -472,9 +739,17 @@
             posterizeKeepsOrientation,
             randomFreezeFirstFrame,
             cometTailsFirstFrame,
+            ghostingIntermediatePixel,
+            ghostingOutputPixels,
+            ghostingPassVisible,
+            ghostingDisplacesHighlights,
             productionHandoffTop,
             productionHandoffBottom,
             productionHandoffVisible,
+            productionGhostingPixels,
+            productionGhostingVisible,
+            multipassComparisonResults,
+            multipassComparisonsVisible,
             redInputPixel,
             blueInputPixel,
             firstPixel,

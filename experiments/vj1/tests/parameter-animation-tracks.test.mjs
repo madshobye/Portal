@@ -13,6 +13,7 @@ import {
   addParameterAnimationTrack,
   PARAMETER_ANIMATION_STAGES,
   parameterAnimationSignalSources,
+  parameterAnimationTriggerSources,
   parameterAnimationTracks,
   parameterAnimationTriggerAddress,
   removeParameterAnimationTrack,
@@ -429,6 +430,109 @@ test("animation source catalog exposes pointer audio beat and local Probe featur
   ));
 });
 
+test("triggered envelopes route audio beats through one editable retained graph", () => {
+  const { packageRoot, state, componentId, targetNodeId } = plasmaState();
+  const nodes = addParameterAnimationTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "speed",
+    from: 0,
+    to: 3,
+    transportKind: "envelope",
+    triggerKind: "audio",
+    triggerAddress: "beat:low",
+    envelopeSegments: [
+      { duration: 0.08, value: 1, curve: "quad-out" },
+      { duration: 0.3, value: 0, curve: "cubic-out" },
+    ],
+  });
+  const [track] = parameterAnimationTracks(nodes, componentId, targetNodeId);
+  assert.equal(track.transportKind, "envelope");
+  assert.equal(track.triggerKind, "audio");
+  assert.equal(track.triggerAddress, "beat:low");
+  assert.equal(track.envelopeSegments.length, 2);
+  const group = nodes.groups.find((entry) => entry.componentId === componentId);
+  const owned = group.nodes.filter((node) =>
+    node.animationTrack?.id === track.id || node.animationTrackOwnerId === track.id
+  );
+  assert.ok(owned.some((node) => node.nodeId === "core.control.segment-envelope"));
+  assert.ok(owned.some((node) => node.nodeId === "core.control.audio-input"));
+  assert.ok(!owned.some((node) => node.nodeId === "core.control.animation-sequencer"));
+  assert.ok(!owned.some((node) => node.nodeId === "core.control.animation-curve"));
+  const program = compileComponentRenderPrograms(state.components, nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(componentId);
+  assert.deepEqual(program.plan.controlProgram.diagnostics, []);
+  assert.ok(program.plan.controlProgram.inspect().requirements.some((requirement) =>
+    requirement.kind === "control-signal" &&
+    requirement.signalKind === "audio" &&
+    requirement.address === "beat:low"
+  ));
+});
+
+test("noise bursts compose Noise Envelope Smooth Mapping and Combination as ordinary nodes", () => {
+  const { packageRoot, state, componentId, targetNodeId } = plasmaState();
+  const nodes = addParameterAnimationTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "speed",
+    from: 0,
+    to: 3,
+    transportKind: "noise",
+    noiseRate: 8,
+    noiseDetail: 3,
+    noiseRoughness: 0.65,
+    noiseBurst: true,
+    smoothing: 0.04,
+    triggerKind: "manual",
+    envelopeSegments: [
+      { duration: 0.03, value: 1, curve: "quad-out" },
+      { duration: 0.45, value: 0, curve: "cubic-out" },
+    ],
+  });
+  const [track] = parameterAnimationTracks(nodes, componentId, targetNodeId);
+  assert.equal(track.transportKind, "noise");
+  assert.equal(track.noiseBurst, true);
+  assert.equal(track.smoothing, 0.04);
+  const group = nodes.groups.find((entry) => entry.componentId === componentId);
+  const ownedIds = group.nodes
+    .filter((node) => node.animationTrack?.id === track.id || node.animationTrackOwnerId === track.id)
+    .map((node) => node.nodeId);
+  for (const nodeId of [
+    "core.control.scalar-noise",
+    "core.control.segment-envelope",
+    "core.control.scalar-math",
+    "core.control.smooth",
+    "core.control.map-range",
+    "core.control.numeric-combine",
+    "core.control.host-input",
+  ]) {
+    assert.ok(ownedIds.includes(nodeId), nodeId);
+  }
+  const program = compileComponentRenderPrograms(state.components, nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(componentId);
+  assert.deepEqual(program.plan.controlProgram.diagnostics, []);
+});
+
+test("animation trigger catalog exposes manual periodic random pointer audio and Probe threshold sources", () => {
+  const { state, componentId, targetNodeId } = plasmaState();
+  const sources = parameterAnimationTriggerSources(state.nodes, componentId, targetNodeId);
+  assert.deepEqual(
+    sources.slice(0, 8).map((source) => [source.kind, source.address]),
+    [
+      ["manual", ""],
+      ["periodic", ""],
+      ["random", ""],
+      ["pointer", "pressed"],
+      ["audio", "beat"],
+      ["audio", "beat:low"],
+      ["audio", "beat:mid"],
+      ["audio", "beat:high"],
+    ],
+  );
+});
+
 test("General parameter animations use the same direct control program and restore retained configuration", () => {
   const { packageRoot, state, componentId, targetNodeId } = plasmaState();
   const opacityId = chainGeneralControlParameterId(CHAIN_GENERAL_CONTROL_PATHS.OPACITY);
@@ -582,6 +686,12 @@ test("Triggered animation tracks compile one sequencer fragment with transient a
     triggerBehavior: "next-leg",
     randomRate: 12,
     combination: "replace",
+    transportKind: "sequence",
+    triggerKind: "random",
+    triggerAddress: "",
+    triggerThreshold: 0.5,
+    triggerInterval: 1,
+    smoothing: 0,
   });
   const group = nodes.groups.find((entry) => entry.componentId === componentId);
   const owned = group.nodes.filter((node) =>
@@ -592,23 +702,18 @@ test("Triggered animation tracks compile one sequencer fragment with transient a
     [
       "core.control.animation-curve",
       "core.control.animation-sequencer",
-      "core.control.host-input",
       "core.control.map-range",
       "core.control.numeric-combine",
       "core.control.random-trigger",
     ].sort(),
   );
-  const host = owned.find((node) => node.nodeId === "core.control.host-input");
-  assert.equal(host.parameters.address, parameterAnimationTriggerAddress(componentId, track.id));
-
   const program = compileComponentRenderPrograms(state.components, nodes.groups, {
     resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
   }).get(componentId);
   assert.deepEqual(program.plan.controlProgram.diagnostics, []);
-  assert.ok(program.plan.controlProgram.inspect().requirements.some((requirement) =>
+  assert.ok(!program.plan.controlProgram.inspect().requirements.some((requirement) =>
     requirement.kind === "control-signal" &&
-    requirement.signalKind === "control" &&
-    requirement.address === host.parameters.address
+    requirement.signalKind === "control"
   ));
   const removed = removeParameterAnimationTrack(nodes, {
     componentId,
@@ -911,6 +1016,42 @@ test("Obvious built-in shader motion is authored once as an editable default ani
   assert.match(html, /data-animation-phase="0.5"/);
 });
 
+test("Heartbeat materializes its periodic double beat as an ordinary editable envelope", () => {
+  const packageRoot = createVj1NodePackage();
+  const initial = createInitialState();
+  const component = initial.components.find((item) => item.type !== "scene");
+  const effect = createComponentEffect("heartbeatPulse");
+  component.chain.push(effect);
+  const state = packageRoot.prepareProjectState(initial);
+  const [track] = parameterAnimationTracks(state.nodes, component.id, effect.id);
+  assert.equal(track.parameterId, "pulse");
+  assert.equal(track.transportKind, "envelope");
+  assert.equal(track.triggerKind, "periodic");
+  assert.equal(track.triggerInterval, 1);
+  assert.equal(track.envelopeSegments.length, 5);
+  const group = state.nodes.groups.find((entry) => entry.componentId === component.id);
+  const owned = group.nodes.filter((node) =>
+    node.animationTrack?.id === track.id || node.animationTrackOwnerId === track.id
+  );
+  assert.ok(owned.some((node) => node.nodeId === "core.control.segment-envelope"));
+  assert.ok(owned.some((node) => node.nodeId === "core.control.periodic-trigger"));
+  assert.ok(!owned.some((node) => node.nodeId === "core.control.animation-sequencer"));
+  const html = parameterAnimationViewTemplate({
+    state,
+    componentId: component.id,
+    targetNodeId: effect.id,
+    parameters: getEffectNodeComponent("heartbeatPulse").params.map((parameter) => ({
+      ...parameter,
+      value: effect.params[parameter.id] ?? parameter.defaultValue,
+    })),
+  });
+  assert.match(html, /<strong>Pulse<\/strong>/);
+  assert.match(html, /data-animation-envelope-segment/);
+  assert.match(html, />\s*Periodic/);
+  assert.match(html, /data-animation-track-field="envelopeInitial"/);
+  assert.match(html, /data-animation-track-field="triggerInterval"/);
+});
+
 test("Converted shader motion exposes phase parameters and no longer reads the shader clock", () => {
   const expectations = [
     ["spinRotate", ["phase"]],
@@ -1006,13 +1147,14 @@ test("Component and Scene inspectors share one Animation tab before General", ()
         mode: "ping-pong",
         runMode: "triggered",
         triggerBehavior: "next-leg",
+        triggerKind: "random",
         randomRate: 6,
         combination: "multiply",
       },
     }),
   };
   html = componentSelectedChainSettingsTemplate(component, state);
-  assert.match(html, /data-trigger-parameter-animation/);
+  assert.match(html, /data-animation-trigger-source/);
   assert.match(html, /data-toggle-animation-return/);
   assert.match(html, /data-animation-track-field="triggerBehavior"/);
   assert.match(html, /data-animation-track-field="randomRate"/);

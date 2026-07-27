@@ -2,6 +2,7 @@ import { RENDER_QUALITY_PARAM_ID } from "../libraries/visual-nodes/shared/compon
 import {
   parameterAnimationTracks,
   parameterAnimationSignalSources,
+  parameterAnimationTriggerSources,
   parameterAnimationTriggerAddress,
 } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
 import { ANIMATION_CURVES } from "../libraries/control-engine/animation-curve/index.js";
@@ -50,6 +51,11 @@ export function parameterAnimationViewTemplate({
     componentId,
     targetNodeId,
   );
+  const triggerSources = parameterAnimationTriggerSources(
+    state.nodes,
+    componentId,
+    targetNodeId,
+  );
   const parameterById = new Map(numeric.map((param) => [param.id, param]));
   const animated = new Set(tracks.map((track) => track.parameterId));
   const available = numeric.filter((param) => !animated.has(param.id));
@@ -66,6 +72,7 @@ export function parameterAnimationViewTemplate({
             parameterById.get(track.parameterId),
             componentId,
             signalSources,
+            triggerSources,
           )).join("")
           : `<div class="soft-note parameter-animation-empty">No parameter animations.</div>`}
       </div>
@@ -96,6 +103,7 @@ function animationTrackTemplate(
   parameter = {},
   componentId = "",
   signalSources = [],
+  triggerSources = [],
 ) {
   const label = parameter.label || track.parameterId;
   const min = Number.isFinite(Number(parameter.min))
@@ -125,12 +133,15 @@ function animationTrackTemplate(
               value="${esc(`${source.kind}:${source.address}`)}"
               data-animation-source-kind="${esc(source.kind)}"
               data-animation-source-address="${esc(source.address)}"
-              ${(track.sourceKind || "timeline") === source.kind && (track.sourceAddress || "") === source.address ? "selected" : ""}
+              data-animation-transport-kind="${esc(source.transportKind || "sequence")}"
+              ${(track.sourceKind || "timeline") === source.kind &&
+                (track.sourceAddress || "") === source.address &&
+                (track.transportKind || "sequence") === (source.transportKind || "sequence") ? "selected" : ""}
             >${esc(source.label)}</option>
           `).join("")}
         </select>
       </label>
-      ${(track.sourceKind || "timeline") === "timeline" ? `
+      ${(track.sourceKind || "timeline") === "timeline" && (track.transportKind || "sequence") === "sequence" ? `
       <label class="field">
         <span>Pattern</span>
         <select class="param-select" data-animation-track-field="mode">
@@ -155,10 +166,42 @@ function animationTrackTemplate(
             </select>
           </label>
         ` : ""}
-        <button type="button" class="animation-trigger-button" data-trigger-parameter-animation>
-          ${icon("play_arrow")}<span>Trigger</span>
+        ${animationTriggerTemplate(track, triggerSources)}
+      ` : ""}
+      ` : ""}
+      ${(track.sourceKind || "timeline") === "timeline" && track.transportKind === "envelope" ? `
+        ${animationTriggerTemplate(track, triggerSources)}
+        ${animationRangeTemplate("Initial", "envelopeInitial", track.envelopeInitial, 0, 1, 0.01)}
+        <div class="animation-envelope-segments" data-animation-envelope-segments>
+          ${(track.envelopeSegments || []).map((segment, index) =>
+            animationEnvelopeSegmentTemplate(segment, index)
+          ).join("")}
+        </div>
+        <button type="button" class="secondary" data-add-animation-envelope-segment>
+          ${icon("add")}<span>Add envelope step</span>
         </button>
       ` : ""}
+      ${(track.sourceKind || "timeline") === "timeline" && track.transportKind === "noise" ? `
+        ${animationRangeTemplate("Noise speed", "noiseRate", track.noiseRate, 0.01, 20, 0.01, "×")}
+        ${animationRangeTemplate("Noise detail", "noiseDetail", track.noiseDetail, 1, 4, 1)}
+        ${animationRangeTemplate("Noise roughness", "noiseRoughness", track.noiseRoughness, 0, 1, 0.01)}
+        ${animationRangeTemplate("Noise seed", "noiseSeed", track.noiseSeed, 1, 10000, 1)}
+        <button type="button" class="animation-noise-burst-toggle ${track.noiseBurst ? "is-selected" : ""}" data-toggle-animation-noise-burst aria-pressed="${track.noiseBurst === true}">
+          ${icon("bolt")}<span>Trigger as burst</span>
+        </button>
+        ${track.noiseBurst ? `
+          ${animationTriggerTemplate(track, triggerSources)}
+          <div class="animation-envelope-segments" data-animation-envelope-segments>
+            ${(track.envelopeSegments || []).map((segment, index) =>
+              animationEnvelopeSegmentTemplate(segment, index)
+            ).join("")}
+          </div>
+          <button type="button" class="secondary" data-add-animation-envelope-segment>
+            ${icon("add")}<span>Add burst step</span>
+          </button>
+        ` : ""}
+      ` : ""}
+      ${(track.sourceKind || "timeline") === "timeline" && (track.transportKind || "sequence") === "sequence" ? `
       <label class="field">
         <span>Curve</span>
         <select class="param-select" data-animation-track-field="curve">
@@ -183,14 +226,80 @@ function animationTrackTemplate(
       </label>
       ${animationRangeTemplate("From", "from", track.from, mapping.min, mapping.max, mapping.step || step)}
       ${animationRangeTemplate("To", "to", track.to, mapping.min, mapping.max, mapping.step || step)}
-      ${(track.sourceKind || "timeline") === "timeline" ? `
+      ${animationRangeTemplate("Running average", "smoothing", track.smoothing || 0, 0, 5, 0.01, " s")}
+      ${(track.sourceKind || "timeline") === "timeline" && (track.transportKind || "sequence") === "sequence" ? `
       ${animationRangeTemplate("Cycle duration", "duration", track.duration, 0.05, 60, 0.05, " s")}
       ${animationRangeTemplate("End pause", "pause", track.pause, 0, 30, 0.05, " s")}
       ${track.runMode === "automatic"
         ? animationRangeTemplate("Phase", "phase", track.phase, 0, 1, 0.01)
-        : animationRangeTemplate("Random trigger", "randomRate", track.randomRate, 0, 120, 0.5, " / min")}
+        : ""}
       ` : ""}
     </article>
+  `;
+}
+
+function animationTriggerTemplate(track, triggerSources = []) {
+  const triggerKind = track.triggerKind || (track.randomRate > 0 ? "random" : "manual");
+  const triggerAddress = track.triggerAddress || "";
+  return `
+    <label class="field">
+      <span>Trigger source</span>
+      <select class="param-select" data-animation-trigger-source>
+        ${triggerSources.map((source) => `
+          <option
+            value="${esc(`${source.kind}:${source.address}`)}"
+            data-animation-trigger-kind="${esc(source.kind)}"
+            data-animation-trigger-address="${esc(source.address)}"
+            ${triggerKind === source.kind && triggerAddress === source.address ? "selected" : ""}
+          >${esc(source.label)}</option>
+        `).join("")}
+      </select>
+    </label>
+    ${triggerKind === "manual" ? `
+      <button type="button" class="animation-trigger-button" data-trigger-parameter-animation>
+        ${icon("play_arrow")}<span>Trigger</span>
+      </button>
+    ` : ""}
+    ${triggerKind === "periodic"
+      ? animationRangeTemplate("Trigger interval", "triggerInterval", track.triggerInterval, 0.05, 60, 0.05, " s")
+      : ""}
+    ${triggerKind === "random"
+      ? animationRangeTemplate("Random trigger", "randomRate", track.randomRate, 0, 120, 0.5, " / min")
+      : ""}
+    ${triggerKind === "probe"
+      ? animationRangeTemplate("Trigger threshold", "triggerThreshold", track.triggerThreshold, 0, 1, 0.01)
+      : ""}
+  `;
+}
+
+function animationEnvelopeSegmentTemplate(segment = {}, index = 0) {
+  return `
+    <fieldset class="animation-envelope-segment" data-animation-envelope-segment>
+      <legend>Step ${index + 1}</legend>
+      ${animationEnvelopeRangeTemplate("Target", "value", segment.value, 0, 1, 0.01)}
+      ${animationEnvelopeRangeTemplate("Duration", "duration", segment.duration, 0.01, 10, 0.01, " s")}
+      <label class="field">
+        <span>Curve</span>
+        <select class="param-select" data-envelope-segment-field="curve">
+          ${ANIMATION_CURVES.map((curve) => `
+            <option value="${esc(curve)}" ${segment.curve === curve ? "selected" : ""}>${esc(CURVE_LABELS[curve] || curve)}</option>
+          `).join("")}
+        </select>
+      </label>
+      <button type="button" class="secondary" data-remove-animation-envelope-segment>
+        ${icon("close")}<span>Remove step</span>
+      </button>
+    </fieldset>
+  `;
+}
+
+function animationEnvelopeRangeTemplate(label, field, value, min, max, step, suffix = "") {
+  return `
+    <label class="field range-field">
+      <span>${esc(label)}</span>
+      <output class="range-value" data-range-value>${formatRangeValue(value, step)}${esc(suffix)}</output>
+      <input type="range" min="${esc(min)}" max="${esc(max)}" step="${esc(step)}" value="${esc(value)}" data-envelope-segment-field="${esc(field)}" data-range-suffix="${esc(suffix)}" />
+    </label>
   `;
 }
 
@@ -204,6 +313,40 @@ function animationSuggestions(param = {}) {
   const templates = [
     ...(param.defaultAnimation ? [param.defaultAnimation] : []),
     ...(param.suggestedAnimations || []),
+    {
+      id: "generic-triggered-envelope",
+      label: "Triggered envelope",
+      transportKind: "envelope",
+      triggerKind: "manual",
+      envelopeSegments: [
+        { duration: 0.1, value: 1, curve: "quad-out" },
+        { duration: 0.35, value: 0, curve: "quad-in" },
+      ],
+    },
+    {
+      id: "generic-noise-drift",
+      label: "Noise drift",
+      transportKind: "noise",
+      noiseRate: 0.6,
+      noiseDetail: 2,
+      noiseRoughness: 0.45,
+      smoothing: 0.08,
+    },
+    {
+      id: "generic-noise-burst",
+      label: "Triggered noise burst",
+      transportKind: "noise",
+      noiseBurst: true,
+      triggerKind: "manual",
+      noiseRate: 8,
+      noiseDetail: 3,
+      noiseRoughness: 0.65,
+      envelopeSegments: [
+        { duration: 0.03, value: 1, curve: "quad-out" },
+        { duration: 0.45, value: 0, curve: "cubic-out" },
+      ],
+      smoothing: 0.02,
+    },
   ];
   const seen = new Set();
   return templates.filter((template) => {
@@ -245,6 +388,19 @@ function animationSuggestionTemplate(param, suggestion = {}) {
       data-animation-trigger-behavior="${esc(suggestion.triggerBehavior || "full-sequence")}"
       data-animation-random-rate="${esc(suggestion.randomRate ?? 0)}"
       data-animation-combination="${esc(suggestion.combination || "replace")}"
+      data-animation-transport-kind="${esc(suggestion.transportKind || "sequence")}"
+      data-animation-envelope-initial="${esc(suggestion.envelopeInitial ?? 0)}"
+      data-animation-envelope-segments="${esc(JSON.stringify(suggestion.envelopeSegments || []))}"
+      data-animation-trigger-kind="${esc(suggestion.triggerKind || "manual")}"
+      data-animation-trigger-address="${esc(suggestion.triggerAddress || "")}"
+      data-animation-trigger-threshold="${esc(suggestion.triggerThreshold ?? 0.5)}"
+      data-animation-trigger-interval="${esc(suggestion.triggerInterval ?? 1)}"
+      data-animation-noise-rate="${esc(suggestion.noiseRate ?? 1)}"
+      data-animation-noise-seed="${esc(suggestion.noiseSeed ?? "")}"
+      data-animation-noise-detail="${esc(suggestion.noiseDetail ?? 2)}"
+      data-animation-noise-roughness="${esc(suggestion.noiseRoughness ?? 0.5)}"
+      data-animation-noise-burst="${suggestion.noiseBurst === true}"
+      data-animation-smoothing="${esc(suggestion.smoothing ?? 0)}"
     >${icon("animation")}<span>${esc(suggestion.label || `Animate ${param.label || param.id}`)}</span></button>
   `;
 }

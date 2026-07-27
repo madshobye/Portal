@@ -102,7 +102,7 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
             ${generators.map((generator) => `
               <button type="button" class="element-card ${source.type === "generator" && source.generatorId === generator.id ? "is-selected" : ""}" data-pick-source-generator="${esc(generator.id)}" data-element-category="${esc(elementPickerCategories("generator", generator))}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator", isIsfVisualComponent(generator) ? "isf" : ""))}">
                 ${icon(generatorIcon(generator.id))}
-                <strong>${esc(generator.label || generator.name)}</strong>
+                <strong>${esc(visualPickerDisplayName(generator))}</strong>
                 <small>generator</small>
               </button>
             `).join("")}
@@ -266,7 +266,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
             ${generators.map((generator) => `
               <button type="button" class="element-card" data-element-category="${esc(elementPickerCategories("generator", generator))}" data-add-element-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator", isIsfVisualComponent(generator) ? "isf" : ""))}">
                 ${icon(generatorIcon(generator.id))}
-                <strong>${esc(generator.label || generator.name)}</strong>
+                <strong>${esc(visualPickerDisplayName(generator))}</strong>
                 <small>generator</small>
               </button>
             `).join("")}
@@ -280,7 +280,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
             ${effects.map((shader) => `
               <button type="button" class="element-card" data-element-category="${esc(elementPickerCategories("effect", shader))}" data-add-element-effect="${esc(shader.id)}" data-element-search-card="${esc(elementSearchText(shader.id, shader.name, shader.category, "effect", isIsfVisualComponent(shader) ? "isf" : ""))}">
                 ${icon(effectIcon(shader.id))}
-                <strong>${esc(shader.name)}</strong>
+                <strong>${esc(visualPickerDisplayName(shader))}</strong>
                 <small>${esc(shader.category || "effect")}</small>
               </button>
             `).join("")}
@@ -416,6 +416,13 @@ export function isIsfVisualComponent(component = {}) {
   return component?.family === "isf" ||
     component?.isf?.format === "isf@2" ||
     component?.nodeDefinition?.metadata?.visualFamily === "isf";
+}
+
+export function visualPickerDisplayName(component = {}) {
+  const name = String(component?.label || component?.name || "Visual");
+  return isIsfVisualComponent(component) && !/\(ISF\)$/i.test(name)
+    ? `${name} (ISF)`
+    : name;
 }
 
 function elementPickerCategories(primary, component) {

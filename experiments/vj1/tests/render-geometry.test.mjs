@@ -185,20 +185,21 @@ test("Test Pattern carries an exact 300px one-pixel SDF outline at its center", 
   assert.match(outline[2].height.expression, /298\.0\/resolution\.y/);
 });
 
-test("final-canvas resolution probes remain 301px and 302px at non-unit density", () => {
+test("final-canvas resolution probes remain 296px and 304px at non-unit density", () => {
   const geometry = resolutionVerificationOverlayGeometry({
     densityX: 2,
     densityY: 1.5,
   });
-  assert.equal(geometry.strokeWeight, 2 / 3);
+  assert.equal(geometry.pixelWidth, 0.5);
+  assert.equal(geometry.pixelHeight, 2 / 3);
   assert.deepEqual(geometry.sizes, [
-    { width: 151, height: 302 / 1.5 },
-    { width: 150.5, height: 301 / 1.5 },
+    { width: 152, height: 304 / 1.5 },
+    { width: 148, height: 296 / 1.5 },
   ]);
-  assert.equal(geometry.sizes[0].width * 2, 302);
-  assert.equal(geometry.sizes[0].height * 1.5, 302);
-  assert.equal(geometry.sizes[1].width * 2, 301);
-  assert.equal(geometry.sizes[1].height * 1.5, 301);
+  assert.equal(geometry.sizes[0].width * 2, 304);
+  assert.equal(geometry.sizes[0].height * 1.5, 304);
+  assert.equal(geometry.sizes[1].width * 2, 296);
+  assert.equal(geometry.sizes[1].height * 1.5, 296);
 });
 
 test("Test Pattern resolution bands follow one- and two-pixel source periods", () => {

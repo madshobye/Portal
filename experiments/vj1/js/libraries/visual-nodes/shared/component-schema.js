@@ -90,6 +90,11 @@ export function createNumberParam(id, label, {
         ...(defaultAnimation.legacyEnabled ? {
           legacyEnabled: Object.freeze({ ...defaultAnimation.legacyEnabled }),
         } : {}),
+        ...(defaultAnimation.envelopeSegments ? {
+          envelopeSegments: Object.freeze(defaultAnimation.envelopeSegments.map((segment) =>
+            Object.freeze({ ...segment })
+          )),
+        } : {}),
       }),
     } : {}),
   };
@@ -279,6 +284,9 @@ function nodeParameterSpec(param = {}) {
             : {}),
           ...(param.defaultAnimation.legacyEnabled
             ? { legacyEnabled: { ...param.defaultAnimation.legacyEnabled } }
+            : {}),
+          ...(param.defaultAnimation.envelopeSegments
+            ? { envelopeSegments: param.defaultAnimation.envelopeSegments.map((segment) => ({ ...segment })) }
             : {}),
         },
       } : {}),

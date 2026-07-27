@@ -3312,7 +3312,8 @@ button.text-list-main:hover {
 }
 
 .animation-trigger-button,
-.animation-return-toggle {
+.animation-return-toggle,
+.animation-noise-burst-toggle {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3321,14 +3322,38 @@ button.text-list-main:hover {
   min-height: var(--control-height);
 }
 
-.animation-return-toggle.is-selected {
+.animation-return-toggle.is-selected,
+.animation-noise-burst-toggle.is-selected {
   color: var(--ink);
   background: var(--accent);
 }
 
 .animation-trigger-button .material-symbols-rounded,
-.animation-return-toggle .material-symbols-rounded {
+.animation-return-toggle .material-symbols-rounded,
+.animation-noise-burst-toggle .material-symbols-rounded {
   font-size: 18px;
+}
+
+.animation-envelope-segments {
+  display: grid;
+  gap: 6px;
+}
+
+.animation-envelope-segment {
+  display: grid;
+  gap: var(--param-stack-gap);
+  min-width: 0;
+  margin: 0;
+  padding: 6px;
+  border: 0;
+  border-radius: var(--radius-section-inner);
+  background: var(--panel);
+}
+
+.animation-envelope-segment > legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: var(--label-font-size);
 }
 
 .parameter-animation-add {
@@ -3365,6 +3390,22 @@ button.text-list-main:hover {
 
 .chain-param {
   min-width: 0;
+}
+
+.param-toggle-button {
+  width: 100%;
+  min-height: var(--control-height);
+  background: var(--control);
+  color: var(--muted);
+}
+
+.param-toggle-button:hover {
+  color: var(--ink);
+}
+
+.param-toggle-button.is-enabled {
+  background: var(--accent-strong);
+  color: #fff8f0;
 }
 
 .color-param-row {

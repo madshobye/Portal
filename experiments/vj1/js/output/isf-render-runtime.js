@@ -187,6 +187,19 @@ export class IsfRenderRuntime {
     );
     const targetTextures = this.targetTextures;
     targetTextures.clear();
+    // A p5 shader retains sampler bindings between draws. Without explicitly
+    // replacing every named target here, the next render's producing pass can
+    // begin while its destination texture is still bound to that same sampler
+    // from the preceding final pass. WebGL framebuffer feedback is undefined
+    // and commonly clears the result to black. Bind a safe texture until each
+    // target has been produced for this invocation; persistent passes replace
+    // this with their previous ping-pong target below.
+    const unproducedTargetTexture = input || finalTarget;
+    for (const pass of resolvedPasses) {
+      if (pass.pass.target && unproducedTargetTexture) {
+        targetTextures.set(pass.pass.target, unproducedTargetTexture);
+      }
+    }
     let result = finalTarget;
     for (let index = 0; index < resolvedPasses.length; index++) {
       const { pass, widthPx, heightPx } = resolvedPasses[index];

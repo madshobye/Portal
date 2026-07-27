@@ -414,6 +414,7 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.doesNotMatch(controls, /data-live-update="transform\.rotation"/);
   assert.match(controls, /data-live-update="chain\.0\.source\.params\.renderQuality"/);
   assert.match(controls, /data-live-update="chain\.0\.transform\.scale"/);
+  assert.match(controls, new RegExp(`data-live-item-id="${component.chain[0].id}"`));
   assert.ok(
     controls.indexOf("Published controls") < controls.indexOf("Component placement"),
     "published controls stay visible above generic Component controls"
@@ -425,6 +426,7 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.match(elements, /class="element-list-surface live-element-list-surface"[\s\S]*?class="live-chain-outline"/);
   assert.match(elements, /class="text-list-item live-chain-outline-row compact-list-row has-leading is-selected"/);
   assert.match(elements, /data-live-toggle="chain\.0\.enabled"/);
+  assert.match(elements, new RegExp(`data-live-item-id="${component.chain[0].id}"`));
   assert.match(elements, /data-live-chain-item="[^"]+" data-live-component-id="[^"]+"/);
   assert.doesNotMatch(elements, />visibility(?:_off)?<\/span>/);
   assert.match(elements, /aria-label="Selected live element parameters"/);
@@ -564,4 +566,5 @@ test("Live publishes significant source parameters nested inside Groups", () => 
   assert.match(live, /Controls \(2\)/);
   assert.match(live, /data-live-update="chain\.0\.chain\.0\.source\.params\.renderQuality"/);
   assert.match(live, /data-live-update="chain\.0\.chain\.0\.transform\.scale"/);
+  assert.match(live, new RegExp(`data-live-item-id="${source.id}"`));
 });

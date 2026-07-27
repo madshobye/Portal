@@ -8,7 +8,7 @@ const BUILT_IN_MANIFEST_URL = new URL(
   "../../../visual-library/visual-library.json",
   import.meta.url,
 );
-const BUILT_IN_RESOURCE_REVISION = "isf-proof-2";
+const BUILT_IN_RESOURCE_REVISION = "isf-multipass-comparison-1";
 
 export async function loadBuiltInIsfRepository({
   manifestUrl = BUILT_IN_MANIFEST_URL,

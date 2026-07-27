@@ -89,6 +89,21 @@ export function createInputController({
             triggerBehavior: button.dataset.animationTriggerBehavior,
             randomRate: Number(button.dataset.animationRandomRate),
             combination: button.dataset.animationCombination,
+            transportKind: button.dataset.animationTransportKind || "sequence",
+            envelopeInitial: Number(button.dataset.animationEnvelopeInitial),
+            envelopeSegments: parseAnimationEnvelopeSegments(button.dataset.animationEnvelopeSegments),
+            triggerKind: button.dataset.animationTriggerKind || "manual",
+            triggerAddress: button.dataset.animationTriggerAddress || "",
+            triggerThreshold: Number(button.dataset.animationTriggerThreshold),
+            triggerInterval: Number(button.dataset.animationTriggerInterval),
+            noiseRate: Number(button.dataset.animationNoiseRate),
+            noiseSeed: button.dataset.animationNoiseSeed === ""
+              ? undefined
+              : Number(button.dataset.animationNoiseSeed),
+            noiseDetail: Number(button.dataset.animationNoiseDetail),
+            noiseRoughness: Number(button.dataset.animationNoiseRoughness),
+            noiseBurst: button.dataset.animationNoiseBurst === "true",
+            smoothing: Number(button.dataset.animationSmoothing),
           }));
         });
       });
@@ -104,6 +119,20 @@ export function createInputController({
             patch: {
               sourceKind: option.dataset.animationSourceKind || "timeline",
               sourceAddress: option.dataset.animationSourceAddress || "",
+              transportKind: option.dataset.animationTransportKind || "sequence",
+            },
+          }));
+        });
+        track.querySelector("[data-animation-trigger-source]")?.addEventListener("change", (event) => {
+          const option = event.currentTarget.selectedOptions?.[0];
+          if (!option) return;
+          commitAnimationEdit("trigger-source", () => updateParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            trackId,
+            patch: {
+              triggerKind: option.dataset.animationTriggerKind || "manual",
+              triggerAddress: option.dataset.animationTriggerAddress || "",
             },
           }));
         });
@@ -142,6 +171,56 @@ export function createInputController({
             patch: { returnMode },
           }));
         });
+        track.querySelector("[data-toggle-animation-noise-burst]")?.addEventListener("click", (event) => {
+          const noiseBurst = event.currentTarget.getAttribute("aria-pressed") !== "true";
+          commitAnimationEdit("noise-burst", () => updateParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            trackId,
+            patch: { noiseBurst },
+          }));
+        });
+        const envelopeSegments = () => [...track.querySelectorAll("[data-animation-envelope-segment]")]
+          .map((segment) => ({
+            value: Number(segment.querySelector('[data-envelope-segment-field="value"]')?.value) || 0,
+            duration: Number(segment.querySelector('[data-envelope-segment-field="duration"]')?.value) || 0.1,
+            curve: segment.querySelector('[data-envelope-segment-field="curve"]')?.value || "linear",
+          }));
+        const commitEnvelopeSegments = (action) => commitAnimationEdit(action, () =>
+          updateParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            trackId,
+            patch: { envelopeSegments: envelopeSegments() },
+          })
+        );
+        track.querySelectorAll("[data-envelope-segment-field]").forEach((input) => {
+          if (input.type === "range") {
+            input.addEventListener("input", () => syncRangeValue(input));
+          }
+          input.addEventListener("change", () => commitEnvelopeSegments("envelope-step"));
+        });
+        track.querySelectorAll("[data-remove-animation-envelope-segment]").forEach((button) => {
+          button.addEventListener("click", () => {
+            button.closest("[data-animation-envelope-segment]")?.remove();
+            commitEnvelopeSegments("envelope-remove-step");
+          });
+        });
+        track.querySelector("[data-add-animation-envelope-segment]")?.addEventListener("click", () => {
+          const segments = envelopeSegments();
+          const last = segments[segments.length - 1];
+          commitAnimationEdit("envelope-add-step", () => updateParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            trackId,
+            patch: {
+              envelopeSegments: [
+                ...segments,
+                { duration: 0.2, value: last?.value >= 0.5 ? 0 : 1, curve: "linear" },
+              ],
+            },
+          }));
+        });
         track.querySelectorAll("[data-animation-track-field]").forEach((input) => {
           if (input.type === "range") {
             input.addEventListener("input", () => syncRangeValue(input));
@@ -175,6 +254,15 @@ export function createInputController({
     } catch (error) {
       console.error("[VJ1_PARAMETER_ANIMATION_EDIT_FAILED]", error);
       setStatus(`Animation was not updated: ${error?.message || error}`);
+    }
+  }
+
+  function parseAnimationEnvelopeSegments(value = "") {
+    try {
+      const parsed = JSON.parse(String(value || "[]"));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
     }
   }
 
@@ -387,6 +475,7 @@ export function createInputController({
     if (!path) return;
     const live = control.dataset.paramContextMode === "live";
     const liveComponentId = control.dataset.paramContextComponentId || control.dataset.liveComponentId || "";
+    const liveItemId = control.dataset.paramContextItemId || control.dataset.liveItemId || "";
     const componentMatch = /^components\.(\d+)\.(.+)$/.exec(path);
     const state = getState();
     const componentIndex = live
@@ -443,10 +532,10 @@ export function createInputController({
       };
       const livePatches = boundaryReset
         ? [
-            createLiveRenderPatch(liveComponentId, path.replace(/\.scale$/, ".width"), boundaryReset.width),
-            createLiveRenderPatch(liveComponentId, path.replace(/\.scale$/, ".height"), boundaryReset.height),
+            createLiveRenderPatch(liveComponentId, path.replace(/\.scale$/, ".width"), boundaryReset.width, liveItemId),
+            createLiveRenderPatch(liveComponentId, path.replace(/\.scale$/, ".height"), boundaryReset.height, liveItemId),
           ]
-        : [createLiveRenderPatch(liveComponentId, path, value)];
+        : [createLiveRenderPatch(liveComponentId, path, value, liveItemId)];
       updateLiveAware(live, reset, live ? "live:reset-default" : `update:${path}`, live ? livePatches : []);
       menu.remove();
     });
@@ -545,6 +634,7 @@ export function createInputController({
     if (!path) return;
     const value = colorValueFromControl(control);
     const componentId = control.dataset.liveComponentId;
+    const itemId = control.dataset.liveItemId || "";
     if (control.dataset.colorMode !== "live" &&
         commitComponentValues([{ path, value }], reason)) return;
     updateLiveAware(control.dataset.colorMode === "live", (draft) => {
@@ -555,7 +645,7 @@ export function createInputController({
       const setter = path.includes(".source.params.") ? setByPathCreate : setByPath;
       setter(draft, path, value);
       syncMappingEdits(draft, path);
-    }, reason, [createLiveRenderPatch(componentId, path, value)]);
+    }, reason, [createLiveRenderPatch(componentId, path, value, itemId)]);
   }
 
   function updateVideoTrimFromInputs(control, activeRole, reason) {
@@ -606,6 +696,7 @@ export function createInputController({
     maxInput.value = String(maxValue);
     syncParamRangeControl(control, minValue, maxValue);
     const componentId = minInput.dataset.liveComponentId;
+    const itemId = minInput.dataset.liveItemId || "";
     if (!minInput.dataset.liveUpdate && commitComponentValues([
       { path: minPath, value: minValue },
       { path: maxPath, value: maxValue },
@@ -620,8 +711,8 @@ export function createInputController({
       setByPathCreate(draft, maxPath, maxValue);
       syncMappingEdits(draft, minPath);
     }, reason, [
-      createLiveRenderPatch(componentId, minPath, minValue),
-      createLiveRenderPatch(componentId, maxPath, maxValue),
+      createLiveRenderPatch(componentId, minPath, minValue, itemId),
+      createLiveRenderPatch(componentId, maxPath, maxValue, itemId),
     ]);
   }
 
@@ -673,6 +764,7 @@ export function createInputController({
 
   function updateLivePathFromInput(input, reason) {
     const componentId = input.dataset.liveComponentId;
+    const itemId = input.dataset.liveItemId || "";
     const path = input.dataset.liveUpdate;
     const value = readInputValue(input);
     if (isBoundaryScaleInput(input, path)) {
@@ -683,8 +775,8 @@ export function createInputController({
         setLiveOverride(draft, componentId, widthPath, boundary.width);
         setLiveOverride(draft, componentId, heightPath, boundary.height);
       }, reason, [
-        createLiveRenderPatch(componentId, widthPath, boundary.width),
-        createLiveRenderPatch(componentId, heightPath, boundary.height),
+        createLiveRenderPatch(componentId, widthPath, boundary.width, itemId),
+        createLiveRenderPatch(componentId, heightPath, boundary.height, itemId),
       ]);
       return;
     }
@@ -693,11 +785,12 @@ export function createInputController({
       componentId,
       path,
       value
-    ), reason, [createLiveRenderPatch(componentId, path, value)]);
+    ), reason, [createLiveRenderPatch(componentId, path, value, itemId)]);
   }
 
   function toggleLivePathFromButton(button, reason) {
     const componentId = button.dataset.liveComponentId;
+    const itemId = button.dataset.liveItemId || "";
     const path = button.dataset.liveToggle;
     if (!componentId || !path) return;
     const nextValue = applyOptimisticToggleIntent(button);
@@ -705,7 +798,7 @@ export function createInputController({
       true,
       (draft) => setLiveOverride(draft, componentId, path, nextValue),
       reason,
-      [createLiveRenderPatch(componentId, path, nextValue)]
+      [createLiveRenderPatch(componentId, path, nextValue, itemId)]
     );
     selectToggleTarget(button);
   }

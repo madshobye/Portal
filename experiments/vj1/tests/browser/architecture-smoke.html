@@ -111,7 +111,7 @@
         listBuiltInTransitionEntries,
         listEffectNodeComponents,
         listGeneratorNodeComponents,
-      } from "../../js/libraries/visual-nodes/catalog.js?v=isf-proof-2";
+      } from "../../js/libraries/visual-nodes/catalog.js?v=isf-tranche-2";
       const resultElement = document.querySelector("#architecture-smoke-results");
       const resourceCounts = {
         shadersCreated: 0,
@@ -251,9 +251,9 @@
           builtInIsf.premultipliedThresholdEquivalent &&
           curatedIsf.compiled &&
           curatedIsf.linked &&
-          curatedIsf.generators === 6 &&
-          curatedIsf.effects === 8 &&
-          curatedIsf.transitions === 9 &&
+          curatedIsf.generators === 10 &&
+          curatedIsf.effects === 17 &&
+          curatedIsf.transitions === 13 &&
           nativeShaders.every((entry) => entry.compiled && entry.linked) &&
           compounds.every((entry) => entry.compiledFastPath && entry.graphEditable && entry.activation === "recompile") &&
           compounds.find((entry) => entry.kind === "project-media")?.directPlacement === true &&

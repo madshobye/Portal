@@ -1,7 +1,7 @@
 {
   "formatVersion": 1,
   "id": "vj1.built-in.visuals",
-  "version": "1.4.0",
+  "version": "1.6.0",
   "artifacts": [
     {
       "id": "vj1.visual.generator.black",
@@ -689,6 +689,531 @@
       ],
       "attribution": {
         "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/Swirl.glsl",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-solid-color-siilmq",
+      "visualId": "isf-shaders-isf-generators-solid-color-siilmq",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-solid-color-siilmq",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Solid Color",
+      "description": "demonstrates the use of color-type image inputs",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/solid-color.fs",
+      "categories": [
+        "ISF",
+        "Color",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "solid-color",
+        "generator",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "by Carter Rosenberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-random-checkerboard-uxe1o8",
+      "visualId": "isf-shaders-isf-generators-random-checkerboard-uxe1o8",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-random-checkerboard-uxe1o8",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Random Checkerboard",
+      "description": "Creates a checkerboard pattern with randomized colors",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/random-checkerboard.fs",
+      "categories": [
+        "ISF",
+        "Pattern",
+        "Color"
+      ],
+      "tags": [
+        "isf",
+        "random-checkerboard",
+        "generator",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-stripes-1e2y2zr",
+      "visualId": "isf-shaders-isf-generators-stripes-1e2y2zr",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-stripes-1e2y2zr",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Stripes",
+      "description": "",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/stripes.fs",
+      "categories": [
+        "ISF",
+        "Geometry"
+      ],
+      "tags": [
+        "isf",
+        "stripes",
+        "generator",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-color-invert-y7pu2l",
+      "visualId": "isf-shaders-isf-effects-color-invert-y7pu2l",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-color-invert-y7pu2l",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Color Invert",
+      "description": "Inverts the RGB channels of the input",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/color-invert.fs",
+      "categories": [
+        "ISF",
+        "Color Effect",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "color-invert",
+        "effect",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-color-monochrome-bfb9tu",
+      "visualId": "isf-shaders-isf-effects-color-monochrome-bfb9tu",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-color-monochrome-bfb9tu",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Color Monochrome",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/color-monochrome.fs",
+      "categories": [
+        "ISF",
+        "Color Effect",
+        "Retro"
+      ],
+      "tags": [
+        "isf",
+        "color-monochrome",
+        "effect",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-color-controls-1g6u3nn",
+      "visualId": "isf-shaders-isf-effects-color-controls-1g6u3nn",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-color-controls-1g6u3nn",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Color Controls",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/color-controls.fs",
+      "categories": [
+        "ISF",
+        "Color Adjustment",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "color-controls",
+        "effect",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-gamma-correction-12f8cpz",
+      "visualId": "isf-shaders-isf-effects-gamma-correction-12f8cpz",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-gamma-correction-12f8cpz",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Gamma Correction",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/gamma-correction.fs",
+      "categories": [
+        "ISF",
+        "Color Adjustment",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "gamma-correction",
+        "effect",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-false-color-mryxlg",
+      "visualId": "isf-shaders-isf-effects-false-color-mryxlg",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-false-color-mryxlg",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "False Color",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/false-color.fs",
+      "categories": [
+        "ISF",
+        "Color Effect"
+      ],
+      "tags": [
+        "isf",
+        "false-color",
+        "effect",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "by zoidberg",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-freeze-frame-g1meua",
+      "visualId": "isf-shaders-isf-effects-freeze-frame-g1meua",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-freeze-frame-g1meua",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Freeze Frame",
+      "description": "Holds the output on the captured freeze frame",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/freeze-frame.fs",
+      "categories": [
+        "ISF",
+        "Utility"
+      ],
+      "tags": [
+        "isf",
+        "freeze-frame",
+        "effect",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-comet-tails-5m8x61",
+      "visualId": "isf-shaders-isf-effects-comet-tails-5m8x61",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-comet-tails-5m8x61",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Comet Tails",
+      "description": "This does a feedback motion blur based on the brightness of pixels to create an analog recording comet trails effect",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/comet-tails.fs",
+      "categories": [
+        "ISF",
+        "Feedback",
+        "Glitch"
+      ],
+      "tags": [
+        "isf",
+        "comet-tails",
+        "effect",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-slit-scan-ibtjb",
+      "visualId": "isf-shaders-isf-effects-slit-scan-ibtjb",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-slit-scan-ibtjb",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Slit Scan",
+      "description": "Pixels update only if within range of the specified lines to create a slit scan style",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/slit-scan.fs",
+      "categories": [
+        "ISF",
+        "Glitch"
+      ],
+      "tags": [
+        "isf",
+        "slit-scan",
+        "effect",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-ghosting-ocd408",
+      "visualId": "isf-shaders-isf-effects-ghosting-ocd408",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-ghosting-ocd408",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Ghosting",
+      "description": "",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/ghosting.fs",
+      "categories": [
+        "ISF",
+        "Stylize",
+        "Feedback",
+        "Color Effect"
+      ],
+      "tags": [
+        "isf",
+        "ghosting",
+        "effect",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-dilate-q3a9x2",
+      "visualId": "isf-shaders-isf-effects-dilate-q3a9x2",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-dilate-q3a9x2",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Dilate",
+      "description": "Two-pass luminance dilation",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/dilate.fs",
+      "categories": [
+        "ISF",
+        "Blur"
+      ],
+      "tags": [
+        "isf",
+        "dilate",
+        "effect",
+        "isf-multipass-comparison"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.effect.isf-shaders-isf-effects-erode-k4dvea",
+      "visualId": "isf-shaders-isf-effects-erode-k4dvea",
+      "nodeId": "vj1.visual.effect.isf-shaders-isf-effects-erode-k4dvea",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Erode",
+      "description": "Two-pass luminance erosion",
+      "artifactType": "effect",
+      "resource": "shaders/isf/effects/erode.fs",
+      "categories": [
+        "ISF",
+        "Blur"
+      ],
+      "tags": [
+        "isf",
+        "erode",
+        "effect",
+        "isf-multipass-comparison"
+      ],
+      "attribution": {
+        "credit": "by VIDVOX",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "isf-shaders-isf-transitions-fade-hpoyq7",
+      "visualId": "isf-shaders-isf-transitions-fade-hpoyq7",
+      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-fade-hpoyq7",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Fade",
+      "description": "",
+      "artifactType": "transition",
+      "resource": "shaders/isf/transitions/fade.fs",
+      "categories": [
+        "ISF",
+        "Dissolve"
+      ],
+      "tags": [
+        "isf",
+        "fade",
+        "transition",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/fade.glsl",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "isf-shaders-isf-transitions-swap-transition-6k1a3u",
+      "visualId": "isf-shaders-isf-transitions-swap-transition-6k1a3u",
+      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-swap-transition-6k1a3u",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Swap Transition",
+      "description": "",
+      "artifactType": "transition",
+      "resource": "shaders/isf/transitions/swap-transition.fs",
+      "categories": [
+        "ISF",
+        "Wipe",
+        "Retro"
+      ],
+      "tags": [
+        "isf",
+        "swap-transition",
+        "transition",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/swap.glsl",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "isf-shaders-isf-transitions-wipe-left-1o8ivcg",
+      "visualId": "isf-shaders-isf-transitions-wipe-left-1o8ivcg",
+      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-wipe-left-1o8ivcg",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Wipe Left",
+      "description": "",
+      "artifactType": "transition",
+      "resource": "shaders/isf/transitions/wipe-left.fs",
+      "categories": [
+        "ISF",
+        "Wipe"
+      ],
+      "tags": [
+        "isf",
+        "wipe-left",
+        "transition",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/wipeLeft.glsl",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "isf-shaders-isf-transitions-wipe-down-puvwz",
+      "visualId": "isf-shaders-isf-transitions-wipe-down-puvwz",
+      "nodeId": "vj1.visual.transition.isf-shaders-isf-transitions-wipe-down-puvwz",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Wipe Down",
+      "description": "Automatically converted from https://gl-transitions.com/",
+      "artifactType": "transition",
+      "resource": "shaders/isf/transitions/wipe-down.fs",
+      "categories": [
+        "ISF",
+        "Wipe"
+      ],
+      "tags": [
+        "isf",
+        "wipe-down",
+        "transition",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "Automatically converted from https://www.github.com/gl-transitions/gl-transitions/tree/master/wipeDown.glsl",
+        "license": "MIT",
+        "source": "https://github.com/Vidvox/ISF-Files",
+        "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"
+      }
+    },
+    {
+      "id": "vj1.visual.generator.isf-shaders-isf-generators-color-test-grid-n41khq",
+      "visualId": "isf-shaders-isf-generators-color-test-grid-n41khq",
+      "nodeId": "vj1.visual.generator.isf-shaders-isf-generators-color-test-grid-n41khq",
+      "nodeVersion": "0.1.0",
+      "version": "0.1.0",
+      "name": "Color Test Grid",
+      "description": "",
+      "artifactType": "generator",
+      "resource": "shaders/isf/generators/color-test-grid.fs",
+      "categories": [
+        "ISF",
+        "Color",
+        "Utility",
+        "Test Pattern"
+      ],
+      "tags": [
+        "isf",
+        "color-test-grid",
+        "generator",
+        "isf-tranche-2"
+      ],
+      "attribution": {
+        "credit": "VIDVOX",
         "license": "MIT",
         "source": "https://github.com/Vidvox/ISF-Files",
         "upstreamCommit": "395072d48b3ce7351ccb20a5fda54470591324df"

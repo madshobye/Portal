@@ -73,6 +73,7 @@ export function enableToggleButton({
   path = "",
   livePath = "",
   componentId = "",
+  itemId = "",
   value = true,
   iconName = "power_settings_new",
   disabledIconName = "hide_source",
@@ -84,7 +85,7 @@ export function enableToggleButton({
 }) {
   const enabled = value !== false;
   const toggleAttrs = livePath
-    ? `data-live-component-id="${esc(componentId)}" data-live-toggle="${esc(livePath)}"`
+    ? `data-live-component-id="${esc(componentId)}" ${itemId ? `data-live-item-id="${esc(itemId)}" ` : ""}data-live-toggle="${esc(livePath)}"`
     : `data-toggle-path="${esc(path)}"`;
   const action = enabled ? "Disable" : "Enable";
   return `

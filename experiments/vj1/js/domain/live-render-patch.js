@@ -2,12 +2,13 @@ const FORBIDDEN_PATH_PARTS = new Set(["__proto__", "prototype", "constructor"]);
 const STRUCTURAL_LIVE_RENDER_ROOTS = new Set(["resolutionScale", "frameShape", "syncInstances"]);
 const RENDER_STATE_ROOTS = new Set(["mappingCalibration", "surfaces"]);
 
-export function createLiveRenderPatch(componentId, path, value) {
+export function createLiveRenderPatch(componentId, path, value, itemId = "") {
   return {
     target: "component",
     componentId: String(componentId || ""),
     path: String(path || ""),
     value,
+    ...(itemId ? { itemId: String(itemId) } : {}),
   };
 }
 
@@ -116,13 +117,19 @@ export function resolveLiveRenderPatches(state, patches = []) {
     }
     const componentId = String(patch?.componentId || "");
     const component = components.get(componentId);
-    const destination = component && parts.length ? resolvePatchPath(component, parts) : null;
+    const canonicalParts = component && patch?.itemId
+      ? stableItemPatchParts(component, parts, patch.itemId)
+      : parts;
+    const destination = component && canonicalParts?.length
+      ? resolvePatchPath(component, canonicalParts)
+      : null;
     if (!destination) {
       return { applied: false, componentIds: [...componentIds], statePaths: [...statePaths], destinations: [], failedPatch: patch || null };
     }
-    resolved.push({ ...destination, targetType: "component", componentId, path: String(patch.path || ""), value: patch.value });
+    const canonicalPath = canonicalParts.map(String).join(".");
+    resolved.push({ ...destination, targetType: "component", componentId, path: canonicalPath, value: patch.value });
     componentIds.add(componentId);
-    const itemId = visualItemIdForPatchPath(component, parts);
+    const itemId = visualItemIdForPatchPath(component, canonicalParts);
     if (itemId) {
       const ids = configurationTargets.get(componentId) || new Set();
       ids.add(itemId);
@@ -142,6 +149,35 @@ export function resolveLiveRenderPatches(state, patches = []) {
     destinations: resolved,
     failedPatch: null,
   };
+}
+
+function stableItemPatchParts(component, requestedParts, itemId) {
+  const relativeParts = itemRelativePatchParts(requestedParts);
+  if (!relativeParts?.length) return null;
+  const itemParts = findChainItemParts(component.chain, String(itemId || ""));
+  return itemParts ? [...itemParts, ...relativeParts] : null;
+}
+
+function itemRelativePatchParts(parts) {
+  if (parts[0] !== "chain" || !Number.isInteger(parts[1])) return null;
+  let index = 2;
+  while (parts[index] === "chain" && Number.isInteger(parts[index + 1])) {
+    index += 2;
+  }
+  return parts.slice(index);
+}
+
+function findChainItemParts(chain = [], itemId = "", base = ["chain"]) {
+  for (let index = 0; index < chain.length; index++) {
+    const item = chain[index];
+    const parts = [...base, index];
+    if (String(item?.id || "") === itemId) return parts;
+    if (item?.kind === "group") {
+      const nested = findChainItemParts(item.chain || [], itemId, [...parts, "chain"]);
+      if (nested) return nested;
+    }
+  }
+  return null;
 }
 
 function visualItemIdForPatchPath(component = {}, parts = []) {

@@ -177,6 +177,30 @@ test("ISF compiler owns standard declarations without redeclaring shader uniform
   assert.match(source, /uniform bool vj1IsfFinalPass/);
 });
 
+test("ISF compiler makes declared parameter-bounded loops portable to WebGL 1", () => {
+  const document = parseIsfDocument(`/*{
+    "ISFVSN": "2.0",
+    "LABEL": "Neighborhood",
+    "INPUTS": [
+      { "NAME": "inputImage", "TYPE": "image" },
+      { "NAME": "radius", "TYPE": "float", "DEFAULT": 2, "MIN": 1, "MAX": 15 }
+    ],
+    "PASSES": [{ "TARGET": "firstPass" }, {}]
+  }*/
+  void main() {
+    vec4 color = vec4(0.0);
+    for (float i=0.; i<=float(int(radius)); ++i) {
+      color += IMG_PIXEL(inputImage, gl_FragCoord.xy + vec2(i, 0.0));
+    }
+    gl_FragColor = color;
+  }`);
+  const compiled = compileIsfFragmentSource(document);
+
+  assert.match(compiled, /for \(float i=0\.; i<=15\.0; \+\+i\)/);
+  assert.match(compiled, /if \(i > float\(int\(radius\)\)\) break;/);
+  assert.doesNotMatch(compiled, /i<=float\(int\(radius\)\)/);
+});
+
 test("an explicit ISF effect amount owns interpolation without a duplicate host mix", () => {
   const source = FILTER
     .replace(
@@ -350,7 +374,27 @@ test("animated ISF definitions preserve temporal invalidation at the node compil
 test("ISF pass dimensions stay relative to current render demand", () => {
   assert.equal(evaluateIsfDimension("$WIDTH / 4", { WIDTH: 1920 }), 480);
   assert.equal(evaluateIsfDimension("$HEIGHT * 0.5", { HEIGHT: 1080 }), 540);
+  assert.equal(evaluateIsfDimension("floor($WIDTH / 3.0)", { WIDTH: 10 }), 3);
+  assert.equal(
+    evaluateIsfDimension(
+      "max(floor($WIDTH * min($quality, 1.0)), 1.0)",
+      { WIDTH: 100, quality: 0.25 },
+    ),
+    25,
+  );
   assert.throws(() => evaluateIsfDimension("globalThis.alert(1)", { WIDTH: 10 }), /VJ1_ISF_PASS_SIZE_INVALID/);
+  assert.throws(() => evaluateIsfDimension("ceil($WIDTH)", { WIDTH: 10 }), /VJ1_ISF_PASS_SIZE_INVALID/);
+});
+
+test("ISF pass metadata accepts the standard allow-listed dimension functions", () => {
+  const source = FILTER.replace(
+    '"DESCRIPTION": "Test filter",',
+    '"DESCRIPTION": "Test filter",\n  "PASSES": [{ "TARGET": "small", "WIDTH": "max(floor($WIDTH * 0.25), 1.0)", "HEIGHT": "floor($HEIGHT / 2.0)" }, {}],',
+  );
+  const document = parseIsfDocument(source);
+
+  assert.equal(document.passes[0].width, "max(floor($WIDTH * 0.25), 1.0)");
+  assert.equal(document.passes[0].height, "floor($HEIGHT / 2.0)");
 });
 
 test("multipass ISF exposes named persistent targets without duplicating them", () => {
@@ -359,10 +403,25 @@ test("multipass ISF exposes named persistent targets without duplicating them", 
     '"DESCRIPTION": "Test filter",\n  "PASSES": [{ "TARGET": "history", "PERSISTENT": true, "WIDTH": "$WIDTH / 2" }, {}],'
   );
   const document = parseIsfDocument(source);
+  const definition = createIsfNodeDefinition({
+    path: "shaders/multipass.fs",
+    source,
+  });
+  const component = createIsfVisualComponent({
+    path: "shaders/multipass.fs",
+    source,
+  });
   const compiled = compileIsfFragmentSource(document);
   assert.equal(document.passes.length, 2);
   assert.equal(document.passes[0].persistent, true);
   assert.equal(document.roiSafe, false);
+  assert.equal(definition.metadata.roi.mode, "full-frame");
+  assert.equal(definition.metadata.visualContract.roi.mode, "full-frame");
+  assert.equal(
+    definition.metadata.visualCompilerHook.contract.roi.mode,
+    "full-frame",
+  );
+  assert.equal(component.runtime.roi.mode, "full-frame");
   assert.equal((compiled.match(/uniform sampler2D history;/g) || []).length, 1);
   assert.throws(() => parseIsfDocument(source.replace('{ "TARGET": "history", "PERSISTENT": true, "WIDTH": "$WIDTH / 2" }', '{}')), /VJ1_ISF_PASS_ORDER_INVALID/);
 });

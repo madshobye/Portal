@@ -29,6 +29,20 @@ function protocolMessage(message = {}) {
   return { ...message, protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION };
 }
 
+function postStateMessage(channel, message) {
+  try {
+    channel.postMessage(message);
+  } catch (error) {
+    if (error?.name !== "DataCloneError") throw error;
+    // A structural edit can briefly retain a nested transaction Proxy inside
+    // an otherwise plain render projection. BroadcastChannel rejects that
+    // value before delivering anything. Retry the same revision after
+    // materializing only the transport packet; genuine non-cloneable authored
+    // values still fail on this second attempt.
+    channel.postMessage(materializeStructuralTree(message));
+  }
+}
+
 function hasCurrentProtocol(message) {
   return Number(message?.protocolVersion) === OUTPUT_BRIDGE_PROTOCOL_VERSION;
 }
@@ -428,7 +442,7 @@ export function createControlBridge({
     if (!targetClientId) {
       liveSynchronization.stateRevision({ broadcast: true });
     }
-    channel.postMessage(protocolMessage({
+    postStateMessage(channel, protocolMessage({
       type: "state",
       state: stateWithoutThumbnailUrls(stateOverride || store.getLiveRenderState?.() || store.getRenderState?.() || store.getState()),
       targetClientId,
@@ -700,7 +714,7 @@ export function createOutputBridge({
       const targetKey = patch?.target === "state"
         ? "state"
         : patch?.componentId
-          ? `component:${patch.componentId}`
+          ? `component:${patch.componentId}${patch.itemId ? `:item:${patch.itemId}` : ""}`
           : "";
       if (targetKey && patch?.path) pendingLivePatch.patches.set(`${targetKey}:${patch.path}`, patch);
     }

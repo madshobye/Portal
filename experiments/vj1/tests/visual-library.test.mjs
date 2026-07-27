@@ -16,7 +16,7 @@ import {
   DefaultBuiltInTransition,
   listBuiltInVisualArtifacts,
 } from "../js/libraries/visual-nodes/catalog.js";
-import { createIsfNodeDefinition } from "../js/libraries/isf-engine/index.js";
+import { createIsfNodeDefinition, evaluateIsfDimension } from "../js/libraries/isf-engine/index.js";
 import { resolveProjectVisualLibrary } from "../js/libraries/visual-nodes/project-visual-library.js";
 import {
   createProjectVisualNodeResolver,
@@ -121,7 +121,7 @@ test("the static built-in catalog is projected into the common visual-library mo
 
 test("the built-in proving set is file-backed ISF with stable node identity and explicit lowering", () => {
   assert.equal(BuiltInIsfRepository.id, BuiltInVisualLibraryLayer.id);
-  assert.equal(BuiltInIsfRepository.records.length, 28);
+  assert.equal(BuiltInIsfRepository.records.length, 47);
   const black = BuiltInIsfRepository.records.find((record) => record.visualId === "black");
   const invert = BuiltInIsfRepository.records.find((record) => record.visualId === "invert");
   const gray = BuiltInIsfRepository.records.find((record) => record.visualId === "gray");
@@ -200,19 +200,32 @@ test("the built-in proving set is file-backed ISF with stable node identity and 
   );
 });
 
-test("the curated ISF proof collection is fragment-only, attributed, and catalogued by capability", () => {
-  const proof = BuiltInIsfRepository.records.filter((record) =>
+test("the curated ISF collection is fragment-only, attributed, and catalogued by capability", () => {
+  const collection = BuiltInIsfRepository.records.filter((record) =>
     record.resource.startsWith("shaders/isf/")
   );
+  const proof = collection.filter((record) =>
+    !record.tags.includes("isf-tranche-2") &&
+    !record.tags.includes("isf-multipass-comparison")
+  );
+  const tranche2 = collection.filter((record) =>
+    record.tags.includes("isf-tranche-2")
+  );
+  const multipassComparison = collection.filter((record) =>
+    record.tags.includes("isf-multipass-comparison")
+  );
+  assert.equal(collection.length, 42);
   assert.equal(proof.length, 23);
+  assert.equal(tranche2.length, 17);
+  assert.equal(multipassComparison.length, 2);
   assert.deepEqual(
     Object.fromEntries(["generator", "effect", "transition"].map((kind) => [
       kind,
-      proof.filter((record) => record.artifactType === kind).length,
+      collection.filter((record) => record.artifactType === kind).length,
     ])),
-    { generator: 6, effect: 8, transition: 9 },
+    { generator: 10, effect: 19, transition: 13 },
   );
-  for (const record of proof) {
+  for (const record of collection) {
     const sourcePart = record.definition.parts.find((part) =>
       part.id === "isf-source"
     );
@@ -221,13 +234,15 @@ test("the curated ISF proof collection is fragment-only, attributed, and catalog
     assert.equal(record.resource.endsWith(".fs"), true, record.resource);
     assert.equal(sourcePart?.stage, "fragment", record.resource);
     assert.doesNotMatch(sourcePart?.source || "", /"IMPORTED"\s*:/, record.resource);
-    assert.equal(document?.passes?.length, 1, record.resource);
-    assert.equal(document?.passes?.some((pass) =>
-      pass.persistent || pass.float || pass.target
-    ), false, record.resource);
     assert.equal(document?.inputs?.some((input) =>
       ["audio", "audioFFT", "event"].includes(input.type)
     ), false, record.resource);
+    assert.equal(
+      document?.inputs?.filter((input) => input.type === "image").length <=
+        (record.artifactType === "transition" ? 2 : 1),
+      true,
+      record.resource,
+    );
     assert.equal(record.categories.includes("ISF"), true, record.resource);
     assert.equal(record.tags.includes("isf"), true, record.resource);
     assert.equal(record.attribution?.license, "MIT", record.resource);
@@ -236,11 +251,58 @@ test("the curated ISF proof collection is fragment-only, attributed, and catalog
       "395072d48b3ce7351ccb20a5fda54470591324df",
       record.resource,
     );
+    const dimensionValues = { WIDTH: 1920, HEIGHT: 1080 };
+    for (const param of record.component?.params || []) {
+      if (Number.isInteger(param.isfVectorIndex)) continue;
+      dimensionValues[param.id] = Number(param.defaultValue) || 0;
+    }
+    for (const pass of document?.passes || []) {
+      assert.doesNotThrow(
+        () => evaluateIsfDimension(pass.width, dimensionValues),
+        `${record.resource} pass ${pass.index} width`,
+      );
+      assert.doesNotThrow(
+        () => evaluateIsfDimension(pass.height, dimensionValues),
+        `${record.resource} pass ${pass.index} height`,
+      );
+    }
   }
+  for (const record of proof) {
+    const document = record.component?.isf ||
+      record.transition?.definition?.metadata?.isf;
+    assert.equal(document?.passes?.length, 1, record.resource);
+    assert.equal(document?.passes?.some((pass) =>
+      pass.persistent || pass.float || pass.target
+    ), false, record.resource);
+  }
+  assert.deepEqual(
+    tranche2.filter((record) =>
+      record.component?.isf?.passes?.some((pass) => pass.persistent)
+    ).map((record) => record.name).sort(),
+    ["Comet Tails", "Freeze Frame", "Slit Scan"],
+  );
+  assert.deepEqual(
+    tranche2.filter((record) =>
+      (record.component?.isf?.passes?.length || 0) > 1
+    ).map((record) => record.name),
+    ["Ghosting"],
+  );
+  assert.deepEqual(
+    multipassComparison.map((record) => [
+      record.name,
+      record.component?.isf?.passes?.length,
+      record.component?.isf?.passes?.filter((pass) => pass.target).length,
+      record.component?.isf?.passes?.some((pass) => pass.persistent),
+    ]),
+    [
+      ["Dilate", 2, 1, false],
+      ["Erode", 2, 1, false],
+    ],
+  );
   const proofArtifacts = listBuiltInVisualArtifacts().filter((artifact) =>
     artifact.implementation.resourceId?.startsWith("shaders/isf/")
   );
-  assert.equal(proofArtifacts.length, 23);
+  assert.equal(proofArtifacts.length, 42);
   assert.equal(
     proofArtifacts.every((artifact) =>
       artifact.implementation.format === "isf" &&

@@ -13,6 +13,18 @@ import {
 import {
   randomTriggerControlProcess,
 } from "../js/libraries/control-engine/random-trigger/index.js";
+import {
+  SegmentEnvelopeControlNode,
+  segmentEnvelopeControlProcess,
+} from "../js/libraries/control-engine/segment-envelope/index.js";
+import {
+  PeriodicTriggerControlNode,
+  periodicTriggerControlProcess,
+} from "../js/libraries/control-engine/periodic-trigger/index.js";
+import {
+  ScalarNoiseControlNode,
+  scalarNoiseControlProcess,
+} from "../js/libraries/control-engine/scalar-noise/index.js";
 import { publishRendererControlSignal } from "../js/output/control-signal-command.js";
 
 test("Animation curves are finite, bounded, and preserve exact endpoints", () => {
@@ -167,6 +179,87 @@ test("Animation control processes reuse caller-owned output records", () => {
   assert.equal(animationCurveControlProcess({}, { output: curveOutput }), curveOutput);
   assert.equal(animationSequencerControlProcess({}, { output: sequencerOutput, state: {} }), sequencerOutput);
   assert.equal(randomTriggerControlProcess({}, { output: randomOutput }), randomOutput);
+});
+
+test("Segment envelopes run editable curved steps and restart from exact trigger time", () => {
+  const state = {};
+  const output = {};
+  const segments = [
+    { duration: 0.1, value: 1, curve: "linear" },
+    { duration: 0.2, value: 0, curve: "linear" },
+  ];
+  assert.equal(segmentEnvelopeControlProcess({
+    time: 1,
+    trigger: 1,
+    triggerTime: 0.95,
+    initial: 0,
+    segments,
+  }, { state, output }), output);
+  assert.equal(output.running, true);
+  assert.ok(Math.abs(output.value - 0.5) < 1e-9);
+  segmentEnvelopeControlProcess({
+    time: 1.2,
+    trigger: 1,
+    initial: 0,
+    segments,
+  }, { state, output });
+  assert.ok(Math.abs(output.value - 0.25) < 1e-9);
+  segmentEnvelopeControlProcess({
+    time: 1.2,
+    trigger: 2,
+    initial: 0,
+    segments,
+  }, { state, output });
+  assert.equal(output.value, 0);
+  assert.equal(output.running, true);
+
+  const holdState = {};
+  const holdOutput = {};
+  const holdSegments = [{ duration: 0.1, value: 0.75, curve: "linear" }];
+  segmentEnvelopeControlProcess({
+    time: 0,
+    trigger: 1,
+    initial: 0.25,
+    segments: holdSegments,
+  }, { state: holdState, output: holdOutput });
+  segmentEnvelopeControlProcess({
+    time: 0.2,
+    trigger: 1,
+    initial: 0.25,
+    segments: holdSegments,
+  }, { state: holdState, output: holdOutput });
+  segmentEnvelopeControlProcess({
+    time: 0.3,
+    trigger: 1,
+    initial: 0.25,
+    segments: holdSegments,
+  }, { state: holdState, output: holdOutput });
+  assert.equal(holdOutput.value, 0.75);
+  assert.equal(holdOutput.running, false);
+  assert.equal(SegmentEnvelopeControlNode.execution.stateful, true);
+});
+
+test("Periodic triggers publish stable frame-rate-independent event tokens", () => {
+  const output = {};
+  periodicTriggerControlProcess({ time: 0.1, interval: 0.5 }, { output });
+  assert.equal(output.event, 1);
+  assert.equal(output.eventTime, 0);
+  periodicTriggerControlProcess({ time: 1.01, interval: 0.5 }, { output });
+  assert.equal(output.event, 3);
+  assert.equal(output.eventTime, 1);
+  assert.equal(PeriodicTriggerControlNode.execution.pure, true);
+});
+
+test("Scalar noise is deterministic bounded and allocation-stable", () => {
+  const first = {};
+  const second = {};
+  const input = { time: 1.234, rate: 2.5, seed: 47, detail: 3, roughness: 0.6 };
+  assert.equal(scalarNoiseControlProcess(input, { output: first }), first);
+  scalarNoiseControlProcess(input, { output: second });
+  assert.deepEqual(second, first);
+  assert.ok(first.value >= 0 && first.value <= 1);
+  assert.ok(first.bipolar >= -1 && first.bipolar <= 1);
+  assert.equal(ScalarNoiseControlNode.execution.pure, true);
 });
 
 test("Renderer trigger commands publish only valid transient control addresses", () => {

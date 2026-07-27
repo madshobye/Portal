@@ -34,7 +34,10 @@ export function compileIsfFragmentSource(document, { kind = document?.kind || "g
     ...(effect ? ["inputImage"] : []),
   ]);
   const adaptedSource = adaptImageMacros(
-    String(document.fragmentSource)
+    normalizeParameterBoundedLoops(
+      String(document.fragmentSource),
+      document.inputs,
+    )
       .replace(/\bvarying\s+vec2\s+vTexCoord\s*;/g, "")
       // VJ1 may render only a physical ROI or a lower-resolution preview while
       // preserving the full logical ISF pass. Raw WebGL gl_FragCoord belongs
@@ -97,6 +100,38 @@ void main() {
   ${effect && !explicitEffectAmount ? "if (vj1IsfFinalPass) gl_FragColor = mix(VJ1_IMG_NORM_PIXEL_inputImage(vj1IsfBoundaryUv()), gl_FragColor, clamp(amount, 0.0, 1.0));" : ""}
   ${transition ? "" : "if (vj1IsfFinalPass) gl_FragColor.rgb *= gl_FragColor.a;"}
 }`.trim();
+}
+
+// WebGL 1 requires statically bounded loops. Some valid desktop ISF shaders
+// use a numeric input as the upper bound instead. Keep the imported source
+// unchanged and port only the narrow form whose finite maximum is declared in
+// the ISF header; the early break preserves the requested runtime radius.
+function normalizeParameterBoundedLoops(source, inputs = []) {
+  const numericInputs = new Map(
+    inputs
+      .filter((input) => ["float", "long"].includes(input.type))
+      .map((input) => [input.name, input]),
+  );
+  const parameterBoundedLoop =
+    /for\s*\(\s*float\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*;\s*\1\s*<=\s*float\s*\(\s*int\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*\)\s*;\s*\+\+\s*\1\s*\)\s*\{/g;
+
+  return String(source).replace(
+    parameterBoundedLoop,
+    (loop, indexName, startLiteral, parameterName) => {
+      const input = numericInputs.get(parameterName);
+      const maximum = Math.trunc(Number(input?.max));
+      const start = Number(startLiteral);
+      if (
+        !Number.isFinite(maximum) ||
+        !Number.isFinite(start) ||
+        maximum < start ||
+        maximum > 256
+      ) {
+        return loop;
+      }
+      return `for (float ${indexName}=${startLiteral}; ${indexName}<=${maximum}.0; ++${indexName}) {\nif (${indexName} > float(int(${parameterName}))) break;`;
+    },
+  );
 }
 
 // A deliberately narrow optimization contract for portable built-in ISF.
@@ -254,10 +289,30 @@ export function evaluateIsfDimension(expression, values = {}) {
     const value = Number(values[name]);
     return Number.isFinite(value) ? String(value) : "0";
   });
-  if (!/^[\d\s+\-*/().]+$/.test(source)) throw new Error(`VJ1_ISF_PASS_SIZE_INVALID:${expression}`);
-  // This is a deliberately restricted arithmetic expression. Identifiers,
-  // property access, calls, assignments, and statement separators are absent.
-  const value = Function(`"use strict"; return (${source});`)();
+  const allowedFunctions = new Map([
+    ["floor", "Math.floor"],
+    ["min", "Math.min"],
+    ["max", "Math.max"],
+  ]);
+  const identifiers = source.match(/[A-Za-z_][A-Za-z0-9_]*/g) || [];
+  if (
+    !/^[\d\s+\-*/().,A-Za-z_]+$/.test(source) ||
+    identifiers.some((name) => !allowedFunctions.has(name))
+  ) {
+    throw new Error(`VJ1_ISF_PASS_SIZE_INVALID:${expression}`);
+  }
+  const executable = source.replace(
+    /\b(?:floor|min|max)\b/g,
+    (name) => allowedFunctions.get(name),
+  );
+  // Only numeric literals, arithmetic, parentheses, commas, and the three
+  // allow-listed Math calls can reach this evaluator.
+  let value;
+  try {
+    value = Function(`"use strict"; return (${executable});`)();
+  } catch {
+    throw new Error(`VJ1_ISF_PASS_SIZE_INVALID:${expression}`);
+  }
   if (!Number.isFinite(value)) throw new Error(`VJ1_ISF_PASS_SIZE_NONFINITE:${expression}`);
   return Math.max(1, Math.round(value));
 }

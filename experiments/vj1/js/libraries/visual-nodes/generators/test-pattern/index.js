@@ -80,7 +80,7 @@ export function defineTestPatternProgram(p) {
 
   // Exact source-resolution probe. Four hard SDF boxes form a one-pixel
   // yellow outline whose outer boundary is 300x300 render-target pixels.
-  // Final-canvas debug overlays use 301px and 302px below this layer so any
+  // Final-canvas debug overlays use 296px and 304px around this layer so any
   // scaling, density, or intermediate-allocation mismatch remains visible.
   p.rect(
     sdfExpr("0.5-150.0/resolution.x"),

@@ -24,7 +24,7 @@ export class LivePatchSynchronizer {
       const targetKey = patch.target === "state"
         ? "state"
         : patch.componentId
-          ? `component:${patch.componentId}`
+          ? `component:${patch.componentId}${patch.itemId ? `:item:${patch.itemId}` : ""}`
           : "";
       if (!targetKey) continue;
       this.pending.set(`${targetKey}:${patch.path}`, patch);

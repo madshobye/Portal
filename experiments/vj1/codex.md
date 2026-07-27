@@ -89,14 +89,17 @@ Numeric parameter Animation tracks are authored control fragments inside the
 owning Component/Scene program, never a second animation runtime or parallel
 Component property. The shared Animation inspector projects tagged
 `Source -> Transport -> Shape -> Mapping -> Combination -> Sink` wiring:
-`Component Time -> Animation Sequencer -> Animation Curve -> Map Range ->
-Numeric Combine -> $parameter`. The Sequencer owns automatic/triggered loop and
-ping-pong timing, endpoint pauses, and one-leg/full-sequence trigger semantics.
-The Curve node is a pure bounded mapper and owns easing plus explicit return-leg
-behavior. Mapping converts normalized curve output into parameter units.
-Combination explicitly replaces, adds to, or multiplies the authored base
-value; the generated scalar control remains the base authority rather than
-becoming separate animation state.
+the Transport may be an `Animation Sequencer -> Animation Curve`, a
+retriggerable piecewise `Segment Envelope`, or deterministic scalar `Noise`.
+Noise may be multiplied by an Envelope for a bounded triggered burst. An
+optional allocation-stable Smooth stage supplies a time-correct running average
+before `Map Range -> Numeric Combine -> $parameter`. The Sequencer owns
+automatic/triggered loop and ping-pong timing, endpoint pauses, and
+one-leg/full-sequence trigger semantics. Curves and Envelopes are bounded
+mappers; Mapping converts normalized output into parameter units. Combination
+explicitly replaces, adds to, or multiplies the authored base value; the
+generated scalar control remains the base authority rather than becoming
+separate animation state.
 
 An Animation track may replace its Timeline source with a typed retained live
 signal while keeping the same Mapping, Combination, and parameter Sink.
@@ -118,9 +121,11 @@ program consumes the retained result on the following frame; Probe never
 copies a full framebuffer, writes project state, or introduces a parallel
 render loop.
 
-Deterministic random triggers are separate Component-Time event nodes. Manual
-trigger buttons publish sequence-stamped application control signals to Preview
-and Output; they never write project state, create history, autosave, or
+Trigger routing is explicit graph wiring. Manual buttons, exact Component-Time
+periodic events, deterministic random events, pointer press, analyzed audio
+beats, and Probe threshold crossings each produce the same event contract.
+Manual trigger buttons publish sequence-stamped application control signals to
+Preview and Output; they never write project state, create history, autosave, or
 recompile the graph. Legacy oscillator tracks remain readable and migrate
 through the shared fragment factory on their next edit.
 General opacity, Content placement, and Boundary placement use reserved
@@ -377,20 +382,29 @@ headers repeat stable ID/version and fail closed when they diverge. Black,
 Invert, Gray, Threshold, and Dissolve prove direct, fusible, parameterized, and
 transition lowering. The first curated Vidvox proof slice adds 23 original
 fragment sources under `visual-library/shaders/isf/`: 6 generators, 8 effects,
-and 9 transitions pinned to upstream commit
+and 9 transitions. The second tranche brings the collection to 40 shaders:
+10 generators, 17 effects, and 13 transitions pinned to upstream commit
 `395072d48b3ce7351ccb20a5fda54470591324df`. It deliberately excludes custom
-vertex stages, audio/FFT, imported images, events, persistent buffers, float
-buffers, and multipass shaders. Source text remains the portable authority;
-catalog metadata supplies stable application identity and presentation without
-merging shader bodies into JavaScript. Generator and effect cards remain in
-their ordinary categories and are additionally discoverable through the `ISF`
-picker filter. Metadata declares host contracts; it never embeds arbitrary
-JavaScript.
+vertex stages, audio/FFT, imported images, events, and extra non-transition
+image inputs. Tranche two deliberately includes persistent, float-buffer, and
+multipass shaders supported by the common runtime. Source text remains the
+portable authority; catalog metadata supplies stable application identity and
+presentation without merging shader bodies into JavaScript. Generator and
+effect cards remain in their ordinary categories and are additionally
+discoverable through the `ISF` picker filter. Metadata declares host contracts;
+it never embeds arbitrary JavaScript.
+
+A focused multipass comparison tranche brings the collection to 42 shaders
+(10 generators, 19 effects, and 13 transitions). Dilate and Erode retain their
+upstream fragment text and exercise the same full-size, two-pass,
+non-persistent named-target path as Ghosting.
 
 The ISF backend owns retained pass state generically. Persistent passes use
 instance-owned ping-pong framebuffers, including float attachments, and
 full-screen shader writes replace their destination without blending. A
-program-local `FRAMEINDEX` begins at zero when a shader instance, source hash,
+strict pass-dimension evaluator supports ISF arithmetic plus the repository's
+standard `floor`, `min`, and `max` functions while rejecting all other calls.
+A program-local `FRAMEINDEX` begins at zero when a shader instance, source hash,
 pass geometry, or resolution changes, so first-frame initialization never
 depends on the age of the Output renderer. Pass targets and their frame clocks
 share pruning and disposal lifecycles. When the final ISF pass is itself a
@@ -399,9 +413,9 @@ evaluation-owned output; retained history never silently replaces cache
 ownership or leaves the published buffer empty. ISF coordinates remain
 bottom-left as specified, while every image macro crosses once through the
 shared render-target orientation contract before sampling; individual shaders
-never add corrective flips. The curated proof slice still excludes persistent
-and float shaders; imported shaders can use this runtime contract without
-shader-specific exceptions.
+never add corrective flips. The curated collection now proves this contract
+with Comet Tails, Freeze Frame, Slit Scan, and the two-pass Ghosting effect
+without shader-specific exceptions.
 
 Package dependencies are exact-version and content-integrity pinned.
 `project.json` stores the resolved closure without embedding package resources.
@@ -464,7 +478,9 @@ Persistence and transport rules:
 - Control and Output transport is revisioned. Parameter, transform, boundary,
   and other retained configuration changes cross as compact patches; complete
   state is reserved for restore/resync and topology or routing-reachability
-  changes. Stale clients and incoherent source revisions fail closed.
+  changes. Chain-item patches carry stable item identity; array paths are only
+  the current editor projection and never decide which compiled item receives
+  a value. Stale clients and incoherent source revisions fail closed.
 - Browser source coherence has one graph-wide owner: the source-worker revision
   in `index.html`. Local JavaScript imports are queryless so one file has one
   module identity. Never restore per-import `?v=` tags; they duplicate module
@@ -550,7 +566,7 @@ equivalence, ordinary and retained-value Groups, semantic 3D, aggregate
 CPU/Overall metrics, resource revisions, balanced GPU/browser resources, and
 two-frame float ping-pong history initialized at a nonzero host frame.
 
-At source coherence revision **193**, semantic sources, typed
+At source coherence revision **201**, semantic sources, typed
 resource/capability readiness, progressive primary-media restore, aggregate
 metrics, atomic retained framebuffer passes, and the complete browser import
 chain share one cache identity. A retained render result renews the lifetime of

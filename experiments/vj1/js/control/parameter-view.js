@@ -267,6 +267,15 @@ export function paramControlTemplate(param, path, value, attrs = "data-update", 
   const contextAttrs = paramContextAttributes(path, param.defaultValue, attrs, context);
   const significantClass = significant ? " is-significant" : "";
   if (param.type === "boolean") {
+    if (param.isfUniformType === "bool") {
+      const enabled = value === true;
+      const label = param.label || param.id;
+      return `
+        <div class="field chain-param param-toggle-control param-context-target${significantClass}" ${contextAttrs}>
+          <button type="button" class="param-toggle-button${enabled ? " is-enabled" : ""}" ${toggleParamAttributes(attrs, path)} data-toggle-value="${enabled}" data-toggle-label="${esc(label)}" aria-pressed="${enabled}" title="${enabled ? "Disable" : "Enable"} ${esc(label)}" aria-label="${enabled ? "Disable" : "Enable"} ${esc(label)}">${esc(label)}</button>
+        </div>
+      `;
+    }
     return `
       <label class="field inline-param param-context-target${significantClass}" ${contextAttrs}>
         <span>${esc(param.label || param.id)}</span>
@@ -328,6 +337,13 @@ export function screenInputParamControlTemplate(param, path, value, attrs = "dat
   `;
 }
 
+function toggleParamAttributes(attrs, path) {
+  if (!attrs.includes("data-live-update")) return `data-toggle-path="${esc(path)}"`;
+  const componentId = /data-live-component-id="([^"]*)"/.exec(attrs)?.[1] || "";
+  const itemId = /data-live-item-id="([^"]*)"/.exec(attrs)?.[1] || "";
+  return `data-live-component-id="${esc(componentId)}" ${itemId ? `data-live-item-id="${esc(itemId)}" ` : ""}data-live-toggle="${esc(path)}"`;
+}
+
 export function screenInputOptionsTemplate(inputs = [], selectedId = "") {
   const selected = String(selectedId || "");
   const available = inputs.some((input) => input.id === selected);
@@ -379,11 +395,12 @@ export function colorParamControlTemplate(param, path, value, attrs = "data-upda
   const mode = attrs.includes("data-live-update") ? "live" : "state";
   const liveComponentMatch = /data-live-component-id="([^"]*)"/.exec(attrs);
   const liveComponentId = liveComponentMatch?.[1] || "";
+  const liveItemId = /data-live-item-id="([^"]*)"/.exec(attrs)?.[1] || "";
   const rgba = normalizeColorHex(value || param.defaultValue || "#ffffffff");
   const rgb = rgba.slice(0, 7);
   const alpha = colorAlphaFromHex(rgba);
   return `
-    <div class="field range-field color-param chain-param param-context-target${significant ? " is-significant" : ""}" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${paramContextAttributes(path, param.defaultValue, attrs, context)} ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""}>
+    <div class="field range-field color-param chain-param param-context-target${significant ? " is-significant" : ""}" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${paramContextAttributes(path, param.defaultValue, attrs, context)} ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""} ${liveItemId ? `data-live-item-id="${esc(liveItemId)}"` : ""}>
       <span>${esc(param.label || param.id)}</span>
       <div class="param-control-track color-param-row">
         <input type="range" min="0" max="1" step="0.01" data-color-alpha value="${alpha}" aria-label="${esc(param.label || param.id)} alpha" />

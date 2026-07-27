@@ -122,12 +122,20 @@ export class OutputPresentationRuntime {
     push();
     try {
       resetMatrix();
-      noFill();
       rectMode(CENTER);
-      stroke(255, 62, 181, 235);
-      strokeWeight(geometry.strokeWeight);
-      for (const size of geometry.sizes) rect(0, 0, size.width, size.height);
+      noStroke();
+      fill(255, 62, 181);
+      blendMode(globalThis.REPLACE ?? "replace");
+      for (const size of geometry.sizes) {
+        const halfWidth = size.width * 0.5;
+        const halfHeight = size.height * 0.5;
+        rect(0, -halfHeight + geometry.pixelHeight * 0.5, size.width, geometry.pixelHeight);
+        rect(0, halfHeight - geometry.pixelHeight * 0.5, size.width, geometry.pixelHeight);
+        rect(-halfWidth + geometry.pixelWidth * 0.5, 0, geometry.pixelWidth, size.height);
+        rect(halfWidth - geometry.pixelWidth * 0.5, 0, geometry.pixelWidth, size.height);
+      }
     } finally {
+      blendMode(globalThis.BLEND ?? "source-over");
       pop();
       if (gl?.enable) gl.enable(gl.DEPTH_TEST);
     }
@@ -517,10 +525,10 @@ export function resolutionVerificationOverlayGeometry({
 } = {}) {
   const scaleX = Math.max(0.125, Math.min(4, Number(densityX) || 1));
   const scaleY = Math.max(0.125, Math.min(4, Number(densityY) || 1));
-  const strokeScale = Math.min(scaleX, scaleY);
   return Object.freeze({
-    strokeWeight: 1 / strokeScale,
-    sizes: Object.freeze([302, 301].map((size) => Object.freeze({
+    pixelWidth: 1 / scaleX,
+    pixelHeight: 1 / scaleY,
+    sizes: Object.freeze([304, 296].map((size) => Object.freeze({
       width: size / scaleX,
       height: size / scaleY,
     }))),

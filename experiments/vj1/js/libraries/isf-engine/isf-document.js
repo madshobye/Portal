@@ -104,7 +104,7 @@ function normalizePasses(value, path) {
 function normalizeDimensionExpression(value, fallback, path, index, key) {
   if (value === undefined || value === null || value === "") return fallback;
   const expression = String(value).trim();
-  if (!/^[\d\s+\-*/()._$A-Za-z]+$/.test(expression)) {
+  if (!/^[\d\s+\-*/().,_$A-Za-z]+$/.test(expression)) {
     throw isfError("VJ1_ISF_PASS_SIZE_INVALID", path, `PASSES[${index}].${key} contains unsupported characters`);
   }
   return expression;
