@@ -81,6 +81,7 @@ export function createInputController({
             to: Number(button.dataset.animationTo),
             mode: button.dataset.animationMode,
             duration: Number(button.dataset.animationDuration),
+            phase: Number(button.dataset.animationPhase),
             curve: button.dataset.animationCurve,
             returnMode: button.dataset.animationReturnMode,
             pause: Number(button.dataset.animationPause),
@@ -93,6 +94,19 @@ export function createInputController({
       });
       editor.querySelectorAll("[data-animation-track-id]").forEach((track) => {
         const trackId = track.dataset.animationTrackId;
+        track.querySelector("[data-animation-driver]")?.addEventListener("change", (event) => {
+          const option = event.currentTarget.selectedOptions?.[0];
+          if (!option) return;
+          commitAnimationEdit("driver", () => updateParameterAnimationTrack(getState().nodes, {
+            componentId,
+            targetNodeId,
+            trackId,
+            patch: {
+              sourceKind: option.dataset.animationSourceKind || "timeline",
+              sourceAddress: option.dataset.animationSourceAddress || "",
+            },
+          }));
+        });
         track.querySelector("[data-toggle-parameter-animation]")?.addEventListener("click", (event) => {
           const enabled = event.currentTarget.getAttribute("aria-pressed") !== "true";
           commitAnimationEdit("toggle", () => updateParameterAnimationTrack(getState().nodes, {

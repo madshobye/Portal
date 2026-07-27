@@ -42,6 +42,12 @@ export class ControlSignalRuntime {
     this.register("control", new ApplicationControlAdapter({
       clock,
     }), { invalidate: false });
+    this.register("pointer", new ApplicationControlAdapter({
+      clock,
+    }), { invalidate: false });
+    this.register("probe", new ApplicationControlAdapter({
+      clock,
+    }), { invalidate: false });
   }
 
   register(kind, adapter, { invalidate = true } = {}) {
@@ -85,11 +91,15 @@ export class ControlSignalRuntime {
 
   publish(kind, address, value, meta = {}) {
     const id = String(kind || "");
-    if (id !== "control") return false;
     const adapter = this.adapters.get(id);
     if (!adapter || typeof adapter.publish !== "function") return false;
-    adapter.publish(String(address || ""), value, meta);
-    return true;
+    return adapter.publish(String(address || ""), value, meta);
+  }
+
+  publishBatch(kind, values = {}, meta = {}) {
+    const adapter = this.adapters.get(String(kind || ""));
+    if (!adapter || typeof adapter.publishBatch !== "function") return false;
+    return adapter.publishBatch(values, meta);
   }
 
   beginFrame() {
@@ -175,6 +185,7 @@ export class ApplicationControlAdapter {
   publish(address, value, {
     sequence,
     timestamp,
+    invalidate = true,
   } = {}) {
     const key = String(address || "");
     if (!key) return false;
@@ -188,8 +199,42 @@ export class ApplicationControlAdapter {
       sequence: nextSequence,
       timestamp: Number.isFinite(Number(timestamp)) ? Number(timestamp) : this.clock(),
     });
-    this.onInvalidate?.("signal");
+    if (invalidate) this.onInvalidate?.("signal");
     return true;
+  }
+
+  publishBatch(values = {}, {
+    sequence,
+    timestamp,
+  } = {}) {
+    const entries = values instanceof Map
+      ? [...values.entries()]
+      : Object.entries(values || {});
+    if (!entries.length) return false;
+    const requestedSequence = Number(sequence);
+    const nextSequence = Number.isFinite(requestedSequence) && requestedSequence > 0
+      ? Math.trunc(requestedSequence)
+      : this.sequence + 1;
+    const at = Number.isFinite(Number(timestamp)) ? Number(timestamp) : this.clock();
+    let changed = false;
+    for (const [address, value] of entries) {
+      const key = String(address || "");
+      if (!key) continue;
+      const current = this.signals.get(key);
+      if (
+        current &&
+        Object.is(current.value, value) &&
+        current.sequence === nextSequence
+      ) continue;
+      this.publish(key, value, {
+        sequence: nextSequence,
+        timestamp: at,
+        invalidate: false,
+      });
+      changed = true;
+    }
+    if (changed) this.onInvalidate?.("signals");
+    return changed;
   }
 
   activate() {}
@@ -400,9 +445,11 @@ export class AudioControlAdapter {
     this.signals = new Map();
     this.activeAddresses = new Set();
     this.sequence = 0;
+    this.beatSequence = 0;
     this.lifecycleRevision = 0;
     this.timeData = null;
     this.frequencyData = null;
+    this.beatDetectors = new Map();
     this.disposed = false;
     this.reportedError = "";
     this.boundDeviceChange = () => this.handleDeviceChange();
@@ -572,6 +619,28 @@ export class AudioControlAdapter {
         );
       }
     }
+    for (const [band, value] of Object.entries({
+      overall: core.level,
+      low: core.low,
+      mid: core.mid,
+      high: core.high,
+    })) {
+      const beat = this.detectBeat(band, value, timestamp);
+      const address = band === "overall" ? "beat" : `beat:${band}`;
+      const previous = this.signals.get(address);
+      const beatEventSequence = beat
+        ? ++this.beatSequence
+        : previous?.sequence || 0;
+      this.publish(address, beat ? 1 : 0, beatEventSequence, timestamp);
+      if (this.deviceId) {
+        this.publish(
+          `${this.deviceId}/${address}`,
+          beat ? 1 : 0,
+          beatEventSequence,
+          timestamp,
+        );
+      }
+    }
     for (const address of this.activeAddresses) {
       const canonical = audioCanonicalAddress(address, this.deviceId);
       const bin = audioBinIndex(canonical);
@@ -601,6 +670,39 @@ export class AudioControlAdapter {
       total += this.frequencyData[index];
     }
     return Math.min(1, total / Math.max(1, end - start) / 255);
+  }
+
+  detectBeat(band, value, timestamp) {
+    let detector = this.beatDetectors.get(band);
+    if (!detector) {
+      detector = {
+        average: Number(value) || 0,
+        deviation: 0,
+        previous: Number(value) || 0,
+        lastBeatAt: -Infinity,
+      };
+      this.beatDetectors.set(band, detector);
+      return false;
+    }
+    const level = Math.max(0, Math.min(1, Number(value) || 0));
+    const delta = Math.abs(level - detector.average);
+    const threshold = Math.max(
+      band === "overall" ? 0.035 : 0.025,
+      detector.average * 1.45 + detector.deviation * 1.75,
+    );
+    const cooldown = band === "low" ? 220 : 150;
+    const beat =
+      level > threshold &&
+      level > detector.previous &&
+      timestamp - detector.lastBeatAt >= cooldown;
+    if (beat) detector.lastBeatAt = timestamp;
+    // Slow adaptive baselines retain musical transients while following a
+    // sustained change in input level. This is allocation-stable and remains
+    // independent for the full signal and each coarse FFT band.
+    detector.average += (level - detector.average) * 0.045;
+    detector.deviation += (delta - detector.deviation) * 0.08;
+    detector.previous = level;
+    return beat;
   }
 
   publish(address, value, sequence, timestamp) {
@@ -670,6 +772,7 @@ export class AudioControlAdapter {
     this.analyser = null;
     this.timeData = null;
     this.frequencyData = null;
+    this.beatDetectors.clear();
     this.deviceId = "";
     this.signals.clear();
   }

@@ -26,6 +26,8 @@ export class ComponentProgramRuntime {
     this.runtimeComponents = runtimeVisualSourceComponents();
     this.componentById = new Map();
     this.routeSourceNodeById = new Map();
+    this.controlSignalKinds = new Set();
+    this.controlSignalAddresses = new Set();
   }
 
   dispose() {
@@ -34,12 +36,15 @@ export class ComponentProgramRuntime {
     this.clearPrepared();
     this.componentById.clear();
     this.routeSourceNodeById.clear();
+    this.controlSignalKinds.clear();
+    this.controlSignalAddresses.clear();
   }
 
   rebuild(state = this.getState?.()) {
     disposePrograms(this.programs);
     this.runtimeComponents = runtimeVisualSourceComponents();
     this.programs = this.compile(state, this.runtimeComponents);
+    this.indexControlSignalRequirements();
     this.onCompile?.(1, "component-program-rebuild");
     this.validate(this.programs);
     return this.programs;
@@ -58,6 +63,7 @@ export class ComponentProgramRuntime {
       }
       this.programs.set(componentId, program);
     }
+    this.indexControlSignalRequirements();
     this.onCompile?.(1, "component-root-materialization");
     return true;
   }
@@ -108,6 +114,30 @@ export class ComponentProgramRuntime {
       }
     }
     return false;
+  }
+
+  requiresControlSignal(kind, address = "") {
+    const signalKind = String(kind || "");
+    if (!signalKind) return false;
+    const signalAddress = String(address || "");
+    return signalAddress
+      ? this.controlSignalAddresses.has(`${signalKind}:${signalAddress}`)
+      : this.controlSignalKinds.has(signalKind);
+  }
+
+  indexControlSignalRequirements() {
+    this.controlSignalKinds.clear();
+    this.controlSignalAddresses.clear();
+    for (const program of this.programs.values()) {
+      for (const requirement of program.inspect?.()?.readiness?.requirements || []) {
+        if (requirement?.kind !== "control-signal") continue;
+        const kind = String(requirement.signalKind || "");
+        const address = String(requirement.address || "");
+        if (!kind) continue;
+        this.controlSignalKinds.add(kind);
+        if (address) this.controlSignalAddresses.add(`${kind}:${address}`);
+      }
+    }
   }
 
   syncConfiguration(componentId, state = this.getState?.()) {
@@ -225,6 +255,9 @@ export function renderStateComponentProgramRoots(
   collectSurfaces(state.liveTransition?.fromState?.surfaces, {
     includeDisabled: true,
   });
+  for (const transition of state.liveTransitions || []) {
+    collectSurfaces(transition?.fromState?.surfaces, { includeDisabled: true });
+  }
   if (!roots.size) {
     for (const component of components || []) {
       const componentId = String(component?.id || "");

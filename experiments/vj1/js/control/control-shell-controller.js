@@ -1,5 +1,6 @@
 import { VJ1, WORKSPACES } from "../constants.js";
 import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js";
+import { activeLiveTransitions } from "../domain/live-transition-coordinator.js";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js";
@@ -47,6 +48,7 @@ const liveProgramRenderReasons = new Set([
   "live:surface-patch-clear",
   "live:overall-component-clear",
   "live:surface-visibility",
+  "live:transition-advance",
 ]);
 const previewViewportReasons = new Set([
   "preview-zoom",
@@ -155,12 +157,20 @@ export function createLiveTransitionExpiryScheduler({
   };
 
   return Object.freeze({
-    update(transition) {
+    update(value) {
+      const transitions = (Array.isArray(value) ? value : [value])
+        .filter((candidate) => candidate?.fromSurfaceRoutes);
+      const transition = transitions.slice().sort((a, b) =>
+        (Number(a.startedAtMs) + Number(a.durationMs))
+        - (Number(b.startedAtMs) + Number(b.durationMs))
+      )[0];
       const startedAtMs = Number(transition?.startedAtMs) || 0;
       const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
       const expiresAt = startedAtMs + durationMs;
       const nextKey = transition?.fromSurfaceRoutes && startedAtMs > 0 && durationMs > 0
-        ? `${String(transition.id || "")}|${startedAtMs}|${durationMs}`
+        ? transitions.map((candidate) => `${String(candidate.id || "")}|${Number(candidate.startedAtMs) || 0}|${Number(candidate.durationMs) || 0}`)
+          .sort()
+          .join(",")
         : "";
 
       // Preserve the one callback already owned by this exact transition,
@@ -216,6 +226,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   const controlRenderDiagnostics = createControlRenderDiagnostics({ diagnostics });
   const liveTransitionExpiryScheduler = createLiveTransitionExpiryScheduler({
     onExpire: () => {
+      store.advanceLiveTransitions?.();
       if (currentWorkspace(latestState) !== "live") return;
       renderMeasuredControlPhases(latestState, { reason: "live-transition-expired" }, [
         ["live-projection-rail", () => renderLiveProjectionRail(latestState)],
@@ -270,6 +281,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     store,
     mediaLibrary,
     projectService,
+    onControlSignal: (payload) =>
+      bridge.command(CONTROL_SIGNAL_COMMAND, payload),
     onChainItemTarget: (componentId, itemId) => {
       clipboard.setChainItemTarget(componentId, itemId);
     },
@@ -454,7 +467,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     // Transition progress is renderer-owned and intentionally does not write
     // the project store every frame. The scheduler protects this one expiry
     // refresh from unrelated state notifications.
-    liveTransitionExpiryScheduler.update(state.ui?.live?.transition);
+    liveTransitionExpiryScheduler.update(activeLiveTransitions(state.ui?.live));
   }
 
   function scheduleRender(state, context = {}) {

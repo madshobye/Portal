@@ -1,6 +1,7 @@
 import { RENDER_QUALITY_PARAM_ID } from "../libraries/visual-nodes/shared/component-schema.js";
 import {
   parameterAnimationTracks,
+  parameterAnimationSignalSources,
   parameterAnimationTriggerAddress,
 } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
 import { ANIMATION_CURVES } from "../libraries/control-engine/animation-curve/index.js";
@@ -44,11 +45,16 @@ export function parameterAnimationViewTemplate({
     Number(param.min) !== Number(param.max)
   );
   const tracks = parameterAnimationTracks(state.nodes, componentId, targetNodeId);
+  const signalSources = parameterAnimationSignalSources(
+    state.nodes,
+    componentId,
+    targetNodeId,
+  );
   const parameterById = new Map(numeric.map((param) => [param.id, param]));
   const animated = new Set(tracks.map((track) => track.parameterId));
   const available = numeric.filter((param) => !animated.has(param.id));
   const suggestions = available.flatMap((param) =>
-    (param.suggestedAnimations || []).map((suggestion) => ({ param, suggestion }))
+    animationSuggestions(param).map((suggestion) => ({ param, suggestion }))
   );
 
   return `
@@ -59,12 +65,13 @@ export function parameterAnimationViewTemplate({
             track,
             parameterById.get(track.parameterId),
             componentId,
+            signalSources,
           )).join("")
           : `<div class="soft-note parameter-animation-empty">No parameter animations.</div>`}
       </div>
       ${suggestions.length ? `
         <div class="parameter-animation-suggestions">
-          <span class="soft-note">Suggested</span>
+          <span class="soft-note">Suggested animations</span>
           ${suggestions.map(({ param, suggestion }) =>
             animationSuggestionTemplate(param, suggestion)
           ).join("")}
@@ -84,7 +91,12 @@ export function parameterAnimationViewTemplate({
   `;
 }
 
-function animationTrackTemplate(track, parameter = {}, componentId = "") {
+function animationTrackTemplate(
+  track,
+  parameter = {},
+  componentId = "",
+  signalSources = [],
+) {
   const label = parameter.label || track.parameterId;
   const min = Number.isFinite(Number(parameter.min))
     ? Number(parameter.min)
@@ -105,6 +117,20 @@ function animationTrackTemplate(track, parameter = {}, componentId = "") {
         <strong>${esc(label)}</strong>
         <button type="button" class="animation-track-remove" data-remove-parameter-animation title="Remove ${esc(label)} animation" aria-label="Remove ${esc(label)} animation">${icon("close")}</button>
       </header>
+      <label class="field">
+        <span>Driver</span>
+        <select class="param-select" data-animation-driver>
+          ${signalSources.map((source) => `
+            <option
+              value="${esc(`${source.kind}:${source.address}`)}"
+              data-animation-source-kind="${esc(source.kind)}"
+              data-animation-source-address="${esc(source.address)}"
+              ${(track.sourceKind || "timeline") === source.kind && (track.sourceAddress || "") === source.address ? "selected" : ""}
+            >${esc(source.label)}</option>
+          `).join("")}
+        </select>
+      </label>
+      ${(track.sourceKind || "timeline") === "timeline" ? `
       <label class="field">
         <span>Pattern</span>
         <select class="param-select" data-animation-track-field="mode">
@@ -141,6 +167,12 @@ function animationTrackTemplate(track, parameter = {}, componentId = "") {
           `).join("")}
         </select>
       </label>
+      ${track.mode === "ping-pong" ? `
+        <button type="button" class="animation-return-toggle ${track.returnMode === "repeat" ? "is-selected" : ""}" data-toggle-animation-return aria-pressed="${track.returnMode === "repeat"}" title="Apply the selected curve independently on the return leg">
+          ${icon("swap_vert")}<span>Invert curve on return</span>
+        </button>
+      ` : ""}
+      ` : ""}
       <label class="field">
         <span>Combine</span>
         <select class="param-select" data-animation-track-field="combination">
@@ -149,18 +181,15 @@ function animationTrackTemplate(track, parameter = {}, componentId = "") {
           `).join("")}
         </select>
       </label>
-      ${track.mode === "ping-pong" ? `
-        <button type="button" class="animation-return-toggle ${track.returnMode === "repeat" ? "is-selected" : ""}" data-toggle-animation-return aria-pressed="${track.returnMode === "repeat"}" title="Apply the selected curve independently on the return leg">
-          ${icon("swap_vert")}<span>Invert curve on return</span>
-        </button>
-      ` : ""}
       ${animationRangeTemplate("From", "from", track.from, mapping.min, mapping.max, mapping.step || step)}
       ${animationRangeTemplate("To", "to", track.to, mapping.min, mapping.max, mapping.step || step)}
+      ${(track.sourceKind || "timeline") === "timeline" ? `
       ${animationRangeTemplate("Cycle duration", "duration", track.duration, 0.05, 60, 0.05, " s")}
       ${animationRangeTemplate("End pause", "pause", track.pause, 0, 30, 0.05, " s")}
       ${track.runMode === "automatic"
         ? animationRangeTemplate("Phase", "phase", track.phase, 0, 1, 0.01)
         : animationRangeTemplate("Random trigger", "randomRate", track.randomRate, 0, 120, 0.5, " / min")}
+      ` : ""}
     </article>
   `;
 }
@@ -169,6 +198,22 @@ function animationParameterOption(param) {
   const value = clamp(Number(param.value), Number(param.min), Number(param.max));
   const to = approximatelyEqual(value, Number(param.max)) ? Number(param.min) : Number(param.max);
   return `<option value="${esc(param.id)}" data-animation-from="${esc(value)}" data-animation-to="${esc(to)}" data-animation-min="${esc(param.min)}" data-animation-max="${esc(param.max)}">${esc(param.label || param.id)}</option>`;
+}
+
+function animationSuggestions(param = {}) {
+  const templates = [
+    ...(param.defaultAnimation ? [param.defaultAnimation] : []),
+    ...(param.suggestedAnimations || []),
+  ];
+  const seen = new Set();
+  return templates.filter((template) => {
+    const id = String(template?.id || "");
+    if (!id || !seen.has(id)) {
+      if (id) seen.add(id);
+      return true;
+    }
+    return false;
+  });
 }
 
 function animationSuggestionTemplate(param, suggestion = {}) {
@@ -192,6 +237,7 @@ function animationSuggestionTemplate(param, suggestion = {}) {
       data-animation-to="${esc(to)}"
       data-animation-mode="${esc(suggestion.mode || "loop")}"
       data-animation-duration="${esc(suggestion.duration ?? 2)}"
+      data-animation-phase="${esc(suggestion.phase ?? 0)}"
       data-animation-curve="${esc(suggestion.curve || "linear")}"
       data-animation-return-mode="${esc(suggestion.returnMode || "retrace")}"
       data-animation-pause="${esc(suggestion.pause ?? 0)}"

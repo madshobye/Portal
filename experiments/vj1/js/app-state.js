@@ -19,6 +19,11 @@ import {
   uid,
 } from "./domain/models.js";
 import { compileLiveProjectionProgram } from "./domain/live-projection-program.js";
+import {
+  advanceLiveTransitionCoordinator,
+  clearLiveTransitionCoordinator,
+  scheduleLiveTransition,
+} from "./domain/live-transition-coordinator.js";
 import { firstEnabledLiveSurfaceId, liveSurfaceVisible } from "./domain/live-ui-state.js";
 import { stampChangedProjectItems, touchComponentUsed } from "./domain/component-activity.js";
 import { componentFrameMetrics } from "./domain/component-frame.js";
@@ -36,6 +41,7 @@ import {
 } from "./libraries/data-store/data-store/index.js";
 import { signalLoadMeter } from "./metrics/signal-load-meter.js";
 import { applyEditorSelection, editorSelectionChangedPaths } from "./domain/editor-selection.js";
+import { rebaseSessionTimeline } from "./libraries/timing-engine/session-timeline/index.js";
 
 export function createAppState(initial = null, {
   prepareState = null,
@@ -57,6 +63,21 @@ export function createAppState(initial = null, {
   let pendingEditBaseline = null;
   const authoredSignalMeter = signalLoadMeter("control");
   function emit(change = "change") {
+    const previousWorld = dataStore.current();
+    const sessionTimeline = rebaseSessionTimeline(
+      previousWorld?.metrics?.sessionTimeline,
+      previousWorld?.global,
+      state?.global,
+    );
+    if (state.metrics?.sessionTimeline !== sessionTimeline) {
+      state = {
+        ...state,
+        metrics: {
+          ...(state.metrics || {}),
+          sessionTimeline,
+        },
+      };
+    }
     // Commands may collect render patches while their recipe is operating on
     // the copy-on-write draft. The authored world is finalized before
     // publication, but those small side-channel values are not part of that
@@ -256,7 +277,7 @@ export function createAppState(initial = null, {
         0,
         Math.min(30, Number(savedLive.paramFadeDuration) || 0),
       );
-      draft.ui.live.transition = null;
+      clearLiveTransitionCoordinator(draft.ui.live);
       const requestedSurfaceId = String(savedLive.previewSurfaceId || "");
       const surfaceIsValid = requestedSurfaceId === "__mapping__"
         || mapping.surfaces?.some(
@@ -303,7 +324,7 @@ export function createAppState(initial = null, {
       draft.ui.live.surfaceVisibility = {};
       draft.ui.live.componentOverrides = {};
       draft.ui.live.sceneOverrides = {};
-      draft.ui.live.transition = null;
+      clearLiveTransitionCoordinator(draft.ui.live);
       draft.ui.previewViewports ||= {};
       draft.ui.previewViewports.live = {
         zoom: 1,
@@ -353,6 +374,13 @@ export function createAppState(initial = null, {
     setComponentThumbnail,
     isDebugPreviewEnabled: () => state.ui?.debugPreview !== false,
     updateLive,
+    advanceLiveTransitions(nowMs = Date.now()) {
+      let advanced = false;
+      updateLive((draft) => {
+        advanced = advanceLiveTransitionCoordinator(draft.ui.live, nowMs);
+      }, { reason: "live:transition-advance", history: "none" });
+      return advanced;
+    },
     updateMapping,
     subscribe,
     cycleCatalogMarker(kind, id) {
@@ -842,16 +870,16 @@ export function createAppState(initial = null, {
         ) || draft.components.find((item) => item.type === "scene" && String(item.id) === previousSceneId);
         if (previousSceneId === String(scene.id)
           && String(previousTarget?.id || "") === String(scene.id)) return;
-        const previousRoutes = compileLiveProjectionProgram(draft).currentRoutes;
+        const previousRoutes = compileLiveProjectionProgram(draft).logicalRoutes;
         if (previousTarget?.id && Object.keys(draft.ui.live.componentOverrides || {}).length) {
           draft.ui.live.sceneOverrides[previousTarget.id] = clone(draft.ui.live.componentOverrides);
         }
-        scheduleLiveRouteTransition(draft, previousRoutes);
         draft.ui.live.selectedSceneId = scene.id;
         draft.ui.live.selectedComponentId = scene.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
+        scheduleLiveRouteTransition(draft, previousRoutes);
       }, "live:scene");
     },
     selectLiveComponent(id) {
@@ -869,16 +897,16 @@ export function createAppState(initial = null, {
         const previousTarget = draft.components.find((item) =>
           !item.systemRole && String(item.id) === String(draft.ui.live.selectedComponentId || "")
         ) || scene;
-        const previousRoutes = compileLiveProjectionProgram(draft).currentRoutes;
+        const previousRoutes = compileLiveProjectionProgram(draft).logicalRoutes;
         draft.ui.live.sceneOverrides ||= {};
         if (previousTarget?.id && Object.keys(draft.ui.live.componentOverrides || {}).length) {
           draft.ui.live.sceneOverrides[previousTarget.id] = clone(draft.ui.live.componentOverrides);
         }
-        scheduleLiveRouteTransition(draft, previousRoutes);
         draft.ui.live.selectedComponentId = target.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[target.id] || {});
+        scheduleLiveRouteTransition(draft, previousRoutes);
       }, "live:target");
     },
     selectLivePreviewSurface(id) {
@@ -937,7 +965,7 @@ export function createAppState(initial = null, {
       updateLive((draft) => {
         draft.ui.live.surfaceVisibility ||= {};
         draft.ui.live.surfaceVisibility[surfaceId] = visible;
-        draft.ui.live.transition = null;
+        clearLiveTransitionCoordinator(draft.ui.live);
       }, "live:surface-visibility");
       return true;
     },
@@ -952,7 +980,7 @@ export function createAppState(initial = null, {
       updateLive((draft) => {
         const draftMapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
         if (!draftMapping) return;
-        const previousRoutes = clone(compileLiveProjectionProgram(draft).currentRoutes);
+        const previousRoutes = clone(compileLiveProjectionProgram(draft).logicalRoutes);
         draft.ui.live.surfacePatches ||= {};
         delete draft.ui.live.surfacePatches[surfaceId];
         draft.ui.live.patchSourceId = "";
@@ -971,14 +999,14 @@ export function createAppState(initial = null, {
       updateLive((draft) => {
         const mapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
         if (!mapping) return;
-        const previousRoutes = clone(compileLiveProjectionProgram(draft).currentRoutes);
-        scheduleLiveRouteTransition(draft, previousRoutes);
+        const previousRoutes = clone(compileLiveProjectionProgram(draft).logicalRoutes);
         draft.ui.live.overallSourceCleared = true;
         draft.ui.live.selectedSceneId = "";
         draft.ui.live.selectedComponentId = "";
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
         draft.ui.live.componentOverrides = {};
+        scheduleLiveRouteTransition(draft, previousRoutes);
       }, "live:overall-component-clear");
       return true;
     },
@@ -993,7 +1021,7 @@ export function createAppState(initial = null, {
         draft.ui.live.surfacePatches = {};
         draft.ui.live.patchSourceId = "";
         draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
-        draft.ui.live.transition = null;
+        clearLiveTransitionCoordinator(draft.ui.live);
         draft.ui.live.selectedComponentId = scene.id;
       }, { reason: "live:scene-restore", history: "none" });
     },
@@ -1150,7 +1178,7 @@ function patchSelectedLiveSurface(state, target, mapping) {
   if (surfaceId === "__mapping__" || !mapping) return false;
   const targetRoute = materializeLiveSurfacePatchRoute(state, target, mapping, surfaceId);
   if (!targetRoute) return false;
-  const previousRoutes = clone(compileLiveProjectionProgram(state).currentRoutes);
+  const previousRoutes = clone(compileLiveProjectionProgram(state).logicalRoutes);
   state.ui.live.surfacePatches ||= {};
   state.ui.live.surfacePatches[surfaceId] = target.id;
   state.ui.live.patchSourceId = target.id;
@@ -1161,19 +1189,32 @@ function patchSelectedLiveSurface(state, target, mapping) {
 
 function scheduleLiveRouteTransition(state, previousRoutes, routeTargetId = "", surfaceId = "") {
   const durationMs = Math.round(Math.max(0, Number(state.ui.live.transitionDuration) || 0) * 1000);
-  const previousTargetId = String(routeTargetId || state.ui.live.selectedComponentId || state.ui.live.selectedSceneId || "");
-  state.ui.live.transition = durationMs > 0 && previousRoutes?.surfaces?.length
-    ? {
-        id: uid("live-transition"),
-        fromSceneId: String(state.ui.live.selectedSceneId || ""),
-        fromTargetId: previousTargetId,
-        surfaceId: String(surfaceId || ""),
-        fromSurfaceRoutes: clone(previousRoutes),
-        fromComponentOverrides: clone(state.ui.live.componentOverrides || {}),
-        startedAtMs: Date.now() + 50,
-        durationMs,
-      }
-    : null;
+  const previousRouteTargetId = previousRoutes?.surfaces?.find((route) =>
+    !surfaceId || String(route.id) === String(surfaceId)
+  )?.componentId;
+  const previousTargetId = String(previousRouteTargetId || routeTargetId || "");
+  if (durationMs <= 0 || !previousRoutes?.surfaces?.length) {
+    clearLiveTransitionCoordinator(state.ui.live);
+    return;
+  }
+  const currentRoutes = clone(compileLiveProjectionProgram(state).logicalRoutes);
+  const previousOverrides = state.ui.live.sceneOverrides?.[previousTargetId]
+    || state.ui.live.componentOverrides
+    || {};
+  scheduleLiveTransition(state.ui.live, {
+    id: uid("live-transition"),
+    fromSceneId: String(state.ui.live.selectedSceneId || ""),
+    fromTargetId: previousTargetId,
+    toTargetId: String(state.ui.live.selectedComponentId || state.ui.live.selectedSceneId || ""),
+    surfaceId: String(surfaceId || ""),
+    fromSurfaceRoutes: clone(previousRoutes),
+    toSurfaceRoutes: currentRoutes,
+    fromComponentOverrides: clone(previousOverrides),
+    toComponentOverrides: clone(state.ui.live.componentOverrides || {}),
+    transitionId: String(state.ui.live.transitionId || "vj1.transition.dissolve"),
+    transitionParameters: clone(state.ui.live.transitionParameters || {}),
+    durationMs,
+  });
 }
 
 function copyPathWithValue(target, path, value, { createMissing = false } = {}) {

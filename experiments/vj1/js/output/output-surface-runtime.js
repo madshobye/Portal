@@ -98,8 +98,9 @@ export class OutputSurfaceRuntime {
   }
 
   renderSurfaces() {
-    const transition = this.currentLiveTransition();
-    if (transition) return this.renderTransitionSurfaces(transition);
+    const transitions = this.currentLiveTransitions();
+    if (transitions.length > 1) return this.renderConcurrentTransitionSurfaces(transitions);
+    if (transitions[0]) return this.renderTransitionSurfaces(transitions[0]);
     this.releaseTransitionSurfaceTextures();
     this.renderMappingSurfaces();
   }
@@ -164,17 +165,58 @@ export class OutputSurfaceRuntime {
   }
 
   currentLiveTransition(nowMs = Date.now()) {
-    const transition = this.renderer.state?.liveTransition;
+    return this.currentLiveTransitions(nowMs)[0] || null;
+  }
+
+  currentLiveTransitions(nowMs = Date.now()) {
+    const state = this.renderer.state || {};
+    const candidates = Array.isArray(state.liveTransitions) && state.liveTransitions.length
+      ? state.liveTransitions
+      : state.liveTransition ? [state.liveTransition] : [];
+    const transitions = [];
+    for (const transition of candidates) {
     const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
     const startedAtMs = Number(transition?.startedAtMs) || 0;
-    if (!transition?.fromState || !durationMs || !startedAtMs) return null;
+      if (!transition?.fromState || !durationMs || !startedAtMs) continue;
     const progress = Math.max(0, Math.min(1, (Number(nowMs) - startedAtMs) / durationMs));
-    if (progress >= 1) return null;
+      if (progress >= 1) continue;
     const resolved = this.resolveTransition?.(
       transition.transitionId,
       transition.transitionParameters
     ) || {};
-    return { ...transition, ...resolved, progress };
+      transitions.push({ ...transition, ...resolved, progress });
+    }
+    return transitions;
+  }
+
+  renderConcurrentTransitionSurfaces(transitions) {
+    const renderer = this.renderer;
+    if (renderer.readinessRuntime.isBlackout()) return;
+    const overall = transitions.find((transition) => !transition.surfaceId);
+    if (overall) return this.renderTransitionSurfaces(overall);
+    const transitioningIds = new Set(transitions.map((transition) => String(transition.surfaceId || "")));
+    const targetState = renderer.state;
+    const stableState = stateWithOnlySurfaces(
+      targetState,
+      (surface) => !transitioningIds.has(String(surface.id || ""))
+    );
+    this.withRenderState(stableState, () => this.renderMappingSurfaces());
+    for (const transition of transitions) {
+      const surfaceId = String(transition.surfaceId || "");
+      if (!surfaceId) continue;
+      const scopedTarget = stateWithOnlySurfaces(
+        targetState,
+        (surface) => String(surface.id || "") === surfaceId
+      );
+      const scopedFrom = stateWithOnlySurfaces(
+        transition.fromState,
+        (surface) => String(surface.id || "") === surfaceId
+      );
+      this.withRenderState(scopedTarget, () => this.renderTransitionSurfaces({
+        ...transition,
+        fromState: scopedFrom,
+      }));
+    }
   }
 
   renderTransitionSurfaces(transition) {
@@ -885,6 +927,15 @@ export function transitionRouteSourceKey(route = {}) {
     surface.sourceFitActive === true,
     Math.round((Number(surface.sourceAspect) || 1) * 1e6) / 1e6,
   ]);
+}
+
+function stateWithOnlySurfaces(state = {}, predicate = () => true) {
+  return {
+    ...state,
+    surfaces: (state.surfaces || []).filter(predicate),
+    liveTransitions: [],
+    liveTransition: null,
+  };
 }
 
 function drawTransformedSampleRect(target, source, sampleRect, transform = {}, fit = "stretch") {

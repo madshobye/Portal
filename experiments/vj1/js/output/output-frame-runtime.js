@@ -6,6 +6,11 @@ import {
 } from "../libraries/timing-engine/presentation-clock/index.js";
 import { RENDER_CACHE_IDLE_FRAMES } from "../libraries/cache-engine/render-cache/index.js";
 import { globalVisualTimeScale } from "./render-runtime-math.js";
+import {
+  frameTimestampWallTimeMs,
+  sampleSessionTimeline,
+  sessionTimelineNowMs,
+} from "../libraries/timing-engine/session-timeline/index.js";
 
 // Owns presentation time, frame identity, manual-event delivery, cadence
 // classification, and periodic retained-cache maintenance. It neither executes
@@ -24,6 +29,8 @@ export class OutputFrameRuntime {
     this.scheduledEvents = [];
     this.manualScheduler = createManualScheduler();
     this.componentTimes = new Map();
+    this.sessionTimelineRevision = 0;
+    this.sessionSeed = 0;
   }
 
   begin(nowMs = performance.now()) {
@@ -63,6 +70,14 @@ export class OutputFrameRuntime {
       playing,
     );
     this.rawElapsedTime = this.presentationClock.rawElapsedSeconds;
+    const sessionTimeline = host.state?.metrics?.sessionTimeline;
+    if (sessionTimeline) {
+      this.tickSessionTimeline(
+        sessionTimeline,
+        frameTimestampWallTimeMs(nowMs),
+      );
+      return;
+    }
     const timeScale = globalVisualTimeScale(host.state?.global);
     this.visualDeltaSeconds = this.presentationClock.presentationDeltaSeconds * timeScale;
     if (!playing) return;
@@ -79,6 +94,28 @@ export class OutputFrameRuntime {
         component.id,
         (this.componentTimes.get(component.id) || 0) + this.visualDeltaSeconds * speed,
       );
+    }
+  }
+
+  tickSessionTimeline(timeline, wallNowMs = sessionTimelineNowMs()) {
+    const revision = Math.max(1, Number(timeline.revision) || 1);
+    const targetTime = sampleSessionTimeline(timeline, wallNowMs);
+    const firstSample = this.sessionTimelineRevision === 0;
+    this.sessionTimelineRevision = revision;
+    this.sessionSeed = Number(timeline.seed) >>> 0;
+    this.visualDeltaSeconds = firstSample
+      ? 0
+      : Math.max(0, targetTime - this.visualTime);
+    this.visualTime = targetTime;
+    const components = this.host.componentProgramRuntime.componentById.size
+      ? this.host.componentProgramRuntime.componentById.values()
+      : [
+        ...(this.host.state?.components || []),
+        ...(this.host.componentProgramRuntime.runtimeComponents || []),
+      ];
+    for (const component of components) {
+      const speed = Math.max(0, Number(component.speed) || 0);
+      this.componentTimes.set(component.id, targetTime * speed);
     }
   }
 

@@ -54,6 +54,7 @@ export function createNumberParam(id, label, {
   rangeDisplay = "number",
   renderQualityScaling = null,
   suggestedAnimations = [],
+  defaultAnimation = null,
 } = {}) {
   return {
     id,
@@ -79,6 +80,17 @@ export function createNumberParam(id, label, {
       suggestedAnimations: Object.freeze(suggestedAnimations.map((suggestion) =>
         Object.freeze({ ...suggestion })
       )),
+    } : {}),
+    ...(defaultAnimation ? {
+      defaultAnimation: Object.freeze({
+        ...defaultAnimation,
+        ...(defaultAnimation.legacyRate ? {
+          legacyRate: Object.freeze({ ...defaultAnimation.legacyRate }),
+        } : {}),
+        ...(defaultAnimation.legacyEnabled ? {
+          legacyEnabled: Object.freeze({ ...defaultAnimation.legacyEnabled }),
+        } : {}),
+      }),
     } : {}),
   };
 }
@@ -258,6 +270,17 @@ function nodeParameterSpec(param = {}) {
       ...(param.metadata || {}),
       ...(param.suggestedAnimations?.length ? {
         suggestedAnimations: param.suggestedAnimations.map((suggestion) => ({ ...suggestion })),
+      } : {}),
+      ...(param.defaultAnimation ? {
+        defaultAnimation: {
+          ...param.defaultAnimation,
+          ...(param.defaultAnimation.legacyRate
+            ? { legacyRate: { ...param.defaultAnimation.legacyRate } }
+            : {}),
+          ...(param.defaultAnimation.legacyEnabled
+            ? { legacyEnabled: { ...param.defaultAnimation.legacyEnabled } }
+            : {}),
+        },
       } : {}),
     },
   };

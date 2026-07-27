@@ -44,6 +44,44 @@ test("Application control signals retain explicit event sequences without extern
   runtime.dispose();
 });
 
+test("Application pointer and Probe batches publish one coherent retained revision", () => {
+  const invalidations = [];
+  const runtime = new ControlSignalRuntime({
+    onInvalidate: (reason) => invalidations.push(reason),
+    clock: () => 50,
+  });
+
+  assert.equal(runtime.publishBatch("pointer", {
+    x: 0.25,
+    y: 0.75,
+    down: 1,
+  }, {
+    sequence: 7,
+    timestamp: 40,
+  }), true);
+  assert.deepEqual(runtime.resolve("pointer", "x"), {
+    value: 0.25,
+    sequence: 7,
+    timestamp: 40,
+  });
+  assert.deepEqual(runtime.resolve("pointer", "down"), {
+    value: 1,
+    sequence: 7,
+    timestamp: 40,
+  });
+
+  assert.equal(runtime.publishBatch("probe", new Map([
+    ["component:a:probe:b:brightness", 0.6],
+    ["component:a:probe:b:r", 0.8],
+  ])), true);
+  assert.equal(
+    runtime.resolve("probe", "component:a:probe:b:brightness").value,
+    0.6,
+  );
+  assert.deepEqual(invalidations, ["pointer-signals", "probe-signals"]);
+  runtime.dispose();
+});
+
 function midiInput(id = "device-a") {
   return {
     id,
@@ -331,6 +369,46 @@ test("audio analysis owns lazy permission retained features device identity and 
   assert.equal(second.track.stopCalls, 1);
   assert.equal(second.context.closeCalls, 1);
   assert.equal(deviceListeners.size, 0);
+});
+
+test("audio analysis publishes adaptive overall and low/mid/high beat pulses", async () => {
+  const fixture = audioFixture();
+  let loud = false;
+  fixture.analyser.getByteTimeDomainData = (target) => {
+    target.fill(128);
+    if (!loud) return;
+    for (let index = 0; index < target.length; index++) {
+      target[index] = index % 2 ? 0 : 255;
+    }
+  };
+  fixture.analyser.getByteFrequencyData = (target) => {
+    target.fill(loud ? 255 : 0);
+  };
+  let clock = 0;
+  const runtime = new ControlSignalRuntime({
+    requestAudioStream: async () => fixture.stream,
+    createAudioContext: () => fixture.context,
+    clock: () => clock,
+  });
+
+  runtime.resolve("audio", "beat");
+  await runtime.whenReady("audio");
+  runtime.beginFrame();
+  assert.equal(runtime.resolve("audio", "beat").value, 0);
+
+  loud = true;
+  clock = 300;
+  runtime.beginFrame();
+  for (const address of ["beat", "beat:low", "beat:mid", "beat:high"]) {
+    const signal = runtime.resolve("audio", address);
+    assert.equal(signal.value, 1, address);
+    assert.ok(signal.sequence > 0, address);
+  }
+
+  clock = 316;
+  runtime.beginFrame();
+  assert.equal(runtime.resolve("audio", "beat").value, 0);
+  runtime.dispose();
 });
 
 test("OSC adapter owns endpoint-scoped WebSockets retained messages reconnect and disposal", async () => {

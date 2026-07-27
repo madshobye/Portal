@@ -4902,7 +4902,8 @@ test("zero-duration Live output retains the original single-scene surface path",
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const stateRuntimeSource = readFileSync(new URL("../js/output/output-state-runtime.js", import.meta.url), "utf8");
   const transitionSource = readFileSync(new URL("../js/output/transition-runtime.js", import.meta.url), "utf8");
-  assert.ok(source.includes("if (transition) return this.renderTransitionSurfaces(transition);"));
+  assert.ok(source.includes("if (transitions[0]) return this.renderTransitionSurfaces(transitions[0]);"));
+  assert.ok(source.includes("if (transitions.length > 1) return this.renderConcurrentTransitionSurfaces(transitions);"));
   assert.ok(source.includes("this.renderMappingSurfaces();"));
   assert.ok(source.includes("this.releaseTransitionSurfaceTextures();"));
   assert.ok(source.includes("renderer.mappingRuntime.mapper.drawTransitionTextures("));

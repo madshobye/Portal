@@ -1,6 +1,7 @@
 import { latestProjectActivity } from "./component-activity.js";
 import { runtimeVisualSourceNodes } from "./runtime-visual-sources.js";
 import { directSurfaceHierarchy } from "./direct-surface-hierarchy.js";
+import { activeLiveTransitions } from "./live-transition-coordinator.js";
 
 // These fields belong to a compiled Surface route, not to the authored
 // Mapping Surface. Keeping the list beside the route materializer gives model
@@ -269,14 +270,7 @@ export function liveProgramComponentIds(state = {}, nowMs = Date.now()) {
     ? materializeLiveProgramSurfaceRoutes(state, target || null, mapping)
     : null;
   const routeStates = [currentRoutes].filter(Boolean);
-  const transition = live.transition;
-  const transitionStartedAt = Number(transition?.startedAtMs) || 0;
-  const transitionDuration = Math.max(0, Number(transition?.durationMs) || 0);
-  if (
-    transition?.fromSurfaceRoutes &&
-    transitionStartedAt > 0 &&
-    Number(nowMs) < transitionStartedAt + transitionDuration
-  ) {
+  for (const transition of activeLiveTransitions(live, nowMs)) {
     routeStates.push(transition.fromSurfaceRoutes);
   }
   for (const routeState of routeStates) {

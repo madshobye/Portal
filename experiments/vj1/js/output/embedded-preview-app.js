@@ -10,8 +10,19 @@ import { createThumbnailUrlLease } from "../services/component-thumbnail-store.j
 import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js";
 import { applyLiveRenderPatchesImmutable } from "../domain/live-render-patch.js";
 import { CONTROL_SIGNAL_COMMAND, publishRendererControlSignal } from "./control-signal-command.js";
+import {
+  pointerSignalValues,
+  projectUsesPointerSignals,
+  rendererUsesPointerSignals,
+} from "./pointer-control-signals.js";
 
-export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, onChainItemTarget }) {
+export function createEmbeddedPreviewApp({
+  store,
+  mediaLibrary,
+  projectService,
+  onChainItemTarget,
+  onControlSignal = null,
+}) {
   let host = null;
   let stage = null;
   let hud = null;
@@ -33,6 +44,7 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
   let canvasHeight = 0;
   let pointerActive = false;
   let activePointerId = null;
+  let pointerSignalSequence = 0;
   let unbindCanvasPointerEvents = null;
   let viewportController = null;
   let paused = false;
@@ -368,6 +380,33 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
         height: Number(canvasHeight) || Number(globalThis.height) || rect.height,
       });
     };
+    const publishPointer = (position, {
+      down = pointerActive,
+      inside = true,
+      event = "",
+    } = {}) => {
+      if (!projectUsesPointerSignals(pendingState)) return false;
+      const values = pointerSignalValues({
+        x: position?.x || 0,
+        y: position?.y || 0,
+        width: canvasWidth,
+        height: canvasHeight,
+        down,
+        inside,
+        event,
+      });
+      const payload = {
+        kind: "pointer",
+        values,
+        sequence: ++pointerSignalSequence,
+        timestamp: Date.now(),
+      };
+      if (rendererUsesPointerSignals(renderer)) {
+        publishRendererControlSignal(renderer, payload);
+      }
+      onControlSignal?.(payload);
+      return true;
+    };
     const onPointerDown = (event) => {
       // Shift/Alt drag belongs to the shared viewport navigation controller,
       // not to Scene frames, Components, or mapping handles.
@@ -379,33 +418,45 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       renderer?.thumbnailRuntime?.setInteractionActive?.(true);
       element.setPointerCapture?.(event.pointerId);
       const position = point(event);
+      publishPointer(position, { down: true, event: "pressed" });
       renderer?.mousePressed?.(position.x, position.y);
     };
     const onPointerMove = (event) => {
+      const position = point(event);
+      publishPointer(position, { event: "moved" });
       if (!pointerActive || event.pointerId !== activePointerId) return;
       wakePreviewPresentation();
       event.preventDefault();
-      const position = point(event);
       renderer?.mouseDragged?.(position.x, position.y);
     };
     const finishPointer = (event) => {
       if (!pointerActive || event.pointerId !== activePointerId) return;
       wakePreviewPresentation();
+      publishPointer(point(event), {
+        down: false,
+        event: "released",
+      });
       pointerActive = false;
       activePointerId = null;
       element.releasePointerCapture?.(event.pointerId);
       renderer?.mouseReleased?.();
       renderer?.thumbnailRuntime?.setInteractionActive?.(false);
     };
+    const onPointerLeave = (event) => {
+      if (pointerActive) return;
+      publishPointer(point(event), { down: false, inside: false });
+    };
     element.addEventListener("pointerdown", onPointerDown);
     element.addEventListener("pointermove", onPointerMove);
     element.addEventListener("pointerup", finishPointer);
     element.addEventListener("pointercancel", finishPointer);
+    element.addEventListener("pointerleave", onPointerLeave);
     unbindCanvasPointerEvents = () => {
       element.removeEventListener("pointerdown", onPointerDown);
       element.removeEventListener("pointermove", onPointerMove);
       element.removeEventListener("pointerup", finishPointer);
       element.removeEventListener("pointercancel", finishPointer);
+      element.removeEventListener("pointerleave", onPointerLeave);
       pointerActive = false;
       activePointerId = null;
       renderer?.thumbnailRuntime?.setInteractionActive?.(false);
@@ -725,7 +776,11 @@ export function createEmbeddedPreviewApp({ store, mediaLibrary, projectService, 
       activeRetimedTransitionSceneId = "";
       return state;
     }
-    return { ...state, liveTransition: activeRetimedTransition };
+    return {
+      ...state,
+      liveTransitions: [activeRetimedTransition],
+      liveTransition: activeRetimedTransition,
+    };
   }
 
   function bindStageViewportEvents() {
@@ -1002,12 +1057,14 @@ export function shouldPrepareEmbeddedLiveState(nextState, currentState) {
 
 export function retimeEmbeddedLiveTransition(state, startedAtMs = Date.now() + 50) {
   if (!state?.liveTransition) return state;
+  const liveTransitions = (state.liveTransitions || [state.liveTransition]).map((transition) => ({
+    ...transition,
+    startedAtMs,
+  }));
   return {
     ...state,
-    liveTransition: {
-      ...state.liveTransition,
-      startedAtMs,
-    },
+    liveTransitions,
+    liveTransition: liveTransitions[0],
   };
 }
 

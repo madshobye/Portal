@@ -2,11 +2,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createVj1NodePackage } from "../js/app-node-package.js";
+import { parameterAnimationViewTemplate } from "../js/control/animation-view.js";
 import { componentSelectedChainSettingsTemplate } from "../js/control/component-view.js";
-import { createInitialState, createSceneComponent } from "../js/domain/models.js";
+import {
+  createComponentEffect,
+  createInitialState,
+  createSceneComponent,
+} from "../js/domain/models.js";
 import {
   addParameterAnimationTrack,
   PARAMETER_ANIMATION_STAGES,
+  parameterAnimationSignalSources,
   parameterAnimationTracks,
   parameterAnimationTriggerAddress,
   removeParameterAnimationTrack,
@@ -32,7 +38,7 @@ function plasmaState() {
   source.source = {
     type: "generator",
     generatorId: "plasma",
-    params: { speed: 1 },
+    params: { speed: 1, motionMode: "steady" },
   };
   initial.ui.selectedComponentId = component.id;
   initial.ui.selectedChainItemId = source.id;
@@ -326,6 +332,101 @@ test("Animation tracks execute through the allocation-stable compiled control pr
     step.outputValues === retainedOutputs[index]
   ));
   restoreAgain();
+});
+
+test("live animation drivers reuse Mapping Combination and Sink without a timeline transport", () => {
+  const { packageRoot, state, componentId, targetNodeId } = plasmaState();
+  const nodes = addParameterAnimationTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "speed",
+    sourceKind: "pointer",
+    sourceAddress: "x",
+    from: 0,
+    to: 4,
+  });
+  const [track] = parameterAnimationTracks(nodes, componentId, targetNodeId);
+  assert.equal(track.sourceKind, "pointer");
+  assert.equal(track.sourceAddress, "x");
+  const group = nodes.groups.find((entry) => entry.componentId === componentId);
+  const owned = group.nodes.filter((node) =>
+    node.animationTrack?.id === track.id || node.animationTrackOwnerId === track.id
+  );
+  assert.deepEqual(
+    owned.map((node) => node.nodeId).sort(),
+    [
+      "core.control.map-range",
+      "core.control.numeric-combine",
+      "core.control.pointer-input",
+    ],
+  );
+  assert.equal(group.nodes.some((node) => node.nodeId === "core.control.component-time"), false);
+
+  const program = compileComponentRenderPrograms(state.components, nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(componentId);
+  const operation = program.plan.operations.find((entry) => entry.id === targetNodeId);
+  assert.deepEqual(
+    program.inspect().readiness.requirements.filter(({ kind }) => kind === "control-signal"),
+    [{
+      kind: "control-signal",
+      signalKind: "pointer",
+      address: "x",
+      required: false,
+    }],
+  );
+  const signals = new ControlSignalRuntime();
+  signals.publish("pointer", "x", 0.75);
+  const restore = program.plan.controlProgram.apply({
+    renderRequest: { controlSignals: signals },
+  });
+  assert.equal(operation.configuration.source.params.speed, 3);
+  restore();
+  signals.dispose();
+});
+
+test("audio animation drivers retain the frame clock needed by live Web Audio analysis", () => {
+  const { packageRoot, state, componentId, targetNodeId } = plasmaState();
+  const nodes = addParameterAnimationTrack(state.nodes, {
+    componentId,
+    targetNodeId,
+    parameterId: "speed",
+    sourceKind: "audio",
+    sourceAddress: "low",
+    from: 0,
+    to: 4,
+  });
+  const program = compileComponentRenderPrograms(state.components, nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(componentId);
+  const audioStep = program.plan.controlProgram.inspect().steps.find(
+    ({ nodeId }) => nodeId === "core.control.audio-input",
+  );
+  assert.equal(audioStep.frameDependent, true);
+  assert.equal(program.inspect().dynamics.frameDependent, true);
+});
+
+test("animation source catalog exposes pointer audio beat and local Probe features", () => {
+  const { state, componentId, targetNodeId } = plasmaState();
+  const group = state.nodes.groups.find((entry) => entry.componentId === componentId);
+  group.nodes.push({
+    id: "probe-a",
+    nodeId: "vj1.visual.effect.probe",
+    role: "effect",
+    configuration: { name: "Stage Probe" },
+  });
+  const sources = parameterAnimationSignalSources(
+    state.nodes,
+    componentId,
+    targetNodeId,
+  );
+  assert.ok(sources.some(({ kind, address }) => kind === "pointer" && address === "x"));
+  assert.ok(sources.some(({ kind, address }) => kind === "audio" && address === "beat:low"));
+  assert.ok(sources.some(({ kind, address, label }) =>
+    kind === "probe" &&
+    address === `component:${componentId}:probe:probe-a:brightness` &&
+    label === "Stage Probe · Brightness"
+  ));
 });
 
 test("General parameter animations use the same direct control program and restore retained configuration", () => {
@@ -650,6 +751,217 @@ test("Visual parameters expose editable suggested animations without a separate 
   }
 });
 
+test("Plasma exposes one editable default track and ordinary addable animation suggestions", () => {
+  const fixture = plasmaState();
+  const component = fixture.state.components
+    .find((entry) => entry.id === fixture.componentId);
+  const source = component.chain.find((entry) => entry.id === fixture.targetNodeId);
+  source.source.params.motionMode = "drift";
+  const state = fixture.packageRoot.prepareProjectState({
+    ...fixture.state,
+    nodes: {
+      ...fixture.state.nodes,
+      groups: [],
+    },
+  });
+  const tracks = parameterAnimationTracks(
+    state.nodes,
+    fixture.componentId,
+    fixture.targetNodeId,
+  );
+  assert.equal(tracks.length, 1);
+  assert.equal(tracks[0].parameterId, "phase");
+  assert.equal(tracks[0].defaultAnimationId, "vj1.visual.generator.plasma:phase:plasma-motion@1");
+
+  const plasma = getGeneratorNodeComponent("plasma");
+  const html = parameterAnimationViewTemplate({
+    state,
+    componentId: fixture.componentId,
+    targetNodeId: fixture.targetNodeId,
+    parameters: plasma.params.map((parameter) => ({
+      ...parameter,
+      value: source.source.params[parameter.id] ?? parameter.defaultValue,
+    })),
+  });
+  assert.match(html, /<strong>Motion phase<\/strong>/);
+  assert.match(html, /data-remove-parameter-animation/);
+  assert.match(html, />Orbit direction<\/span>/);
+  assert.match(html, />Breathe cell scale<\/span>/);
+  assert.match(html, />Breathe distortion<\/span>/);
+  assert.match(html, />Cycle hue<\/span>/);
+  assert.doesNotMatch(html, />Motion<\/span>\\s*<select/);
+
+  const removedState = fixture.packageRoot.prepareProjectState({
+    ...state,
+    nodes: removeParameterAnimationTrack(state.nodes, {
+      componentId: fixture.componentId,
+      targetNodeId: fixture.targetNodeId,
+      trackId: tracks[0].id,
+    }),
+  });
+  assert.deepEqual(
+    parameterAnimationTracks(
+      removedState.nodes,
+      fixture.componentId,
+      fixture.targetNodeId,
+    ),
+    [],
+    "removing Plasma motion must not silently recreate its default track",
+  );
+  const removedHtml = parameterAnimationViewTemplate({
+    state: removedState,
+    componentId: fixture.componentId,
+    targetNodeId: fixture.targetNodeId,
+    parameters: plasma.params.map((parameter) => ({
+      ...parameter,
+      value: source.source.params[parameter.id] ?? parameter.defaultValue,
+    })),
+  });
+  assert.match(removedHtml, />Plasma motion<\/span>/);
+  const staticProgram = compileComponentRenderPrograms(
+    removedState.components,
+    removedState.nodes.groups,
+    {
+      resolveNodeDefinition: (node) =>
+        fixture.packageRoot.registry.get(node.nodeId, node.nodeVersion),
+    },
+  ).get(fixture.componentId);
+  assert.equal(
+    staticProgram.inspect().dynamics.frameDependent,
+    false,
+    "removed Plasma motion must leave no hidden shader clock",
+  );
+});
+
+test("Obvious built-in shader motion is authored once as an editable default animation graph", () => {
+  const packageRoot = createVj1NodePackage();
+  const initial = createInitialState();
+  const component = initial.components.find((item) => item.type !== "scene");
+  const effect = createComponentEffect("spinRotate", { speed: -0.5 });
+  component.chain.push(effect);
+
+  let state = packageRoot.prepareProjectState(initial);
+  const [track] = parameterAnimationTracks(state.nodes, component.id, effect.id);
+  assert.deepEqual(
+    {
+      parameterId: track.parameterId,
+      mode: track.mode,
+      from: track.from,
+      to: track.to,
+      duration: track.duration,
+      phase: track.phase,
+      curve: track.curve,
+      defaultAnimationId: track.defaultAnimationId,
+    },
+    {
+      parameterId: "phase",
+      mode: "loop",
+      from: Math.PI,
+      to: -Math.PI,
+      duration: Math.PI * 4,
+      phase: 0.5,
+      curve: "linear",
+      defaultAnimationId: "vj1.visual.effect.spinRotate:phase:continuous@1",
+    },
+  );
+  const group = state.nodes.groups.find((entry) => entry.componentId === component.id);
+  const target = group.nodes.find((node) => node.id === effect.id);
+  assert.ok(target.animationDefaults.handled.includes(track.defaultAnimationId));
+  assert.equal(group.persistence, "project-diff");
+  assert.ok(group.nodes.some((node) => node.nodeId === "core.control.component-time"));
+  assert.ok(group.nodes.some((node) => node.nodeId === "core.control.animation-sequencer"));
+  assert.ok(group.nodes.some((node) => node.nodeId === "core.control.animation-curve"));
+  assert.ok(group.nodes.some((node) => node.nodeId === "core.control.map-range"));
+  assert.ok(group.nodes.some((node) => node.nodeId === "core.control.numeric-combine"));
+  const program = compileComponentRenderPrograms(state.components, state.nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(component.id);
+  const operation = program.plan.operations.find((entry) => entry.id === effect.id);
+  assert.equal(program.inspect().dynamics.frameDependent, true);
+  const restore = program.plan.controlProgram.apply({ componentTime: 1 });
+  assert.ok(Math.abs(operation.configuration.params.phase + 0.5) < 1e-9);
+  restore();
+
+  state = {
+    ...state,
+    nodes: removeParameterAnimationTrack(state.nodes, {
+      componentId: component.id,
+      targetNodeId: effect.id,
+      trackId: track.id,
+    }),
+  };
+  state = packageRoot.prepareProjectState(state);
+  assert.deepEqual(parameterAnimationTracks(state.nodes, component.id, effect.id), []);
+  const reconciledTarget = state.nodes.groups
+    .find((entry) => entry.componentId === component.id)
+    .nodes.find((node) => node.id === effect.id);
+  assert.ok(
+    reconciledTarget.animationDefaults.handled.includes(track.defaultAnimationId),
+    "removing an editable default must not silently recreate it",
+  );
+  const phaseParameter = getEffectNodeComponent("spinRotate").params
+    .find((parameter) => parameter.id === "phase");
+  const html = parameterAnimationViewTemplate({
+    state,
+    componentId: component.id,
+    targetNodeId: effect.id,
+    parameters: [{ ...phaseParameter, value: 0 }],
+  });
+  assert.match(html, />Continuous rotation<\/span>/);
+  assert.match(html, /data-animation-phase="0.5"/);
+});
+
+test("Converted shader motion exposes phase parameters and no longer reads the shader clock", () => {
+  const expectations = [
+    ["spinRotate", ["phase"]],
+    ["rgbSplit", ["phase"]],
+    ["ripple", ["phase"]],
+    ["mirrorFold", ["phase"]],
+    ["tileRepeat", ["phaseX", "phaseY"]],
+  ];
+  for (const [effectId, phaseIds] of expectations) {
+    const effect = getEffectNodeComponent(effectId);
+    assert.doesNotMatch(effect.code, /\btime\b/, `${effectId} should have one animation authority`);
+    for (const phaseId of phaseIds) {
+      const parameter = effect.params.find((entry) => entry.id === phaseId);
+      assert.ok(parameter?.defaultAnimation, `${effectId}.${phaseId} should declare its editable default`);
+      assert.equal(
+        effect.nodeDefinition.parameters[phaseId].metadata.defaultAnimation.id,
+        parameter.defaultAnimation.id,
+      );
+    }
+  }
+  assert.equal(
+    getGeneratorNodeComponent("terrainFlyover").params
+      .find((parameter) => parameter.id === "flightSpeed")?.label,
+    "Flight speed",
+    "unbounded terrain travel remains a semantic speed rather than a fake bounded phase",
+  );
+});
+
+test("Tile Repeat migrates independent signed scroll rates into exact phase-track timing", () => {
+  const packageRoot = createVj1NodePackage();
+  const initial = createInitialState();
+  const component = initial.components.find((item) => item.type !== "scene");
+  const effect = createComponentEffect("tileRepeat", {
+    scrollX: 0.25,
+    scrollY: -0.5,
+  });
+  component.chain.push(effect);
+
+  const state = packageRoot.prepareProjectState(initial);
+  const tracks = parameterAnimationTracks(state.nodes, component.id, effect.id);
+  assert.deepEqual(tracks.map((track) => ({
+    parameterId: track.parameterId,
+    from: track.from,
+    to: track.to,
+    duration: track.duration,
+  })), [
+    { parameterId: "phaseX", from: 0, to: 1, duration: 4 },
+    { parameterId: "phaseY", from: 1, to: 0, duration: 2 },
+  ]);
+});
+
 test("Component and Scene inspectors share one Animation tab before General", () => {
   const fixture = plasmaState();
   let state = fixture.state;
@@ -677,7 +989,7 @@ test("Component and Scene inspectors share one Animation tab before General", ()
   };
   html = componentSelectedChainSettingsTemplate(component, state);
   assert.match(html, /class="parameter-animation-track is-enabled"/);
-  assert.match(html, /<strong>Motion speed<\/strong>/);
+  assert.match(html, /<strong>Motion amount<\/strong>/);
   assert.match(html, /data-animation-track-field="mode"/);
   assert.match(html, /data-animation-track-field="curve"/);
   assert.match(html, /data-animation-track-field="runMode"/);

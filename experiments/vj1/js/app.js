@@ -170,7 +170,10 @@ async function installControlApp() {
       return;
     }
     if (state.ui.workspace === "mapping" && ["blackout", "toggle-output-playback", "toggle-output-hud"].includes(reason)) {
-      bridge.command("sync-global", { global: state.global });
+      bridge.command("sync-global", {
+        global: state.global,
+        sessionTimeline: state.metrics?.sessionTimeline,
+      });
       return;
     }
     const renderPatches = outputRenderPatchesForChange(state, change);

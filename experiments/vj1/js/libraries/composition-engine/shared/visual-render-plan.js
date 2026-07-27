@@ -27,6 +27,7 @@ export const VISUAL_RENDER_OPCODES = Object.freeze({
   TRANSITION: "transition",
   FEEDBACK: "feedback",
   DELAY: "delay",
+  PROBE: "probe",
 });
 
 export const VISUAL_COMPILER_HOOKS = Object.freeze({
@@ -37,6 +38,7 @@ export const VISUAL_COMPILER_HOOKS = Object.freeze({
   GROUP: "vj1.visual.layer-group",
   TEXTURE_OPERATOR: "vj1.visual.texture-operator",
   COMPOUND: "vj1.visual.compound",
+  PROBE: "vj1.visual.probe",
 });
 
 export function defineVisualNodeCompilerHook({ id, compile } = {}) {
@@ -134,6 +136,29 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
       ...(hook.contract ? { contract: hook.contract } : {}),
       operations: compileChildren(node, configuration, path),
     }),
+  }),
+  defineVisualNodeCompilerHook({
+    id: VISUAL_COMPILER_HOOKS.PROBE,
+    compile: (node, { configuration, path, hook }) =>
+      operation(
+        VISUAL_RENDER_OPCODES.PROBE,
+        node,
+        configuration,
+        path,
+        {
+          backend: "probe-observer",
+          compilerHook: hook,
+          transformDomain: VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD,
+          contract: defineVisualNodeContract({}, {
+            transform: { domain: VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD },
+            roi: {
+              mode: VISUAL_ROI_MODES.LOCAL,
+              halo: 0,
+              coordinateSpace: VISUAL_COORDINATE_SPACES.BOUNDARY,
+            },
+          }),
+        },
+      ),
   }),
   defineVisualNodeCompilerHook({
     id: VISUAL_COMPILER_HOOKS.COMPOUND,

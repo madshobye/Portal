@@ -97,6 +97,27 @@ behavior. Mapping converts normalized curve output into parameter units.
 Combination explicitly replaces, adds to, or multiplies the authored base
 value; the generated scalar control remains the base authority rather than
 becoming separate animation state.
+
+An Animation track may replace its Timeline source with a typed retained live
+signal while keeping the same Mapping, Combination, and parameter Sink.
+Pointer X/Y/down/inside, analyzed audio level/peak/low/mid/high and adaptive
+overall/low/mid/high beat pulses, and local Probe color features are available
+through the Driver selector. Pointer publication is normalized to the
+presentation canvas, shared from Live Preview to Output, and remains entirely
+dormant unless a compiled program declares a pointer dependency. Audio capture
+is requested lazily by the audio control node; its analyzer is the only live
+driver that deliberately retains frame cadence.
+
+Probe is a visual passthrough observer in the ordinary Component/Scene chain.
+Its Boundary position and scale define the sampled area. Only a Probe address
+referenced by a compiled local Animation track activates observation. The
+renderer averages a fixed 4x4 lattice into one retained 1x1 GPU target, reads
+one pixel at the Probe's configured rate (15 Hz by default), and publishes only
+the demanded normalized brightness, RGB, HSV, or alpha values. The control
+program consumes the retained result on the following frame; Probe never
+copies a full framebuffer, writes project state, or introduces a parallel
+render loop.
+
 Deterministic random triggers are separate Component-Time event nodes. Manual
 trigger buttons publish sequence-stamped application control signals to Preview
 and Output; they never write project state, create history, autosave, or
@@ -110,10 +131,34 @@ refresh compiler-owned visual configuration while preserving authored controls.
 The generated scalar control remains dormant as the exact base-value fallback
 and is reconnected when a track is disabled or removed. Evaluation stays in the
 retained direct control program and never writes per-frame values to project
-state. The first Animation iteration is numeric-only. Color interpolation,
-Probe/global signal routing, and format-specific conveniences such as ISF
-parameter metadata are later typed extensions of this control graph, not new
-animation engines.
+state.
+
+Visual definitions may declare an ordinary numeric parameter's editable
+`defaultAnimation`. Project preparation materializes that declaration through
+the same six-stage graph exactly once and records a versioned handled marker on
+the target node. The resulting track is not privileged: users can edit,
+disable, or remove it, and removal does not cause it to reappear. A converted
+visual must expose the value actually consumed by its renderer (for example a
+bounded periodic phase), migrate any legacy rate into the initial track timing,
+and remove the old renderer-owned clock. Unbounded simulations such as Terrain
+flight keep semantic speed/controller inputs until they have an equivalent
+graph-native transport; they must not be disguised as bounded phase loops.
+`defaultAnimation` and `suggestedAnimations` are editor recipes, not runtime
+states: the Animation inspector lists recipes that can create an ordinary track,
+hides recipes for parameters that already have one, and offers a removed default
+again as an explicit suggestion instead of silently restoring it.
+
+The first Animation iteration is numeric-only. Triggered organic motion extends
+the graph with reusable finite Envelope nodes rather than effect-specific
+sequencer modes: Heartbeat is a trigger feeding a retriggerable double-beat
+envelope preset. Stochastic motion is a bounded deterministic Noise control
+source that can run continuously or through a trigger-gated burst envelope.
+Running Average is a separate allocation-stable signal processor so Probe,
+mouse, FFT, sensor, noise, and other live controls can opt into smoothing
+without changing their source or target. These nodes feed the existing Mapping
+and Combination stages. Cross-scope/global Probe routing, color interpolation,
+and format-specific conveniences such as ISF parameter metadata are later typed
+extensions of this control graph, not new animation engines.
 
 Reference patterns:
 
@@ -303,6 +348,14 @@ Transitions separate lifecycle from appearance. Prepared endpoints carry
 texture, normalized source rect, fit, aspect, opacity, and current projection.
 Each endpoint retains its own contain/cover mapping.
 
+Live transition lifecycle is destination-scoped. `transitionCoordinator` owns
+one active and one latest-wins pending snapshot per Overall or Surface
+destination. Different Surface lanes may run concurrently; Overall is exclusive
+with them. Both endpoints are snapshotted so an armed command cannot retarget an
+in-flight fade. Deadline scheduling and pending promotion are event-driven
+Control work outside the frame loop; renderers only derive progress and compose
+the active endpoint set.
+
 Transitions are first-class catalog artifacts. Live stores a stable
 `transitionId` and scalar/color parameters, never functions. Single-pass ISF
 transitions run inside existing projection/feather work. Persistent or multipass
@@ -394,6 +447,11 @@ Persistence and transport rules:
 - File/object URLs, decoders, captures, models, buffers, programs, and targets
   have explicit release ownership.
 - Canonical state must remain structured-cloneable.
+- Preview and Output sample one Control-owned `metrics.sessionTimeline` carrying
+  a revision, logical epoch, play state, rate, and session seed. Local
+  presentation clocks still classify cadence, but they are not animation-time
+  authorities. Play and time-stretch commands rebase the shared epoch at the
+  command boundary; visual nodes consume logical time and never read wall time.
 - Required browser/WebGL capabilities fail explicitly rather than selecting a
   hidden weaker renderer.
 - Live session state is a versioned, project-scoped local checkpoint. It retains
@@ -466,7 +524,7 @@ shaders, transitions and endpoint equivalence, ROI crop equivalence, ordinary
 and retained-value Groups, semantic 3D, aggregate CPU/Overall metrics, resource
 revisions, and balanced GPU/browser resources.
 
-At source coherence revision **186**, semantic sources, typed
+At source coherence revision **187**, semantic sources, typed
 resource/capability readiness, progressive primary-media restore, aggregate
 metrics, atomic retained framebuffer passes, and the complete browser import
 chain share one cache identity. A retained render result renews the lifetime of

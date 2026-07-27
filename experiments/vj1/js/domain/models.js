@@ -39,6 +39,7 @@ import {
 } from "../libraries/data-store/data-store/structural-sharing.js";
 import { firstEnabledLiveSurfaceId } from "./live-ui-state.js";
 import { applyEditorSelection } from "./editor-selection.js";
+import { createSessionTimeline, normalizeSessionTimeline } from "../libraries/timing-engine/session-timeline/index.js";
 import {
   MAPPING_TEST_PATTERN_COMPONENT_ID,
   MAPPING_TEST_PATTERN_SOURCE_NODE_ID,
@@ -194,13 +195,11 @@ export function createStartupProjectTemplate() {
   const plasma = createDefaultComponent(1, { empty: true });
   plasma.chain = [createComponentLayer(0, createGeneratorSource("plasma", {
     renderQuality: 0.5,
-    motionMode: "drift",
     speed: 0.65,
     direction: 0.65,
     frequency: 8,
     complexity: 0.7,
     distortion: 0.55,
-    colorSpeed: 0.22,
     hueShift: 0,
   }))];
 
@@ -401,6 +400,7 @@ export function createInitialState({ startupTemplate = false } = {}) {
         transitionDuration: startup ? 1.2 : 0,
         paramFadeDuration: startup ? 0.9 : 0,
         transition: null,
+        transitionCoordinator: {},
       },
       previewViewports: {
         component: { zoom: 1, x: 0, y: 0, fit: "world" },
@@ -494,6 +494,7 @@ export function createInitialState({ startupTemplate = false } = {}) {
       clients: 0,
       outputs: {},
       message: "No output connected",
+      sessionTimeline: createSessionTimeline(),
     },
   };
 }
@@ -535,6 +536,10 @@ export function sanitizeState(input = {}) {
   next.nodes = normalizeNodeProjectData(input.nodes);
   delete next.global.showLabels;
   next.global.timeStretch = clampNumber(input.global?.timeStretch, -4, 4, 0);
+  next.metrics.sessionTimeline = normalizeSessionTimeline(
+    input.metrics?.sessionTimeline,
+    next.global,
+  );
 
   next.render = normalizeRenderSettings(input.render || {});
   next.components = normalizeComponents(input, base);
@@ -658,7 +663,9 @@ function clampNumber(value, min, max, fallback) {
 export function createLiveRenderState(state = createInitialState()) {
   const program = compileLiveProjectionProgram(state);
   const { live, mapping } = program;
-  const next = createLiveEndpointState(state, live.componentOverrides);
+  const presentedOverrides = program.transitions.find((transition) => transition.scope === "overall")
+    ?.currentComponentOverrides || live.componentOverrides;
+  const next = createLiveEndpointState(state, presentedOverrides);
   if (mapping) {
     // The compiled Live program is the sole current-route authority. Only a
     // transition's previous endpoint is stored because it is historical state.
@@ -668,16 +675,18 @@ export function createLiveRenderState(state = createInitialState()) {
   next.ui.selectedMappingId = mapping?.id || "";
   next.global.calibrating = false;
 
-  const transition = program.transition;
-  if (transition) {
+  const liveTransitions = program.transitions.map((transition) => {
     const fromState = createLiveEndpointState(state, transition.previousComponentOverrides);
     fromState.surfaces = clone(transition.previousRoutes.surfaces);
     fromState.mappingCalibration = clone(mapping?.calibration || {});
     fromState.ui.selectedMappingId = mapping?.id || fromState.ui.selectedMappingId || "";
     fromState.global.calibrating = false;
     fromState.ui.live.transition = null;
-    next.liveTransition = {
+    fromState.ui.live.transitionCoordinator = {};
+    return {
       id: transition.id,
+      destination: transition.surfaceId ? `surface:${transition.surfaceId}` : "overall",
+      surfaceId: transition.surfaceId,
       transitionId: transition.transitionId,
       transitionParameters: clone(transition.transitionParameters),
       startedAtMs: transition.startedAtMs,
@@ -685,6 +694,10 @@ export function createLiveRenderState(state = createInitialState()) {
       componentsShared: transition.componentsShared,
       fromState,
     };
+  });
+  if (liveTransitions.length) {
+    next.liveTransitions = liveTransitions;
+    next.liveTransition = liveTransitions[0];
   }
   return next;
 }
@@ -696,7 +709,9 @@ export function createLiveRenderState(state = createInitialState()) {
 export function createLiveScenePreviewState(state = createInitialState()) {
   const program = compileLiveProjectionProgram(state);
   const { live, target } = program;
-  const next = createLiveEndpointState(state, live.componentOverrides);
+  const presentedOverrides = program.transitions.find((transition) => transition.scope === "overall")
+    ?.currentComponentOverrides || live.componentOverrides;
+  const next = createLiveEndpointState(state, presentedOverrides);
   const previewsSceneMapping = String(live.previewSurfaceId || "__mapping__") === "__mapping__";
   if (!target && live.overallSourceCleared !== true) return next;
   if (previewsSceneMapping && live.sceneMappingVisible === false) {
@@ -714,8 +729,7 @@ export function createLiveScenePreviewState(state = createInitialState()) {
     next.livePreviewGuideSurfaces = clone(program.currentRoutes.surfaces);
   }
 
-  const transition = program.previewTransition;
-  if (transition) {
+  const liveTransitions = program.previewTransitions.map((transition) => {
     const fromState = createLiveEndpointState(state, transition.previousComponentOverrides);
     applyLivePreviewProjection(
       fromState,
@@ -724,8 +738,11 @@ export function createLiveScenePreviewState(state = createInitialState()) {
       transition.previousRoutes
     );
     fromState.ui.live.transition = null;
-    next.liveTransition = {
+    fromState.ui.live.transitionCoordinator = {};
+    return {
       id: transition.id,
+      destination: transition.surfaceId ? `surface:${transition.surfaceId}` : "overall",
+      surfaceId: transition.surfaceId,
       transitionId: transition.transitionId,
       transitionParameters: clone(transition.transitionParameters),
       startedAtMs: transition.startedAtMs,
@@ -733,6 +750,10 @@ export function createLiveScenePreviewState(state = createInitialState()) {
       componentsShared: transition.componentsShared,
       fromState,
     };
+  });
+  if (liveTransitions.length) {
+    next.liveTransitions = liveTransitions;
+    next.liveTransition = liveTransitions[0];
   }
   return next;
 }
@@ -985,6 +1006,7 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
         durationMs: Math.min(30000, transitionDurationMs),
       }
     : null;
+  const transitionCoordinator = normalizeLiveTransitionCoordinator(live.transitionCoordinator, state);
   return {
     selectedSceneId,
     selectedComponentId: explicitTargetId,
@@ -1005,6 +1027,47 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     transitionDuration,
     paramFadeDuration,
     transition,
+    transitionCoordinator,
+  };
+}
+
+function normalizeLiveTransitionCoordinator(value = {}, state = {}) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const coordinator = {};
+  for (const [destination, lane] of Object.entries(value)) {
+    if (!lane || typeof lane !== "object") continue;
+    const active = normalizeCoordinatedTransition(lane.active, state);
+    const pending = normalizeCoordinatedTransition(lane.pending, state, true);
+    if (active || pending) coordinator[String(destination)] = {
+      ...(active ? { active } : {}),
+      ...(pending ? { pending } : {}),
+    };
+  }
+  return coordinator;
+}
+
+function normalizeCoordinatedTransition(value, state, pending = false) {
+  const durationMs = Math.min(30000, Math.max(0, Number(value?.durationMs) || 0));
+  if (!value?.fromSurfaceRoutes || !value?.toSurfaceRoutes || durationMs <= 0) return null;
+  const startedAtMs = Number(value.startedAtMs) || 0;
+  if (!pending && startedAtMs <= 0) return null;
+  return {
+    id: String(value.id || ""),
+    destination: String(value.destination || ""),
+    surfaceId: String(value.surfaceId || ""),
+    fromSceneId: String(value.fromSceneId || ""),
+    fromTargetId: String(value.fromTargetId || value.fromSceneId || ""),
+    toTargetId: String(value.toTargetId || ""),
+    fromSurfaceRoutes: normalizeSurfaceRoutes(value.fromSurfaceRoutes, state),
+    toSurfaceRoutes: normalizeSurfaceRoutes(value.toSurfaceRoutes, state),
+    fromComponentOverrides: normalizeComponentOverrides(value.fromComponentOverrides || {}),
+    toComponentOverrides: normalizeComponentOverrides(value.toComponentOverrides || {}),
+    transitionId: String(value.transitionId || "vj1.transition.dissolve"),
+    transitionParameters: value.transitionParameters && typeof value.transitionParameters === "object"
+      ? clone(value.transitionParameters)
+      : {},
+    startedAtMs,
+    durationMs,
   };
 }
 

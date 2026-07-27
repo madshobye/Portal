@@ -1,4 +1,5 @@
 import { createEnumParam, createNumberParam } from "../../shared/component-schema.js";
+import { createPeriodicAnimationParam } from "../../shared/periodic-animation-parameter.js";
 import { defineEffectNode } from "../../shared/visual-node-factory.js";
 
 const manifest = Object.freeze({
@@ -13,9 +14,6 @@ const manifest = Object.freeze({
   // through the placement matrix cancels that source placement exactly once.
   transformSource: false,
   runtime: {
-    timeDependent: (params = {}) =>
-      Math.abs(Number(params.scrollX) || 0) > 0.0001 ||
-      Math.abs(Number(params.scrollY) || 0) > 0.0001,
     // A wrapped output region can sample any part of its input texture. Until
     // the compiler has a periodic ROI mapper, requesting the complete input is
     // the only contract that is pixel-equivalent to cropping a full render.
@@ -31,8 +29,32 @@ const manifest = Object.freeze({
     createNumberParam("repeat", "Repeat", { min: 0.001, max: 64, step: 0.001, defaultValue: 1 }),
     createNumberParam("offsetX", "Offset X", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),
     createNumberParam("offsetY", "Offset Y", { min: -1, max: 1, step: 0.01, defaultValue: 0 }),
-    createNumberParam("scrollX", "Scroll X", { min: -2, max: 2, step: 0.01, defaultValue: 0 }),
-    createNumberParam("scrollY", "Scroll Y", { min: -2, max: 2, step: 0.01, defaultValue: 0 }),
+    createPeriodicAnimationParam("phaseX", "Scroll phase X", {
+      min: 0,
+      max: 1,
+      step: 0.001,
+      duration: 1,
+      animationLabel: "Scroll horizontally",
+      legacyRate: {
+        parameterId: "scrollX",
+        defaultValue: 0,
+        unitsPerSecond: 1,
+        skipWhenZero: true,
+      },
+    }),
+    createPeriodicAnimationParam("phaseY", "Scroll phase Y", {
+      min: 0,
+      max: 1,
+      step: 0.001,
+      duration: 1,
+      animationLabel: "Scroll vertically",
+      legacyRate: {
+        parameterId: "scrollY",
+        defaultValue: 0,
+        unitsPerSecond: 1,
+        skipWhenZero: true,
+      },
+    }),
   ],
   code: `
 vec4 runEffect(vec2 uv, vec4 color) {
@@ -43,7 +65,7 @@ vec4 runEffect(vec2 uv, vec4 color) {
   vec2 tileFieldUv = fract(
     fieldUv * repeatAmount +
     vec2(offsetX, offsetY) +
-    vec2(scrollX, scrollY) * time
+    vec2(phaseX, phaseY)
   );
   vec2 sourceUv = textureUvFromEffectScreenUv(inverseTransformEffectUv(tileFieldUv));
   return mix(color, sampleSource(sourceUv), amount);

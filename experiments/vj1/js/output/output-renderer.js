@@ -37,6 +37,7 @@ import { LiveRenderPatchRuntime } from "./live-render-patch-runtime.js";
 import { VisualNodeRuntime } from "./visual-node-runtime.js";
 import { OutputMappingRuntime } from "./output-mapping-runtime.js";
 import { OutputPresentationRuntime } from "./output-presentation-runtime.js";
+import { ProbeRuntime } from "./probe-runtime.js";
 import { OutputResourceRuntime } from "./output-resource-runtime.js";
 import { OutputStateRuntime } from "./output-state-runtime.js";
 import {
@@ -131,6 +132,7 @@ export class OutputRenderer {
     this.controlSignalRuntime = controlSignals || new ControlSignalRuntime({
       onInvalidate: (reason) => this.invalidatePresentation(reason),
     });
+    this.probeRuntime = new ProbeRuntime(this);
     this.renderRequestRuntime = new RenderRequestRuntime({
       getRenderSettings: () => this.state?.render || {},
       getFrameSize: (render) => frameSize(render),
@@ -252,6 +254,7 @@ export class OutputRenderer {
     this.presentationRuntime.dispose();
     this.componentProgramRuntime.dispose();
     this.mappingProgramRuntime.clear();
+    this.probeRuntime.dispose();
     this.resourceRuntime.disposeBuffers();
     this.mappingRuntime.dispose();
     this.sourceRuntime.dispose();

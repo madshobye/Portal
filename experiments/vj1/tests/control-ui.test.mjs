@@ -1370,7 +1370,7 @@ test("local UI controls use the UI-only state path", () => {
   assert.match(projectService, /event\.scope === "ui" && !immediate && !previewViewportCheckpoint/);
 });
 
-test("preview navigation bypasses full renderer state replacement and hover does not wake presentation", () => {
+test("preview navigation bypasses full renderer state replacement and drag wakes after pointer signal publication", () => {
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const preview = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
   const viewportStart = preview.indexOf("  function setViewport(");
@@ -1380,7 +1380,7 @@ test("preview navigation bypasses full renderer state replacement and hover does
   assert.match(controller, /change\.scope === "ui" && previewViewportReasons\.has\(reason\)[\s\S]*?embeddedPreview\.setViewport\(state\.ui\);[\s\S]*?return;/);
   assert.match(setViewportSource, /renderer\?\.presentationGeometry\?\.setViewport\(resolvedViewport\)/);
   assert.doesNotMatch(setViewportSource, /renderer\?\.setState/);
-  assert.match(preview, /const onPointerMove = \(event\) => \{\s*if \(!pointerActive \|\| event\.pointerId !== activePointerId\) return;\s*wakePreviewPresentation\(\)/);
+  assert.match(preview, /const onPointerMove = \(event\) => \{[\s\S]*?publishPointer\(position,[\s\S]*?if \(!pointerActive \|\| event\.pointerId !== activePointerId\) return;\s*wakePreviewPresentation\(\)/);
 });
 
 test("Mapping preview draws an editor-only output frame without another render target", () => {

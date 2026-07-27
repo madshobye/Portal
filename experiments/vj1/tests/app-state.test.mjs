@@ -744,12 +744,13 @@ test("Live Surface patch assignment and removal use the configured transition", 
   store.selectLivePreviewSurface("__mapping__");
   assert.equal(store.clearLiveSurfacePatch(surface.id), true);
   after = store.getState();
-  previousRoute = after.ui.live.transition.fromSurfaceRoutes.surfaces.find((item) => item.id === surface.id);
-  currentRoute = compileLiveProjectionProgram(after).currentRoutes.surfaces.find((item) => item.id === surface.id);
-  assert.equal(after.ui.live.transition.durationMs, 1250);
+  const surfaceLane = after.ui.live.transitionCoordinator[`surface:${surface.id}`];
+  previousRoute = surfaceLane.pending.fromSurfaceRoutes.surfaces.find((item) => item.id === surface.id);
+  currentRoute = compileLiveProjectionProgram(after).logicalRoutes.surfaces.find((item) => item.id === surface.id);
+  assert.equal(surfaceLane.pending.durationMs, 1250);
   assert.equal(previousRoute.componentId, patchComponent.id);
   assert.equal(currentRoute.componentId, scene.id);
-  assert.equal(after.ui.live.transition.surfaceId, surface.id);
+  assert.equal(surfaceLane.pending.surfaceId, surface.id);
   assert.equal(createLiveScenePreviewState(after).liveTransition, undefined, "Overall preview ignores a Surface-only transition");
 });
 
@@ -793,13 +794,64 @@ test("Overall Scene and Component changes share the configured transition policy
   store.selectLiveScene(firstScene.id);
   store.selectLiveScene(secondScene.id);
   let after = store.getState();
-  assert.equal(after.ui.live.transition.durationMs, 900);
-  assert.equal(after.ui.live.transition.fromTargetId, firstScene.id);
+  assert.equal(after.ui.live.transitionCoordinator.overall.active.durationMs, 900);
+  assert.equal(after.ui.live.transitionCoordinator.overall.active.fromTargetId, firstScene.id);
 
   store.selectLiveComponent(liveComponent.id);
   after = store.getState();
-  assert.equal(after.ui.live.transition.durationMs, 900);
-  assert.equal(after.ui.live.transition.fromTargetId, secondScene.id);
+  assert.equal(after.ui.live.transitionCoordinator.overall.pending.durationMs, 900);
+  assert.equal(after.ui.live.transitionCoordinator.overall.pending.fromTargetId, secondScene.id);
+});
+
+test("Live transition coordinator runs distinct Surface destinations concurrently and queues repeated changes", () => {
+  const state = createInitialState();
+  const scene = createSceneComponent(0, state.components[0].id);
+  const firstPatch = createDefaultComponent(2);
+  const secondPatch = createDefaultComponent(3);
+  state.components.push(scene, firstPatch, secondPatch);
+  state.ui.live.selectedSceneId = scene.id;
+  state.ui.live.selectedComponentId = scene.id;
+  state.ui.live.transitionDuration = 1;
+  const store = createAppState(state);
+  const surfaces = store.getState().mappings[0].surfaces
+    .filter((surface) => surface.destination?.type !== "direct")
+    .slice(0, 2);
+
+  store.selectLivePreviewSurface(surfaces[0].id);
+  store.selectLiveComponent(firstPatch.id);
+  store.selectLivePreviewSurface(surfaces[1].id);
+  store.selectLiveComponent(secondPatch.id);
+
+  let live = store.getState().ui.live;
+  assert.ok(live.transitionCoordinator[`surface:${surfaces[0].id}`].active);
+  assert.ok(live.transitionCoordinator[`surface:${surfaces[1].id}`].active);
+  assert.equal(createLiveRenderState(store.getState()).liveTransitions.length, 2);
+
+  store.selectLivePreviewSurface(surfaces[0].id);
+  store.selectLiveScene(scene.id);
+  live = store.getState().ui.live;
+  const firstLane = live.transitionCoordinator[`surface:${surfaces[0].id}`];
+  assert.ok(firstLane.active);
+  assert.equal(
+    firstLane.pending.fromSurfaceRoutes.surfaces.find((route) => route.id === surfaces[0].id).componentId,
+    firstPatch.id,
+  );
+  assert.equal(
+    firstLane.pending.toSurfaceRoutes.surfaces.find((route) => route.id === surfaces[0].id).componentId,
+    scene.id,
+  );
+
+  store.selectLiveComponent(secondPatch.id);
+  const replacedPending = store.getState().ui.live.transitionCoordinator[`surface:${surfaces[0].id}`].pending;
+  assert.equal(
+    replacedPending.fromSurfaceRoutes.surfaces.find((route) => route.id === surfaces[0].id).componentId,
+    firstPatch.id,
+    "replacing an armed command keeps the endpoint that will actually be visible",
+  );
+  assert.equal(
+    replacedPending.toSurfaceRoutes.surfaces.find((route) => route.id === surfaces[0].id).componentId,
+    secondPatch.id,
+  );
 });
 
 test("Live Overall keeps Scene presentation geometry while covering an ordinary Component", () => {
@@ -942,9 +994,13 @@ test("removing an Overall source transitions to an explicitly empty program", ()
   assert.equal(after.ui.live.overallSourceCleared, true);
   assert.equal(after.ui.live.selectedSceneId, "");
   assert.equal(after.ui.live.selectedComponentId, "");
-  assert.equal(after.ui.live.transition.durationMs, 750);
-  assert.equal(after.ui.live.transition.fromTargetId, liveComponent.id);
-  assert.equal(compileLiveProjectionProgram(after).currentRoutes.surfaces.every((surface) => !surface.componentId), true);
+  assert.equal(after.ui.live.transitionCoordinator.overall.pending.durationMs, 750);
+  assert.equal(after.ui.live.transitionCoordinator.overall.pending.fromTargetId, liveComponent.id);
+  assert.equal(compileLiveProjectionProgram(after).logicalRoutes.surfaces.every((surface) => !surface.componentId), true);
+  const firstDeadline = after.ui.live.transitionCoordinator.overall.active.startedAtMs
+    + after.ui.live.transitionCoordinator.overall.active.durationMs;
+  store.advanceLiveTransitions(firstDeadline + 1);
+  after = store.getState();
   const renderState = createLiveRenderState(after);
   const previewState = createLiveScenePreviewState(after);
   assert.equal(renderState.surfaces.every((surface) => !surface.componentId), true);
@@ -955,7 +1011,7 @@ test("removing an Overall source transitions to an explicitly empty program", ()
   assert.equal(store.clearLiveOverallComponent(), true);
   after = store.getState();
   assert.equal(after.ui.live.overallSourceCleared, true);
-  assert.equal(after.ui.live.transition.fromTargetId, scene.id);
+  assert.equal(after.ui.live.transitionCoordinator.overall.pending.fromTargetId, scene.id);
 
   const sceneOnlyState = createInitialState();
   const sceneOnly = createSceneComponent(0, sceneOnlyState.components[0].id);

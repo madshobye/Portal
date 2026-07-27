@@ -20,7 +20,8 @@ test("startup project provides a built-in procedural composition tour", () => {
     components.map((component) => component.chain.map((item) => item.source?.generatorId || item.componentId)),
     [["testPattern"], ["plasma"], ["text", "heartbeatPulse"]]
   );
-  assert.equal(components[1].chain[0].source.params.motionMode, "drift");
+  assert.equal(components[1].chain[0].source.params.speed, 0.65);
+  assert.equal(components[1].chain[0].source.params.motionMode, undefined);
   assert.equal(components[2].chain[0].source.params.text, "# VJ1\nLIVE TEXT");
   assert.equal(components[2].chain[1].params.amount, 0.35);
 

@@ -31,18 +31,9 @@
 
 #Inbox
 
-previously we had a solution in which clicking a new component or scene in live view while a transition was happening would result in it being armed for the next transition can that come back but only if it is a transition involving the current output window. e.g. if another output window is selected it should not wait for the other one.
-
 Open feature: allow individual elements to choose portrait, landscape, or
 square frame shapes independently from the parent Component/Scene. This needs a
 single semantic frame contract rather than copied dimensions.
-
-it would be nice if seed and time could sync up between live view preview and output window such that the animations were in sync. it causes a bit of confusion sometimes that they are wastly different.
-
-**Design decision remains open.** Preview and Output currently own separate
-accumulated presentation clocks, including pause and time-stretch state. True
-synchronization needs a shared session timeline and explicit rebase rules; it
-should not be approximated by reading wall-clock time in individual nodes.
 
 how close are we to important the isf shader library into the app as base shaders to use for different things? ISF has this repository https://github.com/Vidvox/ISF-Files/tree/master/ISF and I would like to import ideally all of them. Some use a vertex shader i think? and they have different porpuses. i assume the simple shaders is not a problem. but i would also like for the shaders that are e.g. transitions to be imported and used as transitions. i suggest that we create a transition generator that can be inserted in the chain. The concept would be the following: when a isf transition is inserted it be becomes an element that can contain children like a group and maybe two coloumns such that one can create two list underneath it for each transition. I would like for there also to be a mode where it can transition between what come before the isf shader and what is inside its group. either there should be a toggle as a param or a logic based on whether both coloumns has been filled out. Similarly sound should be implimented so it is compatible with isf. I suggest that we create some settings in input sources for sound and that we have a basic fft library to create fft textures (i think isf has this logic right?). be aware that the current version of p5 v2 does not seems to have a strong sound implimentation and i suggest that we bypas p5 and use tone js instead https://tonejs.github.io/ 
 
@@ -97,3 +88,10 @@ i want to be able to have a remote control interface where i can use a tablet as
 
 #Done
 
+previously we had a solution in which clicking a new component or scene in live view while a transition was happening would result in it being armed for the next transition can that come back but only if it is a transition involving the current output window. e.g. if another output window is selected it should not wait for the other one.
+
+**Done. Live now has a destination-scoped transition coordinator. Distinct Surface destinations can transition concurrently; repeated changes to one destination replace its single pending endpoint, and Overall transitions arbitrate exclusively with Surface lanes. Expiry promotes pending work through an event-driven scheduler outside the frame loop.**
+
+it would be nice if seed and time could sync up between live view preview and output window such that the animations were in sync. it causes a bit of confusion sometimes that they are wastly different.
+
+**Done. Control now owns one revisioned session timeline with a shared logical epoch, play state, rate, and seed. Preview and Output retain local presentation cadence but sample the same logical time; play and time-stretch changes rebase the epoch without phase jumps.**

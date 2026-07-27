@@ -250,6 +250,27 @@ export class VisualPlanRuntime {
           inputStates,
         );
       } else if (
+        operation.opcode === "probe"
+      ) {
+        state = this.textureInputState(
+          plan,
+          operation,
+          primaryTextureInputPort(operation),
+          transparent,
+          externalInputStates,
+        );
+        this.host.probeRuntime?.observe(
+          component,
+          operation,
+          visualOperationRenderItem(
+            operation,
+            operation.configuration || operation,
+            inheritedTransform,
+          ),
+          state,
+          renderRequest,
+        );
+      } else if (
         operation.opcode === "effect" ||
         operation.opcode === "group"
       ) {
@@ -530,6 +551,17 @@ export class VisualPlanRuntime {
         index,
         item.id || item.componentId || item.kind,
       );
+
+      if (opcode === "probe") {
+        host.probeRuntime?.observe(
+          component,
+          operation,
+          renderedItem,
+          state,
+          renderRequest,
+        );
+        continue;
+      }
 
       if (opcode === "source") {
         if (!isFullNodeBoundary(renderedItem.boundary)) {

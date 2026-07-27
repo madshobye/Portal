@@ -38,6 +38,24 @@ export const HostControlInputNode = hostSignalNode({
   capabilities: ["host-control"],
 });
 
+export const PointerControlInputNode = hostSignalNode({
+  id: "core.control.pointer-input",
+  name: "Pointer Input",
+  kind: "pointer",
+  address: "x",
+  description: "Reads normalized pointer coordinates, button state, and pointer events from the shared presentation input bus.",
+  capabilities: ["pointer-control"],
+});
+
+export const ProbeControlInputNode = hostSignalNode({
+  id: "core.control.probe-input",
+  name: "Probe Input",
+  kind: "probe",
+  address: "value",
+  description: "Reads a retained color feature produced by a local visual Probe.",
+  capabilities: ["probe-control"],
+});
+
 export function hostSignalControlProcess(
   {
     kind = "control",
@@ -96,7 +114,7 @@ function hostSignalNode({
     implementation: NODE_IMPLEMENTATION_KINDS.CODE,
     parameters: {
       kind: {
-        type: { type: "enum", values: ["midi", "osc", "audio", "control"] },
+        type: { type: "enum", values: ["midi", "osc", "audio", "control", "pointer", "probe"] },
         defaultValue: kind,
         editor: { type: "select" },
       },

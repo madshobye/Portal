@@ -12,7 +12,10 @@ import {
   VISUAL_TRANSFORM_DOMAINS,
 } from "../../render-engine/visual-node-contract.js";
 import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js";
-import { inheritAuthoredControlTopology } from "./parameter-animation-tracks.js";
+import {
+  inheritAuthoredControlTopology,
+  initializeDefaultParameterAnimations,
+} from "./parameter-animation-tracks.js";
 
 export const COMPONENT_PROGRAM_GENERATOR = "vj1-component-compiler";
 export const COMPONENT_VISUAL_COMPILER_ID = "vj1.visual.component-program";
@@ -32,10 +35,13 @@ export function componentProgramGroupId(componentId) {
   return `vj1.component.${String(componentId || "missing")}`;
 }
 
-export function compileComponentGroupTopology(component = {}, { definitions = new Map() } = {}) {
+export function compileComponentGroupTopology(component = {}, {
+  definitions = new Map(),
+  initializeDefaultAnimations = true,
+} = {}) {
   const nodes = compileChainNodes(component.chain || [], `components.${component.id}.chain`, definitions);
   const projectionSignature = componentChainSignature(component.chain || []);
-  return {
+  const group = {
     id: componentProgramGroupId(component.id),
     nodeId: ComponentProgramNode.id,
     nodeVersion: ComponentProgramNode.version,
@@ -54,11 +60,19 @@ export function compileComponentGroupTopology(component = {}, { definitions = ne
     projectionSignature,
     generatedBy: COMPONENT_PROGRAM_GENERATOR,
   };
+  return initializeDefaultAnimations
+    ? initializeDefaultParameterAnimations(group, { definitions })
+    : group;
 }
 
 export function reconcileComponentGroupTopology(component = {}, existingGroup = null, options = {}) {
   if (existingGroup?.compactTopology === true) {
     existingGroup = hydrateCompactComponentGroup(existingGroup, options.definitions || new Map());
+  }
+  if (existingGroup?.generatedBy === COMPONENT_PROGRAM_GENERATOR) {
+    existingGroup = initializeDefaultParameterAnimations(existingGroup, {
+      definitions: options.definitions || new Map(),
+    });
   }
   if (!existingGroup || existingGroup.generatedBy !== COMPONENT_PROGRAM_GENERATOR) {
     const group = compileComponentGroupTopology(component, options);
@@ -71,7 +85,13 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
 
   const storedSignature = String(existingGroup.projectionSignature || "");
   if (!storedSignature) {
-    const group = inheritGroupNodeLayout(compileComponentGroupTopology(component, options), existingGroup);
+    const group = inheritAuthoredControlTopology(
+      inheritGroupNodeLayout(compileComponentGroupTopology(component, {
+        ...options,
+        initializeDefaultAnimations: false,
+      }), existingGroup),
+      existingGroup,
+    );
     return {
       component: withProjectedChain(component, component.chain || [], group.projectionSignature),
       group,
@@ -89,7 +109,10 @@ export function reconcileComponentGroupTopology(component = {}, existingGroup = 
 
   if (compatibilityEdit) {
     const group = inheritAuthoredControlTopology(
-      inheritGroupNodeLayout(compileComponentGroupTopology(component, options), existingGroup),
+      inheritGroupNodeLayout(compileComponentGroupTopology(component, {
+        ...options,
+        initializeDefaultAnimations: false,
+      }), existingGroup),
       existingGroup,
     );
     return {
@@ -156,6 +179,9 @@ function inheritGroupNodeLayout(group, existingGroup) {
       return {
         ...node,
         ...(existing?.position ? { position: { ...existing.position } } : {}),
+        ...(existing?.animationDefaults
+          ? { animationDefaults: cloneJson(existing.animationDefaults) }
+          : {}),
         ...(node.nodes ? { nodes: inherit(node.nodes, existing?.nodes || []) } : {}),
       };
     });

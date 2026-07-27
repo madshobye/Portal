@@ -2,6 +2,7 @@ import {
   materializeLiveProgramSurfaceRoutes,
   rebaseSurfaceRouteProgram,
 } from "./scene-routing.js";
+import { activeLiveTransitions } from "./live-transition-coordinator.js";
 
 const EMPTY_ROUTES = Object.freeze({ surfaces: Object.freeze([]) });
 
@@ -24,31 +25,40 @@ export function compileLiveProjectionProgram(state = {}, now = Date.now()) {
     : state.components?.find((item) => !item.systemRole && String(item.id) === String(live.selectedComponentId || ""))
       || null;
   const target = explicitTarget || scene;
-  const currentRoutes = mapping
+  const logicalRoutes = mapping
     ? materializeLiveProgramSurfaceRoutes(state, target, mapping)
     : EMPTY_ROUTES;
-  const transition = compileTransition(state, live, target, mapping, currentRoutes, now);
+  const authoredTransitions = activeLiveTransitions(live, now).filter(
+    (transition) => live.sceneMappingVisible !== false || !!transition.surfaceId
+  );
+  const currentRoutes = presentedRoutes(logicalRoutes, authoredTransitions);
+  const transitions = authoredTransitions
+    .map((authored) => compileTransition(state, live, target, mapping, currentRoutes, authored, now))
+    .filter(Boolean);
   const previewSurfaceId = String(live.previewSurfaceId || "__mapping__");
+  const previewTransitions = transitions.filter((transition) => transitionAppliesToPreview(
+    transition,
+    previewSurfaceId,
+    live.sceneMappingVisible !== false
+  ));
 
   return Object.freeze({
     live,
     mapping,
     scene,
     target,
+    logicalRoutes,
     currentRoutes,
     previewSurfaceId,
     sceneMappingVisible: live.sceneMappingVisible !== false,
-    transition,
-    previewTransition: transition && transitionAppliesToPreview(
-      transition,
-      previewSurfaceId,
-      live.sceneMappingVisible !== false
-    ) ? transition : null,
+    transitions: Object.freeze(transitions),
+    transition: transitions[0] || null,
+    previewTransitions: Object.freeze(previewTransitions),
+    previewTransition: previewTransitions[0] || null,
   });
 }
 
-function compileTransition(state, live, target, mapping, currentRoutes, now) {
-  const authored = live.transition;
+function compileTransition(state, live, target, mapping, currentRoutes, authored, now) {
   const durationMs = Math.max(0, Number(authored?.durationMs) || 0);
   const startedAtMs = Number(authored?.startedAtMs) || 0;
   if (!mapping
@@ -76,11 +86,11 @@ function compileTransition(state, live, target, mapping, currentRoutes, now) {
     previousTarget,
     previousRoutes,
     previousComponentOverrides: authored.fromComponentOverrides || {},
-    currentComponentOverrides: live.componentOverrides || {},
-    componentsShared: JSON.stringify(authored.fromComponentOverrides || {}) === JSON.stringify(live.componentOverrides || {}),
-    transitionId: String(live.transitionId || "vj1.transition.dissolve"),
-    transitionParameters: live.transitionParameters && typeof live.transitionParameters === "object"
-      ? Object.freeze({ ...live.transitionParameters })
+    currentComponentOverrides: authored.toComponentOverrides || live.componentOverrides || {},
+    componentsShared: JSON.stringify(authored.fromComponentOverrides || {}) === JSON.stringify(authored.toComponentOverrides || live.componentOverrides || {}),
+    transitionId: String(authored.transitionId || live.transitionId || "vj1.transition.dissolve"),
+    transitionParameters: authored.transitionParameters && typeof authored.transitionParameters === "object"
+      ? Object.freeze({ ...authored.transitionParameters })
       : Object.freeze({}),
     startedAtMs,
     durationMs,
@@ -91,5 +101,25 @@ function transitionAppliesToPreview(transition, previewSurfaceId, sceneMappingVi
   if (previewSurfaceId === "__mapping__") {
     return sceneMappingVisible && transition.scope === "overall";
   }
-  return true;
+  return transition.scope === "overall" || transition.surfaceId === previewSurfaceId;
+}
+
+function presentedRoutes(logicalRoutes, transitions) {
+  const overall = transitions.find((transition) => !transition.surfaceId);
+  if (overall?.toSurfaceRoutes?.surfaces) return overall.toSurfaceRoutes;
+  if (!transitions.length) return logicalRoutes;
+  const replacementById = new Map();
+  for (const transition of transitions) {
+    const surfaceId = String(transition.surfaceId || "");
+    if (!surfaceId) continue;
+    const route = transition.toSurfaceRoutes?.surfaces?.find(
+      (candidate) => String(candidate.id) === surfaceId
+    );
+    if (route) replacementById.set(surfaceId, route);
+  }
+  return {
+    surfaces: logicalRoutes.surfaces.map((route) =>
+      replacementById.get(String(route.id)) || route
+    ),
+  };
 }

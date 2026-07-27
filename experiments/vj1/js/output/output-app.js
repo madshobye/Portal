@@ -16,6 +16,7 @@ import {
 } from "../libraries/node-engine/node-package.js";
 import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js";
 import { CONTROL_SIGNAL_COMMAND, publishRendererControlSignal } from "./control-signal-command.js";
+import { pointerSignalValues, rendererUsesPointerSignals } from "./pointer-control-signals.js";
 
 let outputFitSignature = "";
 
@@ -87,6 +88,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   let observedResizeFrame = 0;
   let observedResizeSignature = "";
   let diagnosticForwarder = null;
+  let pointerSignalSequence = 0;
   const fixtureUrl = fixtureStateUrl();
   const initialStateGate = createOutputInitialStateGate();
 
@@ -202,36 +204,64 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
 
   window.mousePressed = function mousePressed() {
     wakeOutputPresentation();
+    publishOutputPointer({ down: true, event: "pressed" });
     renderer?.mousePressed?.(mouseX, mouseY);
     return false;
   };
 
   window.mouseDragged = function mouseDragged() {
     wakeOutputPresentation();
+    publishOutputPointer({ down: true, event: "moved" });
     renderer?.mouseDragged?.(mouseX, mouseY);
     return false;
   };
 
   window.mouseReleased = function mouseReleased() {
     wakeOutputPresentation();
+    publishOutputPointer({ down: false, event: "released" });
     renderer?.mouseReleased?.();
     return false;
   };
 
+  window.mouseMoved = function mouseMoved() {
+    publishOutputPointer({ down: false, event: "moved" });
+  };
+
   window.touchStarted = function touchStarted() {
     wakeOutputPresentation();
+    publishOutputPointer({ down: true, event: "pressed" });
     renderer?.mousePressed?.(mouseX, mouseY);
     return false;
   };
 
   window.touchMoved = function touchMoved() {
     wakeOutputPresentation();
+    publishOutputPointer({ down: true, event: "moved" });
     renderer?.mouseDragged?.(mouseX, mouseY);
     return false;
   };
 
+  function publishOutputPointer({ down = false, inside = true, event = "" } = {}) {
+    if (!rendererUsesPointerSignals(renderer)) return false;
+    return publishRendererControlSignal(renderer, {
+      kind: "pointer",
+      values: pointerSignalValues({
+        x: mouseX,
+        y: mouseY,
+        width,
+        height,
+        down,
+        inside,
+        event,
+      }),
+      sequence: ++pointerSignalSequence,
+      timestamp: Date.now(),
+    });
+  }
+
   window.touchEnded = function touchEnded() {
     wakeOutputPresentation();
+    publishOutputPointer({ down: false, event: "released" });
     renderer?.mouseReleased?.();
     return false;
   };
@@ -384,6 +414,10 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
         const nextState = {
           ...acceptedState,
           global: payload.global || acceptedState.global,
+          metrics: {
+            ...(acceptedState.metrics || {}),
+            sessionTimeline: payload.sessionTimeline || acceptedState.metrics?.sessionTimeline,
+          },
         };
         pendingState = nextState;
         acceptedState = nextState;
@@ -565,25 +599,30 @@ export function shouldPrepareLiveSceneState(nextState, currentState, mode = "out
 
 export function retimePreparedSceneTransition(state, startedAtMs = Date.now() + 50) {
   if (!state?.liveTransition) return state;
+  const liveTransitions = (state.liveTransitions || [state.liveTransition]).map((transition) => ({
+    ...transition,
+    startedAtMs,
+  }));
   return {
     ...state,
-    liveTransition: {
-      ...state.liveTransition,
-      startedAtMs,
-    },
+    liveTransitions,
+    liveTransition: liveTransitions[0],
   };
 }
 
 export function hasActiveLiveTransition(state, nowMs = Date.now()) {
-  const durationMs = Math.max(0, Number(state?.liveTransition?.durationMs) || 0);
-  const startedAtMs = Number(state?.liveTransition?.startedAtMs) || 0;
-  return !!state?.liveTransition?.fromState && durationMs > 0 && startedAtMs > 0 && nowMs < startedAtMs + durationMs;
+  return (state?.liveTransitions || (state?.liveTransition ? [state.liveTransition] : [])).some((transition) => {
+    const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
+    const startedAtMs = Number(transition?.startedAtMs) || 0;
+    return !!transition?.fromState && durationMs > 0 && startedAtMs > 0 && nowMs < startedAtMs + durationMs;
+  });
 }
 
 export function transitionTerminalState(state) {
-  if (!state?.liveTransition) return state;
+  if (!state?.liveTransition && !state?.liveTransitions?.length) return state;
   const terminal = { ...state };
   delete terminal.liveTransition;
+  delete terminal.liveTransitions;
   return terminal;
 }
 
@@ -593,20 +632,24 @@ export function queuedSceneTransitionState(state, fromState, startedAtMs = Date.
   const durationMs = Math.max(0, Number(state.liveTransition?.durationMs) || configuredDurationMs);
   if (!fromState || durationMs <= 0) return transitionTerminalState(state);
   const stableFromState = transitionTerminalState(fromState);
+  const liveTransition = {
+    id: state.liveTransition?.id || `${outputSceneId(stableFromState)}:${outputSceneId(state)}:${startedAtMs}`,
+    destination: "overall",
+    surfaceId: "",
+    transitionId: String(state.liveTransition?.transitionId || state.ui?.live?.transitionId || "vj1.transition.dissolve"),
+    transitionParameters: state.liveTransition?.transitionParameters || state.ui?.live?.transitionParameters || {},
+    startedAtMs,
+    durationMs,
+    // A superseded queued Scene may have different temporary overrides from
+    // the actual completed source. Conservative identities avoid sharing a
+    // render cache across two semantically different transition sides.
+    componentsShared: false,
+    fromState: stableFromState,
+  };
   return {
     ...state,
-    liveTransition: {
-      id: state.liveTransition?.id || `${outputSceneId(stableFromState)}:${outputSceneId(state)}:${startedAtMs}`,
-      transitionId: String(state.liveTransition?.transitionId || state.ui?.live?.transitionId || "vj1.transition.dissolve"),
-      transitionParameters: state.liveTransition?.transitionParameters || state.ui?.live?.transitionParameters || {},
-      startedAtMs,
-      durationMs,
-      // A superseded queued Scene may have different temporary overrides from
-      // the actual completed source. Conservative identities avoid sharing a
-      // render cache across two semantically different transition sides.
-      componentsShared: false,
-      fromState: stableFromState,
-    },
+    liveTransitions: [liveTransition],
+    liveTransition,
   };
 }
 

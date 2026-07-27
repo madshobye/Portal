@@ -307,7 +307,14 @@ test("Components and Canvases persist and compile their executable node topology
     "vj1.visual.generator.waves", "vj1.visual.effect.ripple",
   ]);
   assert.deepEqual(componentGroup.nodes.filter((node) => node.role === "control").map((node) => node.nodeId), [
-    "core.control.slider", "core.control.slider",
+    "core.control.slider",
+    "core.control.slider",
+    "core.control.slider",
+    "core.control.component-time",
+    "core.control.animation-sequencer",
+    "core.control.animation-curve",
+    "core.control.map-range",
+    "core.control.numeric-combine",
   ]);
   assert.deepEqual(componentGroup.connections.filter((edge) => edge.type === "texture").map((edge) => [edge.from, edge.to]), [
     ["$in.texture", "source-a.image"],

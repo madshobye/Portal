@@ -935,6 +935,7 @@ export function migrateProjectV29ToV30(project) {
     delete live.sourceKind;
     delete live.surfaceRoutes;
     delete live.transition;
+    delete live.transitionCoordinator;
     ui.live = live;
   }
   const { frames: _frames, surfaces: _runtimeSurfaces, ...projectData } = project;
