@@ -84,12 +84,13 @@ test("automatic model LODs stay within bounded triangle budgets", () => {
 test("geometry detail uses a perceptual triangle scale and caps pixel demand", () => {
   assert.equal(modelGeometryTriangleBudget(0), 750);
   assert.equal(modelGeometryTriangleBudget(1), 80000);
-  assert.equal(modelGeometryTriangleBudget(2), 250000);
+  assert.equal(modelGeometryTriangleBudget(2), 282843);
+  assert.equal(modelGeometryTriangleBudget(3), 1000000);
   assert.ok(modelGeometryTriangleBudget(0.5) > 21000);
   assert.ok(modelGeometryTriangleBudget(0.5) < 23000);
   assert.ok(
-    modelGeometryTriangleBudget(1.5) > 140000 &&
-      modelGeometryTriangleBudget(1.5) < 142000,
+    modelGeometryTriangleBudget(1.5) > 150000 &&
+      modelGeometryTriangleBudget(1.5) < 151000,
     "the extended detail range remains perceptual above the legacy ceiling",
   );
   assert.equal(

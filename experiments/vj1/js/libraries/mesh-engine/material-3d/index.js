@@ -31,6 +31,7 @@ export const Material3dNode = defineNode({
     wireThickness: { type: "number", defaultValue: 1, allowedRange: [0.5, 12], clamp: true },
     pointBudget: { type: "number", defaultValue: 4000, allowedRange: [128, 75000], clamp: true },
     visibleDepth: { type: "number", defaultValue: 1, allowedRange: [0.02, 1], clamp: true },
+    frontCut: { type: "number", defaultValue: 0, allowedRange: [0, 0.98], clamp: true },
   },
   outlets: { material: { type: Material3dType } },
   execution: { trigger: "input-change", domain: "main", pure: true },

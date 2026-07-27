@@ -829,6 +829,7 @@ test("3d model media is detected and keeps render params", () => {
         rotationZ: 0.1,
         modelScale: 1.4,
         visibleDepth: 0.42,
+        frontCut: 0.18,
         pointBudget: 8000,
         wireThickness: 3.5,
         spinY: 0.2,
@@ -846,6 +847,7 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(source.params.rotationX, 0.4);
   assert.equal(source.params.modelScale, 1.4);
   assert.equal(source.params.visibleDepth, 0.42);
+  assert.equal(source.params.frontCut, 0.18);
   assert.equal(source.params.pointBudget, 8000);
   assert.equal(source.params.wireThickness, 3.5);
   assert.equal(source.params.surfaceColor, "#3366ccaa");
@@ -858,6 +860,7 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(sourceNode.params.spinY, 0.2);
   assert.equal(sourceNode.params.pointBudget, 8000);
   assert.equal(sourceNode.params.visibleDepth, 0.42);
+  assert.equal(sourceNode.params.frontCut, 0.18);
   assert.equal(sourceNode.params.wireThickness, 3.5);
   assert.equal(sourceNode.params.surfaceColor, "#3366ccaa");
   assert.equal(sourceNode.params.wireColor, "#ffcc00ff");
@@ -1007,8 +1010,10 @@ test("parsed STL and OBJ models use one clipped raw WebGL renderer family", () =
   assert.ok(source.includes("return processObjModelBuffer(buffer, { cacheKey: `${item.id}:${item.sourceRevision}` });"));
   assert.ok(source.includes("item.modelData = mesh;"));
   assert.ok(source.includes("if (uDepthSliceEnabled > 0.5 && vModelDepth < uDepthCutoff) discard;"));
+  assert.ok(source.includes("if (uFrontDepthSliceEnabled > 0.5 && vModelDepth > uFrontDepthCutoff) discard;"));
   assert.ok(source.includes("gl.uniform1f(resources.depthSliceEnabled, modelDepthSliceEnabled(params) ? 1 : 0);"));
-  assert.ok(source.includes("modelDepthCutoff(params, mesh.bounds, matrices.model)"));
+  assert.ok(source.includes("gl.uniform1f(resources.frontDepthSliceEnabled, modelFrontDepthSliceEnabled(params) ? 1 : 0);"));
+  assert.ok(source.includes("setDepthSliceUniforms(gl, resources, params, mesh.bounds, matrices.model)"));
   assert.ok(source.includes('if (drewSurface && renderMode === "surfaceWire")'));
   assert.ok(source.includes('renderMode === "outline" || renderMode === "surfaceOutline"'));
   assert.ok(source.includes('if (renderMode === "xrayOutline")'));

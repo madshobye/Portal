@@ -129,15 +129,28 @@ export class LiveRenderPatchRuntime {
     for (const componentId of result.componentIds) {
       host.componentProgramRuntime.refreshLookup(componentId);
     }
+    const compiledComponentIds = result.componentIds.filter((componentId) =>
+      host.componentProgramRuntime.programs.has(String(componentId || ""))
+    );
+    // Output compiles only Components reachable from its current Surface
+    // program. A persistent edit to another Component is still authoritative
+    // project state, but there is no retained program to synchronize until
+    // that Component becomes reachable. Rebuilding the same active roots
+    // cannot materialize it and treating that as a failed patch unnecessarily
+    // breaks the transport revision stream.
     const requiresProgramRebuild =
-      patches.some(renderPatchChangesProgramTopology) ||
-      host.componentProgramRuntime.dependencyClosureIsIncomplete(result.componentIds);
+      (compiledComponentIds.length > 0 &&
+        patches.some(renderPatchChangesProgramTopology)) ||
+      host.componentProgramRuntime.dependencyClosureIsIncomplete(compiledComponentIds);
     if (requiresProgramRebuild) {
       host.componentProgramRuntime.rebuild();
     }
     const synchronizeConfigurationTargets = () => {
       const missingTargets = [];
       for (const target of result.configurationTargets || []) {
+        if (!host.componentProgramRuntime.programs.has(String(target.componentId || ""))) {
+          continue;
+        }
         const synchronized =
           host.componentProgramRuntime.syncConfigurationItems(
             target.componentId,

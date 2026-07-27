@@ -67,6 +67,23 @@ export function modelDepthSliceEnabled(params = {}) {
   return visibleDepth < 1;
 }
 
+export function modelFrontDepthCutoff(params = {}, bounds = null, modelMatrix = null) {
+  const requestedCut = Number(params.frontCut);
+  const frontCut = Math.max(0, Math.min(0.98, Number.isFinite(requestedCut) ? requestedCut : 0));
+  const range = transformedModelDepthRange(bounds, modelMatrix);
+  if (frontCut <= 0) {
+    const span = Math.max(1, range.max - range.min);
+    return range.max + span * 0.0001;
+  }
+  return range.max - frontCut * (range.max - range.min);
+}
+
+export function modelFrontDepthSliceEnabled(params = {}) {
+  const requestedCut = Number(params.frontCut);
+  const frontCut = Math.max(0, Math.min(0.98, Number.isFinite(requestedCut) ? requestedCut : 0));
+  return frontCut > 0;
+}
+
 export function transformedModelDepthRange(bounds = null, modelMatrix = null) {
   const min = validModelBound(bounds?.min, [-50, -50, -50]);
   const max = validModelBound(bounds?.max, [50, 50, 50]);

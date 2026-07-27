@@ -3,7 +3,7 @@ import { numberType, optionalType, recordType, valueType } from "../../node-engi
 import { resolutionScaledStrokeWidth } from "../../render-engine/render-metrics.js";
 import { buildParsedModelSurfaceVertices } from "../mesh-geometry.js";
 import { ensureParsedModelPerceptualWireVertices, ensureParsedModelPointCloud, ensureParsedModelThickWireVertices, ensureParsedModelWireLines, drawWithPolygonOffset } from "../mesh-render-cache.js";
-import { modelCameraFov, modelDepthCutoff, modelDepthSliceEnabled, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js";
+import { modelCameraFov, modelDepthCutoff, modelDepthSliceEnabled, modelFrontDepthCutoff, modelFrontDepthSliceEnabled, modelNormalMatrix, modelOutlineThickness, modelRotation, modelViewportMetrics, modelWireThickness, rawModelMatrices } from "../mesh-render-math.js";
 import { MeshType, meshResourceCacheKey, modelTriangleCount } from "../mesh-types.js";
 import {
   Camera3dType,
@@ -97,6 +97,7 @@ export const MeshRenderNode = defineNode({
     depth: { type: "number", defaultValue: 1, allowedRange: [0.05, 20], displayRange: [0.05, 5], clamp: true },
     focalLength: { type: "number", defaultValue: 20.7846096908, allowedRange: [8, 200], displayRange: [8, 200], clamp: true },
     visibleDepth: { type: "number", defaultValue: 1, allowedRange: [0.02, 1], displayRange: [0.02, 1], clamp: true },
+    frontCut: { type: "number", defaultValue: 0, allowedRange: [0, 0.98], displayRange: [0, 0.98], clamp: true },
     wireThickness: { type: "number", defaultValue: 1, allowedRange: [0.5, 12], displayRange: [0.5, 12], clamp: true },
     pointBudget: { type: "number", defaultValue: 4000, allowedRange: [128, 75000], displayRange: [128, 75000], clamp: true },
   },
@@ -202,6 +203,7 @@ export function renderMeshNodeProcess(inputs = {}, context = {}) {
   for (const key in inputs) params[key] = inputs[key];
   params.pointBudget = boundedBudget(material?.pointBudget ?? inputs.pointBudget);
   params.visibleDepth = material?.visibleDepth ?? inputs.visibleDepth;
+  params.frontCut = material?.frontCut ?? inputs.frontCut;
   params.wireThickness = material?.wireThickness ?? inputs.wireThickness;
   params.edgeAngle = material?.edgeAngle ?? inputs.edgeAngle;
   params.edgeBudget = material?.edgeBudget ?? inputs.edgeBudget;
@@ -219,6 +221,7 @@ export function renderMeshNodeProcess(inputs = {}, context = {}) {
       wireThickness: inputs.wireThickness,
       pointBudget: inputs.pointBudget,
       visibleDepth: inputs.visibleDepth,
+      frontCut: inputs.frontCut,
     }));
   const rendered = drawRawParsedModelMode(
     target,
@@ -333,8 +336,7 @@ function drawRawParsedModel(target, item, params = {}, componentTime = 0, mode =
     gl.vertexAttribPointer(resources.position, 3, gl.FLOAT, false, 0, 0);
     gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
     gl.uniformMatrix4fv(resources.model, false, matrices.model);
-    gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
-    gl.uniform1f(resources.depthSliceEnabled, modelDepthSliceEnabled(params) ? 1 : 0);
+    setDepthSliceUniforms(gl, resources, params, mesh.bounds, matrices.model);
     gl.uniform4fv(resources.color, rgba);
     gl.uniform1f(resources.pointSize, resolutionScaledStrokeWidth(
       modelWireThickness(params),
@@ -384,8 +386,7 @@ function drawRawParsedWire(target, item, params = {}, componentTime = 0, color =
     gl.vertexAttribPointer(resources.along, 1, gl.FLOAT, false, stride, 7 * 4);
     gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
     gl.uniformMatrix4fv(resources.model, false, matrices.model);
-    gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
-    gl.uniform1f(resources.depthSliceEnabled, modelDepthSliceEnabled(params) ? 1 : 0);
+    setDepthSliceUniforms(gl, resources, params, mesh.bounds, matrices.model);
     gl.uniform2f(resources.resolution, drawingWidth, drawingHeight);
     gl.uniform1f(resources.thickness, resolutionScaledStrokeWidth(
       modelWireThickness(params),
@@ -448,8 +449,7 @@ function drawRawParsedPerceptualEdges(target, item, params = {}, componentTime =
     gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
     gl.uniformMatrix4fv(resources.model, false, matrices.model);
     gl.uniformMatrix3fv(resources.normalMatrix, false, modelNormalMatrix(matrices.model));
-    gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
-    gl.uniform1f(resources.depthSliceEnabled, modelDepthSliceEnabled(params) ? 1 : 0);
+    setDepthSliceUniforms(gl, resources, params, mesh.bounds, matrices.model);
     gl.uniform2f(resources.resolution, drawingWidth, drawingHeight);
     gl.uniform1f(resources.thickness, resolutionScaledStrokeWidth(
       modelOutlineThickness(params),
@@ -496,8 +496,7 @@ function drawRawParsedSurface(target, item, params = {}, componentTime = 0, colo
     gl.uniformMatrix4fv(resources.mvp, false, matrices.mvp);
     gl.uniformMatrix4fv(resources.model, false, matrices.model);
     gl.uniformMatrix3fv(resources.normalMatrix, false, modelNormalMatrix(matrices.model));
-    gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, mesh.bounds, matrices.model));
-    gl.uniform1f(resources.depthSliceEnabled, modelDepthSliceEnabled(params) ? 1 : 0);
+    setDepthSliceUniforms(gl, resources, params, mesh.bounds, matrices.model);
     gl.uniform4fv(resources.color, normalizedColor(color));
     setMaterialUniforms(gl, resources, params.__material);
     gl.drawArrays(gl.TRIANGLES, 0, resources.count);
@@ -760,7 +759,16 @@ function createRawModelProgram(gl) {
     `,
     fragment: depthFragment("gl_FragColor = uColor;"),
     attributes: ["position:aPosition"],
-    uniforms: ["mvp:uMvp", "model:uModel", "color:uColor", "pointSize:uPointSize", "depthCutoff:uDepthCutoff", "depthSliceEnabled:uDepthSliceEnabled"],
+    uniforms: [
+      "mvp:uMvp",
+      "model:uModel",
+      "color:uColor",
+      "pointSize:uPointSize",
+      "depthCutoff:uDepthCutoff",
+      "depthSliceEnabled:uDepthSliceEnabled",
+      "frontDepthCutoff:uFrontDepthCutoff",
+      "frontDepthSliceEnabled:uFrontDepthSliceEnabled",
+    ],
   });
 }
 
@@ -800,7 +808,16 @@ function createRawSurfaceProgram(gl, material = null) {
         : "varying float vLight;"
     ),
     attributes: ["position:aPosition", "normal:aNormal"],
-    uniforms: ["mvp:uMvp", "model:uModel", "normalMatrix:uNormalMatrix", "color:uColor", "depthCutoff:uDepthCutoff", "depthSliceEnabled:uDepthSliceEnabled"],
+    uniforms: [
+      "mvp:uMvp",
+      "model:uModel",
+      "normalMatrix:uNormalMatrix",
+      "color:uColor",
+      "depthCutoff:uDepthCutoff",
+      "depthSliceEnabled:uDepthSliceEnabled",
+      "frontDepthCutoff:uFrontDepthCutoff",
+      "frontDepthSliceEnabled:uFrontDepthSliceEnabled",
+    ],
     extraUniforms: Object.keys(materialUniforms),
   });
 }
@@ -836,7 +853,17 @@ function createRawWireProgram(gl) {
     `,
     fragment: depthFragment("gl_FragColor = uColor;"),
     attributes: ["start:aStart", "end:aEnd", "side:aSide", "along:aAlong"],
-    uniforms: ["mvp:uMvp", "model:uModel", "resolution:uResolution", "thickness:uThickness", "color:uColor", "depthCutoff:uDepthCutoff", "depthSliceEnabled:uDepthSliceEnabled"],
+    uniforms: [
+      "mvp:uMvp",
+      "model:uModel",
+      "resolution:uResolution",
+      "thickness:uThickness",
+      "color:uColor",
+      "depthCutoff:uDepthCutoff",
+      "depthSliceEnabled:uDepthSliceEnabled",
+      "frontDepthCutoff:uFrontDepthCutoff",
+      "frontDepthSliceEnabled:uFrontDepthSliceEnabled",
+    ],
   });
 }
 
@@ -923,6 +950,8 @@ function createRawPerceptualWireProgram(gl) {
       "color:uColor",
       "depthCutoff:uDepthCutoff",
       "depthSliceEnabled:uDepthSliceEnabled",
+      "frontDepthCutoff:uFrontDepthCutoff",
+      "frontDepthSliceEnabled:uFrontDepthSliceEnabled",
     ],
   });
 }
@@ -957,13 +986,23 @@ function depthFragment(output, extra = "") {
     uniform vec4 uColor;
     uniform float uDepthCutoff;
     uniform float uDepthSliceEnabled;
+    uniform float uFrontDepthCutoff;
+    uniform float uFrontDepthSliceEnabled;
     varying float vModelDepth;
     ${extra}
     void main() {
       if (uDepthSliceEnabled > 0.5 && vModelDepth < uDepthCutoff) discard;
+      if (uFrontDepthSliceEnabled > 0.5 && vModelDepth > uFrontDepthCutoff) discard;
       ${output}
     }
   `;
+}
+
+function setDepthSliceUniforms(gl, resources, params, bounds, modelMatrix) {
+  gl.uniform1f(resources.depthCutoff, modelDepthCutoff(params, bounds, modelMatrix));
+  gl.uniform1f(resources.depthSliceEnabled, modelDepthSliceEnabled(params) ? 1 : 0);
+  gl.uniform1f(resources.frontDepthCutoff, modelFrontDepthCutoff(params, bounds, modelMatrix));
+  gl.uniform1f(resources.frontDepthSliceEnabled, modelFrontDepthSliceEnabled(params) ? 1 : 0);
 }
 
 function normalizedColor(color) {

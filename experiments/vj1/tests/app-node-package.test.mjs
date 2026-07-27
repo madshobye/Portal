@@ -917,6 +917,46 @@ test("model media compiles as an editable mesh-to-Scene node Group", () => {
     firstStaticSceneIdentity,
     "an authored STL render parameter advances the retained Scene identity even while spin is zero",
   );
+
+  const wireframeItem = {
+    ...editedStaticItem,
+    source: {
+      ...editedStaticItem.source,
+      params: {
+        ...editedStaticItem.source.params,
+        renderMode: "wireframe",
+      },
+    },
+  };
+  program.replaceChainItem(wireframeItem.id, wireframeItem);
+  operation.valueProgram.evaluate({
+    componentTime: 1,
+    renderRequest: { width: 640, height: 360 },
+    runtimeContext: { resolveMesh: () => mesh },
+  });
+  assert.equal(render.runtimeValueInputs.get("scene").objects[0].material.renderMode, "wireframe");
+
+  const recoloredSurfaceItem = {
+    ...wireframeItem,
+    source: {
+      ...wireframeItem.source,
+      params: {
+        ...wireframeItem.source.params,
+        renderMode: "surface",
+        surfaceColor: "#ff2040ff",
+      },
+    },
+  };
+  program.replaceChainItem(recoloredSurfaceItem.id, recoloredSurfaceItem);
+  operation.valueProgram.evaluate({
+    componentTime: 1,
+    renderRequest: { width: 640, height: 360 },
+    runtimeContext: { resolveMesh: () => mesh },
+  });
+  assert.deepEqual(
+    render.runtimeValueInputs.get("scene").objects[0].material.surfaceColor,
+    [255, 32, 64, 255],
+  );
 });
 
 test("Project Media compiles reusable resource, image, control, and alpha stages", () => {

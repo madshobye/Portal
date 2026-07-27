@@ -8,6 +8,8 @@ import {
   modelCameraFov,
   modelDepthCutoff,
   modelDepthSliceEnabled,
+  modelFrontDepthCutoff,
+  modelFrontDepthSliceEnabled,
   modelImportBasis,
   modelNormalMatrix,
   modelOutlineThickness,
@@ -55,6 +57,11 @@ test("specialized model math owns viewport rotation depth and matrix calculation
   assert.ok(modelDepthCutoff({ visibleDepth: 1 }, bounds) < -3);
   assert.equal(modelDepthSliceEnabled({ visibleDepth: 1 }), false);
   assert.equal(modelDepthSliceEnabled({ visibleDepth: 0.999 }), true);
+  assert.ok(modelFrontDepthCutoff({ frontCut: 0 }, bounds) > 7);
+  assert.equal(modelFrontDepthCutoff({ frontCut: 0.25 }, bounds), 4.5);
+  assert.equal(modelFrontDepthCutoff({ frontCut: 0.5 }, bounds), 2);
+  assert.equal(modelFrontDepthSliceEnabled({ frontCut: 0 }), false);
+  assert.equal(modelFrontDepthSliceEnabled({ frontCut: 0.001 }), true);
   assert.equal(modelWireThickness({ wireThickness: 99 }), 12);
   assert.equal(modelOutlineThickness({ wireThickness: 2 }), 2.7);
   assert.ok(Math.abs(modelCameraFov({}) - Math.PI / 3) < 0.000001);

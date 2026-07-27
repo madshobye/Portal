@@ -9,6 +9,7 @@ export function updateMediaMeshRenderValues(state = null, {
   wireThickness = 1,
   pointBudget = 4000,
   visibleDepth = 1,
+  frontCut = 0,
   rotation = [0, 0, 0],
   modelScale = 1,
   depth = 1,
@@ -45,6 +46,7 @@ export function updateMediaMeshRenderValues(state = null, {
       wireThickness: 1,
       pointBudget: 4000,
       visibleDepth: 1,
+      frontCut: 0,
       shader: { source: "", uniforms: {} },
       metadata: {},
     },
@@ -61,6 +63,7 @@ export function updateMediaMeshRenderValues(state = null, {
   result.material.wireThickness = Number(wireThickness) || 1;
   result.material.pointBudget = Math.max(128, Math.round(Number(pointBudget) || 4000));
   result.material.visibleDepth = Math.max(0.02, Math.min(1, Number(visibleDepth) || 1));
+  result.material.frontCut = Math.max(0, Math.min(0.98, Number(frontCut) || 0));
   result.camera.fieldOfView = Number(fieldOfView) || Math.PI / 3;
   return result;
 }

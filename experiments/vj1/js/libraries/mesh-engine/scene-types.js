@@ -17,7 +17,16 @@ export const MATERIAL_3D_MODES = Object.freeze([
   "xrayOutline",
 ]);
 const MATERIAL_UNIFORM_TYPES = new Set(["float", "int", "bool", "vec2", "vec3", "vec4"]);
-const MATERIAL_RESERVED_UNIFORMS = new Set(["uColor", "uMvp", "uModel", "uNormalMatrix", "uDepthCutoff", "uDepthSliceEnabled"]);
+const MATERIAL_RESERVED_UNIFORMS = new Set([
+  "uColor",
+  "uMvp",
+  "uModel",
+  "uNormalMatrix",
+  "uDepthCutoff",
+  "uDepthSliceEnabled",
+  "uFrontDepthCutoff",
+  "uFrontDepthSliceEnabled",
+]);
 
 export function createTransform3d(value = {}) {
   return Object.freeze({
@@ -75,6 +84,7 @@ export function createMaterial3d(value = {}) {
     wireThickness: finite(value.wireThickness, 1),
     pointBudget: Math.max(128, Math.round(finite(value.pointBudget, 4000))),
     visibleDepth: clamp(finite(value.visibleDepth, 1), 0.02, 1),
+    frontCut: clamp(finite(value.frontCut, 0), 0, 0.98),
     edgeAngle: clamp(finite(value.edgeAngle, 35), 0, 180),
     edgeBudget: Math.max(1000, Math.round(finite(value.edgeBudget, 20000))),
     renderQuality: clamp(finite(value.renderQuality, 0.5), 0, 1),

@@ -4,6 +4,10 @@ import { attachLegacyTriangleView, MeshType, modelTriangleCount } from "../mesh-
 import { buildMeshoptimizerLods, indexedMeshToTriangleSoup } from "../meshoptimizer-simplifier.js";
 
 export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([
+  1000000,
+  750000,
+  500000,
+  350000,
   250000,
   160000,
   80000,
@@ -21,7 +25,7 @@ export const MODEL_LOD_TRIANGLE_LEVELS = Object.freeze([
 const MIN_DISPLAY_TRIANGLES = 750;
 const DEFAULT_DISPLAY_TRIANGLES = Math.round(Math.sqrt(6000 * 80000));
 const STANDARD_DISPLAY_TRIANGLES = 80000;
-const MAX_DISPLAY_TRIANGLES = 250000;
+const MAX_DISPLAY_TRIANGLES = 1000000;
 
 const MeshResolutionStatsType = recordType("mesh-resolution-stats", {
   sourceTriangles: numberType(),
@@ -45,8 +49,8 @@ export const MeshResolutionNode = defineNode({
     targetTriangles: {
       type: "number",
       defaultValue: 25000,
-      allowedRange: [256, 120000],
-      displayRange: [256, 120000],
+      allowedRange: [256, 1000000],
+      displayRange: [256, 1000000],
       scale: "log",
       clamp: true,
       editor: { type: "slider", step: 1 },
@@ -168,7 +172,7 @@ export function selectModelLod(mesh = {}, targetTriangles = Infinity) {
 // therefore produces a useful visual change across both small and very dense
 // meshes instead of spending most of the control range near the maximum.
 export function modelGeometryTriangleBudget(detail = 0.5) {
-  const normalized = Math.max(0, Math.min(2, Number(detail) || 0));
+  const normalized = Math.max(0, Math.min(3, Number(detail) || 0));
   if (normalized <= 0.5) {
     return Math.round(
       MIN_DISPLAY_TRIANGLES *
@@ -191,7 +195,7 @@ export function modelGeometryTriangleBudget(detail = 0.5) {
     STANDARD_DISPLAY_TRIANGLES *
     Math.pow(
       MAX_DISPLAY_TRIANGLES / STANDARD_DISPLAY_TRIANGLES,
-      normalized - 1,
+      (normalized - 1) / 2,
     )
   );
 }
@@ -202,15 +206,20 @@ export function modelLodTargetTriangles({
   geometryDetail = 0.5,
 } = {}) {
   const pixels = Math.max(1, Number(width) || 1) * Math.max(1, Number(height) || 1);
+  const detail = Math.max(0, Math.min(3, Number(geometryDetail) || 0));
   const authoredBudget = Math.max(
     MIN_DISPLAY_TRIANGLES,
-    modelGeometryTriangleBudget(geometryDetail),
+    modelGeometryTriangleBudget(detail),
   );
   // Pixel demand may select a coarser retained LOD for a small ROI, but Draw
   // Mode and pass-specific budgets have no authority over mesh selection.
+  // Detail 0..1 retains the established density. Above 1, authored detail
+  // progressively permits denser topology until detail 3 reaches one
+  // triangle per two requested pixels.
+  const pixelsPerTriangle = detail <= 1 ? 6 : 6 - (detail - 1) * 2;
   const rasterDemand = Math.max(
     MIN_DISPLAY_TRIANGLES,
-    Math.min(MAX_DISPLAY_TRIANGLES, Math.round(pixels / 6)),
+    Math.min(MAX_DISPLAY_TRIANGLES, Math.round(pixels / pixelsPerTriangle)),
   );
   return Math.min(authoredBudget, rasterDemand);
 }

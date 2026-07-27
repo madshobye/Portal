@@ -18,7 +18,7 @@ export const MeshDisplayLodNode = defineNode({
   inlets: {
     mesh: { type: MeshType, required: true },
     viewport: { type: "viewport", optional: true },
-    geometryDetail: { type: "number", defaultValue: 0.5, allowedRange: [0, 2], clamp: true },
+    geometryDetail: { type: "number", defaultValue: 0.5, allowedRange: [0, 3], clamp: true },
   },
   outlets: {
     mesh: { type: MeshType },

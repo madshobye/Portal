@@ -2922,7 +2922,7 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
   );
 });
 
-test("Live render patches are acknowledged only by an active compiled visual target", () => {
+test("Live render patches retain inactive Component state without breaking transport revisions", () => {
   const visualComponent = (id, sourceId, scale) => ({
     id,
     type: "chain",
@@ -2973,16 +2973,13 @@ test("Live render patches are acknowledged only by an active compiled visual tar
 
   assert.equal(
     result.applied,
-    false,
-    "mutating projected state is not a successful visual patch without a compiled target",
+    true,
+    "an inactive Component edit is valid retained state even without a compiled target",
   );
-  assert.equal(result.stateApplied, true);
-  assert.equal(result.configurationApplied, false);
-  assert.equal(result.failedPatch?.componentId, componentA.id);
   assert.equal(
     componentA.chain[0].source.params.scale,
     4,
-    "the receiver retains the authored value while its caller reconciles the active projection",
+    "the receiver retains the authored value for compilation when the Component becomes active",
   );
   assert.equal(
     renderer.componentProgramRuntime.programs.has(componentA.id),
