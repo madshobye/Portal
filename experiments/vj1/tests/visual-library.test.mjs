@@ -121,7 +121,7 @@ test("the static built-in catalog is projected into the common visual-library mo
 
 test("the built-in proving set is file-backed ISF with stable node identity and explicit lowering", () => {
   assert.equal(BuiltInIsfRepository.id, BuiltInVisualLibraryLayer.id);
-  assert.equal(BuiltInIsfRepository.records.length, 5);
+  assert.equal(BuiltInIsfRepository.records.length, 28);
   const black = BuiltInIsfRepository.records.find((record) => record.visualId === "black");
   const invert = BuiltInIsfRepository.records.find((record) => record.visualId === "invert");
   const gray = BuiltInIsfRepository.records.find((record) => record.visualId === "gray");
@@ -197,6 +197,56 @@ test("the built-in proving set is file-backed ISF with stable node identity and 
         lowering: "local-effect",
       },
     ],
+  );
+});
+
+test("the curated ISF proof collection is fragment-only, attributed, and catalogued by capability", () => {
+  const proof = BuiltInIsfRepository.records.filter((record) =>
+    record.resource.startsWith("shaders/isf/")
+  );
+  assert.equal(proof.length, 23);
+  assert.deepEqual(
+    Object.fromEntries(["generator", "effect", "transition"].map((kind) => [
+      kind,
+      proof.filter((record) => record.artifactType === kind).length,
+    ])),
+    { generator: 6, effect: 8, transition: 9 },
+  );
+  for (const record of proof) {
+    const sourcePart = record.definition.parts.find((part) =>
+      part.id === "isf-source"
+    );
+    const document = record.component?.isf ||
+      record.transition?.definition?.metadata?.isf;
+    assert.equal(record.resource.endsWith(".fs"), true, record.resource);
+    assert.equal(sourcePart?.stage, "fragment", record.resource);
+    assert.doesNotMatch(sourcePart?.source || "", /"IMPORTED"\s*:/, record.resource);
+    assert.equal(document?.passes?.length, 1, record.resource);
+    assert.equal(document?.passes?.some((pass) =>
+      pass.persistent || pass.float || pass.target
+    ), false, record.resource);
+    assert.equal(document?.inputs?.some((input) =>
+      ["audio", "audioFFT", "event"].includes(input.type)
+    ), false, record.resource);
+    assert.equal(record.categories.includes("ISF"), true, record.resource);
+    assert.equal(record.tags.includes("isf"), true, record.resource);
+    assert.equal(record.attribution?.license, "MIT", record.resource);
+    assert.equal(
+      record.attribution?.upstreamCommit,
+      "395072d48b3ce7351ccb20a5fda54470591324df",
+      record.resource,
+    );
+  }
+  const proofArtifacts = listBuiltInVisualArtifacts().filter((artifact) =>
+    artifact.implementation.resourceId?.startsWith("shaders/isf/")
+  );
+  assert.equal(proofArtifacts.length, 23);
+  assert.equal(
+    proofArtifacts.every((artifact) =>
+      artifact.implementation.format === "isf" &&
+      artifact.attribution?.license === "MIT"
+    ),
+    true,
   );
 });
 
@@ -321,13 +371,20 @@ test("installed transitions join the same active transition entries used by runt
   });
 
   assert.deepEqual(
-    entries.map((entry) => entry.id),
-    ["vj1.transition.dissolve", "org.example.transition.package-wipe"],
+    entries.slice(0, BuiltInIsfRepository.transitions.length)
+      .map((entry) => entry.id),
+    BuiltInIsfRepository.transitions.map((entry) => entry.id),
   );
-  assert.strictEqual(resolver.transitionEntries[1].kernel, entries[1].kernel);
-  assert.equal(entries[1].origin.kind, "installed");
-  assert.equal(entries[1].origin.id, nodePackage.id);
-  assert.equal(entries[1].kernel.implementation, "isf");
+  const installed = entries.find((entry) =>
+    entry.id === "org.example.transition.package-wipe"
+  );
+  const resolvedInstalled = resolver.transitionEntries.find((entry) =>
+    entry.id === installed.id
+  );
+  assert.strictEqual(resolvedInstalled.kernel, installed.kernel);
+  assert.equal(installed.origin.kind, "installed");
+  assert.equal(installed.origin.id, nodePackage.id);
+  assert.equal(installed.kernel.implementation, "isf");
 });
 
 test("runtime visual resolution follows the layered library instead of bypassing it with static maps", () => {

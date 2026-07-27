@@ -375,8 +375,33 @@ allocation-sensitive resources remain nodes or native operations.
 The file-backed proving repository is under `visual-library/`. Manifest and ISF
 headers repeat stable ID/version and fail closed when they diverge. Black,
 Invert, Gray, Threshold, and Dissolve prove direct, fusible, parameterized, and
-transition lowering. Metadata declares host contracts; it never embeds arbitrary
+transition lowering. The first curated Vidvox proof slice adds 23 original
+fragment sources under `visual-library/shaders/isf/`: 6 generators, 8 effects,
+and 9 transitions pinned to upstream commit
+`395072d48b3ce7351ccb20a5fda54470591324df`. It deliberately excludes custom
+vertex stages, audio/FFT, imported images, events, persistent buffers, float
+buffers, and multipass shaders. Source text remains the portable authority;
+catalog metadata supplies stable application identity and presentation without
+merging shader bodies into JavaScript. Generator and effect cards remain in
+their ordinary categories and are additionally discoverable through the `ISF`
+picker filter. Metadata declares host contracts; it never embeds arbitrary
 JavaScript.
+
+The ISF backend owns retained pass state generically. Persistent passes use
+instance-owned ping-pong framebuffers, including float attachments, and
+full-screen shader writes replace their destination without blending. A
+program-local `FRAMEINDEX` begins at zero when a shader instance, source hash,
+pass geometry, or resolution changes, so first-frame initialization never
+depends on the age of the Output renderer. Pass targets and their frame clocks
+share pruning and disposal lifecycles. When the final ISF pass is itself a
+retained target, the effect boundary commits that returned texture into its
+evaluation-owned output; retained history never silently replaces cache
+ownership or leaves the published buffer empty. ISF coordinates remain
+bottom-left as specified, while every image macro crosses once through the
+shared render-target orientation contract before sampling; individual shaders
+never add corrective flips. The curated proof slice still excludes persistent
+and float shaders; imported shaders can use this runtime contract without
+shader-specific exceptions.
 
 Package dependencies are exact-version and content-integrity pinned.
 `project.json` stores the resolved closure without embedding package resources.
@@ -519,12 +544,13 @@ npm run test:render
 git diff --check
 ```
 
-The real-WebGL browser architecture smoke must also pass. It covers compiled
-shaders, transitions and endpoint equivalence, ROI crop equivalence, ordinary
-and retained-value Groups, semantic 3D, aggregate CPU/Overall metrics, resource
-revisions, and balanced GPU/browser resources.
+The real-WebGL browser architecture and persistent-ISF smokes must also pass.
+They cover compiled shaders, transitions and endpoint equivalence, ROI crop
+equivalence, ordinary and retained-value Groups, semantic 3D, aggregate
+CPU/Overall metrics, resource revisions, balanced GPU/browser resources, and
+two-frame float ping-pong history initialized at a nonzero host frame.
 
-At source coherence revision **187**, semantic sources, typed
+At source coherence revision **193**, semantic sources, typed
 resource/capability readiness, progressive primary-media restore, aggregate
 metrics, atomic retained framebuffer passes, and the complete browser import
 chain share one cache identity. A retained render result renews the lifetime of
@@ -535,7 +561,7 @@ specialized child values; native terminal operations remain explicit optimized
 backends rather than hidden parent programs. Output scheduling, signatures,
 dependency/media state, and thumbnails consume compiled-program APIs; raw
 Component chains are limited to migration and explicit editor projections. The
-automated suite passes **1,420 tests**. The top-bar Signal load indicator and
+automated suite passes **1,444 tests**. The top-bar Signal load indicator and
 ten-second report expose state, invalidation, compile, resource, cache, and
 presentation rates without classifying ordinary presentation or cache reuse as
 coordination pressure.

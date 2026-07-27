@@ -4,6 +4,7 @@ import {
   createSharedFramebufferTarget,
   unwrapRenderTarget,
 } from "./shared-framebuffer-target.js";
+import { renderTargetNeedsShaderSampleFlip } from "./render-target-contract.js";
 import {
   applyShaderTarget,
   clearShaderTarget,
@@ -27,6 +28,7 @@ export class IsfRenderRuntime {
     this.host = host;
     this.setShaderParams = setShaderParams;
     this.passTargets = new Map();
+    this.programStates = new Map();
     this.targetTextures = new Map();
     this.dateUniform = [0, 0, 0, 0];
   }
@@ -49,6 +51,7 @@ export class IsfRenderRuntime {
       }
     }
     this.passTargets.clear();
+    this.programStates.clear();
     this.targetTextures.clear();
   }
 
@@ -58,6 +61,11 @@ export class IsfRenderRuntime {
       if (frameIndex - entry.lastUsed <= maxIdleFrames) continue;
       for (const target of entry.targets) disposeGraphics(target);
       this.passTargets.delete(key);
+    }
+    for (const [key, entry] of this.programStates) {
+      if (frameIndex - entry.lastUsed > maxIdleFrames) {
+        this.programStates.delete(key);
+      }
     }
   }
 
@@ -143,25 +151,46 @@ export class IsfRenderRuntime {
         ? Number(param.isfValues[enumUniform(param, normalized)]) || 0
         : Number(normalized) || 0;
     }
-    const targetTextures = this.targetTextures;
-    targetTextures.clear();
-    let result = finalTarget;
-    for (let index = 0; index < passes.length; index++) {
-      const pass = passes[index];
-      const finalPass = index === passes.length - 1;
-      let widthPx;
-      let heightPx;
+    const resolvedPasses = [];
+    for (const pass of passes) {
       try {
-        widthPx = evaluateIsfDimension(pass.width, dimensionValues);
-        heightPx = evaluateIsfDimension(pass.height, dimensionValues);
+        resolvedPasses.push({
+          pass,
+          widthPx: evaluateIsfDimension(pass.width, dimensionValues),
+          heightPx: evaluateIsfDimension(pass.height, dimensionValues),
+        });
       } catch (error) {
         console.error("[VJ1_ISF_PASS_SIZE_FAILED]", {
           shader: component.id,
-          pass: pass.target || index,
+          pass: pass.target || pass.index,
           message: error?.message || String(error),
         });
         return null;
       }
+    }
+    const programKey = [
+      component?.id || "isf",
+      component?.isf?.sourceHash || "",
+      instanceId || "shared",
+      resolvedPasses.map(({ pass, widthPx, heightPx }) =>
+        `${pass.index}:${pass.target}:${widthPx}x${heightPx}`
+      ).join(","),
+    ].join(":");
+    let programState = this.programStates.get(programKey);
+    if (!programState) {
+      programState = { frameIndex: 0, lastUsed: 0 };
+      this.programStates.set(programKey, programState);
+    }
+    programState.lastUsed = Math.max(
+      0,
+      Number(this.host.frameRuntime.frameIndex) || 0,
+    );
+    const targetTextures = this.targetTextures;
+    targetTextures.clear();
+    let result = finalTarget;
+    for (let index = 0; index < resolvedPasses.length; index++) {
+      const { pass, widthPx, heightPx } = resolvedPasses[index];
+      const finalPass = index === resolvedPasses.length - 1;
       let destination = finalTarget;
       let passEntry = null;
       if (pass.target) {
@@ -225,6 +254,7 @@ export class IsfRenderRuntime {
           timeSeconds,
           params,
           passIndex: index,
+          frameIndex: programState.frameIndex,
           targetTextures,
           sourceDetail: finalPass ? sourceDetail : null,
         });
@@ -256,6 +286,7 @@ export class IsfRenderRuntime {
       }
       result = destination;
     }
+    programState.frameIndex += 1;
     return result;
   }
 
@@ -266,6 +297,7 @@ export class IsfRenderRuntime {
     timeSeconds,
     params = {},
     passIndex = 0,
+    frameIndex = null,
     generatorUniformState = null,
     targetTextures = null,
     sourceDetail = null,
@@ -301,7 +333,13 @@ export class IsfRenderRuntime {
       "TIMEDELTA",
       this.host.frameRuntime.visualDeltaSeconds,
     );
-    setShaderUniformIfPresent(shader, "FRAMEINDEX", this.host.frameRuntime.frameIndex);
+    setShaderUniformIfPresent(
+      shader,
+      "FRAMEINDEX",
+      Number.isInteger(frameIndex)
+        ? frameIndex
+        : this.host.frameRuntime.frameIndex,
+    );
     setShaderUniformIfPresent(shader, "PASSINDEX", passIndex);
     setShaderUniformIfPresent(shader, "DATE", date);
     setShaderUniformIfPresent(
@@ -320,6 +358,11 @@ export class IsfRenderRuntime {
         Math.max(1, input.width || logicalWidth),
         Math.max(1, input.height || logicalHeight),
       ]);
+      setShaderUniformIfPresent(
+        shader,
+        "inputImage_flipY",
+        this.imageNeedsStorageFlip(input),
+      );
     }
     for (const [name, state] of inputs || []) {
       const texture = state?.buffer || state;
@@ -329,6 +372,11 @@ export class IsfRenderRuntime {
         Math.max(1, texture.width || logicalWidth),
         Math.max(1, texture.height || logicalHeight),
       ]);
+      setShaderUniformIfPresent(
+        shader,
+        `${name}_flipY`,
+        this.imageNeedsStorageFlip(texture),
+      );
     }
     for (const [name, texture] of targetTextures || []) {
       if (!texture) continue;
@@ -337,8 +385,20 @@ export class IsfRenderRuntime {
         Math.max(1, texture.width || 1),
         Math.max(1, texture.height || 1),
       ]);
+      setShaderUniformIfPresent(
+        shader,
+        `${name}_flipY`,
+        this.imageNeedsStorageFlip(texture),
+      );
     }
     void component;
     void params;
+  }
+
+  imageNeedsStorageFlip(texture) {
+    return renderTargetNeedsShaderSampleFlip(
+      texture,
+      this.host.renderTargetRuntime?.isShaderBuffer?.(texture) === true,
+    );
   }
 }

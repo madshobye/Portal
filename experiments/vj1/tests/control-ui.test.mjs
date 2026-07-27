@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 import { paramRangePairTemplate, rangeTemplate } from "../js/control/template-utils.js";
-import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "../js/control/picker-view.js";
+import {
+  elementMediaCategory,
+  elementPickerTemplate,
+  isIsfVisualComponent,
+  mergeVisualCatalogEntries,
+  sourceChoicePickerTemplate,
+} from "../js/control/picker-view.js";
 import { settingsModalTemplate } from "../js/control/settings-view.js";
 import { createInitialState, createSceneComponent } from "../js/domain/models.js";
 import { liveProjectionRailTemplate } from "../js/control/project-rail-view.js";
@@ -51,6 +57,23 @@ test("catalog media enters Components through editable typed media Groups", () =
     generatorId: "mediaImage",
     params: { mediaId: "media/photo.png" },
   });
+});
+
+test("project ISF entries replace matching bundled catalog identities", () => {
+  const bundled = [
+    { id: "brick-pattern", name: "Brick Pattern", origin: "bundled" },
+    { id: "radial-gradient", name: "Radial Gradient", origin: "bundled" },
+  ];
+  const project = [
+    { id: "brick-pattern", name: "brick-pattern", origin: "project" },
+    { id: "custom-project-shader", name: "Custom", origin: "project" },
+  ];
+
+  assert.deepEqual(mergeVisualCatalogEntries(bundled, project), [
+    project[0],
+    bundled[1],
+    project[1],
+  ]);
 });
 
 test("Live exposes placement controls only for Components that own placement", () => {
@@ -263,7 +286,11 @@ test("element picker filters media and render elements by explicit category", ()
       { id: "clip", name: "clip.mp4", path: "media/clip.mp4", type: "video" },
       { id: "mesh", name: "mesh.obj", path: "media/mesh.obj", type: "model" },
     ],
-  }, { componentId: owner.id, filter: "model" }, { getFile: () => null }, {
+  }, {
+    componentId: owner.id,
+    filter: "model",
+    search: "radial",
+  }, { getFile: () => null }, {
     components: [owner, component],
     sortMode: "recent",
   });
@@ -277,12 +304,26 @@ test("element picker filters media and render elements by explicit category", ()
   assert.match(html, /class="is-active" data-element-filter="model"/);
   assert.match(html, /data-element-filter="generator"/);
   assert.match(html, /data-element-filter="effect"/);
+  assert.match(html, /data-element-filter="isf"/);
   assert.match(html, /data-element-filter="component"/);
+  assert.match(html, /data-element-search[^>]*value="radial"/);
+  assert.match(html, /data-element-category="generator isf"/);
+  assert.match(html, /data-element-category="effect isf"/);
   assert.match(html, /data-element-category="image"[\s\S]*?data-add-element-media="photo"/);
   assert.match(html, /data-element-category="video"[\s\S]*?data-add-element-media="clip"/);
   assert.match(html, /data-element-category="model"[\s\S]*?data-add-element-media="mesh"/);
-  assert.match(modalSource, /classList\.toggle\("is-filter-hidden"/);
-  assert.match(modalSource, /filter !== "all" && category !== filter/);
+  assert.match(modalSource, /classList\.toggle\(\s*"is-filter-hidden"/);
+  assert.match(modalSource, /filter !== "all" && !categories\.includes\(filter\)/);
+  assert.match(modalSource, /elementPickerMemory\.filter/);
+  assert.match(
+    modalSource,
+    /rememberUnrestrictedPicker\(elementPickerMemory, elementPicker\)/,
+  );
+  assert.match(modalSource, /picker\.search = input\.value/);
+  assert.equal(isIsfVisualComponent({
+    nodeDefinition: { metadata: { visualFamily: "isf" } },
+  }), true);
+  assert.equal(isIsfVisualComponent(null), false);
 });
 
 test("source chooser exposes category filters and model sources lock it to 3D", () => {
@@ -295,11 +336,16 @@ test("source chooser exposes category filters and model sources lock it to 3D", 
     ],
     target: { source: { type: "media", mediaId: "mesh" } },
   };
-  const general = sourceChoicePickerTemplate(state, { path: "target.source" }, { getFile: () => null });
+  const general = sourceChoicePickerTemplate(state, {
+    path: "target.source",
+    search: "brick",
+  }, { getFile: () => null });
   assert.match(general, /data-element-filter="image"/);
   assert.match(general, /data-element-filter="video"/);
   assert.match(general, /data-element-filter="model"/);
   assert.match(general, /data-element-filter="generator"/);
+  assert.match(general, /data-element-filter="isf"/);
+  assert.match(general, /data-element-search[^>]*value="brick"/);
   assert.match(general, /data-element-category="model" data-element-search-card=/);
   assert.match(general, /role="tablist"/);
   assert.doesNotMatch(general, /data-element-filter="all"/);

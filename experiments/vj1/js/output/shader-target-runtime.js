@@ -97,13 +97,17 @@ export function drawShaderTarget(target, draw) {
   if (isSharedFramebufferTarget(target)) {
     return target.drawWebGL(() => {
       push();
+      const gl = target.drawingContext;
       try {
         noStroke();
         // Shader passes produce the complete destination pixel in VJ1's
         // premultiplied-alpha format. Replace the target value atomically;
-        // blending here would apply alpha twice and inherit state from the
-        // backend that happened to draw immediately before this pass.
+        // blending here would apply alpha twice, inherit state from the
+        // previous backend, and make float framebuffer writes depend on the
+        // optional EXT_float_blend capability. p5's REPLACE mode still keeps
+        // WebGL blending enabled, so disable it at the attachment boundary.
         blendMode(globalThis.REPLACE ?? "replace");
+        gl?.disable?.(gl.BLEND);
         return draw();
       } finally {
         blendMode(globalThis.BLEND ?? "source-over");

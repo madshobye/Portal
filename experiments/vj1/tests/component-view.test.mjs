@@ -2,11 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { sceneInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate, sourceChainItemDisplayName, videoTrimValues } from "../js/control/component-view.js";
-import { createComponentEffect, createInitialState, normalizeComponentChainItem, normalizeMediaMeta } from "../js/domain/models.js";
+import { sceneInspectorTemplate, componentSelectedChainSettingsTemplate, componentTemplate, effectChainItemDisplayName, sourceChainItemDisplayName, videoTrimValues } from "../js/control/component-view.js";
+import { createComponentEffect, createComponentLayer, createInitialState, normalizeComponentChainItem, normalizeMediaMeta } from "../js/domain/models.js";
 import { createProjectVisualGroupDefinition, defineNode, NodeRegistry } from "../js/libraries/node-engine/index.js";
 import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
 import { withProjectNodeGraph, withProjectNodeParameterExposure } from "../js/control/node-editor-view.js";
+import { listEffectNodeComponents, listGeneratorNodeComponents } from "../js/libraries/visual-nodes/catalog.js";
 
 test("video trim uses decoded duration and never invents a silent timeline", () => {
   assert.deepEqual(videoTrimValues({}, { duration: 10 }), {
@@ -49,6 +50,42 @@ test("media element names follow the current file basename until explicitly rena
     name: "Backdrop",
   });
   assert.equal(sourceChainItemDisplayName(custom, { id: source.mediaId, name: "renamed-again.png" }), "Backdrop");
+});
+
+test("visual placements use clean catalog names, identify ISF, and remain renameable", () => {
+  const state = createInitialState();
+  const kaleidoscope = listEffectNodeComponents().find((component) =>
+    component.nodeDefinition?.metadata?.projectAssetPath ===
+      "shaders/isf/effects/kaleidoscope.fs"
+  );
+  const brickPattern = listGeneratorNodeComponents().find((component) =>
+    component.nodeDefinition?.metadata?.projectAssetPath ===
+      "shaders/isf/generators/brick-pattern.fs"
+  );
+  const effect = createComponentEffect(kaleidoscope.id);
+  const generator = createComponentLayer(0, {
+    type: "generator",
+    generatorId: brickPattern.id,
+  });
+
+  assert.equal(effectChainItemDisplayName(effect, state), "Kaleidoscope (ISF)");
+  assert.equal(
+    sourceChainItemDisplayName(generator, null, null, state),
+    "Brick Pattern (ISF)",
+  );
+
+  effect.name = "Mirror Room";
+  assert.equal(effectChainItemDisplayName(effect, state), "Mirror Room");
+
+  const component = state.components.find((item) => item.type !== "scene");
+  component.chain = [effect];
+  state.ui.selectedComponentId = component.id;
+  state.ui.selectedChainItemId = effect.id;
+  const html = componentSelectedChainSettingsTemplate(component, state);
+  assert.match(
+    html,
+    /class="section-title-input"[^>]*data-update="components\.[0-9]+\.chain\.0\.name"[^>]*value="Mirror Room"/,
+  );
 });
 
 test("Component and Canvas chain presentation lives outside the control orchestrator", () => {

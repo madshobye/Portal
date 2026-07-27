@@ -8,7 +8,7 @@ const BUILT_IN_MANIFEST_URL = new URL(
   "../../../visual-library/visual-library.json",
   import.meta.url,
 );
-const BUILT_IN_RESOURCE_REVISION = "async-media-dirty-1";
+const BUILT_IN_RESOURCE_REVISION = "isf-proof-2";
 
 export async function loadBuiltInIsfRepository({
   manifestUrl = BUILT_IN_MANIFEST_URL,
@@ -88,12 +88,28 @@ export async function loadBuiltInIsfRepository({
     const transition = artifact.artifactType === "transition"
       ? Object.freeze({
         ...materializeIsfTransitionDefinition(definition),
+        name: String(artifact.name || definition.name),
+        description: String(
+          artifact.description || definition.description || "",
+        ),
         definition,
         resource,
         origin: Object.freeze({ kind: "built-in", id: libraryId }),
       })
       : null;
-    const component = transition ? null : materializeIsfNodeDefinition(definition);
+    const materializedComponent = transition
+      ? null
+      : materializeIsfNodeDefinition(definition);
+    const component = materializedComponent
+      ? Object.freeze({
+        ...materializedComponent,
+        name: String(artifact.name || materializedComponent.name),
+        label: String(artifact.name || materializedComponent.label),
+        description: String(
+          artifact.description || materializedComponent.description || "",
+        ),
+      })
+      : null;
     const materializedKind = transition ? "transition" : component.kind;
     if (materializedKind !== artifact.artifactType) {
       throw new Error(

@@ -102,8 +102,35 @@ export class OutputPresentationRuntime {
         if (restoreCalibrate) mapper.setCalibrate(true);
       });
     });
+    this.renderResolutionVerificationOverlay();
     this.hasPresentedCompleteFrame = true;
     this.finishFrame();
+  }
+
+  renderResolutionVerificationOverlay() {
+    const host = this.host;
+    if (host.state?.global?.showHud === false) return;
+    const gl = typeof drawingContext !== "undefined" ? drawingContext : null;
+    const logical = host.presentationGeometry.displayCanvasSize(host.state?.render || {});
+    const fallbackDensity = host.presentationGeometry.pixelDensity(host.state?.render || {});
+    const geometry = resolutionVerificationOverlayGeometry({
+      densityX: (Number(gl?.drawingBufferWidth) || 0) / Math.max(1, logical.width) || fallbackDensity,
+      densityY: (Number(gl?.drawingBufferHeight) || 0) / Math.max(1, logical.height) || fallbackDensity,
+    });
+    if (gl?.disable) gl.disable(gl.DEPTH_TEST);
+    resetShader();
+    push();
+    try {
+      resetMatrix();
+      noFill();
+      rectMode(CENTER);
+      stroke(255, 62, 181, 235);
+      strokeWeight(geometry.strokeWeight);
+      for (const size of geometry.sizes) rect(0, 0, size.width, size.height);
+    } finally {
+      pop();
+      if (gl?.enable) gl.enable(gl.DEPTH_TEST);
+    }
   }
 
   finishFrame() {
@@ -481,6 +508,23 @@ export class OutputPresentationRuntime {
       host.state?.ui?.debugPreview === false
     );
   }
+}
+
+export function resolutionVerificationOverlayGeometry({
+  density = 1,
+  densityX = density,
+  densityY = density,
+} = {}) {
+  const scaleX = Math.max(0.125, Math.min(4, Number(densityX) || 1));
+  const scaleY = Math.max(0.125, Math.min(4, Number(densityY) || 1));
+  const strokeScale = Math.min(scaleX, scaleY);
+  return Object.freeze({
+    strokeWeight: 1 / strokeScale,
+    sizes: Object.freeze([302, 301].map((size) => Object.freeze({
+      width: size / scaleX,
+      height: size / scaleY,
+    }))),
+  });
 }
 
 // Mapping and Live share one projected output-matrix presentation. Live's

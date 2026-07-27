@@ -61,6 +61,9 @@ export function compileIsfFragmentSource(document, { kind = document?.kind || "g
   const imageSizeUniforms = imageNames
     .map((name) => ["vec2", `${name}_imgSize`])
     .filter(([, name]) => !declared.has(name));
+  const imageFlipUniforms = imageNames
+    .map((name) => ["bool", `${name}_flipY`])
+    .filter(([, name]) => !declared.has(name));
   return `
 precision highp float;
 varying vec2 vTexCoord;
@@ -68,7 +71,7 @@ uniform vec4 renderUvRect;
 uniform mat3 ${effect ? "effectUvMatrix" : "contentUvMatrix"};
 uniform float ${effect ? "amount" : "useContentTransform"};
 uniform bool vj1IsfFinalPass;
-${[...standard, ...inputUniforms, ...targetUniforms, ...imageSizeUniforms].map(([type, name]) => `uniform ${type} ${name};`).join("\n")}
+${[...standard, ...inputUniforms, ...targetUniforms, ...imageSizeUniforms, ...imageFlipUniforms].map(([type, name]) => `uniform ${type} ${name};`).join("\n")}
 
 vec2 vj1IsfBoundaryUv() {
   vec2 baseUv = renderUvRect.xy + vTexCoord * renderUvRect.zw;
@@ -77,19 +80,21 @@ vec2 vj1IsfBoundaryUv() {
     : "vec2 transformedUv = (contentUvMatrix * vec3(baseUv, 1.0)).xy; vec2 topLeftUv = mix(baseUv, transformedUv, step(0.5, useContentTransform)); return vec2(topLeftUv.x, 1.0 - topLeftUv.y);"}
 }
 vec2 vj1IsfPixelUv(vec2 pixelCoord) { return pixelCoord / max(RENDERSIZE, vec2(1.0)); }
+vec2 vj1IsfSamplerUv(vec2 isfUv, bool storageFlipY) {
+  vec2 topLeftUv = vec2(isfUv.x, 1.0 - isfUv.y);
+  return storageFlipY ? vec2(topLeftUv.x, 1.0 - topLeftUv.y) : topLeftUv;
+}
 #define vj1IsfFragCoord vec4(vj1IsfBoundaryUv() * RENDERSIZE, 0.0, 1.0)
 #define isf_FragNormCoord (vj1IsfBoundaryUv())
-#define IMG_THIS_NORM_PIXEL(image) texture2D(image, vj1IsfBoundaryUv())
-#define IMG_THIS_PIXEL(image) texture2D(image, vj1IsfBoundaryUv())
 ${imageNames.map((name) => `
-#define VJ1_IMG_NORM_PIXEL_${name}(coord) texture2D(${name}, (coord))
-#define VJ1_IMG_PIXEL_${name}(coord) texture2D(${name}, (coord) / max(${name}_imgSize, vec2(1.0)))`).join("\n")}
+#define VJ1_IMG_NORM_PIXEL_${name}(coord) texture2D(${name}, vj1IsfSamplerUv((coord), ${name}_flipY))
+#define VJ1_IMG_PIXEL_${name}(coord) texture2D(${name}, vj1IsfSamplerUv((coord) / max(${name}_imgSize, vec2(1.0)), ${name}_flipY))`).join("\n")}
 
 ${source}
 
 void main() {
   vj1IsfUserMain();
-  ${effect && !explicitEffectAmount ? "if (vj1IsfFinalPass) gl_FragColor = mix(IMG_THIS_NORM_PIXEL(inputImage), gl_FragColor, clamp(amount, 0.0, 1.0));" : ""}
+  ${effect && !explicitEffectAmount ? "if (vj1IsfFinalPass) gl_FragColor = mix(VJ1_IMG_NORM_PIXEL_inputImage(vj1IsfBoundaryUv()), gl_FragColor, clamp(amount, 0.0, 1.0));" : ""}
   ${transition ? "" : "if (vj1IsfFinalPass) gl_FragColor.rgb *= gl_FragColor.a;"}
 }`.trim();
 }
@@ -304,6 +309,8 @@ function adaptImageMacros(source, imageNames) {
     const escaped = escapeRegExp(name);
     adapted = adapted
       .replace(new RegExp(`\\bIMG_SIZE\\s*\\(\\s*${escaped}\\s*\\)`, "g"), `${name}_imgSize`)
+      .replace(new RegExp(`\\bIMG_THIS_NORM_PIXEL\\s*\\(\\s*${escaped}\\s*\\)`, "g"), `VJ1_IMG_NORM_PIXEL_${name}(vj1IsfBoundaryUv())`)
+      .replace(new RegExp(`\\bIMG_THIS_PIXEL\\s*\\(\\s*${escaped}\\s*\\)`, "g"), `VJ1_IMG_NORM_PIXEL_${name}(vj1IsfBoundaryUv())`)
       .replace(new RegExp(`\\bIMG_NORM_PIXEL\\s*\\(\\s*${escaped}\\s*,`, "g"), `VJ1_IMG_NORM_PIXEL_${name}(`)
       .replace(new RegExp(`\\bIMG_PIXEL\\s*\\(\\s*${escaped}\\s*,`, "g"), `VJ1_IMG_PIXEL_${name}(`);
   }

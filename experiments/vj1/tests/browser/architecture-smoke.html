@@ -108,7 +108,10 @@
         DefaultBuiltInTransition,
         getEffectNodeComponent,
         getGeneratorNodeComponent,
-      } from "../../js/libraries/visual-nodes/catalog.js?v=async-media-dirty-1";
+        listBuiltInTransitionEntries,
+        listEffectNodeComponents,
+        listGeneratorNodeComponents,
+      } from "../../js/libraries/visual-nodes/catalog.js?v=isf-proof-2";
       const resultElement = document.querySelector("#architecture-smoke-results");
       const resourceCounts = {
         shadersCreated: 0,
@@ -138,6 +141,7 @@
         const transparentLayerBlend = verifyTransparentLayerBlend(gl);
         const namedIsfInputs = verifyNamedIsfInputs(gl);
         const builtInIsf = verifyBuiltInIsf(gl);
+        const curatedIsf = verifyCuratedIsf(gl);
         const nativeShaders = [
           compilePair(gl, "mesh-pattern-fill", MESH_PATTERN_FILL_VERTEX_SHADER, MESH_PATTERN_FILL_FRAGMENT_SHADER),
           compilePair(gl, "mesh-pattern-wire", MESH_PATTERN_WIRE_VERTEX_SHADER, MESH_PATTERN_WIRE_FRAGMENT_SHADER),
@@ -245,6 +249,11 @@
           builtInIsf.premultipliedInvertEquivalent &&
           builtInIsf.premultipliedGrayEquivalent &&
           builtInIsf.premultipliedThresholdEquivalent &&
+          curatedIsf.compiled &&
+          curatedIsf.linked &&
+          curatedIsf.generators === 6 &&
+          curatedIsf.effects === 8 &&
+          curatedIsf.transitions === 9 &&
           nativeShaders.every((entry) => entry.compiled && entry.linked) &&
           compounds.every((entry) => entry.compiledFastPath && entry.graphEditable && entry.activation === "recompile") &&
           compounds.find((entry) => entry.kind === "project-media")?.directPlacement === true &&
@@ -301,6 +310,7 @@
           transparentLayerBlend,
           namedIsfInputs,
           builtInIsf,
+          curatedIsf,
           nativeShaders,
           compounds,
           textMask,
@@ -1293,6 +1303,57 @@
           expectedInvert,
           expectedGray,
           expectedThreshold,
+        };
+      }
+
+      function verifyCuratedIsf(gl) {
+        const vertexSource = `
+          precision highp float;
+          attribute vec2 aPosition;
+          varying vec2 vTexCoord;
+          void main() {
+            vTexCoord = aPosition * 0.5 + 0.5;
+            gl_Position = vec4(aPosition, 0.0, 1.0);
+          }
+        `;
+        const generators = listGeneratorNodeComponents().filter((component) =>
+          String(component.nodeDefinition?.metadata?.projectAssetPath || "")
+            .startsWith("shaders/isf/")
+        );
+        const effects = listEffectNodeComponents().filter((component) =>
+          String(component.nodeDefinition?.metadata?.projectAssetPath || "")
+            .startsWith("shaders/isf/")
+        );
+        const transitions = listBuiltInTransitionEntries().filter((entry) =>
+          String(entry.resource || "").startsWith("shaders/isf/")
+        );
+        const programs = [
+          ...generators.map((component) => compilePair(
+            gl,
+            `curated-isf-generator:${component.id}`,
+            vertexSource,
+            component.code,
+          )),
+          ...effects.map((component) => compilePair(
+            gl,
+            `curated-isf-effect:${component.id}`,
+            vertexSource,
+            component.code,
+          )),
+          ...transitions.map((entry) => compilePair(
+            gl,
+            `curated-isf-transition:${entry.id}`,
+            vertexSource,
+            textureTransitionFragmentShaderSource(entry.kernel),
+          )),
+        ];
+        return {
+          compiled: programs.every((entry) => entry.compiled),
+          linked: programs.every((entry) => entry.linked),
+          generators: generators.length,
+          effects: effects.length,
+          transitions: transitions.length,
+          ids: programs.map((entry) => entry.id),
         };
       }
 

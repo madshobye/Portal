@@ -4,7 +4,7 @@ import { liveProgramComponentIds } from "../domain/scene-routing.js";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js";
 import { catalogMarkerButtonTemplate, componentCatalogSearchText, componentCatalogToolsTemplate } from "./catalog-view.js";
-import { sourceChainItemDisplayName, sourceIcon } from "./component-view.js";
+import { effectChainItemDisplayName, sourceChainItemDisplayName, sourceIcon } from "./component-view.js";
 import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js";
 import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, chainTransformParams, componentParamViews, parameterGroupTemplate, paramControlTemplate, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js";
 import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js";
@@ -317,7 +317,7 @@ function significantChainControls(chain, options) {
     const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
     const label = item.kind === "source"
       ? sourceChainItemDisplayName(item, mediaItem, referencedComponent, state)
-      : item.name || item.componentId || "Effect";
+      : effectChainItemDisplayName(item, state);
     return parameterGroupTemplate(label, `${contentControls}${compositeControls}${transformControls}`);
   }).join("");
 }
@@ -506,7 +506,7 @@ function firstLiveChainItem(chain, base = "chain") {
 }
 
 function liveChainItemLabel(item, state = {}) {
-  if (item.kind === "effect") return visualEffectComponent(state, item.componentId)?.name || item.componentId;
+  if (item.kind === "effect") return effectChainItemDisplayName(item, state);
   if (item.kind === "group") return item.name || "Group";
   const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(item.source)) || null;
   const component = state.components?.find((entry) => entry.id === item.source?.componentId) || null;

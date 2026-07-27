@@ -52,8 +52,12 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
   const mediaItems = allowedCategory
     ? allMediaItems.filter((item) => elementMediaCategory(item) === allowedCategory)
     : allMediaItems;
-  const generators = [...listGeneratorComponents(), ...listProjectIsfVisualComponents(state).filter((component) => component.kind === "generator")]
+  const generators = mergeVisualCatalogEntries(
+    listGeneratorComponents(),
+    listProjectIsfVisualComponents(state).filter((component) => component.kind === "generator"),
+  )
     .filter((generator) => !["black", "cameraInput"].includes(generator.id));
+  const hasIsf = generators.some(isIsfVisualComponent);
   const sourceFilter = allowedCategory || picker?.filter || "all";
   const isMediaValuePicker = picker?.valueMode === "mediaId";
   return `
@@ -72,10 +76,15 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
 
       <label class="element-search-field">
         ${icon("search")}
-        <input type="search" data-element-search placeholder="${allowedCategory === "model" ? "Search 3D objects" : allowedCategory === "image" ? "Search images" : "Search media and generators"}" autocomplete="off" />
+        <input type="search" data-element-search placeholder="${allowedCategory === "model" ? "Search 3D objects" : allowedCategory === "image" ? "Search images" : "Search media and generators"}" value="${esc(picker?.search || "")}" autocomplete="off" />
       </label>
 
-      ${sourceFilterBarTemplate({ active: sourceFilter, mediaItems: allMediaItems, allowedCategory })}
+      ${sourceFilterBarTemplate({
+        active: sourceFilter,
+        mediaItems: allMediaItems,
+        allowedCategory,
+        hasIsf,
+      })}
 
       <div class="element-modal-body" data-scroll-region data-scroll-key="source-picker-results">
         ${mediaPickerSectionTemplate(mediaItems, mediaLibrary, {
@@ -91,7 +100,7 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
           <div class="element-grid compact-element-grid">
             ${generators.map((generator) => `
-              <button type="button" class="element-card ${source.type === "generator" && source.generatorId === generator.id ? "is-selected" : ""}" data-pick-source-generator="${esc(generator.id)}" data-element-category="generator" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
+              <button type="button" class="element-card ${source.type === "generator" && source.generatorId === generator.id ? "is-selected" : ""}" data-pick-source-generator="${esc(generator.id)}" data-element-category="${esc(elementPickerCategories("generator", generator))}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator", isIsfVisualComponent(generator) ? "isf" : ""))}">
                 ${icon(generatorIcon(generator.id))}
                 <strong>${esc(generator.label || generator.name)}</strong>
                 <small>generator</small>
@@ -123,7 +132,12 @@ export function sourceChoicePickerTemplate(state, picker, mediaLibrary) {
   `;
 }
 
-function sourceFilterBarTemplate({ active = "all", mediaItems = [], allowedCategory = "" } = {}) {
+function sourceFilterBarTemplate({
+  active = "all",
+  mediaItems = [],
+  allowedCategory = "",
+  hasIsf = false,
+} = {}) {
   if (allowedCategory) {
     const label = allowedCategory === "model" ? "3D" : allowedCategory === "image" ? "Images" : allowedCategory;
     const filterIcon = allowedCategory === "model" ? "deployed_code" : allowedCategory === "image" ? "image" : "filter_alt";
@@ -140,6 +154,7 @@ function sourceFilterBarTemplate({ active = "all", mediaItems = [], allowedCateg
     ...(availableMedia.has("video") ? [["video", "Videos", "movie"]] : []),
     ...(availableMedia.has("model") ? [["model", "3D", "deployed_code"]] : []),
     ["generator", "Generators", "auto_awesome"],
+    ...(hasIsf ? [["isf", "ISF", "animation"]] : []),
     ["live", "Live", "photo_camera"],
     ["blank", "Blank", "radio_button_unchecked"],
   ];
@@ -159,9 +174,16 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
     ? componentItems.filter((component) => component.id !== picker.componentId && component.type !== "scene")
     : [];
   const projectIsf = listProjectIsfVisualComponents(state);
-  const generators = [...listGeneratorComponents(), ...projectIsf.filter((component) => component.kind === "generator")]
+  const generators = mergeVisualCatalogEntries(
+    listGeneratorComponents(),
+    projectIsf.filter((component) => component.kind === "generator"),
+  )
     .filter((generator) => !["black", "cameraInput"].includes(generator.id));
-  const effects = [...listShaderComponents(), ...projectIsf.filter((component) => component.kind === "effect")];
+  const effects = mergeVisualCatalogEntries(
+    listShaderComponents(),
+    projectIsf.filter((component) => component.kind === "effect"),
+  );
+  const hasIsf = [...generators, ...effects].some(isIsfVisualComponent);
   return `
     <div class="modal-backdrop"></div>
     <section class="modal-panel element-modal" role="dialog" aria-modal="true" aria-label="Add element">
@@ -178,13 +200,14 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
 
       <label class="element-search-field">
         ${icon("search")}
-        <input type="search" data-element-search placeholder="Search media, generators, effects" autocomplete="off" />
+        <input type="search" data-element-search placeholder="Search media, generators, effects" value="${esc(picker?.search || "")}" autocomplete="off" />
       </label>
 
       ${elementFilterBarTemplate({
         active: picker.filter || "all",
         mediaItems,
         hasComponents: components.length > 0,
+        hasIsf,
       })}
 
       <div class="element-modal-body" data-scroll-region data-scroll-key="element-picker-results">
@@ -241,7 +264,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
           <div class="element-grid compact-element-grid">
             ${generators.map((generator) => `
-              <button type="button" class="element-card" data-element-category="generator" data-add-element-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator"))}">
+              <button type="button" class="element-card" data-element-category="${esc(elementPickerCategories("generator", generator))}" data-add-element-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator", isIsfVisualComponent(generator) ? "isf" : ""))}">
                 ${icon(generatorIcon(generator.id))}
                 <strong>${esc(generator.label || generator.name)}</strong>
                 <small>generator</small>
@@ -255,7 +278,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
           <div class="element-grid compact-element-grid">
             ${effects.map((shader) => `
-              <button type="button" class="element-card" data-element-category="effect" data-add-element-effect="${esc(shader.id)}" data-element-search-card="${esc(elementSearchText(shader.id, shader.name, shader.category, "effect"))}">
+              <button type="button" class="element-card" data-element-category="${esc(elementPickerCategories("effect", shader))}" data-add-element-effect="${esc(shader.id)}" data-element-search-card="${esc(elementSearchText(shader.id, shader.name, shader.category, "effect", isIsfVisualComponent(shader) ? "isf" : ""))}">
                 ${icon(effectIcon(shader.id))}
                 <strong>${esc(shader.name)}</strong>
                 <small>${esc(shader.category || "effect")}</small>
@@ -270,7 +293,37 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
   `;
 }
 
-function elementFilterBarTemplate({ active = "all", mediaItems = [], hasComponents = false } = {}) {
+// A project may already contain an imported ISF file that later becomes part
+// of the bundled catalog. Identity, rather than its display label or origin,
+// determines whether it is the same visual. Keep the project definition
+// authoritative so existing projects retain their exact source and settings,
+// while presenting one catalog card.
+export function mergeVisualCatalogEntries(builtIns = [], project = []) {
+  const projectById = new Map(
+    (project || []).filter((item) => item?.id).map((item) => [item.id, item]),
+  );
+  const merged = [];
+  const included = new Set();
+  for (const item of builtIns || []) {
+    const selected = projectById.get(item?.id) || item;
+    if (!selected?.id || included.has(selected.id)) continue;
+    included.add(selected.id);
+    merged.push(selected);
+  }
+  for (const item of project || []) {
+    if (!item?.id || included.has(item.id)) continue;
+    included.add(item.id);
+    merged.push(item);
+  }
+  return merged;
+}
+
+function elementFilterBarTemplate({
+  active = "all",
+  mediaItems = [],
+  hasComponents = false,
+  hasIsf = false,
+} = {}) {
   const availableMedia = new Set(mediaItems.map(elementMediaCategory));
   const filters = [
     ...(availableMedia.has("image") ? [["image", "Images", "image"]] : []),
@@ -278,6 +331,7 @@ function elementFilterBarTemplate({ active = "all", mediaItems = [], hasComponen
     ...(availableMedia.has("model") ? [["model", "3D", "deployed_code"]] : []),
     ["generator", "Generators", "auto_awesome"],
     ["effect", "Effects", "blur_on"],
+    ...(hasIsf ? [["isf", "ISF", "animation"]] : []),
     ...(hasComponents ? [["component", "Components", UI_ICONS.component]] : []),
     ["live", "Live", "photo_camera"],
     ["group", "Groups", "folder"],
@@ -356,6 +410,16 @@ export function elementMediaCategory(item = {}) {
 
 function elementSearchText(...parts) {
   return parts.filter(Boolean).join(" ").toLowerCase();
+}
+
+export function isIsfVisualComponent(component = {}) {
+  return component?.family === "isf" ||
+    component?.isf?.format === "isf@2" ||
+    component?.nodeDefinition?.metadata?.visualFamily === "isf";
+}
+
+function elementPickerCategories(primary, component) {
+  return isIsfVisualComponent(component) ? `${primary} isf` : primary;
 }
 
 function currentSourceValue(picker, state) {

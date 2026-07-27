@@ -130,8 +130,10 @@ test("named ISF image ports bind retained textures and participate in dirty iden
     uniforms: Object.fromEntries([
       "foreground",
       "foreground_imgSize",
+      "foreground_flipY",
       "background",
       "background_imgSize",
+      "background_flipY",
       "TIME",
       "TIMEDELTA",
       "FRAMEINDEX",
@@ -174,8 +176,10 @@ test("named ISF image ports bind retained textures and participate in dirty iden
 
   assert.equal(calls.get("foreground"), foreground.buffer);
   assert.deepEqual(calls.get("foreground_imgSize"), [320, 180]);
+  assert.equal(calls.get("foreground_flipY"), true);
   assert.equal(calls.get("background"), background.buffer);
   assert.deepEqual(calls.get("background_imgSize"), [1280, 720]);
+  assert.equal(calls.get("background_flipY"), true);
   assert.deepEqual(namedTextureStateKey(inputs), [
     ["background", "background@9"],
     ["foreground", "foreground@4"],
@@ -330,14 +334,24 @@ test("the dedicated ISF backend owns and prunes retained pass targets", () => {
     lastUsed: 19,
     targets: [{ remove: () => removed.push("active") }],
   });
+  runtime.programStates.set("stale-program", {
+    frameIndex: 4,
+    lastUsed: 1,
+  });
+  runtime.programStates.set("active-program", {
+    frameIndex: 2,
+    lastUsed: 19,
+  });
 
   runtime.prune(5);
   assert.deepEqual(removed, ["stale-a", "stale-b"]);
   assert.deepEqual([...runtime.passTargets.keys()], ["active"]);
+  assert.deepEqual([...runtime.programStates.keys()], ["active-program"]);
 
   runtime.dispose();
   assert.deepEqual(removed, ["stale-a", "stale-b", "active"]);
   assert.equal(runtime.passTargets.size, 0);
+  assert.equal(runtime.programStates.size, 0);
 
   const rendererSource = readFileSync(
     new URL("../js/output/output-renderer.js", import.meta.url),
@@ -351,6 +365,8 @@ test("the dedicated ISF backend owns and prunes retained pass targets", () => {
   assert.match(rendererSource, /new IsfRenderRuntime\(this, \{/);
   assert.match(backendSource, /class IsfRenderRuntime/);
   assert.match(backendSource, /evaluateIsfDimension/);
+  assert.match(backendSource, /programState = \{ frameIndex: 0, lastUsed: 0 \}/);
+  assert.match(backendSource, /frameIndex: programState\.frameIndex/);
 });
 
 test("the texture-operator backend owns retained delay state and shader disposal", () => {
@@ -732,6 +748,95 @@ test("the shader-effect capability owns retained effect evaluation and quality d
   assert.equal(renderCalls[0][2].height, 35);
   assert.equal(evaluations[0].reason, "effect");
   assert.equal(evaluations[0].options.instanceInvariant, true);
+});
+
+test("retained ISF final targets are committed into the evaluation-owned output", () => {
+  const component = {
+    id: "persistent-isf-effect",
+    type: "isf",
+    params: [
+      { id: "amount", type: "number", min: 0, max: 1, defaultValue: 1 },
+    ],
+    runtime: { timeDependent: () => true },
+  };
+  const drawn = [];
+  const output = {
+    __vj1SharedFramebuffer: true,
+    framebuffer: { id: "evaluation-framebuffer" },
+    width: 200,
+    height: 100,
+    push() {},
+    pop() {},
+    clear() { drawn.push(["clear"]); },
+    imageMode() {},
+    translate() {},
+    scale() {},
+    image(...args) { drawn.push(["image", ...args]); },
+  };
+  const retained = {
+    __vj1SharedFramebuffer: true,
+    framebuffer: { id: "persistent-framebuffer" },
+    width: 200,
+    height: 100,
+  };
+  const host = {
+    frameRuntime: {
+      frameIndex: 7,
+      isPlaybackActive: () => true,
+    },
+    state: { shaders: { customCode: "" } },
+    renderTargetRuntime: {
+      isShaderBuffer: (value) => value?.__vj1SharedFramebuffer === true,
+    },
+    componentRenderRuntime: {
+      recordResolution() {},
+    },
+    renderEvaluationRuntime: {
+      evaluate(nodeId, signature, request, render, reason, options) {
+        render(output);
+        return {
+          buffer: output,
+          outputVersion: 1,
+          nodeKey: nodeId,
+          instanceInvariant: options.instanceInvariant,
+        };
+      },
+    },
+    compositeRuntime: {
+      renderLayerNodeState() {
+        throw new Error("normal opacity must not composite");
+      },
+    },
+  };
+  const runtime = new ShaderEffectRuntime(host, {
+    getComponent: () => component,
+    getCustomCode: () => "",
+  });
+  runtime.renderPass = () => retained;
+
+  const result = runtime.renderNodeState(
+    "persistent-node",
+    {
+      buffer: { id: "input" },
+      outputVersion: 3,
+      nodeKey: "input",
+      instanceInvariant: false,
+    },
+    {
+      id: "persistent-instance",
+      componentId: component.id,
+      opacity: 1,
+      blend: "normal",
+      params: { amount: 1 },
+    },
+    2,
+    { width: 200, height: 100, logicalWidth: 200, logicalHeight: 100 },
+  );
+
+  assert.equal(result.buffer, output);
+  assert.deepEqual(drawn[0], ["clear"]);
+  assert.equal(drawn[1][0], "image");
+  assert.equal(drawn[1][1], retained.framebuffer);
 });
 
 test("declared neutral shader effects bypass evaluation, targets, and draw calls", () => {

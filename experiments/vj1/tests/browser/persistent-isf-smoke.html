@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>VJ1 Persistent ISF Smoke</title>
+  </head>
+  <body>
+    <pre id="persistent-isf-results">initializing...</pre>
+    <script src="https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js"></script>
+    <script type="module">
+      import { createIsfVisualComponent } from "../../js/libraries/isf-engine/index.js";
+      import { IsfRenderRuntime } from "../../js/output/isf-render-runtime.js";
+      import { ShaderEffectRuntime } from "../../js/output/shader-effect-runtime.js";
+      import {
+        createSharedFramebufferTarget,
+        unwrapRenderTarget,
+      } from "../../js/output/shared-framebuffer-target.js";
+      import { createShaderBuilder } from "../../js/shaders/shader-builder.js";
+
+      const resultElement = document.querySelector("#persistent-isf-results");
+      function reportFailure(error) {
+        resultElement.textContent = JSON.stringify({ ok: false, error }, null, 2);
+        document.documentElement.dataset.status = "error";
+      }
+
+      async function installSmoke() {
+        const posterizeSource = await fetch(
+        "../../visual-library/shaders/isf/effects/posterize.fs",
+      ).then((response) => {
+        if (!response.ok) throw new Error(`POSTERIZE_SOURCE_${response.status}`);
+        return response.text();
+      });
+      const [randomFreezeSource, cometTailsSource] = await Promise.all([
+        fetch("./fixtures/random-freeze.fs").then((response) => {
+          if (!response.ok) {
+            throw new Error(`RANDOM_FREEZE_SOURCE_${response.status}`);
+          }
+          return response.text();
+        }),
+        fetch("./fixtures/comet-tails.fs").then((response) => {
+          if (!response.ok) {
+            throw new Error(`COMET_TAILS_SOURCE_${response.status}`);
+          }
+          return response.text();
+        }),
+      ]);
+      const resources = [];
+      const identity = [
+        1, 0, 0,
+        0, 1, 0,
+        0, 0, 1,
+      ];
+
+      window.addEventListener("error", (event) => reportFailure(
+        event.error?.stack || event.message || "PERSISTENT_ISF_SMOKE_SCRIPT_ERROR",
+      ));
+      window.addEventListener("unhandledrejection", (event) => reportFailure(
+        event.reason?.stack || event.reason?.message ||
+          String(event.reason || "PERSISTENT_ISF_SMOKE_REJECTION"),
+      ));
+
+      function solid(target, color) {
+        target.push();
+        target.clear();
+        target.noStroke();
+        target.background(...color);
+        target.pop();
+      }
+
+      function centerPixel(target) {
+        const image = target.get();
+        resources.push(image);
+        image.loadPixels();
+        const x = Math.floor(image.width / 2);
+        const y = Math.floor(image.height / 2);
+        const offset = (y * image.width + x) * 4;
+        return Array.from(image.pixels.slice(offset, offset + 4));
+      }
+
+      function sampledCenterPixel(target) {
+        return sampledPixel(target, 0.5, 0.5);
+      }
+
+      function sampledPixel(target, xRatio, yRatio) {
+        const capture = createSharedFramebufferTarget(target.width, target.height);
+        resources.push(capture);
+        capture.push();
+        capture.clear();
+        capture.image(target, 0, 0, target.width, target.height);
+        capture.pop();
+        const image = capture.get();
+        resources.push(image);
+        image.loadPixels();
+        const x = Math.min(
+          image.width - 1,
+          Math.max(0, Math.floor(image.width * xRatio)),
+        );
+        const y = Math.min(
+          image.height - 1,
+          Math.max(0, Math.floor(image.height * yRatio)),
+        );
+        const offset = (y * image.width + x) * 4;
+        return Array.from(image.pixels.slice(offset, offset + 4));
+      }
+
+      globalThis.setup = () => {
+        try {
+          createCanvas(16, 16, WEBGL);
+          pixelDensity(1);
+          noLoop();
+          const component = createIsfVisualComponent({
+            path: "tests/persistent-history.fs",
+            source: `/*{
+              "ISFVSN": "2",
+              "INPUTS": [
+                { "NAME": "inputImage", "TYPE": "image" }
+              ],
+              "PASSES": [
+                {
+                  "TARGET": "history",
+                  "PERSISTENT": true,
+                  "FLOAT": true
+                }
+              ]
+            }*/
+            void main() {
+              vec4 fresh = IMG_THIS_PIXEL(inputImage);
+              vec4 stale = IMG_THIS_PIXEL(history);
+              gl_FragColor = FRAMEINDEX == 0
+                ? fresh
+                : mix(fresh, stale, 0.5);
+            }`,
+          });
+          const posterize = createIsfVisualComponent({
+            path: "visual-library/shaders/isf/effects/posterize.fs",
+            source: posterizeSource,
+          });
+          const randomFreeze = createIsfVisualComponent({
+            path: "tests/browser/fixtures/random-freeze.fs",
+            source: randomFreezeSource,
+          });
+          const cometTails = createIsfVisualComponent({
+            path: "tests/browser/fixtures/comet-tails.fs",
+            source: cometTailsSource,
+          });
+          const input = createSharedFramebufferTarget(8, 8);
+          const finalTarget = createSharedFramebufferTarget(8, 8);
+          resources.push(input, finalTarget);
+          const frameRuntime = {
+            frameIndex: 20,
+            visualTime: 0,
+            visualDeltaSeconds: 1 / 60,
+            isPlaybackActive: () => true,
+          };
+          const host = {
+            frameRuntime,
+            renderTargetRuntime: {
+              isShaderBuffer: (target) => !!target?.__vj1SharedFramebuffer,
+            },
+            shaderEffectRuntime: {
+              measurePass: (_pass, _component, _request, _meta, _target, draw) => draw(),
+              setInfrastructureUniforms: (shader) => {
+                shader.setUniform("effectUvMatrix", identity);
+                shader.setUniform("inverseEffectUvMatrix", identity);
+              },
+            },
+          };
+          const runtime = new IsfRenderRuntime(host, {
+            setShaderParams: (shader, _component, params = {}) => {
+              for (const [name, value] of Object.entries(params)) {
+                if (shader.uniforms?.[name]) shader.setUniform(name, value);
+              }
+              if (shader.uniforms?.amount) shader.setUniform("amount", 1);
+              if (shader.uniforms?.renderQuality) {
+                shader.setUniform("renderQuality", 0.5);
+              }
+            },
+          });
+          const components = new Map([
+            [component.id, component],
+            [posterize.id, posterize],
+            [randomFreeze.id, randomFreeze],
+            [cometTails.id, cometTails],
+          ]);
+          const builder = createShaderBuilder({
+            getComponent: (id) => components.get(id) || null,
+            getCustomCode: () => "",
+          });
+          const shader = builder.getShader({
+            id: component.id,
+            component,
+          }, finalTarget);
+          if (!shader) throw new Error("PERSISTENT_ISF_SHADER_UNAVAILABLE");
+          const renderRequest = {
+            width: 8,
+            height: 8,
+            logicalWidth: 8,
+            logicalHeight: 8,
+            uvRect: [0, 0, 1, 1],
+          };
+          const orientationInput = createSharedFramebufferTarget(8, 8);
+          const orientationTarget = createSharedFramebufferTarget(8, 8);
+          resources.push(orientationInput, orientationTarget);
+          orientationInput.push();
+          orientationInput.clear();
+          orientationInput.noStroke();
+          orientationInput.fill(255, 0, 0, 255);
+          orientationInput.rect(0, 0, 8, 4);
+          orientationInput.fill(0, 0, 255, 255);
+          orientationInput.rect(0, 4, 8, 4);
+          orientationInput.pop();
+          const posterizeShader = builder.getShader({
+            id: posterize.id,
+            component: posterize,
+          }, orientationTarget);
+          if (!posterizeShader) {
+            throw new Error("POSTERIZE_SHADER_UNAVAILABLE");
+          }
+          const posterized = runtime.renderProgram({
+            component: posterize,
+            shader: posterizeShader,
+            input: orientationInput,
+            finalTarget: orientationTarget,
+            renderRequest,
+            timeSeconds: 0,
+            params: { amount: 1, gamma: 1, numColors: 8 },
+            instanceId: "posterize-orientation-smoke",
+            effectTransform: {},
+          });
+          const posterizeTopPixel = sampledPixel(posterized, 0.5, 0.25);
+          const posterizeBottomPixel = sampledPixel(posterized, 0.5, 0.75);
+          const posterizeKeepsOrientation =
+            posterizeTopPixel[0] >= 245 &&
+            posterizeTopPixel[2] <= 10 &&
+            posterizeBottomPixel[0] <= 10 &&
+            posterizeBottomPixel[2] >= 245;
+
+          const renderPersistentFixture = (fixture, params, instanceId) => {
+            const fixtureInput = createSharedFramebufferTarget(8, 8);
+            const fixtureTarget = createSharedFramebufferTarget(8, 8);
+            resources.push(fixtureInput, fixtureTarget);
+            fixtureInput.push();
+            fixtureInput.clear();
+            fixtureInput.noStroke();
+            fixtureInput.fill(255, 0, 0, 255);
+            fixtureInput.rect(0, 0, 8, 4);
+            fixtureInput.fill(0, 0, 255, 255);
+            fixtureInput.rect(0, 4, 8, 4);
+            fixtureInput.pop();
+            const fixtureShader = builder.getShader({
+              id: fixture.id,
+              component: fixture,
+            }, fixtureTarget);
+            if (!fixtureShader) {
+              throw new Error(`${instanceId.toUpperCase()}_SHADER_UNAVAILABLE`);
+            }
+            const rendered = runtime.renderProgram({
+              component: fixture,
+              shader: fixtureShader,
+              input: fixtureInput,
+              finalTarget: fixtureTarget,
+              renderRequest,
+              timeSeconds: 1,
+              params: { amount: 1, ...params },
+              instanceId,
+              effectTransform: {},
+            });
+            if (!rendered) {
+              throw new Error(`${instanceId.toUpperCase()}_RENDER_UNAVAILABLE`);
+            }
+            const top = sampledPixel(rendered, 0.5, 0.25);
+            const bottom = sampledPixel(rendered, 0.5, 0.75);
+            return {
+              top,
+              bottom,
+              visible:
+                top[0] >= 245 &&
+                top[2] <= 10 &&
+                bottom[0] <= 10 &&
+                bottom[2] >= 245,
+            };
+          };
+          const randomFreezeFirstFrame = renderPersistentFixture(
+            randomFreeze,
+            {
+              maxUpdateSize: 0.5,
+              maxBlendAmount: 0,
+              resetImage: false,
+            },
+            "random-freeze-smoke",
+          );
+          const cometTailsFirstFrame = renderPersistentFixture(
+            cometTails,
+            {
+              absorptionRate: 0.5,
+              dischargeRate: 0.02,
+            },
+            "comet-tails-smoke",
+          );
+
+          const productionHandoffInput =
+            createSharedFramebufferTarget(8, 8);
+          resources.push(productionHandoffInput);
+          productionHandoffInput.push();
+          productionHandoffInput.clear();
+          productionHandoffInput.noStroke();
+          productionHandoffInput.fill(255, 0, 0, 255);
+          productionHandoffInput.rect(0, 0, 8, 4);
+          productionHandoffInput.fill(0, 0, 255, 255);
+          productionHandoffInput.rect(0, 4, 8, 4);
+          productionHandoffInput.pop();
+          const productionHost = {
+            frameRuntime,
+            state: { shaders: { customCode: "" } },
+            renderRequestRuntime: {
+              normalize: (request) => request,
+            },
+            renderTargetRuntime: {
+              isShaderBuffer: (target) => !!target?.__vj1SharedFramebuffer,
+            },
+            visualNodeRuntime: {
+              resolverOptions: {
+                getEffectComponent: (id) => components.get(id) || null,
+              },
+            },
+            componentRenderRuntime: {
+              recordResolution() {},
+            },
+            profileRuntime: {
+              frameProfile: {
+                shaderChains: 0,
+                maxShaderChainLength: 0,
+                shaderPasses: 0,
+                shaderHandoffs: 0,
+                shaderMs: 0,
+                passSamples: [],
+              },
+              collectDetailed: false,
+              activeComponentIdentity: () => ({}),
+            },
+            presentationRuntime: {
+              measureGpu: (_target, draw) => draw(),
+            },
+            renderEvaluationRuntime: {
+              evaluate(nodeId, _signature, request, render, _reason, options) {
+                const output = createSharedFramebufferTarget(
+                  request.width,
+                  request.height,
+                );
+                resources.push(output);
+                render(output);
+                return {
+                  buffer: output,
+                  outputVersion: 1,
+                  nodeKey: nodeId,
+                  instanceInvariant: options.instanceInvariant,
+                };
+              },
+            },
+            compositeRuntime: {
+              renderLayerNodeState() {
+                throw new Error("PRODUCTION_HANDOFF_UNEXPECTED_COMPOSITE");
+              },
+            },
+          };
+          let productionIsfRuntime = null;
+          const productionEffectRuntime = new ShaderEffectRuntime(
+            productionHost,
+            {
+              getComponent: (id) => components.get(id) || null,
+              getCustomCode: () => "",
+              getIsfRuntime: () => productionIsfRuntime,
+            },
+          );
+          productionHost.shaderEffectRuntime = productionEffectRuntime;
+          productionIsfRuntime = new IsfRenderRuntime(productionHost);
+          productionHost.isfRuntime = productionIsfRuntime;
+          const productionState = productionEffectRuntime.renderNodeState(
+            "random-freeze-production-handoff",
+            {
+              buffer: productionHandoffInput,
+              outputVersion: 1,
+              nodeKey: "production-handoff-input",
+              instanceInvariant: false,
+            },
+            {
+              id: "random-freeze-production-instance",
+              componentId: randomFreeze.id,
+              enabled: true,
+              opacity: 1,
+              blend: "normal",
+              params: {
+                amount: 1,
+                maxUpdateSize: 0.5,
+                maxBlendAmount: 0,
+                resetImage: false,
+              },
+            },
+            1,
+            renderRequest,
+          );
+          const productionHandoffTop = sampledPixel(
+            productionState.buffer,
+            0.5,
+            0.25,
+          );
+          const productionHandoffBottom = sampledPixel(
+            productionState.buffer,
+            0.5,
+            0.75,
+          );
+          const productionHandoffVisible =
+            productionHandoffTop[0] >= 245 &&
+            productionHandoffTop[2] <= 10 &&
+            productionHandoffBottom[0] <= 10 &&
+            productionHandoffBottom[2] >= 245;
+
+          solid(input, [255, 0, 0, 255]);
+          const redInputPixel = centerPixel(input);
+          const first = runtime.renderProgram({
+            component,
+            shader,
+            input,
+            finalTarget,
+            renderRequest,
+            timeSeconds: 0,
+            params: { amount: 1 },
+            instanceId: "persistent-smoke",
+            effectTransform: {},
+          });
+          const firstPixel = sampledCenterPixel(first);
+
+          frameRuntime.frameIndex = 21;
+          frameRuntime.visualTime = 1 / 60;
+          solid(input, [0, 0, 255, 255]);
+          const blueInputPixel = centerPixel(input);
+          const second = runtime.renderProgram({
+            component,
+            shader,
+            input,
+            finalTarget,
+            renderRequest,
+            timeSeconds: 1 / 60,
+            params: { amount: 1 },
+            instanceId: "persistent-smoke",
+            effectTransform: {},
+          });
+          const secondPixel = sampledCenterPixel(second);
+          const firstIsRed =
+            firstPixel[0] >= 245 && firstPixel[1] <= 10 &&
+            firstPixel[2] <= 10 && firstPixel[3] >= 245;
+          const secondRetainsHistory =
+            secondPixel[0] >= 110 && secondPixel[0] <= 145 &&
+            secondPixel[1] <= 10 &&
+            secondPixel[2] >= 110 && secondPixel[2] <= 145 &&
+            secondPixel[3] >= 245;
+          const targets = runtime.passTargets.get(
+            `${component.id}:${component.isf.sourceHash}:persistent-smoke:history`,
+          );
+          const ok =
+            posterizeKeepsOrientation &&
+            randomFreezeFirstFrame.visible &&
+            cometTailsFirstFrame.visible &&
+            productionHandoffVisible &&
+            firstIsRed &&
+            secondRetainsHistory &&
+            targets?.targets?.length === 2;
+          resultElement.textContent = JSON.stringify({
+            ok,
+            posterizeTopPixel,
+            posterizeBottomPixel,
+            posterizeKeepsOrientation,
+            randomFreezeFirstFrame,
+            cometTailsFirstFrame,
+            productionHandoffTop,
+            productionHandoffBottom,
+            productionHandoffVisible,
+            redInputPixel,
+            blueInputPixel,
+            firstPixel,
+            secondPixel,
+            firstIsRed,
+            secondRetainsHistory,
+            floatConstant: globalThis.FLOAT ?? null,
+            pingPongTargets: targets?.targets?.length || 0,
+          }, null, 2);
+          document.documentElement.dataset.status = ok ? "ok" : "failed";
+          runtime.dispose();
+          productionIsfRuntime.dispose();
+          productionEffectRuntime.dispose();
+          builder.clear();
+        } catch (error) {
+          reportFailure(error?.stack || error?.message || String(error));
+        } finally {
+          for (const resource of resources) resource?.remove?.();
+        }
+      };
+
+      new p5();
+      }
+
+      installSmoke().catch((error) => {
+        reportFailure(error?.stack || error?.message || String(error));
+      });
+    </script>
+  </body>
+</html>

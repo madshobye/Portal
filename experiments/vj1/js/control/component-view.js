@@ -3,7 +3,7 @@ import { componentFromNodeDefinition, getGeneratorNodeComponent as getGeneratorC
 import { materializeProjectNodeDefinition } from "./node-editor-view.js";
 import { featureMorphMediaControlsTemplate } from "./feature-morph-view.js";
 import { generatorImageMediaControlTemplate } from "./generator-media-view.js";
-import { generatorIcon } from "./picker-view.js";
+import { generatorIcon, isIsfVisualComponent } from "./picker-view.js";
 import { chainGeneralAnimationParameters, chainGeneralControlsTemplate, chainParamViewDefinitions, componentParamViews, parameterGroupTemplate, paramControlsTemplate, paramCurrentValue, shaderParamControlsTemplate } from "./parameter-view.js";
 import { effectIcon, esc, icon, rangeTemplate, selectValuesTemplate, sourceTypeIcon } from "./template-utils.js";
 import { deepEditButtonTemplate, editableSectionTitleTemplate, elementListTemplate, enableToggleButton, scrollRegionTemplate, textListItemTemplate } from "./view-primitives.js";
@@ -101,8 +101,22 @@ export function sourceChainItemDisplayName(item = {}, media = null, component = 
   if (sourceBackedMediaId(item.source) && isAutomaticMediaSourceName(item.name, item.source)) {
     return sourceTitle(item.source, media, component, state);
   }
+  if (item.source?.type === "generator") {
+    const generator = visualGeneratorComponent(state, item.source.generatorId);
+    if (isAutomaticVisualPlacementName(item.name, item.source.generatorId)) {
+      return visualPlacementDefaultName(generator, item.source.generatorId);
+    }
+  }
   if (!item.name || isGenericLayerName(item.name) || item.name === item.source?.componentId) {
     return sourceTitle(item.source || {}, media, component, state);
+  }
+  return item.name;
+}
+
+export function effectChainItemDisplayName(item = {}, state = null) {
+  const effect = visualEffectComponent(state, item.componentId);
+  if (isAutomaticVisualPlacementName(item.name, item.componentId)) {
+    return visualPlacementDefaultName(effect, item.componentId || "Effect");
   }
   return item.name;
 }
@@ -258,8 +272,11 @@ function selectedChainItemTemplate(item, component, state, base, nodeEditorHtml 
 
 function selectedChainItemTitleTemplate(item, component, state, base) {
   if (item.kind === "effect") {
-    const effectComponent = visualEffectComponent(state, item.componentId);
-    return `<div class="ui-section-header rail-title"><span class="material-symbols-rounded">${effectIcon(item.componentId)}</span><span>${esc(effectComponent?.name || item.componentId)}</span></div>`;
+    return editableSectionTitleTemplate(
+      effectIcon(item.componentId),
+      base + ".name",
+      effectChainItemDisplayName(item, state),
+    );
   }
   if (item.kind === "group") return editableSectionTitleTemplate(UI_ICONS.group, base + ".name", item.name || "Group");
   const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(item.source)) || null;
@@ -409,7 +426,7 @@ function sourceTitle(source = {}, media = null, component = null, state = null) 
       return mediaDisplayName(media || { id: sourceBackedMediaId(source) });
     }
     const generator = visualGeneratorComponent(state, source.generatorId);
-    return generator?.label || generator?.name || source.generatorId;
+    return visualPlacementDefaultName(generator, source.generatorId);
   }
   return "Choose source";
 }
@@ -417,7 +434,21 @@ function sourceTitle(source = {}, media = null, component = null, state = null) 
 function chainItemLabel(item = {}, media = null, component = null, state = null) {
   if (item.kind === "source") return sourceChainItemDisplayName(item, media, component, state);
   if (item.kind === "group") return item.name || "Group";
-  return item.name || item.componentId || "Effect";
+  return effectChainItemDisplayName(item, state);
+}
+
+function visualPlacementDefaultName(component = null, fallback = "Visual") {
+  const name = component?.label || component?.name || fallback;
+  return isIsfVisualComponent(component) && !/\(ISF\)$/i.test(name)
+    ? `${name} (ISF)`
+    : name;
+}
+
+function isAutomaticVisualPlacementName(name = "", identity = "") {
+  const candidate = String(name || "").trim();
+  if (!candidate) return true;
+  const canonical = (value) => String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return canonical(candidate) === canonical(identity);
 }
 
 function chainItemIcon(item = {}) {

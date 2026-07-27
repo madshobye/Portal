@@ -37,6 +37,15 @@ single semantic frame contract rather than copied dimensions.
 
 how close are we to important the isf shader library into the app as base shaders to use for different things? ISF has this repository https://github.com/Vidvox/ISF-Files/tree/master/ISF and I would like to import ideally all of them. Some use a vertex shader i think? and they have different porpuses. i assume the simple shaders is not a problem. but i would also like for the shaders that are e.g. transitions to be imported and used as transitions. i suggest that we create a transition generator that can be inserted in the chain. The concept would be the following: when a isf transition is inserted it be becomes an element that can contain children like a group and maybe two coloumns such that one can create two list underneath it for each transition. I would like for there also to be a mode where it can transition between what come before the isf shader and what is inside its group. either there should be a toggle as a param or a logic based on whether both coloumns has been filled out. Similarly sound should be implimented so it is compatible with isf. I suggest that we create some settings in input sources for sound and that we have a basic fft library to create fft textures (i think isf has this logic right?). be aware that the current version of p5 v2 does not seems to have a strong sound implimentation and i suggest that we bypas p5 and use tone js instead https://tonejs.github.io/ 
 
+**First slice complete. The application now carries 23 pinned, original
+fragment-only ISF files (6 generators, 8 effects, and 9 transitions), with an
+ISF picker filter. Custom vertex, audio/FFT, imported-image, event, persistent,
+float-buffer, and multipass support remains part of this open item rather than
+being implied by the proof slice. The general ISF backend now owns persistent
+ping-pong targets, float attachments, and a per-instance first-frame clock;
+these capabilities are browser-tested but persistent shaders are not yet part
+of the curated built-in slice.**
+
 relating to the above and in general we need to work with live input like mouse, multitouch and webcam tracking. i suggest that we start to develop a logic where the system has a multitouch input bus attached to both output window and when the preview window in such a way that we can ahve a drawing shader that one can draw on top of live when the system is running. I want it to be in such a way that drawing in live view preview also produces touch signals to the output window. have a look at the portals multitouch code and copy it in or make your own iteration in the system. Further more i would like that settings has a hand tracking setting such that one can start a hand tracker that is converted into touch gestures as if it was a tablet or a touchpad. I would like for the system to use the following modes: 1. Click: use two fingers to "click" and it is detected as a click then movement from there is recorded either relatively or as absolutes. 2. a multi touch mode where all visible fingers are avaliable for finger painting etc. 
 
 In general i would like for the architecture to be relative generic or abstracted around media and shaders. e.g. i would like for there to be a few default shaders for stl files and a few default transitions but then i would like that one can use the media selector to select other shaders to use. e.g. that the bionome shader for terrain can also be used on a stl files and vice versa that a isf shader can be used on a terrain - would it even be possible to use an image (and thus the generator for an image) as a shader for a stl object?. and that besides some basic transition for transition in liveview that one can select other transition shaders to use. I suggest that the media library make sure to have a few categories that defines at least if something is a transition shader needing multiple sources or a more simple shader.
@@ -87,6 +96,15 @@ i want to be able to have a remote control interface where i can use a tablet as
 
 
 #Done
+
+Choose a 15–25 shader ISF proof slice, leave out the initially complicated
+types, and add an ISF filter to the modal dialogue.
+
+**Done. The curated proof slice contains 23 file-backed Vidvox ISF sources: 6
+generators, 8 effects, and 9 transitions. Their original fragment text remains
+the source of truth, catalog metadata is kept separately, and generator/effect
+cards are discoverable through the ISF filter while retaining their ordinary
+categories.**
 
 previously we had a solution in which clicking a new component or scene in live view while a transition was happening would result in it being armed for the next transition can that come back but only if it is a transition involving the current output window. e.g. if another output window is selected it should not wait for the other one.
 

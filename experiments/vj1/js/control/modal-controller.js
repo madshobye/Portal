@@ -33,6 +33,8 @@ export function createModalController({
 }) {
   let elementPicker = null;
   let sourceChoicePicker = null;
+  const elementPickerMemory = { filter: "all", search: "" };
+  const sourceChoicePickerMemory = { filter: "all", search: "" };
   let focusElementPickerSearch = false;
   let settingsOpen = false;
   let settingsTab = "outputs";
@@ -465,7 +467,11 @@ export function createModalController({
   function bindElementPickerSearch(host) {
     const input = host.querySelector("[data-element-search]");
     if (!input) return;
-    const applyFilter = () => filterElementPicker(host, input.value || "", activeElementFilter(host));
+    const applyFilter = () => {
+      const picker = sourceChoicePicker || elementPicker;
+      if (picker && !picker.allowedCategory) picker.search = input.value || "";
+      filterElementPicker(host, input.value || "", activeElementFilter(host));
+    };
     input.addEventListener("input", applyFilter);
     applyFilter();
   }
@@ -476,7 +482,9 @@ export function createModalController({
         const requestedFilter = button.dataset.elementFilter || "all";
         const filter = nextPickerFilter(activeElementFilter(host), requestedFilter);
         const picker = sourceChoicePicker || elementPicker;
-        if (picker && !picker.allowedCategory) picker.filter = filter;
+        if (picker && !picker.allowedCategory) {
+          picker.filter = filter;
+        }
         host.querySelectorAll("[data-element-filter]").forEach((candidate) => {
           const active = candidate.dataset.elementFilter === filter;
           candidate.classList.toggle("is-active", active);
@@ -495,9 +503,14 @@ export function createModalController({
     const query = normalizeSearchText(value);
     host.querySelectorAll("[data-element-search-card]").forEach((card) => {
       const haystack = normalizeSearchText(card.dataset.elementSearchCard || "");
-      const category = card.dataset.elementCategory || "";
+      const categories = String(card.dataset.elementCategory || "")
+        .split(/\s+/)
+        .filter(Boolean);
       card.classList.toggle("is-search-hidden", !!query && !haystack.includes(query));
-      card.classList.toggle("is-filter-hidden", filter !== "all" && category !== filter);
+      card.classList.toggle(
+        "is-filter-hidden",
+        filter !== "all" && !categories.includes(filter),
+      );
     });
     host.querySelectorAll("[data-element-section]").forEach((section) => {
       const cards = Array.from(section.querySelectorAll("[data-element-search-card]"));
@@ -544,7 +557,12 @@ export function createModalController({
   }
 
   function openElementPicker(componentId, selectedChainItemId = "") {
-    elementPicker = { componentId, selectedChainItemId, filter: "all" };
+    elementPicker = {
+      componentId,
+      selectedChainItemId,
+      filter: elementPickerMemory.filter,
+      search: elementPickerMemory.search,
+    };
     focusElementPickerSearch = true;
     sourceChoicePicker = null;
     settingsOpen = false;
@@ -556,6 +574,7 @@ export function createModalController({
   }
 
   function closeElementPicker() {
+    rememberUnrestrictedPicker(elementPickerMemory, elementPicker);
     elementPicker = null;
     resetDemandMediaPreviews();
     render();
@@ -566,13 +585,20 @@ export function createModalController({
   }
 
   function openChoicePicker(picker) {
-    sourceChoicePicker = picker;
+    sourceChoicePicker = picker.allowedCategory
+      ? { ...picker, filter: picker.allowedCategory, search: "" }
+      : {
+        ...picker,
+        filter: sourceChoicePickerMemory.filter,
+        search: sourceChoicePickerMemory.search,
+      };
     elementPicker = null;
     settingsOpen = false;
     render();
   }
 
   function closeSourceChoicePicker() {
+    rememberUnrestrictedPicker(sourceChoicePickerMemory, sourceChoicePicker);
     sourceChoicePicker = null;
     resetDemandMediaPreviews();
     render();
@@ -667,4 +693,10 @@ export function scaleMappingForRenderChange(draft, previousRender, nextRender) {
 
 function normalizeSearchText(value) {
   return String(value || "").trim().toLowerCase();
+}
+
+function rememberUnrestrictedPicker(memory, picker) {
+  if (!picker || picker.allowedCategory) return;
+  memory.filter = String(picker.filter || "all");
+  memory.search = String(picker.search || "");
 }

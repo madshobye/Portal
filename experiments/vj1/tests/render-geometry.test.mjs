@@ -18,8 +18,10 @@ import {
   circleClippedBarSlices,
   testPatternLayout,
   testPatternRenderView,
+  TestPatternProgram,
   TestPatternShaderSource,
 } from "../js/libraries/visual-nodes/generators/test-pattern/index.js";
+import { resolutionVerificationOverlayGeometry } from "../js/output/output-presentation-runtime.js";
 
 import {
   aspectPreservingRenderDemand,
@@ -171,6 +173,32 @@ test("Test Pattern geometry remains proportional across raster resolutions", () 
 test("Test Pattern uses hard diagnostic edges instead of SDF smoothing", () => {
   assert.doesNotMatch(TestPatternShaderSource, /smoothstep/);
   assert.match(TestPatternShaderSource, /step\(field, 0\.0\)/);
+});
+
+test("Test Pattern carries an exact 300px one-pixel SDF outline at its center", () => {
+  const outline = TestPatternProgram.commands.slice(-4);
+  assert.deepEqual(outline.map((operation) => operation.type), ["rect", "rect", "rect", "rect"]);
+  assert.ok(outline.every((operation) => operation.color === "#ffe45e"));
+  assert.match(outline[0].width.expression, /300\.0\/resolution\.x/);
+  assert.match(outline[0].height.expression, /1\.0\/resolution\.y/);
+  assert.match(outline[2].width.expression, /1\.0\/resolution\.x/);
+  assert.match(outline[2].height.expression, /298\.0\/resolution\.y/);
+});
+
+test("final-canvas resolution probes remain 301px and 302px at non-unit density", () => {
+  const geometry = resolutionVerificationOverlayGeometry({
+    densityX: 2,
+    densityY: 1.5,
+  });
+  assert.equal(geometry.strokeWeight, 2 / 3);
+  assert.deepEqual(geometry.sizes, [
+    { width: 151, height: 302 / 1.5 },
+    { width: 150.5, height: 301 / 1.5 },
+  ]);
+  assert.equal(geometry.sizes[0].width * 2, 302);
+  assert.equal(geometry.sizes[0].height * 1.5, 302);
+  assert.equal(geometry.sizes[1].width * 2, 301);
+  assert.equal(geometry.sizes[1].height * 1.5, 301);
 });
 
 test("Test Pattern resolution bands follow one- and two-pixel source periods", () => {

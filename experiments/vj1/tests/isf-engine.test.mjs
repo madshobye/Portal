@@ -170,7 +170,10 @@ test("ISF compiler owns standard declarations without redeclaring shader uniform
   assert.equal((source.match(/uniform float TIME;/g) || []).length, 1);
   assert.match(source, /uniform sampler2D inputImage;/);
   assert.match(source, /void vj1IsfUserMain\(/);
-  assert.match(source, /mix\(IMG_THIS_NORM_PIXEL\(inputImage\), gl_FragColor/);
+  assert.match(
+    source,
+    /mix\(VJ1_IMG_NORM_PIXEL_inputImage\(vj1IsfBoundaryUv\(\)\), gl_FragColor/,
+  );
   assert.match(source, /uniform bool vj1IsfFinalPass/);
 });
 
@@ -184,7 +187,10 @@ test("an explicit ISF effect amount owns interpolation without a duplicate host 
   const compiled = compileIsfFragmentSource(parseIsfDocument(source));
 
   assert.equal((compiled.match(/uniform float amount;/g) || []).length, 1);
-  assert.doesNotMatch(compiled, /gl_FragColor = mix\(IMG_THIS_NORM_PIXEL\(inputImage\)/);
+  assert.doesNotMatch(
+    compiled,
+    /gl_FragColor = mix\(VJ1_IMG_NORM_PIXEL_inputImage/,
+  );
 });
 
 test("restricted optimized ISF lowerings preserve direct generation, fusion, and premultiplied alpha", () => {
@@ -304,6 +310,15 @@ test("ISF fragment coordinates remain semantic when the physical preview size ch
   assert.match(compiled, /vec2 uv = vj1IsfFragCoord\.xy \/ RENDERSIZE\.xy/);
   assert.match(compiled, /#define vj1IsfFragCoord vec4\(vj1IsfBoundaryUv\(\) \* RENDERSIZE/);
   assert.match(compiled, /return vec2\(topLeftUv\.x, 1\.0 - topLeftUv\.y\)/);
+  assert.match(compiled, /uniform bool inputImage_flipY/);
+  assert.match(
+    compiled,
+    /VJ1_IMG_NORM_PIXEL_inputImage\(vj1IsfBoundaryUv\(\)\)/,
+  );
+  assert.match(
+    compiled,
+    /vec2 topLeftUv = vec2\(isfUv\.x, 1\.0 - isfUv\.y\)/,
+  );
 });
 
 test("ISF files materialize as typed project visual nodes", () => {

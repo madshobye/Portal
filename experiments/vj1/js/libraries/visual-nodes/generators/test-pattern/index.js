@@ -77,6 +77,39 @@ export function defineTestPatternProgram(p) {
     sdfExpr("0.5+cos(-time*3.06305284)*0.026*unitPx/resolution.x"),
     sdfExpr("0.14+sin(-time*3.06305284)*0.026*unitPx/resolution.y"),
     0.0024, light);
+
+  // Exact source-resolution probe. Four hard SDF boxes form a one-pixel
+  // yellow outline whose outer boundary is 300x300 render-target pixels.
+  // Final-canvas debug overlays use 301px and 302px below this layer so any
+  // scaling, density, or intermediate-allocation mismatch remains visible.
+  p.rect(
+    sdfExpr("0.5-150.0/resolution.x"),
+    sdfExpr("0.5-150.0/resolution.y"),
+    sdfExpr("300.0/resolution.x"),
+    sdfExpr("1.0/resolution.y"),
+    "#ffe45e",
+  );
+  p.rect(
+    sdfExpr("0.5-150.0/resolution.x"),
+    sdfExpr("0.5+149.0/resolution.y"),
+    sdfExpr("300.0/resolution.x"),
+    sdfExpr("1.0/resolution.y"),
+    "#ffe45e",
+  );
+  p.rect(
+    sdfExpr("0.5-150.0/resolution.x"),
+    sdfExpr("0.5-149.0/resolution.y"),
+    sdfExpr("1.0/resolution.x"),
+    sdfExpr("298.0/resolution.y"),
+    "#ffe45e",
+  );
+  p.rect(
+    sdfExpr("0.5+149.0/resolution.x"),
+    sdfExpr("0.5-149.0/resolution.y"),
+    sdfExpr("1.0/resolution.x"),
+    sdfExpr("298.0/resolution.y"),
+    "#ffe45e",
+  );
 }
 
 function pixelStripeCount(span, axis = "x", pixelsPerStripe = 1) {

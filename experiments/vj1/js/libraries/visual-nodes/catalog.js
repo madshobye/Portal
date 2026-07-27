@@ -92,9 +92,17 @@ const GeneratorBlack = requiredBuiltInIsfComponent("black", "generator");
 const EffectInvert = requiredBuiltInIsfComponent("invert", "effect");
 const EffectGray = requiredBuiltInIsfComponent("gray", "effect");
 const EffectThreshold = requiredBuiltInIsfComponent("threshold", "effect");
+const additionalBuiltInIsfGenerators = BuiltInIsfRepository.components.filter(
+  (component) => component.kind === "generator" && component.id !== "black",
+);
+const additionalBuiltInIsfEffects = BuiltInIsfRepository.components.filter(
+  (component) =>
+    component.kind === "effect" &&
+    !["invert", "gray", "threshold"].includes(component.id),
+);
 
-const generators = Object.freeze([GeneratorAnatomy, GeneratorAdditiveLightOrbs, GeneratorAnimatedDazzleStripes, GeneratorBezierStrokes, GeneratorBiomineLite, GeneratorBlack, GeneratorCameraInput, GeneratorCellularCircles, GeneratorChainFollowerTrails, GeneratorChecker, GeneratorCherenkovVolume, GeneratorCloudyTunnel, GeneratorEyeball, GeneratorEyeballRender, GeneratorExpressiveRibbonBrush, GeneratorFeatureMorphV2, GeneratorFeatureMorph, GeneratorFireflies, GeneratorFog, GeneratorGalaxy, GeneratorGestureReticle, GeneratorGradient, GeneratorLightning, GeneratorMediaImage, GeneratorMeshPatterns, GeneratorModelMedia, GeneratorNestedOrbitMotion, GeneratorNoise, GeneratorPaintDrips, GeneratorPlasma, GeneratorScreenShare, GeneratorSdfSketch, GeneratorSeascape, GeneratorShadertoyBaseWarp, GeneratorSunRays, GeneratorSwayingTrees, GeneratorTerrainFlyover, GeneratorTestPattern, GeneratorText, GeneratorTileTexture, GeneratorVolumetricClouds, GeneratorWaves]);
-const effects = Object.freeze([EffectAlphaFeather, EffectAlphaVignette, EffectBlur, EffectBrokenFluorescent, EffectCrayonStroke, EffectCustom, EffectDilate, EffectEchoFade, EffectErode, EffectFlip, EffectGlitchDistort, EffectGray, EffectHardBlack, EffectHeartbeatPulse, EffectHeatShimmer, EffectHsvAlphaKey, EffectInvert, EffectKaleido, EffectLabelChromatic, EffectLabelGrain, EffectLabelThresholdGrain, EffectLumaKey, EffectMirrorFold, EffectPhotoGrade, EffectPixelArtUpscale, EffectPixelate, EffectPlasma, EffectPowerFlicker, EffectProbe, EffectRgbSplit, EffectRipple, EffectSmear, EffectSpinRotate, EffectThreshold, EffectTileRepeat]);
+const generators = Object.freeze([GeneratorAnatomy, GeneratorAdditiveLightOrbs, GeneratorAnimatedDazzleStripes, GeneratorBezierStrokes, GeneratorBiomineLite, GeneratorBlack, ...additionalBuiltInIsfGenerators, GeneratorCameraInput, GeneratorCellularCircles, GeneratorChainFollowerTrails, GeneratorChecker, GeneratorCherenkovVolume, GeneratorCloudyTunnel, GeneratorEyeball, GeneratorEyeballRender, GeneratorExpressiveRibbonBrush, GeneratorFeatureMorphV2, GeneratorFeatureMorph, GeneratorFireflies, GeneratorFog, GeneratorGalaxy, GeneratorGestureReticle, GeneratorGradient, GeneratorLightning, GeneratorMediaImage, GeneratorMeshPatterns, GeneratorModelMedia, GeneratorNestedOrbitMotion, GeneratorNoise, GeneratorPaintDrips, GeneratorPlasma, GeneratorScreenShare, GeneratorSdfSketch, GeneratorSeascape, GeneratorShadertoyBaseWarp, GeneratorSunRays, GeneratorSwayingTrees, GeneratorTerrainFlyover, GeneratorTestPattern, GeneratorText, GeneratorTileTexture, GeneratorVolumetricClouds, GeneratorWaves]);
+const effects = Object.freeze([EffectAlphaFeather, EffectAlphaVignette, EffectBlur, EffectBrokenFluorescent, EffectCrayonStroke, EffectCustom, EffectDilate, EffectEchoFade, EffectErode, EffectFlip, EffectGlitchDistort, EffectGray, EffectHardBlack, EffectHeartbeatPulse, EffectHeatShimmer, EffectHsvAlphaKey, EffectInvert, ...additionalBuiltInIsfEffects, EffectKaleido, EffectLabelChromatic, EffectLabelGrain, EffectLabelThresholdGrain, EffectLumaKey, EffectMirrorFold, EffectPhotoGrade, EffectPixelArtUpscale, EffectPixelate, EffectPlasma, EffectPowerFlicker, EffectProbe, EffectRgbSplit, EffectRipple, EffectSmear, EffectSpinRotate, EffectThreshold, EffectTileRepeat]);
 const generatorById = new Map(generators.map((component) => [component.id, component]));
 const effectById = new Map(effects.map((component) => [component.id, component]));
 export const BuiltInTransitionEntries = Object.freeze([
@@ -186,6 +194,7 @@ function builtInVisualArtifact(component) {
       inlets: component.nodeDefinition.inlets,
       outlets: component.nodeDefinition.outlets,
     },
+    attribution: record?.attribution || {},
     presentation: component.nodeDefinition.presentation,
     metadata: record ? {
       sourceFormat: "isf",
@@ -217,6 +226,7 @@ function builtInTransitionArtifact(record) {
       inlets: record.definition.inlets,
       outlets: record.definition.outlets,
     },
+    attribution: record.attribution || {},
     metadata: {
       sourceFormat: "isf",
       alpha: record.definition.metadata?.isf?.alpha || "premultiplied",

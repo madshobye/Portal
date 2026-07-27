@@ -255,7 +255,7 @@ export class ShaderEffectRuntime {
           output.width === qualityRequest.width &&
           output.height === qualityRequest.height
         ) {
-          this.renderPass(
+          const effected = this.renderPass(
             inputState.buffer,
             pass,
             output,
@@ -263,6 +263,24 @@ export class ShaderEffectRuntime {
             componentTime,
             inputStates,
           );
+          // A final ISF pass with TARGET writes to its retained texture so it
+          // can become the next frame's input. The evaluation cache still owns
+          // `output`, therefore commit that retained result into the cache
+          // target instead of leaving its freshly-cleared buffer black.
+          if (effected && effected !== output) {
+            output.push();
+            output.clear();
+            drawBuffer(
+              output,
+              effected,
+              0,
+              0,
+              output.width,
+              output.height,
+              host.renderTargetRuntime.isShaderBuffer(effected),
+            );
+            output.pop();
+          }
           return;
         }
         const effected = this.renderChain(
