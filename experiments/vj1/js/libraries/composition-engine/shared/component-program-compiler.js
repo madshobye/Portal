@@ -11,7 +11,12 @@ import {
   visualNodeContractFromMetadata,
   VISUAL_TRANSFORM_DOMAINS,
 } from "../../render-engine/visual-node-contract.js";
-import { compileVisualRenderPlan, visualRenderPlanConfiguration, VISUAL_COMPILER_HOOKS } from "./visual-render-plan.js";
+import {
+  compileVisualRenderPlan,
+  visualRenderPlanConfiguration,
+  visualRenderPlanRegionSafe,
+  VISUAL_COMPILER_HOOKS,
+} from "./visual-render-plan.js";
 import {
   inheritAuthoredControlTopology,
   initializeDefaultParameterAnimations,
@@ -444,6 +449,10 @@ export class CompiledComponentRenderProgram {
 
   configurationState() {
     return this.configurationProjection;
+  }
+
+  isRegionSafe(component = null, options = {}) {
+    return visualRenderPlanRegionSafe(this.plan, component, options);
   }
 
   syncGeneratedControlsFromConfiguration() {

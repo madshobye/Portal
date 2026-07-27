@@ -1,6 +1,5 @@
 import {
   normalizeParamValues,
-  runtimeRoiContract,
 } from "../libraries/visual-nodes/shared/component-schema.js";
 import { visitVisualParameterReferences } from "../libraries/visual-nodes/shared/parameter-references.js";
 import {
@@ -262,7 +261,6 @@ export class SourceRenderRuntime {
   } = {}) {
     this.host = host;
     this.mediaRuntime = mediaRuntime;
-    this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
     this.nodeRuntimes = new Map();
     this.directPlacementResults = new Map();
@@ -279,7 +277,6 @@ export class SourceRenderRuntime {
     this.missingNativeRendererDiagnostics.clear();
     this.missingGeneratorImplementationDiagnostics.clear();
     this.sourceCrashDiagnostics.clear();
-    this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
     this.nodeRuntimes.clear();
     this.directPlacementResults.clear();
@@ -288,7 +285,6 @@ export class SourceRenderRuntime {
   invalidateStructure() {
     this.host.recordSignal?.("cacheInvalidations", 1, "source-structure");
     this.host.previewHitCoverage?.invalidateStructure();
-    this.componentRegionSafety = new WeakMap();
     this.componentVideoPresence = new WeakMap();
     this.directPlacementResults.clear();
   }
@@ -400,80 +396,8 @@ export class SourceRenderRuntime {
     };
   }
 
-  componentRegionSafetyResult(component = {}, visiting = new Set()) {
-    const host = this.host;
-    if (!component?.id || visiting.has(component.id)) {
-      return { safe: false, dynamic: false };
-    }
-    const cached = this.componentRegionSafety.get(component);
-    if (cached !== undefined) return { safe: cached, dynamic: false };
-    visiting.add(component.id);
-    const program = host.componentProgramRuntime.programs.get(component.id);
-    let safe = !!program;
-    let dynamic = false;
-    program?.forEachOperation((operation) => {
-      if (
-        !safe ||
-        operation.configuration?.enabled === false ||
-        operation.opcode === "group"
-      ) {
-        return;
-      }
-      if (operation.opcode === "effect") {
-        const params =
-          operation.configuration?.source?.params ||
-          operation.configuration?.params ||
-          {};
-        const runtimePolicy = operation.runtimePolicy || {};
-        const roi = runtimeRoiContract(runtimePolicy, params, {
-          component,
-          operation,
-        });
-        dynamic = dynamic || typeof runtimePolicy.roiForParams === "function";
-        safe =
-          roi.pixelEquivalentToFullFrame === true &&
-          roi.mode === "local";
-        return;
-      }
-      if (operation.opcode !== "source") return;
-      const source = operation.configuration?.source || {};
-      if (source.type === "component") {
-        const dependency = host.state?.components?.find(
-          (candidate) => candidate.id === source.componentId,
-        );
-        const dependencyResult = dependency && dependency.type !== "scene"
-          ? this.componentRegionSafetyResult(dependency, visiting)
-          : { safe: false, dynamic: false };
-        dynamic = dynamic || dependencyResult.dynamic;
-        safe = !!dependency && dependencyResult.safe;
-      } else if (
-        operation.contract?.roi?.mode === "projective"
-      ) {
-        // A compiled projective renderer (for example Scene3D → Image) is not
-        // a legacy catalog generator. Its compiler contract is the authority:
-        // it can evaluate a viewport ROI through a sub-frustum while remaining
-        // pixel-equivalent to a crop of the full render. Requiring a legacy
-        // generator registration here forced every containing Component back
-        // to its hidden full cover raster, even though the compiled renderer
-        // had already declared and implemented regional evaluation.
-        safe =
-          operation.contract.roi.pixelEquivalentToFullFrame === true &&
-          operation.contract.roi.inputMapping === "sub-frustum";
-      } else if (
-        !["black", "media", "camera", "generator"].includes(source.type)
-      ) {
-        safe = false;
-      } else if (source.type === "generator") {
-        safe = !!host.visualNodeRuntime.generator(source.generatorId);
-      }
-    });
-    visiting.delete(component.id);
-    if (!dynamic) this.componentRegionSafety.set(component, safe);
-    return { safe, dynamic };
-  }
-
-  componentRegionSafe(component = {}, visiting = new Set()) {
-    return this.componentRegionSafetyResult(component, visiting).safe;
+  componentRegionSafe(component = {}) {
+    return this.host.componentProgramRuntime.componentRegionSafe(component);
   }
 
   sceneComponentRegionSafe(component = {}) {

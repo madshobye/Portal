@@ -1,6 +1,7 @@
 import { sceneSourceNodes } from "../domain/models.js";
 import { runtimeVisualSourceComponents } from "../domain/runtime-visual-sources.js";
 import { compileComponentRenderPrograms } from "../libraries/composition-engine/index.js";
+import { runtimeRoiContract } from "../libraries/visual-nodes/shared/component-schema.js";
 
 // Owns the compiled Component program set and the lookup indexes derived from
 // it. Rendering reads these retained structures directly; compilation,
@@ -204,6 +205,38 @@ export class ComponentProgramRuntime {
       state?.components?.find((component) => String(component?.id || "") === id) ||
       this.runtimeComponents?.find((component) => String(component?.id || "") === id) ||
       null;
+  }
+
+  componentRegionSafe(componentOrId, programs = this.programs, visiting = new Set()) {
+    const component = componentOrId && typeof componentOrId === "object"
+      ? componentOrId
+      : this.componentForId(componentOrId);
+    const id = String(component?.id || componentOrId || "");
+    const program = programs?.get?.(id);
+    if (!id || visiting.has(id) || !program) return false;
+    const regionSafe = program.isRegionSafe?.(component, {
+      resolveRoi: (operation, configuration) => {
+        const runtimePolicy = operation?.runtimePolicy || {};
+        // Static runtime ROI has already been normalized into the compiled
+        // operation contract. Only a parameter-dependent policy may override
+        // that authoritative contract here.
+        if (typeof runtimePolicy.roiForParams !== "function") return null;
+        const params =
+          configuration?.source?.params ||
+          configuration?.params ||
+          {};
+        return runtimeRoiContract(runtimePolicy, params, {
+          component,
+          operation,
+        });
+      },
+    });
+    if (!regionSafe) return false;
+    const nextVisiting = new Set(visiting);
+    nextVisiting.add(id);
+    const dependencies = program.inspect?.()?.dependencies?.components || [];
+    return dependencies.every((dependencyId) =>
+      this.componentRegionSafe(dependencyId, programs, nextVisiting));
   }
 
   resolveRouteSourceNode(surface = {}) {

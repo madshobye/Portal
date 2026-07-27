@@ -8,6 +8,7 @@ import { defaultProjectSurfaceMapping, outputFrameForId, outputFrames, renderReq
 import { disposeP5Shader, mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 import { ComponentPreviewInteraction, stateWithSurfaceRect, stateWithChainItemBoundary, stateWithChainItemTransform } from "../js/output/component-preview-interaction.js";
 import { compileOutputGroupTopology, compileMappingGroupTopology } from "../js/libraries/composition-engine/index.js";
+import { visualRenderPlanRegionSafe } from "../js/libraries/composition-engine/shared/visual-render-plan.js";
 import { IsfRenderRuntime } from "../js/output/isf-render-runtime.js";
 import { IsfAudioTextureRuntime } from "../js/output/isf-audio-texture-runtime.js";
 import { IsfImportedImageRuntime } from "../js/output/isf-imported-image-runtime.js";
@@ -19,6 +20,7 @@ import { TransitionRuntime } from "../js/output/transition-runtime.js";
 import { ComponentRenderRuntime } from "../js/output/component-render-runtime.js";
 import { OutputRenderProfile } from "../js/output/output-render-profile.js";
 import { OutputSurfaceRuntime } from "../js/output/output-surface-runtime.js";
+import { ComponentProgramRuntime } from "../js/output/component-program-runtime.js";
 import { VisualPlanRuntime } from "../js/output/visual-plan-runtime.js";
 import { compiledSourceRenderTargetOptions, mediaSourceDemandSize, operationMediaResourceIds, runtimeValueMediaResourceIds, SourceRenderRuntime } from "../js/output/source-render-runtime.js";
 import { SpecializedSourceRuntime } from "../js/output/specialized/specialized-source-runtime.js";
@@ -39,6 +41,24 @@ test("effect opacity and blend request a separate generic composite", () => {
   assert.equal(effectNeedsComposite({ opacity: 1, blend: "screen" }), true);
 });
 
+function componentProgramRuntimeFor(component, operation) {
+  const runtime = new ComponentProgramRuntime({});
+  runtime.componentById.set(component.id, component);
+  runtime.programs.set(component.id, {
+    isRegionSafe(candidate, options) {
+      return visualRenderPlanRegionSafe(
+        { operations: [operation] },
+        candidate,
+        options,
+      );
+    },
+    inspect() {
+      return { dependencies: { components: [] } };
+    },
+  });
+  return runtime;
+}
+
 test("compiled projective renderers preserve Component viewport ROI without legacy generator registration", () => {
   const component = { id: "component-projective", type: "component" };
   const operation = {
@@ -58,14 +78,10 @@ test("compiled projective renderers preserve Component viewport ROI without lega
       },
     },
   };
+  const componentProgramRuntime = componentProgramRuntimeFor(component, operation);
   const host = {
     state: { components: [component] },
-    componentProgramRuntime: {
-      programs: new Map([[
-        component.id,
-        { forEachOperation(visitor) { visitor(operation); } },
-      ]]),
-    },
+    componentProgramRuntime,
     visualNodeRuntime: {
       generator() {
         return null;
@@ -94,14 +110,10 @@ test("parameter-dependent effect ROI follows live values without structural reco
     runtimePolicy: PhotoGradeVisualComponent.runtime,
     contract: { roi: PhotoGradeVisualComponent.runtime.roi },
   };
+  const componentProgramRuntime = componentProgramRuntimeFor(component, operation);
   const host = {
     state: { components: [component] },
-    componentProgramRuntime: {
-      programs: new Map([[
-        component.id,
-        { forEachOperation(visitor) { visitor(operation); } },
-      ]]),
-    },
+    componentProgramRuntime,
     visualNodeRuntime: { generator() { return null; } },
   };
   const runtime = new SourceRenderRuntime(host);
@@ -5604,6 +5616,26 @@ test("Component program capability owns compilation lookup and prepared-state li
     runtime.componentForId(renderer.state.components[0].id),
     renderer.state.components[0],
   );
+  const regionPrograms = new Map([
+    ["local", {
+      isRegionSafe: () => true,
+      inspect: () => ({ dependencies: { components: ["local-child"] } }),
+    }],
+    ["local-child", {
+      isRegionSafe: () => true,
+      inspect: () => ({ dependencies: { components: [] } }),
+    }],
+    ["persistent", {
+      isRegionSafe: () => false,
+      inspect: () => ({ dependencies: { components: [] } }),
+    }],
+    ["unsafe-parent", {
+      isRegionSafe: () => true,
+      inspect: () => ({ dependencies: { components: ["persistent"] } }),
+    }],
+  ]);
+  assert.equal(runtime.componentRegionSafe("local", regionPrograms), true);
+  assert.equal(runtime.componentRegionSafe("unsafe-parent", regionPrograms), false);
 
   const prepared = runtime.prepare(renderer.state);
   assert.equal(runtime.prepare(renderer.state), prepared);
@@ -5628,8 +5660,9 @@ test("Component program capability owns compilation lookup and prepared-state li
   );
   assert.doesNotMatch(rendererSource, /compileComponentRenderPrograms\(/);
   assert.match(runtimeSource, /compileComponentRenderPrograms\(/);
-  assert.match(sourceBackend, /host\.componentProgramRuntime\.programs/);
+  assert.match(sourceBackend, /host\.componentProgramRuntime\.componentRegionSafe/);
   assert.match(surfaceBackend, /renderer\.componentProgramRuntime\.componentById/);
+  assert.match(surfaceBackend, /sourceRuntime\.componentRegionSafe/);
   assert.doesNotMatch(rendererSource, /get componentPrograms\(\)/);
 
   runtime.dispose();

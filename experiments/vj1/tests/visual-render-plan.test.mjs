@@ -8,6 +8,7 @@ import {
   mapControlValue,
   VISUAL_COMPILER_HOOKS,
   visualRenderPlanConfiguration,
+  visualRenderPlanRegionSafe,
 } from "../js/libraries/composition-engine/index.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
 import {
@@ -940,6 +941,85 @@ test("visual render plans retain normalized semantic contracts for optimized hos
     "transform-normalization",
     "allocation-lowering",
   ]);
+});
+
+test("regional component eligibility follows enabled visual contracts", () => {
+  const localSource = renderNode("local-source", "source");
+  const disabledFullFrame = renderNode("disabled-history", "effect");
+  disabledFullFrame.configuration.enabled = false;
+  disabledFullFrame.compilerHook.contract = {
+    roi: { mode: "full-frame", coordinateSpace: "full-frame" },
+    allocation: { mode: "retained" },
+  };
+  const group = {
+    id: "vj1.component.regional-local",
+    nodes: [localSource, disabledFullFrame],
+    connections: [
+      { from: "$in.texture", to: "local-source.image", type: "texture" },
+      { from: "local-source.texture", to: "disabled-history.texture", type: "texture" },
+      { from: "disabled-history.texture", to: "$out.texture", type: "texture" },
+    ],
+  };
+  const localPlan = compileVisualRenderPlan(group);
+
+  assert.equal(
+    visualRenderPlanRegionSafe(localPlan),
+    true,
+    "a disabled persistent/full-frame operation does not block an active local chain",
+  );
+
+  disabledFullFrame.configuration.enabled = true;
+  const fullFramePlan = compileVisualRenderPlan(group);
+  assert.equal(visualRenderPlanRegionSafe(fullFramePlan), false);
+
+  const retainedProjectiveSource = renderNode("retained-projective-source", "source");
+  retainedProjectiveSource.compilerHook.contract = {
+    roi: {
+      mode: "projective",
+      coordinateSpace: "projective",
+      inputMapping: "sub-frustum",
+      pixelEquivalentToFullFrame: true,
+    },
+    allocation: { mode: "retained" },
+  };
+  const retainedPlan = compileVisualRenderPlan({
+    id: "vj1.component.regional-retained",
+    nodes: [retainedProjectiveSource],
+    connections: [
+      { from: "$in.texture", to: "retained-projective-source.image", type: "texture" },
+      { from: "retained-projective-source.texture", to: "$out.texture", type: "texture" },
+    ],
+  });
+  assert.equal(
+    visualRenderPlanRegionSafe(retainedPlan),
+    true,
+    "retained GPU resources do not prevent an explicitly pixel-equivalent projective ROI",
+  );
+
+  const feedbackPlan = compileVisualRenderPlan({
+    id: "vj1.component.regional-feedback",
+    nodes: [
+      renderNode("feedback-source", "source"),
+      {
+        id: "feedback",
+        nodeId: FeedbackTextureNode.id,
+        nodeVersion: FeedbackTextureNode.version,
+        role: "operator",
+      },
+    ],
+    connections: [
+      { from: "feedback-source.texture", to: "feedback.texture", type: "texture" },
+      { from: "feedback.texture", to: "$out.texture", type: "texture" },
+    ],
+  }, {}, {
+    resolveDefinition: (node) =>
+      node.nodeId === FeedbackTextureNode.id ? FeedbackTextureNode : null,
+  });
+  assert.equal(
+    visualRenderPlanRegionSafe(feedbackPlan),
+    false,
+    "previous-frame feedback declares its spatial dependency as full-frame",
+  );
 });
 
 test("compiled media model spin keeps the component frame-dependent", () => {

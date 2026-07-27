@@ -285,7 +285,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
 
         <section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">auto_awesome</span><span>Generators</span></div>
-          <div class="element-grid compact-element-grid">
+          <div class="element-grid compact-element-grid visual-element-grid">
             ${generators.map((generator) => `
               <button type="button" class="element-card" data-element-category="${esc(elementPickerCategories("generator", generator))}" data-add-element-generator="${esc(generator.id)}" data-element-search-card="${esc(elementSearchText(generator.id, generator.label, generator.name, generator.category, "generator", isIsfVisualComponent(generator) ? "isf" : ""))}">
                 ${icon(generatorIcon(generator.id))}
@@ -299,7 +299,7 @@ export function elementPickerTemplate(state, picker, mediaLibrary, componentCata
 
         <section class="ui-section element-section" data-element-section>
           <div class="ui-section-header rail-title"><span class="material-symbols-rounded">blur_on</span><span>Effects</span></div>
-          <div class="element-grid compact-element-grid">
+          <div class="element-grid compact-element-grid visual-element-grid">
             ${effects.map((shader) => `
               <button type="button" class="element-card" data-element-category="${esc(elementPickerCategories("effect", shader))}" data-add-element-effect="${esc(shader.id)}" data-element-search-card="${esc(elementSearchText(shader.id, shader.name, shader.category, "effect", isIsfVisualComponent(shader) ? "isf" : ""))}">
                 ${icon(effectIcon(shader.id))}

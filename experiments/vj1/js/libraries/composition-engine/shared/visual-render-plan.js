@@ -623,6 +623,55 @@ export function visualRenderPlanConfiguration(plan = {}) {
     .map(operationConfiguration);
 }
 
+// A Component may be evaluated directly into a cropped render request only
+// when every operation that currently contributes pixels is regionally
+// equivalent to its full-frame evaluation. Disabled operations deliberately
+// do not participate: visibility is a live runtime value, and a dormant
+// persistent/full-frame shader must not prevent an otherwise local chain from
+// using the exact ROI requested by its final consumer.
+export function visualRenderPlanRegionSafe(plan = {}, component = null, {
+  resolveRoi = null,
+} = {}) {
+  const authoredConfiguration = new Map();
+  const collectAuthored = (chain = []) => {
+    for (const item of chain || []) {
+      if (item?.id) authoredConfiguration.set(String(item.id), item);
+      if (item?.kind === "group") collectAuthored(item.chain || []);
+    }
+  };
+  collectAuthored(component?.chain || []);
+  let activeKernels = 0;
+  const operationSafe = (operation, configuration) => {
+    const contract = operation.contract || {};
+    const resolvedRoi = typeof resolveRoi === "function"
+      ? resolveRoi(operation, configuration)
+      : null;
+    const roi = resolvedRoi || contract.roi || {};
+    const allocation = contract.allocation || {};
+    return roi.mode !== VISUAL_ROI_MODES.FULL_FRAME
+      && roi.pixelEquivalentToFullFrame === true
+      && allocation.mode !== VISUAL_ALLOCATION_MODES.FULL_FRAME;
+  };
+  const visit = (operations = [], parentEnabled = true) => {
+    for (const operation of operations) {
+      const configuration = authoredConfiguration.get(String(operation.id || ""))
+        || operation.configuration
+        || {};
+      const enabled = parentEnabled && configuration.enabled !== false;
+      if (!enabled) continue;
+      const compound = operation.opcode === VISUAL_RENDER_OPCODES.GROUP
+        && operation.operations?.length;
+      if (!compound) {
+        activeKernels++;
+        if (!operationSafe(operation, configuration)) return false;
+      }
+      if (operation.operations?.length && !visit(operation.operations, enabled)) return false;
+    }
+    return true;
+  };
+  return visit(plan.operations || []) && activeKernels > 0;
+}
+
 export class VisualRenderPlanIntrospection {
   constructor(plan) {
     this.plan = plan;

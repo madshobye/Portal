@@ -26,10 +26,15 @@ function textureOperator({
   parameters = {},
   stateful = false,
   allocation = "visible-boundary",
+  roi = textureContract.roi,
 }) {
-  const contract = allocation === "retained"
-    ? defineVisualNodeContract({ ...textureContract, allocation: { mode: "retained" } })
-    : textureContract;
+  const contract = allocation === "visible-boundary" && roi === textureContract.roi
+    ? textureContract
+    : defineVisualNodeContract({
+      ...textureContract,
+      roi,
+      allocation: { mode: allocation },
+    });
   return defineNode({
     id,
     name,
@@ -148,6 +153,12 @@ export const FeedbackTextureNode = textureOperator({
   },
   stateful: true,
   allocation: "retained",
+  roi: {
+    mode: "full-frame",
+    coordinateSpace: "full-frame",
+    inputMapping: "full-frame",
+    pixelEquivalentToFullFrame: false,
+  },
 });
 
 export const DelayTextureNode = textureOperator({
@@ -158,6 +169,12 @@ export const DelayTextureNode = textureOperator({
   inlets: { texture: { type: "texture", required: true } },
   stateful: true,
   allocation: "retained",
+  roi: {
+    mode: "full-frame",
+    coordinateSpace: "full-frame",
+    inputMapping: "full-frame",
+    pixelEquivalentToFullFrame: false,
+  },
 });
 
 export const TextureOperatorNodeDefinitions = Object.freeze([
