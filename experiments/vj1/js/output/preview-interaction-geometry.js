@@ -33,10 +33,14 @@ export function findChainItemTransformContext(chain = [], id = "", parentTransfo
   return null;
 }
 
-export function isPhysicalChainItem(item = {}) {
+export function isPhysicalChainItem(
+  item = {},
+  effectComponentForId = getShaderComponent,
+) {
   if (item.kind === "source") return item.source?.type !== "black";
   if (item.kind !== "effect") return false;
-  return getShaderComponent(item.componentId)?.spatial === true;
+  const component = effectComponentForId?.(item.componentId);
+  return component?.spatial === true || component?.boundaryEditable === true;
 }
 
 export function hitTestChainItems({
@@ -49,6 +53,7 @@ export function hitTestChainItems({
   ownerGroup = null,
   baseRectForItem = () => ({ x: 0, y: 0, width: frame.width, height: frame.height }),
   containsItem = null,
+  effectComponentForId = getShaderComponent,
 } = {}) {
   for (let index = chain.length - 1; index >= 0; index--) {
     const item = chain[index];
@@ -65,11 +70,12 @@ export function hitTestChainItems({
         ownerGroup: ownerGroup || item,
         baseRectForItem,
         containsItem,
+        effectComponentForId,
       });
       if (nested) return nested;
       continue;
     }
-    if (!isPhysicalChainItem(item)) continue;
+    if (!isPhysicalChainItem(item, effectComponentForId)) continue;
     const baseRect = baseRectForItem(component, item, frame);
     const contains = typeof containsItem === "function"
       ? containsItem(component, item, frame, x, y)
@@ -84,6 +90,7 @@ export function groupLocalBounds({
   component = {},
   frame = {},
   baseRectForItem = () => ({ x: 0, y: 0, width: frame.width, height: frame.height }),
+  effectComponentForId = getShaderComponent,
 } = {}) {
   const localFrame = {
     x: 0,
@@ -95,11 +102,17 @@ export function groupLocalBounds({
   for (const item of group.chain || []) {
     if (!item || item.enabled === false || clamp01(item.opacity ?? 1) <= 0.001) continue;
     if (item.kind === "group") {
-      const nested = groupLocalBounds({ group: item, component, frame: localFrame, baseRectForItem });
+      const nested = groupLocalBounds({
+        group: item,
+        component,
+        frame: localFrame,
+        baseRectForItem,
+        effectComponentForId,
+      });
       if (nested) bounds.push(transformedRectBounds(localFrame, nested, item.transform));
       continue;
     }
-    if (!isPhysicalChainItem(item)) continue;
+    if (!isPhysicalChainItem(item, effectComponentForId)) continue;
     const baseRect = baseRectForItem(component, item, localFrame);
     if (baseRect) bounds.push(transformedRectBounds(localFrame, baseRect, item.transform));
   }

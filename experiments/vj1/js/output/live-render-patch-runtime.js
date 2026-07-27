@@ -175,6 +175,14 @@ export class LiveRenderPatchRuntime {
         ) || null,
       };
     }
+    // A retained patch is an authoritative edit, even though it deliberately
+    // avoids replacing the complete Preview state. Let completed pointer
+    // transactions release their optimistic overlay when the same item record
+    // is patched; otherwise an older handle result can be restored over a
+    // newer inspector-slider value during the next state activation.
+    host.previewInteraction?.acceptAuthoritativeConfigurationPatches?.(
+      resolution.destinations,
+    );
     return result;
   }
 

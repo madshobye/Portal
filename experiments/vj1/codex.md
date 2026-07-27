@@ -435,10 +435,30 @@ key and invalidates presentation once, without making a static shader
 frame-dynamic. The resource cache follows the same prune/dispose lifecycle as
 other ISF state.
 
+The compatible-library import brings the built-in collection to 249 pinned
+fragment shaders: 43 generators, 144 effects, and 62 transitions. A
+deterministic importer checks the upstream tree against the runtime's existing
+pass, input, and resource contracts, preserves the original fragment text, and
+adds 200 compatible files to the earlier proof tranches. The real-WebGL
+architecture smoke compiles the complete installed catalog in Chrome. Paired custom vertex
+stages, shaders needing additional live image connections (including two
+three-image transitions), unbundled imported resources, and 24 files that do
+not compile under the current WebGL 1 contract remain excluded.
+The repository loader fetches the expanded source set with bounded concurrency
+while preserving manifest order and strict identity validation.
+
 The ISF backend owns retained pass state generically. Persistent passes use
 instance-owned ping-pong framebuffers, including float attachments, and
 full-screen shader writes replace their destination without blending. A
-strict pass-dimension evaluator supports ISF arithmetic plus the repository's
+full-frame source owns one stable node-boundary target; the compositor extracts
+only its visible ROI afterward, so clipping and small boundaries never resize
+or reseed persistent history. Single-pass ROI-safe sources still allocate only
+their visible output pixels. `RENDERSIZE` describes the complete physical
+boundary independently from Content placement, which is applied once through
+the UV transform. ISF effects declare editable boundaries separately from
+spatial field transforms, preserving local-effect fusion while exposing the
+shared preview boundary handles. A strict pass-dimension evaluator supports
+ISF arithmetic plus the repository's
 standard `floor`, `min`, and `max` functions while rejecting all other calls.
 A program-local `FRAMEINDEX` begins at zero when a shader instance, source hash,
 pass geometry, or resolution changes, so first-frame initialization never
@@ -501,6 +521,10 @@ Once Preview accepts such a patch, that retained program is authoritative
 through pointer release and any deferred control-DOM reconciliation. Scheduling
 must preserve the patch activation context; a final value-identical commit must
 not replace complete Preview state or recompile Component/Mapping programs.
+Direct manipulation owns an optimistic local transform/Boundary overlay only
+while its pointer transaction is active. A retained patch to the same semantic
+item record acknowledges or supersedes a completed gesture, so a later
+inspector control can never have an older handle value restored over it.
 
 Persistence and transport rules:
 
@@ -602,7 +626,7 @@ equivalence, ordinary and retained-value Groups, semantic 3D, aggregate
 CPU/Overall metrics, resource revisions, balanced GPU/browser resources, and
 two-frame float ping-pong history initialized at a nonzero host frame.
 
-At source coherence revision **201**, semantic sources, typed
+At source coherence revision **214**, semantic sources, typed
 resource/capability readiness, progressive primary-media restore, aggregate
 metrics, atomic retained framebuffer passes, and the complete browser import
 chain share one cache identity. A retained render result renews the lifetime of
@@ -613,7 +637,7 @@ specialized child values; native terminal operations remain explicit optimized
 backends rather than hidden parent programs. Output scheduling, signatures,
 dependency/media state, and thumbnails consume compiled-program APIs; raw
 Component chains are limited to migration and explicit editor projections. The
-automated suite passes **1,444 tests**. The top-bar Signal load indicator and
+automated suite passes **1,475 tests**. The top-bar Signal load indicator and
 ten-second report expose state, invalidation, compile, resource, cache, and
 presentation rates without classifying ordinary presentation or cache reuse as
 coordination pressure.

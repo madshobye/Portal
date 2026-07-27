@@ -8,7 +8,7 @@ const BUILT_IN_MANIFEST_URL = new URL(
   "../../../visual-library/visual-library.json",
   import.meta.url,
 );
-const BUILT_IN_RESOURCE_REVISION = "isf-imported-images-1";
+const BUILT_IN_RESOURCE_REVISION = "isf-compatible-library-2";
 
 export async function loadBuiltInIsfRepository({
   manifestUrl = BUILT_IN_MANIFEST_URL,
@@ -31,7 +31,15 @@ export async function loadBuiltInIsfRepository({
   const ids = new Set();
   const visualIds = new Set();
   const resources = new Set();
-  for (const artifact of manifest.artifacts || []) {
+  const artifacts = manifest.artifacts || [];
+  const sources = await mapWithConcurrency(artifacts, 12, async (artifact) => {
+    const resource = requiredText(
+      artifact?.resource,
+      `BUILT_IN_VISUAL_ARTIFACT_RESOURCE_MISSING:${artifact?.id || "unknown"}`,
+    );
+    return readText(versionedResourceUrl(new URL(resource, manifestUrl)));
+  });
+  for (const [artifactIndex, artifact] of artifacts.entries()) {
     const id = requiredText(
       artifact?.id,
       "BUILT_IN_VISUAL_ARTIFACT_ID_MISSING",
@@ -66,8 +74,7 @@ export async function loadBuiltInIsfRepository({
     ids.add(id);
     visualIds.add(visualId);
     resources.add(resource);
-    const resourceUrl = new URL(resource, manifestUrl);
-    const source = await readText(versionedResourceUrl(resourceUrl));
+    const source = sources[artifactIndex];
     const definition = createIsfNodeDefinition({
       path: resource,
       source,
@@ -189,6 +196,23 @@ function requiredText(value, error) {
   const text = String(value || "").trim();
   if (!text) throw new Error(error);
   return text;
+}
+
+async function mapWithConcurrency(values, concurrency, visit) {
+  const results = new Array(values.length);
+  let cursor = 0;
+  const workers = Array.from(
+    { length: Math.min(Math.max(1, concurrency), values.length) },
+    async () => {
+      while (cursor < values.length) {
+        const index = cursor;
+        cursor += 1;
+        results[index] = await visit(values[index], index);
+      }
+    },
+  );
+  await Promise.all(workers);
+  return results;
 }
 
 function normalizeImportedResourceManifest(value) {

@@ -76,6 +76,11 @@ export function createIsfNodeDefinition({
     runtime,
     sampling: "neighborhood",
     requiresBaseSample: visualKind === "effect",
+    // Boundary placement is independent from whether an effect transforms its
+    // internal sampling field. Keeping those capabilities separate preserves
+    // fusion for simple local ISF effects while exposing the bounded-effect
+    // compositor through the shared preview handles.
+    boundaryEditable: visualKind === "effect",
     fusible: false,
     inlets,
     outlets: [textureOutlet("texture", "Texture")],
@@ -153,6 +158,7 @@ export function materializeIsfNodeDefinition(definition = {}) {
         : { mode: "full-frame", halo: 0, coordinateSpace: "boundary", reason: "isf-multipass" },
     },
     spatial: false,
+    boundaryEditable: visualKind === "effect",
     transformSource: true,
     sampling: "neighborhood",
     requiresBaseSample: visualKind === "effect",
@@ -203,6 +209,7 @@ function materializeOptimizedIsfComponent(
       code,
       sampling: "local",
       spatial: false,
+      boundaryEditable: true,
       transformSource: true,
       fusible: true,
       requiresBaseSample: true,

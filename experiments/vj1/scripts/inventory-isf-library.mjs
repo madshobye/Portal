@@ -4,6 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { parseIsfDocument } from "../js/libraries/isf-engine/isf-document.js";
+import { currentIsfLibraryCompatibility } from "./isf-library-compatibility.mjs";
 
 const root = path.resolve(process.argv[2] || "");
 if (!process.argv[2] || !fs.existsSync(root)) {
@@ -49,6 +50,11 @@ function inspectSource(rootPath, filename, entries) {
         && (inputCounts.image || 0) <= (document.kind === "transition" ? 2 : 1)
         && !Object.keys(document.metadata.IMPORTED || {}).length
       ),
+      compatibleCurrentRuntime: currentIsfLibraryCompatibility(
+        document,
+        filename,
+        entries,
+      ).compatible,
     };
   } catch (error) {
     return {
@@ -67,6 +73,7 @@ function summarize(rows) {
     parseErrors: rows.length - parsed.length,
     kinds: countBy(parsed, (row) => row.kind),
     compatibleFragmentCandidates: parsed.filter((row) => row.compatibleFragmentCandidate).length,
+    compatibleCurrentRuntime: parsed.filter((row) => row.compatibleCurrentRuntime).length,
     pairedVertexShaders: parsed.filter((row) => row.pairedVertexShader).length,
     persistent: parsed.filter((row) => row.persistent).length,
     float: parsed.filter((row) => row.float).length,

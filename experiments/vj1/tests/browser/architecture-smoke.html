@@ -251,9 +251,9 @@
           builtInIsf.premultipliedThresholdEquivalent &&
           curatedIsf.compiled &&
           curatedIsf.linked &&
-          curatedIsf.generators === 10 &&
-          curatedIsf.effects === 17 &&
-          curatedIsf.transitions === 13 &&
+          curatedIsf.generators === 43 &&
+          curatedIsf.effects === 144 &&
+          curatedIsf.transitions === 62 &&
           nativeShaders.every((entry) => entry.compiled && entry.linked) &&
           compounds.every((entry) => entry.compiledFastPath && entry.graphEditable && entry.activation === "recompile") &&
           compounds.find((entry) => entry.kind === "project-media")?.directPlacement === true &&
@@ -1328,19 +1328,19 @@
           String(entry.resource || "").startsWith("shaders/isf/")
         );
         const programs = [
-          ...generators.map((component) => compilePair(
+          ...generators.map((component) => compileCuratedPair(
             gl,
             `curated-isf-generator:${component.id}`,
             vertexSource,
             component.code,
           )),
-          ...effects.map((component) => compilePair(
+          ...effects.map((component) => compileCuratedPair(
             gl,
             `curated-isf-effect:${component.id}`,
             vertexSource,
             component.code,
           )),
-          ...transitions.map((entry) => compilePair(
+          ...transitions.map((entry) => compileCuratedPair(
             gl,
             `curated-isf-transition:${entry.id}`,
             vertexSource,
@@ -1354,6 +1354,7 @@
           effects: effects.length,
           transitions: transitions.length,
           ids: programs.map((entry) => entry.id),
+          failures: programs.filter((entry) => !entry.compiled),
         };
       }
 
@@ -1466,6 +1467,19 @@
         const compiled = compileProgram(gl, id, vertexSource, fragmentSource);
         disposeProgram(gl, compiled);
         return { id, compiled: true, linked: true };
+      }
+
+      function compileCuratedPair(gl, id, vertexSource, fragmentSource) {
+        try {
+          return compilePair(gl, id, vertexSource, fragmentSource);
+        } catch (error) {
+          return {
+            id,
+            compiled: false,
+            linked: false,
+            error: String(error?.message || error),
+          };
+        }
       }
 
       function compileProgram(gl, id, vertexSource, fragmentSource) {

@@ -247,6 +247,7 @@ export function defineVisualComponent(definition = {}) {
     scheduler: definition.scheduler || "frame",
     runtime: normalizeRuntimePolicy(definition.runtime),
     spatial: !!definition.spatial,
+    boundaryEditable: definition.boundaryEditable === true,
     transformSource: definition.transformSource !== false,
     sampling: definition.sampling || "unknown",
     requiresBaseSample: definition.requiresBaseSample !== false,

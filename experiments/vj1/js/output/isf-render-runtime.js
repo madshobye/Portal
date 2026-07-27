@@ -330,8 +330,14 @@ export class IsfRenderRuntime {
     targetTextures = null,
     sourceDetail = null,
   } = {}) {
+    // RENDERSIZE describes the complete shader boundary. Content placement
+    // already changes the evaluated UV through contentUvMatrix; multiplying
+    // RENDERSIZE by Content scale applies that scale a second time and can
+    // cancel gl_FragCoord-based zoom. The physical boundary recovered from an
+    // ROI is therefore the resolution authority for procedural ISF code.
     const logicalWidth = Math.max(
       1,
+      Number(sourceDetail?.physicalWidth) ||
       Number(sourceDetail?.width) ||
       Number(renderRequest.logicalWidth) ||
       Number(renderRequest.width) ||
@@ -339,6 +345,7 @@ export class IsfRenderRuntime {
     );
     const logicalHeight = Math.max(
       1,
+      Number(sourceDetail?.physicalHeight) ||
       Number(sourceDetail?.height) ||
       Number(renderRequest.logicalHeight) ||
       Number(renderRequest.height) ||

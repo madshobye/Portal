@@ -121,7 +121,7 @@ test("the static built-in catalog is projected into the common visual-library mo
 
 test("the built-in proving set is file-backed ISF with stable node identity and explicit lowering", () => {
   assert.equal(BuiltInIsfRepository.id, BuiltInVisualLibraryLayer.id);
-  assert.equal(BuiltInIsfRepository.records.length, 54);
+  assert.equal(BuiltInIsfRepository.records.length, 254);
   const black = BuiltInIsfRepository.records.find((record) => record.visualId === "black");
   const invert = BuiltInIsfRepository.records.find((record) => record.visualId === "invert");
   const gray = BuiltInIsfRepository.records.find((record) => record.visualId === "gray");
@@ -205,6 +205,7 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
     record.resource.startsWith("shaders/isf/")
   );
   const proof = collection.filter((record) =>
+    !record.tags.includes("isf-compatible-library") &&
     !record.tags.includes("isf-tranche-2") &&
     !record.tags.includes("isf-multipass-comparison") &&
     !record.tags.includes("isf-event") &&
@@ -222,18 +223,22 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
   const importedImageTranche = collection.filter((record) =>
     record.tags.includes("imported-image")
   );
-  assert.equal(collection.length, 49);
+  const compatibleLibrary = collection.filter((record) =>
+    record.tags.includes("isf-compatible-library")
+  );
+  assert.equal(collection.length, 249);
   assert.equal(proof.length, 26);
   assert.equal(tranche2.length, 17);
   assert.equal(multipassComparison.length, 2);
   assert.equal(eventTranche.length, 2);
   assert.equal(importedImageTranche.length, 2);
+  assert.equal(compatibleLibrary.length, 200);
   assert.deepEqual(
     Object.fromEntries(["generator", "effect", "transition"].map((kind) => [
       kind,
       collection.filter((record) => record.artifactType === kind).length,
     ])),
-    { generator: 14, effect: 22, transition: 13 },
+    { generator: 43, effect: 144, transition: 62 },
   );
   for (const record of collection) {
     const sourcePart = record.definition.parts.find((part) =>
@@ -287,7 +292,7 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
     record.component?.isf?.inputs?.some((input) =>
       ["audio", "audioFFT"].includes(input.type)
     )
-  ).length, 4);
+  ).length, 7);
   for (const record of proof) {
     const document = record.component?.isf ||
       record.transition?.definition?.metadata?.isf;
@@ -344,12 +349,12 @@ test("the curated ISF collection is fragment-only, attributed, and catalogued by
       ?.sha256,
     "2dfcb704d42098c84da42dd8affd5e7c22c80de2a5f9753ef061b2ee870db7d7",
   );
-  const proofArtifacts = listBuiltInVisualArtifacts().filter((artifact) =>
+  const libraryArtifacts = listBuiltInVisualArtifacts().filter((artifact) =>
     artifact.implementation.resourceId?.startsWith("shaders/isf/")
   );
-  assert.equal(proofArtifacts.length, 49);
+  assert.equal(libraryArtifacts.length, 249);
   assert.equal(
-    proofArtifacts.every((artifact) =>
+    libraryArtifacts.every((artifact) =>
       artifact.implementation.format === "isf" &&
       artifact.attribution?.license === "MIT"
     ),

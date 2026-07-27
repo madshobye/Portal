@@ -175,6 +175,13 @@ test("named ISF image ports bind retained textures and participate in dirty iden
     inputs,
     renderRequest: { width: 640, height: 360 },
     timeSeconds: 1.5,
+    sourceDetail: {
+      width: 1920,
+      height: 1080,
+      physicalWidth: 640,
+      physicalHeight: 360,
+      contentScale: 3,
+    },
   });
 
   assert.equal(calls.get("foreground"), foreground.buffer);
@@ -183,6 +190,11 @@ test("named ISF image ports bind retained textures and participate in dirty iden
   assert.equal(calls.get("background"), background.buffer);
   assert.deepEqual(calls.get("background_imgSize"), [1280, 720]);
   assert.equal(calls.get("background_flipY"), true);
+  assert.deepEqual(
+    calls.get("RENDERSIZE"),
+    [640, 360],
+    "Content scale changes ISF coordinates once instead of also scaling RENDERSIZE",
+  );
   assert.deepEqual(namedTextureStateKey(inputs), [
     ["background", "background@9"],
     ["foreground", "foreground@4"],
@@ -1886,6 +1898,71 @@ test("preview transform ownership survives stale state until an exact acknowledg
   assert.equal(interaction.reconcileIncomingState(acknowledged), acknowledged);
   assert.equal(interaction.pendingChainTransform, null);
   assert.equal(interaction.pendingSurface, null);
+});
+
+test("authoritative retained controls supersede completed preview handle ownership", () => {
+  const interaction = new ComponentPreviewInteraction({});
+  interaction.pendingChainBoundary = {
+    componentId: "component",
+    itemId: "item",
+    boundary: { width: 0.4, height: 0.4 },
+  };
+  interaction.pendingChainTransform = {
+    componentId: "component",
+    itemId: "item",
+    transform: { scale: 0.4 },
+  };
+
+  interaction.acceptAuthoritativeConfigurationPatches([
+    {
+      targetType: "component",
+      componentId: "component",
+      itemId: "item",
+      path: "chain.0.boundary.width",
+      value: 1,
+    },
+  ]);
+
+  assert.equal(interaction.pendingChainBoundary, null);
+  assert.ok(interaction.pendingChainTransform, "an independent Content transform remains owned");
+
+  interaction.acceptAuthoritativeConfigurationPatches([
+    {
+      targetType: "component",
+      componentId: "component",
+      itemId: "item",
+      path: "chain.0.transform.scale",
+      value: 1,
+    },
+  ]);
+
+  assert.equal(interaction.pendingChainTransform, null);
+});
+
+test("retained scrub echoes do not take ownership from an active preview drag", () => {
+  const interaction = new ComponentPreviewInteraction({});
+  interaction.chainTransformDrag = {
+    componentId: "component",
+    itemId: "item",
+    lastBoundary: { width: 0.4, height: 0.4 },
+  };
+  interaction.pendingChainBoundary = {
+    componentId: "component",
+    itemId: "item",
+    boundary: { width: 0.4, height: 0.4 },
+  };
+
+  interaction.acceptAuthoritativeConfigurationPatches([
+    {
+      targetType: "component",
+      componentId: "component",
+      itemId: "item",
+      path: "chain.0.boundary",
+      value: { width: 0.4, height: 0.4 },
+    },
+  ]);
+
+  assert.ok(interaction.pendingChainBoundary);
 });
 
 test("selected element handles take priority over overlapping Scene Surfaces", () => {
@@ -4441,6 +4518,89 @@ test("bounded compound-output placement is evaluated in the full node boundary b
     {},
     "Content placement is complete before the ROI is placed into the parent",
   );
+});
+
+test("bounded full-frame sources keep a stable boundary target and extract only the visible ROI", () => {
+  const parentState = { buffer: { id: "parent" }, instanceInvariant: true };
+  const fullSourceState = { buffer: { id: "full-source" }, instanceInvariant: false };
+  const visibleSourceState = { buffer: { id: "visible-source" }, instanceInvariant: false };
+  const compositedState = { buffer: { id: "composited" }, instanceInvariant: false };
+  const sourceRequests = [];
+  const extractionCalls = [];
+  const boundedCalls = [];
+  const host = {
+    compositeRuntime: {
+      transparentChainState: () => parentState,
+      extractNodeViewState(...args) {
+        extractionCalls.push(args);
+        return visibleSourceState;
+      },
+      renderBoundedLayerNodeState(...args) {
+        boundedCalls.push(args);
+        return compositedState;
+      },
+    },
+    sourceRuntime: {
+      measureOperation(_component, _item, request, render) {
+        sourceRequests.push(request);
+        return render();
+      },
+      renderItemState() {
+        return fullSourceState;
+      },
+    },
+    previewHitCoverage: { recordRaster() {} },
+  };
+  const runtime = new VisualPlanRuntime(host);
+  const request = {
+    role: "component",
+    width: 800,
+    height: 600,
+    logicalWidth: 800,
+    logicalHeight: 600,
+  };
+  const operation = {
+    id: "persistent-isf-source",
+    opcode: "source",
+    configuration: {
+      id: "persistent-isf-source",
+      kind: "source",
+      enabled: true,
+      boundary: { x: 0.75, y: 0, width: 0.8, height: 0.6, rotation: 0 },
+      transform: { scale: 0.1 },
+      source: {
+        type: "generator",
+        generatorId: "persistent-isf",
+        params: {},
+      },
+    },
+    contract: {
+      roi: {
+        mode: "full-frame",
+        halo: 0,
+        coordinateSpace: "boundary",
+      },
+    },
+  };
+
+  const result = runtime.renderOperations(
+    { id: "component", name: "Component" },
+    [operation],
+    0,
+    request,
+  );
+
+  assert.strictEqual(result, compositedState);
+  assert.equal(sourceRequests.length, 1);
+  assert.deepEqual(sourceRequests[0].uvRect, [0, 0, 1, 1]);
+  assert.equal(sourceRequests[0].nodeRegionView, false);
+  assert.equal(sourceRequests[0].width, 640);
+  assert.equal(sourceRequests[0].height, 360);
+  assert.equal(extractionCalls.length, 1);
+  assert.strictEqual(extractionCalls[0][1], fullSourceState);
+  assert.strictEqual(extractionCalls[0][2], sourceRequests[0]);
+  assert.ok(extractionCalls[0][3].width < sourceRequests[0].width);
+  assert.strictEqual(boundedCalls[0][2], visibleSourceState);
 });
 
 test("bounded compound-output identity placement retains the ROI-sized optimized path", () => {

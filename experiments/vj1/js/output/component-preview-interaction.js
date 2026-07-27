@@ -355,8 +355,12 @@ export class ComponentPreviewInteraction {
       || (component.chain.length === 1 ? component.chain[0] : null);
     if (!selected || selected.enabled === false || Number(selected.opacity ?? 1) <= 0.001) return null;
     if (selected?.kind === "source" || selected?.kind === "group") return selected;
-    const effectComponent = selected?.kind === "effect" ? getShaderComponent(selected.componentId) : null;
-    return effectComponent?.spatial ? selected : null;
+    const effectComponent = selected?.kind === "effect"
+      ? this.effectComponent(selected.componentId)
+      : null;
+    return effectComponent?.spatial || effectComponent?.boundaryEditable
+      ? selected
+      : null;
   }
 
   chainItemAtPoint(x, y) {
@@ -376,6 +380,7 @@ export class ComponentPreviewInteraction {
       baseRectForItem: (owner, item, previewFrame) => this.chainItemBaseRect(owner, item, previewFrame),
       containsItem: (owner, item, previewFrame, pointX, pointY) =>
         this.pointInChainItemHitArea(owner, item, previewFrame, pointX, pointY),
+      effectComponentForId: (id) => this.effectComponent(id),
     });
   }
 
@@ -449,7 +454,13 @@ export class ComponentPreviewInteraction {
     const component = renderer.state?.components?.find((item) => item.id === renderer.state?.ui?.selectedComponentId);
     const selected = findChainItemById(component?.chain, renderer.state?.ui?.selectedChainItemId);
     if (!selected || selected.id === hit.id || !findChainItemById(hit.chain, selected.id)) return false;
-    if (selected.kind !== "group" && !isPhysicalChainItem(selected)) return false;
+    if (
+      selected.kind !== "group" &&
+      !isPhysicalChainItem(
+        selected,
+        (id) => this.effectComponent(id),
+      )
+    ) return false;
     const frame = renderer.presentationRuntime.componentPreviewRect(component, renderer.resourceRuntime.componentOutput.get(component.id));
     return this.pointInChainItemHitArea(component, selected, frame, x, y);
   }
@@ -462,6 +473,7 @@ export class ComponentPreviewInteraction {
         component,
         frame,
         baseRectForItem: (owner, child, childFrame) => this.chainItemLeafBaseRect(owner, child, childFrame),
+        effectComponentForId: (id) => this.effectComponent(id),
       }) || { x: 0, y: 0, width: frame.width, height: frame.height };
     }
     return this.chainItemLeafBaseRect(component, item, frame);
@@ -497,6 +509,11 @@ export class ComponentPreviewInteraction {
     // geometry and hit radius so zoom changes the artwork, not the controls.
     const viewportZoom = Math.max(0.1, Number(this.renderer.presentationGeometry?.viewportTransform?.().zoom) || 1);
     return canvasScale / viewportZoom;
+  }
+
+  effectComponent(id) {
+    return this.renderer.visualNodeRuntime?.effect?.(id)
+      || getShaderComponent(id);
   }
 
   chainItemPreviewGeometry(component, item) {
@@ -623,6 +640,39 @@ export class ComponentPreviewInteraction {
       renderer.componentProgramRuntime.programs
         .get(componentId)
         ?.replaceChainItem?.(itemId, item);
+    }
+  }
+
+  acceptAuthoritativeConfigurationPatches(destinations = []) {
+    // While the pointer is down, local geometry remains the presentation
+    // authority and scrub echoes must not snap it backward. Once the gesture
+    // has ended, any retained patch to the same semantic record is newer
+    // authority: this includes both the drag's own acknowledgement and a
+    // subsequent inspector edit that intentionally supersedes it.
+    if (this.chainTransformDrag) return;
+    if (
+      this.pendingChainTransform &&
+      destinations.some((destination) =>
+        configurationPatchMatchesOwner(
+          destination,
+          this.pendingChainTransform,
+          "transform",
+        )
+      )
+    ) {
+      this.pendingChainTransform = null;
+    }
+    if (
+      this.pendingChainBoundary &&
+      destinations.some((destination) =>
+        configurationPatchMatchesOwner(
+          destination,
+          this.pendingChainBoundary,
+          "boundary",
+        )
+      )
+    ) {
+      this.pendingChainBoundary = null;
     }
   }
 
@@ -799,4 +849,15 @@ function rotatedContextPoint(context, x, y) {
 
 function recordIncludes(actual, expected) {
   return Object.entries(expected || {}).every(([key, value]) => actual?.[key] === value);
+}
+
+function configurationPatchMatchesOwner(destination = {}, owner = {}, record = "") {
+  if (
+    destination.targetType !== "component" ||
+    String(destination.componentId || "") !== String(owner.componentId || "") ||
+    String(destination.itemId || "") !== String(owner.itemId || "")
+  ) return false;
+  const parts = String(destination.path || "").split(".").filter(Boolean);
+  const recordIndex = parts.lastIndexOf(record);
+  return recordIndex >= 0 && recordIndex === parts.lastIndexOf("chain") + 2;
 }

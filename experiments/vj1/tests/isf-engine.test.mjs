@@ -333,6 +333,8 @@ test("optimized local ISF carries declared float scalars into the fused effect c
   );
 
   assert.equal(threshold.fusible, true);
+  assert.equal(threshold.spatial, false);
+  assert.equal(threshold.boundaryEditable, true);
   assert.equal(params.amount.defaultValue, 0.65);
   assert.equal(params.cutoff.defaultValue, 0.5);
   assert.match(threshold.code, /step\(cutoff,/);
@@ -409,6 +411,8 @@ test("ISF files materialize as typed project visual nodes", () => {
   const component = createIsfVisualComponent({ path: "shaders/tint.fs", source: FILTER });
   assert.equal(component.kind, "effect");
   assert.equal(component.type, "isf");
+  assert.equal(component.spatial, false);
+  assert.equal(component.boundaryEditable, true, "ISF effects expose the shared boundary handles");
   assert.equal(component.nodeDefinition.metadata.projectAssetPath, "shaders/tint.fs");
   assert.equal(component.params.find((param) => param.id === "level").defaultValue, 0.5);
   assert.equal(component.params.find((param) => param.id === "centerX").defaultValue, 0.25);

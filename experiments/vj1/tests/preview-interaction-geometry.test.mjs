@@ -43,6 +43,14 @@ test("regional Component windows invert scale before calculating source UVs", ()
 test("spatial effects participate in the same preview handle contract as sources", () => {
   assert.equal(isPhysicalChainItem({ kind: "effect", componentId: "alphaVignette" }), true);
   assert.equal(isPhysicalChainItem({ kind: "effect", componentId: "blur" }), false);
+  assert.equal(
+    isPhysicalChainItem(
+      { kind: "effect", componentId: "project-isf" },
+      () => ({ spatial: false, boundaryEditable: true }),
+    ),
+    true,
+    "project-resolved effects can expose a boundary without becoming spatial shader fields",
+  );
 });
 
 test("nested chain transform context composes parent translation and scale", () => {

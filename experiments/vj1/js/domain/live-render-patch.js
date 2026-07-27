@@ -127,9 +127,16 @@ export function resolveLiveRenderPatches(state, patches = []) {
       return { applied: false, componentIds: [...componentIds], statePaths: [...statePaths], destinations: [], failedPatch: patch || null };
     }
     const canonicalPath = canonicalParts.map(String).join(".");
-    resolved.push({ ...destination, targetType: "component", componentId, path: canonicalPath, value: patch.value });
-    componentIds.add(componentId);
     const itemId = visualItemIdForPatchPath(component, canonicalParts);
+    resolved.push({
+      ...destination,
+      targetType: "component",
+      componentId,
+      itemId,
+      path: canonicalPath,
+      value: patch.value,
+    });
+    componentIds.add(componentId);
     if (itemId) {
       const ids = configurationTargets.get(componentId) || new Set();
       ids.add(itemId);

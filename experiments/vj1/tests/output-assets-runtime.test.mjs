@@ -16,7 +16,7 @@ import {
   OUTPUT_BRIDGE_PROTOCOL_VERSION,
   recoveredOutputProjectState,
 } from "../js/services/output-bridge-service.js";
-import { applyLiveRenderPatches, applyLiveRenderPatchesImmutable, createLiveRenderPatch, createRenderStatePatch } from "../js/domain/live-render-patch.js";
+import { applyLiveRenderPatches, applyLiveRenderPatchesImmutable, createLiveRenderPatch, createRenderStatePatch, resolveLiveRenderPatches } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
@@ -2704,6 +2704,9 @@ test("Live render patches follow stable chain item identity across index drift",
     0.8,
     "item-b",
   );
+  const resolved = resolveLiveRenderPatches(state, [patch]);
+  assert.equal(resolved.destinations[0].itemId, "item-b");
+  assert.equal(resolved.destinations[0].path, "chain.1.params.amount");
   const immutable = applyLiveRenderPatchesImmutable(state, [patch]);
 
   assert.equal(immutable.applied, true);

@@ -581,25 +581,40 @@ export class VisualPlanRuntime {
             },
           );
           if (roiRequest.empty) continue;
+          // Stateful/multipass and other full-frame sources own one stable
+          // node-boundary domain. Render that domain before extracting the
+          // visible allocation; otherwise a moving or tiny ROI resizes their
+          // retained buffers and turns clipping into shader state.
+          const sourceRequest = sourceRoi?.mode === "full-frame"
+            ? fullNodeBoundaryRequest(roiRequest)
+            : roiRequest;
           const sourceState = host.sourceRuntime.measureOperation(
             component,
             renderedItem,
-            roiRequest,
+            sourceRequest,
             () =>
               host.sourceRuntime.renderItemState(
                 component,
                 renderedItem,
                 componentTime,
-                roiRequest,
+                sourceRequest,
                 nodeId,
                 operation,
                 externalInputStates,
               ),
           );
+          const visibleSourceState = sourceRequest === roiRequest
+            ? sourceState
+            : host.compositeRuntime.extractNodeViewState(
+                renderBufferKey(nodeId, "source-view"),
+                sourceState,
+                sourceRequest,
+                roiRequest,
+              );
           host.previewHitCoverage?.recordRaster(
             component,
             renderedItem,
-            sourceState,
+            visibleSourceState,
             renderRequest,
             roiRequest.roi,
             operation?.contract?.interaction?.hitRegion,
@@ -607,7 +622,7 @@ export class VisualPlanRuntime {
           state = host.compositeRuntime.renderBoundedLayerNodeState(
             nodeId,
             state,
-            sourceState,
+            visibleSourceState,
             // Source renderers evaluate Content placement in the full logical
             // boundary coordinate space through the ROI view. The outer
             // compositor owns only boundary placement, blend and opacity.
