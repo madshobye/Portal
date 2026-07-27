@@ -2,8 +2,15 @@ import { MAX_PIXEL_DENSITY, normalizeRenderSettings, RESOLUTION_CEILING_PRESETS 
 import { esc, formatRangeValue, icon } from "./template-utils.js";
 import { screenCaptureStatus } from "../output/screen-capture-service.js";
 import { normalizeMidiInputSettings } from "../libraries/control-engine/midi-input-profile/index.js";
+import {
+  DMX_CHANNEL_ROLES,
+  DMX_SAMPLE_FEATURES,
+  dmxFixtureEndChannel,
+  dmxPatchWarnings,
+  normalizeDmxDeviceSettings,
+} from "../libraries/dmx-engine/index.js";
 
-export function settingsModalTemplate(state, activeTab = "outputs", midiStatus = {}) {
+export function settingsModalTemplate(state, activeTab = "outputs", midiStatus = {}, dmxStatus = {}) {
   activeTab = normalizeSettingsTab(activeTab);
   const render = normalizeRenderSettings(state.render || {});
   const camera = render.camera;
@@ -22,6 +29,7 @@ export function settingsModalTemplate(state, activeTab = "outputs", midiStatus =
       <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
         ${settingsTab("outputs", "Outputs", activeTab)}
         ${settingsTab("inputs", "Inputs", activeTab)}
+        ${settingsTab("devices", "Devices", activeTab)}
         ${settingsTab("rendering", "Rendering", activeTab)}
       </nav>
       <div class="settings-modal-body" data-scroll-region data-scroll-key="settings:${activeTab}">
@@ -77,6 +85,11 @@ export function settingsModalTemplate(state, activeTab = "outputs", midiStatus =
             </div>
             <div class="soft-note" data-screen-capture-status>Nothing is currently shared.</div>
             <div class="soft-note">Each browser-approved input stays open for this session. Screen Share generators select an input by its stable session ID; Preview and same-origin Output windows share the same streams.</div>
+          </div>
+        </section>
+        <section class="ui-section element-section parameter-surface settings-view-surface settings-devices-panel" data-settings-panel="devices" ${visiblePanel("devices", activeTab)}>
+          <div data-dmx-settings data-dmx-signature="${esc(dmxSettingsSignature(state, dmxStatus))}">
+            ${dmxSettingsTemplate(state, dmxStatus)}
           </div>
         </section>
         <section class="ui-section element-section parameter-surface settings-view-surface settings-rendering-panel" data-settings-panel="rendering" ${visiblePanel("rendering", activeTab)}>
@@ -135,6 +148,115 @@ export function settingsModalTemplate(state, activeTab = "outputs", midiStatus =
         </section>
       </div>
     </section>
+  `;
+}
+
+export function dmxSettingsTemplate(state = {}, status = {}) {
+  const settings = normalizeDmxDeviceSettings(state?.devices?.dmx);
+  const warnings = dmxPatchWarnings(settings);
+  const statusLabel = status.connected
+    ? `${status.refreshRate || settings.refreshRate} Hz target · ${status.universeLength || 1} channels`
+    : status.state === "requesting"
+      ? "Waiting for serial device…"
+      : status.error || "Not connected";
+  return `
+    <div class="settings-group">
+      <div class="settings-group-title"><span class="material-symbols-rounded">settings_input_component</span><span>DMX output</span></div>
+      ${settingsToggle("Enable continuous DMX output", "devices.dmx.enabled", settings.enabled)}
+      <label class="field">Refresh rate
+        <input type="number" min="20" max="40" step="1" data-settings-update="devices.dmx.refreshRate" value="${settings.refreshRate}" />
+      </label>
+      <div class="settings-capture-actions">
+        <button type="button" class="chain-add-button" data-connect-dmx>${status.connected ? "Reconnect" : "Connect USB DMX"}</button>
+        <button type="button" class="icon-buttonish" data-disconnect-dmx ${status.connected ? "" : "disabled"} title="Disconnect DMX" aria-label="Disconnect DMX">${icon("link_off")}</button>
+      </div>
+      <div class="soft-note${status.error ? " is-error" : ""}">${esc(statusLabel)}</div>
+      <div class="soft-note">The global controller repeats the last complete universe independently of rendering. This transport expects a raw 250 kbaud USB serial DMX interface.</div>
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title"><span class="material-symbols-rounded">light</span><span>Fixtures</span></div>
+      <div class="dmx-fixture-list">
+        ${settings.fixtures.length
+          ? settings.fixtures.map((fixture, index) => dmxFixtureTemplate(fixture, index, settings)).join("")
+          : `<div class="soft-note">Add a patched fixture before inserting a DMX Probe.</div>`}
+      </div>
+      <button type="button" class="chain-add-button" data-add-dmx-fixture>${icon("add")} Add fixture</button>
+      ${warnings.map((warning) => `<div class="soft-note is-error">${esc(warning)}</div>`).join("")}
+    </div>
+    <div class="settings-group">
+      <div class="settings-group-title"><span class="material-symbols-rounded">tune</span><span>Raw channel test</span></div>
+      <div class="field-pair">
+        <label class="field">Channel <input type="number" min="1" max="512" step="1" value="1" data-dmx-test-channel /></label>
+        <label class="field range-field"><span>Value</span><output class="range-value" data-range-value>0</output><input type="range" min="0" max="255" step="1" value="0" data-dmx-test-value /></label>
+      </div>
+      <button type="button" class="chain-add-button" data-clear-dmx-test>Clear test override</button>
+      <div class="soft-note">Use a low value and move one channel at a time while identifying an undocumented fixture profile.</div>
+    </div>
+  `;
+}
+
+export function dmxSettingsSignature(state = {}, status = {}) {
+  return JSON.stringify({
+    settings: normalizeDmxDeviceSettings(state?.devices?.dmx),
+    status: {
+      state: status.state || "",
+      error: status.error || "",
+      connected: status.connected === true,
+      enabled: status.enabled === true,
+      refreshRate: Number(status.refreshRate) || 0,
+      universeLength: Number(status.universeLength) || 0,
+      portInfo: status.portInfo || null,
+    },
+  });
+}
+
+function dmxFixtureTemplate(fixture, fixtureIndex, settings) {
+  const profile = settings.profiles.find((entry) => entry.id === fixture.profileId);
+  return `
+    <article class="configured-output-card dmx-fixture-card">
+      <div class="ui-section-header configured-output-head">
+        ${icon("light")}
+        <input class="section-title-input" type="text" data-dmx-fixture-name="${fixtureIndex}" value="${esc(fixture.name)}" aria-label="Fixture name" />
+        <button type="button" class="list-remove" data-remove-dmx-fixture="${fixture.id}" title="Remove fixture" aria-label="Remove ${esc(fixture.name)}">${icon("close")}</button>
+      </div>
+      <label class="field">Profile
+        <select data-dmx-fixture-profile="${fixtureIndex}">
+          ${settings.profiles.map((entry) => `<option value="${esc(entry.id)}" ${entry.id === fixture.profileId ? "selected" : ""}>${esc(entry.name)}</option>`).join("")}
+        </select>
+      </label>
+      <div class="field-pair">
+        <label class="field">Start channel <input type="number" min="1" max="512" step="1" data-dmx-fixture-start="${fixtureIndex}" value="${fixture.startChannel}" /></label>
+        <label class="settings-toggle"><span>Enabled</span><input type="checkbox" data-dmx-fixture-enabled="${fixtureIndex}" ${fixture.enabled ? "checked" : ""} /></label>
+      </div>
+      <div class="soft-note">Channels ${fixture.startChannel}–${dmxFixtureEndChannel(fixture, profile)} · ${esc(profile?.description || profile?.name || "")}</div>
+      ${profile ? `
+        <details class="dmx-profile-editor">
+          <summary>${profile.channels.length} profile channels</summary>
+          <div class="field-pair">
+            <label class="field">Sample columns
+              <input type="number" min="1" max="32" step="1" value="${profile.sampleResolution.width}" data-dmx-profile-sample-width="${fixtureIndex}" />
+            </label>
+            <label class="field">Sample rows
+              <input type="number" min="1" max="32" step="1" value="${profile.sampleResolution.height}" data-dmx-profile-sample-height="${fixtureIndex}" />
+            </label>
+          </div>
+          ${profile.channels.map((entry, channelIndex) => `
+            <div class="dmx-profile-channel">
+              <input type="text" value="${esc(entry.name)}" data-dmx-channel-name="${fixtureIndex}:${channelIndex}" aria-label="Channel ${channelIndex + 1} name" />
+              <select data-dmx-channel-role="${fixtureIndex}:${channelIndex}" aria-label="Channel ${channelIndex + 1} role">
+                ${DMX_CHANNEL_ROLES.map((role) => `<option value="${role}" ${role === entry.role ? "selected" : ""}>${role}</option>`).join("")}
+              </select>
+              <select data-dmx-channel-feature="${fixtureIndex}:${channelIndex}" aria-label="Channel ${channelIndex + 1} canvas source">
+                ${DMX_SAMPLE_FEATURES.map((feature) => `<option value="${feature}" ${feature === entry.sampleFeature ? "selected" : ""}>${feature}</option>`).join("")}
+              </select>
+              <input type="number" min="1" max="${profile.sampleResolution.width}" step="1" value="${entry.sampleCell.x + 1}" data-dmx-channel-cell-x="${fixtureIndex}:${channelIndex}" aria-label="Channel ${channelIndex + 1} sample column" />
+              <input type="number" min="1" max="${profile.sampleResolution.height}" step="1" value="${entry.sampleCell.y + 1}" data-dmx-channel-cell-y="${fixtureIndex}:${channelIndex}" aria-label="Channel ${channelIndex + 1} sample row" />
+            </div>
+          `).join("")}
+          <div class="soft-note">Each channel can sample a feature from one cell of the probe’s grid. A 1×1 profile samples the whole placed probe.</div>
+        </details>
+      ` : ""}
+    </article>
   `;
 }
 
@@ -246,7 +368,7 @@ function settingsTab(id, label, activeTab) {
 
 export function normalizeSettingsTab(value) {
   if (value === "camera" || value === "screen") return "inputs";
-  return ["outputs", "inputs", "rendering"].includes(value) ? value : "outputs";
+  return ["outputs", "inputs", "devices", "rendering"].includes(value) ? value : "outputs";
 }
 
 function visiblePanel(id, activeTab) {

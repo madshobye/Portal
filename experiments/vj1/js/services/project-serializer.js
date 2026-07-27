@@ -35,6 +35,7 @@ export function buildProjectPayload(state, savedAt = new Date().toISOString()) {
     },
     global: state.global,
     ...(state.inputs ? { inputs: state.inputs } : {}),
+    ...(state.devices ? { devices: state.devices } : {}),
     render: persistedRenderSettings(state.render),
     scheduler: state.scheduler,
     nodes: serializeNodeProjectData(state.nodes),

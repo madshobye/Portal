@@ -15,6 +15,7 @@ import {
   sourceBackedMediaId,
 } from "../domain/models.js";
 import { parameterAnimationViewTemplate } from "./animation-view.js";
+import { dmxProbeComponentForState } from "../libraries/dmx-engine/index.js";
 
 
 export function sceneInspectorTemplate(component, state) {
@@ -298,7 +299,7 @@ function selectedChainItemAnimationParameters(item, state) {
   let definition = null;
   let values = {};
   if (item.kind === "effect") {
-    definition = visualEffectComponent(state, item.componentId);
+    definition = visualEffectComponent(state, item.componentId, item);
     values = item.params || {};
   } else if (item.kind === "source" && item.source?.type === "generator") {
     definition = visualGeneratorComponent(state, item.source.generatorId);
@@ -314,7 +315,7 @@ function selectedChainItemAnimationParameters(item, state) {
 }
 
 function effectChainItemTemplate(item, component, state, base, paramView = "primary") {
-  const effectComponent = visualEffectComponent(state, item.componentId);
+  const effectComponent = visualEffectComponent(state, item.componentId, item);
   const params = (componentParamViews(effectComponent)[paramView] || []).map(effectDisplayParam);
   const imageInputs = isfImageInputControlsTemplate(
     item,
@@ -714,9 +715,10 @@ function visualGeneratorComponent(state, id) {
   try { return getGeneratorComponent(id); } catch { return null; }
 }
 
-function visualEffectComponent(state, id) {
-  return listProjectIsfVisualComponents(state).find((component) => component.kind === "effect" && component.id === id)
+function visualEffectComponent(state, id, item = {}) {
+  const component = listProjectIsfVisualComponents(state).find((entry) => entry.kind === "effect" && entry.id === id)
     || getShaderComponent(id);
+  return dmxProbeComponentForState(component, state, item);
 }
 
 function pathForComponent(state, component) {

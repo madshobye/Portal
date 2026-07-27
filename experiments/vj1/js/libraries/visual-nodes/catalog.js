@@ -46,6 +46,7 @@ import EffectBrokenFluorescent from "./effects/broken-fluorescent/index.js";
 import EffectCrayonStroke from "./effects/crayon-stroke/index.js";
 import EffectCustom from "./effects/custom/index.js";
 import EffectDilate from "./effects/dilate/index.js";
+import EffectDmxProbe from "./effects/dmx-probe/index.js";
 import EffectEchoFade from "./effects/echo-fade/index.js";
 import EffectErode from "./effects/erode/index.js";
 import EffectFlip from "./effects/flip/index.js";
@@ -102,7 +103,7 @@ const additionalBuiltInIsfEffects = BuiltInIsfRepository.components.filter(
 );
 
 const generators = Object.freeze([GeneratorAnatomy, GeneratorAdditiveLightOrbs, GeneratorAnimatedDazzleStripes, GeneratorBezierStrokes, GeneratorBiomineLite, GeneratorBlack, ...additionalBuiltInIsfGenerators, GeneratorCameraInput, GeneratorCellularCircles, GeneratorChainFollowerTrails, GeneratorChecker, GeneratorCherenkovVolume, GeneratorCloudyTunnel, GeneratorEyeball, GeneratorEyeballRender, GeneratorExpressiveRibbonBrush, GeneratorFeatureMorphV2, GeneratorFeatureMorph, GeneratorFireflies, GeneratorFog, GeneratorGalaxy, GeneratorGestureReticle, GeneratorGradient, GeneratorLightning, GeneratorMediaImage, GeneratorMeshPatterns, GeneratorModelMedia, GeneratorNestedOrbitMotion, GeneratorNoise, GeneratorPaintDrips, GeneratorPlasma, GeneratorScreenShare, GeneratorSdfSketch, GeneratorSeascape, GeneratorShadertoyBaseWarp, GeneratorSunRays, GeneratorSwayingTrees, GeneratorTerrainFlyover, GeneratorTestPattern, GeneratorText, GeneratorTileTexture, GeneratorVolumetricClouds, GeneratorWaves]);
-const effects = Object.freeze([EffectAlphaFeather, EffectAlphaVignette, EffectBlur, EffectBrokenFluorescent, EffectCrayonStroke, EffectCustom, EffectDilate, EffectEchoFade, EffectErode, EffectFlip, EffectGlitchDistort, EffectGray, EffectHardBlack, EffectHeartbeatPulse, EffectHeatShimmer, EffectHsvAlphaKey, EffectInvert, ...additionalBuiltInIsfEffects, EffectKaleido, EffectLabelChromatic, EffectLabelGrain, EffectLabelThresholdGrain, EffectLumaKey, EffectMirrorFold, EffectPhotoGrade, EffectPixelArtUpscale, EffectPixelate, EffectPlasma, EffectPowerFlicker, EffectProbe, EffectRgbSplit, EffectRipple, EffectSmear, EffectSpinRotate, EffectThreshold, EffectTileRepeat]);
+const effects = Object.freeze([EffectAlphaFeather, EffectAlphaVignette, EffectBlur, EffectBrokenFluorescent, EffectCrayonStroke, EffectCustom, EffectDilate, EffectDmxProbe, EffectEchoFade, EffectErode, EffectFlip, EffectGlitchDistort, EffectGray, EffectHardBlack, EffectHeartbeatPulse, EffectHeatShimmer, EffectHsvAlphaKey, EffectInvert, ...additionalBuiltInIsfEffects, EffectKaleido, EffectLabelChromatic, EffectLabelGrain, EffectLabelThresholdGrain, EffectLumaKey, EffectMirrorFold, EffectPhotoGrade, EffectPixelArtUpscale, EffectPixelate, EffectPlasma, EffectPowerFlicker, EffectProbe, EffectRgbSplit, EffectRipple, EffectSmear, EffectSpinRotate, EffectThreshold, EffectTileRepeat]);
 const generatorById = new Map(generators.map((component) => [component.id, component]));
 const effectById = new Map(effects.map((component) => [component.id, component]));
 export const BuiltInTransitionEntries = Object.freeze([

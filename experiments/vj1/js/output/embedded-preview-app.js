@@ -22,6 +22,7 @@ export function createEmbeddedPreviewApp({
   projectService,
   onChainItemTarget,
   onControlSignal = null,
+  onDmxFixture = null,
 }) {
   let host = null;
   let stage = null;
@@ -290,6 +291,7 @@ export function createEmbeddedPreviewApp({
       sendMediaMetadata: updateMediaMetadata,
       requestMediaFiles: () => importMediaFilesIfChanged(true),
       requestPresentationFrame: wakePreviewPresentation,
+      sendDmxFixture: onDmxFixture,
       onSurfaceSelect: selectSurface,
       installedNodePackages: projectService?.getInstalledNodePackages?.() || [],
     });

@@ -296,7 +296,12 @@ export function paramControlTemplate(param, path, value, attrs = "data-update", 
       <label class="field chain-param param-context-target${significantClass}" ${contextAttrs}>
         <span>${esc(param.label || param.id)}</span>
         <select class="param-select" ${attrs}="${esc(path)}">
-          ${(param.values || []).map((option) => `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(option)}</option>`).join("")}
+          ${(param.values || []).map((option) => {
+            const label = param.optionLabels instanceof Map
+              ? param.optionLabels.get(option)
+              : param.optionLabels?.[option];
+            return `<option value="${esc(option)}" ${option === value ? "selected" : ""}>${esc(label || option)}</option>`;
+          }).join("")}
         </select>
       </label>
     `;

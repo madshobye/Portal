@@ -3,8 +3,9 @@ import { sortComponentCatalog } from "./catalog-view.js";
 import { setClass, setText } from "./dom-utils.js";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js";
 import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js";
-import { configuredOutputsTemplate, midiSettingsSignature, midiSettingsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js";
+import { configuredOutputsTemplate, dmxSettingsSignature, dmxSettingsTemplate, midiSettingsSignature, midiSettingsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js";
 import { createAkaiMidiMixProfile, normalizeMidiInputSettings } from "../libraries/control-engine/midi-input-profile/index.js";
+import { createDmxFixture, normalizeDeviceSettings } from "../libraries/dmx-engine/index.js";
 import { mergeSourceChoice } from "../domain/source-choice.js";
 import {
   createAuthoredMediaSource,
@@ -32,6 +33,7 @@ export function createModalController({
   getCatalogSortMode,
   bindCatalogSortControls,
   midiInput = null,
+  dmxOutput = null,
 }) {
   let elementPicker = null;
   let sourceChoicePicker = null;
@@ -80,7 +82,7 @@ export function createModalController({
     resetDemandMediaPreviews();
     settingsTab = normalizeSettingsTab(settingsTab);
     if (!host.querySelector("[data-settings-modal]")) {
-      replaceHtmlIfChanged(host, settingsModalTemplate(state, settingsTab, midiInput?.snapshot?.()));
+      replaceHtmlIfChanged(host, settingsModalTemplate(state, settingsTab, midiInput?.snapshot?.(), dmxOutput?.snapshot?.()));
       bindClose(host, closeSettings);
       host.querySelectorAll("[data-settings-tab]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -385,6 +387,12 @@ export function createModalController({
       const status = midiInput?.snapshot?.() || {};
       midiInput?.setPage?.((Number(status.page) || 0) + Number(button.dataset.midiPage || 0));
     });
+    bindOnce(host, "[data-connect-dmx]", () => dmxOutput?.connect?.());
+    bindOnce(host, "[data-disconnect-dmx]", () => dmxOutput?.disconnect?.());
+    bindOnce(host, "[data-add-dmx-fixture]", addDmxFixture);
+    bindOnce(host, "[data-remove-dmx-fixture]", (button) => removeDmxFixture(button.dataset.removeDmxFixture));
+    bindDmxFixtureControls(host);
+    bindDmxTestControls(host);
   }
 
   async function startConfiguredScreenCapture() {
@@ -461,6 +469,14 @@ export function createModalController({
     if (midiSettings && midiSettings.dataset.midiSignature !== midiSignature) {
       midiSettings.innerHTML = midiSettingsTemplate(state, midiStatus);
       midiSettings.dataset.midiSignature = midiSignature;
+      bindSettingsModalControls(host);
+    }
+    const dmxStatus = dmxOutput?.snapshot?.() || {};
+    const dmxSettings = modal.querySelector("[data-dmx-settings]");
+    const dmxSignature = dmxSettingsSignature(state, dmxStatus);
+    if (dmxSettings && dmxSettings.dataset.dmxSignature !== dmxSignature) {
+      dmxSettings.innerHTML = dmxSettingsTemplate(state, dmxStatus);
+      dmxSettings.dataset.dmxSignature = dmxSignature;
       bindSettingsModalControls(host);
     }
     modal.querySelectorAll("[data-settings-update]").forEach((input) => {
@@ -671,6 +687,7 @@ export function createModalController({
     store.update((draft) => {
       setByPath(draft, input.dataset.settingsUpdate, readInputValue(input));
       draft.render = normalizeRenderSettings(draft.render);
+      draft.devices = normalizeDeviceSettings(draft.devices);
     }, reason);
     syncSettingsModal(getHost(), store.getState());
   }
@@ -715,6 +732,119 @@ export function createModalController({
       draft.inputs = normalizeMidiInputSettings();
     }, "remove-midi-profile");
     midiInput?.disconnect?.();
+  }
+
+  function addDmxFixture() {
+    store.update((draft) => {
+      const devices = normalizeDeviceSettings(draft.devices);
+      const profileId = devices.dmx.profiles[0]?.id || "";
+      devices.dmx.fixtures.push(createDmxFixture(profileId, devices.dmx.fixtures.length));
+      draft.devices = devices;
+    }, "add-dmx-fixture");
+  }
+
+  function removeDmxFixture(fixtureId) {
+    store.update((draft) => {
+      const devices = normalizeDeviceSettings(draft.devices);
+      devices.dmx.fixtures = devices.dmx.fixtures.filter((fixture) => fixture.id !== fixtureId);
+      draft.devices = devices;
+    }, "remove-dmx-fixture");
+  }
+
+  function bindDmxFixtureControls(host) {
+    const bind = (selector, listener) => {
+      host.querySelectorAll(selector).forEach((input) => {
+        if (input.dataset.dmxBound) return;
+        input.dataset.dmxBound = "true";
+        input.addEventListener("change", () => listener(input));
+      });
+    };
+    bind("[data-dmx-fixture-name]", (input) => updateDmxFixture(input.dataset.dmxFixtureName, (fixture) => {
+      fixture.name = input.value || fixture.name;
+    }, "dmx-fixture-name"));
+    bind("[data-dmx-fixture-profile]", (input) => updateDmxFixture(input.dataset.dmxFixtureProfile, (fixture) => {
+      fixture.profileId = input.value;
+    }, "dmx-fixture-profile"));
+    bind("[data-dmx-fixture-start]", (input) => updateDmxFixture(input.dataset.dmxFixtureStart, (fixture) => {
+      fixture.startChannel = Number(input.value);
+    }, "dmx-fixture-start"));
+    bind("[data-dmx-fixture-enabled]", (input) => updateDmxFixture(input.dataset.dmxFixtureEnabled, (fixture) => {
+      fixture.enabled = input.checked;
+    }, "dmx-fixture-enabled"));
+    bind("[data-dmx-channel-name]", (input) => updateDmxChannel(input.dataset.dmxChannelName, (channel) => {
+      channel.name = input.value || channel.name;
+    }, "dmx-channel-name"));
+    bind("[data-dmx-channel-role]", (input) => updateDmxChannel(input.dataset.dmxChannelRole, (channel) => {
+      channel.role = input.value;
+    }, "dmx-channel-role"));
+    bind("[data-dmx-channel-feature]", (input) => updateDmxChannel(input.dataset.dmxChannelFeature, (channel) => {
+      channel.sampleFeature = input.value;
+    }, "dmx-channel-feature"));
+    bind("[data-dmx-channel-cell-x]", (input) => updateDmxChannel(input.dataset.dmxChannelCellX, (channel) => {
+      channel.sampleCell.x = Math.max(0, Number(input.value) - 1);
+    }, "dmx-channel-cell-x"));
+    bind("[data-dmx-channel-cell-y]", (input) => updateDmxChannel(input.dataset.dmxChannelCellY, (channel) => {
+      channel.sampleCell.y = Math.max(0, Number(input.value) - 1);
+    }, "dmx-channel-cell-y"));
+    bind("[data-dmx-profile-sample-width]", (input) => updateDmxProfile(input.dataset.dmxProfileSampleWidth, (profile) => {
+      profile.sampleResolution.width = Number(input.value);
+    }, "dmx-profile-sample-width"));
+    bind("[data-dmx-profile-sample-height]", (input) => updateDmxProfile(input.dataset.dmxProfileSampleHeight, (profile) => {
+      profile.sampleResolution.height = Number(input.value);
+    }, "dmx-profile-sample-height"));
+  }
+
+  function updateDmxFixture(index, mutate, reason) {
+    store.update((draft) => {
+      const devices = normalizeDeviceSettings(draft.devices);
+      const fixture = devices.dmx.fixtures[Number(index)];
+      if (fixture) mutate(fixture);
+      draft.devices = normalizeDeviceSettings(devices);
+    }, reason);
+    render(getState());
+  }
+
+  function updateDmxChannel(key, mutate, reason) {
+    const [fixtureIndex, channelIndex] = String(key || "").split(":").map(Number);
+    store.update((draft) => {
+      const devices = normalizeDeviceSettings(draft.devices);
+      const fixture = devices.dmx.fixtures[fixtureIndex];
+      const profile = devices.dmx.profiles.find((entry) => entry.id === fixture?.profileId);
+      const channel = profile?.channels?.[channelIndex];
+      if (channel) mutate(channel);
+      draft.devices = normalizeDeviceSettings(devices);
+    }, reason);
+    render(getState());
+  }
+
+  function updateDmxProfile(fixtureIndex, mutate, reason) {
+    store.update((draft) => {
+      const devices = normalizeDeviceSettings(draft.devices);
+      const fixture = devices.dmx.fixtures[Number(fixtureIndex)];
+      const profile = devices.dmx.profiles.find((entry) => entry.id === fixture?.profileId);
+      if (profile) mutate(profile);
+      draft.devices = normalizeDeviceSettings(devices);
+    }, reason);
+    render(getState());
+  }
+
+  function bindDmxTestControls(host) {
+    const channel = host.querySelector("[data-dmx-test-channel]");
+    const value = host.querySelector("[data-dmx-test-value]");
+    if (channel && value && !value.dataset.dmxBound) {
+      value.dataset.dmxBound = "true";
+      value.addEventListener("input", () => {
+        syncRangeValue(value);
+        dmxOutput?.setTestChannel?.(Number(channel.value), Number(value.value) / 255);
+      });
+    }
+    bindOnce(host, "[data-clear-dmx-test]", () => {
+      dmxOutput?.clearTestChannels?.();
+      if (value) {
+        value.value = "0";
+        syncRangeValue(value);
+      }
+    });
   }
 
   function removeConfiguredOutput(outputId) {

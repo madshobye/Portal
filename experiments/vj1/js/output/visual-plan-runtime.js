@@ -265,7 +265,11 @@ export class VisualPlanRuntime {
           compositionState,
           externalInputStates,
         );
-        this.host.probeRuntime?.observe(
+        const observe = operation.backend === "dmx-probe-observer"
+          ? this.host.probeRuntime?.observeDmx
+          : this.host.probeRuntime?.observe;
+        observe?.call(
+          this.host.probeRuntime,
           component,
           operation,
           visualOperationRenderItem(
@@ -573,7 +577,11 @@ export class VisualPlanRuntime {
       );
 
       if (opcode === "probe") {
-        host.probeRuntime?.observe(
+        const observe = operation.backend === "dmx-probe-observer"
+          ? host.probeRuntime?.observeDmx
+          : host.probeRuntime?.observe;
+        observe?.call(
+          host.probeRuntime,
           component,
           operation,
           renderedItem,

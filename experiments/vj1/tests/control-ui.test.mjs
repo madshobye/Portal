@@ -1849,8 +1849,8 @@ test("project settings keep one modal DOM and patch tab values in place", () => 
   assert.ok(source.includes('data-settings-tab="rendering"'));
   assert.ok(source.includes('data-settings-update="render.maxFrameRate"'));
   assert.ok(source.includes('data-configured-output-list'));
-  assert.equal(source.match(/parameter-surface settings-view-surface/g)?.length, 3);
-  assert.match(readFileSync(new URL("../style.css", import.meta.url), "utf8"), /\.settings-tabs \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
+  assert.equal(source.match(/parameter-surface settings-view-surface/g)?.length, 4);
+  assert.match(readFileSync(new URL("../style.css", import.meta.url), "utf8"), /\.settings-tabs \{[\s\S]*?grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);/);
   assert.ok(!source.includes("settingsScroll"));
 });
 

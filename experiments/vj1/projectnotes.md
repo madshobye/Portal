@@ -87,7 +87,7 @@ I would like for the visibility toggle on an element in component or a scene to 
 I would like to have a generator where one can select other element or components as a list (it could be a group like interface) and then they will be stacked in 3d such that they look like a parallax game design principle where he view port can shift a bit up, down, right and left to show the effect.
 
 
-simmilarly we need to slowly impliment both wled control and dmx. I suggest we look up the most viable websocket based led control protocol for wled and create a settings panel where one can set up at wled ip or usb connection (have a look at the usb portal module and copy it to the vj1 app as a component) and for dmx have a look at the dmx controller experiment and copy dmx / usb serial control code from the portal modules as well - also make a settings panel for this. I suggest that we extend the probe concept so that there is a multiled probe where a ledstring can be placed in the mapper view on the preview output and then the pixels are recorded and transmitted to the wled or dmx. For dmx we need to be able to add fixtures and channels in settings. e.g. create a list of common fixtures "brigthnes.r.g.b" that one can add and define a start channel then this fixture can be placed as a probe in the mapper view.
+we still need to implement WLED control. I suggest we look up the most viable websocket based LED control protocol and create a settings panel where one can set a WLED IP or USB connection. This should reuse the generalized fixture/topology and placed Probe ideas established by DMX rather than introduce a second unrelated mapping model.
 
 We need to start to think in terms of shaders that uses a feedback loop for delay etc. e.g. that the shader draws in its a stored shader buffer with fadeout over time such that live movement and video gets a trail effect. this might also be a requirement for some isf shaders.
 
@@ -118,6 +118,19 @@ i want to be able to have a remote control interface where i can use a tablet as
 
 
 #Done
+
+Add project-global DMX output, generalized fixture profiles, and a placeable
+DMX Probe that can either sample the canvas or use normal animated controls.
+
+**Done. Project settings now own an editable fixture patch, start channels,
+profile channel semantics, overlap diagnostics, raw channel testing, and a
+20–40 Hz Web Serial connection adapted from Portal’s DMX transport. One global
+service retains and continuously repeats the last complete universe. DMX Probe
+is an ordinary spatial passthrough observer in Component/Scene graphs: it
+selects a fixture and either samples a fixture-defined grid or exposes only
+that profile’s channels as animatable parameters. Built-in profiles cover
+dimmer, RGB, dimmer+RGB, RGBW, and the U’King ZQ01003 11-channel layout with
+separate main RGBW and outer RGB sample cells.**
 
 Choose a 15–25 shader ISF proof slice, leave out the initially complicated
 types, and add an ISF filter to the modal dialogue.

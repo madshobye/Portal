@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
 
-export const CURRENT_PROJECT_VERSION = 38;
+export const CURRENT_PROJECT_VERSION = 39;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -63,6 +63,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   35: migrateProjectV35ToV36,
   36: migrateProjectV36ToV37,
   37: migrateProjectV37ToV38,
+  38: migrateProjectV38ToV39,
 });
 
 export function migrateProjectData(project = {}) {
@@ -1175,6 +1176,18 @@ export function migrateProjectV37ToV38(project) {
         sceneSnapshot: migrateState(live.sceneSnapshot),
       },
     },
+  };
+}
+
+// v39 introduces project-global hardware devices. Runtime connection handles
+// remain application-owned; only DMX fixture profiles, patches, and output
+// policy enter authored project state.
+export function migrateProjectV38ToV39(project) {
+  return {
+    ...project,
+    devices: project?.devices && typeof project.devices === "object"
+      ? project.devices
+      : {},
   };
 }
 

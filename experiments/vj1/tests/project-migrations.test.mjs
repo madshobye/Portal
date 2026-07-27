@@ -39,11 +39,12 @@ import {
   migrateProjectV35ToV36,
   migrateProjectV36ToV37,
   migrateProjectV37ToV38,
+  migrateProjectV38ToV39,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 38);
+  assert.equal(CURRENT_PROJECT_VERSION, 39);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -1174,6 +1175,18 @@ test("v37 to v38 preserves authored values until retained live animation sources
     semantic: "parameter-animation-track",
     animationStage: "combination",
   }]);
+});
+
+test("v38 to v39 introduces project-global hardware device settings", () => {
+  const migrated = migrateProjectV38ToV39({
+    version: 38,
+    project: { name: "DMX project" },
+  });
+  assert.deepEqual(migrated.devices, {});
+  assert.equal(migrated.project.name, "DMX project");
+
+  const existing = { dmx: { enabled: true, refreshRate: 30 } };
+  assert.equal(migrateProjectV38ToV39({ version: 38, devices: existing }).devices, existing);
 });
 
 test("migration runner applies every adjacent step in order", () => {

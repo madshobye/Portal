@@ -42,6 +42,7 @@ import {
   signalLoadMeter,
 } from "../metrics/signal-load-meter.js";
 import { createMidiInputService } from "../services/midi-input-service.js";
+import { createDmxOutputService } from "../services/dmx-output-service.js";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -250,6 +251,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   });
   let embeddedPreview = null;
   let modals = null;
+  const dmxOutput = createDmxOutputService({
+    onStatus: () => modals?.render(latestState),
+  });
   const midiInput = createMidiInputService({
     onSignal(payload) {
       embeddedPreview?.command(CONTROL_SIGNAL_COMMAND, payload);
@@ -301,6 +305,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     getCatalogSortMode: (state, scope = "component") => catalogSortMode(state, scope),
     bindCatalogSortControls,
     midiInput,
+    dmxOutput,
   });
   let animationTriggerSequence = 0;
   const inputs = createInputController({
@@ -342,6 +347,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     projectService,
     onControlSignal: (payload) =>
       bridge.command(CONTROL_SIGNAL_COMMAND, payload),
+    onDmxFixture: (payload) => dmxOutput.receiveProbe(payload),
     onChainItemTarget: (componentId, itemId) => {
       clipboard.setChainItemTarget(componentId, itemId);
     },
@@ -398,6 +404,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState, { reason: "preview-layout" }));
     restorePreviewPreference();
     midiInput.syncState(latestState);
+    dmxOutput.syncState(latestState);
     scheduleLiveTransitionRefresh(latestState);
     if (!signalRefreshTimer) {
       signalRefreshTimer = globalThis.setInterval(() => renderTopbar(latestState), 1000);
@@ -405,6 +412,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     store.subscribe((state, reason, change) => {
       latestState = state;
       midiInput.syncState(state);
+      dmxOutput.syncState(state);
       if (state.nodes?.definitions !== editorProjectDefinitions) {
         editorProjectDefinitions = state.nodes?.definitions || [];
         editorNodePackage = nodePackage?.editorContext?.(

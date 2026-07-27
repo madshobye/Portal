@@ -11,12 +11,19 @@ import {
 } from "./shader-target-runtime.js";
 import { unwrapRenderTarget } from "./shared-framebuffer-target.js";
 import { renderTargetNeedsShaderSampleFlip } from "./render-target-contract.js";
+import {
+  dmxFixtureProfile,
+  dmxProbeFixtureValues,
+  dmxProbeSampleResolution,
+  normalizeDmxDeviceSettings,
+} from "../libraries/dmx-engine/index.js";
 
 const PROBE_FRAGMENT_SHADER = `
 precision mediump float;
 uniform sampler2D sourceTexture;
 uniform vec2 sampleCenter;
 uniform vec2 sampleSize;
+uniform vec2 sampleResolution;
 uniform float sampleRotation;
 uniform bool flipY;
 varying vec2 vTexCoord;
@@ -30,10 +37,11 @@ void main() {
   float s = sin(sampleRotation);
   mat2 rotation = mat2(c, -s, s, c);
   vec4 total = vec4(0.0);
+  vec2 cell = (floor(vTexCoord * sampleResolution) + 0.5) / sampleResolution - 0.5;
   for (int y = 0; y < 4; y++) {
     for (int x = 0; x < 4; x++) {
-      vec2 grid = (vec2(float(x), float(y)) + 0.5) / 4.0 - 0.5;
-      vec2 uv = sampleCenter + rotation * (grid * sampleSize);
+      vec2 grid = ((vec2(float(x), float(y)) + 0.5) / 4.0 - 0.5) / sampleResolution;
+      vec2 uv = sampleCenter + rotation * ((cell + grid) * sampleSize);
       total += texture2D(sourceTexture, sourceUv(clamp(uv, 0.0, 1.0)));
     }
   }
@@ -57,7 +65,7 @@ export class ProbeRuntime {
   } = {}) {
     this.host = host;
     this.clock = clock;
-    this.shader = null;
+    this.shaders = new Map();
     this.samples = new Map();
     this.sequence = 0;
   }
@@ -104,24 +112,85 @@ export class ProbeRuntime {
     });
   }
 
+  observeDmx(component, operation, renderedItem, state, renderRequest) {
+    const settings = normalizeDmxDeviceSettings(this.host.state?.devices?.dmx);
+    if (!settings.enabled || typeof this.host.sendDmxFixture !== "function") return false;
+    const requestedFixtureId = String(renderedItem?.params?.fixtureId || "");
+    const fixtureId = settings.fixtures.some((entry) => entry.id === requestedFixtureId)
+      ? requestedFixtureId
+      : settings.fixtures[0]?.id || "";
+    const { fixture, profile } = dmxFixtureProfile(settings, fixtureId);
+    if (!fixture || !profile || fixture.enabled === false) return false;
+    const probeId = String(renderedItem?.id || operation?.id || "");
+    const key = `dmx:${component?.id || ""}:${probeId}:${fixtureId}`;
+    const sampleRate = Math.min(
+      30,
+      Math.max(1, Number(renderedItem?.params?.sampleRate) || 20),
+    );
+    const now = this.clock();
+    let retained = this.samples.get(key);
+    if (!retained) {
+      retained = { sampledAt: -Infinity, values: null };
+      this.samples.set(key, retained);
+    }
+    if (now - retained.sampledAt < 1000 / sampleRate) return false;
+    retained.sampledAt = now;
+    const samples = renderedItem?.params?.mode === "control"
+      ? []
+      : this.sampleGrid(
+        state?.buffer,
+        renderedItem?.boundary,
+        renderRequest,
+        dmxProbeSampleResolution(renderedItem, profile),
+      );
+    const values = dmxProbeFixtureValues(renderedItem, profile, samples);
+    if (sameRecord(retained.values, values)) return false;
+    retained.values = values;
+    this.host.sendDmxFixture({
+      fixtureId,
+      values,
+      source: {
+        componentId: String(component?.id || ""),
+        probeId,
+      },
+      timestamp: now,
+    });
+    return true;
+  }
+
   sample(buffer, boundary, renderRequest) {
+    return this.sampleGrid(buffer, boundary, renderRequest, {
+      width: 1,
+      height: 1,
+    })[0] || null;
+  }
+
+  sampleGrid(buffer, boundary, renderRequest, resolution = {}) {
+    if (!buffer) return [];
+    const sampleWidth = Math.min(32, Math.max(1, Math.round(Number(resolution.width) || 1)));
+    const sampleHeight = Math.min(32, Math.max(1, Math.round(Number(resolution.height) || 1)));
     const target = this.host.renderTargetRuntime.gpu(
-      "vj1:probe-sampler",
+      `vj1:probe-sampler:${sampleWidth}x${sampleHeight}`,
       {
         ...renderRequest,
-        width: 1,
-        height: 1,
-        logicalWidth: 1,
-        logicalHeight: 1,
+        width: sampleWidth,
+        height: sampleHeight,
+        logicalWidth: sampleWidth,
+        logicalHeight: sampleHeight,
         pixelDensity: 1,
         pixelDensityApplied: true,
         role: "probe-sample",
       },
     );
-    this.shader ||= target.createShader(
-      RENDER_PASS_VERTEX_SHADER,
-      PROBE_FRAGMENT_SHADER,
-    );
+    const shaderKey = `${sampleWidth}x${sampleHeight}`;
+    let shader = this.shaders.get(shaderKey);
+    if (!shader) {
+      shader = target.createShader(
+        RENDER_PASS_VERTEX_SHADER,
+        PROBE_FRAGMENT_SHADER,
+      );
+      this.shaders.set(shaderKey, shader);
+    }
     const geometry = probeSampleGeometry(
       boundary,
       buffer,
@@ -129,32 +198,45 @@ export class ProbeRuntime {
     );
     drawShaderTarget(target, () => {
       clearShaderTarget(target);
-      applyShaderTarget(target, this.shader);
-      this.shader.setUniform("sourceTexture", unwrapRenderTarget(buffer));
-      this.shader.setUniform("sampleCenter", geometry.center);
-      this.shader.setUniform("sampleSize", geometry.size);
-      this.shader.setUniform("sampleRotation", geometry.rotation);
-      this.shader.setUniform(
+      applyShaderTarget(target, shader);
+      shader.setUniform("sourceTexture", unwrapRenderTarget(buffer));
+      shader.setUniform("sampleCenter", geometry.center);
+      shader.setUniform("sampleSize", geometry.size);
+      shader.setUniform("sampleResolution", [sampleWidth, sampleHeight]);
+      shader.setUniform("sampleRotation", geometry.rotation);
+      shader.setUniform(
         "flipY",
         renderTargetNeedsShaderSampleFlip(
           buffer,
           this.host.renderTargetRuntime.isShaderBuffer(buffer),
         ),
       );
-      drawShaderTargetRect(target, 1, 1);
+      drawShaderTargetRect(target, sampleWidth, sampleHeight);
       resetShaderTarget(target);
     });
-    const pixel = target.get(0, 0);
-    return Array.isArray(pixel) || ArrayBuffer.isView(pixel)
-      ? probeColorFeatures(pixel)
-      : null;
+    target.loadPixels?.();
+    const pixels = target.pixels;
+    if (!pixels || pixels.length < sampleWidth * sampleHeight * 4) return [];
+    return Array.from({ length: sampleWidth * sampleHeight }, (_, index) =>
+      probeColorFeatures(pixels.subarray
+        ? pixels.subarray(index * 4, index * 4 + 4)
+        : pixels.slice(index * 4, index * 4 + 4))
+    );
   }
 
   dispose() {
-    disposeP5Shader(this.shader);
-    this.shader = null;
+    for (const shader of this.shaders.values()) disposeP5Shader(shader);
+    this.shaders.clear();
     this.samples.clear();
   }
+}
+
+function sameRecord(previous, next, epsilon = 1 / 255) {
+  if (!previous || !next) return false;
+  const keys = new Set([...Object.keys(previous), ...Object.keys(next)]);
+  return [...keys].every((key) =>
+    Math.abs(Number(previous[key]) - Number(next[key])) < epsilon
+  );
 }
 
 export function probeSampleGeometry(boundary = {}, buffer = {}, renderRequest = {}) {

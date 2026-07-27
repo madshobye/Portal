@@ -21,6 +21,7 @@ import {
   normalizeSamplingSettings,
 } from "./render-settings.js";
 import { normalizeMidiInputSettings } from "../libraries/control-engine/midi-input-profile/index.js";
+import { normalizeDeviceSettings } from "../libraries/dmx-engine/index.js";
 import { updateParameterAnimationTrack } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
 import {
   applySceneSourceNode,
@@ -446,6 +447,7 @@ export function createInitialState({ startupTemplate = false } = {}) {
       mappingHandleMode: "always",
     },
     inputs: normalizeMidiInputSettings(),
+    devices: normalizeDeviceSettings(),
     render: {
       outputs: [createOutputDefinition(0)],
       sceneAspectRatio: VJ1.sceneWidth / VJ1.sceneHeight,
@@ -551,6 +553,7 @@ export function sanitizeState(input = {}) {
     ui: { ...base.ui, ...(input.ui || {}) },
     global: { ...base.global, ...(input.global || {}) },
     inputs: normalizeMidiInputSettings(input.inputs),
+    devices: normalizeDeviceSettings(input.devices),
     render: { ...base.render, ...(input.render || {}) },
     scheduler: { ...base.scheduler, ...(input.scheduler || {}) },
     shaders: { ...base.shaders, ...(input.shaders || {}) },

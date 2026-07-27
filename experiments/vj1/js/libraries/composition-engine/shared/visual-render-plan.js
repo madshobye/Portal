@@ -39,6 +39,7 @@ export const VISUAL_COMPILER_HOOKS = Object.freeze({
   TEXTURE_OPERATOR: "vj1.visual.texture-operator",
   COMPOUND: "vj1.visual.compound",
   PROBE: "vj1.visual.probe",
+  DMX_PROBE: "vj1.visual.dmx-probe",
 });
 
 export function defineVisualNodeCompilerHook({ id, compile } = {}) {
@@ -147,6 +148,29 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
         path,
         {
           backend: "probe-observer",
+          compilerHook: hook,
+          transformDomain: VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD,
+          contract: defineVisualNodeContract({}, {
+            transform: { domain: VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD },
+            roi: {
+              mode: VISUAL_ROI_MODES.LOCAL,
+              halo: 0,
+              coordinateSpace: VISUAL_COORDINATE_SPACES.BOUNDARY,
+            },
+          }),
+        },
+      ),
+  }),
+  defineVisualNodeCompilerHook({
+    id: VISUAL_COMPILER_HOOKS.DMX_PROBE,
+    compile: (node, { configuration, path, hook }) =>
+      operation(
+        VISUAL_RENDER_OPCODES.PROBE,
+        node,
+        configuration,
+        path,
+        {
+          backend: "dmx-probe-observer",
           compilerHook: hook,
           transformDomain: VISUAL_TRANSFORM_DOMAINS.GROUP_FIELD,
           contract: defineVisualNodeContract({}, {

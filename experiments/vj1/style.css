@@ -4739,7 +4739,7 @@ button.text-list-main:hover {
 
 .settings-tabs {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 3px;
   padding: 3px;
   border: 0;
@@ -4802,6 +4802,34 @@ button.text-list-main:hover {
   align-items: center;
   gap: 8px;
   min-height: 40px;
+}
+
+.dmx-fixture-list {
+  display: grid;
+  gap: 10px;
+}
+
+.dmx-fixture-card {
+  display: grid;
+  gap: 8px;
+}
+
+.dmx-profile-editor {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.dmx-profile-editor summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dmx-profile-channel {
+  display: grid;
+  grid-template-columns: minmax(100px, 1fr) minmax(90px, 0.8fr) minmax(90px, 0.8fr) 54px 54px;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .midi-profile-row > span:nth-child(2) {

@@ -16,6 +16,7 @@ import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js
 import { UI_ICONS } from "./ui-icons.js";
 import { parameterAnimationTracks } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
 import { getByPath } from "./path-input-utils.js";
+import { dmxProbeComponentForState } from "../libraries/dmx-engine/index.js";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
@@ -415,7 +416,7 @@ function collectSignificantParameterDefinitions(chain, {
       continue;
     }
     const definitions = item?.kind === "effect"
-      ? visualEffectComponent(state, item.componentId)?.params || []
+      ? visualEffectComponent(state, item.componentId, item)?.params || []
       : sourceLiveParams(item?.source || {}, null, state);
     for (const param of definitions) {
       const updatePath = item?.kind === "source"
@@ -492,7 +493,7 @@ function significantChainControls(chain, options) {
       return `${own}${nested}`;
     }
     const definitions = item.kind === "effect"
-      ? visualEffectComponent(state, item.componentId)?.params || []
+      ? visualEffectComponent(state, item.componentId, item)?.params || []
       : sourceLiveParams(item.source || {}, media.find((entry) => entry.id === item.source?.mediaId), state);
     const significant = definitions.filter((param) => significantParamPath(
       paths,
@@ -514,7 +515,7 @@ function significantChainControls(chain, options) {
         source: item.kind === "source",
       }),
       valueFor: (param) => item.kind === "effect"
-        ? paramCurrentValue(visualEffectComponent(state, item.componentId), values, param)
+        ? paramCurrentValue(visualEffectComponent(state, item.componentId, item), values, param)
         : normalizeParamValue(param, values.params[param.id]),
       attrs: controlAttrs,
       isSignificant: () => attrs === "data-update",
@@ -653,7 +654,7 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
 
 function liveChainItemContentTemplate(item, componentId, path, paramView = "primary", state = {}) {
   if (item.kind === "effect") {
-    const component = visualEffectComponent(state, item.componentId);
+    const component = visualEffectComponent(state, item.componentId, item);
     const params = (componentParamViews(component)[paramView] || []).map(effectDisplayParam);
     return params.length ? liveShaderParamControlsTemplate(component, item, componentId, path, params) : "";
   }
@@ -747,9 +748,10 @@ function visualGeneratorComponent(state, id) {
   try { return getGeneratorComponent(id); } catch { return null; }
 }
 
-function visualEffectComponent(state, id) {
-  return listProjectIsfVisualComponents(state).find((component) => component.kind === "effect" && component.id === id)
+function visualEffectComponent(state, id, item = {}) {
+  const component = listProjectIsfVisualComponents(state).find((entry) => entry.kind === "effect" && entry.id === id)
     || getShaderComponent(id);
+  return dmxProbeComponentForState(component, state, item);
 }
 
 function liveParamAttrs(componentId, itemId = "") {

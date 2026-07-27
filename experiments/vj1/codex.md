@@ -34,7 +34,7 @@ current Surface geometry remains authoritative for both endpoints.
 
 Old projects migrate on load. Canvas/Frame-era structures and direct
 `media`/`camera`/`black` source shapes are migration inputs only. Current schema
-is **36**. Authored sources are `generator` or `component`; legacy records become
+is **39**. Authored sources are `generator` or `component`; legacy records become
 `mediaImage`/`modelMedia`, `cameraInput`, or `black` before graph preparation.
 Never restore runtime dispatch for retired source shapes.
 
@@ -51,13 +51,20 @@ Reusable libraries live under `js/libraries`:
 - `mapping-engine`: projection, homography, fit, and feather.
 - `cache-engine`: retained signatures, targets, and shared results.
 - media, image, mesh, terrain, ISF, transition, control, timing, storage,
-  diagnostics, and synchronization libraries.
+  diagnostics, synchronization, and DMX fixture libraries.
 - `visual-nodes`: reusable primitives and compounds with metadata, editable
   code/shaders, and declared native capabilities.
 
 Nodes own semantic values and algorithms, not decorative wrappers around hidden
 host behavior. Saved graphs are editable authority. Compilers may lower them to
 direct calls, retained targets, fused shaders, or small native kernels.
+
+Project-global hardware transports live outside Components. `devices.dmx`
+persists fixture profiles and patching; the global DMX service alone owns the
+serial port and steady universe cadence. A DMX Probe is a spatial passthrough
+observer that publishes fixture-semantic values to that service. Fixture
+profiles define channel count, roles, and sample topology, so one-channel,
+RGBW, and multi-zone fixtures share the same graph element.
 
 Every executable graph declares one model:
 

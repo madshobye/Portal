@@ -67,6 +67,10 @@ export class SharedFramebufferTarget {
     return this.framebuffer.color;
   }
 
+  get pixels() {
+    return this.framebuffer.pixels;
+  }
+
   get drawingContext() {
     return this.framebuffer?.renderer?.GL || globalThis.drawingContext || null;
   }
@@ -90,6 +94,10 @@ export class SharedFramebufferTarget {
   noSmooth() {}
 
   smooth() {}
+
+  loadPixels() {
+    return this.framebuffer.loadPixels();
+  }
 
   push() {
     if (this._twoDDepth === 0) {
