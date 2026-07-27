@@ -194,92 +194,58 @@ function oscString(value) {
   return bytes;
 }
 
-test("MIDI adapter requests permission lazily and retains normalized device signals", async () => {
-  const input = midiInput();
-  const access = {
-    inputs: new Map([[input.id, input]]),
-    onstatechange: null,
-  };
+test("renderer MIDI state is retained only from the general Input service", async () => {
   const invalidations = [];
-  let accessRequests = 0;
   const runtime = new ControlSignalRuntime({
-    requestMidiAccess: async () => {
-      accessRequests++;
-      return access;
-    },
     onInvalidate: (reason) => invalidations.push(reason),
   });
 
-  assert.equal(accessRequests, 0);
   const idleRevision = runtime.revisionFor([{
     kind: "control-signal",
     signalKind: "midi",
-    address: "1:cc:7",
+    address: "profile:midi-akai-midimix/fader/1",
   }]);
-  assert.equal(runtime.resolve("midi", "1:cc:7"), undefined);
-  await runtime.whenReady("midi");
-  assert.equal(accessRequests, 1);
-  assert.equal(input.openCalls, 1);
-  assert.equal(typeof input.onmidimessage, "function");
-  const readyRevision = runtime.revisionFor([{
-    kind: "control-signal",
-    signalKind: "midi",
-    address: "1:cc:7",
-  }]);
-  assert.notEqual(readyRevision, idleRevision);
-
-  input.onmidimessage({
-    data: new Uint8Array([0xb0, 7, 64]),
-    receivedTime: 12,
+  assert.equal(runtime.resolve("midi", "profile:midi-akai-midimix/fader/1"), undefined);
+  runtime.publish("midi", "profile:midi-akai-midimix/fader/1", 64 / 127, {
+    sequence: 1,
+    timestamp: 12,
   });
-  const signal = runtime.resolve("midi", "1:cc:7");
+  const signal = runtime.resolve("midi", "profile:midi-akai-midimix/fader/1");
   assert.equal(signal.value, 64 / 127);
   assert.equal(signal.sequence, 1);
   assert.equal(signal.timestamp, 12);
-  assert.deepEqual(runtime.resolve("midi", `${input.id}/1:cc:7`), signal);
   assert.notEqual(runtime.revisionFor([{
     kind: "control-signal",
     signalKind: "midi",
-    address: "1:cc:7",
-  }]), readyRevision);
+    address: "profile:midi-akai-midimix/fader/1",
+  }]), idleRevision);
 
-  input.onmidimessage({
-    data: new Uint8Array([0xb0, 7, 127]),
-    receivedTime: 20,
+  runtime.publish("midi", "profile:midi-akai-midimix/fader/1", 1, {
+    sequence: 2,
+    timestamp: 20,
   });
-  assert.strictEqual(runtime.resolve("midi", "1:cc:7"), signal);
-  assert.deepEqual(signal, { value: 1, sequence: 2, timestamp: 20 });
+  assert.deepEqual(runtime.resolve("midi", "profile:midi-akai-midimix/fader/1"), {
+    value: 1,
+    sequence: 2,
+    timestamp: 20,
+  });
   assert.equal(invalidations.includes("midi-signal"), true);
 
   runtime.dispose();
-  assert.equal(input.onmidimessage, null);
-  assert.equal(input.closeCalls > 0, true);
 });
 
-test("MIDI adapter reconciles device reconnects without replacing the host runtime", async () => {
-  const first = midiInput("first");
-  const inputs = new Map([[first.id, first]]);
-  const access = { inputs, onstatechange: null };
-  const runtime = new ControlSignalRuntime({
-    requestMidiAccess: () => Promise.resolve(access),
+test("renderer MIDI accepts one atomic semantic batch from the general Input service", () => {
+  const runtime = new ControlSignalRuntime();
+  runtime.publishBatch("midi", {
+    "profile:midi-akai-midimix/knob/1/1": 0.25,
+    "profile:midi-akai-midimix/fader/1": 0.75,
+  }, { sequence: 4, timestamp: 30 });
+  assert.deepEqual(runtime.resolve("midi", "profile:midi-akai-midimix/knob/1/1"), {
+    value: 0.25,
+    sequence: 4,
+    timestamp: 30,
   });
-
-  runtime.resolve("midi", "1:note:60");
-  await runtime.whenReady("midi");
-  const second = midiInput("second");
-  inputs.delete(first.id);
-  first.state = "disconnected";
-  inputs.set(second.id, second);
-  access.onstatechange();
-
-  assert.equal(first.onmidimessage, null);
-  assert.equal(second.openCalls, 1);
-  second.onmidimessage({
-    data: new Uint8Array([0x90, 60, 100]),
-    receivedTime: 30,
-  });
-  assert.equal(runtime.resolve("midi", "1:note:60").value, 100 / 127);
-  assert.equal(runtime.resolve("midi", "second/1:note:60").sequence, 1);
+  assert.equal(runtime.resolve("midi", "profile:midi-akai-midimix/fader/1").value, 0.75);
   runtime.dispose();
 });
 

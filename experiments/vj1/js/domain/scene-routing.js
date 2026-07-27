@@ -254,6 +254,15 @@ function applyDirectOutputPatchPrecedence(surfaces = [], patches = {}) {
 }
 
 export function liveProgramComponentIds(state = {}, nowMs = Date.now()) {
+  const ids = currentLiveProgramComponentIds(state);
+  const live = state.ui?.live || {};
+  for (const transition of activeLiveTransitions(live, nowMs)) {
+    collectLiveRouteComponentGraphs(state, transition.fromSurfaceRoutes, ids);
+  }
+  return ids;
+}
+
+export function currentLiveProgramComponentIds(state = {}) {
   const ids = new Set();
   const live = state.ui?.live || {};
   const mapping = state.mappings?.find((item) => String(item.id) === String(state.ui?.selectedMappingId || ""))
@@ -269,17 +278,15 @@ export function liveProgramComponentIds(state = {}, nowMs = Date.now()) {
   const currentRoutes = mapping
     ? materializeLiveProgramSurfaceRoutes(state, target || null, mapping)
     : null;
-  const routeStates = [currentRoutes].filter(Boolean);
-  for (const transition of activeLiveTransitions(live, nowMs)) {
-    routeStates.push(transition.fromSurfaceRoutes);
-  }
-  for (const routeState of routeStates) {
-    for (const surface of routeState?.surfaces || []) {
-      if (surface.enabled === false || !surface.componentId) continue;
-      collectLiveComponentGraph(state, surface.componentId, ids);
-    }
-  }
+  collectLiveRouteComponentGraphs(state, currentRoutes, ids);
   return ids;
+}
+
+function collectLiveRouteComponentGraphs(state, routeState, ids) {
+  for (const surface of routeState?.surfaces || []) {
+    if (surface.enabled === false || !surface.componentId) continue;
+    collectLiveComponentGraph(state, surface.componentId, ids);
+  }
 }
 
 export function initializeLiveChainInsertion(state, componentId, item, nowMs = Date.now()) {

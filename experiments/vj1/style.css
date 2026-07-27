@@ -1141,6 +1141,17 @@ small {
   gap: 6px;
 }
 
+.live-significant-control-list {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: var(--section-inset);
+}
+
+.live-significant-control-list .chain-param {
+  min-width: 0;
+}
+
 .mapping-text-list,
 .surface-pills,
 .live-projection-list {
@@ -4784,6 +4795,61 @@ button.text-list-main:hover {
 }
 
 [data-screen-capture-status].is-error { color: #e78b7f; }
+
+.midi-profile-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+}
+
+.midi-profile-row > span:nth-child(2) {
+  display: grid;
+  min-width: 0;
+}
+
+.midi-profile-row small,
+.midi-assignment-bank > small { color: var(--muted); }
+
+.midi-assignment-bank {
+  display: grid;
+  gap: 5px;
+}
+
+.midi-assignment-slots {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.midi-assignment-slot {
+  min-width: 0;
+  padding: 6px 4px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--midi-accent) 70%, transparent);
+  border-top: 3px solid var(--midi-accent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--midi-accent) 18%, var(--surface-deep, #252525));
+  font-size: 9px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.midi-assignment-slot.is-empty {
+  opacity: 0.4;
+  border-top-color: var(--muted);
+}
+
+.midi-bank-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+}
 
 .settings-tabs button {
   min-height: 32px;

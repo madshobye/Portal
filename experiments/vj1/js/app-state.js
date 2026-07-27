@@ -1250,7 +1250,7 @@ function reconcileLiveOverridesWithPersistentEdits(previous, next) {
   const previousComponents = new Map((previous?.components || []).map((component) => [String(component.id), component]));
   const nextComponents = new Map((next?.components || []).map((component) => [String(component.id), component]));
   const rebaseBank = (bank = {}) => Object.fromEntries(Object.entries(bank || {}).flatMap(([componentId, override]) => {
-    const rebased = pruneChangedLiveOverride(
+    const rebased = rebaseLiveOverride(
       override,
       previousComponents.get(String(componentId)),
       nextComponents.get(String(componentId))
@@ -1273,25 +1273,49 @@ function reconcileLiveOverridesWithPersistentEdits(previous, next) {
   }
 }
 
-function pruneChangedLiveOverride(override, before, after, path = "") {
+// Live is an explicit performance layer. Authored edits may change the value
+// underneath it, but must not silently disarm an active controller/UI override;
+// only Reset does that. Structural edits still rebase chain overrides by the
+// stable item identity so an old value can never land on a different element.
+function rebaseLiveOverride(override, before, after, path = "") {
   if (Array.isArray(override)) {
     if (path !== "chain") {
-      return persistentValuesEqual(before, after) ? clone(override) : undefined;
+      return before !== undefined && after === undefined
+        ? undefined
+        : clone(override);
     }
-    const result = override.map((entry, index) => (
-      pruneChangedLiveOverride(entry, before?.[index], after?.[index], "")
-    ));
+    const nextChain = Array.isArray(after) ? after : [];
+    const result = [];
+    override.forEach((entry, index) => {
+      if (!hasLiveOverrideContent(entry)) return;
+      const previousItem = before?.[index];
+      const itemId = String(previousItem?.id || "");
+      const nextIndex = itemId
+        ? nextChain.findIndex((item) => String(item?.id || "") === itemId)
+        : index < nextChain.length ? index : -1;
+      if (nextIndex < 0) return;
+      const rebased = rebaseLiveOverride(
+        entry,
+        previousItem,
+        nextChain[nextIndex],
+        "",
+      );
+      if (hasLiveOverrideContent(rebased)) result[nextIndex] = rebased;
+    });
     return result.some(hasLiveOverrideContent) ? result : undefined;
   }
   if (override && typeof override === "object") {
+    // Animation overrides address stable track and target-node IDs rather than
+    // Component object paths. Track removal explicitly clears these entries.
+    if (path === "animation") return clone(override);
     const result = {};
     for (const [key, value] of Object.entries(override)) {
-      const rebased = pruneChangedLiveOverride(value, before?.[key], after?.[key], key);
+      const rebased = rebaseLiveOverride(value, before?.[key], after?.[key], key);
       if (hasLiveOverrideContent(rebased)) result[key] = rebased;
     }
     return Object.keys(result).length ? result : undefined;
   }
-  return persistentValuesEqual(before, after) ? override : undefined;
+  return before !== undefined && after === undefined ? undefined : override;
 }
 
 function hasLiveOverrideContent(value) {
@@ -1299,20 +1323,4 @@ function hasLiveOverrideContent(value) {
   if (Array.isArray(value)) return value.some(hasLiveOverrideContent);
   if (value && typeof value === "object") return Object.values(value).some(hasLiveOverrideContent);
   return true;
-}
-
-function persistentValuesEqual(a, b) {
-  if (Object.is(a, b)) return true;
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-    return a.every((value, index) => persistentValuesEqual(value, b[index]));
-  }
-  if (a && b && typeof a === "object" && typeof b === "object") {
-    const aKeys = Object.keys(a);
-    const bKeys = Object.keys(b);
-    return aKeys.length === bKeys.length && aKeys.every((key) => (
-      Object.prototype.hasOwnProperty.call(b, key) && persistentValuesEqual(a[key], b[key])
-    ));
-  }
-  return false;
 }

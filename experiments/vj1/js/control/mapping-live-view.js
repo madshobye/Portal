@@ -1,16 +1,21 @@
 import { BLEND_MODES } from "../constants.js";
 import { createLiveComponentView, sceneSourceNodes, sourceBackedMediaId } from "../domain/models.js";
-import { liveProgramComponentIds } from "../domain/scene-routing.js";
+import {
+  currentLiveProgramComponentIds,
+  liveProgramComponentIds,
+} from "../domain/scene-routing.js";
 import { normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js";
 import { catalogMarkerButtonTemplate, componentCatalogSearchText, componentCatalogToolsTemplate } from "./catalog-view.js";
 import { effectChainItemDisplayName, sourceChainItemDisplayName, sourceIcon } from "./component-view.js";
 import { getLiveSelectedTarget, getMappingSurfaceView, getSelectedMapping, liveSceneComponents, liveSelectedSceneId, mappingFingerprintComponents } from "./control-selectors.js";
-import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainGeneralControlsTemplate, chainParamViewDefinitions, chainTransformParams, componentParamViews, parameterGroupTemplate, paramControlTemplate, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js";
+import { CHAIN_COMPOSITE_PARAMS, CHAIN_TRANSFORM_PARAMS, chainBoundaryPositionParams, chainGeneralControlsTemplate, chainParamViewDefinitions, chainTransformParams, componentParamViews, parameterGroupTemplate, paramControlTemplate, paramControlsTemplate, paramCurrentValue } from "./parameter-view.js";
 import { effectIcon, emptyNote, esc, icon, rangeTemplate, selectValuesTemplate, thumbnailTemplate } from "./template-utils.js";
 import { componentCardBarTemplate, deepEditButtonTemplate, elementListTemplate, emptyStateTemplate, enableToggleButton, panelTemplate, railListSectionTemplate, scrollRegionTemplate, selectablePillTemplate, textListItemTemplate, titleInputTemplate } from "./view-primitives.js";
 import { listProjectIsfVisualComponents } from "../libraries/isf-engine/index.js";
 import { UI_ICONS } from "./ui-icons.js";
+import { parameterAnimationTracks } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
+import { getByPath } from "./path-input-utils.js";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
@@ -226,6 +231,204 @@ export function liveNavigableComponents(scene, state) {
   return result;
 }
 
+export function liveSignificantParameterAssignments(state = {}, limit = 8) {
+  const assignments = [];
+  const seenParameters = new Set();
+  const ids = currentLiveProgramComponentIds(state);
+  for (const componentId of ids) {
+    if (assignments.length >= limit) break;
+    const component = state.components?.find((candidate) =>
+      String(candidate.id) === String(componentId)
+    );
+    if (!component || component.systemRole) continue;
+    for (const assignment of componentSignificantParameterAssignments(component, state)) {
+      const key = assignment.id || `${assignment.componentId}:${assignment.path}`;
+      if (seenParameters.has(key)) continue;
+      seenParameters.add(key);
+      assignments.push(assignment);
+      if (assignments.length >= limit) break;
+    }
+  }
+  return assignments;
+}
+
+export function liveProgramSignificantControlsTemplate(state = {}) {
+  const assignments = liveSignificantParameterAssignments(
+    state,
+    Number.MAX_SAFE_INTEGER,
+  );
+  return assignments.map((assignment) => {
+    const component = state.components?.find((candidate) =>
+      String(candidate.id) === String(assignment.componentId)
+    );
+    if (!component) return "";
+    const value = liveSignificantAssignmentValue(assignment, component, state);
+    if (!Number.isFinite(Number(value))) return "";
+    const attrs = assignment.kind === "animation"
+      ? [
+          `data-live-component-id="${esc(component.id)}"`,
+          `data-live-animation-target-node-id="${esc(assignment.targetNodeId)}"`,
+          `data-live-animation-track-id="${esc(assignment.trackId)}"`,
+          "data-live-animation-update",
+        ].join(" ")
+      : liveParamAttrs(component.id, assignment.itemId);
+    return paramControlTemplate({
+      id: assignment.field || assignment.path,
+      label: assignment.name,
+      type: "number",
+      min: assignment.min,
+      max: assignment.max,
+      step: assignment.step || 0.01,
+      scale: assignment.scale,
+      defaultValue: value,
+    }, assignment.field || assignment.path, value, attrs, { context: false });
+  }).join("");
+}
+
+function liveSignificantAssignmentValue(assignment, component, state) {
+  if (assignment.kind === "animation") {
+    const override = state.ui?.live?.componentOverrides?.[component.id]
+      ?.animation?.[assignment.trackId]?.fields?.[assignment.field];
+    if (override !== undefined) return override;
+    return parameterAnimationTracks(
+      state.nodes,
+      component.id,
+      assignment.targetNodeId,
+    ).find((track) => track.id === assignment.trackId)?.[assignment.field];
+  }
+  return getByPath(createLiveComponentView(component, state), assignment.path);
+}
+
+export function significantParameterValueFromUnit(assignment = {}, unitValue = 0) {
+  const minimum = Number(assignment.min);
+  const maximum = Number(assignment.max);
+  const normalized = Math.min(1, Math.max(0, Number(unitValue) || 0));
+  if (!Number.isFinite(minimum) || !Number.isFinite(maximum) || maximum <= minimum) {
+    return normalized;
+  }
+  const logarithmic = assignment.scale === "log" && minimum > 0;
+  let value = logarithmic
+    ? minimum * Math.pow(maximum / minimum, normalized)
+    : minimum + ((maximum - minimum) * normalized);
+  const step = Number(assignment.step);
+  if (Number.isFinite(step) && step > 0) {
+    value = minimum + (Math.round((value - minimum) / step) * step);
+  }
+  return Number(Math.min(maximum, Math.max(minimum, value)).toFixed(12));
+}
+
+function componentSignificantParameterAssignments(component, state) {
+  const registry = new Map();
+  collectSignificantParameterDefinitions(component.chain || [], {
+    component,
+    state,
+    registry,
+    relativeBase: "chain",
+  });
+  const chainAssignments = (component.significantParams || [])
+    .map((path) => registry.get(path))
+    .filter(Boolean);
+  return [
+    ...chainAssignments,
+    ...componentSignificantAnimationAssignments(component, state),
+  ];
+}
+
+function componentSignificantAnimationAssignments(component, state) {
+  return (component.significantAnimationParams || []).flatMap((entry) => {
+    const track = parameterAnimationTracks(
+      state.nodes,
+      component.id,
+      entry.targetNodeId,
+    ).find((candidate) => candidate.id === entry.trackId && candidate.kind !== "event");
+    if (!track || !Number.isFinite(Number(track[entry.field]))) return [];
+    return [{
+      id: `${component.id}:animation:${entry.trackId}:${entry.field}`,
+      kind: "animation",
+      name: `${component.name} · ${entry.label || entry.field}`,
+      detail: track.parameterId,
+      componentId: component.id,
+      targetNodeId: entry.targetNodeId,
+      trackId: entry.trackId,
+      field: entry.field,
+      min: Number(entry.min),
+      max: Number(entry.max),
+      step: Number(entry.step) || 0,
+      scale: entry.scale === "log" ? "log" : "linear",
+    }];
+  });
+}
+
+function collectSignificantParameterDefinitions(chain, {
+  component,
+  state,
+  registry,
+  relativeBase,
+}) {
+  for (let index = 0; index < (chain || []).length; index++) {
+    const item = chain[index];
+    const relativePath = `${relativeBase}.${index}`;
+    const itemLabel = item?.name || item?.id || `Element ${index + 1}`;
+    const register = (markedPath, updatePath, param) => {
+      if (param?.type !== "number") return;
+      const min = Number(param.min);
+      const max = Number(param.max);
+      if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return;
+      registry.set(markedPath, {
+        id: `${component.id}:${updatePath}`,
+        name: `${component.name} · ${param.label || param.id}`,
+        detail: itemLabel,
+        componentId: component.id,
+        itemId: String(item?.id || ""),
+        path: updatePath,
+        min,
+        max,
+        step: Number(param.step) || 0,
+        scale: param.scale === "log" ? "log" : "linear",
+      });
+    };
+
+    for (const param of CHAIN_COMPOSITE_PARAMS) {
+      register(`${relativePath}.${param.id}`, `${relativePath}.${param.id}`, param);
+    }
+    for (const param of chainTransformParams(item?.transform)) {
+      register(
+        `${relativePath}.transform.${param.id}`,
+        `${relativePath}.transform.${param.id}`,
+        param,
+      );
+    }
+    for (const param of chainBoundaryPositionParams(item?.boundary)) {
+      register(
+        `${relativePath}.boundary.${param.id}`,
+        `${relativePath}.boundary.${param.id}`,
+        param,
+      );
+    }
+    if (item?.kind === "group") {
+      collectSignificantParameterDefinitions(item.chain || [], {
+        component,
+        state,
+        registry,
+        relativeBase: `${relativePath}.chain`,
+      });
+      continue;
+    }
+    const definitions = item?.kind === "effect"
+      ? visualEffectComponent(state, item.componentId)?.params || []
+      : sourceLiveParams(item?.source || {}, null, state);
+    for (const param of definitions) {
+      const updatePath = item?.kind === "source"
+        ? `${relativePath}.source.params.${param.id}`
+        : `${relativePath}.params.${param.id}`;
+      register(updatePath, updatePath, param);
+      if (item?.kind === "source") {
+        register(`${relativePath}.params.${param.id}`, updatePath, param);
+      }
+    }
+  }
+}
+
 // The Live navigator represents the complete program, not only the currently
 // selected matrix cell. Include the Overall source and every source currently
 // routed to a Surface, then walk their component graphs. This keeps a custom
@@ -344,7 +547,6 @@ function* nestedChainItems(chain = []) {
 }
 
 function liveComponentTemplate(component, view, selectedElement, state, componentView = "controls") {
-  const publishedControlCount = component.significantParams?.length || 0;
   return `
     <article class="ui-section focus-panel live-component-card">
       <header class="ui-section-header panel-title live-component-head">
@@ -353,7 +555,7 @@ function liveComponentTemplate(component, view, selectedElement, state, componen
         ${deepEditButtonTemplate(component.id, { className: "header-edit-button", label: `Edit ${component.name}` })}
       </header>
       <div class="live-component-view-tabs" role="group" aria-label="Live Component view">
-        <button type="button" class="live-component-view-tab inspector-view-option ${componentView === "controls" ? "is-selected" : ""}" data-live-component-view="controls" aria-pressed="${componentView === "controls"}">${icon("tune")} Controls${publishedControlCount ? ` (${publishedControlCount})` : ""}</button>
+        <button type="button" class="live-component-view-tab inspector-view-option ${componentView === "controls" ? "is-selected" : ""}" data-live-component-view="controls" aria-pressed="${componentView === "controls"}">${icon("tune")} Controls</button>
         <button type="button" class="live-component-view-tab inspector-view-option ${componentView === "elements" ? "is-selected" : ""}" data-live-component-view="elements" aria-pressed="${componentView === "elements"}">${icon(UI_ICONS.group)} Elements</button>
       </div>
       ${componentView === "controls"
@@ -364,15 +566,6 @@ function liveComponentTemplate(component, view, selectedElement, state, componen
 }
 
 function liveComponentControlsTemplate(component, view, state = {}) {
-  const paths = new Set(component.significantParams || []);
-  const published = paths.size ? significantChainControls(view?.chain || [], {
-    componentId: component.id,
-    relativeBase: "chain",
-    updateBase: "chain",
-    paths,
-    attrs: liveParamAttrs(component.id),
-    media: state.media || [],
-  }) : "";
   // A Scene is the composition root. Placement belongs to each element inside
   // that Scene; only an ordinary Component can itself be placed as content.
   const placementControls = component.type === "scene" ? "" : `
@@ -382,7 +575,6 @@ function liveComponentControlsTemplate(component, view, state = {}) {
       </div>`;
   return `
     <div class="live-component-controls inspector-control-surface" data-scroll-region data-scroll-key="live-controls:${esc(component.id)}">
-      ${published ? `<div class="live-published-controls"><span class="live-control-group-label">Published controls</span>${published}</div>` : `<div class="soft-note">Mark element parameters as significant to publish them here.</div>`}
       ${placementControls}
       ${liveRangeTemplate("Opacity", component.id, "opacity", view?.opacity ?? 1)}
       ${liveRangeTemplate("Speed", component.id, "speed", view?.speed ?? 1, 0, 4, 0.01)}

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 
 import { componentCatalogToolsTemplate } from "../js/control/catalog-view.js";
 import { sceneComponents, ordinaryComponents } from "../js/control/control-selectors.js";
-import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate } from "../js/control/mapping-live-view.js";
+import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveProgramSignificantControlsTemplate, liveScenePillTemplate, liveSignificantParameterAssignments, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate, significantParameterValueFromUnit } from "../js/control/mapping-live-view.js";
 import { liveProjectionRailTemplate, projectRailTemplate } from "../js/control/project-rail-view.js";
 import { createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js";
 
@@ -393,6 +393,95 @@ test("Live navigates components by thumbnail and Scene exposes marked significan
   assert.match(significant, /components\.0\.chain\.0\.source\.params\.renderQuality/);
 });
 
+test("the MIDImix bottom knob row follows ordered significant params through subcomponents", () => {
+  const { state, liveScene } = stateWithScene();
+  const child = state.components.find((component) => component.id === liveScene.chain[0].source.componentId);
+  liveScene.significantParams = ["chain.0.transform.scale"];
+  child.significantParams = ["chain.0.source.params.renderQuality"];
+  state.ui.live.selectedComponentId = liveScene.id;
+
+  const assignments = liveSignificantParameterAssignments(state);
+  assert.deepEqual(assignments.map(({ componentId, path }) => ({ componentId, path })), [{
+    componentId: liveScene.id,
+    path: "chain.0.transform.scale",
+  }, {
+    componentId: child.id,
+    path: "chain.0.source.params.renderQuality",
+  }]);
+  assert.equal(significantParameterValueFromUnit(assignments[0], 0), 0.05);
+  assert.equal(significantParameterValueFromUnit(assignments[0], 1), 8);
+});
+
+test("Live and MIDImix resolve significant boundary controls from the shared General schema", () => {
+  const { state, mapping } = stateWithScene();
+  const component = state.components[0];
+  const item = component.chain[0];
+  item.boundary = {
+    ...item.boundary,
+    x: -0.125,
+    y: 0.25,
+    rotation: 0.5,
+  };
+  component.significantParams = [
+    "chain.0.boundary.x",
+    "chain.0.boundary.y",
+    "chain.0.boundary.rotation",
+  ];
+  mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  mapping.surfaces[0].componentId = component.id;
+
+  const assignments = liveSignificantParameterAssignments(state);
+  assert.deepEqual(assignments.map(({ path, name }) => ({ path, name })), [{
+    path: "chain.0.boundary.x",
+    name: `${component.name} · Boundary X`,
+  }, {
+    path: "chain.0.boundary.y",
+    name: `${component.name} · Boundary Y`,
+  }, {
+    path: "chain.0.boundary.rotation",
+    name: `${component.name} · Boundary rotation`,
+  }]);
+
+  const controls = liveProgramSignificantControlsTemplate(state);
+  assert.match(controls, /data-live-update="chain\.0\.boundary\.x"/);
+  assert.match(controls, /data-live-update="chain\.0\.boundary\.y"/);
+  assert.match(controls, /data-live-update="chain\.0\.boundary\.rotation"/);
+  assert.match(controls, /value="-0\.125"/);
+});
+
+test("Significant controls and MIDImix share every source in the active output mapping", () => {
+  const { state, mapping, liveScene } = stateWithScene();
+  const child = state.components.find((component) =>
+    component.id === liveScene.chain[0].source.componentId
+  );
+  child.significantParams = ["chain.0.source.params.renderQuality"];
+  const patched = {
+    ...structuredClone(child),
+    id: "patched-output-component",
+    name: "Patched output",
+    significantParams: ["chain.0.transform.scale"],
+  };
+  state.components.push(patched);
+  mapping.surfaces.push({
+    ...structuredClone(mapping.surfaces[0]),
+    id: "second-output-surface",
+    name: "Second output",
+  });
+  state.ui.live.surfacePatches = {
+    [mapping.surfaces[0].id]: patched.id,
+  };
+  state.ui.live.selectedComponentId = liveScene.id;
+
+  const assignments = liveSignificantParameterAssignments(state);
+  assert.deepEqual(new Set(assignments.map((assignment) => assignment.componentId)), new Set([
+    patched.id,
+    child.id,
+  ]));
+  const controls = liveProgramSignificantControlsTemplate(state);
+  assert.match(controls, /Patched output · Content scale/);
+  assert.match(controls, new RegExp(`${child.name} · Render quality`));
+});
+
 test("Live separates a Component's public controls from its element inspector", () => {
   const { state, mapping } = stateWithScene();
   const component = state.components[0];
@@ -403,7 +492,7 @@ test("Live separates a Component's public controls from its element inspector", 
 
   const controls = liveInspectorTemplate(state);
   assert.match(controls, /data-live-component-view="controls"/);
-  assert.match(controls, />[^<]*Controls \(2\)<\/button>/);
+  assert.match(controls, />[^<]*Controls<\/button>/);
   assert.match(controls, /data-live-component-view="elements"/);
   assert.match(controls, /data-live-update="opacity"/);
   assert.match(controls, /data-live-update="speed"/);
@@ -412,14 +501,12 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.match(controls, /data-live-update="transform\.y"/);
   assert.match(controls, /data-live-update="transform\.scale"/);
   assert.doesNotMatch(controls, /data-live-update="transform\.rotation"/);
-  assert.match(controls, /data-live-update="chain\.0\.source\.params\.renderQuality"/);
-  assert.match(controls, /data-live-update="chain\.0\.transform\.scale"/);
-  assert.match(controls, new RegExp(`data-live-item-id="${component.chain[0].id}"`));
-  assert.ok(
-    controls.indexOf("Published controls") < controls.indexOf("Component placement"),
-    "published controls stay visible above generic Component controls"
-  );
+  assert.doesNotMatch(controls, /Published controls/);
   assert.doesNotMatch(controls, /class="live-chain-outline"/);
+  const significant = liveProgramSignificantControlsTemplate(state);
+  assert.match(significant, /data-live-update="chain\.0\.source\.params\.renderQuality"/);
+  assert.match(significant, /data-live-update="chain\.0\.transform\.scale"/);
+  assert.match(significant, new RegExp(`data-live-item-id="${component.chain[0].id}"`));
 
   state.ui.live.componentView = "elements";
   const elements = liveInspectorTemplate(state);
@@ -499,7 +586,7 @@ test("source parameters marked at their persisted path are published in Live", (
   component.significantParams = ["chain.0.source.params.renderQuality"];
   state.ui.live.selectedComponentId = component.id;
 
-  const live = liveInspectorTemplate(state);
+  const live = liveProgramSignificantControlsTemplate(state);
   assert.match(live, /data-live-update="chain\.0\.source\.params\.renderQuality"/);
 
   const sceneControls = sceneSignificantComponentTemplate(component, state);
@@ -535,8 +622,7 @@ test("image source schema automatically exposes cut and feather in Live and publ
   assert.match(elements, /<span>Feather<\/span>/);
 
   component.significantParams = ["chain.0.source.params.alphaFeather"];
-  state.ui.live.componentView = "controls";
-  assert.match(liveInspectorTemplate(state), /data-live-update="chain\.0\.source\.params\.alphaFeather"/);
+  assert.match(liveProgramSignificantControlsTemplate(state), /data-live-update="chain\.0\.source\.params\.alphaFeather"/);
 });
 
 test("Live publishes significant source parameters nested inside Groups", () => {
@@ -562,8 +648,7 @@ test("Live publishes significant source parameters nested inside Groups", () => 
   state.ui.live.selectedComponentId = component.id;
   state.ui.live.componentView = "controls";
 
-  const live = liveInspectorTemplate(state);
-  assert.match(live, /Controls \(2\)/);
+  const live = liveProgramSignificantControlsTemplate(state);
   assert.match(live, /data-live-update="chain\.0\.chain\.0\.source\.params\.renderQuality"/);
   assert.match(live, /data-live-update="chain\.0\.chain\.0\.transform\.scale"/);
   assert.match(live, new RegExp(`data-live-item-id="${source.id}"`));

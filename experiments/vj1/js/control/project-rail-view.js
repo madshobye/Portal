@@ -1,6 +1,6 @@
 import { catalogMarkerButtonTemplate, componentCatalogSearchText, componentCatalogToolsTemplate, componentFilterTemplate } from "./catalog-view.js";
 import { getLiveSourceTarget, sceneComponents, ordinaryComponents } from "./control-selectors.js";
-import { liveComponentPillTemplate, liveProgramNavigableComponents, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate } from "./mapping-live-view.js";
+import { liveComponentPillTemplate, liveProgramNavigableComponents, liveProgramSignificantControlsTemplate, liveScenePillTemplate, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate } from "./mapping-live-view.js";
 import { componentCardBarTemplate, railListSectionTemplate, textListItemTemplate } from "./view-primitives.js";
 import { esc, icon, thumbnailTemplate } from "./template-utils.js";
 import { liveSurfaceVisible } from "../domain/live-ui-state.js";
@@ -49,6 +49,7 @@ export function liveProjectionRailTemplate(state) {
   );
   const overallHasSource = state.ui?.live?.overallSourceCleared !== true && Boolean(overallTarget);
   const components = liveProgramNavigableComponents(state);
+  const significantControls = liveProgramSignificantControlsTemplate(state);
   const item = ({ id, iconName, label, leadingHtml = "", removeAction = "", removeTitle = "Remove", selectable = true }) => textListItemTemplate({
     rowClass: `live-projection-row compact-list-row${selectable ? "" : " is-disabled"}`,
     selected: selectedId === id,
@@ -89,6 +90,14 @@ export function liveProjectionRailTemplate(state) {
     className: "live-projection-section",
     listClassName: "live-projection-list",
     scrollKey: "live-projection-targets",
+  })}${railListSectionTemplate({
+    iconName: "tune",
+    title: "Significant",
+    content: significantControls,
+    emptyText: "No significant parameters in the active outputs",
+    className: "live-significant-rail-section",
+    listClassName: "live-significant-control-list",
+    scrollKey: "live-significant-controls",
   })}${railListSectionTemplate({
     iconName: UI_ICONS.component,
     title: "Components",

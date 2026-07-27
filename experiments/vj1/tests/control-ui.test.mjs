@@ -1945,6 +1945,7 @@ test("opening an output never changes the Live Scene", () => {
   assert.ok(!appSource.includes('bridge.command("sync-mapping"'));
   assert.ok(appSource.includes("bridge.sendState();"));
   assert.ok(appSource.includes("outputRenderPatchesForChange(state, change)"));
+  assert.ok(appSource.includes('if (change.outputState === "unchanged") return;'));
   assert.match(
     appSource,
     /if \(renderPatches\.length\) \{[\s\S]*?bridge\.sendRenderPatches\(renderPatches,[\s\S]*?return;[\s\S]*?bridge\.sendState\(\);/,

@@ -1,4 +1,3 @@
-const MIDI_RETRY_MS = 3000;
 const AUDIO_RETRY_MS = 3000;
 const OSC_RETRY_MS = 3000;
 const OSC_MAX_PACKET_BYTES = 1024 * 1024;
@@ -10,7 +9,6 @@ const OSC_MAX_MESSAGES = 4096;
 // browser resources, and wakeups remain host responsibilities.
 export class ControlSignalRuntime {
   constructor({
-    requestMidiAccess = defaultMidiAccessRequest,
     requestAudioStream = defaultAudioStreamRequest,
     createAudioContext = defaultAudioContextFactory,
     audioMediaDevices = defaultAudioMediaDevices(),
@@ -23,10 +21,9 @@ export class ControlSignalRuntime {
     this.adapters = new Map();
     this.onInvalidate = onInvalidate;
     this.revision = 0;
-    this.register("midi", new MidiControlAdapter({
-      requestAccess: requestMidiAccess,
-      clock,
-    }), { invalidate: false });
+    // Web MIDI belongs to the Control window's general Input service.
+    // Renderers only retain values published by that authority.
+    this.register("midi", new ApplicationControlAdapter({ clock }), { invalidate: false });
     this.register("audio", new AudioControlAdapter({
       requestStream: requestAudioStream,
       createContext: createAudioContext,
@@ -246,178 +243,6 @@ export class ApplicationControlAdapter {
   dispose() {
     this.signals.clear();
     this.lifecycleRevision++;
-  }
-}
-
-export class MidiControlAdapter {
-  constructor({
-    requestAccess = defaultMidiAccessRequest,
-    onInvalidate = null,
-    clock = runtimeMillis,
-    retryMs = MIDI_RETRY_MS,
-  } = {}) {
-    this.requestAccess = requestAccess;
-    this.onInvalidate = onInvalidate;
-    this.clock = clock;
-    this.retryMs = Math.max(0, Number(retryMs) || 0);
-    this.access = null;
-    this.accessPromise = null;
-    this.retryAt = 0;
-    this.error = "";
-    this.signals = new Map();
-    this.sequence = 0;
-    this.lifecycleRevision = 0;
-    this.boundInputs = new Set();
-    this.disposed = false;
-    this.reportedError = "";
-  }
-
-  setInvalidationHandler(onInvalidate = null) {
-    this.onInvalidate = onInvalidate;
-  }
-
-  resolve(address) {
-    this.ensureAccess();
-    return this.signals.get(String(address || ""));
-  }
-
-  status(address = "") {
-    return {
-      state: this.access
-        ? "ready"
-        : this.accessPromise
-          ? "requesting"
-          : this.error
-            ? "error"
-            : "idle",
-      error: this.error,
-      inputCount: this.boundInputs.size,
-      signalAvailable: address ? this.signals.has(String(address)) : undefined,
-    };
-  }
-
-  whenReady() {
-    this.ensureAccess();
-    return this.accessPromise || Promise.resolve(this.access);
-  }
-
-  revisionFor(address) {
-    const signal = this.signals.get(String(address || ""));
-    return `${this.lifecycleRevision || 0}.${signal?.sequence || 0}`;
-  }
-
-  ensureAccess() {
-    if (this.disposed || this.access || this.accessPromise || this.clock() < this.retryAt) return;
-    let requested;
-    try {
-      requested = this.requestAccess();
-    } catch (error) {
-      this.fail(error);
-      return;
-    }
-    this.accessPromise = Promise.resolve(requested)
-      .then((access) => {
-        if (this.disposed) {
-          closeMidiAccess(access);
-          return null;
-        }
-        if (!access?.inputs) throw new Error("MIDI access has no input registry");
-        this.access = access;
-        this.error = "";
-        this.reportedError = "";
-        this.lifecycleRevision++;
-        access.onstatechange = () => this.reconcileInputs();
-        this.reconcileInputs();
-        this.onInvalidate?.("midi-ready");
-        return access;
-      })
-      .catch((error) => {
-        this.fail(error);
-        return null;
-      })
-      .finally(() => {
-        this.accessPromise = null;
-      });
-  }
-
-  reconcileInputs() {
-    if (!this.access) return;
-    const current = new Set();
-    for (const input of this.access.inputs.values()) {
-      if (!input || input.state === "disconnected") continue;
-      current.add(input);
-      if (this.boundInputs.has(input)) continue;
-      input.onmidimessage = (event) => this.receive(input, event);
-      input.open?.().catch?.((error) => this.report("VJ1_MIDI_INPUT_OPEN_FAILED", error));
-      this.boundInputs.add(input);
-    }
-    for (const input of this.boundInputs) {
-      if (current.has(input)) continue;
-      input.onmidimessage = null;
-      input.close?.().catch?.(() => {});
-      this.boundInputs.delete(input);
-    }
-    this.lifecycleRevision++;
-    this.onInvalidate?.("midi-inputs");
-  }
-
-  receive(input, event) {
-    const decoded = decodeMidiMessage(event?.data);
-    if (!decoded) return;
-    const sequence = ++this.sequence;
-    const timestamp = Number(event?.receivedTime) || this.clock();
-    this.publish(decoded.address, decoded.value, sequence, timestamp);
-    const inputId = String(input?.id || "");
-    if (inputId) {
-      this.publish(`${inputId}/${decoded.address}`, decoded.value, sequence, timestamp);
-    }
-    this.onInvalidate?.("midi-signal");
-  }
-
-  publish(address, value, sequence, timestamp) {
-    let signal = this.signals.get(address);
-    if (!signal) {
-      signal = { value: 0, sequence: 0, timestamp: 0 };
-      this.signals.set(address, signal);
-    }
-    signal.value = value;
-    signal.sequence = sequence;
-    signal.timestamp = timestamp;
-  }
-
-  fail(error) {
-    this.access = null;
-    this.retryAt = this.clock() + this.retryMs;
-    this.error = error?.message || String(error || "MIDI access failed");
-    this.lifecycleRevision++;
-    this.report("VJ1_MIDI_ACCESS_FAILED", error);
-    this.onInvalidate?.("midi-error");
-  }
-
-  report(code, error) {
-    const message = error?.message || String(error || this.error || "MIDI error");
-    const signature = `${code}:${message}`;
-    if (signature === this.reportedError) return;
-    this.reportedError = signature;
-    console.error(`[${code}]`, {
-      message,
-      retryMs: this.retryMs,
-    });
-  }
-
-  dispose() {
-    this.disposed = true;
-    for (const input of this.boundInputs) {
-      input.onmidimessage = null;
-      input.close?.().catch?.(() => {});
-    }
-    this.boundInputs.clear();
-    if (this.access) {
-      this.access.onstatechange = null;
-      closeMidiAccess(this.access);
-    }
-    this.access = null;
-    this.signals.clear();
   }
 }
 
@@ -1398,13 +1223,6 @@ function normalizeOscEndpoint(endpoint, { allowEmpty = false } = {}) {
   return url.href;
 }
 
-function defaultMidiAccessRequest() {
-  if (typeof navigator === "undefined" || typeof navigator.requestMIDIAccess !== "function") {
-    throw new Error("Web MIDI is unavailable in this browser context");
-  }
-  return navigator.requestMIDIAccess({ sysex: false, software: true });
-}
-
 function defaultAudioStreamRequest() {
   const devices = defaultAudioMediaDevices();
   if (!devices?.getUserMedia) {
@@ -1446,13 +1264,6 @@ function defaultSchedule(callback, delay) {
 
 function defaultCancelSchedule(timer) {
   clearTimeout(timer);
-}
-
-function closeMidiAccess(access) {
-  for (const input of access?.inputs?.values?.() || []) {
-    input.onmidimessage = null;
-    input.close?.().catch?.(() => {});
-  }
 }
 
 function stopAudioStream(stream) {

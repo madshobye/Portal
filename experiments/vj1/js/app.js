@@ -176,6 +176,7 @@ async function installControlApp() {
       });
       return;
     }
+    if (change.outputState === "unchanged") return;
     const renderPatches = outputRenderPatchesForChange(state, change);
     if (renderPatches.length) {
       bridge.sendRenderPatches(renderPatches, { coalesce: change.phase === "scrub" });

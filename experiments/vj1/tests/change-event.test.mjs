@@ -51,6 +51,23 @@ test("structured change metadata extends the compatibility reason", () => {
   assert.equal(Object.isFrozen(event), true);
 });
 
+test("change events retain explicit Output transport ownership", () => {
+  const event = createChangeEvent({
+    reason: "update:significant-param",
+    outputState: "unchanged",
+    controlInvalidation: {
+      regions: ["live-projection-rail", "inspector"],
+    },
+  });
+
+  assert.equal(event.scope, "project");
+  assert.equal(event.history, "record");
+  assert.equal(event.outputState, "unchanged");
+  assert.deepEqual(event.controlInvalidation, {
+    regions: ["live-projection-rail", "inspector"],
+  });
+});
+
 test("project restore classification is shared by state consumers", () => {
   assert.equal(createChangeEvent("project-open-media").projectRestore, true);
   assert.equal(createChangeEvent("project-undo").projectRestore, true);

@@ -50,6 +50,15 @@ test("reusable modulation nodes provide time, waveforms, mapping, and scalar com
     numericCombineControlProcess({ base: 0.4, modulation: 1.5, mode: "multiply" }),
     { value: 0.6000000000000001 },
   );
+  assert.deepEqual(
+    numericCombineControlProcess({
+      base: 0.4,
+      modulation: 0,
+      available: false,
+      mode: "replace",
+    }),
+    { value: 0.4 },
+  );
 });
 
 test("vector selection and stateful signal operators retain their frame-loop storage", () => {

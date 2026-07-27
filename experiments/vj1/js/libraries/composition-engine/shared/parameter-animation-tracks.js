@@ -9,6 +9,7 @@ import {
   PROBE_VISUAL_NODE_ID,
   probeSignalAddress,
 } from "../../control-engine/live-signal-addresses.js";
+import { midiAnimationSources } from "../../control-engine/midi-input-profile/index.js";
 
 export const PARAMETER_ANIMATION_AUTHOR = "vj1-animation-editor";
 export const PARAMETER_ANIMATION_FEATURE = "parameter-animation-track";
@@ -53,7 +54,7 @@ const LIVE_SIGNAL_NODE_IDS = new Set([
 const DEFAULT_ANIMATION_MARKER_VERSION = 1;
 const LIVE_SIGNAL_KINDS = new Set(["pointer", "audio", "probe", "midi", "osc", "control"]);
 const ANIMATION_TRANSPORT_KINDS = new Set(["sequence", "envelope", "noise"]);
-const ANIMATION_TRIGGER_KINDS = new Set(["manual", "periodic", "random", "pointer", "audio", "probe"]);
+const ANIMATION_TRIGGER_KINDS = new Set(["manual", "periodic", "random", "pointer", "audio", "probe", "midi"]);
 const DEFAULT_ENVELOPE_SEGMENTS = Object.freeze([
   Object.freeze({ duration: 0.1, value: 1, curve: "quad-out" }),
   Object.freeze({ duration: 0.3, value: 0, curve: "quad-in" }),
@@ -77,6 +78,7 @@ export function parameterAnimationSignalSources(
   nodes = {},
   componentId = "",
   targetNodeId = "",
+  inputs = {},
 ) {
   const fixed = [
     { kind: "timeline", address: "", transportKind: "sequence", label: "Timeline" },
@@ -97,7 +99,8 @@ export function parameterAnimationSignalSources(
     { kind: "audio", address: "beat:high", label: "Sound · High beat" },
   ];
   const scope = componentAnimationScope(nodes, componentId, targetNodeId);
-  if (!scope) return fixed;
+  const midi = midiAnimationSources(inputs);
+  if (!scope) return [...fixed, ...midi];
   const features = [
     ["brightness", "Brightness"],
     ["r", "Red"],
@@ -115,13 +118,14 @@ export function parameterAnimationSignalSources(
       address: probeSignalAddress(componentId, node.id, feature),
       label: `${node.configuration?.name || "Probe"} · ${label}`,
     })));
-  return [...fixed, ...probes];
+  return [...fixed, ...midi, ...probes];
 }
 
 export function parameterAnimationTriggerSources(
   nodes = {},
   componentId = "",
   targetNodeId = "",
+  inputs = {},
 ) {
   const fixed = [
     { kind: "manual", address: "", label: "Manual button" },
@@ -135,9 +139,12 @@ export function parameterAnimationTriggerSources(
   ];
   return [
     ...fixed,
-    ...parameterAnimationSignalSources(nodes, componentId, targetNodeId)
-      .filter((source) => source.kind === "probe")
-      .map((source) => ({ ...source, label: `${source.label} crosses threshold` })),
+    ...parameterAnimationSignalSources(nodes, componentId, targetNodeId, inputs)
+      .filter((source) => source.kind === "probe" || source.kind === "midi")
+      .map((source) => ({
+        ...source,
+        label: source.kind === "probe" ? `${source.label} crosses threshold` : source.label,
+      })),
   ];
 }
 
@@ -1009,7 +1016,7 @@ function createAnimationTrackFragment({
   const timeline = configuration.sourceKind === "timeline";
   const trackMetadata = {
       feature: PARAMETER_ANIMATION_FEATURE,
-      version: 5,
+      version: 6,
       id,
       targetNodeId: String(targetNodeId || ""),
       parameterId: String(parameterId || ""),
@@ -1194,6 +1201,11 @@ function createAnimationTrackFragment({
       animationStage: "combination",
     },
   );
+  if (!timeline) {
+    connections.push(
+      animationConnection(`${owner}.available`, `${combinationId}.available`, "boolean"),
+    );
+  }
   if (timeline && (envelope || burstEnvelopeId || configuration.runMode === "triggered")) {
     appendAnimationTriggerFragment({
       nodes,

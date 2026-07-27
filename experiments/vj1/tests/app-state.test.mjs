@@ -1316,7 +1316,7 @@ test("immutable render patches path-copy only affected retained preview state", 
   );
 });
 
-test("persistent scrubs retain one baseline and reconcile Live truth on commit", () => {
+test("persistent scrubs retain one baseline without disarming Live truth on commit", () => {
   const state = createInitialState();
   const component = state.components[0];
   component.opacity = 1;
@@ -1331,7 +1331,7 @@ test("persistent scrubs retain one baseline and reconcile Live truth on commit",
 
   store.update((draft) => { draft.components[0].opacity = 0.6; }, "update:components.0.opacity");
   assert.equal(store.getState().components[0].opacity, 0.6);
-  assert.equal(store.getState().ui.live.componentOverrides[component.id]?.opacity, undefined);
+  assert.equal(store.getState().ui.live.componentOverrides[component.id]?.opacity, 0.25);
 });
 
 test("render state uses the selected Mapping in Mapping workspace and selected Scene in Live", () => {
@@ -1457,7 +1457,7 @@ test("Live Part temporary overrides reset through the shared target contract", (
   assert.equal(store.getState().ui.live.sceneOverrides[part.id], undefined);
 });
 
-test("persistent component edits overwrite conflicting Live params but retain unrelated temporary params", () => {
+test("persistent component edits retain active Live params until explicit reset", () => {
   const state = createInitialState();
   const scene = createMappingFromState(state, "Live scene");
   state.mappings = [scene];
@@ -1480,10 +1480,49 @@ test("persistent component edits overwrite conflicting Live params but retain un
   }, "update:components.0.chain.0.source.params.modelScale");
 
   const overrides = store.getState().ui.live.componentOverrides[componentId];
-  assert.equal(overrides.chain[0].source.params.modelScale, undefined);
+  assert.equal(overrides.chain[0].source.params.modelScale, 2);
   assert.equal(overrides.chain[0].source.params.depth, 3);
-  assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.modelScale, 1.5);
+  assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.modelScale, 2);
   assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.depth, 3);
+});
+
+test("chain reordering rebases retained Live params by stable element identity", () => {
+  const state = createInitialState();
+  const component = state.components[0];
+  const first = component.chain[0];
+  const second = {
+    ...structuredClone(first),
+    id: "second-live-override-item",
+    name: "Second item",
+  };
+  component.chain.push(second);
+  state.ui.live.componentOverrides[component.id] = {
+    chain: [{ opacity: 0.35 }],
+  };
+  state.ui.live.sceneOverrides[state.ui.live.selectedSceneId] =
+    state.ui.live.componentOverrides;
+  const store = createAppState(state);
+
+  store.update((draft) => {
+    draft.components[0].chain.reverse();
+  }, {
+    reason: "update:chain-reorder",
+    structural: true,
+  });
+
+  const reordered = store.getState();
+  const firstIndex = reordered.components[0].chain.findIndex(
+    (item) => item.id === first.id,
+  );
+  assert.equal(firstIndex, 1);
+  assert.equal(
+    reordered.ui.live.componentOverrides[component.id].chain[firstIndex].opacity,
+    0.35,
+  );
+  assert.equal(
+    store.getLiveRenderState().components[0].chain[firstIndex].opacity,
+    0.35,
+  );
 });
 
 test("ordinary components reject nested component sources while Canvas accepts them", () => {

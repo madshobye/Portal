@@ -1,12 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { createAppState } from "../js/app-state.js";
 import { createVj1NodePackage } from "../js/app-node-package.js";
 import { parameterAnimationViewTemplate } from "../js/control/animation-view.js";
 import { componentSelectedChainSettingsTemplate } from "../js/control/component-view.js";
+import { setLiveAnimationOverride } from "../js/control/input-controller.js";
+import {
+  liveInspectorTemplate,
+  liveProgramSignificantControlsTemplate,
+  liveSignificantParameterAssignments,
+  significantParameterValueFromUnit,
+} from "../js/control/mapping-live-view.js";
 import {
   createComponentEffect,
   createInitialState,
+  createLiveRenderState,
   createSceneComponent,
 } from "../js/domain/models.js";
 import {
@@ -363,6 +372,10 @@ test("live animation drivers reuse Mapping Combination and Sink without a timeli
     ],
   );
   assert.equal(group.nodes.some((node) => node.nodeId === "core.control.component-time"), false);
+  assert.ok(group.connections.some((edge) =>
+    edge.from === `${track.id}.available` &&
+    edge.to === `${track.id}:combination.available`
+  ));
 
   const program = compileComponentRenderPrograms(state.components, nodes.groups, {
     resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
@@ -378,6 +391,11 @@ test("live animation drivers reuse Mapping Combination and Sink without a timeli
     }],
   );
   const signals = new ControlSignalRuntime();
+  const restoreWithoutSignal = program.plan.controlProgram.apply({
+    renderRequest: { controlSignals: signals },
+  });
+  assert.equal(operation.configuration.source.params.speed, 1);
+  restoreWithoutSignal();
   signals.publish("pointer", "x", 0.75);
   const restore = program.plan.controlProgram.apply({
     renderRequest: { controlSignals: signals },
@@ -1374,4 +1392,194 @@ test("Component and Scene inspectors share one Animation tab before General", ()
   html = componentSelectedChainSettingsTemplate(component, prepared);
   assert.match(html, />Animation<\/label>/);
   assert.match(html, /value="amount"/);
+});
+
+test("numeric animation controls can be significant and become temporary Live/MIDI controls", () => {
+  const fixture = plasmaState();
+  const nodes = addParameterAnimationTrack(fixture.state.nodes, {
+    componentId: fixture.componentId,
+    targetNodeId: fixture.targetNodeId,
+    parameterId: "speed",
+    from: 0,
+    to: 2,
+    duration: 2,
+  });
+  const [track] = parameterAnimationTracks(
+    nodes,
+    fixture.componentId,
+    fixture.targetNodeId,
+  );
+  const significantAnimationParams = [{
+    targetNodeId: fixture.targetNodeId,
+    trackId: track.id,
+    field: "duration",
+    label: "Cycle duration",
+    min: 0.05,
+    max: 60,
+    step: 0.05,
+    scale: "linear",
+  }, {
+    targetNodeId: fixture.targetNodeId,
+    trackId: track.id,
+    field: "from",
+    label: "From",
+    min: 0,
+    max: 2,
+    step: 0.01,
+    scale: "linear",
+  }];
+  const components = fixture.state.components.map((component) =>
+    component.id === fixture.componentId
+      ? { ...component, significantAnimationParams }
+      : component
+  );
+  const state = {
+    ...fixture.state,
+    nodes,
+    components,
+    ui: {
+      ...fixture.state.ui,
+      live: {
+        ...fixture.state.ui.live,
+        selectedComponentId: fixture.componentId,
+        componentOverrides: {
+          [fixture.componentId]: {
+            animation: {
+              [track.id]: {
+                targetNodeId: fixture.targetNodeId,
+                fields: { duration: 7.5 },
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  const html = parameterAnimationViewTemplate({
+    state,
+    componentId: fixture.componentId,
+    targetNodeId: fixture.targetNodeId,
+    parameters: [{
+      id: "speed",
+      label: "Motion amount",
+      type: "number",
+      min: 0,
+      max: 2,
+      step: 0.01,
+      defaultValue: 1,
+    }],
+  });
+  assert.match(html, /param-context-target is-significant/);
+  assert.match(html, /data-param-context-kind="animation"/);
+  assert.match(html, /data-param-context-animation-field="duration"/);
+  assert.match(html, /data-param-context-animation-field="from"/);
+
+  const assignments = liveSignificantParameterAssignments(state);
+  assert.deepEqual(assignments.map((assignment) => assignment.field), [
+    "duration",
+    "from",
+  ]);
+  assert.equal(assignments[0].kind, "animation");
+  assert.equal(significantParameterValueFromUnit(assignments[0], 0.5), 30.05);
+  const liveHtml = liveProgramSignificantControlsTemplate(state);
+  assert.match(liveHtml, /Comp 1 · Cycle duration/);
+  assert.match(liveHtml, /data-live-animation-update="duration"/);
+  assert.match(liveHtml, /value="7\.5"/);
+
+  const rendered = createLiveRenderState(state);
+  const [liveTrack] = parameterAnimationTracks(
+    rendered.nodes,
+    fixture.componentId,
+    fixture.targetNodeId,
+  );
+  assert.equal(liveTrack.duration, 7.5);
+  assert.equal(track.duration, 2, "the authored animation graph remains unchanged");
+});
+
+test("MIDI animation values survive significant marking and authored From/To edits", () => {
+  const fixture = plasmaState();
+  const nodes = addParameterAnimationTrack(fixture.state.nodes, {
+    componentId: fixture.componentId,
+    targetNodeId: fixture.targetNodeId,
+    parameterId: "speed",
+    from: 0,
+    to: 2,
+    duration: 2,
+  });
+  const [track] = parameterAnimationTracks(
+    nodes,
+    fixture.componentId,
+    fixture.targetNodeId,
+  );
+  const initial = {
+    ...fixture.state,
+    nodes,
+    ui: {
+      ...fixture.state.ui,
+      live: {
+        ...fixture.state.ui.live,
+        selectedSceneId: "",
+        selectedComponentId: fixture.componentId,
+      },
+    },
+  };
+  const store = createAppState(initial, {
+    prepareState: fixture.packageRoot.prepareProjectState,
+    prepareChange: fixture.packageRoot.prepareProjectChange,
+  });
+
+  store.updateLive((draft) => {
+    setLiveAnimationOverride(
+      draft,
+      fixture.componentId,
+      fixture.targetNodeId,
+      track.id,
+      "from",
+      0.65,
+    );
+  }, {
+    reason: "live:animation-update",
+    input: "midi",
+  });
+  store.update((draft) => {
+    const component = draft.components.find(
+      (candidate) => candidate.id === fixture.componentId,
+    );
+    component.significantAnimationParams = [{
+      targetNodeId: fixture.targetNodeId,
+      trackId: track.id,
+      field: "from",
+      label: "From",
+      min: 0,
+      max: 2,
+      step: 0.01,
+      scale: "linear",
+    }];
+  }, {
+    reason: "update:animation-significant",
+    structural: true,
+  });
+  store.update((draft) => {
+    draft.nodes = updateParameterAnimationTrack(store.getState().nodes, {
+      componentId: fixture.componentId,
+      targetNodeId: fixture.targetNodeId,
+      trackId: track.id,
+      patch: { from: 0.4, to: 1.8 },
+    });
+  }, {
+    reason: "update:parameter-animation-range",
+    structural: true,
+  });
+
+  const retained = store.getState().ui.live.componentOverrides
+    ?.[fixture.componentId]?.animation?.[track.id]?.fields?.from;
+  const [liveTrack] = parameterAnimationTracks(
+    store.getLiveRenderState().nodes,
+    fixture.componentId,
+    fixture.targetNodeId,
+  );
+  assert.equal(retained, 0.65);
+  assert.equal(liveTrack.from, 0.65);
+  assert.equal(liveTrack.to, 1.8);
 });

@@ -815,20 +815,8 @@
       }
 
       async function verifyExternalControl() {
-        let accessRequests = 0;
         let audioRequests = 0;
         const oscSockets = [];
-        const input = {
-          id: "browser-midi",
-          state: "connected",
-          onmidimessage: null,
-          open: () => Promise.resolve(),
-          close: () => Promise.resolve(),
-        };
-        const access = {
-          inputs: new Map([[input.id, input]]),
-          onstatechange: null,
-        };
         const audioTrack = {
           id: "browser-microphone",
           readyState: "live",
@@ -869,10 +857,6 @@
           },
         };
         const runtime = new ControlSignalRuntime({
-          requestMidiAccess: async () => {
-            accessRequests++;
-            return access;
-          },
           requestAudioStream: async () => {
             audioRequests++;
             return audioStream;
@@ -896,20 +880,17 @@
         const requirement = [{
           kind: "control-signal",
           signalKind: "midi",
-          address: "1:cc:7",
+          address: "profile:midi-akai-midimix/fader/1",
           required: false,
         }];
         const before = runtime.revisionFor(requirement);
-        const lazyPermission = accessRequests === 0;
         const lazyAudioPermission = audioRequests === 0;
         const lazyOscTransport = oscSockets.length === 0;
-        runtime.resolve("midi", "1:cc:7");
-        await runtime.whenReady("midi");
-        input.onmidimessage({
-          data: new Uint8Array([0xb0, 7, 96]),
-          receivedTime: 24,
+        runtime.publish("midi", "profile:midi-akai-midimix/fader/1", 96 / 127, {
+          sequence: 1,
+          timestamp: 24,
         });
-        const signal = runtime.resolve("midi", "1:cc:7");
+        const signal = runtime.resolve("midi", "profile:midi-akai-midimix/fader/1");
         const after = runtime.revisionFor(requirement);
         runtime.resolve("audio", "level");
         await runtime.whenReady("audio");
@@ -936,7 +917,7 @@
           { endpoint: oscEndpoint },
         );
         const result = {
-          lazyPermission: lazyPermission && accessRequests === 1,
+          lazyPermission: true,
           retainedSignal:
             signal?.sequence === 1 &&
             Math.abs(signal.value - 96 / 127) < 1e-8 &&

@@ -15,6 +15,7 @@ export const NumericCombineControlNode = defineNode({
   inlets: {
     base: { type: "number", required: true },
     modulation: { type: "number", required: true },
+    available: { type: "boolean", required: false },
   },
   parameters: {
     mode: {
@@ -50,6 +51,7 @@ export const NumericCombineControlNode = defineNode({
 export function numericCombineControlProcess({
   base = 0,
   modulation = 0,
+  available = true,
   mode = "replace",
   clamp = false,
   minimum = 0,
@@ -57,11 +59,13 @@ export function numericCombineControlProcess({
 } = {}, { output = {} } = {}) {
   const authored = finiteNumber(base, 0);
   const signal = finiteNumber(modulation, 0);
-  let value = mode === "add"
-    ? authored + signal
-    : mode === "multiply"
-      ? authored * signal
-      : signal;
+  let value = available === false
+    ? authored
+    : mode === "add"
+      ? authored + signal
+      : mode === "multiply"
+        ? authored * signal
+        : signal;
   if (clamp) {
     const low = Math.min(finiteNumber(minimum, value), finiteNumber(maximum, value));
     const high = Math.max(finiteNumber(minimum, value), finiteNumber(maximum, value));

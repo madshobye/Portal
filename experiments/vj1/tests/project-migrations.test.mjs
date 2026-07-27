@@ -38,11 +38,12 @@ import {
   migrateProjectV34ToV35,
   migrateProjectV35ToV36,
   migrateProjectV36ToV37,
+  migrateProjectV37ToV38,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 37);
+  assert.equal(CURRENT_PROJECT_VERSION, 38);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -1128,6 +1129,51 @@ test("v36 to v37 restores contain for Project Media across chains, graphs, and L
   );
   assert.equal(input.components[0].chain[0].chain[0].source.params.fit, "stretch");
   assert.equal(input.nodes.groups[0].nodes[0].parameters.fit, "stretch");
+});
+
+test("v37 to v38 preserves authored values until retained live animation sources report", () => {
+  const liveSource = {
+    id: "animation:opacity",
+    nodeId: "core.control.midi-input",
+    animationTrack: {
+      id: "animation:opacity",
+      kind: "number",
+      sourceKind: "midi",
+    },
+  };
+  const combination = {
+    id: "animation:opacity:combination",
+    nodeId: "core.control.numeric-combine",
+    animationTrackOwnerId: "animation:opacity",
+    animationTrackRole: "combination",
+  };
+  const timelineSource = {
+    id: "animation:speed",
+    nodeId: "core.control.animation-sequencer",
+    animationTrack: {
+      id: "animation:speed",
+      kind: "number",
+      sourceKind: "timeline",
+    },
+  };
+  const migrated = migrateProjectV37ToV38({
+    version: 37,
+    nodes: {
+      groups: [{
+        id: "component-a",
+        nodes: [liveSource, combination, timelineSource],
+        connections: [],
+      }],
+    },
+  });
+
+  assert.deepEqual(migrated.nodes.groups[0].connections, [{
+    from: "animation:opacity.available",
+    to: "animation:opacity:combination.available",
+    type: "boolean",
+    semantic: "parameter-animation-track",
+    animationStage: "combination",
+  }]);
 });
 
 test("migration runner applies every adjacent step in order", () => {

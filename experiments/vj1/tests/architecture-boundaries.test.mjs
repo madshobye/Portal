@@ -194,10 +194,10 @@ test("output and preview hot paths use node-owned algorithms without node-runtim
   assert.match(mediaRuntime, /^  acquireDrawableResource\(/m);
   assert.match(mediaRuntime, /^  drawableResourceError\(/m);
   assert.match(controlSignalRuntime, /class ControlSignalRuntime/);
-  assert.match(controlSignalRuntime, /class MidiControlAdapter/);
+  assert.match(controlSignalRuntime, /this\.register\("midi", new ApplicationControlAdapter/);
   assert.match(controlSignalRuntime, /class AudioControlAdapter/);
   assert.match(controlSignalRuntime, /class OscControlAdapter/);
-  assert.match(controlSignalRuntime, /navigator\.requestMIDIAccess/);
+  assert.doesNotMatch(controlSignalRuntime, /navigator\.requestMIDIAccess/);
   assert.match(controlSignalRuntime, /getUserMedia/);
   assert.match(controlSignalRuntime, /decodeOscPacketView/);
   assert.match(controlSignalRuntime, /scheduleReconnect/);

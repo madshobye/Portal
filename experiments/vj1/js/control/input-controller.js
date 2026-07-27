@@ -38,6 +38,7 @@ export function createInputController({
     bindPathButtons(scope);
     bindIsfEventButtons(scope);
     bindLiveInputs(scope);
+    bindLiveAnimationInputs(scope);
     bindSelectionAndSourceButtons(scope);
     bindSceneAndRouteButtons(scope);
     bindChainControls(scope);
@@ -207,7 +208,19 @@ export function createInputController({
             componentId,
             targetNodeId,
             trackId,
-          }));
+          }), (draft) => {
+            const component = draft.components?.find((entry) => entry.id === componentId);
+            if (component) {
+              component.significantAnimationParams = (
+                component.significantAnimationParams || []
+              ).filter((entry) => entry.trackId !== trackId);
+            }
+            delete draft.ui?.live?.componentOverrides?.[componentId]
+              ?.animation?.[trackId];
+            for (const overrides of Object.values(draft.ui?.live?.sceneOverrides || {})) {
+              delete overrides?.[componentId]?.animation?.[trackId];
+            }
+          });
         });
         track.querySelector("[data-trigger-parameter-animation]")?.addEventListener("click", () => {
           triggerParameterAnimation({
@@ -299,11 +312,12 @@ export function createInputController({
     });
   }
 
-  function commitAnimationEdit(action, edit) {
+  function commitAnimationEdit(action, edit, updateDraft = null) {
     try {
       const nextNodes = edit();
       store.update((draft) => {
         draft.nodes = nextNodes;
+        updateDraft?.(draft);
       }, {
         reason: `update:parameter-animation-${action}`,
         structural: true,
@@ -424,6 +438,33 @@ export function createInputController({
     });
   }
 
+  function bindLiveAnimationInputs(scope) {
+    scope.querySelectorAll("[data-live-animation-update]").forEach((input) => {
+      const update = () => {
+        if (input.type === "range") syncRangeValue(input);
+        const componentId = input.dataset.liveComponentId || "";
+        const targetNodeId = input.dataset.liveAnimationTargetNodeId || "";
+        const trackId = input.dataset.liveAnimationTrackId || "";
+        const field = input.dataset.liveAnimationUpdate || "";
+        if (!componentId || !targetNodeId || !trackId || !field) return;
+        store.updateLive((draft) => {
+          setLiveAnimationOverride(
+            draft,
+            componentId,
+            targetNodeId,
+            trackId,
+            field,
+            readInputValue(input),
+          );
+        }, {
+          reason: "live:animation-update",
+          input: "ui",
+        });
+      };
+      input.addEventListener(input.type === "range" ? "input" : "change", update);
+    });
+  }
+
   function bindSelectionAndSourceButtons(scope) {
     scope.querySelectorAll("[data-select-surface]").forEach((button) => {
       button.addEventListener("click", () => store.selectSurface(button.dataset.selectSurface));
@@ -535,25 +576,41 @@ export function createInputController({
     const path = control.dataset.paramContextPath;
     if (!path) return;
     const live = control.dataset.paramContextMode === "live";
+    const animation = control.dataset.paramContextKind === "animation";
     const liveComponentId = control.dataset.paramContextComponentId || control.dataset.liveComponentId || "";
     const liveItemId = control.dataset.paramContextItemId || control.dataset.liveItemId || "";
     const componentMatch = /^components\.(\d+)\.(.+)$/.exec(path);
     const state = getState();
-    const componentIndex = live
+    const componentIndex = live || animation
       ? state.components?.findIndex((item) => String(item.id) === String(liveComponentId)) ?? -1
       : componentMatch ? Number(componentMatch[1]) : -1;
     const component = componentIndex >= 0 ? state.components?.[componentIndex] : null;
-    const relativePath = live ? path : componentMatch?.[2] || "";
-    const significant = !!component && (component.significantParams || []).includes(relativePath);
+    const relativePath = live ? path : animation ? "" : componentMatch?.[2] || "";
+    const animationIdentity = animation ? {
+      targetNodeId: control.dataset.paramContextAnimationTargetNodeId || "",
+      trackId: control.dataset.paramContextAnimationTrackId || "",
+      field: control.dataset.paramContextAnimationField || "",
+    } : null;
+    const significant = !!component && (animation
+      ? (component.significantAnimationParams || []).some((entry) =>
+          entry.targetNodeId === animationIdentity.targetNodeId &&
+          entry.trackId === animationIdentity.trackId &&
+          entry.field === animationIdentity.field
+        )
+      : (component.significantParams || []).includes(relativePath));
     const boundaryScaleInput = control.querySelector?.("input[type='range']");
-    const canMarkSignificant = !!component && !!relativePath && !isBoundaryScaleInput(boundaryScaleInput, path);
+    const canMarkSignificant = !!component &&
+      (animation
+        ? !!animationIdentity.targetNodeId && !!animationIdentity.trackId && !!animationIdentity.field
+        : !!relativePath && !isBoundaryScaleInput(boundaryScaleInput, path));
+    const resettable = control.dataset.paramContextResettable !== "false";
     const menu = document.createElement("div");
     menu.className = "param-context-menu";
     menu.dataset.paramContextMenu = "true";
     menu.style.left = `${Math.max(8, x)}px`;
     menu.style.top = `${Math.max(8, y)}px`;
     menu.innerHTML = `
-      <button type="button" data-param-reset>Reset to default</button>
+      ${resettable ? `<button type="button" data-param-reset>Reset to default</button>` : ""}
       ${canMarkSignificant ? `<button type="button" data-param-significant>${significant ? "Remove from significant" : "Make significant"}</button>` : ""}
     `;
     document.body.append(menu);
@@ -601,15 +658,47 @@ export function createInputController({
       menu.remove();
     });
     menu.querySelector("[data-param-significant]")?.addEventListener("click", () => {
-      if (!component || !relativePath) return menu.remove();
+      if (!component || (!relativePath && !animation)) return menu.remove();
       store.update((draft) => {
         const target = draft.components?.[componentIndex];
         if (!target) return;
+        if (animation) {
+          const entries = [...(target.significantAnimationParams || [])];
+          const index = entries.findIndex((entry) =>
+            entry.targetNodeId === animationIdentity.targetNodeId &&
+            entry.trackId === animationIdentity.trackId &&
+            entry.field === animationIdentity.field
+          );
+          if (index >= 0) entries.splice(index, 1);
+          else entries.push({
+            ...animationIdentity,
+            label: control.dataset.paramContextAnimationLabel || animationIdentity.field,
+            min: Number(control.dataset.paramContextAnimationMin),
+            max: Number(control.dataset.paramContextAnimationMax),
+            step: Number(control.dataset.paramContextAnimationStep) || 0,
+            scale: "linear",
+          });
+          target.significantAnimationParams = entries;
+          return;
+        }
         const paths = new Set(target.significantParams || []);
         if (paths.has(relativePath)) paths.delete(relativePath);
         else paths.add(relativePath);
         target.significantParams = [...paths];
-      }, "update:significant-param");
+      }, {
+        reason: "update:significant-param",
+        // Significance is persisted control-surface metadata. It changes the
+        // Live/MIDI assignment list, but not the executable visual program.
+        // Replacing Output state here can interrupt an already-active Live
+        // override even though no render value changed.
+        outputState: "unchanged",
+        // The marker can be authored from Component, Scene, or Live. Refresh
+        // both its local highlight and the consolidated active-output list
+        // immediately; waiting for a later MIDI value leaves that list stale.
+        controlInvalidation: {
+          regions: ["live-projection-rail", "inspector"],
+        },
+      });
       menu.remove();
     });
     const close = (event) => {
@@ -941,11 +1030,32 @@ export function applyOptimisticToggleIntent(button) {
   return nextValue;
 }
 
-function setLiveOverride(state, componentId, path, value) {
+export function setLiveOverride(state, componentId, path, value) {
   if (!componentId || !path) return;
   const overrides = activeLiveOverrideBank(state);
   const override = overrides[componentId] ||= {};
   setByPathCreate(override, path, value);
+}
+
+export function setLiveAnimationOverride(
+  state,
+  componentId,
+  targetNodeId,
+  trackId,
+  field,
+  value,
+) {
+  if (!componentId || !targetNodeId || !trackId || !field || !Number.isFinite(Number(value))) return;
+  const overrides = activeLiveOverrideBank(state);
+  const override = overrides[componentId] ||= {};
+  override.animation ||= {};
+  const track = override.animation[trackId] ||= {
+    targetNodeId: String(targetNodeId),
+    fields: {},
+  };
+  track.targetNodeId = String(targetNodeId);
+  track.fields ||= {};
+  track.fields[field] = Number(value);
 }
 
 function activeLiveOverrideBank(state) {

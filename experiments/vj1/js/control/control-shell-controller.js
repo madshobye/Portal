@@ -2,6 +2,7 @@ import { VJ1, WORKSPACES } from "../constants.js";
 import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js";
 import { activeLiveTransitions } from "../domain/live-transition-coordinator.js";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js";
+import { createLiveRenderPatch } from "../domain/live-render-patch.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js";
 import { CONTROL_SIGNAL_COMMAND } from "../output/control-signal-command.js";
@@ -14,12 +15,16 @@ import { collectRefs, shellTemplate } from "./shell-view.js";
 import { sortComponentCatalog } from "./catalog-view.js";
 import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js";
 import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js";
-import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js";
+import { liveInspectorTemplate, liveSignificantParameterAssignments, mappingSurfaceTemplate, significantParameterValueFromUnit } from "./mapping-live-view.js";
 import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js";
 import { createClipboardController } from "./clipboard-controller.js";
 import { createModalController } from "./modal-controller.js";
-import { createInputController } from "./input-controller.js";
+import {
+  createInputController,
+  setLiveAnimationOverride,
+  setLiveOverride,
+} from "./input-controller.js";
 import { createControlPerformanceSession } from "./control-performance-session.js";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js";
 import { createControlRenderDiagnostics } from "./control-render-diagnostics.js";
@@ -36,6 +41,7 @@ import {
   mergeSignalLoadSnapshots,
   signalLoadMeter,
 } from "../metrics/signal-load-meter.js";
+import { createMidiInputService } from "../services/midi-input-service.js";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -242,7 +248,50 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     importFiles,
     setStatus,
   });
-  const modals = createModalController({
+  let embeddedPreview = null;
+  let modals = null;
+  const midiInput = createMidiInputService({
+    onSignal(payload) {
+      embeddedPreview?.command(CONTROL_SIGNAL_COMMAND, payload);
+      bridge.command(CONTROL_SIGNAL_COMMAND, payload);
+    },
+    onSelectScene: (id) => store.selectLiveScene(id),
+    onSelectComponent: (id) => store.selectLiveComponent(id),
+    resolveSignificantParameters: (state) => liveSignificantParameterAssignments(state),
+    onAdjustSignificantParameter({ assignment, unitValue }) {
+      const value = significantParameterValueFromUnit(assignment, unitValue);
+      if (assignment.kind === "animation") {
+        store.updateLive((draft) => {
+          setLiveAnimationOverride(
+            draft,
+            assignment.componentId,
+            assignment.targetNodeId,
+            assignment.trackId,
+            assignment.field,
+            value,
+          );
+        }, {
+          reason: "live:animation-update",
+          input: "midi",
+        });
+        return;
+      }
+      store.updateLive((draft) => {
+        setLiveOverride(draft, assignment.componentId, assignment.path, value);
+      }, {
+        reason: "live:update",
+        input: "midi",
+        livePatches: [createLiveRenderPatch(
+          assignment.componentId,
+          assignment.path,
+          value,
+          assignment.itemId,
+        )],
+      });
+    },
+    onStatus: () => modals?.render(latestState),
+  });
+  modals = createModalController({
     store,
     getState: () => latestState,
     getHost: () => refs.modalHost,
@@ -251,8 +300,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     replaceHtmlIfChanged,
     getCatalogSortMode: (state, scope = "component") => catalogSortMode(state, scope),
     bindCatalogSortControls,
+    midiInput,
   });
-  let embeddedPreview = null;
   let animationTriggerSequence = 0;
   const inputs = createInputController({
     store,
@@ -348,12 +397,14 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     diagnosticsController.mount();
     previewLayoutQuery?.addEventListener?.("change", () => scheduleRenderNow(latestState, { reason: "preview-layout" }));
     restorePreviewPreference();
+    midiInput.syncState(latestState);
     scheduleLiveTransitionRefresh(latestState);
     if (!signalRefreshTimer) {
       signalRefreshTimer = globalThis.setInterval(() => renderTopbar(latestState), 1000);
     }
     store.subscribe((state, reason, change) => {
       latestState = state;
+      midiInput.syncState(state);
       if (state.nodes?.definitions !== editorProjectDefinitions) {
         editorProjectDefinitions = state.nodes?.definitions || [];
         editorNodePackage = nodePackage?.editorContext?.(
@@ -407,10 +458,19 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         renderPatches.length > 0 &&
         embeddedPreview.applyRenderPatches(renderPatches)?.applied;
       if (reason === "live:update") {
-        // Native controls already display the commanded value. Rebuilding the
-        // complete Live inspector here destroys its scroll/tab/element DOM
-        // identity even though no structure changed.
+        // Native controls already display their commanded value. Hardware
+        // MIDI has no matching DOM event, so reconcile only the inspector on
+        // the next frame while retaining the active render program.
         if (!patchedLivePreview) updatePreviewState(state);
+        if (change.input === "midi" && currentWorkspace(state) === "live") {
+          scheduleRenderNow(state, {
+            reason,
+            change,
+            projection: "control-invalidation",
+            invalidation: { regions: ["live-projection-rail", "inspector"] },
+            previewPatched: patchedLivePreview,
+          });
+        }
         return;
       }
       if (change.phase === "edit") {
@@ -1238,7 +1298,9 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         }, `catalog-sort:${catalog}`);
         if (catalog !== "media") captureCatalogOrder(catalog, latestState);
         if (catalog === "source") renderInspector(latestState);
-        else if (catalog === "component" || catalog === "scene" || catalog === "mapping") renderProjectRail(latestState);
+        else if (["component", "scene", "mapping", "live"].includes(catalog)) {
+          renderProjectRail(latestState);
+        }
       });
     });
   }
@@ -1305,6 +1367,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       ? liveProjectionRailTemplate(state)
       : "";
     if (replaceHtmlIfChanged(refs.liveProjectionRail, html, { scrollKey: "live-projection-rail" })) {
+      inputs.bind(refs.liveProjectionRail);
       refs.liveProjectionRail.querySelectorAll("[data-live-preview-surface]").forEach((button) => {
         button.addEventListener("click", () => store.selectLivePreviewSurface?.(button.dataset.livePreviewSurface));
       });
@@ -1759,6 +1822,12 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
           const catalog = kind === "mapping" ? "mapping" : latestState.components.find((item) => item.id === id)?.type === "scene" ? "scene" : "component";
           captureCatalogOrder(catalog, latestState);
           if (kind === "component") captureCatalogOrder("source", latestState);
+          if (
+            currentWorkspace(latestState) === "live" &&
+            (kind === "scene" || kind === "component")
+          ) {
+            captureCatalogOrder("live", latestState);
+          }
         }
         renderProjectRail(latestState);
         if (scope === refs.inspector) renderInspector(latestState);

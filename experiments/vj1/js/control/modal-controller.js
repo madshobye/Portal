@@ -3,7 +3,8 @@ import { sortComponentCatalog } from "./catalog-view.js";
 import { setClass, setText } from "./dom-utils.js";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js";
 import { elementMediaCategory, elementPickerTemplate, sourceChoicePickerTemplate } from "./picker-view.js";
-import { configuredOutputsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js";
+import { configuredOutputsTemplate, midiSettingsSignature, midiSettingsTemplate, normalizeSettingsTab, screenCaptureInputsTemplate, screenCaptureSignature, settingsModalTemplate } from "./settings-view.js";
+import { createAkaiMidiMixProfile, normalizeMidiInputSettings } from "../libraries/control-engine/midi-input-profile/index.js";
 import { mergeSourceChoice } from "../domain/source-choice.js";
 import {
   createAuthoredMediaSource,
@@ -30,6 +31,7 @@ export function createModalController({
   replaceHtmlIfChanged,
   getCatalogSortMode,
   bindCatalogSortControls,
+  midiInput = null,
 }) {
   let elementPicker = null;
   let sourceChoicePicker = null;
@@ -78,7 +80,7 @@ export function createModalController({
     resetDemandMediaPreviews();
     settingsTab = normalizeSettingsTab(settingsTab);
     if (!host.querySelector("[data-settings-modal]")) {
-      replaceHtmlIfChanged(host, settingsModalTemplate(state, settingsTab));
+      replaceHtmlIfChanged(host, settingsModalTemplate(state, settingsTab, midiInput?.snapshot?.()));
       bindClose(host, closeSettings);
       host.querySelectorAll("[data-settings-tab]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -375,6 +377,14 @@ export function createModalController({
     bindScreenCaptureInputs(host);
     bindOnce(host, "[data-add-output]", addConfiguredOutput);
     bindOnce(host, "[data-remove-output]", (button) => removeConfiguredOutput(button.dataset.removeOutput));
+    bindOnce(host, "[data-add-midi-profile]", addMidiProfile);
+    bindOnce(host, "[data-connect-midi]", () => midiInput?.connect?.());
+    bindOnce(host, "[data-test-midi-leds]", () => midiInput?.testLeds?.());
+    bindOnce(host, "[data-remove-midi-profile]", removeMidiProfile);
+    bindOnce(host, "[data-midi-page]", (button) => {
+      const status = midiInput?.snapshot?.() || {};
+      midiInput?.setPage?.((Number(status.page) || 0) + Number(button.dataset.midiPage || 0));
+    });
   }
 
   async function startConfiguredScreenCapture() {
@@ -445,6 +455,14 @@ export function createModalController({
       outputList.dataset.outputSignature = outputSignature;
     }
     const normalizedState = { ...state, render: renderSettings };
+    const midiStatus = midiInput?.snapshot?.() || {};
+    const midiSettings = modal.querySelector("[data-midi-settings]");
+    const midiSignature = midiSettingsSignature(state, midiStatus);
+    if (midiSettings && midiSettings.dataset.midiSignature !== midiSignature) {
+      midiSettings.innerHTML = midiSettingsTemplate(state, midiStatus);
+      midiSettings.dataset.midiSignature = midiSignature;
+      bindSettingsModalControls(host);
+    }
     modal.querySelectorAll("[data-settings-update]").forEach((input) => {
       if (input === document.activeElement) return;
       const value = getByPath(normalizedState, input.dataset.settingsUpdate);
@@ -681,6 +699,22 @@ export function createModalController({
       if (previousRender.outputs.some((item) => item.id === output.id)) output.id = `output-${Date.now().toString(36)}`;
       draft.render = normalizeRenderSettings({ ...previousRender, outputs: [...previousRender.outputs, output] });
     }, "add-output");
+  }
+
+  function addMidiProfile() {
+    store.update((draft) => {
+      const inputs = normalizeMidiInputSettings(draft.inputs);
+      if (!inputs.midi.profiles.length) inputs.midi.profiles.push(createAkaiMidiMixProfile());
+      draft.inputs = inputs;
+    }, "add-midi-profile");
+    midiInput?.connect?.();
+  }
+
+  function removeMidiProfile() {
+    store.update((draft) => {
+      draft.inputs = normalizeMidiInputSettings();
+    }, "remove-midi-profile");
+    midiInput?.disconnect?.();
   }
 
   function removeConfiguredOutput(outputId) {

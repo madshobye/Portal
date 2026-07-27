@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
 
-export const CURRENT_PROJECT_VERSION = 37;
+export const CURRENT_PROJECT_VERSION = 38;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -62,6 +62,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   34: migrateProjectV34ToV35,
   35: migrateProjectV35ToV36,
   36: migrateProjectV36ToV37,
+  37: migrateProjectV37ToV38,
 });
 
 export function migrateProjectData(project = {}) {
@@ -1150,6 +1151,78 @@ export function migrateProjectV36ToV37(project) {
       },
     },
   };
+}
+
+// v38 makes live animation-signal availability explicit at the combination
+// boundary. Before the first MIDI, pointer, audio, Probe, or OSC value arrived,
+// the host signal fallback flowed through Mapping as numeric zero and could
+// replace the authored parameter value. Wire the retained availability outlet
+// into Combination so an unheard live source leaves authored state untouched.
+export function migrateProjectV37ToV38(project) {
+  const migrateState = (state = {}) => ({
+    ...state,
+    nodes: migrateLiveAnimationAvailabilityNodeProject(state.nodes),
+  });
+  const migrated = migrateState(project);
+  const live = migrated.ui?.live;
+  if (!live?.sceneSnapshot) return migrated;
+  return {
+    ...migrated,
+    ui: {
+      ...migrated.ui,
+      live: {
+        ...live,
+        sceneSnapshot: migrateState(live.sceneSnapshot),
+      },
+    },
+  };
+}
+
+function migrateLiveAnimationAvailabilityNodeProject(nodeProject) {
+  if (!nodeProject || typeof nodeProject !== "object") return nodeProject;
+  return {
+    ...nodeProject,
+    groups: (Array.isArray(nodeProject.groups) ? nodeProject.groups : [])
+      .map(migrateLiveAnimationAvailabilityGraph),
+  };
+}
+
+function migrateLiveAnimationAvailabilityGraph(graph = {}) {
+  const nodes = (Array.isArray(graph.nodes) ? graph.nodes : []).map((node) =>
+    Array.isArray(node?.nodes)
+      ? migrateLiveAnimationAvailabilityGraph(node)
+      : node
+  );
+  const connections = Array.isArray(graph.connections) ? [...graph.connections] : [];
+  for (const source of nodes) {
+    const track = source?.animationTrack;
+    if (
+      !track ||
+      track.kind === "event" ||
+      !track.sourceKind ||
+      track.sourceKind === "timeline"
+    ) {
+      continue;
+    }
+    const ownerId = String(track.id || source.id || "");
+    const combination = nodes.find((node) =>
+      String(node?.animationTrackOwnerId || "") === ownerId &&
+      node?.animationTrackRole === "combination" &&
+      node?.nodeId === "core.control.numeric-combine"
+    );
+    if (!combination) continue;
+    const from = `${source.id}.available`;
+    const to = `${combination.id}.available`;
+    if (connections.some((edge) => edge?.from === from && edge?.to === to)) continue;
+    connections.push({
+      from,
+      to,
+      type: "boolean",
+      semantic: "parameter-animation-track",
+      animationStage: "combination",
+    });
+  }
+  return { ...graph, nodes, connections };
 }
 
 function migrateSceneSurfaceGuideNodeId(value) {

@@ -20,6 +20,8 @@ import {
   normalizeOutputName,
   normalizeSamplingSettings,
 } from "./render-settings.js";
+import { normalizeMidiInputSettings } from "../libraries/control-engine/midi-input-profile/index.js";
+import { updateParameterAnimationTrack } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
 import {
   applySceneSourceNode,
   authoredSurfaceFields,
@@ -69,6 +71,23 @@ export {
   sceneSourceNodes,
 } from "./scene-routing.js";
 
+const LIVE_ANIMATION_NUMERIC_FIELDS = new Set([
+  "duration",
+  "envelopeInitial",
+  "from",
+  "noiseDetail",
+  "noiseRate",
+  "noiseRoughness",
+  "noiseSeed",
+  "pause",
+  "phase",
+  "randomRate",
+  "smoothing",
+  "to",
+  "triggerInterval",
+  "triggerThreshold",
+]);
+
 export function uid(prefix) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
@@ -89,6 +108,8 @@ export function createDefaultComponent(index = 0, { empty = false } = {}) {
     resolutionScale: 1,
     thumbnail: "",
     chain: empty ? [] : [createComponentLayer(index, initialSource)],
+    significantParams: [],
+    significantAnimationParams: [],
     activity: createProjectActivity(),
     catalogMarker: 0,
   };
@@ -424,6 +445,7 @@ export function createInitialState({ startupTemplate = false } = {}) {
       calibrating: true,
       mappingHandleMode: "always",
     },
+    inputs: normalizeMidiInputSettings(),
     render: {
       outputs: [createOutputDefinition(0)],
       sceneAspectRatio: VJ1.sceneWidth / VJ1.sceneHeight,
@@ -528,6 +550,7 @@ export function sanitizeState(input = {}) {
     project: { ...base.project, ...(input.project || {}) },
     ui: { ...base.ui, ...(input.ui || {}) },
     global: { ...base.global, ...(input.global || {}) },
+    inputs: normalizeMidiInputSettings(input.inputs),
     render: { ...base.render, ...(input.render || {}) },
     scheduler: { ...base.scheduler, ...(input.scheduler || {}) },
     shaders: { ...base.shaders, ...(input.shaders || {}) },
@@ -777,9 +800,36 @@ function createLiveEndpointState(state, overrides = {}) {
     components: (state.components || []).map((component) =>
       createLiveEndpointComponent(component, overrides?.[component.id])
     ),
+    nodes: materializeLiveAnimationOverrides(state.nodes, overrides),
     surfaces: clone(state.surfaces || []),
     mappingCalibration: clone(state.mappingCalibration || {}),
   };
+}
+
+function materializeLiveAnimationOverrides(nodes, overrides = {}) {
+  let next = nodes;
+  for (const [componentId, componentOverride] of Object.entries(overrides || {})) {
+    for (const [trackId, trackOverride] of Object.entries(componentOverride?.animation || {})) {
+      const fields = Object.fromEntries(Object.entries(trackOverride?.fields || {})
+        .filter(([field, value]) =>
+          LIVE_ANIMATION_NUMERIC_FIELDS.has(field) && Number.isFinite(Number(value))
+        )
+        .map(([field, value]) => [field, Number(value)]));
+      if (!Object.keys(fields).length || !trackOverride?.targetNodeId) continue;
+      try {
+        next = updateParameterAnimationTrack(next, {
+          componentId,
+          targetNodeId: trackOverride.targetNodeId,
+          trackId,
+          patch: fields,
+        });
+      } catch {
+        // Removed or retargeted animation tracks make an old Live override
+        // unreachable; authored graph state remains the safe fallback.
+      }
+    }
+  }
+  return next;
 }
 
 function createLiveEndpointComponent(component = {}, override = {}) {
@@ -931,6 +981,9 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
       ...(Array.isArray(override.chain)
         ? { chain: override.chain.map((item, index) => normalizeLiveChainItemOverride(item, component?.chain?.[index])) }
         : {}),
+      ...(override.animation && typeof override.animation === "object"
+        ? { animation: normalizeLiveAnimationOverrides(override.animation) }
+        : {}),
     }];
   }));
   const performanceScenes = state.components?.filter((component) => component.type === "scene") || [];
@@ -1029,6 +1082,20 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     transition,
     transitionCoordinator,
   };
+}
+
+function normalizeLiveAnimationOverrides(animation = {}) {
+  return Object.fromEntries(Object.entries(animation || {}).flatMap(([trackId, override]) => {
+    const targetNodeId = String(override?.targetNodeId || "");
+    const fields = Object.fromEntries(Object.entries(override?.fields || {})
+      .filter(([field, value]) =>
+        LIVE_ANIMATION_NUMERIC_FIELDS.has(field) && Number.isFinite(Number(value))
+      )
+      .map(([field, value]) => [field, Number(value)]));
+    return trackId && targetNodeId && Object.keys(fields).length
+      ? [[String(trackId), { targetNodeId, fields }]]
+      : [];
+  }));
 }
 
 function normalizeLiveTransitionCoordinator(value = {}, state = {}) {
@@ -1144,11 +1211,48 @@ export function normalizeComponent(component = {}) {
     resolutionScale: normalizeComponentResolutionScale(componentData.resolutionScale),
     thumbnail: typeof componentData.thumbnail === "string" ? componentData.thumbnail : "",
     significantParams: Array.from(new Set((componentData.significantParams || []).filter((path) => typeof path === "string" && path))),
+    significantAnimationParams: normalizeSignificantAnimationParams(
+      componentData.significantAnimationParams,
+    ),
     activity: normalizeProjectActivity(componentData.activity, fallback.activity.createdAt),
     catalogMarker: normalizeCatalogMarker(componentData.catalogMarker),
     chain,
     ...(type === "scene" ? { scene } : {}),
   };
+}
+
+function normalizeSignificantAnimationParams(value = []) {
+  const seen = new Set();
+  return (Array.isArray(value) ? value : []).flatMap((entry) => {
+    const trackId = String(entry?.trackId || "");
+    const targetNodeId = String(entry?.targetNodeId || "");
+    const field = String(entry?.field || "");
+    const min = Number(entry?.min);
+    const max = Number(entry?.max);
+    const key = `${targetNodeId}:${trackId}:${field}`;
+    if (
+      !trackId ||
+      !targetNodeId ||
+      !LIVE_ANIMATION_NUMERIC_FIELDS.has(field) ||
+      !Number.isFinite(min) ||
+      !Number.isFinite(max) ||
+      max <= min ||
+      seen.has(key)
+    ) {
+      return [];
+    }
+    seen.add(key);
+    return [{
+      trackId,
+      targetNodeId,
+      field,
+      label: String(entry?.label || field),
+      min,
+      max,
+      step: Math.max(0, Number(entry?.step) || 0),
+      scale: entry?.scale === "log" ? "log" : "linear",
+    }];
+  });
 }
 
 function normalizeSceneComponentData(scene = {}, selfId = "") {

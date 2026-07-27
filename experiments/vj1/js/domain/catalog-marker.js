@@ -21,3 +21,39 @@ export function catalogMarkerMeta(value) {
   if (marker === CATALOG_MARKER_STARRED) return { marker, icon: "star", label: "Starred", nextLabel: "favorite" };
   return { marker, icon: "star_outline", label: "Unmarked", nextLabel: "starred" };
 }
+
+export function sortCatalogItems(items = [], mode = "recent") {
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+  return items.slice().sort((a, b) => {
+    // Pins are authored placement and remain above every other marker under
+    // each catalog ordering.
+    const pinnedOrder = Number(normalizeCatalogMarker(b.catalogMarker) === CATALOG_MARKER_PINNED)
+      - Number(normalizeCatalogMarker(a.catalogMarker) === CATALOG_MARKER_PINNED);
+    if (pinnedOrder) return pinnedOrder;
+    if (mode === "marker") {
+      const markerOrder = normalizeCatalogMarker(b.catalogMarker)
+        - normalizeCatalogMarker(a.catalogMarker);
+      if (markerOrder) return markerOrder;
+      const recentOrder = catalogTimestamp(b, "updatedAt")
+        - catalogTimestamp(a, "updatedAt");
+      if (recentOrder) return recentOrder;
+      return 0;
+    }
+    if (mode === "name") {
+      return collator.compare(a.name || "", b.name || "")
+        || collator.compare(a.id || "", b.id || "");
+    }
+    const field = mode === "created" ? "createdAt" : "updatedAt";
+    const aTime = catalogTimestamp(a, field);
+    const bTime = catalogTimestamp(b, field);
+    return bTime - aTime
+      || collator.compare(a.name || "", b.name || "")
+      || collator.compare(a.id || "", b.id || "");
+  });
+}
+
+function catalogTimestamp(item = {}, field = "updatedAt") {
+  const value = item[field] || item.activity?.[field];
+  const timestamp = new Date(value || 0).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}

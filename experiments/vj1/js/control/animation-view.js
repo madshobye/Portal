@@ -90,13 +90,18 @@ export function parameterAnimationViewTemplate({
     state.nodes,
     componentId,
     targetNodeId,
+    state.inputs,
   );
   const triggerSources = parameterAnimationTriggerSources(
     state.nodes,
     componentId,
     targetNodeId,
+    state.inputs,
   );
   const parameterById = new Map(numeric.map((param) => [param.id, param]));
+  const significantAnimationParams = state.components
+    ?.find((component) => String(component.id) === String(componentId))
+    ?.significantAnimationParams || [];
   const animated = new Set(numericTracks.map((track) => track.parameterId));
   const automatedEvents = new Set(
     eventTracks.map((track) => track.parameterId),
@@ -123,6 +128,7 @@ export function parameterAnimationViewTemplate({
                   param.id === track.parameterId ||
                   !automatedEvents.has(param.id)
                 ),
+                significantAnimationParams,
               )
             : animationTrackTemplate(
                 track,
@@ -133,6 +139,7 @@ export function parameterAnimationViewTemplate({
                 numeric.filter((param) =>
                   param.id === track.parameterId || !animated.has(param.id)
                 ),
+                significantAnimationParams,
               )).join("")
           : `<div class="soft-note parameter-animation-empty">No parameter animations.</div>`}
       </div>
@@ -200,6 +207,7 @@ function animationTrackTemplate(
   signalSources = [],
   triggerSources = [],
   parameterTargets = [],
+  significantAnimationParams = [],
 ) {
   const label = parameter.label || track.parameterId;
   const min = Number.isFinite(Number(parameter.min))
@@ -212,6 +220,23 @@ function animationTrackTemplate(
   const mapping = animationMappingRange(track.combination, min, max);
   const triggerAddress = parameterAnimationTriggerAddress(componentId, track.id);
   const common = `data-animation-track-id="${esc(track.id)}" data-animation-trigger-address="${esc(triggerAddress)}"`;
+  const rangeContext = {
+    componentId,
+    targetNodeId: track.targetNodeId,
+    trackId: track.id,
+    significantAnimationParams,
+  };
+  const range = (rangeLabel, field, value, rangeMin, rangeMax, rangeStep, suffix = "") =>
+    animationRangeTemplate(
+      rangeLabel,
+      field,
+      value,
+      rangeMin,
+      rangeMax,
+      rangeStep,
+      suffix,
+      rangeContext,
+    );
   return `
     <article class="parameter-animation-track ${track.enabled ? "is-enabled" : ""}" ${common}>
       <header>
@@ -270,12 +295,12 @@ function animationTrackTemplate(
             </select>
           </label>
         ` : ""}
-        ${animationTriggerTemplate(track, triggerSources)}
+        ${animationTriggerTemplate(track, triggerSources, rangeContext)}
       ` : ""}
       ` : ""}
       ${(track.sourceKind || "timeline") === "timeline" && track.transportKind === "envelope" ? `
-        ${animationTriggerTemplate(track, triggerSources)}
-        ${animationRangeTemplate("Initial", "envelopeInitial", track.envelopeInitial, 0, 1, 0.01)}
+        ${animationTriggerTemplate(track, triggerSources, rangeContext)}
+        ${range("Initial", "envelopeInitial", track.envelopeInitial, 0, 1, 0.01)}
         <div class="animation-envelope-segments" data-animation-envelope-segments>
           ${(track.envelopeSegments || []).map((segment, index) =>
             animationEnvelopeSegmentTemplate(segment, index)
@@ -286,15 +311,15 @@ function animationTrackTemplate(
         </button>
       ` : ""}
       ${(track.sourceKind || "timeline") === "timeline" && track.transportKind === "noise" ? `
-        ${animationRangeTemplate("Noise speed", "noiseRate", track.noiseRate, 0.01, 20, 0.01, "×")}
-        ${animationRangeTemplate("Noise detail", "noiseDetail", track.noiseDetail, 1, 4, 1)}
-        ${animationRangeTemplate("Noise roughness", "noiseRoughness", track.noiseRoughness, 0, 1, 0.01)}
-        ${animationRangeTemplate("Noise seed", "noiseSeed", track.noiseSeed, 1, 10000, 1)}
+        ${range("Noise speed", "noiseRate", track.noiseRate, 0.01, 20, 0.01, "×")}
+        ${range("Noise detail", "noiseDetail", track.noiseDetail, 1, 4, 1)}
+        ${range("Noise roughness", "noiseRoughness", track.noiseRoughness, 0, 1, 0.01)}
+        ${range("Noise seed", "noiseSeed", track.noiseSeed, 1, 10000, 1)}
         <button type="button" class="animation-noise-burst-toggle ${track.noiseBurst ? "is-selected" : ""}" data-toggle-animation-noise-burst aria-pressed="${track.noiseBurst === true}">
           ${icon("bolt")}<span>Trigger as burst</span>
         </button>
         ${track.noiseBurst ? `
-          ${animationTriggerTemplate(track, triggerSources)}
+          ${animationTriggerTemplate(track, triggerSources, rangeContext)}
           <div class="animation-envelope-segments" data-animation-envelope-segments>
             ${(track.envelopeSegments || []).map((segment, index) =>
               animationEnvelopeSegmentTemplate(segment, index)
@@ -328,14 +353,14 @@ function animationTrackTemplate(
           `).join("")}
         </select>
       </label>
-      ${animationRangeTemplate("From", "from", track.from, mapping.min, mapping.max, mapping.step || step)}
-      ${animationRangeTemplate("To", "to", track.to, mapping.min, mapping.max, mapping.step || step)}
-      ${animationRangeTemplate("Running average", "smoothing", track.smoothing || 0, 0, 5, 0.01, " s")}
+      ${range("From", "from", track.from, mapping.min, mapping.max, mapping.step || step)}
+      ${range("To", "to", track.to, mapping.min, mapping.max, mapping.step || step)}
+      ${range("Running average", "smoothing", track.smoothing || 0, 0, 5, 0.01, " s")}
       ${(track.sourceKind || "timeline") === "timeline" && (track.transportKind || "sequence") === "sequence" ? `
-      ${animationRangeTemplate("Cycle duration", "duration", track.duration, 0.05, 60, 0.05, " s")}
-      ${animationRangeTemplate("End pause", "pause", track.pause, 0, 30, 0.05, " s")}
+      ${range("Cycle duration", "duration", track.duration, 0.05, 60, 0.05, " s")}
+      ${range("End pause", "pause", track.pause, 0, 30, 0.05, " s")}
       ${track.runMode === "automatic"
-        ? animationRangeTemplate("Phase", "phase", track.phase, 0, 1, 0.01)
+        ? range("Phase", "phase", track.phase, 0, 1, 0.01)
         : ""}
       ` : ""}
     </article>
@@ -348,6 +373,7 @@ function eventAnimationTrackTemplate(
   componentId = "",
   triggerSources = [],
   eventTargets = [],
+  significantAnimationParams = [],
 ) {
   const label = parameter.label || track.parameterId;
   const triggerAddress = parameterAnimationTriggerAddress(componentId, track.id);
@@ -373,12 +399,17 @@ function eventAnimationTrackTemplate(
           `).join("")}
         </select>
       </label>
-      ${animationTriggerTemplate(track, triggerSources)}
+      ${animationTriggerTemplate(track, triggerSources, {
+        componentId,
+        targetNodeId: track.targetNodeId,
+        trackId: track.id,
+        significantAnimationParams,
+      })}
     </article>
   `;
 }
 
-function animationTriggerTemplate(track, triggerSources = []) {
+function animationTriggerTemplate(track, triggerSources = [], rangeContext = null) {
   const triggerKind = track.triggerKind || (track.randomRate > 0 ? "random" : "manual");
   const triggerAddress = track.triggerAddress || "";
   return `
@@ -401,13 +432,13 @@ function animationTriggerTemplate(track, triggerSources = []) {
       </button>
     ` : ""}
     ${triggerKind === "periodic"
-      ? animationRangeTemplate("Trigger interval", "triggerInterval", track.triggerInterval, 0.05, 60, 0.05, " s")
+      ? animationRangeTemplate("Trigger interval", "triggerInterval", track.triggerInterval, 0.05, 60, 0.05, " s", rangeContext)
       : ""}
     ${triggerKind === "random"
-      ? animationRangeTemplate("Random trigger", "randomRate", track.randomRate, 0, 120, 0.5, " / min")
+      ? animationRangeTemplate("Random trigger", "randomRate", track.randomRate, 0, 120, 0.5, " / min", rangeContext)
       : ""}
     ${triggerKind === "probe"
-      ? animationRangeTemplate("Trigger threshold", "triggerThreshold", track.triggerThreshold, 0, 1, 0.01)
+      ? animationRangeTemplate("Trigger threshold", "triggerThreshold", track.triggerThreshold, 0, 1, 0.01, "", rangeContext)
       : ""}
   `;
 }
@@ -532,9 +563,28 @@ function animationSuggestionTemplate(param, suggestion = {}, { showParameter = f
   `;
 }
 
-function animationRangeTemplate(label, field, value, min, max, step, suffix = "") {
+function animationRangeTemplate(label, field, value, min, max, step, suffix = "", context = null) {
+  const significant = context?.significantAnimationParams?.some((entry) =>
+    String(entry.trackId) === String(context.trackId) &&
+    String(entry.targetNodeId) === String(context.targetNodeId) &&
+    entry.field === field
+  );
+  const contextPath = `animation:${context?.targetNodeId || ""}:${context?.trackId || ""}:${field}`;
+  const contextAttributes = context?.componentId ? [
+    `data-param-context-path="${esc(contextPath)}"`,
+    'data-param-context-kind="animation"',
+    `data-param-context-component-id="${esc(context.componentId)}"`,
+    `data-param-context-animation-target-node-id="${esc(context.targetNodeId)}"`,
+    `data-param-context-animation-track-id="${esc(context.trackId)}"`,
+    `data-param-context-animation-field="${esc(field)}"`,
+    `data-param-context-animation-label="${esc(label)}"`,
+    `data-param-context-animation-min="${esc(min)}"`,
+    `data-param-context-animation-max="${esc(max)}"`,
+    `data-param-context-animation-step="${esc(step)}"`,
+    'data-param-context-resettable="false"',
+  ].join(" ") : "";
   return `
-    <label class="field range-field">
+    <label class="field range-field param-context-target${significant ? " is-significant" : ""}" ${contextAttributes}>
       <span>${esc(label)}</span>
       <output class="range-value" data-range-value>${formatRangeValue(value, step)}${esc(suffix)}</output>
       <input type="range" min="${esc(min)}" max="${esc(max)}" step="${esc(step)}" value="${esc(value)}" data-animation-track-field="${esc(field)}" data-range-suffix="${esc(suffix)}" />

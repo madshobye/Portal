@@ -1,8 +1,9 @@
 import { MAX_PIXEL_DENSITY, normalizeRenderSettings, RESOLUTION_CEILING_PRESETS } from "../domain/render-settings.js";
 import { esc, formatRangeValue, icon } from "./template-utils.js";
 import { screenCaptureStatus } from "../output/screen-capture-service.js";
+import { normalizeMidiInputSettings } from "../libraries/control-engine/midi-input-profile/index.js";
 
-export function settingsModalTemplate(state, activeTab = "outputs") {
+export function settingsModalTemplate(state, activeTab = "outputs", midiStatus = {}) {
   activeTab = normalizeSettingsTab(activeTab);
   const render = normalizeRenderSettings(state.render || {});
   const camera = render.camera;
@@ -39,6 +40,9 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
           <div class="soft-note">The active output window supplies the pixels. Outputs keep only their proportions and are arranged side by side in Mapping.</div>
         </section>
         <section class="ui-section element-section parameter-surface settings-view-surface settings-inputs-panel" data-settings-panel="inputs" ${visiblePanel("inputs", activeTab)}>
+          <div data-midi-settings data-midi-signature="${esc(midiSettingsSignature(state, midiStatus))}">
+            ${midiSettingsTemplate(state, midiStatus)}
+          </div>
           <div class="settings-group">
             <div class="settings-group-title"><span class="material-symbols-rounded">videocam</span><span>Camera</span></div>
             <label class="field">Camera direction
@@ -131,6 +135,71 @@ export function settingsModalTemplate(state, activeTab = "outputs") {
         </section>
       </div>
     </section>
+  `;
+}
+
+export function midiSettingsTemplate(state = {}, status = {}) {
+  const profiles = normalizeMidiInputSettings(state.inputs).midi.profiles;
+  const profile = profiles[0];
+  if (!profile) {
+    return `
+      <div class="settings-group">
+        <div class="settings-group-title"><span class="material-symbols-rounded">tune</span><span>MIDI controllers</span></div>
+        <button type="button" class="chain-add-button" data-add-midi-profile>${icon("add")} Add Akai MIDImix</button>
+        <div class="soft-note">Adds one general MIDI input shared by Preview, Output, Live, and every Component animation.</div>
+      </div>
+    `;
+  }
+  const statusLabel = status.state === "ready"
+    ? `${status.inputCount || 0} input · ${status.feedbackOutputCount || 0} feedback output`
+    : status.state === "requesting"
+      ? "Waiting for MIDI permission…"
+      : status.error || "Ready to connect";
+  return `
+    <div class="settings-group">
+      <div class="settings-group-title"><span class="material-symbols-rounded">tune</span><span>MIDI controller</span></div>
+      <div class="midi-profile-row">
+        <span class="material-symbols-rounded">graphic_eq</span>
+        <span><strong>${esc(profile.name)}</strong><small>${esc(statusLabel)}</small></span>
+        <button type="button" class="chain-add-button" data-connect-midi>${status.state === "ready" ? "Connected" : "Connect"}</button>
+        <button type="button" class="icon-buttonish" data-remove-midi-profile title="Remove MIDI profile" aria-label="Remove MIDI profile">${icon("delete")}</button>
+      </div>
+      <button type="button" class="chain-add-button" data-test-midi-leds ${status.feedbackOutputCount ? "" : "disabled"}>${icon("lightbulb")} Test all button LEDs</button>
+      ${status.state === "ready" && !status.feedbackOutputCount
+        ? `<div class="soft-note is-error">MIDI input is connected, but Chrome exposed no matching MIDImix output port. Available outputs: ${esc((status.outputs || []).map((output) => output.name).join(", ") || "none")}.</div>`
+        : ""}
+      ${midiAssignmentBankTemplate("Scenes · amber Mute row", status.scenes)}
+      ${midiAssignmentBankTemplate("Components · red Record Arm row", status.components)}
+      ${midiAssignmentBankTemplate("Significant parameters · bottom knob row", status.parameters)}
+      <div class="midi-bank-pager">
+        <button type="button" class="icon-buttonish" data-midi-page="-1" ${Number(status.page) <= 0 ? "disabled" : ""}>${icon("chevron_left")}</button>
+        <span>Bank ${Number(status.page || 0) + 1} / ${Math.max(1, Number(status.pageCount) || 1)}</span>
+        <button type="button" class="icon-buttonish" data-midi-page="1" ${Number(status.page) + 1 >= Number(status.pageCount || 1) ? "disabled" : ""}>${icon("chevron_right")}</button>
+      </div>
+      <div class="soft-note">Pinned, favorite, and starred items come first; remaining slots use the most recently changed items. Bank Left/Right selects the next eight.</div>
+    </div>
+  `;
+}
+
+export function midiSettingsSignature(state = {}, status = {}) {
+  return JSON.stringify({
+    profiles: normalizeMidiInputSettings(state.inputs).midi.profiles,
+    status,
+  });
+}
+
+function midiAssignmentBankTemplate(label, assignments = []) {
+  return `
+    <div class="midi-assignment-bank">
+      <small>${esc(label)}</small>
+      <div class="midi-assignment-slots">
+        ${Array.from({ length: 8 }, (_, index) => {
+          const item = assignments?.[index];
+          const accent = /^#[0-9a-f]{6}$/i.test(item?.accent || "") ? item.accent : "#777777";
+          return `<span class="midi-assignment-slot ${item ? "" : "is-empty"}" title="${esc(item?.name || item?.id || `Empty slot ${index + 1}`)}" style="--midi-accent:${accent}">${item ? esc(item.name || item.id) : index + 1}</span>`;
+        }).join("")}
+      </div>
+    </div>
   `;
 }
 
