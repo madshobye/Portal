@@ -83,18 +83,12 @@ export class ProbeRuntime {
     );
     if (!demandedFeatures.length) return false;
     const key = `${componentId}:${probeId}`;
-    const sampleRate = Math.min(
-      30,
-      Math.max(1, Number(renderedItem?.params?.sampleRate) || 15),
-    );
     const now = this.clock();
     let retained = this.samples.get(key);
     if (!retained) {
-      retained = { sampledAt: -Infinity, values: null };
+      retained = { values: null };
       this.samples.set(key, retained);
     }
-    if (now - retained.sampledAt < 1000 / sampleRate) return false;
-    retained.sampledAt = now;
     const values = this.sample(
       state.buffer,
       renderedItem?.boundary,
@@ -123,18 +117,12 @@ export class ProbeRuntime {
     if (!fixture || !profile || fixture.enabled === false) return false;
     const probeId = String(renderedItem?.id || operation?.id || "");
     const key = `dmx:${component?.id || ""}:${probeId}:${fixtureId}`;
-    const sampleRate = Math.min(
-      30,
-      Math.max(1, Number(renderedItem?.params?.sampleRate) || 20),
-    );
     const now = this.clock();
     let retained = this.samples.get(key);
     if (!retained) {
-      retained = { sampledAt: -Infinity, values: null };
+      retained = { values: null };
       this.samples.set(key, retained);
     }
-    if (now - retained.sampledAt < 1000 / sampleRate) return false;
-    retained.sampledAt = now;
     const samples = renderedItem?.params?.mode === "control"
       ? []
       : this.sampleGrid(

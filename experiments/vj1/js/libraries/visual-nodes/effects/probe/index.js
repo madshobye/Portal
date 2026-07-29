@@ -1,17 +1,9 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../../node-engine/node-definition.js";
 import {
-  createNumberParam,
   textureInlet,
   textureOutlet,
 } from "../../shared/component-schema.js";
 import { componentFromNodeDefinition } from "../../shared/visual-node-factory.js";
-
-const sampleRate = createNumberParam("sampleRate", "Sample rate", {
-  min: 1,
-  max: 30,
-  step: 1,
-  defaultValue: 15,
-});
 
 const manifest = Object.freeze({
   id: "probe",
@@ -21,14 +13,14 @@ const manifest = Object.freeze({
   label: "Probe",
   category: "control",
   processor: "observer",
-  scheduler: "frame",
+  scheduler: "event",
   fusible: false,
   spatial: true,
   transformSource: false,
   inlets: Object.freeze([textureInlet("texture", "Texture")]),
   outlets: Object.freeze([textureOutlet("texture", "Texture")]),
-  params: Object.freeze([sampleRate]),
-  primaryParamIds: Object.freeze(["sampleRate"]),
+  params: Object.freeze([]),
+  primaryParamIds: Object.freeze([]),
   detailParamIds: Object.freeze([]),
   description: "Samples a placed image area and publishes normalized color features to the local live-control bus.",
 });
@@ -46,23 +38,12 @@ const definition = defineNode({
   outlets: {
     texture: { id: "texture", label: "Texture", type: "texture" },
   },
-  parameters: {
-    sampleRate: {
-      id: "sampleRate",
-      label: "Sample rate",
-      type: "number",
-      defaultValue: 15,
-      allowedRange: [1, 30],
-      expectedRange: [1, 30],
-      step: 1,
-      editor: { type: "slider" },
-    },
-  },
+  parameters: {},
   execution: {
-    trigger: "frame",
+    trigger: "input-change",
     domain: "gpu",
     pure: false,
-    stateful: true,
+    stateful: false,
   },
   capabilities: [
     "visual-node",

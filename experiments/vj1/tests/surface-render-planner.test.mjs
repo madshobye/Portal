@@ -809,16 +809,35 @@ test("surface runtime derives transition progress without owning wall-clock stat
 });
 
 test("surface runtime restores temporary render state and identity scopes", () => {
-  const originalState = { id: "current" };
+  const originalState = {
+    id: "current",
+    components: [{ id: "shared-component", chain: [{ id: "effect", enabled: true }] }],
+  };
+  const temporaryState = {
+    id: "temporary",
+    components: [{ id: "shared-component", chain: [{ id: "effect", enabled: false }] }],
+  };
   const originalLookups = {
-    componentById: new Map([["current-component", {}]]),
+    componentById: new Map([
+      ["current-component", {}],
+      ["shared-component", originalState.components[0]],
+    ]),
     routeSourceNodeById: new Map([["current-node", {}]]),
   };
+  const synchronizedVisibility = [];
   const componentProgramRuntime = {
     ...originalLookups,
+    programs: new Map([["shared-component", {
+      syncProjectedConfiguration(component) {
+        synchronizedVisibility.push(component.chain[0].enabled);
+      },
+    }]]),
     rebuildLookups() {
       const id = renderer.state.id;
-      this.componentById = new Map([[`${id}-component`, {}]]);
+      this.componentById = new Map([
+        [`${id}-component`, {}],
+        ...renderer.state.components.map((component) => [component.id, component]),
+      ]);
       this.routeSourceNodeById = new Map([[`${id}-node`, {}]]);
     },
   };
@@ -828,11 +847,18 @@ test("surface runtime restores temporary render state and identity scopes", () =
   };
   const runtime = new OutputSurfaceRuntime(renderer);
 
-  assert.equal(runtime.withRenderState({ id: "temporary" }, () => {
+  assert.equal(runtime.withRenderState(temporaryState, () => {
     assert.equal(componentProgramRuntime.componentById.has("temporary-component"), true);
     assert.equal(componentProgramRuntime.routeSourceNodeById.has("temporary-node"), true);
     return renderer.state.id;
+  }, {
+    componentConfigurationIds: ["shared-component"],
   }), "temporary");
+  assert.deepEqual(
+    synchronizedVisibility,
+    [false, true],
+    "the historical endpoint configuration is active only inside its render scope",
+  );
   assert.equal(renderer.state, originalState);
   assert.equal(componentProgramRuntime.componentById, originalLookups.componentById);
   assert.equal(componentProgramRuntime.routeSourceNodeById, originalLookups.routeSourceNodeById);

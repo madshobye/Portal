@@ -14,6 +14,7 @@ import {
   projectUsesPointerSignals,
 } from "../js/output/pointer-control-signals.js";
 import {
+  ProbeRuntime,
   probeColorFeatures,
   probeSampleGeometry,
   probeValuesChanged,
@@ -76,6 +77,46 @@ test("Probe color reduction publishes stable normalized RGB HSV brightness and a
   assert.equal(probeValuesChanged(features, { ...features, r: 0.9 }), true);
 });
 
+test("Probe publishes each changed upstream sample without waiting for presentation time", () => {
+  const publications = [];
+  const runtime = new ProbeRuntime({
+    componentProgramRuntime: {
+      requiresControlSignal: () => true,
+    },
+    controlSignalRuntime: {
+      publishBatch(kind, addresses, metadata) {
+        publications.push({ kind, addresses, metadata });
+        return true;
+      },
+    },
+  }, {
+    clock: () => 100,
+  });
+  let sample = probeColorFeatures([255, 0, 0, 255]);
+  runtime.sample = () => sample;
+  const component = { id: "component-a" };
+  const operation = { id: "probe-a" };
+  const renderedItem = { id: "probe-a", boundary: {} };
+  const renderState = { buffer: {} };
+
+  assert.equal(
+    runtime.observe(component, operation, renderedItem, renderState, {}),
+    true,
+  );
+  sample = probeColorFeatures([0, 255, 0, 255]);
+  assert.equal(
+    runtime.observe(component, operation, renderedItem, renderState, {}),
+    true,
+  );
+  assert.equal(
+    runtime.observe(component, operation, renderedItem, renderState, {}),
+    false,
+  );
+  assert.equal(publications.length, 2);
+  assert.equal(publications[0].metadata.timestamp, 100);
+  assert.equal(publications[1].metadata.timestamp, 100);
+});
+
 test("Probe compiles as a passthrough observer and activates only through a local animation signal dependency", () => {
   const packageRoot = createVj1NodePackage();
   let state = createInitialState();
@@ -85,7 +126,7 @@ test("Probe compiles as a passthrough observer and activates only through a loca
     generatorId: "plasma",
     params: { speed: 1, motionMode: "steady" },
   };
-  const probe = createComponentEffect("probe", { sampleRate: 12 });
+  const probe = createComponentEffect("probe");
   component.chain.push(probe);
   state = packageRoot.prepareProjectState(state);
   state.nodes = addParameterAnimationTrack(state.nodes, {
@@ -113,7 +154,7 @@ test("Probe compiles as a passthrough observer and activates only through a loca
   const operation = program.plan.operations.find(({ id }) => id === probe.id);
   assert.equal(operation.opcode, "probe");
   assert.equal(operation.backend, "probe-observer");
-  assert.equal(operation.configuration.params.sampleRate, 12);
+  assert.equal(Object.hasOwn(operation.configuration.params, "sampleRate"), false);
   assert.deepEqual(
     program.inspect().readiness.requirements.filter(({ kind }) =>
       kind === "control-signal"

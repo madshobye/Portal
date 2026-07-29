@@ -1,7 +1,6 @@
 import { defineNode, NODE_IMPLEMENTATION_KINDS } from "../../../node-engine/node-definition.js";
 import {
   createEnumParam,
-  createNumberParam,
   createTextParam,
   textureInlet,
   textureOutlet,
@@ -18,12 +17,6 @@ const params = Object.freeze([
       ["control", "Animated controls"],
     ]),
   },
-  createNumberParam("sampleRate", "Sample rate", {
-    min: 1,
-    max: 30,
-    step: 1,
-    defaultValue: 20,
-  }),
 ]);
 
 const manifest = Object.freeze({
@@ -34,7 +27,7 @@ const manifest = Object.freeze({
   label: "DMX Probe",
   category: "control",
   processor: "observer",
-  scheduler: "frame",
+  scheduler: "event",
   fusible: false,
   spatial: true,
   transformSource: false,
@@ -42,7 +35,7 @@ const manifest = Object.freeze({
   outlets: Object.freeze([textureOutlet("texture", "Texture")]),
   params,
   primaryParamIds: Object.freeze(["fixtureId", "zone", "mode"]),
-  detailParamIds: Object.freeze(["sampleRate"]),
+  detailParamIds: Object.freeze([]),
   description: "Samples its placed canvas area or evaluates animated fixture channels and publishes a semantic fixture frame to the global DMX output.",
 });
 
@@ -74,10 +67,10 @@ const definition = defineNode({
     editor: { type: parameter.ui || (parameter.type === "number" ? "slider" : parameter.type) },
   }])),
   execution: {
-    trigger: "frame",
+    trigger: "input-change",
     domain: "gpu",
     pure: false,
-    stateful: true,
+    stateful: false,
   },
   capabilities: [
     "visual-node",

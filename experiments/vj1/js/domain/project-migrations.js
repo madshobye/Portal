@@ -1,6 +1,6 @@
 import { createEmptyNodeProjectData } from "../libraries/node-engine/node-project.js";
 
-export const CURRENT_PROJECT_VERSION = 39;
+export const CURRENT_PROJECT_VERSION = 40;
 export const OLDEST_PROJECT_VERSION = 1;
 
 export class ProjectVersionError extends Error {
@@ -64,6 +64,7 @@ export const PROJECT_MIGRATIONS = Object.freeze({
   36: migrateProjectV36ToV37,
   37: migrateProjectV37ToV38,
   38: migrateProjectV38ToV39,
+  39: migrateProjectV39ToV40,
 });
 
 export function migrateProjectData(project = {}) {
@@ -1191,12 +1192,132 @@ export function migrateProjectV38ToV39(project) {
   };
 }
 
+// v40 makes Probe observers revision-driven. The removed sample-rate control
+// was a GPU-readback throttle; upstream image invalidation is now the sole
+// sampling trigger and DMX transport cadence remains global.
+export function migrateProjectV39ToV40(project) {
+  return {
+    ...project,
+    components: migrateProbeSampleRateComponents(project?.components),
+    nodes: migrateProbeSampleRateNodeProject(project?.nodes),
+    ui: migrateProbeSampleRateUi(project?.ui),
+  };
+}
+
 function migrateLiveAnimationAvailabilityNodeProject(nodeProject) {
   if (!nodeProject || typeof nodeProject !== "object") return nodeProject;
   return {
     ...nodeProject,
     groups: (Array.isArray(nodeProject.groups) ? nodeProject.groups : [])
       .map(migrateLiveAnimationAvailabilityGraph),
+  };
+}
+
+function migrateProbeSampleRateComponents(components) {
+  if (!Array.isArray(components)) return components;
+  return components.map((component) => ({
+    ...component,
+    chain: migrateProbeSampleRateChain(component?.chain),
+  }));
+}
+
+function migrateProbeSampleRateChain(chain) {
+  if (!Array.isArray(chain)) return chain;
+  return chain.map((item) => {
+    if (!item || typeof item !== "object") return item;
+    if (item.kind === "group") {
+      return { ...item, chain: migrateProbeSampleRateChain(item.chain) };
+    }
+    if (
+      item.kind !== "effect" ||
+      !["probe", "dmxProbe"].includes(String(item.componentId || ""))
+    ) return item;
+    const { sampleRate: _sampleRate, ...params } = item.params || {};
+    return { ...item, params };
+  });
+}
+
+function migrateProbeSampleRateNodeProject(nodeProject) {
+  if (!nodeProject || typeof nodeProject !== "object") return nodeProject;
+  return {
+    ...nodeProject,
+    groups: Array.isArray(nodeProject.groups)
+      ? nodeProject.groups.map(migrateProbeSampleRateNodeScope)
+      : nodeProject.groups,
+  };
+}
+
+function migrateProbeSampleRateNodeScope(scope) {
+  if (!scope || typeof scope !== "object") return scope;
+  const sourceNodes = Array.isArray(scope.nodes) ? scope.nodes : [];
+  const probeIds = new Set(sourceNodes
+    .filter((node) => [
+      "vj1.visual.effect.probe",
+      "vj1.visual.effect.dmxProbe",
+    ].includes(String(node?.nodeId || "")))
+    .map((node) => String(node.id || "")));
+  const animationOwners = new Set(sourceNodes
+    .filter((node) =>
+      node?.animationTrack?.parameterId === "sampleRate" &&
+      probeIds.has(String(node.animationTrack?.targetNodeId || ""))
+    )
+    .map((node) => String(node.animationTrack?.id || node.id || "")));
+  const removedIds = new Set(sourceNodes
+    .filter((node) =>
+      (
+        node?.targetParameterId === "sampleRate" &&
+        probeIds.has(String(node.targetNodeId || ""))
+      ) ||
+      animationOwners.has(String(node.id || "")) ||
+      animationOwners.has(String(node.animationTrackOwnerId || ""))
+    )
+    .map((node) => String(node.id || "")));
+  const nodes = sourceNodes
+    .filter((node) => !removedIds.has(String(node?.id || "")))
+    .map((node) => {
+      const nested = Array.isArray(node?.nodes)
+        ? migrateProbeSampleRateNodeScope(node)
+        : node;
+      if (!probeIds.has(String(nested?.id || ""))) return nested;
+      const { sampleRate: _parameterSampleRate, ...parameters } = nested.parameters || {};
+      const { sampleRate: _configurationSampleRate, ...params } = nested.configuration?.params || {};
+      return {
+        ...nested,
+        parameters,
+        configuration: {
+          ...(nested.configuration || {}),
+          params,
+        },
+      };
+    });
+  return {
+    ...scope,
+    nodes,
+    connections: Array.isArray(scope.connections)
+      ? scope.connections.filter((edge) => {
+          const from = String(edge?.from || "").split(".")[0];
+          const to = String(edge?.to || "").split(".")[0];
+          return !removedIds.has(from) &&
+            !removedIds.has(to) &&
+            ![...probeIds].some((id) => String(edge?.to || "") === `${id}.$parameter.sampleRate`);
+        })
+      : scope.connections,
+  };
+}
+
+function migrateProbeSampleRateUi(ui) {
+  if (!ui || typeof ui !== "object") return ui;
+  const snapshot = ui.live?.sceneSnapshot;
+  if (!snapshot || typeof snapshot !== "object") return ui;
+  return {
+    ...ui,
+    live: {
+      ...ui.live,
+      sceneSnapshot: {
+        ...snapshot,
+        components: migrateProbeSampleRateComponents(snapshot.components),
+      },
+    },
   };
 }
 

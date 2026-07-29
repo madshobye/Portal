@@ -34,7 +34,7 @@ current Surface geometry remains authoritative for both endpoints.
 
 Old projects migrate on load. Canvas/Frame-era structures and direct
 `media`/`camera`/`black` source shapes are migration inputs only. Current schema
-is **39**. Authored sources are `generator` or `component`; legacy records become
+is **40**. Authored sources are `generator` or `component`; legacy records become
 `mediaImage`/`modelMedia`, `cameraInput`, or `black` before graph preparation.
 Never restore runtime dispatch for retired source shapes.
 

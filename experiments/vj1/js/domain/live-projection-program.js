@@ -78,6 +78,12 @@ function compileTransition(state, live, target, mapping, currentRoutes, authored
       currentRoutes.surfaces
     ),
   };
+  const currentComponentOverrides =
+    authored.toComponentOverrides || live.componentOverrides || {};
+  const componentConfigurationIds = changedComponentOverrideIds(
+    authored.fromComponentOverrides || {},
+    currentComponentOverrides,
+  );
 
   return Object.freeze({
     id: String(authored.id || `${previousTargetId || "empty"}:${target?.id || "empty"}:${startedAtMs}`),
@@ -86,8 +92,9 @@ function compileTransition(state, live, target, mapping, currentRoutes, authored
     previousTarget,
     previousRoutes,
     previousComponentOverrides: authored.fromComponentOverrides || {},
-    currentComponentOverrides: authored.toComponentOverrides || live.componentOverrides || {},
-    componentsShared: JSON.stringify(authored.fromComponentOverrides || {}) === JSON.stringify(authored.toComponentOverrides || live.componentOverrides || {}),
+    currentComponentOverrides,
+    componentConfigurationIds,
+    componentsShared: componentConfigurationIds.length === 0,
     transitionId: String(authored.transitionId || live.transitionId || "vj1.transition.dissolve"),
     transitionParameters: authored.transitionParameters && typeof authored.transitionParameters === "object"
       ? Object.freeze({ ...authored.transitionParameters })
@@ -95,6 +102,16 @@ function compileTransition(state, live, target, mapping, currentRoutes, authored
     startedAtMs,
     durationMs,
   });
+}
+
+function changedComponentOverrideIds(previous = {}, current = {}) {
+  const ids = new Set([
+    ...Object.keys(previous || {}),
+    ...Object.keys(current || {}),
+  ]);
+  return Object.freeze([...ids].filter((id) =>
+    JSON.stringify(previous?.[id] || {}) !== JSON.stringify(current?.[id] || {})
+  ));
 }
 
 function transitionAppliesToPreview(transition, previewSurfaceId, sceneMappingVisible) {

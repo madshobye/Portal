@@ -40,11 +40,12 @@ import {
   migrateProjectV36ToV37,
   migrateProjectV37ToV38,
   migrateProjectV38ToV39,
+  migrateProjectV39ToV40,
 } from "../js/domain/project-migrations.js";
 import { createInitialState, sanitizeState } from "../js/domain/models.js";
 
 test("current state and sanitized legacy state always use the current project version", () => {
-  assert.equal(CURRENT_PROJECT_VERSION, 39);
+  assert.equal(CURRENT_PROJECT_VERSION, 40);
   assert.equal(createInitialState().version, CURRENT_PROJECT_VERSION);
   assert.equal(sanitizeState({ version: 5 }).version, CURRENT_PROJECT_VERSION);
 });
@@ -1187,6 +1188,36 @@ test("v38 to v39 introduces project-global hardware device settings", () => {
 
   const existing = { dmx: { enabled: true, refreshRate: 30 } };
   assert.equal(migrateProjectV38ToV39({ version: 38, devices: existing }).devices, existing);
+});
+
+test("v39 to v40 removes per-Probe sampling cadence from chains and graph authority", () => {
+  const migrated = migrateProjectV39ToV40({
+    version: 39,
+    components: [{
+      id: "component-a",
+      chain: [{
+        id: "probe-a",
+        kind: "effect",
+        componentId: "probe",
+        params: { sampleRate: 12 },
+      }],
+    }],
+    nodes: {
+      groups: [{
+        id: "component-a",
+        nodes: [{
+          id: "probe-a",
+          nodeId: "vj1.visual.effect.probe",
+          parameters: { sampleRate: 12 },
+          configuration: { params: { sampleRate: 12 } },
+        }],
+        connections: [],
+      }],
+    },
+  });
+  assert.deepEqual(migrated.components[0].chain[0].params, {});
+  assert.deepEqual(migrated.nodes.groups[0].nodes[0].parameters, {});
+  assert.deepEqual(migrated.nodes.groups[0].nodes[0].configuration.params, {});
 });
 
 test("migration runner applies every adjacent step in order", () => {

@@ -306,7 +306,6 @@ test("DMX Probe lowers through the visual compiler as a passthrough hardware obs
   component.chain.push(createComponentEffect("dmxProbe", {
     fixtureId: "fixture-a",
     mode: "control",
-    sampleRate: 24,
   }));
   state = packageRoot.prepareProjectState(state);
   const program = compileComponentRenderPrograms(

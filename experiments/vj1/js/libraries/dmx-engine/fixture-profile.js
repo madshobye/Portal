@@ -244,7 +244,7 @@ export function dmxProbeComponentForState(baseComponent, state = {}, item = {}) 
       ...channelParams.map((entry) => entry.id),
       "mode",
     ]),
-    detailParamIds: Object.freeze(["sampleRate"]),
+    detailParamIds: Object.freeze([]),
   });
 }
 

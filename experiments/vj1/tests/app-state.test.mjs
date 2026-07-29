@@ -976,6 +976,35 @@ test("Live transition endpoints clone mutable render branches without cloning un
   assert.notEqual(current.components[0].chain[0].source.params.renderQuality, 0.25);
 });
 
+test("Live transitions identify Components whose endpoint visibility configuration differs", () => {
+  const state = createInitialState();
+  const firstScene = createSceneComponent(0, state.components[0].id);
+  const secondScene = createSceneComponent(1, state.components[0].id);
+  state.components.push(firstScene, secondScene);
+  state.ui.live.transitionDuration = 1;
+  const store = createAppState(state);
+
+  store.selectLiveScene(firstScene.id);
+  store.updateLive((draft) => {
+    draft.ui.live.componentOverrides[firstScene.id] = {
+      chain: [{ enabled: false }],
+    };
+    draft.ui.live.sceneOverrides[firstScene.id] =
+      draft.ui.live.componentOverrides;
+  }, "live:test-visibility");
+  store.selectLiveScene(secondScene.id);
+
+  const transition = createLiveRenderState(store.getState()).liveTransition;
+  assert.equal(transition.componentsShared, false);
+  assert.deepEqual(transition.componentConfigurationIds, [firstScene.id]);
+  assert.equal(
+    transition.fromState.components
+      .find((component) => component.id === firstScene.id)
+      .chain[0].enabled,
+    false,
+  );
+});
+
 test("removing an Overall source transitions to an explicitly empty program", () => {
   const state = createInitialState();
   const scene = createSceneComponent(0, state.components[0].id);

@@ -234,6 +234,10 @@ export class OutputSurfaceRuntime {
       this.activeTransitionTextureId = transition.id;
     }
     const componentsShared = transition.componentsShared === true;
+    const componentConfigurationIds = this.transitionConfigurationComponentIds(
+      transition,
+      targetState,
+    );
     renderer.resourceRuntime.componentOutput.clear();
     const fromRoutes = this.withRenderState(transition.fromState, () =>
       this.withSurfaceRenderIdentityPrefix(componentsShared ? "" : "transition-from:", () =>
@@ -276,10 +280,12 @@ export class OutputSurfaceRuntime {
       const fromRoute = fromBySurface.get(surfaceId);
       const toRoute = toBySurface.get(surfaceId);
       if (!fromRoute || !toRoute) continue;
-      const fromView = this.withRenderState(transition.fromState, () =>
-        this.canDirectProjectSurfaceRoute(fromRoute, false)
+      const fromView = this.withRenderState(
+        transition.fromState,
+        () => this.canDirectProjectSurfaceRoute(fromRoute, false)
           ? this.renderSurfaceRouteView(fromRoute)
-          : null
+          : null,
+        { componentConfigurationIds },
       );
       const toView = this.withRenderState(targetState, () =>
         this.canDirectProjectSurfaceRoute(toRoute, false)
@@ -294,7 +300,8 @@ export class OutputSurfaceRuntime {
     const fromTextures = this.renderTransitionRouteTextures(
       fromRoutes.filter((route) => bufferedTransitionSurfaceIds.has(route.surface.id)),
       transition.fromState,
-      "from"
+      "from",
+      componentConfigurationIds,
     );
     const toTextures = this.renderTransitionRouteTextures(
       toRoutes.filter((route) => bufferedTransitionSurfaceIds.has(route.surface.id)),
@@ -428,7 +435,12 @@ export class OutputSurfaceRuntime {
     });
   }
 
-  renderTransitionRouteTextures(routes, renderState, side) {
+  renderTransitionRouteTextures(
+    routes,
+    renderState,
+    side,
+    componentConfigurationIds = [],
+  ) {
     const renderer = this.renderer;
     const textures = new Map();
     this.withRenderState(renderState, () => {
@@ -448,7 +460,7 @@ export class OutputSurfaceRuntime {
         texture.pop();
         textures.set(route.surface.id, texture);
       }
-    });
+    }, { componentConfigurationIds });
     return textures;
   }
 
@@ -486,7 +498,11 @@ export class OutputSurfaceRuntime {
     this.activeTransitionTextureId = "";
   }
 
-  withRenderState(renderState, callback) {
+  withRenderState(
+    renderState,
+    callback,
+    { componentConfigurationIds = [] } = {},
+  ) {
     const renderer = this.renderer;
     const programs = renderer.componentProgramRuntime;
     const previous = {
@@ -497,14 +513,47 @@ export class OutputSurfaceRuntime {
     renderer.state = renderState;
     programs.rebuildLookups();
     try {
+      for (const componentId of componentConfigurationIds) {
+        const id = String(componentId || "");
+        const program = programs.programs?.get?.(id);
+        const component = programs.componentById.get(id);
+        if (program && component) program.syncProjectedConfiguration(component);
+      }
       return callback();
     } finally {
+      // A compiled program is shared by both transition endpoints. Restore
+      // current endpoint configuration before leaving the historical render
+      // scope so a temporary Live visibility/parameter bank cannot leak into
+      // either the target side or the first stable frame after the transition.
+      for (const componentId of componentConfigurationIds) {
+        const id = String(componentId || "");
+        const program = programs.programs?.get?.(id);
+        const component = previous.componentById.get(id);
+        if (program && component) program.syncProjectedConfiguration(component);
+      }
       // Render state and its derived route indexes are one context. Restore the
       // exact previous maps so temporary transition scopes cannot leak routes.
       renderer.state = previous.state;
       programs.componentById = previous.componentById;
       programs.routeSourceNodeById = previous.routeSourceNodeById;
     }
+  }
+
+  transitionConfigurationComponentIds(transition = {}, targetState = {}) {
+    if (transition.componentsShared === true) return [];
+    if (Array.isArray(transition.componentConfigurationIds)) {
+      return transition.componentConfigurationIds;
+    }
+    // Prepared/queued output transitions created from an already-rendered
+    // endpoint predate the authored override diff. Conservatively synchronize
+    // their common compiled Components rather than rendering one endpoint
+    // through the other's mutable configuration.
+    const targetIds = new Set(
+      (targetState.components || []).map((component) => String(component?.id || "")),
+    );
+    return (transition.fromState?.components || [])
+      .map((component) => String(component?.id || ""))
+      .filter((id) => id && targetIds.has(id));
   }
 
   withSurfaceRenderIdentityPrefix(prefix, callback) {

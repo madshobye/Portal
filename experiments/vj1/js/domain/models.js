@@ -718,6 +718,7 @@ export function createLiveRenderState(state = createInitialState()) {
       startedAtMs: transition.startedAtMs,
       durationMs: transition.durationMs,
       componentsShared: transition.componentsShared,
+      componentConfigurationIds: transition.componentConfigurationIds,
       fromState,
     };
   });
@@ -774,6 +775,7 @@ export function createLiveScenePreviewState(state = createInitialState()) {
       startedAtMs: transition.startedAtMs,
       durationMs: transition.durationMs,
       componentsShared: transition.componentsShared,
+      componentConfigurationIds: transition.componentConfigurationIds,
       fromState,
     };
   });
