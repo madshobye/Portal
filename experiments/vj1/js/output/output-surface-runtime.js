@@ -576,10 +576,9 @@ export class OutputSurfaceRuntime {
       Math.abs(previewTransform.y) < 1e-12;
     const transformDemandCorners = (corners = []) => identityViewport
       ? corners
-      : corners.map((corner) => ({
-          x: viewport.width * 0.5 + ((Number(corner?.x) || 0) - viewport.width * 0.5) * previewTransform.zoom + previewTransform.x,
-          y: viewport.height * 0.5 + ((Number(corner?.y) || 0) - viewport.height * 0.5) * previewTransform.zoom + previewTransform.y,
-        }));
+      : corners.map((corner) =>
+          renderer.presentationGeometry.previewWorldPointToDisplay(corner, render)
+        );
     const { routes, metrics } = planSurfaceRoutes({
       state: renderer.state,
       mapperSurfaces: renderer.mappingRuntime.surfaces,

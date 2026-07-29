@@ -13,81 +13,6 @@ export function createSurfaceCompositionEngine({
   componentRegionSafe = () => false,
   componentFrameFanoutSafe = () => true,
 } = {}) {
-  const normalizedSceneUvRect = (route) => {
-    const logical = route?.sourceView?.logicalSize;
-    const rect = route?.demand?.sampleRect;
-    if (!logical || !rect || !(logical.width > 0) || !(logical.height > 0)) return null;
-    return [
-      rect.x / logical.width,
-      rect.y / logical.height,
-      rect.width / logical.width,
-      rect.height / logical.height,
-    ];
-  };
-
-  const sharedSceneRegionPlan = (routes, maxSurfaceSize) => {
-    if (!routes.length || routes.some((route) =>
-      route.component?.type !== "scene" ||
-      route.surface?.sceneCrop !== true ||
-      route.transformRegion ||
-      route.viewportRegion
-    )) return null;
-    const views = routes.map((route) => ({
-      route,
-      uvRect: normalizedSceneUvRect(route),
-    }));
-    if (views.some((view) => !view.uvRect)) return null;
-    const left = Math.min(...views.map((view) => view.uvRect[0]));
-    const top = Math.min(...views.map((view) => view.uvRect[1]));
-    const right = Math.max(...views.map((view) => view.uvRect[0] + view.uvRect[2]));
-    const bottom = Math.max(...views.map((view) => view.uvRect[1] + view.uvRect[3]));
-    const uvRect = [left, top, right - left, bottom - top];
-    if (!(uvRect[2] > 0) || !(uvRect[3] > 0)) return null;
-
-    // Every recording frame describes how many output pixels its Scene crop
-    // needs. Convert those demands to a virtual full-Scene pixel density, take
-    // the strictest density once, then allocate only the union of the active
-    // crops. The Scene graph executes once and every Surface samples its own
-    // sub-view from that shared texture.
-    const fullRasterWidth = Math.max(...views.map(({ route, uvRect: view }) =>
-      route.demand.surfaceSize.width / Math.max(Number.EPSILON, view[2])
-    ));
-    const fullRasterHeight = Math.max(...views.map(({ route, uvRect: view }) =>
-      route.demand.surfaceSize.height / Math.max(Number.EPSILON, view[3])
-    ));
-    const ceiling = maxSurfaceSize || { width: 8192, height: 8192 };
-    const ceilPhysicalPixels = (value) => {
-      const nearest = Math.round(value);
-      return Math.abs(value - nearest) < 1e-6 ? nearest : Math.ceil(value);
-    };
-    const requestedWidth = Math.max(1, ceilPhysicalPixels(fullRasterWidth * uvRect[2]));
-    const requestedHeight = Math.max(1, ceilPhysicalPixels(fullRasterHeight * uvRect[3]));
-    const ceilingScale = Math.min(
-      1,
-      ceiling.width / requestedWidth,
-      ceiling.height / requestedHeight,
-    );
-    const size = {
-      width: Math.max(1, Math.floor(requestedWidth * ceilingScale)),
-      height: Math.max(1, Math.floor(requestedHeight * ceilingScale)),
-    };
-    const presentationUvRects = new Map(views.map(({ route, uvRect: view }) => [
-      route.surface.id,
-      [
-        (view[0] - uvRect[0]) / uvRect[2],
-        (view[1] - uvRect[1]) / uvRect[3],
-        view[2] / uvRect[2],
-        view[3] / uvRect[3],
-      ],
-    ]));
-    return {
-      uvRect,
-      size,
-      presentationUvRects,
-      demandScale: Math.max(...routes.map((route) => route.demand.rasterScale || 1)),
-    };
-  };
-
   return function planSurfaceComposition({
     state = {},
     mapperSurfaces = new Map(),
@@ -184,13 +109,15 @@ export function createSurfaceCompositionEngine({
     const requestableRoutes = routes.filter((route) => route.transformRegion?.empty !== true);
     const initialRequests = sharedComponentRenderRequests(requestableRoutes, renderIdentityPrefix);
     const regionalRouteIds = new Set();
-    const sharedSceneRegions = new Map();
     const candidatesByComponent = new Map();
     for (const route of routes) {
       const transformedRoot = route.transformRegion && route.transformRegion.empty !== true;
-      const sceneCrop = route.component?.type === "scene" && route.surface?.sceneCrop === true;
       const viewportRegion = !!route.viewportRegion;
-      if ((!transformedRoot && !sceneCrop && !viewportRegion) || !route.regionSafe) continue;
+      // A Surface crop is a view into one authoritative full Scene. Rendering
+      // that crop as a smaller Scene request redefines child placement against
+      // the ROI allocation and makes Output disagree with Preview. Keep Scene
+      // coordinates intact and crop the shared full result at presentation.
+      if ((!transformedRoot && !viewportRegion) || !route.regionSafe) continue;
       const key = componentRenderInstanceKey(route.component, route.surface.id);
       const list = candidatesByComponent.get(key) || [];
       list.push(route);
@@ -217,25 +144,6 @@ export function createSurfaceCompositionEngine({
       }
       const full = initialRequests.get(key);
       if (!full) continue;
-      const sceneRegion = isComponentFrameFanoutSafe(candidates[0].component)
-        ? sharedSceneRegionPlan(candidates, textureCeiling || { width: 8192, height: 8192 })
-        : null;
-      if (sceneRegion) {
-        const needsRegionalDetail = candidates.some((route) => {
-          const logical = route.sourceView.logicalSize;
-          const rect = route.demand.sampleRect;
-          const sampledWidth = full.width * rect.width / Math.max(1, logical.width);
-          const sampledHeight = full.height * rect.height / Math.max(1, logical.height);
-          return route.demand.surfaceSize.width > sampledWidth * 1.05 ||
-            route.demand.surfaceSize.height > sampledHeight * 1.05;
-        });
-        const regionPixels = sceneRegion.size.width * sceneRegion.size.height;
-        if (needsRegionalDetail || regionPixels * 1.15 < full.width * full.height) {
-          sharedSceneRegions.set(key, sceneRegion);
-          for (const route of candidates) regionalRouteIds.add(route.surface.id);
-          continue;
-        }
-      }
       const regionalPixels = candidates.reduce((sum, route) => {
         const size = route.viewportRegion?.rasterSize || route.demand.surfaceSize;
         return sum + size.width * size.height;
@@ -260,20 +168,6 @@ export function createSurfaceCompositionEngine({
       requestableRoutes.filter((route) => !regionalRouteIds.has(route.surface.id)),
       renderIdentityPrefix
     );
-    for (const [renderInstanceKey, plan] of sharedSceneRegions) {
-      const route = candidatesByComponent.get(renderInstanceKey)?.[0];
-      const logical = route?.sourceView?.logicalSize;
-      if (!logical) continue;
-      plan.componentRequest = createRenderRequest("scene-region", plan.size, {
-        timingId: renderInstanceKey,
-        renderIdentity: `${renderIdentityPrefix}${renderInstanceKey}:scene-union`,
-        logicalWidth: logical.width,
-        logicalHeight: logical.height,
-        demandScale: plan.demandScale,
-        uvRect: plan.uvRect,
-        regionView: true,
-      });
-    }
     for (const route of routes) {
       const renderInstanceKey = componentRenderInstanceKey(route.component, route.surface.id);
       if (route.transformRegion?.empty === true) {
@@ -290,39 +184,31 @@ export function createSurfaceCompositionEngine({
       }
       const regional = regionalRouteIds.has(route.surface.id);
       if (regional) {
-        const sharedSceneRegion = sharedSceneRegions.get(renderInstanceKey);
-        if (sharedSceneRegion?.componentRequest) {
-          route.componentRequest = sharedSceneRegion.componentRequest;
-          route.rootTransformRegion = null;
-          route.presentationUvRect = sharedSceneRegion.presentationUvRects.get(route.surface.id) || null;
-          route.surfacePresentationUvRect = null;
-        } else {
-          const logical = route.sourceView.logicalSize;
-          const rect = route.demand.sampleRect;
-          const uvRect = route.transformRegion?.uvRect || route.viewportRegion?.uvRect || [
-            rect.x / logical.width,
-            rect.y / logical.height,
-            rect.width / logical.width,
-            rect.height / logical.height,
-          ];
-          const regionalSize = route.viewportRegion?.rasterSize || route.demand.surfaceSize;
-          route.componentRequest = createRenderRequest("scene-region", regionalSize, {
-            timingId: renderInstanceKey,
-            renderIdentity: `${renderIdentityPrefix}${renderInstanceKey}:surface:${route.surface.id}`,
-            logicalWidth: logical.width,
-            logicalHeight: logical.height,
-            demandScale: route.viewportRegion?.rasterScale || route.demand.rasterScale,
-            uvRect,
-            regionView: true,
-          });
-          route.rootTransformRegion = route.transformRegion || null;
-          route.presentationUvRect = route.transformRegion
-            ? null
-            : (route.viewportRegion?.textureViewUv || null);
-          route.surfacePresentationUvRect = route.transformRegion && route.viewportRegion
-            ? route.viewportRegion.surfaceViewUv
-            : null;
-        }
+        const logical = route.sourceView.logicalSize;
+        const rect = route.demand.sampleRect;
+        const uvRect = route.transformRegion?.uvRect || route.viewportRegion?.uvRect || [
+          rect.x / logical.width,
+          rect.y / logical.height,
+          rect.width / logical.width,
+          rect.height / logical.height,
+        ];
+        const regionalSize = route.viewportRegion?.rasterSize || route.demand.surfaceSize;
+        route.componentRequest = createRenderRequest("scene-region", regionalSize, {
+          timingId: renderInstanceKey,
+          renderIdentity: `${renderIdentityPrefix}${renderInstanceKey}:surface:${route.surface.id}`,
+          logicalWidth: logical.width,
+          logicalHeight: logical.height,
+          demandScale: route.viewportRegion?.rasterScale || route.demand.rasterScale,
+          uvRect,
+          regionView: true,
+        });
+        route.rootTransformRegion = route.transformRegion || null;
+        route.presentationUvRect = route.transformRegion
+          ? null
+          : (route.viewportRegion?.textureViewUv || null);
+        route.surfacePresentationUvRect = route.transformRegion && route.viewportRegion
+          ? route.viewportRegion.surfaceViewUv
+          : null;
       } else {
         route.componentRequest = componentRequests.get(renderInstanceKey);
       }
@@ -342,12 +228,8 @@ export function createSurfaceCompositionEngine({
     }
     metrics.visible = routes.length;
     for (const request of componentRequests.values()) metrics.componentRasterPixels += request.width * request.height;
-    for (const plan of sharedSceneRegions.values()) {
-      if (plan.componentRequest) metrics.componentRasterPixels += plan.componentRequest.width * plan.componentRequest.height;
-    }
     for (const route of routes) {
-      const key = componentRenderInstanceKey(route.component, route.surface.id);
-      if (regionalRouteIds.has(route.surface.id) && !sharedSceneRegions.has(key)) {
+      if (regionalRouteIds.has(route.surface.id)) {
         metrics.componentRasterPixels += route.componentRequest.width * route.componentRequest.height;
       }
     }

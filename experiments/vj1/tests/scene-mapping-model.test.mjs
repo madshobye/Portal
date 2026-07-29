@@ -49,6 +49,9 @@ test("Mapping test pattern is a compiled preview source rather than authored Sur
   const preview = applyMappingForEditing(state, state.mappings[0]);
 
   assert.ok(preview.surfaces.every((surface) => surface.componentId === "vj1-system-mapping-test-pattern"));
+  assert.ok(preview.surfaces.every((surface) => surface.sceneCrop === true));
+  assert.ok(preview.surfaces.every((surface) => surface.sourceFit === "cover"));
+  assert.ok(preview.surfaces.every((surface) => surface.sourceFitActive === false));
   assert.ok(preview.mappings[0].surfaces.every((surface) => !Object.hasOwn(surface, "componentId")));
 });
 

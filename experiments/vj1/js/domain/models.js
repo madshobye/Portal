@@ -1757,12 +1757,15 @@ export function applyMappingForEditing(state, mapping) {
 export function mappingPreviewSurfaceRoutes(state, mapping) {
   if (!mapping?.surfaces) return [];
   if (state.ui?.mappingTestPattern !== false) {
-    return mapping.surfaces.map((surface) => ({
+    // The system test pattern is an ordinary Component source. Adapt it to the
+    // same virtual Scene used by every Overall Component so toggling between
+    // test pattern, Component, and Scene never changes Surface geometry.
+    return materializeLiveTargetSurfaceRoutes(state, {
+      id: MAPPING_TEST_PATTERN_COMPONENT_ID,
+      type: "chain",
+    }, mapping).surfaces.map((surface) => ({
       ...surface,
       sourceNodeId: MAPPING_TEST_PATTERN_SOURCE_NODE_ID,
-      componentId: MAPPING_TEST_PATTERN_COMPONENT_ID,
-      sceneCrop: false,
-      sourceFitActive: false,
     }));
   }
   const scene = mappingPreviewScene(state);

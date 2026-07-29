@@ -64,8 +64,8 @@ export class PresentationGeometryRuntime {
     const zoom = Math.max(0.01, baseScale * userZoom);
     return {
       zoom,
-      x: userX + (display.width * 0.5 - project.width * 0.5) * zoom,
-      y: userY + (display.height * 0.5 - project.height * 0.5) * zoom,
+      x: userX + display.width * 0.5 - project.width * 0.5 * zoom,
+      y: userY + display.height * 0.5 - project.height * 0.5 * zoom,
     };
   }
 
@@ -108,12 +108,18 @@ export class PresentationGeometryRuntime {
 
   previewPointToWorld(point = {}) {
     const viewport = this.viewportTransform();
-    const display = this.displayCanvasSize();
-    const centerX = display.width * 0.5;
-    const centerY = display.height * 0.5;
     return {
-      x: ((Number(point.x) || 0) - centerX - viewport.x) / viewport.zoom + centerX,
-      y: ((Number(point.y) || 0) - centerY - viewport.y) / viewport.zoom + centerY,
+      x: ((Number(point.x) || 0) - viewport.x) / viewport.zoom,
+      y: ((Number(point.y) || 0) - viewport.y) / viewport.zoom,
+    };
+  }
+
+  previewWorldPointToDisplay(point = {}, render = this.host.state?.render || {}) {
+    if (this.host.mode === "output") return this.worldPointToDisplay(point);
+    const viewport = this.viewportTransform(render);
+    return {
+      x: (Number(point.x) || 0) * viewport.zoom + viewport.x,
+      y: (Number(point.y) || 0) * viewport.zoom + viewport.y,
     };
   }
 

@@ -618,6 +618,9 @@ test("Component Scene and Live inspectors give range tracks their own full-width
 test("every Scene Surface exposes proportion locking and direct-output Surfaces remain interactive", () => {
   const componentSource = readFileSync(new URL("../js/control/component-view.js", import.meta.url), "utf8");
   const interactionSource = readFileSync(new URL("../js/output/component-preview-interaction.js", import.meta.url), "utf8");
+  for (const label of ["Scene X", "Scene Y", "Scene width", "Scene height"]) {
+    assert.ok(componentSource.includes(`rangeTemplate("${label}"`));
+  }
   assert.ok(componentSource.includes("Keep proportions"));
   assert.ok(componentSource.includes(".keepProportions"));
   assert.doesNotMatch(interactionSource, /frame\.kind === "output"/);

@@ -38,6 +38,10 @@ export function sceneSurfaceInspectorTemplate(surface, state) {
   const base = `mappings.${mappingIndex}.surfaces.${surfaceIndex}`;
   return `<article class="sculpt-card scene-surface-inspector inspector-control-surface">
     <div class="soft-note">Surface · move and scale its 2D rectangle in the Scene preview; calibrate its projection in Mapping.</div>
+    ${rangeTemplate("Scene X", `${base}.x`, surface.x, 0, 1, 0.001, surface.x)}
+    ${rangeTemplate("Scene Y", `${base}.y`, surface.y, 0, 1, 0.001, surface.y)}
+    ${rangeTemplate("Scene width", `${base}.width`, surface.width, 0.001, 1, 0.001, surface.width)}
+    ${rangeTemplate("Scene height", `${base}.height`, surface.height, 0.001, 1, 0.001, surface.height)}
     <label class="field inline-param"><span>Keep proportions</span><input type="checkbox" data-update="${base}.keepProportions" ${surface.keepProportions === false ? "" : "checked"} /></label>
     <label class="field"><span>Fit</span>${selectValuesTemplate(`${base}.projectionFit`, ["cover", "contain", "stretch"], surface.projectionFit || "cover")}</label>
   </article>`;

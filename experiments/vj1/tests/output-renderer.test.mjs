@@ -3100,6 +3100,36 @@ test("embedded Live retains Scene project-world geometry instead of covering its
   assert.deepEqual(renderer.presentationGeometry.displayPointToWorld({ x: 200, y: 300 }), { x: 200, y: 300 });
 });
 
+test("embedded Preview uses one centered affine world transform and exact inverse", () => {
+  const previousWidth = globalThis.width;
+  const previousHeight = globalThis.height;
+  const renderer = new OutputRenderer({ mode: "live" });
+  const render = {
+    sceneAspectRatio: 2,
+    outputs: [{ id: "output-main", aspectRatio: 2 }],
+    hostViewport: { width: 500, height: 500, mode: "preview", outputId: "" },
+  };
+  renderer.state = { render };
+
+  try {
+    globalThis.width = 500;
+    globalThis.height = 500;
+    assert.deepEqual(renderer.presentationGeometry.viewportTransform(render), {
+      zoom: 0.25,
+      x: 0,
+      y: 125,
+    });
+    const display = renderer.presentationGeometry.previewWorldPointToDisplay({ x: 1600, y: 700 }, render);
+    assert.deepEqual(display, { x: 400, y: 300 });
+    assert.deepEqual(renderer.presentationGeometry.previewPointToWorld(display), { x: 1600, y: 700 });
+  } finally {
+    if (previousWidth === undefined) delete globalThis.width;
+    else globalThis.width = previousWidth;
+    if (previousHeight === undefined) delete globalThis.height;
+    else globalThis.height = previousHeight;
+  }
+});
+
 test("hud render resolution reports GPU render pixels, not window size", () => {
   const previousWidth = globalThis.width;
   const previousHeight = globalThis.height;

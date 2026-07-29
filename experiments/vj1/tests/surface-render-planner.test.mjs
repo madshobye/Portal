@@ -517,7 +517,7 @@ test("independent Canvas children do not multiply across multiple recording-fram
   assert.strictEqual(routes[0].componentRequest, routes[1].componentRequest);
 });
 
-test("active synchronized Scene frames share one union ROI raster", () => {
+test("active synchronized Scene frames share one full Scene raster before Surface cropping", () => {
   const state = createInitialState();
   state.render.sceneWidth = 2000;
   state.render.sceneHeight = 1000;
@@ -600,28 +600,17 @@ test("active synchronized Scene frames share one union ROI raster", () => {
   assert.strictEqual(
     routes[0].componentRequest,
     routes[1].componentRequest,
-    "the Scene graph executes once for the union of synchronized frame crops",
+    "the Scene graph executes once in its authoritative full coordinate space",
   );
-  assert.equal(routes[0].componentRequest.role, "scene-region");
-  assert.deepEqual(routes[0].componentRequest.uvRect, [0.1, 0.2, 0.6, 0.4000000000000001]);
-  assert.deepEqual(
-    {
-      width: routes[0].componentRequest.width,
-      height: routes[0].componentRequest.height,
-    },
-    { width: 1239, height: 464 },
-    "the shared allocation contains only the union at the strictest projection-aware Surface density",
-  );
-  assert.ok(Math.abs(routes[0].presentationUvRect[0]) < 1e-12);
-  assert.ok(Math.abs(routes[0].presentationUvRect[2] - 1 / 3) < 1e-12);
-  assert.ok(Math.abs(routes[0].presentationUvRect[3] - 1) < 1e-12);
-  assert.ok(Math.abs(routes[1].presentationUvRect[0] - 2 / 3) < 1e-12);
-  assert.ok(Math.abs(routes[1].presentationUvRect[2] - 1 / 3) < 1e-12);
-  assert.ok(Math.abs(routes[1].presentationUvRect[3] - 1) < 1e-12);
+  assert.equal(routes[0].componentRequest.role, "texture");
+  assert.equal(routes[0].componentRequest.regionView, undefined);
+  assert.equal(routes[0].presentationUvRect, undefined);
+  assert.equal(routes[1].presentationUvRect, undefined);
+  assert.notDeepEqual(routes[0].demand.sampleRect, routes[1].demand.sampleRect);
   assert.equal(
     metrics.componentRasterPixels,
     routes[0].componentRequest.width * routes[0].componentRequest.height,
-    "the shared Scene union allocation is counted once",
+    "the shared full Scene allocation is counted once",
   );
 });
 
