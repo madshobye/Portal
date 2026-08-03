@@ -775,6 +775,7 @@ test("collection workspaces keep controls fixed and scroll only their list bodie
   assert.doesNotMatch(styleSource, /\.project-rail\[data-workspace="(?:mapping|scene)"\] > \.mapping-surface-rail-section/);
   assert.match(styleSource, /\.rail-list-section\.is-empty \{[\s\S]*?flex: 0 0 auto;/);
   assert.match(styleSource, /\.rail-list-section > \.rail-scroll-list \{[\s\S]*?overflow-y: auto;[\s\S]*?scrollbar-gutter: stable;/);
+  assert.match(styleSource, /\.live-component-list \{[\s\S]*?grid-auto-rows: max-content;[\s\S]*?align-content: start;/);
   assert.match(styleSource, /\.studio-inspector:is\(\[data-workspace="component"\][\s\S]*?overflow: hidden;/);
   assert.match(styleSource, /\.studio-inspector\[data-workspace="scene"\] > \.scene-surface-panel,[\s\S]*?flex: 0 0 auto;[\s\S]*?grid-template-rows: auto auto;/);
   assert.match(styleSource, /\.component-chain-list,[\s\S]*?align-content: start;[\s\S]*?overflow-y: auto;/);

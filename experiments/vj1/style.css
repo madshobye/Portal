@@ -1877,6 +1877,8 @@ button.text-list-main:hover {
 
 .live-component-list {
   display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
   gap: 8px;
 }
 
