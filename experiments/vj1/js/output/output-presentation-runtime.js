@@ -1,5 +1,6 @@
 import { clamp01 } from "../domain/models.js";
 import { createPlacedRenderResult } from "../graph/placed-render-result.js";
+import { MAPPING_CORNER_PICK_RADIUS } from "../libraries/mapping-engine/mapping-engine/index.js";
 import { fitRectGeometry } from "../libraries/render-engine/fit-geometry/index.js";
 import { applyBlend } from "./blend-utils.js";
 import {
@@ -272,7 +273,7 @@ export class OutputPresentationRuntime {
       x: typeof mouseX === "number" ? mouseX : -99999,
       y: typeof mouseY === "number" ? mouseY : -99999,
     });
-    const radius = host.mappingRuntime.mapper?.pickRadius || 60;
+    const radius = host.mappingRuntime.mapper?.pickRadius || MAPPING_CORNER_PICK_RADIUS;
     return corners.some((corner) => {
       const dx = pointer.x - corner.x;
       const dy = pointer.y - corner.y;

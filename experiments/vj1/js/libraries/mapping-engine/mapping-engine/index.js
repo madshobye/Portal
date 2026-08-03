@@ -11,6 +11,7 @@ import {
 } from "../../transition-engine/index.js";
 
 const visibleSurfaceUvRectCache = new WeakMap();
+export const MAPPING_CORNER_PICK_RADIUS = 18;
 
 export class VjMapper {
   constructor({ onConfigChange, onTransitionError } = {}) {
@@ -21,7 +22,7 @@ export class VjMapper {
     this.failedTransitionShaders = new Set();
     this.calibrate = true;
     this.overlayMode = "always";
-    this.pickRadius = 60;
+    this.pickRadius = MAPPING_CORNER_PICK_RADIUS;
     this.onConfigChange = typeof onConfigChange === "function" ? onConfigChange : null;
     this.onTransitionError = typeof onTransitionError === "function" ? onTransitionError : null;
     this._dragSurf = -1;

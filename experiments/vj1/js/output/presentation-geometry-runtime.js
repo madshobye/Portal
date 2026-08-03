@@ -64,8 +64,13 @@ export class PresentationGeometryRuntime {
     const zoom = Math.max(0.01, baseScale * userZoom);
     return {
       zoom,
-      x: userX + display.width * 0.5 - project.width * 0.5 * zoom,
-      y: userY + display.height * 0.5 - project.height * 0.5 * zoom,
+      // p5 WEBGL draws authored top-left coordinates relative to the current
+      // display canvas centre (the mapper subtracts display / 2 from every
+      // authored point). This is therefore a model-space translation, not a
+      // top-left CSS offset. Compensate for the difference between the
+      // display and project centres before applying the shared zoom.
+      x: userX + (display.width - project.width) * 0.5 * zoom,
+      y: userY + (display.height - project.height) * 0.5 * zoom,
     };
   }
 
@@ -108,18 +113,24 @@ export class PresentationGeometryRuntime {
 
   previewPointToWorld(point = {}) {
     const viewport = this.viewportTransform();
+    const display = this.displayCanvasSize();
     return {
-      x: ((Number(point.x) || 0) - viewport.x) / viewport.zoom,
-      y: ((Number(point.y) || 0) - viewport.y) / viewport.zoom,
+      x: display.width * 0.5 +
+        ((Number(point.x) || 0) - display.width * 0.5 - viewport.x) / viewport.zoom,
+      y: display.height * 0.5 +
+        ((Number(point.y) || 0) - display.height * 0.5 - viewport.y) / viewport.zoom,
     };
   }
 
   previewWorldPointToDisplay(point = {}, render = this.host.state?.render || {}) {
     if (this.host.mode === "output") return this.worldPointToDisplay(point);
     const viewport = this.viewportTransform(render);
+    const display = this.displayCanvasSize(render);
     return {
-      x: (Number(point.x) || 0) * viewport.zoom + viewport.x,
-      y: (Number(point.y) || 0) * viewport.zoom + viewport.y,
+      x: display.width * 0.5 + viewport.x +
+        ((Number(point.x) || 0) - display.width * 0.5) * viewport.zoom,
+      y: display.height * 0.5 + viewport.y +
+        ((Number(point.y) || 0) - display.height * 0.5) * viewport.zoom,
     };
   }
 

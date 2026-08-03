@@ -14,7 +14,7 @@ import {
   localContentDragDelta,
 } from "../js/output/content-coordinate-space.js";
 import { SharedFramebufferTarget, unwrapRenderTarget } from "../js/output/shared-framebuffer-target.js";
-import { mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, normalizedSourceRect, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
+import { MAPPING_CORNER_PICK_RADIUS, mapperFragmentShaderSource, mapperTransitionFragmentShaderSource, mapperVertexShaderSource, normalizedSourceRect, projectedSurfaceAspect, projectionFitMode, surfaceQuadVertices, VjMapper } from "../js/libraries/mapping-engine/mapping-engine/index.js";
 import { createShaderBuilder } from "../js/shaders/shader-builder.js";
 import { getEffectNodeComponent as getShaderComponent } from "../js/libraries/visual-nodes/index.js";
 import {
@@ -393,6 +393,28 @@ test("mapper retains authored quads outside the raw host for preview model trans
     if (previousHeight === undefined) delete globalThis.height;
     else globalThis.height = previousHeight;
   }
+});
+
+test("mapping corners use a tight display-space hit target", () => {
+  const mapper = new VjMapper();
+  mapper.addSurface({
+    id: "tight-corner-target",
+    width: 100,
+    height: 100,
+    corners: [
+      { x: 100, y: 100 },
+      { x: 300, y: 100 },
+      { x: 300, y: 300 },
+      { x: 100, y: 300 },
+    ],
+  });
+
+  assert.equal(mapper.pickRadius, MAPPING_CORNER_PICK_RADIUS);
+  assert.deepEqual(mapper._pickCorner(100 + MAPPING_CORNER_PICK_RADIUS - 1, 100), {
+    si: 0,
+    ci: 0,
+  });
+  assert.equal(mapper._pickCorner(100 + MAPPING_CORNER_PICK_RADIUS + 1, 100), null);
 });
 
 test("mapped shader quads suppress inherited strokes including the strip diagonal", () => {

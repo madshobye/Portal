@@ -16,28 +16,19 @@ export function buildMeshoptimizerLods(mesh = {}, targetLevels = []) {
     sourceTriangleCount,
   })];
 
-  let indices = indexed.indices;
-  const lods = [];
-  for (const target of targets) {
-    const targetIndexCount = Math.min(indices.length, target * 3);
-    const [simplified, error] = MeshoptSimplifier.simplify(
-      indices,
-      indexed.positions,
-      3,
-      targetIndexCount,
-      1,
-      []
-    );
-    indices = simplified;
-    lods.push(indexedToTriangleSoup({ positions: indexed.positions, indices }, mesh, {
-      simplification: "meshoptimizer-qem",
-      simplificationError: error,
-      sourceTriangleCount,
-      requestedTriangleCount: target,
-      topologyLimited: indices.length > targetIndexCount,
-    }));
+  let generated = simplifyIndexedLods(indexed, mesh, targets, sourceTriangleCount);
+  if (generated.missedTarget) {
+    const oriented = consistentlyOrientedIndices(indexed.indices);
+    if (oriented !== indexed.indices) {
+      generated = simplifyIndexedLods(
+        { positions: indexed.positions, indices: oriented },
+        mesh,
+        targets,
+        sourceTriangleCount,
+      );
+    }
   }
-  return lods;
+  return generated.lods;
 }
 
 export function indexedMeshToTriangleSoup(mesh = {}) {
@@ -110,6 +101,113 @@ function compactIndexedMesh(mesh) {
     indices[vertexIndex] = index;
   }
   return { positions: new Float32Array(values), indices };
+}
+
+function simplifyIndexedLods(indexed, source, targets, sourceTriangleCount) {
+  let indices = indexed.indices;
+  let missedTarget = false;
+  const lods = [];
+  for (const target of targets) {
+    const previousIndexCount = indices.length;
+    const targetIndexCount = Math.min(previousIndexCount, target * 3);
+    const [simplified, error] = MeshoptSimplifier.simplify(
+      indices,
+      indexed.positions,
+      3,
+      targetIndexCount,
+      1,
+      [],
+    );
+    indices = simplified;
+    const missed = indices.length > targetIndexCount;
+    missedTarget ||= missed;
+    lods.push(indexedToTriangleSoup({ positions: indexed.positions, indices }, source, {
+      simplification: "meshoptimizer-qem",
+      simplificationError: error,
+      sourceTriangleCount,
+      requestedTriangleCount: target,
+      // A topology floor can land slightly above a requested count while still
+      // yielding a useful coarser LOD. Warn only when simplification actually
+      // stalls and produces no additional level.
+      topologyLimited: missed && indices.length >= previousIndexCount,
+    }));
+  }
+  return { lods, missedTarget };
+}
+
+// STL files frequently contain individually valid triangles whose winding is
+// inconsistent across shared edges. Meshoptimizer correctly treats those
+// edges as topology seams and can therefore stop far above an otherwise
+// reachable LOD. Repair only manifold, orientable components and leave the
+// original index buffer untouched when no repair is needed or a component is
+// contradictory.
+function consistentlyOrientedIndices(source) {
+  const faceCount = Math.floor(source.length / 3);
+  let vertexCount = 0;
+  for (const index of source) vertexCount = Math.max(vertexCount, index + 1);
+  const edgeFaces = new Map();
+  for (let face = 0; face < faceCount; face++) {
+    const offset = face * 3;
+    for (const [start, end] of [
+      [source[offset], source[offset + 1]],
+      [source[offset + 1], source[offset + 2]],
+      [source[offset + 2], source[offset]],
+    ]) {
+      const low = Math.min(start, end);
+      const high = Math.max(start, end);
+      const key = low * vertexCount + high;
+      const references = edgeFaces.get(key) || [];
+      references.push({ face, forward: start === low });
+      edgeFaces.set(key, references);
+    }
+  }
+
+  const neighbors = Array.from({ length: faceCount }, () => []);
+  for (const references of edgeFaces.values()) {
+    if (references.length !== 2) continue;
+    const [left, right] = references;
+    const opposite = left.forward === right.forward;
+    neighbors[left.face].push({ face: right.face, opposite });
+    neighbors[right.face].push({ face: left.face, opposite });
+  }
+
+  const flip = new Int8Array(faceCount);
+  flip.fill(-1);
+  let changed = false;
+  for (let root = 0; root < faceCount; root++) {
+    if (flip[root] !== -1) continue;
+    const component = [root];
+    flip[root] = 0;
+    let contradictory = false;
+    for (let read = 0; read < component.length; read++) {
+      const face = component[read];
+      for (const neighbor of neighbors[face]) {
+        const expected = flip[face] ^ (neighbor.opposite ? 1 : 0);
+        if (flip[neighbor.face] === -1) {
+          flip[neighbor.face] = expected;
+          component.push(neighbor.face);
+        } else if (flip[neighbor.face] !== expected) {
+          contradictory = true;
+        }
+      }
+    }
+    if (contradictory) {
+      for (const face of component) flip[face] = 0;
+      continue;
+    }
+    if (component.some((face) => flip[face] === 1)) changed = true;
+  }
+  if (!changed) return source;
+
+  const result = source.slice();
+  for (let face = 0; face < faceCount; face++) {
+    if (flip[face] !== 1) continue;
+    const offset = face * 3;
+    const swap = result[offset + 1];
+    result[offset + 1] = result[offset + 2];
+    result[offset + 2] = swap;
+  }
+  return result;
 }
 
 function indexedToTriangleSoup(indexed, source, metadata = {}) {

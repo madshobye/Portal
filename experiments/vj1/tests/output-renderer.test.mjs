@@ -3116,9 +3116,13 @@ test("embedded Preview uses one centered affine world transform and exact invers
     globalThis.height = 500;
     assert.deepEqual(renderer.presentationGeometry.viewportTransform(render), {
       zoom: 0.25,
-      x: 0,
-      y: 125,
+      x: -187.5,
+      y: -62.5,
     });
+    assert.deepEqual(
+      renderer.presentationGeometry.previewWorldPointToDisplay({ x: 1000, y: 500 }, render),
+      { x: 250, y: 250 },
+    );
     const display = renderer.presentationGeometry.previewWorldPointToDisplay({ x: 1600, y: 700 }, render);
     assert.deepEqual(display, { x: 400, y: 300 });
     assert.deepEqual(renderer.presentationGeometry.previewPointToWorld(display), { x: 1600, y: 700 });

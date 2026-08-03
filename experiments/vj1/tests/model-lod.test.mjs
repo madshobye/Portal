@@ -189,6 +189,22 @@ test("progressive QEM LODs preserve closed topology at every level", () => {
   }
 });
 
+test("STL LOD generation repairs inconsistent winding before simplification", () => {
+  const source = parseStlMesh(readFileSync(new URL(
+    "../assets/stl/inferno-symbols/02_spiral_descent.stl",
+    import.meta.url,
+  )));
+  const lodMesh = buildAutomaticModelLods(source, [3000, 1500, 750]);
+  const counts = lodMesh.lods.map(modelTriangleCount);
+
+  assert.ok(counts[0] <= 3000, "the first retained LOD must reach its requested budget");
+  assert.ok(counts[1] <= 1500, "the second retained LOD must reach its requested budget");
+  assert.ok(counts[2] < counts[1], "the topology floor must still produce a distinct coarser LOD");
+  assert.ok(lodMesh.lods.every((lod) => lod.topologyLimited !== true));
+  assert.ok(lodMesh.lods.every((lod) => lod.simplification === "meshoptimizer-qem"));
+  assert.ok(lodMesh.lods.every((lod) => modelTriangleCount(lod) > 0));
+});
+
 test("OBJ parsing retains compact source indices before worker simplification", () => {
   const mesh = parseObjMesh(`
 v -1 -1 0
