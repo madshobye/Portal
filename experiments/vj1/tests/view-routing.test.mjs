@@ -140,8 +140,7 @@ test("the complete multi-Surface Live session and temporary params survive reloa
         previewSurfaceId: "surface-b",
         surfacePatches: { "surface-a": "scene-b", "surface-b": "part-a" },
         surfaceVisibility: { "surface-a": false, "surface-b": true },
-        componentOverrides: { "part-a": { opacity: 0.35 } },
-        sceneOverrides: {
+        parameterDiffs: {
           "scene-a": { "part-a": { opacity: 0.35 } },
           "scene-b": { "part-a": { scale: 1.4 } },
         },
@@ -168,10 +167,10 @@ test("the complete multi-Surface Live session and temporary params survive reloa
     "surface-a": false,
     "surface-b": true,
   });
-  assert.deepEqual(restored.live.componentOverrides, {
+  assert.deepEqual(restored.live.parameterDiffs["scene-a"], {
     "part-a": { opacity: 0.35 },
   });
-  assert.deepEqual(restored.live.sceneOverrides["scene-b"], {
+  assert.deepEqual(restored.live.parameterDiffs["scene-b"], {
     "part-a": { scale: 1.4 },
   });
   assert.equal(Object.hasOwn(restored.live, "transition"), false);
@@ -228,8 +227,8 @@ test("Live session restore prunes deleted targets and Surfaces before activation
   assert.equal(restored.live.previewSurfaceId, "");
   assert.deepEqual(restored.live.surfacePatches, { "surface-a": "part-a" });
   assert.deepEqual(restored.live.surfaceVisibility, { "surface-a": false });
-  assert.deepEqual(Object.keys(restored.live.sceneOverrides), ["part-a"]);
-  assert.deepEqual(restored.live.sceneOverrides["part-a"], {
+  assert.deepEqual(Object.keys(restored.live.parameterDiffs), ["part-a"]);
+  assert.deepEqual(restored.live.parameterDiffs["part-a"], {
     "part-a": { opacity: 0.5 },
   });
 });

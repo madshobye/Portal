@@ -111,7 +111,7 @@ test("project payload preserves the selected component chain item", () => {
         showScenes: false,
         showComponents: true,
         surfaceRoutes: { surfaces: [{ id: "surface-a", componentId: "component-a" }] },
-        componentOverrides: { "component-a": { opacity: 0.5 } },
+        parameterDiffs: { "scene-live": { "component-a": { opacity: 0.5 } } },
         transitionId: "org.vj1.transition.soft-wipe",
         transitionParameters: { softness: 0.25 },
         transitionDuration: 2.5,
@@ -153,7 +153,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.equal(payload.ui.live.transitionDuration, 2.5);
   assert.equal(payload.ui.live.paramFadeDuration, 0.75);
   assert.equal(payload.ui.live.transition, undefined);
-  assert.equal(payload.ui.live.componentOverrides, undefined);
+  assert.equal(payload.ui.live.parameterDiffs, undefined);
   assert.equal(payload.frames, undefined);
   assert.equal(payload.surfaces, undefined);
   assert.equal(payload.mappingCalibration, undefined);

@@ -84,7 +84,7 @@ export function preferredLiveSession(
 function createLiveSessionSnapshot(state = {}) {
   const live = state.ui?.live || {};
   return {
-    version: 1,
+    version: 2,
     selectedMappingId: String(state.ui?.selectedMappingId || ""),
     timeStretch: finiteNumber(state.global?.timeStretch, 0),
     live: {
@@ -95,8 +95,7 @@ function createLiveSessionSnapshot(state = {}) {
       previewSurfaceId: String(live.previewSurfaceId || "__mapping__"),
       surfacePatches: safeJsonObject(live.surfacePatches),
       surfaceVisibility: safeJsonObject(live.surfaceVisibility),
-      componentOverrides: safeJsonObject(live.componentOverrides),
-      sceneOverrides: safeJsonObject(live.sceneOverrides),
+      parameterDiffs: safeJsonObject(live.parameterDiffs),
       transitionId: String(live.transitionId || "vj1.transition.dissolve"),
       transitionParameters: safeJsonObject(live.transitionParameters),
       transitionDuration: finiteNumber(live.transitionDuration, 0),
@@ -106,7 +105,7 @@ function createLiveSessionSnapshot(state = {}) {
 }
 
 function normalizeLiveSessionSnapshot(state = {}, stored = {}) {
-  if (stored.live && Number(stored.version) !== 1) return null;
+  if (stored.live && ![1, 2].includes(Number(stored.version))) return null;
   const legacy = !stored.live
     ? {
         selectedMappingId: String(state.ui?.selectedMappingId || ""),
@@ -166,8 +165,11 @@ function normalizeLiveSessionSnapshot(state = {}, stored = {}) {
         override && typeof override === "object" && !Array.isArray(override),
     ),
   );
-  const sceneOverrides = Object.fromEntries(
-    Object.entries(safeJsonObject(live.sceneOverrides)).filter(
+  const legacyParameterDiffs = Number(legacy.version) === 2
+    ? safeJsonObject(live.parameterDiffs)
+    : safeJsonObject(live.sceneOverrides);
+  const parameterDiffs = Object.fromEntries(
+    Object.entries(legacyParameterDiffs).filter(
       ([targetId, overrides]) =>
         componentById.has(String(targetId)) &&
         overrides && typeof overrides === "object" && !Array.isArray(overrides),
@@ -176,12 +178,12 @@ function normalizeLiveSessionSnapshot(state = {}, stored = {}) {
       normalizeOverrideBank(overrides),
     ]),
   );
-  const activeOverrides = normalizeOverrideBank(live.componentOverrides);
-  if (selectedComponentId && Object.keys(activeOverrides).length) {
-    sceneOverrides[selectedComponentId] = activeOverrides;
+  const legacyActiveOverrides = normalizeOverrideBank(live.componentOverrides);
+  if (Number(legacy.version) !== 2 && selectedComponentId && Object.keys(legacyActiveOverrides).length) {
+    parameterDiffs[selectedComponentId] = legacyActiveOverrides;
   }
   return {
-    version: 1,
+    version: 2,
     selectedMappingId: String(mapping.id || ""),
     timeStretch: finiteNumber(legacy.timeStretch, state.global?.timeStretch || 0),
     live: {
@@ -194,10 +196,7 @@ function normalizeLiveSessionSnapshot(state = {}, stored = {}) {
       previewSurfaceId: validPreviewSurfaceId,
       surfacePatches,
       surfaceVisibility,
-      componentOverrides: selectedComponentId
-        ? normalizeOverrideBank(sceneOverrides[selectedComponentId])
-        : {},
-      sceneOverrides,
+      parameterDiffs,
       transitionId: String(
         live.transitionId || state.ui?.live?.transitionId || "vj1.transition.dissolve",
       ),

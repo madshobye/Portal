@@ -3,6 +3,7 @@ import {
   rebaseSurfaceRouteProgram,
 } from "./scene-routing.js";
 import { activeLiveTransitions } from "./live-transition-coordinator.js";
+import { liveParameterDiffBank } from "./live-parameter-diffs.js";
 
 const EMPTY_ROUTES = Object.freeze({ surfaces: Object.freeze([]) });
 
@@ -79,7 +80,7 @@ function compileTransition(state, live, target, mapping, currentRoutes, authored
     ),
   };
   const currentComponentOverrides =
-    authored.toComponentOverrides || live.componentOverrides || {};
+    authored.toComponentOverrides || liveParameterDiffBank(live);
   const componentConfigurationIds = changedComponentOverrideIds(
     authored.fromComponentOverrides || {},
     currentComponentOverrides,

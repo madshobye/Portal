@@ -220,6 +220,16 @@ stable transition ID and serializable parameters, never executable functions.
 
 ## Animation and live control
 
+Temporary Live parameters are one sparse `parameterDiffs[targetId]` authority,
+never an active copy plus retained per-target copies. Preview and standalone
+Output materialize the same compiled Live program from authored Components and
+the selected target's diff bank. Editing an authored Component parameter also
+updates an existing matching diff in the active Live bank atomically, so the
+editor, Live controls, Preview, and Output cannot later restore competing
+values. Structural reconciliation rebases sparse chain entries by stable item
+identity. Transition endpoint models may snapshot merged values for execution,
+but they are not writable Live authorities.
+
 Numeric Animation tracks are authored graph fragments inside the owning visual
 program, not a second animation runtime or per-frame project-state writer:
 

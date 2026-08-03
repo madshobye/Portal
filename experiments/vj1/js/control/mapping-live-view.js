@@ -17,6 +17,7 @@ import { UI_ICONS } from "./ui-icons.js";
 import { parameterAnimationTracks } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
 import { getByPath } from "./path-input-utils.js";
 import { dmxProbeComponentForState } from "../libraries/dmx-engine/index.js";
+import { liveParameterDiffBank } from "../domain/live-parameter-diffs.js";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
@@ -184,14 +185,7 @@ export function liveTargetComponentPillTemplate(component, state) {
 
 function liveTargetResetButtonTemplate(target, state) {
   const live = state.ui?.live || {};
-  // `sceneOverrides` is the retained override bank for every Live target,
-  // including Parts. The legacy name is persisted for project compatibility.
-  const retainedOverrides = live.sceneOverrides?.[target.id] || {};
-  const activeTargetId = String(live.selectedComponentId || live.selectedSceneId || "");
-  const activeOverrides = activeTargetId === String(target.id) ? live.componentOverrides || {} : {};
-  const hasOverrides =
-    Object.keys(retainedOverrides).length > 0 ||
-    Object.keys(activeOverrides).length > 0;
+  const hasOverrides = Object.keys(liveParameterDiffBank(live, target.id)).length > 0;
   if (!hasOverrides) return "";
   return `<button type="button" class="component-card-remove" data-reset-live-target="${esc(target.id)}" title="Reset temporary settings" aria-label="Reset temporary settings for ${esc(target.name)}">${icon("restart_alt")}</button>`;
 }
@@ -288,7 +282,7 @@ export function liveProgramSignificantControlsTemplate(state = {}) {
 
 function liveSignificantAssignmentValue(assignment, component, state) {
   if (assignment.kind === "animation") {
-    const override = state.ui?.live?.componentOverrides?.[component.id]
+    const override = liveParameterDiffBank(state.ui?.live)?.[component.id]
       ?.animation?.[assignment.trackId]?.fields?.[assignment.field];
     if (override !== undefined) return override;
     return parameterAnimationTracks(

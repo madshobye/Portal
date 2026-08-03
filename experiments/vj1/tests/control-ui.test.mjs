@@ -1063,7 +1063,7 @@ test("Live target cards share reset for retained temporary overrides", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const sceneLiveSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   assert.ok(sceneLiveSource.includes("data-reset-live-target"));
-  assert.ok(sceneLiveSource.includes("live.sceneOverrides"));
+  assert.ok(sceneLiveSource.includes("liveParameterDiffBank"));
   assert.ok(source.includes("store.resetLiveTarget"));
 });
 

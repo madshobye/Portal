@@ -2,6 +2,10 @@ import { bindReorderList } from "./reorder-list.js";
 import { formatTrimTime, roundTrimTime } from "./component-view.js";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js";
 import { createLiveRenderPatch } from "../domain/live-render-patch.js";
+import {
+  ensureLiveParameterDiffBank,
+  setLiveParameterDiff,
+} from "../domain/live-parameter-diffs.js";
 import { applyEditorSelection } from "../domain/editor-selection.js";
 import { bindMarkdownEditors } from "./markdown-editor.js";
 import { nodeBoundaryWithUniformScale } from "../libraries/render-engine/roi/index.js";
@@ -215,9 +219,7 @@ export function createInputController({
                 component.significantAnimationParams || []
               ).filter((entry) => entry.trackId !== trackId);
             }
-            delete draft.ui?.live?.componentOverrides?.[componentId]
-              ?.animation?.[trackId];
-            for (const overrides of Object.values(draft.ui?.live?.sceneOverrides || {})) {
+            for (const overrides of Object.values(draft.ui?.live?.parameterDiffs || {})) {
               delete overrides?.[componentId]?.animation?.[trackId];
             }
           });
@@ -1031,10 +1033,7 @@ export function applyOptimisticToggleIntent(button) {
 }
 
 export function setLiveOverride(state, componentId, path, value) {
-  if (!componentId || !path) return;
-  const overrides = activeLiveOverrideBank(state);
-  const override = overrides[componentId] ||= {};
-  setByPathCreate(override, path, value);
+  setLiveParameterDiff(state, componentId, path, value);
 }
 
 export function setLiveAnimationOverride(
@@ -1046,7 +1045,8 @@ export function setLiveAnimationOverride(
   value,
 ) {
   if (!componentId || !targetNodeId || !trackId || !field || !Number.isFinite(Number(value))) return;
-  const overrides = activeLiveOverrideBank(state);
+  const overrides = ensureLiveParameterDiffBank(state);
+  if (!overrides) return;
   const override = overrides[componentId] ||= {};
   override.animation ||= {};
   const track = override.animation[trackId] ||= {
@@ -1056,18 +1056,6 @@ export function setLiveAnimationOverride(
   track.targetNodeId = String(targetNodeId);
   track.fields ||= {};
   track.fields[field] = Number(value);
-}
-
-function activeLiveOverrideBank(state) {
-  state.ui.live ||= {};
-  state.ui.live.componentOverrides ||= {};
-  state.ui.live.sceneOverrides ||= {};
-  // `sceneOverrides` is the legacy persisted name for per-Live-target banks.
-  // Key the active bank by the selected target so Parts can retain and reset
-  // temporary parameters exactly like Scenes.
-  const targetId = String(state.ui.live.selectedComponentId || state.ui.live.selectedSceneId || "");
-  if (targetId) state.ui.live.sceneOverrides[targetId] = state.ui.live.componentOverrides;
-  return state.ui.live.componentOverrides;
 }
 
 function colorValueFromControl(control) {

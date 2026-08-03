@@ -41,6 +41,7 @@ import {
   materializeStructuralValue,
 } from "../libraries/data-store/data-store/structural-sharing.js";
 import { firstEnabledLiveSurfaceId } from "./live-ui-state.js";
+import { liveParameterDiffBank } from "./live-parameter-diffs.js";
 import { applyEditorSelection } from "./editor-selection.js";
 import { createSessionTimeline, normalizeSessionTimeline } from "../libraries/timing-engine/session-timeline/index.js";
 import {
@@ -415,8 +416,7 @@ export function createInitialState({ startupTemplate = false } = {}) {
         patchSourceId: "",
         surfacePatches: {},
         surfaceVisibility: {},
-        componentOverrides: {},
-        sceneOverrides: {},
+        parameterDiffs: {},
         transitionId: "vj1.transition.dissolve",
         transitionParameters: {},
         transitionDuration: startup ? 1.2 : 0,
@@ -687,11 +687,8 @@ function clampNumber(value, min, max, fallback) {
 }
 
 export function createLiveRenderState(state = createInitialState()) {
-  const program = compileLiveProjectionProgram(state);
+  const { program, next } = createLiveExecutionProjection(state);
   const { live, mapping } = program;
-  const presentedOverrides = program.transitions.find((transition) => transition.scope === "overall")
-    ?.currentComponentOverrides || live.componentOverrides;
-  const next = createLiveEndpointState(state, presentedOverrides);
   if (mapping) {
     // The compiled Live program is the sole current-route authority. Only a
     // transition's previous endpoint is stored because it is historical state.
@@ -734,11 +731,8 @@ export function createLiveRenderState(state = createInitialState()) {
 // complete, already-routed Live program and merely selects that Surface for its
 // outline. Source substitution belongs to the explicit patch action in state.
 export function createLiveScenePreviewState(state = createInitialState()) {
-  const program = compileLiveProjectionProgram(state);
+  const { program, next } = createLiveExecutionProjection(state);
   const { live, target } = program;
-  const presentedOverrides = program.transitions.find((transition) => transition.scope === "overall")
-    ?.currentComponentOverrides || live.componentOverrides;
-  const next = createLiveEndpointState(state, presentedOverrides);
   const previewsSceneMapping = String(live.previewSurfaceId || "__mapping__") === "__mapping__";
   if (!target && live.overallSourceCleared !== true) return next;
   if (previewsSceneMapping && live.sceneMappingVisible === false) {
@@ -784,6 +778,22 @@ export function createLiveScenePreviewState(state = createInitialState()) {
     next.liveTransition = liveTransitions[0];
   }
   return next;
+}
+
+// Preview and standalone Output begin with the exact same compiled Live
+// program and effective parameter projection. The Preview function above may
+// adapt only presentation: Scene Mapping is a flat Scene monitor with guides,
+// while Surface selection and Output present the compiled projected routes.
+// No second Live parameter/routing model is maintained here.
+function createLiveExecutionProjection(state) {
+  const program = compileLiveProjectionProgram(state);
+  const presentedOverrides = program.transitions.find(
+    (transition) => transition.scope === "overall"
+  )?.currentComponentOverrides || liveParameterDiffBank(program.live);
+  return {
+    program,
+    next: createLiveEndpointState(state, presentedOverrides),
+  };
 }
 
 // Live render endpoints are immutable projections of the same authored
@@ -958,7 +968,7 @@ function liveComponentMonitorAspect(render = {}, component = {}) {
 }
 
 export function createLiveComponentView(component = {}, state = createInitialState()) {
-  const override = state.ui?.live?.componentOverrides?.[component.id] || {};
+  const override = liveParameterDiffBank(state.ui?.live)?.[component.id] || {};
   return {
     ...component,
     opacity: override.opacity !== undefined ? clamp01(override.opacity) : component.opacity,
@@ -1035,14 +1045,18 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   const surfaceVisibility = Object.fromEntries(Object.entries(live.surfaceVisibility || {}).filter(([surfaceId, visible]) =>
     previewSurfaceIds.has(String(surfaceId)) && typeof visible === "boolean"
   ).map(([surfaceId, visible]) => [String(surfaceId), visible]));
-  const sceneOverrides = Object.fromEntries(Object.entries(live.sceneOverrides || {}).map(([sceneId, overrides]) => [
-    String(sceneId),
+  const legacyParameterDiffs = live.parameterDiffs && typeof live.parameterDiffs === "object"
+    ? live.parameterDiffs
+    : live.sceneOverrides || {};
+  const parameterDiffs = Object.fromEntries(Object.entries(legacyParameterDiffs).map(([targetId, overrides]) => [
+    String(targetId),
     normalizeComponentOverrides(overrides),
   ]));
-  const componentOverrides = normalizeComponentOverrides(
-    sceneOverrides[selectedTargetId] || live.componentOverrides || {}
-  );
-  if (selectedTargetId && Object.keys(componentOverrides).length) sceneOverrides[selectedTargetId] = clone(componentOverrides);
+  // Old sessions stored the selected target twice. Migrate that active copy
+  // once at normalization; current runtime state retains only parameterDiffs.
+  if (!live.parameterDiffs && selectedTargetId && Object.keys(live.componentOverrides || {}).length) {
+    parameterDiffs[selectedTargetId] = normalizeComponentOverrides(live.componentOverrides);
+  }
   const transitionDuration = clampNumber(live.transitionDuration, 0, 30, 0);
   const paramFadeDuration = clampNumber(live.paramFadeDuration, 0, 30, 0);
   const transitionId = String(live.transitionId || "vj1.transition.dissolve");
@@ -1078,8 +1092,7 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     patchSourceId,
     surfacePatches,
     surfaceVisibility,
-    componentOverrides,
-    sceneOverrides,
+    parameterDiffs,
     transitionId,
     transitionParameters,
     transitionDuration,

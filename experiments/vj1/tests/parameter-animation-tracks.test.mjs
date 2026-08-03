@@ -1442,13 +1442,15 @@ test("numeric animation controls can be significant and become temporary Live/MI
       live: {
         ...fixture.state.ui.live,
         selectedComponentId: fixture.componentId,
-        componentOverrides: {
+        parameterDiffs: {
           [fixture.componentId]: {
+            [fixture.componentId]: {
             animation: {
               [track.id]: {
                 targetNodeId: fixture.targetNodeId,
                 fields: { duration: 7.5 },
               },
+            },
             },
           },
         },
@@ -1572,8 +1574,8 @@ test("MIDI animation values survive significant marking and authored From/To edi
     structural: true,
   });
 
-  const retained = store.getState().ui.live.componentOverrides
-    ?.[fixture.componentId]?.animation?.[track.id]?.fields?.from;
+  const retained = store.getState().ui.live.parameterDiffs
+    ?.[fixture.componentId]?.[fixture.componentId]?.animation?.[track.id]?.fields?.from;
   const [liveTrack] = parameterAnimationTracks(
     store.getLiveRenderState().nodes,
     fixture.componentId,

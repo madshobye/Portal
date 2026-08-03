@@ -17,6 +17,7 @@ import {
 } from "../js/domain/models.js";
 import { compileLiveProjectionProgram } from "../js/domain/live-projection-program.js";
 import { liveSurfaceVisible } from "../js/domain/live-ui-state.js";
+import { outputRenderPatchesForChange } from "../js/domain/render-transport-patch.js";
 import {
   applyLiveRenderPatches,
   applyLiveRenderPatchesImmutable,
@@ -265,10 +266,7 @@ test("a Live session restores multi-Surface routing and resets atomically to cle
         [firstSurface.id]: false,
         [secondSurface.id]: true,
       },
-      componentOverrides: {
-        [source.id]: { opacity: 0.35 },
-      },
-      sceneOverrides: {
+      parameterDiffs: {
         [secondScene.id]: {
           [source.id]: { opacity: 0.35 },
         },
@@ -292,7 +290,7 @@ test("a Live session restores multi-Surface routing and resets atomically to cle
     [firstSurface.id]: false,
     [secondSurface.id]: true,
   });
-  assert.equal(live.componentOverrides[source.id].opacity, 0.35);
+  assert.equal(live.parameterDiffs[secondScene.id][source.id].opacity, 0.35);
   assert.equal(live.transition, null);
   assert.equal(events.at(-1).scope, "live");
   assert.equal(events.at(-1).history, "none");
@@ -305,8 +303,7 @@ test("a Live session restores multi-Surface routing and resets atomically to cle
   assert.equal(live.previewSurfaceId, "__mapping__");
   assert.deepEqual(live.surfacePatches, {});
   assert.deepEqual(live.surfaceVisibility, {});
-  assert.deepEqual(live.componentOverrides, {});
-  assert.deepEqual(live.sceneOverrides, {});
+  assert.deepEqual(live.parameterDiffs, {});
   assert.equal(live.transitionId, "org.vj1.transition.soft-wipe");
   assert.equal(live.transitionDuration, 2);
   assert.equal(events.at(-1).reason, "live:session-reset");
@@ -986,11 +983,11 @@ test("Live transitions identify Components whose endpoint visibility configurati
 
   store.selectLiveScene(firstScene.id);
   store.updateLive((draft) => {
-    draft.ui.live.componentOverrides[firstScene.id] = {
+    draft.ui.live.parameterDiffs[firstScene.id] = {
+      [firstScene.id]: {
       chain: [{ enabled: false }],
+      },
     };
-    draft.ui.live.sceneOverrides[firstScene.id] =
-      draft.ui.live.componentOverrides;
   }, "live:test-visibility");
   store.selectLiveScene(secondScene.id);
 
@@ -1260,9 +1257,12 @@ test("Live slider updates use the lightweight live-only state path", () => {
     { componentId, path: "transform.scale", value: 1.5 },
   ];
   store.updateLive((draft) => {
-    draft.ui.live.componentOverrides[componentId] = {
+    draft.ui.live.selectedComponentId = componentId;
+    draft.ui.live.parameterDiffs[componentId] = {
+      [componentId]: {
       opacity: 0.35,
       transform: { x: 0.4, scale: 1.5 },
+      },
     };
   }, { reason: "scrub:live", livePatches });
 
@@ -1345,22 +1345,35 @@ test("immutable render patches path-copy only affected retained preview state", 
   );
 });
 
-test("persistent scrubs retain one baseline without disarming Live truth on commit", () => {
+test("persistent scrubs atomically update the matching active Live diff", () => {
   const state = createInitialState();
   const component = state.components[0];
   component.opacity = 1;
-  state.ui.live.componentOverrides[component.id] = { opacity: 0.25 };
-  state.ui.live.sceneOverrides[state.ui.live.selectedSceneId] = state.ui.live.componentOverrides;
+  state.ui.live.selectedComponentId = component.id;
+  state.ui.live.parameterDiffs[component.id] = {
+    [component.id]: { opacity: 0.25 },
+  };
   const store = createAppState(state);
+  const outputState = store.getLiveRenderState();
+  let event = null;
+  store.subscribe((_state, _reason, change) => { event = change; });
 
   store.update((draft) => { draft.components[0].opacity = 0.8; }, "scrub:components.0.opacity");
+  applyLiveRenderPatches(outputState, outputRenderPatchesForChange(store.getState(), event));
   store.update((draft) => { draft.components[0].opacity = 0.6; }, "scrub:components.0.opacity");
+  applyLiveRenderPatches(outputState, outputRenderPatchesForChange(store.getState(), event));
   assert.equal(store.getState().components[0].opacity, 0.6);
-  assert.equal(store.getState().ui.live.componentOverrides[component.id].opacity, 0.25);
+  assert.equal(store.getState().ui.live.parameterDiffs[component.id][component.id].opacity, 0.6);
+  assert.equal(outputState.components[0].opacity, 0.6);
+  assert.equal(
+    createLiveScenePreviewState(store.getState()).components[0].opacity,
+    0.6,
+    "Live Preview and Output consume the same effective parameter projection",
+  );
 
   store.update((draft) => { draft.components[0].opacity = 0.6; }, "update:components.0.opacity");
   assert.equal(store.getState().components[0].opacity, 0.6);
-  assert.equal(store.getState().ui.live.componentOverrides[component.id]?.opacity, 0.25);
+  assert.equal(store.getState().ui.live.parameterDiffs[component.id][component.id]?.opacity, 0.6);
 });
 
 test("render state uses the selected Mapping in Mapping workspace and selected Scene in Live", () => {
@@ -1451,20 +1464,24 @@ test("Live Scene cuts restore and timed transitions keep the selected Mapping", 
 test("Live temporary overrides persist per authored Scene until explicitly reset", () => {
   const { state, source, firstScene, secondScene } = liveSceneMappingFixture();
   const store = createAppState(state);
-  store.update((draft) => {
-    draft.ui.live.componentOverrides[source.id] = { opacity: 0.25 };
+  store.updateLive((draft) => {
+    draft.ui.live.parameterDiffs[firstScene.id] = {
+      [source.id]: { opacity: 0.25 },
+    };
   }, "live:update");
   store.selectLiveScene(secondScene.id);
-  assert.deepEqual(store.getState().ui.live.componentOverrides, {});
-  store.update((draft) => {
-    draft.ui.live.componentOverrides[source.id] = { speed: 2 };
+  assert.deepEqual(store.getState().ui.live.parameterDiffs[secondScene.id], undefined);
+  store.updateLive((draft) => {
+    draft.ui.live.parameterDiffs[secondScene.id] = {
+      [source.id]: { speed: 2 },
+    };
   }, "live:update");
   store.selectLiveScene(firstScene.id);
-  assert.equal(store.getState().ui.live.componentOverrides[source.id].opacity, 0.25);
+  assert.equal(store.getState().ui.live.parameterDiffs[firstScene.id][source.id].opacity, 0.25);
   store.resetLiveTarget(firstScene.id);
-  assert.deepEqual(store.getState().ui.live.componentOverrides, {});
+  assert.equal(store.getState().ui.live.parameterDiffs[firstScene.id], undefined);
   store.selectLiveScene(secondScene.id);
-  assert.equal(store.getState().ui.live.componentOverrides[source.id].speed, 2);
+  assert.equal(store.getState().ui.live.parameterDiffs[secondScene.id][source.id].speed, 2);
 });
 
 test("Live Part temporary overrides reset through the shared target contract", () => {
@@ -1472,35 +1489,29 @@ test("Live Part temporary overrides reset through the shared target contract", (
   const part = state.components[0];
   state.ui.live.selectedComponentId = part.id;
   state.ui.live.selectedSceneId = "";
-  state.ui.live.componentOverrides = {
-    [part.id]: { opacity: 0.4 },
-  };
-  state.ui.live.sceneOverrides = {
-    [part.id]: state.ui.live.componentOverrides,
+  state.ui.live.parameterDiffs = {
+    [part.id]: { [part.id]: { opacity: 0.4 } },
   };
   const store = createAppState(state);
 
   store.resetLiveTarget(part.id);
 
-  assert.deepEqual(store.getState().ui.live.componentOverrides, {});
-  assert.equal(store.getState().ui.live.sceneOverrides[part.id], undefined);
+  assert.equal(store.getState().ui.live.parameterDiffs[part.id], undefined);
 });
 
-test("persistent component edits retain active Live params until explicit reset", () => {
+test("persistent component edits update matching active Live params and retain unrelated diffs", () => {
   const state = createInitialState();
-  const scene = createMappingFromState(state, "Live scene");
-  state.mappings = [scene];
-  state.ui.live.selectedSceneId = scene.id;
   const componentId = state.components[0].id;
+  state.ui.live.selectedSceneId = "";
+  state.ui.live.selectedComponentId = componentId;
   const source = state.components[0].chain[0];
   source.source.params = { modelScale: 1, depth: 1 };
-  state.ui.live.componentOverrides = {
+  state.ui.live.parameterDiffs = {
     [componentId]: {
-      chain: [{ source: { params: { modelScale: 2, depth: 3 } } }],
+      [componentId]: {
+        chain: [{ source: { params: { modelScale: 2, depth: 3 } } }],
+      },
     },
-  };
-  state.ui.live.sceneOverrides = {
-    [scene.id]: structuredClone(state.ui.live.componentOverrides),
   };
   const store = createAppState(state);
 
@@ -1508,10 +1519,10 @@ test("persistent component edits retain active Live params until explicit reset"
     draft.components[0].chain[0].source.params.modelScale = 1.5;
   }, "update:components.0.chain.0.source.params.modelScale");
 
-  const overrides = store.getState().ui.live.componentOverrides[componentId];
-  assert.equal(overrides.chain[0].source.params.modelScale, 2);
+  const overrides = store.getState().ui.live.parameterDiffs[componentId][componentId];
+  assert.equal(overrides.chain[0].source.params.modelScale, 1.5);
   assert.equal(overrides.chain[0].source.params.depth, 3);
-  assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.modelScale, 2);
+  assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.modelScale, 1.5);
   assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.depth, 3);
 });
 
@@ -1525,11 +1536,10 @@ test("chain reordering rebases retained Live params by stable element identity",
     name: "Second item",
   };
   component.chain.push(second);
-  state.ui.live.componentOverrides[component.id] = {
-    chain: [{ opacity: 0.35 }],
+  state.ui.live.selectedComponentId = component.id;
+  state.ui.live.parameterDiffs[component.id] = {
+    [component.id]: { chain: [{ opacity: 0.35 }] },
   };
-  state.ui.live.sceneOverrides[state.ui.live.selectedSceneId] =
-    state.ui.live.componentOverrides;
   const store = createAppState(state);
 
   store.update((draft) => {
@@ -1545,7 +1555,7 @@ test("chain reordering rebases retained Live params by stable element identity",
   );
   assert.equal(firstIndex, 1);
   assert.equal(
-    reordered.ui.live.componentOverrides[component.id].chain[firstIndex].opacity,
+    reordered.ui.live.parameterDiffs[component.id][component.id].chain[firstIndex].opacity,
     0.35,
   );
   assert.equal(

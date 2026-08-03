@@ -346,13 +346,15 @@ test("Live target reset is shown on Scene and Part thumbnails with temporary par
   assert.doesNotMatch(liveScenePillTemplate(liveScene, state), /data-reset-live-target/);
   assert.doesNotMatch(liveTargetComponentPillTemplate(component, state), /data-reset-live-target/);
 
-  state.ui.live.componentOverrides = { [state.components[0].id]: { opacity: 0.5 } };
-  state.ui.live.sceneOverrides[liveScene.id] = state.ui.live.componentOverrides;
+  state.ui.live.parameterDiffs[liveScene.id] = {
+    [state.components[0].id]: { opacity: 0.5 },
+  };
   assert.match(liveScenePillTemplate(liveScene, state), /data-reset-live-target/);
 
   state.ui.live.selectedComponentId = component.id;
-  state.ui.live.componentOverrides = { [component.id]: { opacity: 0.25 } };
-  state.ui.live.sceneOverrides[component.id] = state.ui.live.componentOverrides;
+  state.ui.live.parameterDiffs[component.id] = {
+    [component.id]: { opacity: 0.25 },
+  };
   assert.match(liveTargetComponentPillTemplate(component, state), /data-reset-live-target/);
 });
 

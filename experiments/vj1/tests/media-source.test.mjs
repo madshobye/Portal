@@ -770,8 +770,10 @@ test("live source param overrides compile through node params", () => {
   state.components = [component];
   state.ui.live = {
     selectedSceneId: "",
-    componentOverrides: {
+    selectedComponentId: component.id,
+    parameterDiffs: {
       [component.id]: {
+        [component.id]: {
         transform: { x: 0.25, y: -0.4, scale: 1.75, rotation: 0.3 },
         chain: [{
           source: {
@@ -781,6 +783,7 @@ test("live source param overrides compile through node params", () => {
             },
           },
         }],
+        },
       },
     },
   };

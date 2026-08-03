@@ -51,7 +51,7 @@ export function restoreProjectLiveUi(currentLive = {}, projectLive = {}) {
   return resetSceneMappingSession({
     ...currentLive,
     ...(projectLive || {}),
-    componentOverrides: currentLive?.componentOverrides || {},
+    parameterDiffs: currentLive?.parameterDiffs || {},
   });
 }
 

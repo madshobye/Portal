@@ -42,6 +42,12 @@ import {
 import { signalLoadMeter } from "./metrics/signal-load-meter.js";
 import { applyEditorSelection, editorSelectionChangedPaths } from "./domain/editor-selection.js";
 import { rebaseSessionTimeline } from "./libraries/timing-engine/session-timeline/index.js";
+import {
+  activeLiveTargetId,
+  clearLiveTargetParameterDiffs,
+  liveParameterDiffBank,
+  updateLiveParameterDiffIfPresent,
+} from "./domain/live-parameter-diffs.js";
 
 export function createAppState(initial = null, {
   prepareState = null,
@@ -114,7 +120,7 @@ export function createAppState(initial = null, {
     pendingEditBaseline = null;
     const normalized = normalizeState(next);
     state = event.projectRestore ? normalized : stampChangedProjectItems(previous, normalized);
-    if (event.scope !== "live") reconcileLiveOverridesWithPersistentEdits(previous, state);
+    if (event.scope !== "live") reconcileLiveParameterDiffsWithPersistentEdits(previous, state);
     emit(event);
   }
 
@@ -127,7 +133,10 @@ export function createAppState(initial = null, {
       // A gesture is one transaction. Preserve the immutable pre-gesture root
       // while each sample path-copies only the branch it changes.
       pendingEditBaseline ||= state;
-      state = projectMappingProjectionForChangedSelection(state, next);
+      state = produceStructuralShare(
+        projectMappingProjectionForChangedSelection(state, next),
+        (draft) => synchronizeActiveLiveDiffsForProjectChange(draft, event),
+      );
       emit(event);
       return true;
     }
@@ -136,7 +145,8 @@ export function createAppState(initial = null, {
     if (event.scope === "project") {
       committed = stampChangedOwners(transactionBaseline, committed);
       committed = produceStructuralShare(committed, (draft) => {
-        reconcileLiveOverridesWithPersistentEdits(transactionBaseline, draft);
+        reconcileLiveParameterDiffsWithPersistentEdits(transactionBaseline, draft);
+        synchronizeActiveLiveDiffsForProjectChange(draft, event);
       });
       if (typeof prepareChange === "function") {
         committed = prepareChange(transactionBaseline, committed, event);
@@ -229,11 +239,7 @@ export function createAppState(initial = null, {
         "",
       );
       if (!targetId) return;
-      draft.ui.live.sceneOverrides ||= {};
-      delete draft.ui.live.sceneOverrides[targetId];
-      if (String(draft.ui.live.selectedComponentId || "") === targetId) {
-        draft.ui.live.componentOverrides = {};
-      }
+      clearLiveTargetParameterDiffs(draft, targetId);
     }, "live:reset");
   }
 
@@ -263,8 +269,15 @@ export function createAppState(initial = null, {
       draft.ui.live.patchSourceId = "";
       draft.ui.live.surfacePatches = clone(savedLive.surfacePatches || {});
       draft.ui.live.surfaceVisibility = clone(savedLive.surfaceVisibility || {});
-      draft.ui.live.componentOverrides = clone(savedLive.componentOverrides || {});
-      draft.ui.live.sceneOverrides = clone(savedLive.sceneOverrides || {});
+      draft.ui.live.parameterDiffs = clone(
+        savedLive.parameterDiffs || savedLive.sceneOverrides || {},
+      );
+      const restoredTargetId = String(
+        savedLive.selectedComponentId || savedLive.selectedSceneId || "",
+      );
+      if (!savedLive.parameterDiffs && restoredTargetId && Object.keys(savedLive.componentOverrides || {}).length) {
+        draft.ui.live.parameterDiffs[restoredTargetId] = clone(savedLive.componentOverrides);
+      }
       draft.ui.live.transitionId = String(
         savedLive.transitionId || draft.ui.live.transitionId || "vj1.transition.dissolve",
       );
@@ -322,8 +335,7 @@ export function createAppState(initial = null, {
       draft.ui.live.patchSourceId = "";
       draft.ui.live.surfacePatches = {};
       draft.ui.live.surfaceVisibility = {};
-      draft.ui.live.componentOverrides = {};
-      draft.ui.live.sceneOverrides = {};
+      draft.ui.live.parameterDiffs = {};
       clearLiveTransitionCoordinator(draft.ui.live);
       draft.ui.previewViewports ||= {};
       draft.ui.previewViewports.live = {
@@ -551,14 +563,19 @@ export function createAppState(initial = null, {
         ui.selectedComponentId = String(selectId);
       }
       const previous = state;
+      const changedPaths = normalizedEntries.map((entry) =>
+        `components.${componentIndex}.${entry.relativePath}`
+      );
       const next = { ...state, components, ui };
+      reconcileLiveParameterDiffsWithPersistentEdits(previous, next);
+      synchronizeActiveLiveDiffsForProjectChange(next, { changedPaths });
       state = typeof prepareChange === "function"
         ? prepareChange(previous, next, classifyChange({
           reason: reason || `update:components.${componentIndex}.${normalizedEntries[0].relativePath}`,
           scope: "project",
+          changedPaths,
         }))
         : next;
-      reconcileLiveOverridesWithPersistentEdits(previous, state);
       pendingEditBaseline = null;
       const selectionChangedPaths = selectAction === "chain-item" && selectId
         ? editorSelectionChangedPaths(state.ui, "element")
@@ -567,9 +584,7 @@ export function createAppState(initial = null, {
         reason: reason || `update:components.${componentIndex}.${normalizedEntries[0].relativePath}`,
         scope: "project",
         changedPaths: [
-          ...normalizedEntries.map((entry) =>
-            `components.${componentIndex}.${entry.relativePath}`
-          ),
+          ...changedPaths,
           ...selectionChangedPaths,
         ],
         renderPatches: normalizedEntries.filter((entry) =>
@@ -863,7 +878,6 @@ export function createAppState(initial = null, {
         const mapping = draft.mappings.find((item) => String(item.id) === String(draft.ui.selectedMappingId || "")) || draft.mappings[0];
         if (patchSelectedLiveSurface(draft, scene, mapping)) return;
         draft.ui.live.overallSourceCleared = false;
-        draft.ui.live.sceneOverrides ||= {};
         const previousSceneId = String(draft.ui.live.selectedSceneId || "");
         const previousTarget = draft.components.find((item) =>
           !item.systemRole && String(item.id) === String(draft.ui.live.selectedComponentId || "")
@@ -871,14 +885,10 @@ export function createAppState(initial = null, {
         if (previousSceneId === String(scene.id)
           && String(previousTarget?.id || "") === String(scene.id)) return;
         const previousRoutes = compileLiveProjectionProgram(draft).logicalRoutes;
-        if (previousTarget?.id && Object.keys(draft.ui.live.componentOverrides || {}).length) {
-          draft.ui.live.sceneOverrides[previousTarget.id] = clone(draft.ui.live.componentOverrides);
-        }
         draft.ui.live.selectedSceneId = scene.id;
         draft.ui.live.selectedComponentId = scene.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
-        draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
         scheduleLiveRouteTransition(draft, previousRoutes);
       }, "live:scene");
     },
@@ -898,14 +908,9 @@ export function createAppState(initial = null, {
           !item.systemRole && String(item.id) === String(draft.ui.live.selectedComponentId || "")
         ) || scene;
         const previousRoutes = compileLiveProjectionProgram(draft).logicalRoutes;
-        draft.ui.live.sceneOverrides ||= {};
-        if (previousTarget?.id && Object.keys(draft.ui.live.componentOverrides || {}).length) {
-          draft.ui.live.sceneOverrides[previousTarget.id] = clone(draft.ui.live.componentOverrides);
-        }
         draft.ui.live.selectedComponentId = target.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
-        draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[target.id] || {});
         scheduleLiveRouteTransition(draft, previousRoutes);
       }, "live:target");
     },
@@ -1005,7 +1010,6 @@ export function createAppState(initial = null, {
         draft.ui.live.selectedComponentId = "";
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
-        draft.ui.live.componentOverrides = {};
         scheduleLiveRouteTransition(draft, previousRoutes);
       }, "live:overall-component-clear");
       return true;
@@ -1014,13 +1018,11 @@ export function createAppState(initial = null, {
       updateLive((draft) => {
         const scene = draft.components.find((item) => item.type === "scene" && String(item.id) === String(id));
         if (!scene) return;
-        draft.ui.live.sceneOverrides ||= {};
         draft.ui.live.overallSourceCleared = false;
         draft.ui.live.selectedSceneId = scene.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.surfacePatches = {};
         draft.ui.live.patchSourceId = "";
-        draft.ui.live.componentOverrides = clone(draft.ui.live.sceneOverrides[scene.id] || {});
         clearLiveTransitionCoordinator(draft.ui.live);
         draft.ui.live.selectedComponentId = scene.id;
       }, { reason: "live:scene-restore", history: "none" });
@@ -1198,9 +1200,14 @@ function scheduleLiveRouteTransition(state, previousRoutes, routeTargetId = "", 
     return;
   }
   const currentRoutes = clone(compileLiveProjectionProgram(state).logicalRoutes);
-  const previousOverrides = state.ui.live.sceneOverrides?.[previousTargetId]
-    || state.ui.live.componentOverrides
-    || {};
+  const previousTargetDiffs = liveParameterDiffBank(state.ui.live, previousTargetId);
+  // A direct Surface target may not own a retained parameter bank. Preserve
+  // the established behavior in that case: transitions snapshot the active
+  // Overall program's effective diffs rather than inventing a second
+  // destination-specific parameter model.
+  const previousOverrides = Object.keys(previousTargetDiffs).length
+    ? previousTargetDiffs
+    : liveParameterDiffBank(state.ui.live);
   scheduleLiveTransition(state.ui.live, {
     id: uid("live-transition"),
     fromSceneId: String(state.ui.live.selectedSceneId || ""),
@@ -1210,7 +1217,7 @@ function scheduleLiveRouteTransition(state, previousRoutes, routeTargetId = "", 
     fromSurfaceRoutes: clone(previousRoutes),
     toSurfaceRoutes: currentRoutes,
     fromComponentOverrides: clone(previousOverrides),
-    toComponentOverrides: clone(state.ui.live.componentOverrides || {}),
+    toComponentOverrides: clone(liveParameterDiffBank(state.ui.live)),
     transitionId: String(state.ui.live.transitionId || "vj1.transition.dissolve"),
     transitionParameters: clone(state.ui.live.transitionParameters || {}),
     durationMs,
@@ -1246,7 +1253,7 @@ function copyPathWithValue(target, path, value, { createMissing = false } = {}) 
   return copy;
 }
 
-function reconcileLiveOverridesWithPersistentEdits(previous, next) {
+function reconcileLiveParameterDiffsWithPersistentEdits(previous, next) {
   const previousComponents = new Map((previous?.components || []).map((component) => [String(component.id), component]));
   const nextComponents = new Map((next?.components || []).map((component) => [String(component.id), component]));
   const rebaseBank = (bank = {}) => Object.fromEntries(Object.entries(bank || {}).flatMap(([componentId, override]) => {
@@ -1258,19 +1265,48 @@ function reconcileLiveOverridesWithPersistentEdits(previous, next) {
     return hasLiveOverrideContent(rebased) ? [[componentId, rebased]] : [];
   }));
 
-  next.ui.live.componentOverrides = rebaseBank(next.ui.live.componentOverrides);
-  next.ui.live.sceneOverrides = Object.fromEntries(Object.entries(next.ui.live.sceneOverrides || {}).map(([sceneId, bank]) => [
-    sceneId,
+  next.ui.live.parameterDiffs = Object.fromEntries(Object.entries(next.ui.live.parameterDiffs || {}).map(([targetId, bank]) => [
+    targetId,
     rebaseBank(bank),
   ]));
-  const selectedTargetId = String(next.ui.live.selectedComponentId || next.ui.live.selectedSceneId || "");
-  if (selectedTargetId) {
-    if (Object.keys(next.ui.live.componentOverrides).length) {
-      next.ui.live.sceneOverrides[selectedTargetId] = clone(next.ui.live.componentOverrides);
-    } else {
-      delete next.ui.live.sceneOverrides[selectedTargetId];
-    }
+}
+
+function synchronizeActiveLiveDiffsForProjectChange(state, event = {}) {
+  const paths = new Set(event.changedPaths || []);
+  if (/^components\.\d+\./.test(String(event.topic || ""))) {
+    paths.add(String(event.topic));
   }
+  const targetId = activeLiveTargetId(state.ui?.live);
+  if (!targetId) return;
+  for (const path of paths) {
+    const match = /^components\.(\d+)\.(.+)$/.exec(String(path || ""));
+    if (!match) continue;
+    const component = state.components?.[Number(match[1])];
+    if (!component?.id) continue;
+    const value = valueAtRelativePath(component, match[2]);
+    if (!value.found) continue;
+    updateLiveParameterDiffIfPresent(
+      state,
+      component.id,
+      match[2],
+      clone(value.value),
+      targetId,
+    );
+  }
+}
+
+function valueAtRelativePath(target, path) {
+  const parts = String(path || "").split(".").filter(Boolean).map((part) =>
+    /^\d+$/.test(part) ? Number(part) : part
+  );
+  let cursor = target;
+  for (const part of parts) {
+    if (cursor == null || typeof cursor !== "object" || !(part in cursor)) {
+      return { found: false, value: undefined };
+    }
+    cursor = cursor[part];
+  }
+  return { found: parts.length > 0, value: cursor };
 }
 
 // Live is an explicit performance layer. Authored edits may change the value
