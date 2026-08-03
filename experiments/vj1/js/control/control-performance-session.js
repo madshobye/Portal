@@ -8,9 +8,11 @@ export function createControlPerformanceSession({
   getState,
   metricForState,
   signalForState,
+  diagnosticForState,
   analyze,
   onTick = () => {},
   onComplete = () => {},
+  onActiveChange = () => {},
   durationMs = DEFAULT_DURATION_MS,
 } = {}) {
   let session = null;
@@ -33,6 +35,8 @@ export function createControlPerformanceSession({
       startedAtIso: new Date().toISOString(),
       endsAt: startedAt + durationMs,
       samples: [],
+      timeline: [],
+      diagnosticHistory: new Map(),
       host: {
         uiRenderMs: [],
         longTasks: [],
@@ -43,6 +47,7 @@ export function createControlPerformanceSession({
         memoryStartBytes: performanceMemoryBytes(),
       },
     };
+    notifyActiveChange(true);
     startLongTaskObserver();
     captureSample(getState?.());
     captureSignal(getState?.());
@@ -63,27 +68,45 @@ export function createControlPerformanceSession({
     return true;
   }
 
-  function recordStateEvent(reason) {
-    if (!session) return;
+  function recordStateEvent(reason, state = getState?.(), change = null) {
+    if (!captureWindowOpen()) return;
     const key = String(reason || "unknown");
     session.host.stateEvents[key] = (session.host.stateEvents[key] || 0) + 1;
+    pushBounded(session.timeline, {
+      sampledAt: new Date().toISOString(),
+      reason: key,
+      control: captureDiagnostic(state, { kind: "event", reason: key, change }),
+    }, 240);
   }
 
   function recordUiRender(duration) {
-    if (!session) return;
+    if (!captureWindowOpen()) return;
     pushBounded(session.host.uiRenderMs, Math.max(0, Number(duration) || 0), 240);
   }
 
+  function recordInteraction(kind, payload = {}) {
+    if (!captureWindowOpen()) return;
+    pushBounded(session.timeline, {
+      sampledAt: new Date().toISOString(),
+      interaction: {
+        kind: String(kind || "interaction"),
+        payload: structuredCloneSafe(payload),
+      },
+    }, 240);
+  }
+
   function captureSignal(state) {
-    if (!session) return;
+    if (!captureWindowOpen()) return;
     const snapshot = signalForState?.(state);
     if (snapshot) pushBounded(session.host.signalSamples, structuredCloneSafe(snapshot), 80);
   }
 
   function captureSample(state, reason = "active") {
-    if (!session || !state) return false;
+    if (!captureWindowOpen() || !state) return false;
     const metric = metricForState?.(state, reason);
     if (!(metric?.fps > 0)) return false;
+    const controlDiagnostic = captureDiagnostic(state, { kind: "sample", reason });
+    const rendererDiagnostic = metric.diagnostic ? structuredCloneSafe(metric.diagnostic) : null;
     session.samples.push({
       sampledAt: new Date().toISOString(),
       source: metric.source,
@@ -94,6 +117,8 @@ export function createControlPerformanceSession({
       renderCost: metric.renderCost,
       profile: metric.profile ? structuredCloneSafe(metric.profile) : null,
       transport: metric.transport ? structuredCloneSafe(metric.transport) : null,
+      control: deduplicateDiagnostic(session, "control", controlDiagnostic),
+      renderer: deduplicateDiagnostic(session, "renderer", rendererDiagnostic),
     });
     return true;
   }
@@ -103,6 +128,7 @@ export function createControlPerformanceSession({
     clearResources();
     const completed = session;
     session = null;
+    notifyActiveChange(false);
     const state = getState?.();
     const report = {
       kind: "vj1-runtime-profile",
@@ -110,6 +136,7 @@ export function createControlPerformanceSession({
       startedAt: completed.startedAtIso,
       completedAt: new Date().toISOString(),
       runtimeSamples: completed.samples,
+      timeline: completed.timeline,
       analysis: analyze?.(state, completed.samples) || null,
       host: summarizePerformanceHost(completed.host),
     };
@@ -118,8 +145,31 @@ export function createControlPerformanceSession({
   }
 
   function dispose() {
+    const wasActive = !!session;
     clearResources();
     session = null;
+    if (wasActive) notifyActiveChange(false);
+  }
+
+  function captureWindowOpen() {
+    return !!session && performance.now() <= session.endsAt;
+  }
+
+  function notifyActiveChange(active) {
+    try {
+      onActiveChange(active);
+    } catch (error) {
+      console.warn("[VJ1_PROFILE_DIAGNOSTIC_GATE_FAILED]", { active, message: error?.message || String(error) });
+    }
+  }
+
+  function captureDiagnostic(state, context = {}) {
+    try {
+      const diagnostic = diagnosticForState?.(state, context);
+      return diagnostic ? structuredCloneSafe(diagnostic) : null;
+    } catch (error) {
+      return { captureError: error?.message || String(error) };
+    }
   }
 
   function startLongTaskObserver() {
@@ -149,7 +199,36 @@ export function createControlPerformanceSession({
     longTaskObserver = null;
   }
 
-  return { captureSample, dispose, finish, isActive, recordStateEvent, recordUiRender, remainingSeconds, start };
+  return {
+    captureSample,
+    dispose,
+    finish,
+    isActive,
+    recordInteraction,
+    recordStateEvent,
+    recordUiRender,
+    remainingSeconds,
+    start,
+  };
+}
+
+function deduplicateDiagnostic(session, kind, diagnostic) {
+  if (!diagnostic || typeof diagnostic !== "object") return diagnostic;
+  const signature = JSON.stringify(diagnostic, (key, value) =>
+    ["capturedAtMs", "frameIndex", "progress"].includes(key) ? undefined : value
+  );
+  const previous = session.diagnosticHistory.get(kind);
+  if (previous?.signature === signature) {
+    return {
+      schema: String(diagnostic.schema || ""),
+      unchangedSinceSample: previous.sampleIndex,
+    };
+  }
+  session.diagnosticHistory.set(kind, {
+    signature,
+    sampleIndex: session.samples.length,
+  });
+  return diagnostic;
 }
 
 export function summarizePerformanceHost(host = {}) {

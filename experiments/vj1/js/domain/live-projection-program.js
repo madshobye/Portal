@@ -1,6 +1,5 @@
 import {
   materializeLiveProgramSurfaceRoutes,
-  rebaseSurfaceRouteProgram,
 } from "./scene-routing.js";
 import { activeLiveTransitions } from "./live-transition-coordinator.js";
 import { liveParameterDiffBank } from "./live-parameter-diffs.js";
@@ -34,7 +33,7 @@ export function compileLiveProjectionProgram(state = {}, now = Date.now()) {
   );
   const currentRoutes = presentedRoutes(logicalRoutes, authoredTransitions);
   const transitions = authoredTransitions
-    .map((authored) => compileTransition(state, live, target, mapping, currentRoutes, authored, now))
+    .map((authored) => compileTransition(live, target, mapping, authored, now))
     .filter(Boolean);
   const previewSurfaceId = String(live.previewSurfaceId || "__mapping__");
   const previewTransitions = transitions.filter((transition) => transitionAppliesToPreview(
@@ -59,43 +58,30 @@ export function compileLiveProjectionProgram(state = {}, now = Date.now()) {
   });
 }
 
-function compileTransition(state, live, target, mapping, currentRoutes, authored, now) {
+function compileTransition(live, target, mapping, authored, now) {
   const durationMs = Math.max(0, Number(authored?.durationMs) || 0);
   const startedAtMs = Number(authored?.startedAtMs) || 0;
   if (!mapping
-    || !authored?.fromSurfaceRoutes
     || (live.sceneMappingVisible === false && !authored?.surfaceId)
     || durationMs <= 0
     || startedAtMs <= 0
     || startedAtMs + durationMs <= now) return null;
 
-  const previousTargetId = String(authored.fromTargetId || authored.fromSceneId || "");
-  const previousTarget = state.components?.find((item) =>
-    !item.systemRole && String(item.id) === previousTargetId
-  ) || null;
-  const previousRoutes = {
-    surfaces: rebaseSurfaceRouteProgram(
-      authored.fromSurfaceRoutes.surfaces,
-      currentRoutes.surfaces
-    ),
-  };
-  const currentComponentOverrides =
-    authored.toComponentOverrides || liveParameterDiffBank(live);
-  const componentConfigurationIds = changedComponentOverrideIds(
-    authored.fromComponentOverrides || {},
-    currentComponentOverrides,
-  );
-
+  // The renderer owns the retained outgoing branch. This projection resolves
+  // only the incoming target so parameter changes made after scheduling remain
+  // visible instead of being replaced by scheduling-time values. `toTargetId`
+  // also keeps a queued target isolated from a later selection.
+  const currentTargetId = String(authored.toTargetId || target?.id || "");
+  const currentComponentOverrides = currentTargetId
+    ? liveParameterDiffBank(live, currentTargetId)
+    : liveParameterDiffBank(live);
   return Object.freeze({
-    id: String(authored.id || `${previousTargetId || "empty"}:${target?.id || "empty"}:${startedAtMs}`),
+    id: String(authored.id || `${authored.fromTargetId || "empty"}:${target?.id || "empty"}:${startedAtMs}`),
     scope: authored.surfaceId ? "surface" : "overall",
     surfaceId: String(authored.surfaceId || ""),
-    previousTarget,
-    previousRoutes,
-    previousComponentOverrides: authored.fromComponentOverrides || {},
+    fromTargetId: String(authored.fromTargetId || ""),
+    toTargetId: currentTargetId,
     currentComponentOverrides,
-    componentConfigurationIds,
-    componentsShared: componentConfigurationIds.length === 0,
     transitionId: String(authored.transitionId || live.transitionId || "vj1.transition.dissolve"),
     transitionParameters: authored.transitionParameters && typeof authored.transitionParameters === "object"
       ? Object.freeze({ ...authored.transitionParameters })
@@ -103,16 +89,6 @@ function compileTransition(state, live, target, mapping, currentRoutes, authored
     startedAtMs,
     durationMs,
   });
-}
-
-function changedComponentOverrideIds(previous = {}, current = {}) {
-  const ids = new Set([
-    ...Object.keys(previous || {}),
-    ...Object.keys(current || {}),
-  ]);
-  return Object.freeze([...ids].filter((id) =>
-    JSON.stringify(previous?.[id] || {}) !== JSON.stringify(current?.[id] || {})
-  ));
 }
 
 function transitionAppliesToPreview(transition, previewSurfaceId, sceneMappingVisible) {

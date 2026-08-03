@@ -6,7 +6,7 @@ import { resetSceneMappingSession } from "../domain/live-ui-state.js";
 import { createRenderStatePatch } from "../domain/live-render-patch.js";
 import { materializeStructuralTree } from "../libraries/data-store/data-store/index.js";
 
-export const OUTPUT_BRIDGE_PROTOCOL_VERSION = 2;
+export const OUTPUT_BRIDGE_PROTOCOL_VERSION = 3;
 const CONTROL_HEARTBEAT_MS = 1000;
 const CONTROL_LEASE_MS = 6500;
 const CONTROL_TAB_ID_KEY = "vj1-output-control-tab-id";
@@ -219,6 +219,7 @@ export function createControlBridge({
             outputs: activeOutputClients(clients),
             message: msg.metrics?.message || "Output connected",
           });
+          next.profileDiagnostic = msg.metrics?.profileDiagnostic || null;
         }, "output-metrics");
       }
       if (msg.type === "diagnostic") {
@@ -405,7 +406,8 @@ export function createControlBridge({
   }
 
   function acceptStateChange(_state, reason, change = {}) {
-    if (change.scope !== "live") return;
+    const outputEffect = change.effects?.output;
+    if (!["live-patches", "state"].includes(outputEffect?.mode) || change.command?.domain !== "live") return;
     if (!Array.isArray(change.livePatches) || !change.livePatches.length) {
       if (reason === "live:surface-visibility") {
         // One eye can alter several fallback routes, so send the complete
@@ -424,7 +426,7 @@ export function createControlBridge({
       return;
     }
     queueLivePatches(change.livePatches);
-    if (change.phase === "scrub") {
+    if (outputEffect.coalesce === true) {
       scheduleLivePatches();
       return;
     }

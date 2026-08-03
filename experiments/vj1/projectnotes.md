@@ -87,7 +87,8 @@ I would like for the visibility toggle on an element in component or a scene to 
 I would like to have a generator where one can select other element or components as a list (it could be a group like interface) and then they will be stacked in 3d such that they look like a parallax game design principle where he view port can shift a bit up, down, right and left to show the effect.
 
 
-we still need to implement WLED control. I suggest we look up the most viable websocket based LED control protocol and create a settings panel where one can set a WLED IP or USB connection. This should reuse the generalized fixture/topology and placed Probe ideas established by DMX rather than introduce a second unrelated mapping model.
+simmilarly we need to slowly impliment both wled control and dmx. I suggest we look up the most viable websocket based led control protocol for wled and create a settings panel where one can set up at wled ip or usb connection (have a look at the usb portal module and copy it to the vj1 app as a component) and for dmx have a look at the dmx controller experiment and copy dmx / usb serial control code from the portal modules as well - also make a settings panel for this. I suggest that we extend the probe concept so that there is a multiled probe where a ledstring can be placed in the mapper view on the preview output and then the pixels are recorded and transmitted to the wled or dmx. For dmx we need to be able to add fixtures and channels in settings. e.g. create a list of common fixtures "brigthnes.r.g.b" that one can add and define a start channel then this fixture can be placed as a probe in the mapper view.
+
 
 We need to start to think in terms of shaders that uses a feedback loop for delay etc. e.g. that the shader draws in its a stored shader buffer with fadeout over time such that live movement and video gets a trail effect. this might also be a requirement for some isf shaders.
 
@@ -115,37 +116,40 @@ it would be interesting to have a global definition of sun position and brightne
 
 i want to be able to have a remote control interface where i can use a tablet as interface for live view. it needs the following. communication should be based on peer js. and there should be a qr code in settings with an url underneat going to that url should show a live view version without the rest and where the params are transported over webrtc. it is important that it is just a boiled down version without a full copy of the whole project and media files. so the remote should show the same as liveview a thumbnail list and params etc. the live view should just send change information back to the master and changes on the master should also be updated on the remote view. the key to use to connect the two so be a randomly and long generated key that can be changed in settings. make sure that it is possible to have multiple remotes connecting at the same time.
 
+ 
+- [ ] Moon phases. Convert eye to moon. 
+- [ ] Sun blackout convert eye to sun blackout. 
+
+- [ ] Virtuel keyboard
+
+- [ ] Gamepads control eyes as animatronics interface.
+- [ ] Pulse
+- [ ] Facemesh.
+- [ ] Shader on mesh.
+- [ ] Handpuppet.
+- [ ] Filter that takes mobile llm and evolves on top of current image.
+- [ ] 3d model + noise shader morphing.
+- [ ] Warping projection mapping
+- [ ] 3d mapping of shaders
+- [ ] Web xr
+- [ ] Glas friser. Generate frame in gpt. Use shader.
+- [ ] Morphing svg
+- [ ] Image to svg in a shader
+- [ ] Transition between two groups so
+- [ ] Special groups as tracks that are merged at the end of the group.
+- [ ] Embedded components as existing generator and effect groups.
+- [ ] Example components/groups as templates
+- [ ] Node view and chain view same same different views. Hidden nodes shown as side chains in chain view.
+- [ ] Many objects as multi simulators/spawners/virtualizators.
+- [ ] Yolo or the like as tracking
+- [ ] Fdm based font
+- [ ] Markers and cad like trackers on image
+- [ ] Hanging keychain skulls on face mesh
+- [ ] Posenet as dancing skeletons
+- [ ] Read this project I want to have a conversation about the state of the architecture and discuss what to do next. I am specifically interested in how the groups of nodes work right now and whether it would be possible to create a Lego piece concept where a group in eg component editor could be a chain of nodes where the last on is the output that generates the images or at the last one has to generate an image.
+- [ ] Generate smart group nodes that expects a certain type of input and generates and output. Eg a scene to image node that takes in a 3d model
+- [ ] We need to design a Lego component view where the existing nodes has a Lego piece information and then one can create a group of nodes by combining the Lego pieces.  One Lego piece is defined as the output piece and that defines the interface. If the output piece is a image buffer then it can be added to the component chains. There should be the param view like elements in the components view. Any param made significant here should be available in the element param view when added in component view. So significant is on another abstraction layer. Each node may need to have multiple types of LEGO connectors. Eg. The stl loader might have both a raw stl and xxx
 
 
 #Done
 
-Add project-global DMX output, generalized fixture profiles, and a placeable
-DMX Probe that can either sample the canvas or use normal animated controls.
-
-**Done. Project settings now own an editable fixture patch, start channels,
-profile channel semantics, overlap diagnostics, raw channel testing, and a
-20–40 Hz Web Serial connection adapted from Portal’s DMX transport. One global
-service retains and continuously repeats the last complete universe. DMX Probe
-is an ordinary spatial passthrough observer in Component/Scene graphs: it
-selects a fixture and either samples a fixture-defined grid or exposes only
-that profile’s channels as animatable parameters. Built-in profiles cover
-dimmer, RGB, dimmer+RGB, RGBW, and the U’King ZQ01003 11-channel layout with
-separate main RGBW and outer RGB sample cells.**
-
-Choose a 15–25 shader ISF proof slice, leave out the initially complicated
-types, and add an ISF filter to the modal dialogue.
-
-**Done. The curated proof slice contains 23 file-backed Vidvox ISF sources: 6
-generators, 8 effects, and 9 transitions. Their canonical repository fragment
-text remains the source of truth, attribution is retained, catalog metadata is
-kept separately, and generator/effect
-cards are discoverable through the ISF filter while retaining their ordinary
-categories.**
-
-previously we had a solution in which clicking a new component or scene in live view while a transition was happening would result in it being armed for the next transition can that come back but only if it is a transition involving the current output window. e.g. if another output window is selected it should not wait for the other one.
-
-**Done. Live now has a destination-scoped transition coordinator. Distinct Surface destinations can transition concurrently; repeated changes to one destination replace its single pending endpoint, and Overall transitions arbitrate exclusively with Surface lanes. Expiry promotes pending work through an event-driven scheduler outside the frame loop.**
-
-it would be nice if seed and time could sync up between live view preview and output window such that the animations were in sync. it causes a bit of confusion sometimes that they are wastly different.
-
-**Done. Control now owns one revisioned session timeline with a shared logical epoch, play state, rate, and seed. Preview and Output retain local presentation cadence but sample the same logical time; play and time-stretch changes rebase the epoch without phase jumps.**

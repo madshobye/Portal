@@ -6,6 +6,7 @@
     "test:render": "node --test tests/render-geometry.test.mjs",
     "metrics": "node tests/metrics-runner.mjs",
     "stress:url": "node -e \"console.log('http://127.0.0.1:8082/experiments/vj1/tests/browser/runtime-stress.html?duration=8000')\"",
+    "test:clean-reload:url": "node -e \"console.log('http://127.0.0.1:8082/experiments/vj1/tests/browser/output-clean-reload.html?reloads=3')\"",
     "test:browser-media:url": "node -e \"console.log('http://127.0.0.1:8082/experiments/vj1/tests/browser/async-media-dirty.html')\""
   }
 }

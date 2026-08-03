@@ -31,7 +31,12 @@ import { WORKSPACES } from "./constants.js";
 import { createChangeEvent } from "./libraries/state-engine/state-command/index.js";
 import { sceneLogicalSize } from "./domain/render-settings.js";
 import { nextCatalogMarker } from "./domain/catalog-marker.js";
-import { clearComponentReferences, countChainGroups, findChainItemLocation, insertChainItemNearSelection, moveById, moveChainItem } from "./domain/chain-operations.js";
+import { clearComponentReferences, countChainGroups, findChainItemLocation, moveById } from "./domain/chain-operations.js";
+import {
+  applyComponentGraphCommand,
+  componentGraphCommandEvent,
+  COMPONENT_GRAPH_COMMANDS,
+} from "./domain/component-graph-commands.js";
 import { copyComponentAsScene, pasteClipboardPayload } from "./domain/clipboard.js";
 import { initializeLiveChainInsertion } from "./domain/scene-routing.js";
 import {
@@ -94,9 +99,9 @@ export function createAppState(initial = null, {
     // Scrub/edit samples are intermediate values inside one authored gesture.
     // Count the completed command once; render invalidations retain the
     // per-sample cadence needed to diagnose an expensive drag.
-    if ((event.scope === "project" || event.scope === "live") && event.phase === "commit") {
+    if (["project", "live"].includes(event.command.domain) && event.command.phase === "commit") {
       authoredSignalMeter.record("transactions", 1, event.reason);
-    } else if (event.scope === "assets") {
+    } else if (event.command.domain === "assets") {
       authoredSignalMeter.record("resourceRevisions", 1, event.reason);
     }
     dataStore.publish(state, event);
@@ -119,8 +124,8 @@ export function createAppState(initial = null, {
     const previous = pendingEditBaseline || state;
     pendingEditBaseline = null;
     const normalized = normalizeState(next);
-    state = event.projectRestore ? normalized : stampChangedProjectItems(previous, normalized);
-    if (event.scope !== "live") reconcileLiveParameterDiffsWithPersistentEdits(previous, state);
+    state = event.effects.lifecycle.project === "restore" ? normalized : stampChangedProjectItems(previous, normalized);
+    if (event.command.domain !== "live") reconcileLiveParameterDiffsWithPersistentEdits(previous, state);
     emit(event);
   }
 
@@ -129,7 +134,7 @@ export function createAppState(initial = null, {
     const transactionBaseline = pendingEditBaseline || state;
     const next = produceStructuralShare(state, recipe);
     if (next === state && !pendingEditBaseline) return false;
-    if (event.scope === "project" && (event.phase === "scrub" || event.phase === "edit")) {
+    if (event.command.domain === "project" && ["scrub", "edit"].includes(event.command.phase)) {
       // A gesture is one transaction. Preserve the immutable pre-gesture root
       // while each sample path-copies only the branch it changes.
       pendingEditBaseline ||= state;
@@ -142,14 +147,22 @@ export function createAppState(initial = null, {
     }
     pendingEditBaseline = null;
     let committed = projectMappingProjectionForChangedSelection(state, next);
-    if (event.scope === "project") {
+    if (event.command.domain === "project") {
       committed = stampChangedOwners(transactionBaseline, committed);
       committed = produceStructuralShare(committed, (draft) => {
         reconcileLiveParameterDiffsWithPersistentEdits(transactionBaseline, draft);
         synchronizeActiveLiveDiffsForProjectChange(draft, event);
       });
       if (typeof prepareChange === "function") {
-        committed = prepareChange(transactionBaseline, committed, event);
+        // Activation is staged: graph reconciliation/compilation must finish
+        // before the candidate can replace the published world root. A
+        // compiler or validator error therefore leaves both state and
+        // subscribers on the previous, executable revision.
+        const prepared = prepareChange(transactionBaseline, committed, event);
+        if (!prepared || typeof prepared !== "object" || Array.isArray(prepared)) {
+          throw new Error("STATE_CHANGE_ACTIVATION_INVALID");
+        }
+        committed = prepared;
       }
     }
     state = committed;
@@ -163,7 +176,7 @@ export function createAppState(initial = null, {
     emit({
       ...supplied,
       reason: String(supplied.reason || "ui-update"),
-      scope: "ui",
+      command: { ...(supplied.command || {}), domain: "ui" },
     });
   }
 
@@ -171,7 +184,7 @@ export function createAppState(initial = null, {
     const metrics = clone(state.metrics);
     recipe(metrics);
     state = { ...state, metrics };
-    emit({ reason: change, scope: "runtime" });
+    emit({ reason: change, command: { domain: "runtime" } });
   }
 
   function updateDerived(recipe, change = "derived-update") {
@@ -180,8 +193,7 @@ export function createAppState(initial = null, {
     emit({
       ...supplied,
       reason: String(supplied.reason || "derived-update"),
-      scope: "derived",
-      history: "none",
+      command: { ...(supplied.command || {}), domain: "derived" },
     });
   }
 
@@ -214,8 +226,7 @@ export function createAppState(initial = null, {
     state = { ...state, components };
     emit({
       reason: "component-thumbnail",
-      scope: "derived",
-      history: "none",
+      command: { domain: "derived" },
       projection: {
         kind: "component-thumbnails",
         entries: [{ componentId, surfaceId, url: thumbnail }],
@@ -227,7 +238,7 @@ export function createAppState(initial = null, {
   function updateLive(recipe, change = "live:update") {
     state = produceStructuralShare(state, recipe);
     const supplied = change && typeof change === "object" ? change : { reason: change };
-    emit({ ...supplied, scope: "live" });
+    emit({ ...supplied, command: { ...(supplied.command || {}), domain: "live" } });
   }
 
   function resetLiveTarget(id) {
@@ -269,15 +280,7 @@ export function createAppState(initial = null, {
       draft.ui.live.patchSourceId = "";
       draft.ui.live.surfacePatches = clone(savedLive.surfacePatches || {});
       draft.ui.live.surfaceVisibility = clone(savedLive.surfaceVisibility || {});
-      draft.ui.live.parameterDiffs = clone(
-        savedLive.parameterDiffs || savedLive.sceneOverrides || {},
-      );
-      const restoredTargetId = String(
-        savedLive.selectedComponentId || savedLive.selectedSceneId || "",
-      );
-      if (!savedLive.parameterDiffs && restoredTargetId && Object.keys(savedLive.componentOverrides || {}).length) {
-        draft.ui.live.parameterDiffs[restoredTargetId] = clone(savedLive.componentOverrides);
-      }
+      draft.ui.live.parameterDiffs = clone(savedLive.parameterDiffs || {});
       draft.ui.live.transitionId = String(
         savedLive.transitionId || draft.ui.live.transitionId || "vj1.transition.dissolve",
       );
@@ -308,7 +311,7 @@ export function createAppState(initial = null, {
         y: 0,
         fit: "frame",
       };
-    }, { reason, history: "none" });
+    }, { reason });
     return true;
   }
 
@@ -344,7 +347,7 @@ export function createAppState(initial = null, {
         y: 0,
         fit: "frame",
       };
-    }, { reason: "live:session-reset", history: "none" });
+    }, { reason: "live:session-reset" });
     return true;
   }
 
@@ -390,7 +393,7 @@ export function createAppState(initial = null, {
       let advanced = false;
       updateLive((draft) => {
         advanced = advanceLiveTransitionCoordinator(draft.ui.live, nowMs);
-      }, { reason: "live:transition-advance", history: "none" });
+      }, { reason: "live:transition-advance" });
       return advanced;
     },
     updateMapping,
@@ -417,7 +420,7 @@ export function createAppState(initial = null, {
       pendingEditBaseline = null;
       emit({
         reason: `catalog-marker:${kind}`,
-        scope: "project",
+        command: { domain: "project" },
         changedPaths: [`${collection}.${index}.catalogMarker`],
       });
       return true;
@@ -482,7 +485,7 @@ export function createAppState(initial = null, {
       state = typeof prepareChange === "function"
         ? prepareChange(previous, next, classifyChange({
           reason: reason || `toggle:mappings.${mappingIndex}.surfaces.${surfaceIndex}.enabled`,
-          scope: "project",
+          command: { domain: "project" },
         }))
         : next;
       pendingEditBaseline = null;
@@ -493,7 +496,7 @@ export function createAppState(initial = null, {
       const outputSurfaceRoutes = compileLiveProjectionProgram(state).currentRoutes.surfaces;
       emit({
         reason: changeReason,
-        scope: "project",
+        command: { domain: "project" },
         changedPaths: [
           `mappings.${mappingIndex}.surfaces.${surfaceIndex}.enabled`,
           ...editorSelectionChangedPaths(state.ui, "surface"),
@@ -572,7 +575,7 @@ export function createAppState(initial = null, {
       state = typeof prepareChange === "function"
         ? prepareChange(previous, next, classifyChange({
           reason: reason || `update:components.${componentIndex}.${normalizedEntries[0].relativePath}`,
-          scope: "project",
+          command: { domain: "project" },
           changedPaths,
         }))
         : next;
@@ -582,7 +585,7 @@ export function createAppState(initial = null, {
         : [];
       emit({
         reason: reason || `update:components.${componentIndex}.${normalizedEntries[0].relativePath}`,
-        scope: "project",
+        command: { domain: "project" },
         changedPaths: [
           ...changedPaths,
           ...selectionChangedPaths,
@@ -624,7 +627,7 @@ export function createAppState(initial = null, {
       // sorting survives reload, but it must not rebuild a Live render state.
       emit({
         reason: "select-component",
-        scope: "ui",
+        command: { domain: "ui" },
         changedPaths: ["ui.selectedComponentId"],
       });
     },
@@ -654,7 +657,7 @@ export function createAppState(initial = null, {
       // Workspace has an explicit browser preference owner in view-routing.
       // It is not a project edit and must not serialize project.json or send a
       // complete render state to Output.
-      emit({ reason: "workspace", scope: "ui", history: "none" });
+      emit({ reason: "workspace", command: { domain: "ui" } });
       return true;
     },
     getLiveRenderState() {
@@ -735,13 +738,20 @@ export function createAppState(initial = null, {
     },
     removeChainItem(componentId, itemId) {
       update((draft) => {
-        const component = draft.components.find((item) => item.id === componentId);
-        if (!component?.chain) return;
-        const removed = removeChainItemFromChain(component.chain, itemId);
-        if (removed && draft.ui.selectedChainItemId === itemId) {
-          applyEditorSelection(draft.ui, "element", firstChainItemId(component.chain));
+        const result = applyComponentGraphCommand(draft, {
+          type: COMPONENT_GRAPH_COMMANDS.REMOVE,
+          componentId,
+          nodeId: itemId,
+          selectionId: draft.ui.selectedChainItemId,
+        });
+        if (result.changed && draft.ui.selectedChainItemId === itemId) {
+          applyEditorSelection(draft.ui, "element", result.selectionId);
         }
-      }, "remove-chain-item");
+      }, componentGraphCommandEvent({
+        type: COMPONENT_GRAPH_COMMANDS.REMOVE,
+        componentId,
+        nodeId: itemId,
+      }, "remove-chain-item"));
     },
     addChainSource(componentId, source = { type: "generator", generatorId: "testPattern" }) {
       update((draft) => {
@@ -759,10 +769,18 @@ export function createAppState(initial = null, {
             scale: metrics.baseWidth / sceneWidth,
           };
         }
-        component.chain ||= [];
-        insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, layer);
+        applyComponentGraphCommand(draft, {
+          type: COMPONENT_GRAPH_COMMANDS.INSERT,
+          componentId,
+          item: layer,
+          afterNodeId: draft.ui.selectedChainItemId,
+        });
         applyEditorSelection(draft.ui, "element", layer.id);
-      }, "add-chain-source");
+      }, componentGraphCommandEvent({
+        type: COMPONENT_GRAPH_COMMANDS.INSERT,
+        componentId,
+        nodeId: "new-source",
+      }, "add-chain-source"));
     },
     addChainEffect(componentId, effectId) {
       update((draft) => {
@@ -770,29 +788,56 @@ export function createAppState(initial = null, {
         if (!component) return;
         const effect = createComponentEffect(effectId);
         initializeLiveChainInsertion(draft, component.id, effect);
-        component.chain ||= [];
-        insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, effect);
+        applyComponentGraphCommand(draft, {
+          type: COMPONENT_GRAPH_COMMANDS.INSERT,
+          componentId,
+          item: effect,
+          afterNodeId: draft.ui.selectedChainItemId,
+        });
         applyEditorSelection(draft.ui, "element", effect.id);
-      }, "add-chain-effect");
+      }, componentGraphCommandEvent({
+        type: COMPONENT_GRAPH_COMMANDS.INSERT,
+        componentId,
+        nodeId: "new-effect",
+      }, "add-chain-effect"));
     },
     addChainGroup(componentId) {
       update((draft) => {
         const component = draft.components.find((item) => item.id === componentId);
         if (!component) return;
-        component.chain ||= [];
         const group = createComponentGroup(countChainGroups(component.chain));
         initializeLiveChainInsertion(draft, component.id, group);
-        insertChainItemNearSelection(component.chain, draft.ui.selectedChainItemId, group);
+        applyComponentGraphCommand(draft, {
+          type: COMPONENT_GRAPH_COMMANDS.INSERT,
+          componentId,
+          item: group,
+          afterNodeId: draft.ui.selectedChainItemId,
+        });
         applyEditorSelection(draft.ui, "element", group.id);
-      }, "add-chain-group");
+      }, componentGraphCommandEvent({
+        type: COMPONENT_GRAPH_COMMANDS.INSERT,
+        componentId,
+        nodeId: "new-group",
+      }, "add-chain-group"));
     },
     reorderChain(componentId, fromId, toId, position = "before") {
       update((draft) => {
         const component = draft.components.find((item) => item.id === componentId);
-        const chain = component?.chain;
-        if (!Array.isArray(chain)) return;
-        moveChainItem(chain, fromId, toId, position);
-      }, "reorder-chain");
+        if (!component) return;
+        applyComponentGraphCommand(draft, {
+          type: COMPONENT_GRAPH_COMMANDS.MOVE,
+          componentId,
+          nodeId: fromId,
+          targetNodeId: toId,
+          position,
+        });
+      }, componentGraphCommandEvent({
+        type: COMPONENT_GRAPH_COMMANDS.MOVE,
+        componentId,
+        nodeId: fromId,
+        targetNodeId: toId,
+        position,
+      }, "reorder-chain"));
     },
     reorderSurfaces(fromId, toId) {
       update((draft) => {
@@ -869,7 +914,7 @@ export function createAppState(initial = null, {
       // to Output.
       state = applyMappingForEditing(current, scene);
       pendingEditBaseline = null;
-      emit({ reason: "select-mapping", scope: "ui", history: "none" });
+      emit({ reason: "select-mapping", command: { domain: "ui" } });
     },
     selectLiveScene(id) {
       updateLive((draft) => {
@@ -889,7 +934,9 @@ export function createAppState(initial = null, {
         draft.ui.live.selectedComponentId = scene.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
-        scheduleLiveRouteTransition(draft, previousRoutes);
+        scheduleLiveRouteTransition(draft, previousRoutes, {
+          previousTargetId: previousTarget?.id || "",
+        });
       }, "live:scene");
     },
     selectLiveComponent(id) {
@@ -911,7 +958,9 @@ export function createAppState(initial = null, {
         draft.ui.live.selectedComponentId = target.id;
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
-        scheduleLiveRouteTransition(draft, previousRoutes);
+        scheduleLiveRouteTransition(draft, previousRoutes, {
+          previousTargetId: previousTarget?.id || "",
+        });
       }, "live:target");
     },
     selectLivePreviewSurface(id) {
@@ -989,7 +1038,10 @@ export function createAppState(initial = null, {
         draft.ui.live.surfacePatches ||= {};
         delete draft.ui.live.surfacePatches[surfaceId];
         draft.ui.live.patchSourceId = "";
-        scheduleLiveRouteTransition(draft, previousRoutes, clearedPatchTargetId, surfaceId);
+        scheduleLiveRouteTransition(draft, previousRoutes, {
+          previousTargetId: clearedPatchTargetId,
+          surfaceId,
+        });
       }, "live:surface-patch-clear");
       return true;
     },
@@ -1010,7 +1062,9 @@ export function createAppState(initial = null, {
         draft.ui.live.selectedComponentId = "";
         draft.ui.live.inspectedComponentId = "";
         draft.ui.live.patchSourceId = "";
-        scheduleLiveRouteTransition(draft, previousRoutes);
+        scheduleLiveRouteTransition(draft, previousRoutes, {
+          previousTargetId: selectedTarget.id,
+        });
       }, "live:overall-component-clear");
       return true;
     },
@@ -1025,7 +1079,7 @@ export function createAppState(initial = null, {
         draft.ui.live.patchSourceId = "";
         clearLiveTransitionCoordinator(draft.ui.live);
         draft.ui.live.selectedComponentId = scene.id;
-      }, { reason: "live:scene-restore", history: "none" });
+      }, { reason: "live:scene-restore" });
     },
     restoreLiveSession,
     restoreLivePreference({ sceneId = "", previewSurfaceId = "" } = {}) {
@@ -1039,15 +1093,12 @@ export function createAppState(initial = null, {
           previewSurfaceId,
           surfacePatches: {},
           surfaceVisibility: {},
-          transition: null,
+          transitionCoordinator: {},
         },
       }, { reason: "live:preference-restore" });
     },
     resetLiveSession,
     resetLiveTarget,
-    // Backwards-compatible API for integrations which still call the former
-    // Scene-specific name. Scenes and Parts now share one Live target contract.
-    resetLiveScene: resetLiveTarget,
     deleteMapping(id) {
       update((draft) => {
         draft.mappings = draft.mappings.filter((scene) => String(scene.id) !== String(id));
@@ -1152,24 +1203,6 @@ function restoreWorkspaceComponent(draft, workspace) {
   applyEditorSelection(draft.ui, "element", component.chain?.[0]?.id || "");
 }
 
-function firstChainItemId(chain = []) {
-  if (!Array.isArray(chain) || !chain.length) return "";
-  return chain[0]?.id || "";
-}
-
-function removeChainItemFromChain(chain = [], itemId = "") {
-  if (!Array.isArray(chain) || !itemId) return false;
-  const index = chain.findIndex((item) => item.id === itemId);
-  if (index >= 0) {
-    chain.splice(index, 1);
-    return true;
-  }
-  for (const item of chain) {
-    if (item.kind === "group" && removeChainItemFromChain(item.chain || [], itemId)) return true;
-  }
-  return false;
-}
-
 // Overall selection changes the base Live program. Explicit per-Surface
 // patches remain independent matrix assignments and must survive that change.
 // Rebuild from the selected Scene/Component first, then apply those authored
@@ -1185,39 +1218,45 @@ function patchSelectedLiveSurface(state, target, mapping) {
   state.ui.live.surfacePatches[surfaceId] = target.id;
   state.ui.live.patchSourceId = target.id;
   state.ui.live.inspectedComponentId = "";
-  scheduleLiveRouteTransition(state, previousRoutes, target.id, surfaceId);
+  scheduleLiveRouteTransition(state, previousRoutes, { surfaceId });
   return true;
 }
 
-function scheduleLiveRouteTransition(state, previousRoutes, routeTargetId = "", surfaceId = "") {
+function scheduleLiveRouteTransition(state, previousRoutes, {
+  previousTargetId: explicitPreviousTargetId = "",
+  surfaceId = "",
+} = {}) {
   const durationMs = Math.round(Math.max(0, Number(state.ui.live.transitionDuration) || 0) * 1000);
   const previousRouteTargetId = previousRoutes?.surfaces?.find((route) =>
     !surfaceId || String(route.id) === String(surfaceId)
   )?.componentId;
-  const previousTargetId = String(previousRouteTargetId || routeTargetId || "");
+  // Overall selection owns one explicit target even when individual Surface
+  // patches route other Components. Inferring that target from the first
+  // rendered route snapshots the wrong Live diff bank in a mixed Mapping.
+  // Surface-only transitions still derive their previous endpoint from the
+  // addressed route when no explicit cleared-patch target is supplied.
+  const previousTargetId = String(
+    explicitPreviousTargetId || previousRouteTargetId || "",
+  );
   if (durationMs <= 0 || !previousRoutes?.surfaces?.length) {
     clearLiveTransitionCoordinator(state.ui.live);
     return;
   }
   const currentRoutes = clone(compileLiveProjectionProgram(state).logicalRoutes);
-  const previousTargetDiffs = liveParameterDiffBank(state.ui.live, previousTargetId);
-  // A direct Surface target may not own a retained parameter bank. Preserve
-  // the established behavior in that case: transitions snapshot the active
-  // Overall program's effective diffs rather than inventing a second
-  // destination-specific parameter model.
-  const previousOverrides = Object.keys(previousTargetDiffs).length
-    ? previousTargetDiffs
-    : liveParameterDiffBank(state.ui.live);
+  const currentRouteTargetId = currentRoutes.surfaces?.find((route) =>
+    !surfaceId || String(route.id) === String(surfaceId)
+  )?.componentId;
   scheduleLiveTransition(state.ui.live, {
     id: uid("live-transition"),
     fromSceneId: String(state.ui.live.selectedSceneId || ""),
     fromTargetId: previousTargetId,
-    toTargetId: String(state.ui.live.selectedComponentId || state.ui.live.selectedSceneId || ""),
+    toTargetId: String(
+      surfaceId
+        ? currentRouteTargetId || ""
+        : state.ui.live.selectedComponentId || state.ui.live.selectedSceneId || "",
+    ),
     surfaceId: String(surfaceId || ""),
-    fromSurfaceRoutes: clone(previousRoutes),
     toSurfaceRoutes: currentRoutes,
-    fromComponentOverrides: clone(previousOverrides),
-    toComponentOverrides: clone(liveParameterDiffBank(state.ui.live)),
     transitionId: String(state.ui.live.transitionId || "vj1.transition.dissolve"),
     transitionParameters: clone(state.ui.live.transitionParameters || {}),
     durationMs,
@@ -1273,8 +1312,8 @@ function reconcileLiveParameterDiffsWithPersistentEdits(previous, next) {
 
 function synchronizeActiveLiveDiffsForProjectChange(state, event = {}) {
   const paths = new Set(event.changedPaths || []);
-  if (/^components\.\d+\./.test(String(event.topic || ""))) {
-    paths.add(String(event.topic));
+  if (/^components\.\d+\./.test(String(event.command?.topic || ""))) {
+    paths.add(String(event.command.topic));
   }
   const targetId = activeLiveTargetId(state.ui?.live);
   if (!targetId) return;

@@ -216,7 +216,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     } finally {
       isOpening = false;
       if (restored && !projectLoadBlocked && projectMigrationSaveRequired) {
-        scheduleAutoSave({ reason: "project-restore-migration", history: "none" }, { immediate: true });
+        scheduleAutoSave({
+          reason: "project-restore-migration",
+          effects: { persistence: { history: false } },
+        }, { immediate: true });
       }
     }
   }
@@ -688,8 +691,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
       }
     }, {
       reason: "project-refresh-assets",
-      scope: "assets",
-      history: "none",
+      command: { domain: "assets" },
+      effects: { persistence: { history: false } },
       projection: { kind: "asset-catalog" },
     });
     lastDirectorySignature = directorySig;
@@ -698,9 +701,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
   function scheduleAutoSave(change = "change", { immediate = false, state = null } = {}) {
     const event = classifyChange(change);
     const reason = event.reason;
-    if (event.phase === "edit" || event.phase === "scrub") return;
+    const persistence = event.effects?.persistence || {};
+    if (persistence.mode === "none") return;
     if (!dirHandle || isOpening || projectLoadBlocked || skipAutosaveReasons.has(reason)) return;
-    if (event.history === "record") {
+    if (persistence.history === true) {
       pendingHistory = true;
       pendingSaveReason = reason;
     } else if (!pendingSaveReason) {
@@ -709,11 +713,10 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     // Selection and other editor-only state must not serialize the complete
     // project after every click. It remains in the current state and is folded
     // into the next authored save or the browser lifecycle checkpoint.
-    const previewViewportCheckpoint = event.scope === "ui" && reason.startsWith("preview-");
-    if (event.scope === "ui" && !immediate && !previewViewportCheckpoint) return;
+    if (persistence.mode === "defer" && !immediate) return;
     pendingAutoSaveState = state || pendingAutoSaveState;
     if (autosaveTimer) clearTimeout(autosaveTimer);
-    const delay = immediate || reason === "live:scene" || event.history === "record" ? 0 : autosaveDelayMs;
+    const delay = immediate || reason === "live:scene" || persistence.history === true ? 0 : autosaveDelayMs;
     autosaveTimer = setTimeout(() => {
       autosaveTimer = null;
       void flushAutoSave();
@@ -1048,8 +1051,8 @@ export function createProjectFolderService({ mediaLibrary, store, bridge, classi
     if (hasProjectIsf) {
       store.update(merge, {
         reason: "project-observed-isf-update",
-        scope: "assets",
-        history: "none",
+        command: { domain: "assets" },
+        effects: { persistence: { history: false } },
         projection: { kind: "asset-catalog" },
       });
     } else {

@@ -1602,7 +1602,7 @@ test("source backends prepare dependencies unbound and own only their final targ
   assert.equal(depth, 0);
 });
 
-test("render-plan roots include visible current and transition endpoint Components only", () => {
+test("active render-plan roots exclude compositor-owned retained transition branches", () => {
   const state = {
     ui: { selectedComponentId: "editor-component" },
     components: [
@@ -1615,17 +1615,13 @@ test("render-plan roots include visible current and transition endpoint Componen
       { id: "current", enabled: true, componentId: "current-component" },
       { id: "disabled", enabled: false, componentId: "disabled-component" },
     ],
-    liveTransition: {
-      fromState: {
-        surfaces: [{ id: "previous", enabled: false, componentId: "previous-component" }],
-      },
-    },
+    liveTransition: { id: "transition-a", fromTargetId: "previous-component" },
   };
 
   assert.deepEqual(
     [...renderStateComponentProgramRoots(state, "live")].sort(),
-    ["current-component", "previous-component"],
-    "historical transition bindings remain reachable even when their stored endpoint is disabled",
+    ["current-component"],
+    "the compositor-owned retained branch does not extend active reachability",
   );
   assert.deepEqual(
     [...renderStateComponentProgramRoots(state, "component")],
@@ -3576,6 +3572,7 @@ test("stable compiled presentations suspend until a graph or media invalidation 
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const previewSource = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
   const outputSource = readFileSync(new URL("../js/output/output-app.js", import.meta.url), "utf8");
+  const idleLifecycleSource = readFileSync(new URL("../js/output/presentation-idle-lifecycle.js", import.meta.url), "utf8");
   const renderer = new OutputRenderer({ mode: "component" });
   const component = { id: "empty-component" };
   renderer.state = {
@@ -3607,10 +3604,11 @@ test("stable compiled presentations suspend until a graph or media invalidation 
   assert.ok(frameRuntimeSource.includes("host.sourceRuntime.componentContainsVideo(component)"));
   assert.ok(frameRuntimeSource.includes("Decoder callbacks identify new media revisions, but they are not a"));
   assert.ok(previewSource.includes("suspendStablePreviewPresentation()"));
-  assert.ok(previewSource.includes('renderer?.frameRuntime.presentationMode() !== "on-change"'));
+  assert.ok(previewSource.includes('renderer?.frameRuntime.presentationMode() === "on-change"'));
   assert.ok(previewSource.includes("wakePreviewPresentation();"));
-  assert.ok(previewSource.includes("idleSuspended = true;"));
-  assert.ok(previewSource.includes("noLoop();"));
+  assert.ok(previewSource.includes("presentationIdle.suspendIfStable()"));
+  assert.ok(idleLifecycleSource.includes("suspended = true;"));
+  assert.ok(idleLifecycleSource.includes("stop();"));
   assert.ok(outputSource.includes("suspendStableOutputPresentation()"));
   assert.ok(outputSource.includes("wakeOutputPresentation()"));
 });

@@ -67,6 +67,10 @@ function stateRuntimeFixture(
     livePatchRuntime: {
       clear: () => calls.push("live-clear"),
     },
+    surfaceRuntime: {
+      retainPresentedBranchForTransitions: (previous, next) =>
+        calls.push(["retain-transition-branch", previous, next]),
+    },
     previewInteraction: {
       reconcileIncomingState: (state) => {
         calls.push(["interaction-reconcile", state]);
@@ -136,6 +140,7 @@ test("state activation publishes one reconciled snapshot before rebuilding retai
   assert.deepEqual(calls, [
     "invalidate:state",
     "mapping-capture",
+    ["retain-transition-branch", previous, next],
     "live-clear",
     ["interaction-reconcile", next],
     ["viewport", next.render],

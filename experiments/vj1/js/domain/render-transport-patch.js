@@ -5,7 +5,7 @@ const FORBIDDEN_PATH_PARTS = new Set(["__proto__", "prototype", "constructor"]);
 // control boundary so a slider gesture can cross the output bridge as a tiny
 // patch instead of cloning and posting the complete project on every sample.
 export function componentRenderPatchesForChange(state, change = {}) {
-  const match = String(change.topic || "").match(/^components\.(\d+)\.(.+)$/);
+  const match = String(change.command?.topic || "").match(/^components\.(\d+)\.(.+)$/);
   if (!match) return [];
   const component = state?.components?.[Number(match[1])];
   const path = match[2];

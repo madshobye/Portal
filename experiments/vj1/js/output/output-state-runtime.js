@@ -46,6 +46,10 @@ export class OutputStateRuntime {
     const preparedState = normalized
       ? nextState
       : sanitizeState(nextState);
+    host.surfaceRuntime.retainPresentedBranchForTransitions(
+      this.current,
+      preparedState,
+    );
     host.livePatchRuntime.clear();
     this.current =
       host.previewInteraction?.reconcileIncomingState(preparedState) ||

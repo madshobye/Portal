@@ -1,5 +1,4 @@
 import { VJ1 } from "../constants.js";
-import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js";
 import { OutputRenderer } from "./output-renderer.js";
 import { MAX_PIXEL_DENSITY, normalizePixelDensity, renderPresentationFrameRate } from "../domain/render-settings.js";
 import { oppositeRenderPhaseDelayMs, previewPhaseNeedsRealignment } from "../domain/render-phase-policy.js";
@@ -15,6 +14,11 @@ import {
   projectUsesPointerSignals,
   rendererUsesPointerSignals,
 } from "./pointer-control-signals.js";
+import { createPresentationIdleLifecycle } from "./presentation-idle-lifecycle.js";
+import {
+  claimPresentationCanvas,
+  publishCanvasOwnershipDiagnostics,
+} from "./canvas-ownership.js";
 
 export function createEmbeddedPreviewApp({
   store,
@@ -49,7 +53,6 @@ export function createEmbeddedPreviewApp({
   let unbindCanvasPointerEvents = null;
   let viewportController = null;
   let paused = false;
-  let idleSuspended = false;
   let renderFont = null;
   let appliedFrameRate = 0;
   let outputPhaseOpen = false;
@@ -58,6 +61,16 @@ export function createEmbeddedPreviewApp({
   let mediaFilesSignature = "";
   let preparedLiveState = null;
   let preparedLiveErrorSignature = "";
+  const presentationIdle = createPresentationIdleLifecycle({
+    canSuspend: () => !paused &&
+      !pointerActive &&
+      !layoutSettleActive &&
+      !revealCanvasAfterDraw &&
+      !preparedLiveState &&
+      renderer?.frameRuntime.presentationMode() === "on-change",
+    start: () => { if (typeof loop === "function") loop(); },
+    stop: () => { if (typeof noLoop === "function") noLoop(); },
+  });
   let activeRetimedTransition = null;
   let activeRetimedTransitionSceneId = "";
   let transformCommitFrame = 0;
@@ -94,8 +107,7 @@ export function createEmbeddedPreviewApp({
     pendingState = preserveActiveRetimedTransition(state || pendingState || {});
     host?.classList.remove("is-paused");
     paused = false;
-    idleSuspended = false;
-    if (typeof loop === "function") loop();
+    presentationIdle.resume();
     applyPreviewFrameRate();
     bindStageViewportEvents();
     observeCurrentStage();
@@ -190,6 +202,7 @@ export function createEmbeddedPreviewApp({
 
   function command(name, payload = {}) {
     wakePreviewPresentation();
+    if (name === "set-profile-diagnostics") renderer?.profileRuntime.setDiagnosticsEnabled(payload.enabled === true);
     if (name === "set-calibrate") renderer?.mappingRuntime.setCalibrate(!!payload.calibrating);
     if (name === "reset-mapping") renderer?.mappingRuntime.reset(payload.surfaceId);
     if (name === "export-mapping") renderer?.mappingRuntime.export();
@@ -200,11 +213,10 @@ export function createEmbeddedPreviewApp({
   function pause() {
     host?.classList.add("is-paused");
     paused = true;
-    idleSuspended = false;
+    presentationIdle.forceStop();
     alignedFrameRate = 0;
     cancelPreviewPhaseShift();
     cancelSettledResize();
-    if (typeof noLoop === "function") noLoop();
   }
 
   function cleanup() {
@@ -222,7 +234,7 @@ export function createEmbeddedPreviewApp({
     unbindCanvasPointerEvents = null;
     renderer?.dispose?.();
     renderer = null;
-    idleSuspended = false;
+    presentationIdle.reset();
     preparedLiveState = null;
     preparedLiveErrorSignature = "";
     activeRetimedTransition = null;
@@ -265,6 +277,10 @@ export function createEmbeddedPreviewApp({
     canvas = createCanvas(size.width, size.height, WEBGL);
     assertP5RenderCapabilities();
     canvas.parent(stage);
+    claimPresentationCanvas(canvas, {
+      ownerId: "embedded-preview",
+      host: stage,
+    });
     bindCanvasPointerEvents();
     applyLoadedFont();
     fitCanvasToStage(size);
@@ -296,6 +312,7 @@ export function createEmbeddedPreviewApp({
       installedNodePackages: projectService?.getInstalledNodePackages?.() || [],
     });
     await renderer.setup(previewSizedState(size), { normalized: true });
+    publishCanvasOwnershipDiagnostics(stage, "embedded-preview");
     importMediaFilesIfChanged(true);
     // ResizeObserver callbacks run inside layout delivery. Resizing a p5
     // canvas synchronously from that callback can produce another notification
@@ -324,24 +341,11 @@ export function createEmbeddedPreviewApp({
   }
 
   function wakePreviewPresentation() {
-    if (paused || !idleSuspended) return;
-    idleSuspended = false;
-    if (typeof loop === "function") loop();
+    if (!paused) presentationIdle.wake();
   }
 
   function suspendStablePreviewPresentation() {
-    if (
-      paused ||
-      idleSuspended ||
-      pointerActive ||
-      layoutSettleActive ||
-      revealCanvasAfterDraw ||
-      preparedLiveState ||
-      renderer?.frameRuntime.presentationMode() !== "on-change" ||
-      typeof noLoop !== "function"
-    ) return;
-    idleSuspended = true;
-    noLoop();
+    presentationIdle.suspendIfStable();
   }
 
   // Dormant geometry probe for future preview-layout investigations. Calling
@@ -649,7 +653,7 @@ export function createEmbeddedPreviewApp({
       deviceScale,
       quality: previewQuality,
     });
-    return alignLiveTransitionRenderContext({
+    return {
       ...state,
       render: {
         ...state.render,
@@ -670,7 +674,7 @@ export function createEmbeddedPreviewApp({
           outputId: "",
         },
       },
-    });
+    };
   }
 
   function applyPreviewFrameRate() {
@@ -819,6 +823,7 @@ export function createEmbeddedPreviewApp({
       runtimeMetrics.previewGpuSupported = metrics.gpuSupported === true;
       runtimeMetrics.previewRenderCost = metrics.renderCost || 0;
       runtimeMetrics.previewProfile = metrics.profile || null;
+      runtimeMetrics.previewProfileDiagnostic = metrics.profileDiagnostic || null;
       runtimeMetrics.previewSignalLoad = metrics.signalLoad || null;
     }, "preview-metrics");
   }

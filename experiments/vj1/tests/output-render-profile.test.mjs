@@ -35,6 +35,167 @@ test("nested component profiling preserves ownership and counts wall time once",
   assert.deepEqual(profile.activeComponentIdentity(), {});
 });
 
+test("live semantic diagnostics traverse renderer state only while explicitly enabled", () => {
+  const profile = new OutputRenderProfile();
+  let configurationReads = 0;
+  const program = {
+    id: "group-fire",
+    configurationState() {
+      configurationReads++;
+      return [{ id: "draw", params: { detail: 12 } }];
+    },
+    forEachOperation(visitor) {
+      visitor({ id: "draw", nodeId: "stl", configurationRevision: 4, configuration: { params: { detail: 12 } } });
+    },
+  };
+  const host = {
+    mode: "preview",
+    outputId: "preview-main",
+    state: { ui: { live: { selectedComponentId: "fire", parameterDiffs: { fire: { draw: { params: { detail: 12 } } } } } } },
+    frameRuntime: { frameIndex: 20 },
+    componentProgramRuntime: { programs: new Map([["fire", program]]) },
+    surfaceRuntime: { transitionBranches: new Map() },
+    livePatchRuntime: { fades: new Map() },
+    resourceRuntime: { componentOutput: new Map() },
+    componentRenderRuntime: { stableSignatures: new Map() },
+    sourceRuntime: { nodeRuntimes: new Map() },
+    readinessRuntime: { status: { blocked: false } },
+  };
+
+  assert.equal(profile.captureDiagnostic(host), null);
+  assert.equal(configurationReads, 0);
+  profile.setDiagnosticsEnabled(true);
+  const diagnostic = profile.captureDiagnostic(host);
+  assert.equal(configurationReads, 1);
+  assert.equal(diagnostic.programs[0].operations[0].configurationRevision, 4);
+  profile.setDiagnosticsEnabled(false);
+  assert.equal(profile.captureDiagnostic(host), null);
+  assert.equal(configurationReads, 1);
+});
+
+test("transition boundary diagnostics are filtered and consumed once per metrics packet", () => {
+  const profile = new OutputRenderProfile();
+  let unrelatedReads = 0;
+  const relevantProgram = {
+    id: "group-fire",
+    configurationState: () => [{ id: "draw", params: { detail: 12 } }],
+    forEachOperation: () => {},
+  };
+  const unrelatedProgram = {
+    id: "group-other",
+    configurationState() {
+      unrelatedReads++;
+      return [];
+    },
+    forEachOperation: () => {},
+  };
+  const programs = new Map([["fire", relevantProgram], ["other", unrelatedProgram]]);
+  const transition = {
+    id: "transition-fire",
+    fromTargetId: "fire",
+    toTargetId: "other",
+  };
+  const host = {
+    mode: "preview",
+    state: { surfaces: [{ id: "surface-a", componentId: "fire" }], liveTransition: transition, ui: { live: {} } },
+    frameRuntime: { frameIndex: 20 },
+    componentProgramRuntime: { programs },
+    surfaceRuntime: { transitionBranches: new Map([["transition-fire", {
+      state: { surfaces: [{ id: "surface-a", componentId: "fire" }] },
+      programs: new Map([["fire", relevantProgram]]),
+    }]]) },
+    livePatchRuntime: { fades: new Map() },
+    resourceRuntime: { componentOutput: new Map() },
+    componentRenderRuntime: { stableSignatures: new Map() },
+    sourceRuntime: { nodeRuntimes: new Map() },
+    readinessRuntime: { status: {} },
+  };
+
+  profile.setDiagnosticsEnabled(true);
+  profile.recordTransitionBoundary(host, transition, { programs });
+  const first = profile.captureDiagnostic(host);
+  const second = profile.captureDiagnostic(host);
+  assert.equal(unrelatedReads, 0);
+  assert.equal(first.programs.length, 1);
+  assert.equal(first.live.transitions[0].fromTargetId, "fire");
+  assert.equal(first.retainedTransitionBranches[0].programs.length, 1);
+  assert.equal(first.transitionBoundaries[0].outgoingPrograms.length, 1);
+  assert.equal(first.transitionBoundaries.length, 1);
+  assert.equal(second.transitionBoundaries.length, 0);
+});
+
+test("live patch diagnostics retain bounded path resolution and compiled acknowledgement", () => {
+  const profile = new OutputRenderProfile();
+  const materialStep = {
+    id: "group-stl/material",
+    instanceId: "material",
+    nodeId: "core.visual.lit-mesh-material-provider",
+    parameters: {
+      renderMode: "surface",
+      surfaceColor: "#eb000080",
+    },
+  };
+  const valueProgram = {
+    steps: [materialStep],
+    evaluationRevision: 7,
+    ready: true,
+    stepDependencyRevisions: new Map([[materialStep.id, 4]]),
+    outputIdentities: new Map([["material.sceneMaterial", "material3d:lit-mesh@dependency-4"]]),
+  };
+  const program = {
+    id: "group-stl",
+    configurationState: () => [{ id: "stl-item", source: { params: { geometryDetail: 0.75 } } }],
+    forEachOperation(visitor) {
+      visitor({
+        id: "stl-item",
+        nodeId: "modelMedia",
+        configurationRevision: 3,
+        configuration: { source: { params: { geometryDetail: 0.75 } } },
+        valueProgram,
+      });
+    },
+  };
+  const host = {
+    state: { ui: { live: { selectedComponentId: "stl-component" } } },
+    componentProgramRuntime: { programs: new Map([["stl-component", program]]) },
+    surfaceRuntime: { transitionBranches: new Map() },
+    livePatchRuntime: { fades: new Map() },
+    resourceRuntime: { componentOutput: new Map() },
+    componentRenderRuntime: { stableSignatures: new Map() },
+    sourceRuntime: { nodeRuntimes: new Map([["stl-component:render", {
+      outputVersion: 9,
+      lastUsedFrame: 42,
+      lastDirtyReason: "source",
+      signature: "material3d:lit-mesh@dependency-4",
+    }]]) },
+    readinessRuntime: { status: {} },
+  };
+  const patch = {
+    componentId: "stl-component",
+    path: "chain.0.source.params.geometryDetail",
+    value: 0.75,
+  };
+
+  profile.setDiagnosticsEnabled(true);
+  profile.recordLivePatch(host, [patch], {
+    applied: true,
+    componentIds: ["stl-component"],
+    configurationTargets: [{ componentId: "stl-component", itemIds: ["stl-item"] }],
+  }, { applied: true, configurationApplied: true });
+  const diagnostic = profile.captureDiagnostic(host);
+
+  assert.equal(diagnostic.livePatchTransactions[0].patches[0].path, patch.path);
+  assert.equal(diagnostic.livePatchTransactions[0].programs[0].operations[0].configurationRevision, 3);
+  assert.equal(
+    diagnostic.livePatchTransactions[0].programs[0].operations[0]
+      .retainedValues.steps[0].parameters.surfaceColor,
+    "#eb000080",
+  );
+  assert.equal(diagnostic.cacheIdentity.sourceRuntimes[0].outputVersion, 9);
+  assert.match(diagnostic.cacheIdentity.sourceRuntimes[0].signatureDigest, /^\d+:[0-9a-f]{8}$/);
+  assert.equal(diagnostic.livePatchTransactions[0].result.applied, true);
+});
+
 test("aggregate CPU and Overall metrics use the explicit frame-runtime start", () => {
   const previousFrameRate = globalThis.frameRate;
   const previousMillis = globalThis.millis;

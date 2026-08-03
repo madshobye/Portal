@@ -9,7 +9,6 @@ import {
 import { OutputRenderer } from "./output-renderer.js";
 import { applyFontToGlobal, loadVjRenderFont } from "./font-loader.js";
 import { frameSize } from "./render-geometry.js";
-import { alignLiveTransitionRenderContext } from "./live-transition-render-context.js";
 import {
   assertNodePackageTransportLock,
   importNodePackage,
@@ -17,6 +16,11 @@ import {
 import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js";
 import { CONTROL_SIGNAL_COMMAND, publishRendererControlSignal } from "./control-signal-command.js";
 import { pointerSignalValues, rendererUsesPointerSignals } from "./pointer-control-signals.js";
+import { createPresentationIdleLifecycle } from "./presentation-idle-lifecycle.js";
+import {
+  claimPresentationCanvas,
+  publishCanvasOwnershipDiagnostics,
+} from "./canvas-ownership.js";
 
 let outputFitSignature = "";
 
@@ -69,14 +73,12 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   `;
 
   let renderer = null;
-  let outputIdleSuspended = false;
   let pendingState = null;
   let acceptedState = null;
   let acceptedRevision = 0;
   let receivedRevision = 0;
   let receivedSessionId = "";
   let preparedState = null;
-  let preparedFromState = null;
   let preparedRevision = 0;
   let preparedTransportMeta = null;
   let prepareErrorSignature = "";
@@ -89,13 +91,24 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   let observedResizeSignature = "";
   let diagnosticForwarder = null;
   let pointerSignalSequence = 0;
+  let setupStarted = false;
   const fixtureUrl = fixtureStateUrl();
   const initialStateGate = createOutputInitialStateGate();
+  const presentationIdle = createPresentationIdleLifecycle({
+    canSuspend: () => shouldSuspendStableOutputPresentation({
+      preparing: !!preparedState,
+      presentationMode: renderer?.frameRuntime.presentationMode(),
+      hasPresentedCompleteFrame:
+        renderer?.presentationRuntime.hasPresentedCompleteFrame === true,
+    }),
+    start: () => { if (typeof loop === "function") loop(); },
+    stop: () => { if (typeof noLoop === "function") noLoop(); },
+  });
 
   window.addEventListener("pagehide", () => {
     renderer?.dispose?.();
     renderer = null;
-    outputIdleSuspended = false;
+    presentationIdle.reset();
     resizeObserver?.disconnect?.();
     resizeObserver = null;
     if (observedResizeFrame) cancelAnimationFrame(observedResizeFrame);
@@ -108,6 +121,12 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   }, { once: true });
 
   window.setup = async function setup() {
+    // p5 global mode and a dynamically loaded host script may both observe the
+    // global setup callback. Output owns exactly one presentation renderer;
+    // ignore a second setup entry before it can allocate another full-size
+    // WebGL canvas/context.
+    if (setupStarted) return;
+    setupStarted = true;
     // p5 can finish loading before either the fixture or Control's registration
     // baseline. Compiling null is never a valid fallback: keep setup pending
     // until the first authoritative state arrives. The bridge heartbeat can
@@ -118,6 +137,11 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     const canvas = createCanvas(size.width, size.height, WEBGL);
     assertP5RenderCapabilities();
     canvas.parent("output-stage");
+    const canvasOwnerId = `output:${outputId || "main"}`;
+    claimPresentationCanvas(canvas, {
+      ownerId: canvasOwnerId,
+      host: root.querySelector("#output-stage"),
+    });
     applyLoadedFont();
     fitOutputCanvas(size);
     const stage = document.querySelector("#output-stage");
@@ -176,6 +200,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     // must later be rescued by another state publication.
     renderer.importFiles(acceptedFiles);
     await renderer.setup(initialState ? outputSizedState(initialState, outputSize(initialState, mode), mode, outputId) : null, { normalized: true });
+    publishCanvasOwnershipDiagnostics(root, canvasOwnerId);
     if (acceptedState) {
       acceptedState = renderer.state;
       pendingState = renderer.state;
@@ -272,21 +297,11 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   };
 
   function wakeOutputPresentation() {
-    if (!outputIdleSuspended) return;
-    outputIdleSuspended = false;
-    if (typeof loop === "function") loop();
+    presentationIdle.wake();
   }
 
   function suspendStableOutputPresentation() {
-    if (!shouldSuspendStableOutputPresentation({
-      idleSuspended: outputIdleSuspended,
-      preparing: !!preparedState,
-      presentationMode: renderer?.frameRuntime.presentationMode(),
-      hasPresentedCompleteFrame:
-        renderer?.presentationRuntime.hasPresentedCompleteFrame === true,
-    }) || typeof noLoop !== "function") return;
-    outputIdleSuspended = true;
-    noLoop();
+    presentationIdle.suspendIfStable();
   }
 
   bridge = createOutputBridge({
@@ -312,7 +327,6 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       }
       if (renderer && shouldPrepareLiveSceneState(state, acceptedState, mode)) {
         preparedState = state;
-        preparedFromState = transitionTerminalState(acceptedState);
         preparedRevision = revision;
         preparedTransportMeta = meta.transport || null;
         prepareErrorSignature = "";
@@ -423,6 +437,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
         acceptedState = nextState;
         renderer?.setState(outputSizedState(nextState, outputSize(nextState, mode), mode, outputId), { normalized: true });
       }
+      if (command === "set-profile-diagnostics") renderer?.profileRuntime.setDiagnosticsEnabled(payload.enabled === true);
       if (command === "set-calibrate") renderer?.mappingRuntime.setCalibrate(!!payload.calibrating);
       if (command === "save-mapping") renderer?.mappingRuntime.save();
       if (command === "reset-mapping") renderer?.mappingRuntime.reset(payload.surfaceId);
@@ -465,7 +480,11 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     }
     if (status.blocked) return false;
     if (hasActiveLiveTransition(acceptedState)) return false;
-    const state = queuedSceneTransitionState(preparedState, preparedFromState);
+    // Readiness delays activation of the already-compiled Live program. It
+    // does not own a second transition scheduler or reconstruct an endpoint
+    // from mutable renderer state. Preview and Output therefore consume the
+    // same transition descriptor; only its wall-clock start is host-local.
+    const state = retimePreparedSceneTransition(preparedState);
     const revision = preparedRevision;
     const transportMeta = preparedTransportMeta;
     clearPreparedState();
@@ -503,7 +522,6 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
 
   function clearPreparedState() {
     preparedState = null;
-    preparedFromState = null;
     preparedRevision = 0;
     preparedTransportMeta = null;
     prepareErrorSignature = "";
@@ -614,7 +632,7 @@ export function hasActiveLiveTransition(state, nowMs = Date.now()) {
   return (state?.liveTransitions || (state?.liveTransition ? [state.liveTransition] : [])).some((transition) => {
     const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
     const startedAtMs = Number(transition?.startedAtMs) || 0;
-    return !!transition?.fromState && durationMs > 0 && startedAtMs > 0 && nowMs < startedAtMs + durationMs;
+    return !!transition?.id && durationMs > 0 && startedAtMs > 0 && nowMs < startedAtMs + durationMs;
   });
 }
 
@@ -624,33 +642,6 @@ export function transitionTerminalState(state) {
   delete terminal.liveTransition;
   delete terminal.liveTransitions;
   return terminal;
-}
-
-export function queuedSceneTransitionState(state, fromState, startedAtMs = Date.now() + 50) {
-  if (!state) return state;
-  const configuredDurationMs = Math.round(Math.max(0, Number(state.ui?.live?.transitionDuration) || 0) * 1000);
-  const durationMs = Math.max(0, Number(state.liveTransition?.durationMs) || configuredDurationMs);
-  if (!fromState || durationMs <= 0) return transitionTerminalState(state);
-  const stableFromState = transitionTerminalState(fromState);
-  const liveTransition = {
-    id: state.liveTransition?.id || `${outputSceneId(stableFromState)}:${outputSceneId(state)}:${startedAtMs}`,
-    destination: "overall",
-    surfaceId: "",
-    transitionId: String(state.liveTransition?.transitionId || state.ui?.live?.transitionId || "vj1.transition.dissolve"),
-    transitionParameters: state.liveTransition?.transitionParameters || state.ui?.live?.transitionParameters || {},
-    startedAtMs,
-    durationMs,
-    // A superseded queued Scene may have different temporary overrides from
-    // the actual completed source. Conservative identities avoid sharing a
-    // render cache across two semantically different transition sides.
-    componentsShared: false,
-    fromState: stableFromState,
-  };
-  return {
-    ...state,
-    liveTransitions: [liveTransition],
-    liveTransition,
-  };
 }
 
 export function hasLoadedProjectState(state) {
@@ -686,7 +677,7 @@ function outputSize(state = null, mode = "output") {
 
 function outputSizedState(state, size, mode, outputId = "") {
   if (!state) return state;
-  return alignLiveTransitionRenderContext({
+  return {
     ...state,
     render: {
       ...state.render,
@@ -697,7 +688,7 @@ function outputSizedState(state, size, mode, outputId = "") {
         outputId,
       },
     },
-  });
+  };
 }
 
 function resizeOutputIfNeeded(state, mode = "output", renderer = null) {

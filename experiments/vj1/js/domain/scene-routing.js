@@ -1,7 +1,6 @@
 import { latestProjectActivity } from "./component-activity.js";
 import { runtimeVisualSourceNodes } from "./runtime-visual-sources.js";
 import { directSurfaceHierarchy } from "./direct-surface-hierarchy.js";
-import { activeLiveTransitions } from "./live-transition-coordinator.js";
 
 // These fields belong to a compiled Surface route, not to the authored
 // Mapping Surface. Keeping the list beside the route materializer gives model
@@ -254,12 +253,7 @@ function applyDirectOutputPatchPrecedence(surfaces = [], patches = {}) {
 }
 
 export function liveProgramComponentIds(state = {}, nowMs = Date.now()) {
-  const ids = currentLiveProgramComponentIds(state);
-  const live = state.ui?.live || {};
-  for (const transition of activeLiveTransitions(live, nowMs)) {
-    collectLiveRouteComponentGraphs(state, transition.fromSurfaceRoutes, ids);
-  }
-  return ids;
+  return currentLiveProgramComponentIds(state);
 }
 
 export function currentLiveProgramComponentIds(state = {}) {

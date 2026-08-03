@@ -14,7 +14,6 @@ export class OutputResourceRuntime {
     this.renderCache = new OutputRenderCache();
     this.componentSource = this.renderCache.sources;
     this.componentOutput = new Map();
-    this.sourcePg = null;
     this.mainMix = null;
     this.lastPixelDensity = 0;
   }
@@ -30,7 +29,6 @@ export class OutputResourceRuntime {
 
   applyFontToAllGraphics() {
     const host = this.host;
-    this.applyGraphicsFont(this.sourcePg);
     this.applyGraphicsFont(this.mainMix);
     host.surfaceRuntime.applyFont((target) =>
       this.applyGraphicsFont(target),
@@ -57,11 +55,8 @@ export class OutputResourceRuntime {
     this.applyPixelDensity();
     const { width, height } =
       host.presentationGeometry.outputFrameSize(host.state.render);
-    this.sourcePg = createGraphics(width, height);
     this.mainMix = createSharedFramebufferTarget(width, height);
-    this.applyGraphicsPixelDensity(this.sourcePg);
     this.applyGraphicsPixelDensity(this.mainMix);
-    this.applyGraphicsFont(this.sourcePg);
     this.applyGraphicsFont(this.mainMix);
   }
 
@@ -71,8 +66,6 @@ export class OutputResourceRuntime {
     const { width, height } =
       host.presentationGeometry.outputFrameSize(host.state.render);
     return (
-      this.sourcePg?.width === width &&
-      this.sourcePg?.height === height &&
       this.mainMix?.width === width &&
       this.mainMix?.height === height
     );
@@ -87,7 +80,6 @@ export class OutputResourceRuntime {
     host.shaderEffectRuntime.dispose();
     host.textureOperatorRuntime.dispose();
     host.compositeRuntime.dispose();
-    disposeGraphics(this.sourcePg);
     disposeGraphics(this.mainMix);
     host.surfaceRuntime.dispose();
     host.isfRuntime.dispose();
@@ -95,7 +87,6 @@ export class OutputResourceRuntime {
     this.renderCache.dispose();
     host.renderEvaluationRuntime.dispose();
     host.componentRenderRuntime.clear();
-    this.sourcePg = null;
     this.mainMix = null;
   }
 

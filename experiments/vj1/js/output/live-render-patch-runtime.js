@@ -54,12 +54,16 @@ export class LiveRenderPatchRuntime {
   apply(patches = [], nowMs = performance.now(), durationMs = 0) {
     const host = this.host;
     const resolution = resolveLiveRenderPatches(host.state, patches);
-    if (!resolution.applied) return resolution;
+    const finish = (result) => {
+      host.profileRuntime?.recordLivePatch?.(host, patches, resolution, result);
+      return result;
+    };
+    if (!resolution.applied) return finish(resolution);
     host.invalidatePresentation("render-patch");
     if (resolution.statePaths.length) {
       const nextState = { ...host.state };
       const result = applyLiveRenderPatches(nextState, patches);
-      if (!result.applied) return result;
+      if (!result.applied) return finish(result);
       host.state = nextState;
       if (result.statePaths.includes("mappingCalibration")) {
         const mapping = host.mappingRuntime;
@@ -83,7 +87,7 @@ export class LiveRenderPatchRuntime {
         host.componentProgramRuntime.rebuildLookups(host.state);
         host.mappingRuntime.reconcileState(previousMappingState);
       }
-      return result;
+      return finish(result);
     }
     durationMs = Math.max(0, Number(durationMs) || 0);
     const candidates = resolution.destinations.map((destination) => {
@@ -101,7 +105,7 @@ export class LiveRenderPatchRuntime {
       return { destination, key, active, from };
     });
     const result = applyLiveRenderPatches(host.state, patches);
-    if (!result.applied) return result;
+    if (!result.applied) return finish(result);
     for (const candidate of candidates) {
       const { destination, key, active, from } = candidate;
       const to = destination.value;
@@ -178,7 +182,7 @@ export class LiveRenderPatchRuntime {
       const missingComponentIds = new Set(
         missingTargets.map((target) => String(target.componentId || "")),
       );
-      return {
+      return finish({
         ...result,
         applied: false,
         stateApplied: true,
@@ -186,7 +190,7 @@ export class LiveRenderPatchRuntime {
         failedPatch: patches.find((patch) =>
           missingComponentIds.has(String(patch?.componentId || ""))
         ) || null,
-      };
+      });
     }
     // A retained patch is an authoritative edit, even though it deliberately
     // avoids replacing the complete Preview state. Let completed pointer
@@ -196,7 +200,7 @@ export class LiveRenderPatchRuntime {
     host.previewInteraction?.acceptAuthoritativeConfigurationPatches?.(
       resolution.destinations,
     );
-    return result;
+    return finish(result);
   }
 
   applyFrame(nowMs = performance.now()) {

@@ -145,7 +145,7 @@ test("Overall Live monitor remains one unprojected direct route", () => {
   assert.equal(state.render.outputs.length, 2);
 });
 
-test("surface transitions use current geometry at both endpoints", () => {
+test("surface transition descriptors leave endpoint execution to the renderer", () => {
   const state = sceneMappingFixture();
   const [surface] = state.mappings[0].surfaces;
   const scenes = state.components.filter((component) => component.type === "scene");
@@ -156,46 +156,43 @@ test("surface transitions use current geometry at both endpoints", () => {
   state.ui.live.selectedSceneId = scenes[1].id;
   state.ui.live.selectedComponentId = scenes[1].id;
   state.ui.live.previewSurfaceId = surface.id;
-  const previousRoutes = materializeLiveProgramSurfaceRoutes(state, scenes[0], state.mappings[0]);
-  previousRoutes.surfaces[0] = { ...previousRoutes.surfaces[0], x: 0.02, width: 0.9 };
-  state.ui.live.transition = {
+  state.ui.live.transitionCoordinator = { [`surface:${surface.id}`]: { active: {
     id: "surface-transition",
+    destination: `surface:${surface.id}`,
     fromTargetId: scenes[0].id,
-    fromSurfaceRoutes: previousRoutes,
-    fromComponentOverrides: {},
+    toTargetId: scenes[1].id,
     startedAtMs: Date.now() - 10,
     durationMs: 1000,
     surfaceId: surface.id,
-  };
+  } } };
 
   const preview = createLiveScenePreviewState(state);
   const current = preview.surfaces.find((route) => route.id === surface.id);
-  const previous = preview.liveTransition.fromState.surfaces.find((route) => route.id === surface.id);
-  for (const key of ["x", "y", "width", "height"]) assert.equal(previous[key], current[key], key);
-  assert.equal(previous.componentId, scenes[0].id);
+  assert.equal(preview.liveTransition.fromTargetId, scenes[0].id);
+  assert.equal(Object.hasOwn(preview.liveTransition, "fromProgram"), false);
+  assert.equal(Object.hasOwn(preview.liveTransition, "fromSurfaceRoutes"), false);
   assert.equal(current.componentId, scenes[1].id);
 });
 
-test("Overall Scene transitions keep identical monitor geometry and presentation", () => {
+test("Overall Scene transition descriptors use the same current monitor presentation", () => {
   const state = sceneMappingFixture();
   const scenes = state.components.filter((component) => component.type === "scene");
   state.ui.live.selectedSceneId = scenes[1].id;
   state.ui.live.selectedComponentId = scenes[1].id;
   state.ui.live.previewSurfaceId = "__mapping__";
-  state.ui.live.transition = {
+  state.ui.live.transitionCoordinator = { overall: { active: {
     id: "overall-transition",
+    destination: "overall",
     fromTargetId: scenes[0].id,
-    fromSurfaceRoutes: materializeLiveProgramSurfaceRoutes(state, scenes[0], state.mappings[0]),
-    fromComponentOverrides: {},
+    toTargetId: scenes[1].id,
     startedAtMs: Date.now() - 10,
     durationMs: 1000,
-  };
+  } } };
 
   const preview = createLiveScenePreviewState(state);
   const current = preview.surfaces[0];
-  const previous = preview.liveTransition.fromState.surfaces[0];
-  for (const key of ["x", "y", "width", "height", "projectionFit"]) assert.equal(previous[key], current[key], key);
-  assert.deepEqual(preview.liveTransition.fromState.render.outputs, preview.render.outputs);
-  assert.equal(previous.componentId, scenes[0].id);
+  assert.equal(preview.liveTransition.fromTargetId, scenes[0].id);
+  assert.equal(Object.hasOwn(preview.liveTransition, "fromProgram"), false);
+  assert.equal(preview.livePreviewPresentation, "scene");
   assert.equal(current.componentId, scenes[1].id);
 });

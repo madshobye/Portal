@@ -36,6 +36,7 @@ import {
   paramControlTemplate,
   placementAxisRange,
 } from "../js/control/parameter-view.js";
+import { createChangeEvent } from "../js/libraries/state-engine/state-command/index.js";
 
 test("ISF events render as transient trigger buttons and resolve their chain instance", () => {
   const html = paramControlTemplate(
@@ -1035,7 +1036,7 @@ test("component catalogs expose stable per-view sorting modes", () => {
   assert.ok(source.includes("state.ui?.catalogSortModes?.[scope]"));
   assert.ok(source.includes('ui.catalogSortModes ||= { component: "recent", scene: "recent", mapping: "recent", live: "recent", source: "recent", media: "recent" }'));
   assert.ok(source.includes("ui.catalogSortModes[catalog] = mode"));
-  assert.match(source, /if \(change\.projectRestore\) \{[\s\S]*?invalidateCatalogOrder\(\)/);
+  assert.match(source, /change\.effects\.lifecycle\.project === "restore"[\s\S]*?invalidateCatalogOrder\(\)/);
   assert.ok(source.includes('catalogSortMode("component")'));
   assert.ok(source.includes('catalogSortMode("scene")'));
   assert.ok(source.includes('catalogSortMode("mapping")'));
@@ -1126,7 +1127,7 @@ test("workspace navigation leaves complete shell work outside the click handler"
   );
   assert.match(
     appStateSource,
-    /setWorkspace\(workspace\) \{[\s\S]*?const draft = \{\s*\.\.\.state,\s*ui: clone\(state\.ui\),\s*global: \{ \.\.\.state\.global \},[\s\S]*?state = draft;[\s\S]*?emit\(\{ reason: "workspace", scope: "ui", history: "none" \}\);/,
+    /setWorkspace\(workspace\) \{[\s\S]*?const draft = \{\s*\.\.\.state,\s*ui: clone\(state\.ui\),\s*global: \{ \.\.\.state\.global \},[\s\S]*?state = draft;[\s\S]*?emit\(\{ reason: "workspace", command: \{ domain: "ui" \} \}\);/,
   );
   assert.doesNotMatch(
     appStateSource,
@@ -1138,7 +1139,7 @@ test("same-frame workspace navigation cannot be narrowed into a mixed editor pro
   const workspace = {
     force: true,
     reason: "workspace",
-    change: { topic: "workspace" },
+    change: { command: { topic: "workspace" } },
     projection: "shell",
     invalidation: null,
     previewPatched: false,
@@ -1146,7 +1147,7 @@ test("same-frame workspace navigation cannot be narrowed into a mixed editor pro
   const selection = {
     force: true,
     reason: "select-component",
-    change: { topic: "select-component" },
+    change: { command: { topic: "select-component" } },
     projection: "control-invalidation",
     invalidation: {
       regions: ["project-rail", "inspector"],
@@ -1167,7 +1168,7 @@ test("same-frame targeted control work merges without forcing a full shell rende
   const first = {
     force: true,
     reason: "select-component",
-    change: { topic: "select-component" },
+    change: { command: { topic: "select-component" } },
     projection: "control-invalidation",
     invalidation: { regions: ["project-rail"], preview: "render" },
     previewPatched: false,
@@ -1175,7 +1176,7 @@ test("same-frame targeted control work merges without forcing a full shell rende
   const second = {
     force: false,
     reason: "select-chain-item",
-    change: { topic: "select-chain-item" },
+    change: { command: { topic: "select-chain-item" } },
     projection: "control-invalidation",
     invalidation: { regions: ["inspector"], preview: "ui" },
     previewPatched: true,
@@ -1215,7 +1216,7 @@ test("streamed derived thumbnails patch their owned images without rebuilding Pr
   const templates = readFileSync(new URL("../js/control/template-utils.js", import.meta.url), "utf8");
   assert.match(
     controllerSource,
-    /change\.scope === "derived" && change\.projection\?\.kind === "component-thumbnails"[\s\S]*?patchComponentThumbnails\(change\.projection\.entries\);[\s\S]*?return;/,
+    /change\.effects\.preview\.mode === "thumbnails"[\s\S]*?patchComponentThumbnails\(change\.projection\.entries\);[\s\S]*?return;/,
   );
   assert.match(controllerSource, /function patchComponentThumbnails\(entries = \[\]\)/);
   assert.match(controllerSource, /root\.querySelectorAll\("\[data-component-thumbnail\]"\)/);
@@ -1244,7 +1245,7 @@ test("deferred UI frames consume current user truth instead of captured snapshot
 
   assert.match(source, /requestAnimationFrame\(\(\) => \{[\s\S]*?const request = scheduledRenderRequest \|\| \{\};[\s\S]*?scheduledRenderRequest = null;[\s\S]*?deferRender\(latestState, request\)[\s\S]*?request\.projection === "live-program"[\s\S]*?render\(latestState, request\)/);
   assert.match(source, /function flushDeferredRender\(\)[\s\S]*?const context = deferredRenderContext \|\| \{\}[\s\S]*?scheduleRenderNow\(latestState, \{[\s\S]*?\.\.\.context/);
-  assert.match(source, /if \(change\.structural\)[\s\S]*?scheduleRenderNow\(state, \{ force: true, reason, change \}\)/);
+  assert.match(source, /change\.effects\.graph\.mode === "recompile"[\s\S]*?scheduleRenderNow\(state, \{ force: true, reason, change \}\)/);
   assert.match(source, /function scheduleRenderNow\(state, \{[\s\S]*?force = false,[\s\S]*?reason = "",[\s\S]*?change = null,[\s\S]*?projection = "shell",[\s\S]*?invalidation = null,[\s\S]*?previewPatched = false,[\s\S]*?\} = \{\}\)[\s\S]*?if \(!request\.force && shouldDeferRender\(\)\)/);
 });
 
@@ -1277,7 +1278,6 @@ test("Live transition expiry survives unrelated state traffic across its deadlin
   });
   const transition = {
     id: "scene-to-component",
-    fromSurfaceRoutes: { surfaces: [{ id: "surface-1" }] },
     startedAtMs: 1000,
     durationMs: 100,
   };
@@ -1319,7 +1319,7 @@ test("Live output-matrix selection and Mapping eyes use scoped projection activa
   assert.equal(
     previewActivationForContext({
       reason: "select-mapping",
-      change: { scope: "ui" },
+      change: createChangeEvent({ reason: "select-mapping", command: { domain: "ui" } }),
     }),
     "mapping",
     "Mapping selection replaces the derived route program and retained handles",
@@ -1327,7 +1327,7 @@ test("Live output-matrix selection and Mapping eyes use scoped projection activa
   assert.equal(
     previewActivationForContext({
       reason: "toggle:mappings.0.surfaces.2.enabled",
-      change: { scope: "project" },
+      change: createChangeEvent("toggle:mappings.0.surfaces.2.enabled"),
     }),
     "mapping",
     "a Surface eye changes reachability but not visual programs or resources",
@@ -1335,7 +1335,7 @@ test("Live output-matrix selection and Mapping eyes use scoped projection activa
   assert.equal(
     previewActivationForContext({
       reason: "live:preview-surface",
-      change: { scope: "ui" },
+      change: createChangeEvent({ reason: "live:preview-surface", command: { domain: "ui" } }),
     }),
     "projection",
     "Scene Mapping and projected output rows have different derived surface programs and reachability",
@@ -1343,7 +1343,7 @@ test("Live output-matrix selection and Mapping eyes use scoped projection activa
   assert.equal(
     previewActivationForContext({
       reason: "preview-fit-frame",
-      change: { scope: "ui" },
+      change: createChangeEvent({ reason: "preview-fit-frame", command: { domain: "ui" } }),
     }),
     "ui",
     "ordinary navigation must retain compiled Mapping geometry",
@@ -1351,7 +1351,7 @@ test("Live output-matrix selection and Mapping eyes use scoped projection activa
   assert.equal(
     previewActivationForContext({
       reason: "live:scene",
-      change: { scope: "live" },
+      change: createChangeEvent("live:scene"),
     }),
     "full",
     "a Scene change still activates the newly compiled visual endpoint",
@@ -1379,7 +1379,7 @@ test("Surface eyes commit visibility through the shared selection contract and r
   );
   assert.match(
     shellSource,
-    /const controlInvalidation = change\.controlInvalidation[\s\S]*?projection: "control-invalidation"[\s\S]*?invalidation: controlInvalidation/,
+    /const controlInvalidation = change\.effects\.control[\s\S]*?projection: "control-invalidation"[\s\S]*?invalidation: controlInvalidation/,
   );
   assert.match(
     shellSource,
@@ -1455,11 +1455,11 @@ test("local UI controls use the UI-only state path", () => {
   assert.match(controller, /function updateUi\(recipe, reason\)[\s\S]*?store\.updateUi\(recipe, reason\)/);
   assert.match(controller, /updateUi\(\(ui\) => \{[\s\S]*?updatePreviewViewportForUi\(ui, \(viewport\) => zoomViewport/);
   assert.match(controller, /ui\.catalogSortModes\[catalog\] = mode/);
-  assert.match(app, /application\.bindInput\("storage", "value", \(\{ state, change \}\) => \{[\s\S]*?\["live", "runtime", "derived"\]\.includes\(change\.scope\)[\s\S]*?projectService\.scheduleAutoSave\(change, \{ state \}\)/);
-  assert.match(app, /application\.bindInput\("live-synchronization", "state", \(\{ state, reason, change \}\) => \{[\s\S]*?\["runtime", "derived", "ui"\]\.includes\(change\.scope\)/);
+  assert.match(app, /application\.bindInput\("storage", "value", \(\{ state, change \}\) => \{[\s\S]*?change\.effects\?\.persistence\?\.mode === "none"[\s\S]*?projectService\.scheduleAutoSave\(change, \{ state \}\)/);
+  assert.match(app, /application\.bindInput\("live-synchronization", "state", \(\{ state, reason, change \}\) => \{[\s\S]*?const outputEffect = change\.effects\?\.output/);
   assert.match(app, /application\.emit\("data-store", "snapshot", \{ state, reason, change \}\)/);
-  assert.match(projectService, /if \(event\.phase === "edit" \|\| event\.phase === "scrub"\) return;/);
-  assert.match(projectService, /event\.scope === "ui" && !immediate && !previewViewportCheckpoint/);
+  assert.match(projectService, /if \(persistence\.mode === "none"\) return;/);
+  assert.match(projectService, /if \(persistence\.mode === "defer" && !immediate\) return;/);
 });
 
 test("preview navigation bypasses full renderer state replacement and drag wakes after pointer signal publication", () => {
@@ -1469,7 +1469,7 @@ test("preview navigation bypasses full renderer state replacement and drag wakes
   const viewportEnd = preview.indexOf("\n  function setInstalledNodePackages(", viewportStart);
   const setViewportSource = preview.slice(viewportStart, viewportEnd);
 
-  assert.match(controller, /change\.scope === "ui" && previewViewportReasons\.has\(reason\)[\s\S]*?embeddedPreview\.setViewport\(state\.ui\);[\s\S]*?return;/);
+  assert.match(controller, /change\.effects\.preview\.mode === "viewport" && previewViewportReasons\.has\(reason\)[\s\S]*?embeddedPreview\.setViewport\(state\.ui\);[\s\S]*?return;/);
   assert.match(setViewportSource, /renderer\?\.presentationGeometry\?\.setViewport\(resolvedViewport\)/);
   assert.doesNotMatch(setViewportSource, /renderer\?\.setState/);
   assert.match(preview, /const onPointerMove = \(event\) => \{[\s\S]*?publishPointer\(position,[\s\S]*?if \(!pointerActive \|\| event\.pointerId !== activePointerId\) return;\s*wakePreviewPresentation\(\)/);
@@ -1537,7 +1537,7 @@ test("Scene uses the shared chain and exposes authoritative Mapping Surfaces", (
   assert.doesNotMatch(componentSource, /function componentUnifiedChainTemplate[\s\S]*?<span>Chain<\/span>/);
   const unifiedChainSource = componentSource.slice(
     componentSource.indexOf("function componentUnifiedChainTemplate"),
-    componentSource.indexOf("function chainItemsTemplate")
+    componentSource.indexOf("function layerItemsTemplate")
   );
   assert.ok(!unifiedChainSource.includes("chain-add-button"));
   assert.match(componentSource, /export function componentHeaderAddButtonTemplate[\s\S]*?class="rail-title-add"[\s\S]*?data-open-element-picker/);
@@ -1626,7 +1626,7 @@ test("compact text lists share one full-width item generator", () => {
   assert.ok(primitives.includes("function textListItemTemplate("));
   assert.match(mappingSource, /function mappingSurfacePillTemplate[\s\S]*?selectablePillTemplate\(/);
   assert.match(primitives, /function selectablePillTemplate[\s\S]*?return textListItemTemplate\(/);
-  assert.match(componentSource, /function chainItemRowTemplate[\s\S]*?const row = textListItemTemplate\(/);
+  assert.match(componentSource, /function layerItemRowTemplate[\s\S]*?const row = textListItemTemplate\(/);
   assert.ok(style.includes(".text-list-item {"));
   assert.match(style, /\.text-list-item \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\);[\s\S]*?border: 1px solid var\(--line\);/);
   assert.match(style, /\.text-list-item\.has-leading\.has-remove \{[\s\S]*?var\(--text-list-leading-size\)[\s\S]*?var\(--text-list-remove-size\)/);
@@ -1723,7 +1723,7 @@ test("embedded Live preview switches Scenes immediately without media-preparatio
   const current = { ui: { workspace: "live", selectedSceneId: "scene-being-edited", live: { selectedSceneId: "scene-a" } } };
   const incoming = {
     ui: { workspace: "live", selectedSceneId: "another-editor-scene", live: { selectedSceneId: "scene-b" } },
-    liveTransition: { startedAtMs: 100, durationMs: 1000, fromState: current },
+    liveTransition: { id: "scene-a-to-b", startedAtMs: 100, durationMs: 1000, fromTargetId: "scene-a" },
   };
   assert.equal(shouldPrepareEmbeddedLiveState(incoming, current), false);
   assert.equal(
@@ -1882,8 +1882,8 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(appSource.includes("function sendScrubState()"));
   assert.ok(appSource.includes("requestAnimationFrame"));
   assert.ok(appSource.includes("sendScrubState();"));
-  assert.ok(appSource.includes('["live", "runtime", "derived"].includes(change.scope)'));
-  assert.ok(bridgeSource.includes('if (change.scope !== "live") return;'));
+  assert.ok(appSource.includes('change.effects?.persistence?.mode === "none"'));
+  assert.ok(bridgeSource.includes('change.command?.domain !== "live"'));
   assert.ok(bridgeSource.includes("scheduleLivePatches();"));
   assert.ok(bridgeSource.includes("flushLivePatches();"));
   assert.ok(synchronizationSource.includes('typeof requestAnimationFrame === "function"'));
@@ -1903,11 +1903,8 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(previewSource.includes('renderer.setProjectionState(nextState, { normalized: true })'));
   assert.ok(previewSource.includes('renderer.setAssetState(nextState, { normalized: true })'));
   const activationSource = readFileSync(new URL("../js/control/preview-state-activation.js", import.meta.url), "utf8");
-  assert.ok(activationSource.includes('if (context.reason === "live:preview-surface") return "projection"'));
-  assert.ok(activationSource.includes('if (context.change?.scope === "ui") return "ui"'));
-  assert.ok(activationSource.includes('context.change?.scope === "assets"'));
-  assert.ok(activationSource.includes('context.change?.projection?.kind === "asset-catalog"'));
-  assert.ok(activationSource.includes('context.change?.topic === "scene-surface"'));
+  assert.ok(activationSource.includes('context.change?.effects?.preview?.mode'));
+  assert.ok(activationSource.includes('["projection", "mapping", "assets", "ui"].includes(mode)'));
   assert.ok(rendererSource.includes('setState(nextState, { normalized = false } = {})'));
   assert.ok(rendererSource.includes('setUiState(nextState, { normalized = false } = {})'));
   assert.ok(rendererSource.includes('setProjectionState(nextState, { normalized = false } = {})'));
@@ -1949,7 +1946,7 @@ test("opening an output never changes the Live Scene", () => {
   assert.ok(!appSource.includes('bridge.command("sync-mapping"'));
   assert.ok(appSource.includes("bridge.sendState();"));
   assert.ok(appSource.includes("outputRenderPatchesForChange(state, change)"));
-  assert.ok(appSource.includes('if (change.outputState === "unchanged") return;'));
+  assert.ok(appSource.includes('if (outputEffect.mode === "none") return;'));
   assert.match(
     appSource,
     /if \(renderPatches\.length\) \{[\s\S]*?bridge\.sendRenderPatches\(renderPatches,[\s\S]*?return;[\s\S]*?bridge\.sendState\(\);/,
@@ -1974,8 +1971,8 @@ test("studio scrubs patch previews without replacing their complete state", () =
   assert.ok(controllerSource.includes("if (!context.previewPatched) updatePreviewState(state)"));
   assert.ok(controllerSource.includes("const context = deferredRenderContext || {}"));
   assert.ok(controllerSource.includes("if (!context.previewPatched) renderPreview(state, context)"));
-  assert.ok(controllerSource.includes('if (change.topic === "mapping-state")'));
-  assert.ok(controllerSource.includes('if (change.phase !== "scrub") renderPreview(state, { reason, change })'));
+  assert.ok(controllerSource.includes('if (change.effects.preview.mode === "mapping")'));
+  assert.ok(controllerSource.includes('if (change.command.phase !== "scrub") renderPreview(state, { reason, change })'));
   assert.ok(previewSource.includes("applyLiveRenderPatchesImmutable(pendingState, patches)"));
   assert.ok(previewSource.includes("pendingState = pendingResult.state"));
   assert.ok(previewSource.includes('applyRetainedPreviewPatches(patches, "live")'));

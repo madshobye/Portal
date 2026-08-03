@@ -365,8 +365,8 @@
           premultipliedAlpha: true,
           preserveDrawingBuffer: false,
         };
-        const gl = canvas.getContext("webgl", attributes);
-        if (!gl) throw new Error(`WEBGL_CONTEXT_UNAVAILABLE:${id}`);
+        const gl = canvas.getContext("webgl2", attributes);
+        if (!gl) throw new Error(`WEBGL2_CONTEXT_UNAVAILABLE:${id}`);
         const owner = {
           id,
           canvas,
@@ -426,9 +426,9 @@
       }
 
       function createTransitionResources(gl) {
-        const vertexSource = `
-          attribute vec2 aPosition;
-          varying vec2 vTexCoord;
+        const vertexSource = `#version 300 es
+          in vec2 aPosition;
+          out vec2 vTexCoord;
           void main() {
             vTexCoord = aPosition * 0.5 + 0.5;
             gl_Position = vec4(aPosition, 0.0, 1.0);

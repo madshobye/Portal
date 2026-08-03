@@ -253,6 +253,7 @@ export class OutputRenderer {
     this.previewInteraction.dispose();
     this.thumbnailRuntime.dispose();
     this.presentationRuntime.dispose();
+    this.surfaceRuntime.dispose();
     this.componentProgramRuntime.dispose();
     this.mappingProgramRuntime.clear();
     this.probeRuntime.dispose();

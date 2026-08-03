@@ -50,6 +50,37 @@ test("analyzes component graph shape and missing media", () => {
   assert.ok(metrics.bottlenecks.some((item) => item.scope === "Stress" && item.message.includes("enabled effects")));
 });
 
+test("project analysis discards obsolete serialized transition endpoint snapshots", () => {
+  const state = createInitialState();
+  const component = state.components[0];
+  const routes = { surfaces: structuredClone(state.surfaces) };
+  state.ui.live.transitionCoordinator = {
+    overall: {
+      active: {
+        id: "transition-analysis",
+        destination: "overall",
+        fromTargetId: component.id,
+        toTargetId: component.id,
+        fromSurfaceRoutes: routes,
+        toSurfaceRoutes: routes,
+        fromComponentOverrides: {
+          [component.id]: { chain: [{ source: { params: { renderQuality: 0.25 } } }] },
+        },
+        toComponentOverrides: {
+          [component.id]: { chain: [{ source: { params: { renderQuality: 0.75 } } }] },
+        },
+        startedAtMs: 1000,
+        durationMs: 900,
+      },
+    },
+  };
+
+  const metrics = analyzeVj1Project(state);
+
+  assert.equal(metrics.project.name, state.project.name);
+  assert.equal(metrics.aggregate.componentCount > 0, true);
+});
+
 test("component topology lowers persisted ISF image choices into named texture dependencies", () => {
   const definition = createIsfNodeDefinition({
     path: "tests/auxiliary-mask.fs",

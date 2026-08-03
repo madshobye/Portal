@@ -28,6 +28,7 @@ export function createInputController({
   setStatus = () => {},
   triggerParameterAnimation = () => {},
   triggerIsfEvent = () => {},
+  onLiveInput = () => {},
 }) {
   const paramContextScopes = new WeakSet();
 
@@ -322,7 +323,7 @@ export function createInputController({
         updateDraft?.(draft);
       }, {
         reason: `update:parameter-animation-${action}`,
-        structural: true,
+        effects: { graph: { mode: "recompile" } },
       });
     } catch (error) {
       console.error("[VJ1_PARAMETER_ANIMATION_EDIT_FAILED]", error);
@@ -697,8 +698,8 @@ export function createInputController({
         // The marker can be authored from Component, Scene, or Live. Refresh
         // both its local highlight and the consolidated active-output list
         // immediately; waiting for a later MIDI value leaves that list stale.
-        controlInvalidation: {
-          regions: ["live-projection-rail", "inspector"],
+        effects: {
+          control: { regions: ["live-projection-rail", "inspector"] },
         },
       });
       menu.remove();
@@ -919,6 +920,14 @@ export function createInputController({
     const itemId = input.dataset.liveItemId || "";
     const path = input.dataset.liveUpdate;
     const value = readInputValue(input);
+    onLiveInput({
+      reason,
+      componentId: String(componentId || ""),
+      itemId: String(itemId || ""),
+      path: String(path || ""),
+      value,
+      inputType: String(input.type || input.tagName || ""),
+    });
     if (isBoundaryScaleInput(input, path)) {
       const boundary = boundaryFromScaleInput(input, value);
       const widthPath = path.replace(/\.scale$/, ".width");

@@ -1566,11 +1566,40 @@ test("generated parameter controls track compatibility patches without taking au
     ],
   });
 
-  generatedSource.configuration.source.params.scale = 60;
+  const retainedGeneratedOperation = plan.operations.find(
+    (operation) => operation.id === "generated-source",
+  );
+  const generatedBinding = plan.controlProgram.bindings.find(
+    (binding) => binding.operation.id === "generated-source",
+  );
+  const nextGeneratedConfiguration = {
+    ...retainedGeneratedOperation.configuration,
+    source: {
+      ...retainedGeneratedOperation.configuration.source,
+      params: {
+        ...retainedGeneratedOperation.configuration.source.params,
+        scale: 60,
+      },
+    },
+  };
+  assert.equal(
+    plan.replaceConfiguration("generated-source", nextGeneratedConfiguration),
+    true,
+  );
+  assert.strictEqual(
+    plan.operations.find((operation) => operation.id === "generated-source"),
+    retainedGeneratedOperation,
+    "configuration edits preserve the operation handle shared by compiled programs",
+  );
+  assert.strictEqual(
+    generatedBinding.operation,
+    retainedGeneratedOperation,
+    "generated controls remain bound to the live operation handle",
+  );
   authoredSource.configuration.source.params.scale = 60;
   plan.controlProgram.syncGeneratedControlsFromConfiguration();
   const restore = plan.controlProgram.apply();
-  assert.equal(generatedSource.configuration.source.params.scale, 60);
+  assert.equal(retainedGeneratedOperation.configuration.source.params.scale, 60);
   assert.equal(authoredSource.configuration.source.params.scale, 75);
   restore();
 });

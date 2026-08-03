@@ -2,7 +2,6 @@ import { VJ1, WORKSPACES } from "../constants.js";
 import { createLiveScenePreviewState, projectSelectedMapping, sceneSourceNodes } from "../domain/models.js";
 import { activeLiveTransitions } from "../domain/live-transition-coordinator.js";
 import { componentRenderPatchesForChange } from "../domain/render-transport-patch.js";
-import { createLiveRenderPatch } from "../domain/live-render-patch.js";
 import { buildOutputUrl } from "../view-routing.js";
 import { createEmbeddedPreviewApp } from "../output/embedded-preview-app.js";
 import { CONTROL_SIGNAL_COMMAND } from "../output/control-signal-command.js";
@@ -15,17 +14,14 @@ import { collectRefs, shellTemplate } from "./shell-view.js";
 import { sortComponentCatalog } from "./catalog-view.js";
 import { sceneSurfaceInspectorTemplate, sceneInspectorTemplate, componentHeaderAddButtonTemplate, componentSelectedChainSettingsTemplate, componentTemplate } from "./component-view.js";
 import { sceneComponents, getSelectedMapping, ordinaryComponents, selectedSceneComponent } from "./control-selectors.js";
-import { liveInspectorTemplate, liveSignificantParameterAssignments, mappingSurfaceTemplate, significantParameterValueFromUnit } from "./mapping-live-view.js";
+import { liveInspectorTemplate, mappingSurfaceTemplate } from "./mapping-live-view.js";
 import { deepEditButtonTemplate, panelTemplate, projectEmptyTemplate } from "./view-primitives.js";
 import { emptyNote, esc, icon, thumbnailTemplate } from "./template-utils.js";
 import { createClipboardController } from "./clipboard-controller.js";
 import { createModalController } from "./modal-controller.js";
-import {
-  createInputController,
-  setLiveAnimationOverride,
-  setLiveOverride,
-} from "./input-controller.js";
+import { createInputController } from "./input-controller.js";
 import { createControlPerformanceSession } from "./control-performance-session.js";
+import { boundedProfileValue, captureControlLiveProfileDiagnostic } from "./live-profile-diagnostics.js";
 import { createControlDiagnosticsController } from "./control-diagnostics-controller.js";
 import { createControlRenderDiagnostics } from "./control-render-diagnostics.js";
 import { componentTypeIcon, UI_ICONS } from "./ui-icons.js";
@@ -41,8 +37,6 @@ import {
   mergeSignalLoadSnapshots,
   signalLoadMeter,
 } from "../metrics/signal-load-meter.js";
-import { createMidiInputService } from "../services/midi-input-service.js";
-import { createDmxOutputService } from "../services/dmx-output-service.js";
 
 const performanceHealthClasses = Object.freeze([
   "health-0", "health-1", "health-2", "health-3", "health-4",
@@ -166,7 +160,7 @@ export function createLiveTransitionExpiryScheduler({
   return Object.freeze({
     update(value) {
       const transitions = (Array.isArray(value) ? value : [value])
-        .filter((candidate) => candidate?.fromSurfaceRoutes);
+        .filter((candidate) => candidate?.id);
       const transition = transitions.slice().sort((a, b) =>
         (Number(a.startedAtMs) + Number(a.durationMs))
         - (Number(b.startedAtMs) + Number(b.durationMs))
@@ -174,7 +168,7 @@ export function createLiveTransitionExpiryScheduler({
       const startedAtMs = Number(transition?.startedAtMs) || 0;
       const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
       const expiresAt = startedAtMs + durationMs;
-      const nextKey = transition?.fromSurfaceRoutes && startedAtMs > 0 && durationMs > 0
+      const nextKey = transition?.id && startedAtMs > 0 && durationMs > 0
         ? transitions.map((candidate) => `${String(candidate.id || "")}|${Number(candidate.startedAtMs) || 0}|${Number(candidate.durationMs) || 0}`)
           .sort()
           .join(",")
@@ -199,7 +193,18 @@ export function createLiveTransitionExpiryScheduler({
   });
 }
 
-export function createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics = null, nodePackage = null }) {
+export function createControlShell({
+  root,
+  store,
+  bridge,
+  mediaLibrary,
+  projectService,
+  midiInput,
+  dmxOutput,
+  diagnostics = null,
+  nodePackage = null,
+}) {
+  if (!midiInput || !dmxOutput) throw new Error("CONTROL_DEVICE_SERVICES_REQUIRED");
   let refs = {};
   let latestState = store.getState();
   let renderFrame = 0;
@@ -229,6 +234,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     getRefs: () => refs,
     replaceHtmlIfChanged,
     setStatus,
+    onLiveInput: (payload) => performanceSession.recordInteraction("live-input", payload),
   });
   const controlRenderDiagnostics = createControlRenderDiagnostics({ diagnostics });
   const liveTransitionExpiryScheduler = createLiveTransitionExpiryScheduler({
@@ -251,50 +257,6 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   });
   let embeddedPreview = null;
   let modals = null;
-  const dmxOutput = createDmxOutputService({
-    onStatus: () => modals?.render(latestState),
-  });
-  const midiInput = createMidiInputService({
-    onSignal(payload) {
-      embeddedPreview?.command(CONTROL_SIGNAL_COMMAND, payload);
-      bridge.command(CONTROL_SIGNAL_COMMAND, payload);
-    },
-    onSelectScene: (id) => store.selectLiveScene(id),
-    onSelectComponent: (id) => store.selectLiveComponent(id),
-    resolveSignificantParameters: (state) => liveSignificantParameterAssignments(state),
-    onAdjustSignificantParameter({ assignment, unitValue }) {
-      const value = significantParameterValueFromUnit(assignment, unitValue);
-      if (assignment.kind === "animation") {
-        store.updateLive((draft) => {
-          setLiveAnimationOverride(
-            draft,
-            assignment.componentId,
-            assignment.targetNodeId,
-            assignment.trackId,
-            assignment.field,
-            value,
-          );
-        }, {
-          reason: "live:animation-update",
-          input: "midi",
-        });
-        return;
-      }
-      store.updateLive((draft) => {
-        setLiveOverride(draft, assignment.componentId, assignment.path, value);
-      }, {
-        reason: "live:update",
-        input: "midi",
-        livePatches: [createLiveRenderPatch(
-          assignment.componentId,
-          assignment.path,
-          value,
-          assignment.itemId,
-        )],
-      });
-    },
-    onStatus: () => modals?.render(latestState),
-  });
   modals = createModalController({
     store,
     getState: () => latestState,
@@ -374,6 +336,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
   const performanceSession = createControlPerformanceSession({
     getState: () => latestState,
     metricForState: performanceMetricForState,
+    diagnosticForState: (state, context) => captureControlLiveProfileDiagnostic(
+      state,
+      context?.kind === "event" ? {} : (store.getLiveRenderState?.() || {}),
+      context,
+    ),
     signalForState: (state) => activeSignalLoad(state, controlSignalMeter.snapshot()),
     analyze: (state, samples) => analyzeVj1Project(state, {
       runtimeSamples: samples,
@@ -387,6 +354,11 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       },
     }),
     onTick: () => renderTopbar(latestState),
+    onActiveChange: (enabled) => {
+      const payload = { enabled: enabled === true };
+      embeddedPreview?.command("set-profile-diagnostics", payload);
+      bridge.command("set-profile-diagnostics", payload);
+    },
     onComplete: (report, sampleCount) => {
       globalThis.__vj1LastProfileReport = report;
       console.info("[VJ1_PROFILE_COMPLETE]", report);
@@ -422,29 +394,29 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         ) || nodePackage;
       }
       scheduleLiveTransitionRefresh(state);
-      performanceSession.recordStateEvent(reason);
-      if (change.projectRestore) {
+      performanceSession.recordStateEvent(reason, state, change);
+      if (change.effects.lifecycle.project === "restore") {
         invalidateCatalogOrder();
         deepEditReturnContext = null;
       }
       if (reason === "output-metrics" || reason === "preview-metrics") performanceSession.captureSample(state, reason);
-      if (change.topic === "mapping-state") {
+      if (change.effects.preview.mode === "mapping") {
         renderTopbar(state);
         // Mapping drags originate in the embedded mapper, so its scrub echo
         // must not be fed back as a complete preview state on every pointer
         // sample. The final commit still reconciles programmatic/reset edits.
-        if (change.phase !== "scrub") renderPreview(state, { reason, change });
+        if (change.command.phase !== "scrub") renderPreview(state, { reason, change });
         return;
       }
       if (reason === "output-metrics" || reason === "preview-metrics" || reason === "project-history" || reason === "project-autosave" || reason === "project-autosave-error") {
         renderTopbar(state);
         return;
       }
-      if (change.scope === "derived" && change.projection?.kind === "component-thumbnails") {
+      if (change.effects.preview.mode === "thumbnails") {
         patchComponentThumbnails(change.projection.entries);
         return;
       }
-      if (change.scope === "ui" && previewViewportReasons.has(reason)) {
+      if (change.effects.preview.mode === "viewport" && previewViewportReasons.has(reason)) {
         // Navigation changes only the retained p5 presentation transform.
         // A full state replacement would rebuild the render graph and, in
         // Live, discard its temporary parameter overlay.
@@ -452,7 +424,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         return;
       }
       const patchedLivePreview = currentWorkspace(state) === "live" &&
-        change.scope === "live" &&
+        change.command.domain === "live" &&
         Array.isArray(change.livePatches) &&
         change.livePatches.length > 0 &&
         embeddedPreview.applyLivePatches(change.livePatches)?.applied;
@@ -481,21 +453,21 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         }
         return;
       }
-      if (change.phase === "edit") {
+      if (change.command.phase === "edit") {
         renderTopbar(state);
         if (!patchedStudioPreview) {
           updatePreviewState(state, previewActivationForContext({ reason, change }));
         }
         return;
       }
-      if (change.phase === "scrub") {
+      if (change.command.phase === "scrub") {
         // Component preview gestures own an immediate local state overlay.
         // Feeding their store echo straight back into the same renderer makes
         // it rebuild lookup state twice per pointer frame.
         if (!patchedLivePreview && !patchedStudioPreview && reason !== "scrub:chain-transform" && reason !== "scrub:chain-boundary" && reason !== "scrub:scene-surface") updatePreviewState(state);
         return;
       }
-      if (change.phase === "color") {
+      if (change.command.phase === "color") {
         if (!patchedLivePreview && !patchedStudioPreview) updatePreviewState(state);
         return;
       }
@@ -508,7 +480,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         scheduleRenderNow(state, { force: true, reason, change });
         return;
       }
-      const controlInvalidation = change.controlInvalidation;
+      const controlInvalidation = change.effects.control;
       if (
         controlInvalidation &&
         (!controlInvalidation.requiresRenderPatch || patchedLivePreview || patchedStudioPreview)
@@ -526,7 +498,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
         scheduleRenderNow(state, { force: true, reason, change, projection: "live-program" });
         return;
       }
-      if (change.structural) {
+      if (change.effects.graph.mode === "recompile") {
         // Structural commands change the identity and destination of controls.
         // They cannot wait behind a stale slider/text gesture hold: render on
         // the next frame after the current DOM event has completed.
@@ -702,6 +674,8 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       operations.push(["preview", () => updatePreviewState(state, "projection")]);
     } else if (invalidation.preview === "render") {
       operations.push(["preview", () => renderPreview(state, context)]);
+    } else if (invalidation.preview === "assets") {
+      operations.push(["preview", () => updatePreviewState(state, "assets")]);
     }
     renderMeasuredControlPhases(state, context, operations);
   }
@@ -718,7 +692,7 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
       durationMs: performance.now() - renderStarted,
       phases,
       reason: context.reason,
-      topic: context.change?.topic,
+      topic: context.change?.command?.topic,
       workspace: currentWorkspace(state),
     });
   }
@@ -2138,7 +2112,15 @@ export function createControlShell({ root, store, bridge, mediaLibrary, projectS
     }, "status");
   }
 
-  return { mount };
+  return {
+    mount,
+    deliverControlSignal(payload) {
+      embeddedPreview?.command(CONTROL_SIGNAL_COMMAND, payload);
+    },
+    refreshDeviceStatus() {
+      modals?.render(latestState);
+    },
+  };
 }
 
 function formatOutputAspect(value) {
@@ -2190,7 +2172,7 @@ function downloadPerformanceProfile(report, projectName = "vj1") {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "vj1";
-  const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(boundedProfileValue(report), null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -2334,6 +2316,7 @@ export function activeWorkMetric(state, outputFps = 0) {
       gpuMs: Math.max(0, Number(state.metrics.gpuMs) || 0),
       gpuSupported: state.metrics.gpuSupported === true,
       profile: state.metrics.profile || null,
+      diagnostic: state.metrics.profileDiagnostic || null,
       transport: state.metrics.transport || null,
       source: "output",
     });
@@ -2346,6 +2329,7 @@ export function activeWorkMetric(state, outputFps = 0) {
       gpuMs: Math.max(0, Number(state.metrics.previewGpuMs) || 0),
       gpuSupported: state.metrics.previewGpuSupported === true,
       profile: state.metrics.previewProfile || null,
+      diagnostic: state.metrics.previewProfileDiagnostic || null,
       source: "preview",
     });
   }
@@ -2359,6 +2343,12 @@ export function activeWorkMetric(state, outputFps = 0) {
     gpuSupported: supportedGpuRenderers.length > 0,
     profile: renderers.length === 1 ? renderers[0].profile : null,
     profiles: renderers.map((renderer) => renderer.profile).filter(Boolean),
+    diagnostic: renderers.length === 1 ? renderers[0].diagnostic : {
+      renderers: renderers.map((renderer) => ({
+        source: renderer.source,
+        diagnostic: renderer.diagnostic || null,
+      })),
+    },
     transport: renderers.find((renderer) => renderer.source === "output")?.transport || null,
     renderers,
     source: renderers.map((renderer) => renderer.source).join(" + "),
@@ -2375,6 +2365,7 @@ function performanceMetricForState(state, reason = "active") {
       gpuMs: Math.max(0, Number(state.metrics.previewGpuMs) || 0),
       gpuSupported: state.metrics.previewGpuSupported === true,
       profile: state.metrics.previewProfile || null,
+      diagnostic: state.metrics.previewProfileDiagnostic || null,
       renderCost: Math.max(0, Number(state.metrics.previewRenderCost) || 0),
     };
   }
@@ -2386,6 +2377,7 @@ function performanceMetricForState(state, reason = "active") {
       gpuMs: Math.max(0, Number(state.metrics.gpuMs) || 0),
       gpuSupported: state.metrics.gpuSupported === true,
       profile: state.metrics.profile || null,
+      diagnostic: state.metrics.profileDiagnostic || null,
       renderCost: Math.max(0, Number(state.metrics.renderCost) || 0),
       transport: state.metrics.transport || null,
     };

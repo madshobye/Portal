@@ -39,6 +39,11 @@ The output app stores its latest 240 renderer samples on `window.__vj1RuntimeMet
 Those samples include pass-level shader profile data when the renderer is running WebGL effects.
 The same samples are mirrored into `#vj1-runtime-metrics` as inert JSON so browser automation can read them consistently.
 
+Use `npm run stress:url` for the sustained decoder/WebGL resource harness and
+`npm run test:clean-reload:url` for repeated Output startup. The reload harness
+asserts one owned presentation canvas, no unexplained full-resolution canvas,
+and no duplicate canvas IDs on every load.
+
 Store important downloaded reports in `metrics-results/runs/` using the same naming convention as the Node runner:
 
 ```text

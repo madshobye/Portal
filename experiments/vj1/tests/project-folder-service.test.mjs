@@ -164,7 +164,7 @@ test("project payload preserves the selected component chain item", () => {
   assert.ok(source.includes("preserveMediaCatalog && Array.isArray(projectData.media)"));
   assert.ok(source.includes(": mergeMediaCatalogMarkers(imported.media, projectData.media)"));
   assert.ok(source.includes("draft.media = mergeMediaCatalogMarkers(imported.media, draft.media)"));
-  assert.match(source, /reason: "project-refresh-assets",[\s\S]*?scope: "assets",[\s\S]*?projection: \{ kind: "asset-catalog" \}/);
+  assert.match(source, /reason: "project-refresh-assets",[\s\S]*?command: \{ domain: "assets" \},[\s\S]*?projection: \{ kind: "asset-catalog" \}/);
   assert.ok(source.includes("previewQuality: restoredProjectUi?.previewQuality || currentUi.previewQuality"));
   assert.ok(source.includes("previewViewports: restoredProjectUi?.previewViewports || currentUi.previewViewports"));
   assert.ok(source.includes("previewDiagnostics: restoredProjectUi?.previewDiagnostics ?? currentUi.previewDiagnostics"));
@@ -180,7 +180,7 @@ test("Live scene selection is autosaved so reload restores user truth", () => {
 
   assert.doesNotMatch(skipBlock, /"live:scene"/);
   assert.match(skipBlock, /"live:update"/);
-  assert.match(source, /const delay = immediate \|\| reason === "live:scene" \|\| event\.history === "record" \? 0 : autosaveDelayMs;/);
+  assert.match(source, /const delay = immediate \|\| reason === "live:scene" \|\| persistence\.history === true \? 0 : autosaveDelayMs;/);
 });
 
 test("project restore resets transient Scene Mapping visibility to Mapping's persisted default", () => {
@@ -203,7 +203,7 @@ test("UI-only selection waits for an authored save or browser lifecycle checkpoi
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
 
   assert.match(source, /const autosaveDelayMs = 5000;/);
-  assert.match(source, /event\.scope === "ui" && !immediate && !previewViewportCheckpoint/);
+  assert.match(source, /persistence\.mode === "defer" && !immediate/);
   assert.match(source, /addEventListener\?\.\("visibilitychange"/);
   assert.match(source, /visibilityState === "hidden"/);
   assert.match(source, /addEventListener\?\.\("pagehide"/);
@@ -213,8 +213,9 @@ test("UI-only selection waits for an authored save or browser lifecycle checkpoi
 
 test("preview viewport navigation receives one quiet checkpoint instead of relying on unload", () => {
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
-  assert.match(source, /const previewViewportCheckpoint = event\.scope === "ui" && reason\.startsWith\("preview-"\);/);
-  assert.match(source, /event\.scope === "ui" && !immediate && !previewViewportCheckpoint/);
+  const commands = readFileSync(new URL("../js/libraries/state-engine/state-command/index.js", import.meta.url), "utf8");
+  assert.match(commands, /reason\.startsWith\("preview-"\)[\s\S]*?mode: "checkpoint"/);
+  assert.match(source, /persistence\.mode === "defer" && !immediate/);
 });
 
 test("project payload persists canonical render settings without derived geometry aliases", () => {
@@ -439,7 +440,7 @@ test("completed project transactions enter a serialized immutable save queue", (
   const source = readFileSync(new URL("../js/services/project-folder-service.js", import.meta.url), "utf8");
   const engine = readFileSync(new URL("../js/libraries/storage-engine/serialized-storage/index.js", import.meta.url), "utf8");
   const application = readFileSync(new URL("../js/app.js", import.meta.url), "utf8");
-  assert.match(source, /event\.history === "record" \? 0 : autosaveDelayMs/);
+  assert.match(source, /persistence\.history === true \? 0 : autosaveDelayMs/);
   assert.match(source, /const prepared = savePreparer\.prepareState\(state, new Date\(\)\.toISOString\(\)\)/);
   assert.match(source, /saveQueue\.enqueue\(\{ reason: saveReason, recordHistory, prepared \}\)/);
   assert.match(application, /scheduleAutoSave\(change, \{ state \}\)/);

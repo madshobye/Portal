@@ -156,6 +156,7 @@ export class OutputPresentationMetrics {
     if (millis() - this.lastPublishedAt > 500) {
       this.lastPublishedAt = millis();
       const renderResolution = this.resolutionSize();
+      const profileDiagnostic = host.profileRuntime.captureDiagnostic?.(host) || null;
       host.sendMetrics?.({
         fps: this.smoothedFps || fps,
         frameMs: this.smoothedFrameMs || frameMs,
@@ -166,6 +167,7 @@ export class OutputPresentationMetrics {
         renderHeight: renderResolution.height,
         renderPixelDensity: renderResolution.density,
         profile: host.profileRuntime.lastFrameProfile,
+        ...(profileDiagnostic ? { profileDiagnostic } : {}),
         signalLoad: host.signalMeter?.snapshot?.() || null,
         message: host.presentationRuntime.shouldUseThumbnailPreview()
           ? "thumbnail preview"

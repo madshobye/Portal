@@ -421,7 +421,6 @@ export function createInitialState({ startupTemplate = false } = {}) {
         transitionParameters: {},
         transitionDuration: startup ? 1.2 : 0,
         paramFadeDuration: startup ? 0.9 : 0,
-        transition: null,
         transitionCoordinator: {},
       },
       previewViewports: {
@@ -690,8 +689,9 @@ export function createLiveRenderState(state = createInitialState()) {
   const { program, next } = createLiveExecutionProjection(state);
   const { live, mapping } = program;
   if (mapping) {
-    // The compiled Live program is the sole current-route authority. Only a
-    // transition's previous endpoint is stored because it is historical state.
+    // The compiled Live program is the sole current-route authority. The
+    // renderer retains historical execution; projected state carries no
+    // serialized outgoing route or Component program.
     next.surfaces = clone(program.currentRoutes.surfaces);
     next.mappingCalibration = clone(mapping.calibration || {});
   }
@@ -699,24 +699,16 @@ export function createLiveRenderState(state = createInitialState()) {
   next.global.calibrating = false;
 
   const liveTransitions = program.transitions.map((transition) => {
-    const fromState = createLiveEndpointState(state, transition.previousComponentOverrides);
-    fromState.surfaces = clone(transition.previousRoutes.surfaces);
-    fromState.mappingCalibration = clone(mapping?.calibration || {});
-    fromState.ui.selectedMappingId = mapping?.id || fromState.ui.selectedMappingId || "";
-    fromState.global.calibrating = false;
-    fromState.ui.live.transition = null;
-    fromState.ui.live.transitionCoordinator = {};
     return {
       id: transition.id,
       destination: transition.surfaceId ? `surface:${transition.surfaceId}` : "overall",
       surfaceId: transition.surfaceId,
+      fromTargetId: transition.fromTargetId,
+      toTargetId: transition.toTargetId,
       transitionId: transition.transitionId,
       transitionParameters: clone(transition.transitionParameters),
       startedAtMs: transition.startedAtMs,
       durationMs: transition.durationMs,
-      componentsShared: transition.componentsShared,
-      componentConfigurationIds: transition.componentConfigurationIds,
-      fromState,
     };
   });
   if (liveTransitions.length) {
@@ -751,26 +743,16 @@ export function createLiveScenePreviewState(state = createInitialState()) {
   }
 
   const liveTransitions = program.previewTransitions.map((transition) => {
-    const fromState = createLiveEndpointState(state, transition.previousComponentOverrides);
-    applyLivePreviewProjection(
-      fromState,
-      transition.previousTarget || target || null,
-      live.previewSurfaceId,
-      transition.previousRoutes
-    );
-    fromState.ui.live.transition = null;
-    fromState.ui.live.transitionCoordinator = {};
     return {
       id: transition.id,
       destination: transition.surfaceId ? `surface:${transition.surfaceId}` : "overall",
       surfaceId: transition.surfaceId,
+      fromTargetId: transition.fromTargetId,
+      toTargetId: transition.toTargetId,
       transitionId: transition.transitionId,
       transitionParameters: clone(transition.transitionParameters),
       startedAtMs: transition.startedAtMs,
       durationMs: transition.durationMs,
-      componentsShared: transition.componentsShared,
-      componentConfigurationIds: transition.componentConfigurationIds,
-      fromState,
     };
   });
   if (liveTransitions.length) {
@@ -804,6 +786,10 @@ function createLiveExecutionProjection(state) {
 // collections structurally shared until browser transport performs its own
 // serialization.
 function createLiveEndpointState(state, overrides = {}) {
+  const graphProjectedNodes = materializeLiveComponentGraphOverrides(
+    state.nodes,
+    overrides,
+  );
   return {
     ...state,
     ui: clone(state.ui || {}),
@@ -815,9 +801,89 @@ function createLiveEndpointState(state, overrides = {}) {
     components: (state.components || []).map((component) =>
       createLiveEndpointComponent(component, overrides?.[component.id])
     ),
-    nodes: materializeLiveAnimationOverrides(state.nodes, overrides),
+    nodes: materializeLiveAnimationOverrides(graphProjectedNodes, overrides),
     surfaces: clone(state.surfaces || []),
     mappingCalibration: clone(state.mappingCalibration || {}),
+  };
+}
+
+// Component Groups are the executable visual authority. Live diffs use the
+// compact Component-shaped address space exposed by the abstract UI, so a
+// transition endpoint must project those values into both the UI Component
+// lens and the matching graph configurations. Updating only `component.chain`
+// makes a freshly compiled transition endpoint fall back to authored values.
+function materializeLiveComponentGraphOverrides(nodes = {}, overrides = {}) {
+  if (!Array.isArray(nodes?.groups) || !Object.keys(overrides || {}).length) {
+    return nodes;
+  }
+  let changed = false;
+  const groups = nodes.groups.map((group) => {
+    const override = overrides?.[String(group?.componentId || "")];
+    if (
+      group?.generatedBy !== "vj1-component-compiler" ||
+      !Array.isArray(override?.chain)
+    ) return group;
+    const projected = materializeLiveGraphChain(group.nodes || [], override.chain);
+    if (projected === group.nodes) return group;
+    changed = true;
+    return { ...group, nodes: projected };
+  });
+  return changed ? { ...nodes, groups } : nodes;
+}
+
+function materializeLiveGraphChain(nodes = [], chainOverrides = []) {
+  let overrideIndex = 0;
+  let changed = false;
+  const projected = nodes.map((node) => {
+    if (
+      node?.role === "control" ||
+      node?.auxiliaryFor ||
+      !["source", "effect", "group"].includes(node?.role)
+    ) return node;
+    const override = chainOverrides[overrideIndex++] || null;
+    let next = node;
+    if (override && typeof override === "object" && node.configuration) {
+      const configuration = mergeComponentChainItemOverride(
+        node.configuration,
+        override,
+      );
+      next = {
+        ...node,
+        configuration,
+        parameters: liveGraphParameters(configuration, node.parameters),
+      };
+    }
+    if (node.role === "group" && Array.isArray(node.nodes)) {
+      const children = materializeLiveGraphChain(
+        node.nodes,
+        Array.isArray(override?.chain) ? override.chain : [],
+      );
+      if (children !== node.nodes) next = { ...next, nodes: children };
+    }
+    if (next !== node) changed = true;
+    return next;
+  });
+  return changed ? projected : nodes;
+}
+
+function liveGraphParameters(configuration = {}, previous = {}) {
+  if (configuration.kind === "effect") {
+    return { ...previous, ...(configuration.params || {}) };
+  }
+  if (configuration.kind === "group") {
+    return {
+      ...previous,
+      opacity: configuration.opacity ?? 1,
+      blend: configuration.blend || "normal",
+      transform: configuration.transform || {},
+    };
+  }
+  return {
+    ...previous,
+    ...(configuration.source?.params || {}),
+    sourceType: configuration.source?.type || previous.sourceType || "black",
+    mediaId: configuration.source?.mediaId || "",
+    componentId: configuration.source?.componentId || "",
   };
 }
 
@@ -984,23 +1050,6 @@ export function createLiveComponentView(component = {}, state = createInitialSta
 }
 
 function normalizeLiveUi(live = {}, state = createInitialState()) {
-  const normalizeComponentOverrides = (overrides = {}) => Object.fromEntries(Object.entries(overrides || {}).map(([id, override]) => {
-    const component = state.components?.find((entry) => String(entry.id) === String(id));
-    return [id, {
-      ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
-      ...(override.speed !== undefined ? { speed: Math.max(0, Number(override.speed) || 0) } : {}),
-      ...(override.blend ? { blend: override.blend } : {}),
-      ...(override.transform && typeof override.transform === "object"
-        ? { transform: normalizeTransform(override.transform) }
-        : {}),
-      ...(Array.isArray(override.chain)
-        ? { chain: override.chain.map((item, index) => normalizeLiveChainItemOverride(item, component?.chain?.[index])) }
-        : {}),
-      ...(override.animation && typeof override.animation === "object"
-        ? { animation: normalizeLiveAnimationOverrides(override.animation) }
-        : {}),
-    }];
-  }));
   const performanceScenes = state.components?.filter((component) => component.type === "scene") || [];
   const overallSourceCleared = live.overallSourceCleared === true;
   const sceneMappingVisibilityIsSessionAuthored = typeof live.sceneMappingVisible === "boolean";
@@ -1045,18 +1094,14 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
   const surfaceVisibility = Object.fromEntries(Object.entries(live.surfaceVisibility || {}).filter(([surfaceId, visible]) =>
     previewSurfaceIds.has(String(surfaceId)) && typeof visible === "boolean"
   ).map(([surfaceId, visible]) => [String(surfaceId), visible]));
-  const legacyParameterDiffs = live.parameterDiffs && typeof live.parameterDiffs === "object"
-    ? live.parameterDiffs
-    : live.sceneOverrides || {};
-  const parameterDiffs = Object.fromEntries(Object.entries(legacyParameterDiffs).map(([targetId, overrides]) => [
+  const parameterDiffs = Object.fromEntries(Object.entries(
+    live.parameterDiffs && typeof live.parameterDiffs === "object"
+      ? live.parameterDiffs
+      : {}
+  ).map(([targetId, overrides]) => [
     String(targetId),
-    normalizeComponentOverrides(overrides),
+    normalizeLiveComponentOverrides(overrides, state),
   ]));
-  // Old sessions stored the selected target twice. Migrate that active copy
-  // once at normalization; current runtime state retains only parameterDiffs.
-  if (!live.parameterDiffs && selectedTargetId && Object.keys(live.componentOverrides || {}).length) {
-    parameterDiffs[selectedTargetId] = normalizeComponentOverrides(live.componentOverrides);
-  }
   const transitionDuration = clampNumber(live.transitionDuration, 0, 30, 0);
   const paramFadeDuration = clampNumber(live.paramFadeDuration, 0, 30, 0);
   const transitionId = String(live.transitionId || "vj1.transition.dissolve");
@@ -1064,20 +1109,6 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     && !Array.isArray(live.transitionParameters)
     ? clone(live.transitionParameters)
     : {};
-  const transitionDurationMs = Math.max(0, Number(live.transition?.durationMs) || 0);
-  const transitionStartedAtMs = Number(live.transition?.startedAtMs) || 0;
-  const transition = transitionDurationMs > 0 && transitionStartedAtMs > 0 && live.transition?.fromSurfaceRoutes
-      ? {
-        id: String(live.transition.id || ""),
-        fromSceneId: String(live.transition.fromSceneId || ""),
-        fromTargetId: String(live.transition.fromTargetId || live.transition.fromSceneId || ""),
-        surfaceId: String(live.transition.surfaceId || ""),
-        fromSurfaceRoutes: normalizeSurfaceRoutes(live.transition.fromSurfaceRoutes, state),
-        fromComponentOverrides: normalizeComponentOverrides(live.transition.fromComponentOverrides || {}),
-        startedAtMs: transitionStartedAtMs,
-        durationMs: Math.min(30000, transitionDurationMs),
-      }
-    : null;
   const transitionCoordinator = normalizeLiveTransitionCoordinator(live.transitionCoordinator, state);
   return {
     selectedSceneId,
@@ -1097,9 +1128,28 @@ function normalizeLiveUi(live = {}, state = createInitialState()) {
     transitionParameters,
     transitionDuration,
     paramFadeDuration,
-    transition,
     transitionCoordinator,
   };
+}
+
+function normalizeLiveComponentOverrides(overrides = {}, state = {}) {
+  return Object.fromEntries(Object.entries(overrides || {}).map(([id, override]) => {
+    const component = state.components?.find((entry) => String(entry.id) === String(id));
+    return [id, {
+      ...(override.opacity !== undefined ? { opacity: clamp01(override.opacity) } : {}),
+      ...(override.speed !== undefined ? { speed: Math.max(0, Number(override.speed) || 0) } : {}),
+      ...(override.blend ? { blend: override.blend } : {}),
+      ...(override.transform && typeof override.transform === "object"
+        ? { transform: normalizeTransform(override.transform) }
+        : {}),
+      ...(Array.isArray(override.chain)
+        ? { chain: override.chain.map((item, index) => normalizeLiveChainItemOverride(item, component?.chain?.[index])) }
+        : {}),
+      ...(override.animation && typeof override.animation === "object"
+        ? { animation: normalizeLiveAnimationOverrides(override.animation) }
+        : {}),
+    }];
+  }));
 }
 
 function normalizeLiveAnimationOverrides(animation = {}) {
@@ -1133,7 +1183,7 @@ function normalizeLiveTransitionCoordinator(value = {}, state = {}) {
 
 function normalizeCoordinatedTransition(value, state, pending = false) {
   const durationMs = Math.min(30000, Math.max(0, Number(value?.durationMs) || 0));
-  if (!value?.fromSurfaceRoutes || !value?.toSurfaceRoutes || durationMs <= 0) return null;
+  if (!value?.toSurfaceRoutes || durationMs <= 0) return null;
   const startedAtMs = Number(value.startedAtMs) || 0;
   if (!pending && startedAtMs <= 0) return null;
   return {
@@ -1143,10 +1193,7 @@ function normalizeCoordinatedTransition(value, state, pending = false) {
     fromSceneId: String(value.fromSceneId || ""),
     fromTargetId: String(value.fromTargetId || value.fromSceneId || ""),
     toTargetId: String(value.toTargetId || ""),
-    fromSurfaceRoutes: normalizeSurfaceRoutes(value.fromSurfaceRoutes, state),
     toSurfaceRoutes: normalizeSurfaceRoutes(value.toSurfaceRoutes, state),
-    fromComponentOverrides: normalizeComponentOverrides(value.fromComponentOverrides || {}),
-    toComponentOverrides: normalizeComponentOverrides(value.toComponentOverrides || {}),
     transitionId: String(value.transitionId || "vj1.transition.dissolve"),
     transitionParameters: value.transitionParameters && typeof value.transitionParameters === "object"
       ? clone(value.transitionParameters)

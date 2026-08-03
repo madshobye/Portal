@@ -11,24 +11,84 @@ const STRUCTURAL_CHANGE_PREFIXES = Object.freeze([
 
 export function createChangeEvent(change = "change") {
   const supplied = change && typeof change === "object" ? change : {};
+  for (const field of ["scope", "phase", "topic", "history", "projectRestore", "controlInvalidation", "structural"]) {
+    if (Object.hasOwn(supplied, field)) throw new Error(`STATE_CHANGE_LEGACY_FIELD:${field}`);
+  }
   const reason = String(supplied.reason ?? change ?? "change");
   const parsed = parseReason(reason);
-  const scope = supplied.scope || parsed.scope;
-  const phase = supplied.phase || parsed.phase;
-  const structural = supplied.structural ?? isStructuralChange(reason);
-  const controlInvalidation = supplied.controlInvalidation ??
-    controlInvalidationForPaths(supplied.changedPaths);
-  return Object.freeze({
-    ...parsed,
-    ...supplied,
+  const command = Object.freeze({
+    domain: supplied.command?.domain || parsed.domain,
+    phase: supplied.command?.phase || parsed.phase,
+    topic: supplied.command?.topic || parsed.topic,
+  });
+  const structural = supplied.effects?.graph?.mode
+    ? supplied.effects.graph.mode === "recompile"
+    : isStructuralChange(reason);
+  const control = supplied.effects?.control ??
+    (command.domain === "assets"
+      ? assetCatalogControlInvalidation()
+      : controlInvalidationForPaths(supplied.changedPaths));
+  const restoresProject = supplied.effects?.lifecycle?.project
+    ? supplied.effects.lifecycle.project === "restore"
+    : parsed.restoresProject;
+  const history = supplied.effects?.persistence?.history ??
+    historyPolicy(reason, command.domain, command.phase) === "record";
+  const {
+    scope: _scope,
+    phase: _phase,
+    topic: _topic,
+    history: _history,
+    projectRestore: _projectRestore,
+    controlInvalidation: _controlInvalidation,
+    structural: _structural,
+    effects: effectOverrides,
+    command: _command,
+    ...metadata
+  } = supplied;
+  const event = {
+    ...metadata,
     reason,
-    phase,
-    topic: supplied.topic || parsed.topic,
-    scope,
-    history: supplied.history || historyPolicy(reason, scope, phase),
-    ...(structural ? { structural: true } : {}),
-    ...(controlInvalidation ? { controlInvalidation } : {}),
-    projectRestore: supplied.projectRestore ?? parsed.projectRestore,
+    command,
+  };
+  event.effects = changeEffectPlan(event, effectOverrides, {
+    control,
+    history,
+    restoresProject,
+    structural,
+  });
+  return Object.freeze(event);
+}
+
+// One runtime event contract. Legacy project shapes are handled by project
+// migrations; they are never retained as a second operational model here.
+export function changeEffectPlan(event = {}, overrides = null, policy = {}) {
+  const reason = String(event.reason || "change");
+  const parsed = parseReason(reason);
+  const domain = String(event.command?.domain || parsed.domain);
+  const phase = String(event.command?.phase || parsed.phase);
+  const topic = String(event.command?.topic || parsed.topic);
+  const semanticEvent = { ...event, command: { domain, phase, topic } };
+  const persistence = persistenceEffect(semanticEvent, reason, domain, phase, policy.history === true);
+  const output = outputEffect(semanticEvent, reason, domain, phase, topic, policy.control);
+  const preview = previewEffect(semanticEvent, reason, domain, phase, topic);
+  const supplied = overrides && typeof overrides === "object" ? overrides : {};
+  return Object.freeze({
+    persistence: Object.freeze({ ...persistence, ...(supplied.persistence || {}) }),
+    output: Object.freeze({ ...output, ...(supplied.output || {}) }),
+    preview: Object.freeze({ ...preview, ...(supplied.preview || {}) }),
+    graph: Object.freeze({
+      mode: policy.structural === true ? "recompile" : "configuration",
+      ...(supplied.graph || {}),
+    }),
+    lifecycle: Object.freeze({
+      project: policy.restoresProject === true ? "restore" : "unchanged",
+      ...(supplied.lifecycle || {}),
+    }),
+    control: supplied.control === null
+      ? null
+      : freezeOptionalPlan(policy.control && supplied.control
+        ? { ...policy.control, ...supplied.control }
+        : policy.control || supplied.control),
   });
 }
 
@@ -84,6 +144,18 @@ export function controlInvalidationForPaths(paths = []) {
   });
 }
 
+function assetCatalogControlInvalidation() {
+  return Object.freeze({
+    regions: Object.freeze([
+      "project-rail",
+      "live-projection-rail",
+      "studio",
+      "inspector",
+    ]),
+    preview: "assets",
+  });
+}
+
 export class StateCommandEngine {
   constructor(commands = {}) {
     this.commands = new Map(Object.entries(commands));
@@ -126,8 +198,22 @@ export const StateCommandNode = defineNode({
       editable: true,
       module: import.meta.url,
       name: "Change command policy",
-      exports: ["createChangeEvent", "StateCommandEngine"],
-      source: [createChangeEvent, controlInvalidationForPaths, StateCommandEngine, isStructuralChange, historyPolicy, parseReason]
+      exports: ["createChangeEvent", "changeEffectPlan", "StateCommandEngine"],
+      source: [
+        createChangeEvent,
+        changeEffectPlan,
+        controlInvalidationForPaths,
+        assetCatalogControlInvalidation,
+        StateCommandEngine,
+        isStructuralChange,
+        historyPolicy,
+        parseReason,
+        persistenceEffect,
+        outputEffect,
+        previewEffect,
+        freezeOptionalPlan,
+        isMappingSurfaceVisibilityReason,
+      ]
         .map((value) => value.toString()).join("\n\n"),
     },
     {
@@ -170,11 +256,78 @@ function parseReason(reason) {
   const prefix = separator >= 0 ? reason.slice(0, separator) : "";
   const topic = separator >= 0 ? reason.slice(separator + 1) : reason;
   const phase = ["edit", "scrub", "color"].includes(prefix) ? prefix : "commit";
-  const scope = prefix === "live" || (phase === "scrub" && topic === "live") ? "live" : "project";
+  const domain = prefix === "live" || (phase === "scrub" && topic === "live") ? "live" : "project";
   return {
     phase,
     topic,
-    scope,
-    projectRestore: PROJECT_RESTORE_PREFIXES.some((candidate) => reason.startsWith(candidate)),
+    domain,
+    restoresProject: PROJECT_RESTORE_PREFIXES.some((candidate) => reason.startsWith(candidate)),
   };
+}
+
+function persistenceEffect(_event, reason, domain, phase, history) {
+  if (phase === "edit" || phase === "scrub") return { mode: "none" };
+  if (domain === "project" || domain === "assets") {
+    return { mode: "autosave", history };
+  }
+  if (domain === "ui") {
+    return reason.startsWith("preview-")
+      ? { mode: "checkpoint", history: false }
+      : { mode: "defer", history: false };
+  }
+  return { mode: "none" };
+}
+
+function outputEffect(event, reason, domain, phase, topic, control) {
+  if (event.outputState === "unchanged") return { mode: "none" };
+  if (domain === "live") {
+    return {
+      mode: Array.isArray(event.livePatches) && event.livePatches.length ? "live-patches" : "state",
+      coalesce: phase === "scrub",
+    };
+  }
+  if (domain === "assets" || (domain === "derived" && event.projection?.kind === "asset-catalog")) {
+    return { mode: "assets" };
+  }
+  if (["runtime", "derived", "ui"].includes(domain)) return { mode: "none" };
+  if (topic === "mapping-state") return { mode: "mapping-patch", coalesce: phase === "scrub" };
+  if (["blackout", "toggle-output-playback", "toggle-output-hud"].includes(reason)) {
+    return { mode: "global-command" };
+  }
+  if (Array.isArray(event.renderPatches) && event.renderPatches.length) {
+    return { mode: "render-patches", coalesce: phase === "scrub" };
+  }
+  if (control?.requiresRenderPatch) {
+    return { mode: "render-patches", coalesce: phase === "scrub" };
+  }
+  if (phase === "edit") return { mode: "none" };
+  return { mode: "state", coalesce: phase === "scrub" };
+}
+
+function previewEffect(event, reason, domain, phase, topic) {
+  if (["output-metrics", "preview-metrics", "project-history", "project-autosave", "project-autosave-error"].includes(reason)) {
+    return { mode: "metrics" };
+  }
+  if (topic === "mapping-state") return { mode: "mapping", coalesce: phase === "scrub" };
+  if (topic === "scene-surface" || reason === "select-mapping" || isMappingSurfaceVisibilityReason(reason)) {
+    return { mode: "mapping" };
+  }
+  if (reason === "live:preview-surface") return { mode: "projection" };
+  if (domain === "derived" && event.projection?.kind === "component-thumbnails") return { mode: "thumbnails" };
+  if (domain === "assets" || event.projection?.kind === "asset-catalog") return { mode: "assets" };
+  if (domain === "ui") return { mode: reason.startsWith("preview-") ? "viewport" : "ui" };
+  if (domain === "live" && Array.isArray(event.livePatches) && event.livePatches.length) {
+    return { mode: "live-patches" };
+  }
+  if (Array.isArray(event.renderPatches) && event.renderPatches.length) return { mode: "render-patches" };
+  if (phase === "edit") return { mode: "controls-only" };
+  return { mode: "refresh" };
+}
+
+function freezeOptionalPlan(value) {
+  return value && typeof value === "object" ? Object.freeze({ ...value }) : null;
+}
+
+function isMappingSurfaceVisibilityReason(reason) {
+  return /^toggle:mappings\.\d+\.surfaces\.\d+\.enabled$/.test(String(reason || ""));
 }

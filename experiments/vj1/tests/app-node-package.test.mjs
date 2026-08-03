@@ -38,7 +38,11 @@ import {
 import { buildProjectPayload } from "../js/services/project-serializer.js";
 import { applicationProgramFromProjectData, loadStoredApplicationProgram } from "../js/services/application-program-loader.js";
 import { createAppState } from "../js/app-state.js";
-import { createInitialState } from "../js/domain/models.js";
+import {
+  createDefaultComponent,
+  createInitialState,
+  createLiveRenderState,
+} from "../js/domain/models.js";
 import { migrateProjectData } from "../js/domain/project-migrations.js";
 import {
   prepareProjectNodeDefinitionEdit,
@@ -70,6 +74,7 @@ import {
   createVisualRenderProcessContext,
   updateVisualRenderProcessContext,
 } from "../js/libraries/render-engine/index.js";
+import { OutputRenderer } from "../js/output/output-renderer.js";
 
 function retainedRenderContext(target, time = 0) {
   return {
@@ -2376,6 +2381,159 @@ test("persisted Component groups own configuration while chain remains an in-mem
   const reloadedGroup = reloaded.nodes.groups.find((item) => item.id === group.id);
   assert.equal(reloadedGroup.nodes.some((item) => item.role === "control"), true);
   assert.equal(reloadedGroup.connections.some((edge) => edge.type === "texture"), true);
+});
+
+test("outgoing transition graph retains its Live diff without pruning the bank", () => {
+  const packageRoot = createVj1NodePackage();
+  const initial = createInitialState();
+  const outgoing = initial.components[0];
+  const incoming = createDefaultComponent(1);
+  initial.components.push(incoming);
+  initial.ui.live.transitionDuration = 1;
+  const store = createAppState(initial, {
+    prepareState: packageRoot.prepareProjectState,
+    prepareChange: packageRoot.prepareProjectChange,
+  });
+
+  store.selectLiveComponent(outgoing.id);
+  const initialTransition = store.getState().ui.live.transitionCoordinator.overall.active;
+  store.advanceLiveTransitions(
+    initialTransition.startedAtMs + initialTransition.durationMs + 1,
+  );
+  store.updateLive((draft) => {
+    draft.ui.live.parameterDiffs[outgoing.id] = {
+      [outgoing.id]: {
+        chain: [{ source: { params: { renderQuality: 0.13 } } }],
+      },
+    };
+  }, "live:test-outgoing-diff");
+  const bankBefore = structuredClone(store.getState().ui.live.parameterDiffs);
+  const bankAuthorityBefore = store.getState().ui.live.parameterDiffs;
+
+  const renderer = new OutputRenderer({ mode: "live" });
+  const outgoingRenderState = createLiveRenderState(store.getState());
+  renderer.state = outgoingRenderState;
+  renderer.visualNodeRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuild();
+  const presentedPrograms = renderer.componentProgramRuntime.programs;
+  const presentedOutgoing = presentedPrograms.get(outgoing.id);
+  assert.equal(
+    presentedOutgoing.configurationState()[0].source.params.renderQuality,
+    0.13,
+    "the running branch has the applied Live diff before transition activation",
+  );
+
+  store.selectLiveComponent(incoming.id);
+  const active = store.getState().ui.live.transitionCoordinator.overall.active;
+  const renderState = createLiveRenderState(store.getState());
+  assert.equal(renderer.surfaceRuntime.retainPresentedBranchForTransitions(
+    outgoingRenderState,
+    renderState,
+  ), true);
+  renderer.state = renderState;
+  renderer.componentProgramRuntime.rebuild();
+  const activePrograms = renderer.componentProgramRuntime.programs;
+  const outgoingContext = renderer.surfaceRuntime.retainedTransitionBranch(
+    renderState.liveTransition,
+  );
+  const outgoingProgram = outgoingContext.programs.get(outgoing.id);
+
+  assert.strictEqual(outgoingContext.programs, presentedPrograms);
+  assert.strictEqual(outgoingProgram, presentedOutgoing);
+  assert.notStrictEqual(outgoingContext.programs, activePrograms);
+  assert.equal(
+    outgoingProgram.configurationState()[0].source.params.renderQuality,
+    0.13,
+  );
+  renderer.surfaceRuntime.withRenderState(
+    outgoingContext.state,
+    () => {
+      assert.strictEqual(renderer.componentProgramRuntime.programs, outgoingContext.programs);
+      assert.strictEqual(
+        renderer.componentProgramRuntime.programs.get(outgoing.id),
+        outgoingProgram,
+      );
+    },
+    { programContext: outgoingContext },
+  );
+  assert.strictEqual(
+    renderer.componentProgramRuntime.programs,
+    activePrograms,
+    "leaving the outgoing input restores the active program context without mutation",
+  );
+  renderer.surfaceRuntime.disposeTransitionBranches();
+  renderer.componentProgramRuntime.dispose();
+  assert.strictEqual(
+    store.getState().ui.live.parameterDiffs,
+    bankAuthorityBefore,
+    "transition scheduling structurally shares the untouched diff authority",
+  );
+  assert.deepEqual(store.getState().ui.live.parameterDiffs, bankBefore);
+
+  store.advanceLiveTransitions(active.startedAtMs + active.durationMs + 1);
+  assert.deepEqual(
+    store.getState().ui.live.parameterDiffs,
+    bankBefore,
+    "transition completion cannot prune or reset a retained target bank",
+  );
+  assert.strictEqual(store.getState().ui.live.parameterDiffs, bankAuthorityBefore);
+});
+
+test("cold Live activation compiles STL diffs into retained LOD and material nodes", () => {
+  const packageRoot = createVj1NodePackage();
+  const initial = createInitialState();
+  const component = initial.components[0];
+  const source = component.chain[0];
+  source.source = {
+    type: "generator",
+    generatorId: "modelMedia",
+    params: {
+      mediaId: "media/sculpture.stl",
+      geometryDetail: 0.5,
+      renderMode: "surface",
+    },
+  };
+  const prepared = packageRoot.prepareProjectState(initial);
+  prepared.ui.live.selectedComponentId = component.id;
+  prepared.ui.live.selectedSceneId = "";
+  prepared.ui.live.parameterDiffs[component.id] = {
+    [component.id]: {
+      chain: [{
+        source: {
+          params: {
+            geometryDetail: 2.25,
+            renderMode: "points",
+          },
+        },
+      }],
+    },
+  };
+
+  const liveState = createLiveRenderState(prepared);
+  const program = compileComponentRenderPrograms(
+    liveState.components,
+    liveState.nodes.groups,
+    {
+      rootComponentIds: new Set([component.id]),
+      resolveNodeDefinition: (node) => packageRoot.registry.get(
+        node.nodeId,
+        node.nodeVersion,
+      ),
+    },
+  ).get(component.id);
+  const operation = program.plan.operations[0];
+  const lod = operation.valueProgram.steps.find((step) => step.instanceId === "lod");
+  const material = operation.valueProgram.steps.find((step) => step.instanceId === "material");
+
+  assert.equal(operation.configuration.source.params.geometryDetail, 2.25);
+  assert.equal(operation.configuration.source.params.renderMode, "points");
+  assert.equal(lod.parameters.geometryDetail, 2.25);
+  assert.equal(material.parameters.renderMode, "points");
+  assert.equal(
+    prepared.ui.live.parameterDiffs[component.id][component.id].chain[0].source.params.geometryDetail,
+    2.25,
+    "activation projects the diff without mutating or pruning its persistent bank",
+  );
 });
 
 test("graph-authoritative projects fail saving instead of falling back to a Component chain", () => {

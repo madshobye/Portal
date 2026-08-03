@@ -6,6 +6,7 @@ import { createControlPerformanceSession, summarizePerformanceHost } from "../js
 test("control performance session owns sampling, host events, and report completion", () => {
   const state = { id: "state-a", fps: 60 };
   let completed = null;
+  const activeChanges = [];
   const session = createControlPerformanceSession({
     getState: () => state,
     metricForState: (value, reason) => ({
@@ -16,7 +17,10 @@ test("control performance session owns sampling, host events, and report complet
       gpuSupported: true,
       renderCost: 0.25,
       profile: { componentRenders: 1 },
+      diagnostic: { host: "preview" },
     }),
+    diagnosticForState: (value) => ({ stateId: value.id }),
+    onActiveChange: (active) => activeChanges.push(active),
     analyze: (value, samples) => ({ stateId: value.id, sampleCount: samples.length }),
     onComplete: (report, sampleCount) => { completed = { report, sampleCount }; },
   });
@@ -25,17 +29,55 @@ test("control performance session owns sampling, host events, and report complet
   assert.equal(session.start(), false);
   assert.equal(session.isActive(), true);
   session.recordStateEvent("workspace");
+  session.recordInteraction("live-input", { path: "chain.0.source.params.geometryDetail", value: 0.75 });
   session.recordUiRender(3);
   assert.equal(session.captureSample(state, "output-metrics"), true);
   const report = session.finish();
 
   assert.equal(session.isActive(), false);
   assert.equal(report.runtimeSamples.length, 2);
+  assert.deepEqual(report.runtimeSamples[0].control, { stateId: "state-a" });
+  assert.deepEqual(report.runtimeSamples[0].renderer, { host: "preview" });
+  assert.deepEqual(report.runtimeSamples[1].control, { schema: "", unchangedSinceSample: 0 });
+  assert.deepEqual(report.runtimeSamples[1].renderer, { schema: "", unchangedSinceSample: 0 });
+  assert.deepEqual(report.timeline[0].control, { stateId: "state-a" });
+  assert.deepEqual(report.timeline[1].interaction, {
+    kind: "live-input",
+    payload: { path: "chain.0.source.params.geometryDetail", value: 0.75 },
+  });
   assert.deepEqual(report.analysis, { stateId: "state-a", sampleCount: 2 });
   assert.equal(report.host.uiRenderCount, 1);
   assert.deepEqual(report.host.topStateEvents, [{ reason: "workspace", count: 1 }]);
   assert.equal(completed.sampleCount, 2);
   assert.equal(completed.report, report);
+  assert.deepEqual(activeChanges, [true, false]);
+});
+
+test("semantic diagnostics are never evaluated outside the bounded capture window", async () => {
+  const state = { fps: 60 };
+  let diagnosticCalls = 0;
+  const activeChanges = [];
+  const session = createControlPerformanceSession({
+    getState: () => state,
+    durationMs: 5,
+    metricForState: () => ({ source: "preview", fps: 60, cpuMs: 1 }),
+    diagnosticForState: () => {
+      diagnosticCalls++;
+      return { captured: true };
+    },
+    onActiveChange: (active) => activeChanges.push(active),
+  });
+
+  assert.equal(session.captureSample(state), false);
+  assert.equal(diagnosticCalls, 0);
+  session.start();
+  assert.equal(diagnosticCalls, 1);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(session.captureSample(state), false);
+  session.recordStateEvent("late");
+  assert.equal(diagnosticCalls, 1);
+  session.finish();
+  assert.deepEqual(activeChanges, [true, false]);
 });
 
 test("performance host summary remains bounded and numeric", () => {

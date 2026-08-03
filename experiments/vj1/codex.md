@@ -161,8 +161,9 @@ Hard invariants:
    down, and positive rotation is screen-oriented. Raw WebGL derives its matrix
    fresh each evaluation and converts Y/orientation once. Never accumulate
    transforms or add shader-specific flip fixes.
-6. **Surface geometry stays authoritative**, including both endpoints of a
-   transition. Transition history may retain sources, not stale calibration.
+6. **Surface geometry stays authoritative.** A transition retains the exact
+   outgoing executable branch but projects it through current calibration;
+   transition state never carries a second serialized Surface program.
 7. **Alpha is premultiplied.** Shader passes replace complete target pixels;
    composition uses explicit GPU source-over and declared blend behavior.
 8. **Dirty mode is compiled.** Stable graphs sleep. Frame cadence exists only
@@ -210,13 +211,20 @@ mounts suppress unpatched descendants; explicit descendants override their
 parent; parent backplanes render first. Missing parents, duplicates,
 self-parenting, and cycles fail explicitly.
 
-Transitions separate lifecycle from appearance. Prepared endpoints retain
-source texture, normalized source rectangle, fit, aspect, opacity, and current
-projection. The destination-scoped transition coordinator owns active and
-latest-wins pending snapshots. Different Surface lanes may run concurrently;
-Overall arbitrates with them. Scheduling and promotion are event-driven control
-work; renderers only calculate progress and compose endpoints. Live stores a
-stable transition ID and serializable parameters, never executable functions.
+Transitions are graph nodes inserted at renderer activation. Before compiling
+the incoming Live program, the shared renderer transfers ownership of the exact
+currently executing Component programs to the transition node. That retained
+branch includes its applied Live parameters, temporal state, and resources; it
+is never reconstructed from authored Components or a diff-bank guess. The new
+branch is then compiled normally, and the compositor evaluates both through
+current Surface calibration until the transition releases the outgoing branch.
+Preview and standalone Output use this same activation and compositor path.
+
+The destination-scoped transition coordinator owns only timing, effect
+parameters, target routing, and latest-wins pending commands. Different Surface
+lanes may run concurrently; Overall arbitrates with them. Scheduling and
+promotion are event-driven control work. Live stores stable IDs and serializable
+parameters, never executable functions or a serialized `fromProgram`.
 
 ## Animation and live control
 
@@ -227,8 +235,8 @@ the selected target's diff bank. Editing an authored Component parameter also
 updates an existing matching diff in the active Live bank atomically, so the
 editor, Live controls, Preview, and Output cannot later restore competing
 values. Structural reconciliation rebases sparse chain entries by stable item
-identity. Transition endpoint models may snapshot merged values for execution,
-but they are not writable Live authorities.
+identity. A transition only retains the already-running compiled branch; it
+does not snapshot or merge a second parameter authority.
 
 Numeric Animation tracks are authored graph fragments inside the owning visual
 program, not a second animation runtime or per-frame project-state writer:

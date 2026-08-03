@@ -369,7 +369,6 @@ test("live transition endpoint planning retains output viewport ROI", () => {
   state.surfaces = [surface];
   state.liveTransition = {
     id: "transition-roi",
-    fromState: { ...state, liveTransition: null },
     startedAtMs: Date.now() - 10,
     durationMs: 100000,
   };
@@ -785,7 +784,6 @@ test("surface runtime derives transition progress without owning wall-clock stat
     state: {
       liveTransition: {
         id: "transition-a",
-        fromState: { surfaces: [] },
         startedAtMs: 1000,
         durationMs: 2000,
       },
@@ -795,6 +793,57 @@ test("surface runtime derives transition progress without owning wall-clock stat
 
   assert.equal(runtime.currentLiveTransition(1500).progress, 0.25);
   assert.equal(runtime.currentLiveTransition(3000), null);
+});
+
+test("surface runtime transfers the exact presented program branch into a transition", () => {
+  const fireProgram = {
+    configuration: { transform: { scale: 0.05619074160357156 } },
+    disposeCalls: 0,
+    dispose() { this.disposeCalls++; },
+  };
+  const presentedPrograms = new Map([["fire", fireProgram]]);
+  const componentProgramRuntime = {
+    programs: presentedPrograms,
+    componentById: new Map([["fire", { id: "fire" }]]),
+    routeSourceNodeById: new Map(),
+    retainExecutionContext(state) {
+      const context = {
+        state,
+        programs: this.programs,
+        componentById: this.componentById,
+        routeSourceNodeById: this.routeSourceNodeById,
+      };
+      this.programs = new Map();
+      this.componentById = new Map();
+      this.routeSourceNodeById = new Map();
+      return context;
+    },
+    disposeExecutionContext(context) {
+      for (const program of context.programs.values()) program.dispose();
+    },
+  };
+  const runtime = new OutputSurfaceRuntime({ componentProgramRuntime });
+  const previousState = {
+    surfaces: [{ id: "surface-a", componentId: "fire" }],
+    liveTransition: null,
+  };
+  const nextState = {
+    surfaces: [{ id: "surface-a", componentId: "next" }],
+    liveTransition: { id: "transition-fire" },
+  };
+
+  assert.equal(runtime.retainPresentedBranchForTransitions(previousState, nextState), true);
+  const outgoing = runtime.retainedTransitionBranch(nextState.liveTransition);
+  assert.strictEqual(outgoing.programs, presentedPrograms);
+  assert.strictEqual(outgoing.programs.get("fire"), fireProgram);
+  assert.equal(outgoing.programs.get("fire").configuration.transform.scale, 0.05619074160357156);
+  assert.equal(outgoing.state.liveTransition, null);
+  assert.equal(componentProgramRuntime.programs.size, 0, "activation now owns an empty slot for the incoming branch");
+
+  componentProgramRuntime.programs = new Map([["next", { configuration: { transform: { scale: 1.2 } } }]]);
+  runtime.disposeTransitionBranches();
+  assert.equal(fireProgram.disposeCalls, 1);
+  assert.equal(componentProgramRuntime.programs.get("next").configuration.transform.scale, 1.2);
 });
 
 test("surface runtime restores temporary render state and identity scopes", () => {
@@ -813,14 +862,10 @@ test("surface runtime restores temporary render state and identity scopes", () =
     ]),
     routeSourceNodeById: new Map([["current-node", {}]]),
   };
-  const synchronizedVisibility = [];
+  const activePrograms = new Map([["shared-component", { endpoint: "current" }]]);
   const componentProgramRuntime = {
     ...originalLookups,
-    programs: new Map([["shared-component", {
-      syncProjectedConfiguration(component) {
-        synchronizedVisibility.push(component.chain[0].enabled);
-      },
-    }]]),
+    programs: activePrograms,
     rebuildLookups() {
       const id = renderer.state.id;
       this.componentById = new Map([
@@ -835,20 +880,22 @@ test("surface runtime restores temporary render state and identity scopes", () =
     componentProgramRuntime,
   };
   const runtime = new OutputSurfaceRuntime(renderer);
+  const historicalContext = {
+    programs: new Map([["shared-component", { endpoint: "temporary" }]]),
+    componentById: new Map([["shared-component", temporaryState.components[0]]]),
+    routeSourceNodeById: new Map([["temporary-node", {}]]),
+  };
 
   assert.equal(runtime.withRenderState(temporaryState, () => {
-    assert.equal(componentProgramRuntime.componentById.has("temporary-component"), true);
+    assert.strictEqual(componentProgramRuntime.programs, historicalContext.programs);
+    assert.equal(componentProgramRuntime.componentById.has("shared-component"), true);
     assert.equal(componentProgramRuntime.routeSourceNodeById.has("temporary-node"), true);
     return renderer.state.id;
   }, {
-    componentConfigurationIds: ["shared-component"],
+    programContext: historicalContext,
   }), "temporary");
-  assert.deepEqual(
-    synchronizedVisibility,
-    [false, true],
-    "the historical endpoint configuration is active only inside its render scope",
-  );
   assert.equal(renderer.state, originalState);
+  assert.strictEqual(componentProgramRuntime.programs, activePrograms);
   assert.equal(componentProgramRuntime.componentById, originalLookups.componentById);
   assert.equal(componentProgramRuntime.routeSourceNodeById, originalLookups.routeSourceNodeById);
   assert.equal(runtime.withSurfaceRenderIdentityPrefix("from:", () => runtime.renderIdentityPrefix), "from:");

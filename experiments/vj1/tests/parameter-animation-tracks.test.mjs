@@ -1560,7 +1560,7 @@ test("MIDI animation values survive significant marking and authored From/To edi
     }];
   }, {
     reason: "update:animation-significant",
-    structural: true,
+    effects: { graph: { mode: "recompile" } },
   });
   store.update((draft) => {
     draft.nodes = updateParameterAnimationTrack(store.getState().nodes, {
@@ -1571,7 +1571,7 @@ test("MIDI animation values survive significant marking and authored From/To edi
     });
   }, {
     reason: "update:parameter-animation-range",
-    structural: true,
+    effects: { graph: { mode: "recompile" } },
   });
 
   const retained = store.getState().ui.live.parameterDiffs

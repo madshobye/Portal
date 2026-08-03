@@ -16,6 +16,10 @@ import {
 } from "../domain/models.js";
 import { parameterAnimationViewTemplate } from "./animation-view.js";
 import { dmxProbeComponentForState } from "../libraries/dmx-engine/index.js";
+import {
+  componentLayerProjection,
+  selectedComponentLayer,
+} from "../domain/component-layer-projection.js";
 
 
 export function sceneInspectorTemplate(component, state) {
@@ -184,11 +188,12 @@ function componentFrameControlsTemplate(component, state, base) {
 }
 
 function componentUnifiedChainTemplate(component, state, ownerPath) {
+  const layers = componentLayerProjection(state, component);
   return `
     <div class="chain-column">
       ${elementListTemplate(
         `component-chain:${component.id}`,
-        chainItemsTemplate(component.chain || [], component, state, `${ownerPath}.chain`),
+        layerItemsTemplate(layers, component, state),
         {
           className: "chain-list-section",
           listClassName: "component-chain-list",
@@ -200,37 +205,39 @@ function componentUnifiedChainTemplate(component, state, ownerPath) {
   `;
 }
 
-function chainItemsTemplate(chain, component, state, base, depth = 0) {
-  if (!chain?.length) return depth ? `<div class="soft-note chain-group-empty">Group is empty</div>` : "";
-  return chain.map((item, index) => chainItemRowTemplate(item, component, state, index, `${base}.${index}`, depth)).join("");
+function layerItemsTemplate(layers, component, state, depth = 0) {
+  if (!layers?.length) return depth ? `<div class="soft-note chain-group-empty">Group is empty</div>` : "";
+  return layers.map((layer, index) => layerItemRowTemplate(layer, component, state, index, depth)).join("");
 }
 
-function chainItemRowTemplate(item, component, state, index, base, depth = 0) {
-  const selected = state.ui.selectedChainItemId === item.id;
+function layerItemRowTemplate(layer, component, state, index, depth = 0) {
+  const item = layer.item;
+  const base = layer.path;
+  const selected = state.ui.selectedChainItemId === layer.nodeId;
   const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(item.source)) || null;
   const referencedComponent = state.components?.find((entry) => entry.id === item.source?.componentId) || null;
   const label = chainItemLabel(item, media, referencedComponent, state);
   const iconName = chainItemIcon(item);
-  const kindLabel = item.kind === "source" ? item.source?.type || "source" : item.kind === "group" ? `${item.chain?.length || 0} item group` : "effect";
+  const kindLabel = item.kind === "source" ? item.source?.type || "source" : item.kind === "group" ? `${layer.children.length} item group` : "effect";
   const row = textListItemTemplate({
     rowClass: "chain-item-row compact-list-row",
     selected,
-    reorderId: item.id,
+    reorderId: layer.nodeId,
     leadingHtml: enableToggleButton({
       path: `${base}.enabled`,
       value: item.enabled !== false,
       iconName,
       label,
       selectAction: "chain-item",
-      selectId: item.id,
+      selectId: layer.nodeId,
     }),
     label,
     meta: kindLabel,
     mainClass: "chain-item-select",
     mainAction: "data-select-chain-item",
-    mainActionId: item.id,
+    mainActionId: layer.nodeId,
     removeClass: "chain-item-remove",
-    removeAttributes: `data-component-id="${esc(component.id)}" data-remove-chain-item="${esc(item.id)}"`,
+    removeAttributes: `data-component-id="${esc(component.id)}" data-remove-chain-item="${esc(layer.nodeId)}"`,
     actionHtml: referencedComponent ? deepEditButtonTemplate(referencedComponent.id, {
       className: "text-list-edit",
       label: `Edit ${referencedComponent.name}`,
@@ -240,9 +247,9 @@ function chainItemRowTemplate(item, component, state, index, base, depth = 0) {
     <div class="chain-item-block ${item.kind === "group" ? "is-group" : ""}" style="--chain-depth: ${depth};">
       ${row}
       ${item.kind === "group" ? `
-        <div class="chain-group-drop-zone" data-reorder-id="${esc(item.id)}" data-drop-position="inside" title="Drop inside ${esc(label)}" aria-label="Drop inside ${esc(label)}"></div>
-        ${!item.collapsed ? `<div class="chain-group-children" data-reorder-id="${esc(item.id)}" data-drop-position="inside">${chainItemsTemplate(item.chain || [], component, state, `${base}.chain`, depth + 1)}</div>` : ""}
-        <div class="chain-group-drop-zone is-after" data-reorder-id="${esc(item.id)}" data-drop-position="after" title="Drop after ${esc(label)}" aria-label="Drop after ${esc(label)}"></div>
+        <div class="chain-group-drop-zone" data-reorder-id="${esc(layer.nodeId)}" data-drop-position="inside" title="Drop inside ${esc(label)}" aria-label="Drop inside ${esc(label)}"></div>
+        ${!item.collapsed ? `<div class="chain-group-children" data-reorder-id="${esc(layer.nodeId)}" data-drop-position="inside">${layerItemsTemplate(layer.children, component, state, depth + 1)}</div>` : ""}
+        <div class="chain-group-drop-zone is-after" data-reorder-id="${esc(layer.nodeId)}" data-drop-position="after" title="Drop after ${esc(label)}" aria-label="Drop after ${esc(label)}"></div>
       ` : ""}
     </div>
   `;
@@ -418,9 +425,8 @@ function componentSelectTemplate(path, state, value, excludeId = "") {
 }
 
 function selectedChainItemSelection(component, state) {
-  const base = `${pathForComponent(state, component)}.chain`;
-  const selected = findChainItemSelection(component.chain || [], state.ui.selectedChainItemId, base);
-  return selected || firstChainItemSelection(component.chain || [], base);
+  const selected = selectedComponentLayer(state, component, state.ui.selectedChainItemId);
+  return selected ? { item: selected.item, path: selected.path } : null;
 }
 
 function sourcePickerTemplate(item, state, base, paramView = "primary", ownerComponent = null) {
@@ -511,23 +517,6 @@ function chainItemIcon(item = {}) {
   if (item.kind === "source") return sourceIcon(item.source || {});
   if (item.kind === "group") return UI_ICONS.group;
   return effectIcon(item.componentId);
-}
-
-function findChainItemSelection(chain = [], id = "", base = "chain") {
-  if (!Array.isArray(chain) || !id) return null;
-  for (let index = 0; index < chain.length; index++) {
-    const item = chain[index];
-    const path = `${base}.${index}`;
-    if (item.id === id) return { item, path };
-    const nested = item.kind === "group" ? findChainItemSelection(item.chain || [], id, `${path}.chain`) : null;
-    if (nested) return nested;
-  }
-  return null;
-}
-
-function firstChainItemSelection(chain = [], base = "chain") {
-  if (!Array.isArray(chain) || !chain.length) return null;
-  return { item: chain[0], path: `${base}.0` };
 }
 
 function isGenericLayerName(value) {

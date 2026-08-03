@@ -610,7 +610,11 @@ export function compileVisualContractPasses(operations = [], diagnostics = []) {
     const allocationMode = inputDemand.mode === VISUAL_ROI_MODES.FULL_FRAME
       ? VISUAL_ALLOCATION_MODES.FULL_FRAME
       : operation.contract.allocation.mode;
-    lowered[index] = Object.freeze({
+    // The operation object is a retained runtime handle shared with compiled
+    // control/value bindings. Keep the topology arrays immutable, but preserve
+    // this object identity so a live configuration edit cannot strand those
+    // bindings on an obsolete copy.
+    lowered[index] = {
       ...operation,
       lowering: Object.freeze({
         outputDemand: demand,
@@ -623,7 +627,7 @@ export function compileVisualContractPasses(operations = [], diagnostics = []) {
             || allocationMode === VISUAL_ALLOCATION_MODES.RETAINED,
         }),
       }),
-    });
+    };
     for (const sourceValueId of Object.values(operation.textureInputs || {})) {
       if (!sourceValueId || isExternalTextureSource(sourceValueId)) continue;
       const sourceId = endpointNode(sourceValueId);
@@ -1281,11 +1285,11 @@ function normalizeOperationContract(operation, diagnostics) {
       allocation: { mode: VISUAL_ALLOCATION_MODES.FULL_FRAME },
     });
   }
-  return Object.freeze({
+  return {
     ...operation,
     contract,
     ...(nested ? { operations: Object.freeze(nested) } : {}),
-  });
+  };
 }
 
 function validateOperationContracts(operations) {
@@ -1376,38 +1380,37 @@ function mergeRoiDemand(current, incoming) {
 
 function replaceOperationConfiguration(operations, itemId, nextConfiguration) {
   let changed = false;
-  const next = operations.map((operation) => {
+  for (const operation of operations) {
     if (operation.id === itemId) {
       changed = true;
-      const updated = Object.freeze({
-        ...operation,
-        configuration: nextConfiguration,
-        // One semantic visual item owns one authored-configuration epoch.
-        // Compiled compounds project public parameters into private child
-        // operations, whose typed values may otherwise retain the same
-        // identity. Advancing the outer epoch gives every backend the same
-        // dirty contract without renderer-specific invalidation hooks.
-        configurationRevision:
-          Math.max(0, Number(operation.configurationRevision) || 0) + 1,
-      });
-      synchronizeCompoundPublicParameters(updated);
-      return updated;
+      operation.configuration = nextConfiguration;
+      // One semantic visual item owns one authored-configuration epoch.
+      // Compiled compounds project public parameters into private child
+      // operations, whose typed values may otherwise retain the same
+      // identity. Advancing the outer epoch gives every backend the same
+      // dirty contract without renderer-specific invalidation hooks.
+      operation.configurationRevision =
+        Math.max(0, Number(operation.configurationRevision) || 0) + 1;
+      synchronizeCompoundPublicParameters(operation);
+      continue;
     }
-    if (operation.opcode !== VISUAL_RENDER_OPCODES.GROUP || !operation.operations?.length) return operation;
+    if (
+      operation.opcode !== VISUAL_RENDER_OPCODES.GROUP ||
+      !operation.operations?.length
+    ) {
+      continue;
+    }
     const nested = replaceOperationConfiguration(operation.operations, itemId, nextConfiguration);
-    if (!nested.changed) return operation;
+    if (!nested.changed) continue;
     changed = true;
-    return Object.freeze({
-      ...operation,
-      operations: Object.freeze(nested.operations),
-      // A public Layer Group is also a semantic cache boundary. Propagate a
-      // descendant edit through that boundary while leaving sibling groups
-      // and Components untouched.
-      configurationRevision:
-        Math.max(0, Number(operation.configurationRevision) || 0) + 1,
-    });
-  });
-  return { changed, operations: changed ? next : operations };
+    // A public Layer Group is also a semantic cache boundary. Propagate a
+    // descendant edit through that boundary while leaving sibling groups and
+    // Components untouched. The retained Group handle must remain stable for
+    // exactly the same reason as its child operation.
+    operation.configurationRevision =
+      Math.max(0, Number(operation.configurationRevision) || 0) + 1;
+  }
+  return { changed, operations };
 }
 
 function compileCompoundPublicParameterBindings(definition, operations, controlProgram, valueProgram, path) {

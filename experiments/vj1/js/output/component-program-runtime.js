@@ -207,6 +207,50 @@ export class ComponentProgramRuntime {
       null;
   }
 
+  createExecutionContext(state = this.getState?.()) {
+    const runtimeComponents = this.runtimeComponents?.length
+      ? this.runtimeComponents
+      : runtimeVisualSourceComponents();
+    const programs = this.compile(state, runtimeComponents);
+    this.validate(programs);
+    const components = [...(state?.components || []), ...runtimeComponents];
+    const sourceNodes = sceneSourceNodes(state || {}, { includeSystem: true });
+    return Object.freeze({
+      state,
+      programs,
+      componentById: new Map(
+        components.map((component) => [component.id, component]),
+      ),
+      routeSourceNodeById: new Map(
+        sourceNodes.map((node) => [node.id, node]),
+      ),
+    });
+  }
+
+  // Transfers the currently executing program set to another runtime owner.
+  // The caller must eventually pass the returned context to
+  // disposeExecutionContext(). No program is cloned or recompiled here: this
+  // is the exact branch that produced the previously presented frame.
+  retainExecutionContext(state = this.getState?.()) {
+    if (!this.programs.size) return null;
+    const context = Object.freeze({
+      state,
+      programs: this.programs,
+      componentById: this.componentById,
+      routeSourceNodeById: this.routeSourceNodeById,
+    });
+    this.programs = new Map();
+    this.componentById = new Map();
+    this.routeSourceNodeById = new Map();
+    this.controlSignalKinds.clear();
+    this.controlSignalAddresses.clear();
+    return context;
+  }
+
+  disposeExecutionContext(context = null) {
+    disposePrograms(context?.programs);
+  }
+
   componentRegionSafe(componentOrId, programs = this.programs, visiting = new Set()) {
     const component = componentOrId && typeof componentOrId === "object"
       ? componentOrId
@@ -277,20 +321,14 @@ export function renderStateComponentProgramRoots(
     else for (const componentId of availableIds) roots.add(componentId);
     return roots;
   }
-  const collectSurfaces = (surfaces = [], { includeDisabled = false } = {}) => {
+  const collectSurfaces = (surfaces = []) => {
     for (const surface of surfaces || []) {
-      if (!includeDisabled && surface?.enabled === false) continue;
+      if (surface?.enabled === false) continue;
       const componentId = String(surface?.componentId || "");
       if (availableIds.has(componentId)) roots.add(componentId);
     }
   };
   collectSurfaces(state.surfaces);
-  collectSurfaces(state.liveTransition?.fromState?.surfaces, {
-    includeDisabled: true,
-  });
-  for (const transition of state.liveTransitions || []) {
-    collectSurfaces(transition?.fromState?.surfaces, { includeDisabled: true });
-  }
   if (!roots.size) {
     for (const component of components || []) {
       const componentId = String(component?.id || "");

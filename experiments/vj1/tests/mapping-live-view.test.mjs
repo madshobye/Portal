@@ -249,7 +249,7 @@ test("Live Component navigation includes roots and sources across all Surface ro
   assert.match(html, new RegExp(`data-live-component="${patchedComponent.id}"`));
 });
 
-test("Live Component navigation retains the previous endpoint only until transition expiry", () => {
+test("Live Component navigation follows the current graph while the renderer owns the outgoing branch", () => {
   const { state, liveScene, mapping } = stateWithScene();
   const currentNested = state.components.find((component) => component.type !== "scene" && !component.systemRole);
   const previous = {
@@ -260,24 +260,18 @@ test("Live Component navigation retains the previous endpoint only until transit
   };
   state.components.push(previous);
   state.ui.live.selectedComponentId = liveScene.id;
-  state.ui.live.transition = {
+  state.ui.live.transitionCoordinator = { overall: { active: {
     id: "scene-to-component",
+    destination: "overall",
     fromTargetId: previous.id,
-    fromSurfaceRoutes: {
-      surfaces: mapping.surfaces.map((surface) => ({
-        ...surface,
-        enabled: true,
-        componentId: previous.id,
-      })),
-    },
     startedAtMs: 1000,
     durationMs: 100,
-  };
+  } } };
 
   assert.equal(
     liveProgramNavigableComponents(state, 1050).some((component) => component.id === previous.id),
-    true,
-    "the from endpoint remains inspectable while it is visibly transitioning",
+    false,
+    "a renderer-owned branch is not duplicated into control navigation state",
   );
   assert.equal(
     liveProgramNavigableComponents(state, 1100).some((component) => component.id === previous.id),

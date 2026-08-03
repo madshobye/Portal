@@ -13,8 +13,19 @@ import { createControlBridge } from "./services/output-bridge-service.js";
 import { installOutputApp } from "./output/output-app.js";
 import { outputRenderPatchesForChange } from "./domain/render-transport-patch.js";
 import { createRenderStatePatch } from "./domain/live-render-patch.js";
+import { CONTROL_SIGNAL_COMMAND } from "./output/control-signal-command.js";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
 import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js";
+import { createMidiInputService } from "./services/midi-input-service.js";
+import { createDmxOutputService } from "./services/dmx-output-service.js";
+import {
+  liveSignificantParameterAssignments,
+  significantParameterValueFromUnit,
+} from "./control/mapping-live-view.js";
+import {
+  setLiveAnimationOverride,
+  setLiveOverride,
+} from "./control/input-controller.js";
 
 const root = document.getElementById("app");
 const mode = getClientMode();
@@ -144,46 +155,42 @@ async function installControlApp() {
   }
 
   application.bindInput("storage", "value", ({ state, change }) => {
-    if (["live", "runtime", "derived"].includes(change.scope)) return;
+    if (change.effects?.persistence?.mode === "none") return;
     projectService.scheduleAutoSave(change, { state });
   });
 
   application.bindInput("live-synchronization", "state", ({ state, reason, change }) => {
-    if (change.scope === "live") {
+    const outputEffect = change.effects?.output || { mode: "state" };
+    if (change.command.domain === "live" && ["live-patches", "state"].includes(outputEffect.mode)) {
       bridge.acceptStateChange(state, reason, change);
       return;
     }
-    if (change.scope === "derived" &&
-        change.projection?.kind === "asset-catalog") {
+    if (outputEffect.mode === "assets") {
       bridge.sendState(null, { activation: "assets" });
       return;
     }
-    if (["runtime", "derived", "ui"].includes(change.scope)) return;
-    if (change.scope === "assets") {
-      bridge.sendState(null, { activation: "assets" });
-      return;
-    }
-    if (state.ui.workspace === "mapping" && change.topic === "mapping-state") {
+    if (outputEffect.mode === "none") return;
+    if (state.ui.workspace === "mapping" && outputEffect.mode === "mapping-patch") {
       bridge.sendRenderPatches([
         createRenderStatePatch("mappingCalibration", state.mappingCalibration),
-      ], { coalesce: change.phase === "scrub" });
+      ], { coalesce: outputEffect.coalesce === true });
       return;
     }
-    if (state.ui.workspace === "mapping" && ["blackout", "toggle-output-playback", "toggle-output-hud"].includes(reason)) {
+    if (state.ui.workspace === "mapping" && outputEffect.mode === "global-command") {
       bridge.command("sync-global", {
         global: state.global,
         sessionTimeline: state.metrics?.sessionTimeline,
       });
       return;
     }
-    if (change.outputState === "unchanged") return;
     const renderPatches = outputRenderPatchesForChange(state, change);
-    if (renderPatches.length) {
-      bridge.sendRenderPatches(renderPatches, { coalesce: change.phase === "scrub" });
+    if (outputEffect.mode === "render-patches") {
+      if (renderPatches.length) {
+        bridge.sendRenderPatches(renderPatches, { coalesce: outputEffect.coalesce === true });
+      }
       return;
     }
-    if (change.phase === "edit") return;
-    if (change.phase === "scrub") {
+    if (outputEffect.mode === "state" && outputEffect.coalesce === true) {
       sendScrubState();
       return;
     }
@@ -192,11 +199,68 @@ async function installControlApp() {
     }
   });
 
-  createControlShell({ root, store, bridge, mediaLibrary, projectService, diagnostics, nodePackage }).mount();
+  let controlShell = null;
+  const dmxOutput = createDmxOutputService({
+    onStatus: () => controlShell?.refreshDeviceStatus(),
+  });
+  const midiInput = createMidiInputService({
+    onSignal(payload) {
+      controlShell?.deliverControlSignal(payload);
+      bridge.command(CONTROL_SIGNAL_COMMAND, payload);
+    },
+    onSelectScene: (id) => store.selectLiveScene(id),
+    onSelectComponent: (id) => store.selectLiveComponent(id),
+    resolveSignificantParameters: (state) => liveSignificantParameterAssignments(state),
+    onAdjustSignificantParameter({ assignment, unitValue }) {
+      const value = significantParameterValueFromUnit(assignment, unitValue);
+      if (assignment.kind === "animation") {
+        store.updateLive((draft) => {
+          setLiveAnimationOverride(
+            draft,
+            assignment.componentId,
+            assignment.targetNodeId,
+            assignment.trackId,
+            assignment.field,
+            value,
+          );
+        }, { reason: "live:animation-update", input: "midi" });
+        return;
+      }
+      store.updateLive((draft) => {
+        setLiveOverride(draft, assignment.componentId, assignment.path, value);
+      }, {
+        reason: "live:update",
+        input: "midi",
+        livePatches: [createLiveRenderPatch(
+          assignment.componentId,
+          assignment.path,
+          value,
+          assignment.itemId,
+        )],
+      });
+    },
+    onStatus: () => controlShell?.refreshDeviceStatus(),
+  });
+  controlShell = createControlShell({
+    root,
+    store,
+    bridge,
+    mediaLibrary,
+    projectService,
+    midiInput,
+    dmxOutput,
+    diagnostics,
+    nodePackage,
+  });
+  controlShell.mount();
+  window.addEventListener("pagehide", () => {
+    midiInput.disconnect();
+    dmxOutput.dispose();
+  }, { once: true });
 
   store.subscribe((state, reason, change) => {
     if (reason === "workspace") persistWorkspace(state.ui.workspace);
-    if (change.projectRestore) {
+    if (change.effects.lifecycle.project === "restore") {
       const session = preferredLiveSession(state);
       if (session) {
         store.restoreLiveSession(session);
@@ -204,9 +268,9 @@ async function installControlApp() {
       }
     }
     const liveSessionCommit =
-      change.phase === "commit" &&
-      (change.scope === "live" ||
-        change.scope === "project" ||
+      change.command.phase === "commit" &&
+      (change.command.domain === "live" ||
+        change.command.domain === "project" ||
         reason === "select-mapping" ||
         reason === "live:preview-surface");
     if (liveSessionCommit) persistLiveSession(state);

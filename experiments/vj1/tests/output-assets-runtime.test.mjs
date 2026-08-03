@@ -16,12 +16,18 @@ import {
   OUTPUT_BRIDGE_PROTOCOL_VERSION,
   recoveredOutputProjectState,
 } from "../js/services/output-bridge-service.js";
+
 import { applyLiveRenderPatches, applyLiveRenderPatchesImmutable, createLiveRenderPatch, createRenderStatePatch, resolveLiveRenderPatches } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
 import { produceStructuralShare } from "../js/libraries/data-store/data-store/structural-sharing.js";
 import { LivePatchSynchronizer } from "../js/libraries/synchronization-engine/live-patch-synchronizer/index.js";
+import { createChangeEvent } from "../js/libraries/state-engine/state-command/index.js";
+
+test("Output bridge protocol covers executable transition input programs", () => {
+  assert.equal(OUTPUT_BRIDGE_PROTOCOL_VERSION, 3);
+});
 
 const protocol = (message) => ({
   ...message,
@@ -1957,16 +1963,14 @@ test("output bridge owns realtime Live-state delivery independently of animation
     const bridge = createControlBridge({ store, mediaLibrary: { getAllFiles: () => [] } });
     const sessionId = messages.find((message) => message.type === "control-hello")?.sessionId;
 
-    listener({}, "scrub:live", {
-      scope: "live",
-      phase: "scrub",
+    listener({}, "scrub:live", createChangeEvent({
+      reason: "scrub:live",
       livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.25)],
-    });
-    listener({}, "scrub:live", {
-      scope: "live",
-      phase: "scrub",
+    }));
+    listener({}, "scrub:live", createChangeEvent({
+      reason: "scrub:live",
       livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.3)],
-    });
+    }));
     assert.equal(messages.filter((message) => message.type === "state").length, 0);
     revision = 2;
     await Promise.resolve();
@@ -1983,11 +1987,10 @@ test("output bridge owns realtime Live-state delivery independently of animation
     });
 
     revision = 3;
-    listener({}, "live:update", {
-      scope: "live",
-      phase: "commit",
+    listener({}, "live:update", createChangeEvent({
+      reason: "live:update",
       livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.5)],
-    });
+    }));
     const secondPatchMessage = messages.filter((message) => message.type === "live-patch").at(-1);
     assert.equal(Number.isFinite(secondPatchMessage.transport?.sentAtMs), true);
     assert.deepEqual({ ...secondPatchMessage, transport: undefined }, {
@@ -2000,7 +2003,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION,
     });
 
-    listener({}, "live:scene", { scope: "live", phase: "commit" });
+    listener({}, "live:scene", createChangeEvent("live:scene"));
     const stateMessage = messages.filter((message) => message.type === "state").at(-1);
     assert.equal(Number.isFinite(stateMessage.transport?.sentAtMs), true);
     assert.deepEqual({ ...stateMessage, transport: undefined }, {
@@ -2044,11 +2047,10 @@ test("Application graph can own bridge state delivery without a hidden store sub
     });
 
     assert.equal(subscribed, false);
-    bridge.acceptStateChange(state, "scrub:live", {
-      scope: "live",
-      phase: "scrub",
+    bridge.acceptStateChange(state, "scrub:live", createChangeEvent({
+      reason: "scrub:live",
       livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.75)],
-    });
+    }));
     await Promise.resolve();
     assert.equal(messages.filter((message) => message.type === "live-patch").at(-1).patches[0].value, 0.75);
     bridge.close();
@@ -2177,9 +2179,7 @@ test("Live Surface visibility sends only the derived route projection", () => {
       mediaLibrary: { getAllFiles: () => [] },
     });
 
-    bridge.acceptStateChange(state, "live:surface-visibility", {
-      scope: "live",
-    });
+    bridge.acceptStateChange(state, "live:surface-visibility", createChangeEvent("live:surface-visibility"));
     const packet = messages.find((message) => message.type === "live-patch");
     assert.equal(messages.some((message) => message.type === "state"), false);
     assert.deepEqual(packet.patches, [
@@ -2920,6 +2920,79 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
     beforePlacementSignature,
     "a static Component cannot reuse its retained frame after Content X/Y/Scale changes",
   );
+});
+
+test("Live model-media patches reach retained LOD and material value nodes without visiting Component view", () => {
+  const component = {
+    id: "model-component",
+    type: "component",
+    chain: [{
+      id: "model-source",
+      kind: "source",
+      enabled: true,
+      opacity: 1,
+      blend: "normal",
+      transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+      source: {
+        type: "generator",
+        generatorId: "modelMedia",
+        params: {
+          mediaId: "media/sculpture.stl",
+          renderMode: "surface",
+          surfaceColor: "#dce1dcff",
+          geometryDetail: 0.5,
+        },
+      },
+    }],
+  };
+  const renderer = new OutputRenderer({ mode: "output" });
+  renderer.state = {
+    components: [component],
+    nodes: { groups: [compileComponentGroupTopology(component)] },
+    frames: [],
+    surfaces: [],
+    ui: { live: { paramFadeDuration: 0 } },
+  };
+  renderer.componentProgramRuntime.rebuild();
+  renderer.componentProgramRuntime.rebuildLookups();
+  const program = renderer.componentProgramRuntime.programs.get(component.id);
+  const operation = program.plan.operations[0];
+  const lod = operation.valueProgram.steps.find((step) => step.instanceId === "lod");
+  const material = operation.valueProgram.steps.find((step) => step.instanceId === "material");
+  const originalPlan = program.plan;
+
+  const result = renderer.livePatchRuntime.applyLive([
+    createLiveRenderPatch(component.id, "chain.0.source.params.geometryDetail", 2.25, "model-source"),
+    createLiveRenderPatch(component.id, "chain.0.source.params.renderMode", "points", "model-source"),
+    createLiveRenderPatch(component.id, "chain.0.source.params.surfaceColor", "#eb000000", "model-source"),
+  ]);
+
+  assert.equal(result.applied, true);
+  assert.strictEqual(program.plan, originalPlan);
+  assert.equal(operation.configuration.source.params.geometryDetail, 2.25);
+  assert.equal(operation.configuration.source.params.renderMode, "points");
+  assert.equal(operation.configuration.source.params.surfaceColor, "#eb000000");
+  assert.equal(lod.parameters.geometryDetail, 2.25);
+  assert.equal(material.parameters.renderMode, "points");
+  assert.equal(material.parameters.surfaceColor, "#eb000000");
+
+  const restoreControls = program.plan.controlProgram.apply();
+  assert.equal(
+    material.parameters.renderMode,
+    "points",
+    "the retained generated control cannot restore the pre-patch draw mode",
+  );
+  assert.equal(
+    material.parameters.surfaceColor,
+    "#eb000000",
+    "the retained generated control cannot restore the pre-patch STL color",
+  );
+  assert.equal(
+    lod.parameters.geometryDetail,
+    2.25,
+    "the retained generated control cannot restore the pre-patch STL detail",
+  );
+  restoreControls();
 });
 
 test("Live render patches retain inactive Component state without breaking transport revisions", () => {

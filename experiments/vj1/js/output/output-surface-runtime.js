@@ -77,7 +77,9 @@ export class OutputSurfaceRuntime {
     this.surfaceTexturePool = new BoundedRenderTargetPool({ maxItems: 12 });
     this.surfaceTextures = this.surfaceTexturePool.resources;
     this.transitionSurfaceTextures = new Map();
-    this.activeTransitionTextureId = "";
+    this.transitionBranches = new Map();
+    this.missingTransitionBranchDiagnostics = new Set();
+    this.activeTransitionResourceSignature = "";
     this.renderIdentityPrefix = "";
     this.transitionEffectPrefix = "";
     this.rootTransformDetailWarnings = new Set();
@@ -91,10 +93,12 @@ export class OutputSurfaceRuntime {
   dispose() {
     this.surfaceTexturePool.dispose();
     disposeGraphicsMap(this.transitionSurfaceTextures);
-    this.activeTransitionTextureId = "";
+    this.disposeTransitionBranches();
+    this.activeTransitionResourceSignature = "";
     this.renderIdentityPrefix = "";
     this.transitionEffectPrefix = "";
     this.rootTransformDetailWarnings.clear();
+    this.missingTransitionBranchDiagnostics.clear();
   }
 
   renderSurfaces() {
@@ -105,6 +109,7 @@ export class OutputSurfaceRuntime {
     // retained result.
     this.renderer.resourceRuntime.componentOutput.clear();
     const transitions = this.currentLiveTransitions();
+    if (transitions.length) this.activateTransitionResources(transitions);
     if (transitions.length > 1) return this.renderConcurrentTransitionSurfaces(transitions);
     if (transitions[0]) return this.renderTransitionSurfaces(transitions[0]);
     this.releaseTransitionSurfaceTextures();
@@ -183,7 +188,7 @@ export class OutputSurfaceRuntime {
     for (const transition of candidates) {
     const durationMs = Math.max(0, Number(transition?.durationMs) || 0);
     const startedAtMs = Number(transition?.startedAtMs) || 0;
-      if (!transition?.fromState || !durationMs || !startedAtMs) continue;
+      if (!transition?.id || !durationMs || !startedAtMs) continue;
     const progress = Math.max(0, Math.min(1, (Number(nowMs) - startedAtMs) / durationMs));
       if (progress >= 1) continue;
     const resolved = this.resolveTransition?.(
@@ -214,13 +219,9 @@ export class OutputSurfaceRuntime {
         targetState,
         (surface) => String(surface.id || "") === surfaceId
       );
-      const scopedFrom = stateWithOnlySurfaces(
-        transition.fromState,
-        (surface) => String(surface.id || "") === surfaceId
-      );
       this.withRenderState(scopedTarget, () => this.renderTransitionSurfaces({
         ...transition,
-        fromState: scopedFrom,
+        retainedSurfaceIds: [surfaceId],
       }));
     }
   }
@@ -229,31 +230,36 @@ export class OutputSurfaceRuntime {
     const renderer = this.renderer;
     const targetState = renderer.state;
     if (renderer.readinessRuntime.isBlackout()) return;
-    if (this.activeTransitionTextureId !== transition.id) {
-      this.releaseTransitionSurfaceTextures();
-      this.activeTransitionTextureId = transition.id;
-    }
-    const componentsShared = transition.componentsShared === true;
-    const componentConfigurationIds = this.transitionConfigurationComponentIds(
-      transition,
-      targetState,
-    );
-    renderer.resourceRuntime.componentOutput.clear();
-    const fromRoutes = this.withRenderState(transition.fromState, () =>
-      this.withSurfaceRenderIdentityPrefix(componentsShared ? "" : "transition-from:", () =>
-        // Mapping programs belong to the current render state. The temporary
-        // transition state has its own resolved Scene route; using the current
-        // compiled surfaces here made the from-side sample the target Scene.
-        // Passing its already-normalized surfaces avoids both that alias and
-        // recompiling the Mapping graph on every transition frame.
-        this.buildSurfaceRenderPlan(transition.fromState?.surfaces || [])
+    const outgoingBranch = this.retainedTransitionBranch(transition);
+    if (!outgoingBranch) return this.renderMappingSurfaces();
+    renderer.profileRuntime.recordTransitionBoundary(renderer, transition, outgoingBranch);
+    const retainedSurfaceIds = new Set(transition.retainedSurfaceIds || []);
+    const inputState = retainedSurfaceIds.size
+      ? stateWithOnlySurfaces(
+        outgoingBranch.state,
+        (surface) => retainedSurfaceIds.has(String(surface.id || "")),
       )
+      : outgoingBranch.state;
+    renderer.resourceRuntime.componentOutput.clear();
+    const fromRoutes = this.withRenderState(
+      inputState,
+      () => this.withSurfaceRenderIdentityPrefix(
+        "transition-from:",
+        () =>
+          // Mapping programs belong to the current render state. The temporary
+          // transition state has its own resolved Scene route; using the current
+          // compiled surfaces here made the from-side sample the target Scene.
+          // Passing its already-normalized surfaces avoids both that alias and
+          // recompiling the Mapping graph on every transition frame.
+          this.buildSurfaceRenderPlan(inputState.surfaces || []),
+      ),
+      { programContext: outgoingBranch },
     );
     const toRoutes = this.withSurfaceRenderIdentityPrefix(
-      componentsShared ? "" : "transition-to:",
+      "transition-to:",
       () => this.buildSurfaceRenderPlan()
     );
-    if (componentsShared) unifyTransitionComponentRenderRequests(fromRoutes, toRoutes);
+    unifyTransitionComponentRenderRequests(fromRoutes, toRoutes);
     const fromBySurface = new Map(fromRoutes.map((route) => [route.surface.id, route]));
     const toBySurface = new Map(toRoutes.map((route) => [route.surface.id, route]));
     const changedSurfaceIds = new Set();
@@ -281,11 +287,11 @@ export class OutputSurfaceRuntime {
       const toRoute = toBySurface.get(surfaceId);
       if (!fromRoute || !toRoute) continue;
       const fromView = this.withRenderState(
-        transition.fromState,
+        inputState,
         () => this.canDirectProjectSurfaceRoute(fromRoute, false)
           ? this.renderSurfaceRouteView(fromRoute)
           : null,
-        { componentConfigurationIds },
+        { programContext: outgoingBranch },
       );
       const toView = this.withRenderState(targetState, () =>
         this.canDirectProjectSurfaceRoute(toRoute, false)
@@ -299,9 +305,9 @@ export class OutputSurfaceRuntime {
     );
     const fromTextures = this.renderTransitionRouteTextures(
       fromRoutes.filter((route) => bufferedTransitionSurfaceIds.has(route.surface.id)),
-      transition.fromState,
+      inputState,
       "from",
-      componentConfigurationIds,
+      outgoingBranch,
     );
     const toTextures = this.renderTransitionRouteTextures(
       toRoutes.filter((route) => bufferedTransitionSurfaceIds.has(route.surface.id)),
@@ -439,7 +445,7 @@ export class OutputSurfaceRuntime {
     routes,
     renderState,
     side,
-    componentConfigurationIds = [],
+    programContext = null,
   ) {
     const renderer = this.renderer;
     const textures = new Map();
@@ -460,7 +466,7 @@ export class OutputSurfaceRuntime {
         texture.pop();
         textures.set(route.surface.id, texture);
       }
-    }, { componentConfigurationIds });
+    }, { programContext });
     return textures;
   }
 
@@ -492,68 +498,105 @@ export class OutputSurfaceRuntime {
     return target;
   }
 
-  releaseTransitionSurfaceTextures() {
-    if (!this.transitionSurfaceTextures.size && !this.activeTransitionTextureId) return;
+  retainPresentedBranchForTransitions(previousState, nextState) {
+    if (!previousState || !nextState) return false;
+    const transitions = liveTransitionDescriptors(nextState);
+    const newIds = transitions
+      .map((transition) => String(transition?.id || ""))
+      .filter((id) => id && !this.transitionBranches.has(id));
+    if (!newIds.length) return false;
+    const context = this.renderer.componentProgramRuntime
+      .retainExecutionContext(stablePresentationState(previousState));
+    if (!context) return false;
+    for (const id of newIds) this.transitionBranches.set(id, context);
+    return true;
+  }
+
+  releaseTransitionSurfaceTextures({ retainContextIds = [] } = {}) {
+    if (
+      !this.transitionSurfaceTextures.size &&
+      !this.transitionBranches.size &&
+      !this.activeTransitionResourceSignature
+    ) return;
     disposeGraphicsMap(this.transitionSurfaceTextures);
-    this.activeTransitionTextureId = "";
+    this.disposeTransitionBranches({ retainIds: retainContextIds });
+    this.activeTransitionResourceSignature = "";
+  }
+
+  activateTransitionResources(transitions = []) {
+    const signature = transitions
+      .map((transition) => String(transition?.id || ""))
+      .filter(Boolean)
+      .sort()
+      .join("|");
+    if (signature === this.activeTransitionResourceSignature) return;
+    const activeIds = transitions
+      .map((transition) => String(transition?.id || ""))
+      .filter(Boolean);
+    this.releaseTransitionSurfaceTextures({ retainContextIds: activeIds });
+    this.activeTransitionResourceSignature = signature;
+  }
+
+  retainedTransitionBranch(transition = {}) {
+    const id = String(transition?.id || "");
+    if (!id) return null;
+    const current = this.transitionBranches.get(id);
+    if (current) return current;
+    if (!this.missingTransitionBranchDiagnostics.has(id)) {
+      this.missingTransitionBranchDiagnostics.add(id);
+      console.error("[VJ1_TRANSITION_BRANCH_MISSING]", {
+        transitionId: id,
+        message: "The transition has no retained outgoing render branch; presenting the new branch as a cut.",
+      });
+    }
+    return null;
+  }
+
+  disposeTransitionBranches({ retainIds = [] } = {}) {
+    const retainedIds = new Set(Array.from(retainIds || [], String));
+    const removedContexts = new Set();
+    for (const [id, context] of this.transitionBranches) {
+      if (retainedIds.has(id)) continue;
+      this.transitionBranches.delete(id);
+      removedContexts.add(context);
+    }
+    const retainedContexts = new Set(this.transitionBranches.values());
+    for (const context of removedContexts) {
+      if (!retainedContexts.has(context)) {
+        this.renderer.componentProgramRuntime.disposeExecutionContext(context);
+      }
+    }
   }
 
   withRenderState(
     renderState,
     callback,
-    { componentConfigurationIds = [] } = {},
+    { programContext = null } = {},
   ) {
     const renderer = this.renderer;
     const programs = renderer.componentProgramRuntime;
     const previous = {
       state: renderer.state,
+      programs: programs.programs,
       componentById: programs.componentById,
       routeSourceNodeById: programs.routeSourceNodeById,
     };
     renderer.state = renderState;
-    programs.rebuildLookups();
+    if (programContext) {
+      programs.programs = programContext.programs;
+      programs.componentById = programContext.componentById;
+      programs.routeSourceNodeById = programContext.routeSourceNodeById;
+    } else {
+      programs.rebuildLookups();
+    }
     try {
-      for (const componentId of componentConfigurationIds) {
-        const id = String(componentId || "");
-        const program = programs.programs?.get?.(id);
-        const component = programs.componentById.get(id);
-        if (program && component) program.syncProjectedConfiguration(component);
-      }
       return callback();
     } finally {
-      // A compiled program is shared by both transition endpoints. Restore
-      // current endpoint configuration before leaving the historical render
-      // scope so a temporary Live visibility/parameter bank cannot leak into
-      // either the target side or the first stable frame after the transition.
-      for (const componentId of componentConfigurationIds) {
-        const id = String(componentId || "");
-        const program = programs.programs?.get?.(id);
-        const component = previous.componentById.get(id);
-        if (program && component) program.syncProjectedConfiguration(component);
-      }
-      // Render state and its derived route indexes are one context. Restore the
-      // exact previous maps so temporary transition scopes cannot leak routes.
       renderer.state = previous.state;
+      programs.programs = previous.programs;
       programs.componentById = previous.componentById;
       programs.routeSourceNodeById = previous.routeSourceNodeById;
     }
-  }
-
-  transitionConfigurationComponentIds(transition = {}, targetState = {}) {
-    if (transition.componentsShared === true) return [];
-    if (Array.isArray(transition.componentConfigurationIds)) {
-      return transition.componentConfigurationIds;
-    }
-    // Prepared/queued output transitions created from an already-rendered
-    // endpoint predate the authored override diff. Conservatively synchronize
-    // their common compiled Components rather than rendering one endpoint
-    // through the other's mutable configuration.
-    const targetIds = new Set(
-      (targetState.components || []).map((component) => String(component?.id || "")),
-    );
-    return (transition.fromState?.components || [])
-      .map((component) => String(component?.id || ""))
-      .filter((id) => id && targetIds.has(id));
   }
 
   withSurfaceRenderIdentityPrefix(prefix, callback) {
@@ -981,6 +1024,20 @@ export function transitionRouteSourceKey(route = {}) {
     surface.sourceFitActive === true,
     Math.round((Number(surface.sourceAspect) || 1) * 1e6) / 1e6,
   ]);
+}
+
+function stablePresentationState(state = {}) {
+  return {
+    ...state,
+    liveTransitions: [],
+    liveTransition: null,
+  };
+}
+
+function liveTransitionDescriptors(state = {}) {
+  return Array.isArray(state.liveTransitions) && state.liveTransitions.length
+    ? state.liveTransitions
+    : state.liveTransition ? [state.liveTransition] : [];
 }
 
 function stateWithOnlySurfaces(state = {}, predicate = () => true) {

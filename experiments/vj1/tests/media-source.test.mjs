@@ -10,7 +10,7 @@ import { getGeneratorNodeComponent as getGeneratorComponent, listGeneratorNodeCo
 import { RenderNodeRuntime, textureStateKey } from "../js/libraries/render-engine/render-node-contract.js";
 import { mediaRenderInvalidation } from "../js/libraries/render-engine/invalidation/index.js";
 import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
-import { createOutputInitialStateGate, hasActiveLiveTransition, outputSceneId, queuedSceneTransitionState, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, shouldSuspendStableOutputPresentation, transitionTerminalState } from "../js/output/output-app.js";
+import { createOutputInitialStateGate, hasActiveLiveTransition, outputSceneId, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, shouldSuspendStableOutputPresentation, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js";
 import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js";
 import { isReadyMediaItem } from "../js/output/component-render-state.js";
@@ -1054,7 +1054,7 @@ test("color picker exposes color and opacity without redundant hsv sliders", () 
   const source = readFileSync(new URL("../js/control/input-controller.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
-  assert.ok(controllerSource.includes('change.phase === "color"'));
+  assert.ok(controllerSource.includes('change.command.phase === "color"'));
   assert.ok(source.includes('control.dataset.colorMode === "live" ? (phase === "scrub" ? "scrub:live" : "live:update")'));
   assert.ok(source.includes('rgbInput?.addEventListener("change", () => updateColorParamFromControl(control, reason("color")));'));
   assert.ok(source.includes('alphaInput?.addEventListener("change", () => updateColorParamFromControl(control, reason("color")));'));
@@ -1549,7 +1549,7 @@ test("output Scene identity has no editor fallback during recovery", () => {
   assert.equal(outputSceneId(state), "");
 });
 
-test("a one-slot Scene queue transitions from the completed program target", () => {
+test("readiness retimes the shared queued transition without reconstructing its endpoint", () => {
   const sceneA = createInitialState();
   sceneA.ui.selectedMappingId = "scene-a";
   sceneA.ui.live.selectedSceneId = "scene-a";
@@ -1560,7 +1560,7 @@ test("a one-slot Scene queue transitions from the completed program target", () 
     id: "a-to-b",
     startedAtMs: 1000,
     durationMs: 1000,
-    fromState: sceneA,
+    fromTargetId: "scene-a",
   };
   const latestRequested = structuredClone(sceneB);
   latestRequested.ui.selectedMappingId = "scene-d";
@@ -1570,19 +1570,18 @@ test("a one-slot Scene queue transitions from the completed program target", () 
     id: "c-to-d",
     startedAtMs: 1200,
     durationMs: 2000,
-    fromState: { ...sceneB, ui: { ...sceneB.ui, selectedSceneId: "scene-c" } },
+    fromTargetId: "scene-c",
   };
 
   assert.equal(hasActiveLiveTransition(sceneB, 1500), true);
   assert.equal(hasActiveLiveTransition(sceneB, 2000), false);
-  const completedB = transitionTerminalState(sceneB);
-  const queued = queuedSceneTransitionState(latestRequested, completedB, 2050);
-  assert.equal(outputSceneId(queued.liveTransition.fromState), "scene-b");
+  const queued = retimePreparedSceneTransition(latestRequested, 2050);
+  assert.equal(queued.liveTransition.fromTargetId, "scene-c");
+  assert.equal(Object.hasOwn(queued.liveTransition, "fromProgram"), false);
   assert.equal(outputSceneId(queued), "scene-d");
   assert.equal(queued.liveTransition.startedAtMs, 2050);
   assert.equal(queued.liveTransition.durationMs, 2000);
-  assert.equal(queued.liveTransition.componentsShared, false);
-  assert.equal(queued.liveTransition.fromState.liveTransition, undefined);
+  assert.equal(latestRequested.liveTransition.startedAtMs, 1200);
 });
 
 test("active output can return project state and files to a refreshed control window", () => {
