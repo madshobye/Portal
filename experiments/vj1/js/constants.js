@@ -8,8 +8,7 @@ export const VJ1 = Object.freeze({
   sceneWidth: 3840,
   sceneHeight: 2160,
   outputWorldMarginRatio: 0.25,
-  p5Script: "https://cdn.jsdelivr.net/npm/p5@2.2.0/lib/p5.js",
-  portalScript: "../../P1/portal/portal.js",
+  p5Script: "vendor/p5/p5-2.2.0.min.js",
   renderFont: "assets/RobotoMono-Regular.ttf",
 });
 

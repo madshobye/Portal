@@ -1,8 +1,7 @@
 import { VJ1 } from "../constants.js";
 
 export async function loadVjRenderFont() {
-  await callPortalSetup();
-  const font = getPortalFont() || await loadFontAsync(VJ1.renderFont);
+  const font = await loadFontAsync(VJ1.renderFont);
   if (!font) throw new Error(`VJ1_RENDER_FONT_REQUIRED:${VJ1.renderFont}`);
   return font;
 }
@@ -24,30 +23,6 @@ export function applyFontToGlobal(font) {
   } catch (error) {
     console.error("[VJ1_FONT_GLOBAL_FAILED]", { message: error?.message || String(error) });
     throw error;
-  }
-}
-
-async function callPortalSetup() {
-  const setup = getPortalSetup();
-  if (typeof setup !== "function") return;
-  await setup();
-}
-
-function getPortalSetup() {
-  try {
-    return Function("return typeof pSetup === 'function' ? pSetup : null")();
-  } catch (error) {
-    console.warn("[VJ1_PORTAL_SETUP_UNAVAILABLE]", { fallback: "direct font loading", message: error?.message || String(error) });
-    return null;
-  }
-}
-
-function getPortalFont() {
-  try {
-    return Function("return typeof baseMonoFont !== 'undefined' ? baseMonoFont : (typeof baseFont !== 'undefined' ? baseFont : null)")();
-  } catch (error) {
-    console.warn("[VJ1_PORTAL_FONT_UNAVAILABLE]", { fallback: VJ1.renderFont, message: error?.message || String(error) });
-    return null;
   }
 }
 

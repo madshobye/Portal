@@ -21,6 +21,7 @@ import {
   NODE_PART_KINDS,
 } from "../js/libraries/node-engine/index.js";
 import { OutputRenderer } from "../js/output/output-renderer.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
 import { FeatureMorphRuntime } from "../js/output/specialized/feature-morph-runtime.js";
 import { FEATURE_MORPH_FRAGMENT_SHADER, FEATURE_MORPH_VERTEX_SHADER } from "../js/output/specialized/feature-morph-shader.js";
 import { featureMorphNodeRuntimeModule, featureMorphNodeShaderSource } from "../js/output/specialized/specialized-source-runtime.js";
@@ -708,11 +709,12 @@ test("Morph analysis revisions invalidate enclosing Component and Scene caches",
 test("a sole Feature Morph source retains generic transform handles without stale selection state", () => {
   const sourceItem = { id: "morph-source", kind: "source", source: createGeneratorSource("featureMorph") };
   const renderer = new OutputRenderer({ mode: "component" });
-  renderer.state = {
-    components: [{ id: "component-a", chain: [sourceItem] }],
+  renderer.state = createVj1NodePackage().prepareProjectState({
+    components: [{ id: "component-a", type: "chain", chain: [sourceItem] }],
+    nodes: {},
     ui: { selectedComponentId: "component-a", selectedChainItemId: "" },
-  };
-  assert.equal(renderer.previewInteraction.selectedTransformableChainItem(), sourceItem);
+  });
+  assert.equal(renderer.previewInteraction.selectedTransformableChainItem()?.id, sourceItem.id);
 });
 
 test("Feature Morph persistent cache survives service recreation and invalidates changed files", async () => {

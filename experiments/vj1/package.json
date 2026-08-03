@@ -1,9 +1,14 @@
 {
+  "name": "vj1",
+  "version": "0.1.0",
+  "private": true,
   "type": "module",
   "scripts": {
+    "build:release": "node scripts/build-release.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:metrics": "node --test tests/component-metrics.test.mjs",
     "test:render": "node --test tests/render-geometry.test.mjs",
+    "test:dependencies": "node --test tests/dependency-packaging.test.mjs",
     "metrics": "node tests/metrics-runner.mjs",
     "stress:url": "node -e \"console.log('http://127.0.0.1:8082/experiments/vj1/tests/browser/runtime-stress.html?duration=8000')\"",
     "test:clean-reload:url": "node -e \"console.log('http://127.0.0.1:8082/experiments/vj1/tests/browser/output-clean-reload.html?reloads=3')\"",

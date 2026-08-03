@@ -104,7 +104,7 @@ export { renderStateComponentProgramRoots };
 export { componentPipelineSourceRequest };
 
 export class OutputRenderer {
-  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendChainBoundary, sendSurfaceRect, sendMediaRendition, sendMediaMetadata, requestMediaFiles, requestPresentationFrame, onSurfaceSelect, onChainItemSelect, onSceneSurfaceSelect, sendDmxFixture = null, controlSignals = null, installedNodePackages = [] }) {
+  constructor({ mode, outputId = "", hud, font, sendMetrics, sendMapping, sendThumbnail, sendChainTransform, sendChainBoundary, sendSurfaceRect, sendMediaRendition, sendMediaMetadata, requestMediaFiles, requestPresentationFrame, onSurfaceSelect, onChainItemSelect, onSceneSurfaceSelect, sendDmxFixture = null, controlSignals = null, screenCapture = undefined, installedNodePackages = [] }) {
     this.mode = mode;
     this.outputId = outputId;
     this.hud = hud;
@@ -154,6 +154,7 @@ export class OutputRenderer {
         this.resourceRuntime.applyGraphicsFont(target),
       onInvalidate: (reason) => this.invalidatePresentation(reason),
       onMediaMetadata: (mediaId, metadata) => this.sendMediaMetadata?.(mediaId, metadata),
+      screenCapture,
     });
     this.media = this.mediaRuntime.media;
     this.thumbnailRuntime = new OutputThumbnailRuntime({

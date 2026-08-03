@@ -7,6 +7,34 @@ import { sceneComponents, ordinaryComponents } from "../js/control/control-selec
 import { liveComponentPillTemplate, liveInspectorTemplate, liveProgramNavigableComponents, liveProgramSignificantControlsTemplate, liveScenePillTemplate, liveSignificantParameterAssignments, liveTargetComponentPillTemplate, mappingPillTemplate, mappingSurfacePillTemplate, mappingSurfaceSectionTemplate, mappingSurfaceTemplate, sceneSignificantComponentTemplate, significantParameterValueFromUnit } from "../js/control/mapping-live-view.js";
 import { liveProjectionRailTemplate, projectRailTemplate } from "../js/control/project-rail-view.js";
 import { createSceneComponent, createMappingFromState, createInitialState, sanitizeState } from "../js/domain/models.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
+import {
+  componentLayerProjection,
+  migrateLegacyComponentParameterAddress,
+} from "../js/domain/component-layer-projection.js";
+
+const nodePackage = createVj1NodePackage();
+
+function prepare(state) {
+  return nodePackage.prepareProjectState(state);
+}
+
+function markSignificant(state, component, paths) {
+  component.significantParams = paths.map((path) =>
+    migrateLegacyComponentParameterAddress(state, component, path)
+  );
+}
+
+function rebuildFixtureGraphs(state) {
+  state.nodes = {
+    ...state.nodes,
+    groups: (state.nodes?.groups || []).filter((group) =>
+      group.generatedBy !== "vj1-component-compiler"
+    ),
+  };
+  Object.assign(state, prepare(state));
+  return state;
+}
 
 function stateWithScene() {
   const state = createInitialState();
@@ -16,7 +44,7 @@ function stateWithScene() {
   state.mappings.push(mapping);
   state.ui.selectedMappingId = mapping.id;
   state.ui.live.selectedSceneId = liveScene.id;
-  const normalized = sanitizeState(state);
+  const normalized = prepare(sanitizeState(state));
   return {
     state: normalized,
     mapping: normalized.mappings.find((item) => item.id === mapping.id),
@@ -301,7 +329,7 @@ test("Live Component navigation is the enabled final render graph including its 
     nested.id,
   ]);
 
-  liveScene.chain[0].enabled = false;
+  componentLayerProjection(state, liveScene)[0].item.enabled = false;
   assert.deepEqual(liveProgramNavigableComponents(state).map((component) => component.id), [liveScene.id]);
 });
 
@@ -377,8 +405,8 @@ test("catalog presentation and component selectors have single owners", () => {
 
 test("Live navigates components by thumbnail and Scene exposes marked significant params", () => {
   const { state } = stateWithScene();
-  const component = state.components[0];
-  component.significantParams = ["chain.0.source.params.renderQuality"];
+  let component = state.components[0];
+  markSignificant(state, component, ["chain.0.source.params.renderQuality"]);
   state.ui.live.selectedComponentId = component.id;
   const picker = liveComponentPillTemplate(component, state);
   const significant = sceneSignificantComponentTemplate(component, state);
@@ -386,23 +414,23 @@ test("Live navigates components by thumbnail and Scene exposes marked significan
   assert.match(picker, /component-thumbnail/);
   assert.match(significant, /Significant/);
   assert.match(significant, new RegExp(`data-edit-component="${component.id}"`));
-  assert.match(significant, /components\.0\.chain\.0\.source\.params\.renderQuality/);
+  assert.match(significant, /nodes\.groups\.\d+\.nodes\.\d+\.configuration\.source\.params\.renderQuality/);
 });
 
 test("the MIDImix bottom knob row follows ordered significant params through subcomponents", () => {
   const { state, liveScene } = stateWithScene();
   const child = state.components.find((component) => component.id === liveScene.chain[0].source.componentId);
-  liveScene.significantParams = ["chain.0.transform.scale"];
-  child.significantParams = ["chain.0.source.params.renderQuality"];
+  markSignificant(state, liveScene, ["chain.0.transform.scale"]);
+  markSignificant(state, child, ["chain.0.source.params.renderQuality"]);
   state.ui.live.selectedComponentId = liveScene.id;
 
   const assignments = liveSignificantParameterAssignments(state);
   assert.deepEqual(assignments.map(({ componentId, path }) => ({ componentId, path })), [{
     componentId: liveScene.id,
-    path: "chain.0.transform.scale",
+    path: "transform.scale",
   }, {
     componentId: child.id,
-    path: "chain.0.source.params.renderQuality",
+    path: "source.params.renderQuality",
   }]);
   assert.equal(significantParameterValueFromUnit(assignments[0], 0), 0.05);
   assert.equal(significantParameterValueFromUnit(assignments[0], 1), 8);
@@ -411,37 +439,37 @@ test("the MIDImix bottom knob row follows ordered significant params through sub
 test("Live and MIDImix resolve significant boundary controls from the shared General schema", () => {
   const { state, mapping } = stateWithScene();
   const component = state.components[0];
-  const item = component.chain[0];
+  const item = componentLayerProjection(state, component)[0].item;
   item.boundary = {
     ...item.boundary,
     x: -0.125,
     y: 0.25,
     rotation: 0.5,
   };
-  component.significantParams = [
+  markSignificant(state, component, [
     "chain.0.boundary.x",
     "chain.0.boundary.y",
     "chain.0.boundary.rotation",
-  ];
+  ]);
   mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
   mapping.surfaces[0].componentId = component.id;
 
   const assignments = liveSignificantParameterAssignments(state);
   assert.deepEqual(assignments.map(({ path, name }) => ({ path, name })), [{
-    path: "chain.0.boundary.x",
+    path: "boundary.x",
     name: `${component.name} · Boundary X`,
   }, {
-    path: "chain.0.boundary.y",
+    path: "boundary.y",
     name: `${component.name} · Boundary Y`,
   }, {
-    path: "chain.0.boundary.rotation",
+    path: "boundary.rotation",
     name: `${component.name} · Boundary rotation`,
   }]);
 
   const controls = liveProgramSignificantControlsTemplate(state);
-  assert.match(controls, /data-live-update="chain\.0\.boundary\.x"/);
-  assert.match(controls, /data-live-update="chain\.0\.boundary\.y"/);
-  assert.match(controls, /data-live-update="chain\.0\.boundary\.rotation"/);
+  assert.match(controls, /data-live-update="boundary\.x"/);
+  assert.match(controls, /data-live-update="boundary\.y"/);
+  assert.match(controls, /data-live-update="boundary\.rotation"/);
   assert.match(controls, /value="-0\.125"/);
 });
 
@@ -450,7 +478,7 @@ test("Significant controls and MIDImix share every source in the active output m
   const child = state.components.find((component) =>
     component.id === liveScene.chain[0].source.componentId
   );
-  child.significantParams = ["chain.0.source.params.renderQuality"];
+  markSignificant(state, child, ["chain.0.source.params.renderQuality"]);
   const patched = {
     ...structuredClone(child),
     id: "patched-output-component",
@@ -467,6 +495,7 @@ test("Significant controls and MIDImix share every source in the active output m
     [mapping.surfaces[0].id]: patched.id,
   };
   state.ui.live.selectedComponentId = liveScene.id;
+  rebuildFixtureGraphs(state);
 
   const assignments = liveSignificantParameterAssignments(state);
   assert.deepEqual(new Set(assignments.map((assignment) => assignment.componentId)), new Set([
@@ -483,7 +512,7 @@ test("Live separates a Component's public controls from its element inspector", 
   const component = state.components[0];
   mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
   mapping.surfaces[0].componentId = component.id;
-  component.significantParams = ["chain.0.source.params.renderQuality", "chain.0.transform.scale"];
+  markSignificant(state, component, ["chain.0.source.params.renderQuality", "chain.0.transform.scale"]);
   state.ui.live.selectedComponentId = component.id;
 
   const controls = liveInspectorTemplate(state);
@@ -500,16 +529,16 @@ test("Live separates a Component's public controls from its element inspector", 
   assert.doesNotMatch(controls, /Published controls/);
   assert.doesNotMatch(controls, /class="live-chain-outline"/);
   const significant = liveProgramSignificantControlsTemplate(state);
-  assert.match(significant, /data-live-update="chain\.0\.source\.params\.renderQuality"/);
-  assert.match(significant, /data-live-update="chain\.0\.transform\.scale"/);
-  assert.match(significant, new RegExp(`data-live-item-id="${component.chain[0].id}"`));
+  assert.match(significant, /data-live-update="source\.params\.renderQuality"/);
+  assert.match(significant, /data-live-update="transform\.scale"/);
+  assert.match(significant, new RegExp(`data-live-node-id="${component.chain[0].id}"`));
 
   state.ui.live.componentView = "elements";
   const elements = liveInspectorTemplate(state);
   assert.match(elements, /class="element-list-surface live-element-list-surface"[\s\S]*?class="live-chain-outline"/);
   assert.match(elements, /class="text-list-item live-chain-outline-row compact-list-row has-leading is-selected"/);
-  assert.match(elements, /data-live-toggle="chain\.0\.enabled"/);
-  assert.match(elements, new RegExp(`data-live-item-id="${component.chain[0].id}"`));
+  assert.match(elements, /data-live-toggle="enabled"/);
+  assert.match(elements, new RegExp(`data-live-node-id="${component.chain[0].id}"`));
   assert.match(elements, /data-live-chain-item="[^"]+" data-live-component-id="[^"]+"/);
   assert.doesNotMatch(elements, />visibility(?:_off)?<\/span>/);
   assert.match(elements, /aria-label="Selected live element parameters"/);
@@ -529,7 +558,7 @@ test("Live Scene controls expose element Content scale instead of a Scene-root t
 
   state.ui.live.componentView = "elements";
   const elements = liveInspectorTemplate(state);
-  assert.match(elements, /data-live-update="chain\.0\.transform\.scale"/);
+  assert.match(elements, /data-live-update="transform\.scale"/);
   assert.match(elements, /<span>Content scale<\/span>/);
 });
 
@@ -555,6 +584,7 @@ test("Live component-source rows resolve user-facing component names", () => {
     blend: "normal",
     opacity: 1,
   });
+  rebuildFixtureGraphs(state);
   state.ui.live.selectedComponentId = owner.id;
   state.ui.live.componentView = "elements";
 
@@ -566,11 +596,11 @@ test("Live component-source rows resolve user-facing component names", () => {
 test("Scene significant controls include generic chain transforms", () => {
   const { state } = stateWithScene();
   const component = state.components[0];
-  component.chain[0].transform = { x: 0.4, y: 0, scale: 1, rotation: 0 };
-  component.significantParams = ["chain.0.transform.x"];
+  componentLayerProjection(state, component)[0].item.transform = { x: 0.4, y: 0, scale: 1, rotation: 0 };
+  markSignificant(state, component, ["chain.0.transform.x"]);
 
   const significant = sceneSignificantComponentTemplate(component, state);
-  assert.match(significant, /components\.0\.chain\.0\.transform\.x/);
+  assert.match(significant, /nodes\.groups\.\d+\.nodes\.\d+\.configuration\.transform\.x/);
   assert.match(significant, /value="0\.4"/);
 });
 
@@ -579,20 +609,21 @@ test("source parameters marked at their persisted path are published in Live", (
   const component = state.components[0];
   mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
   mapping.surfaces[0].componentId = component.id;
-  component.significantParams = ["chain.0.source.params.renderQuality"];
+  markSignificant(state, component, ["chain.0.source.params.renderQuality"]);
   state.ui.live.selectedComponentId = component.id;
 
   const live = liveProgramSignificantControlsTemplate(state);
-  assert.match(live, /data-live-update="chain\.0\.source\.params\.renderQuality"/);
+  assert.match(live, /data-live-update="source\.params\.renderQuality"/);
 
   const sceneControls = sceneSignificantComponentTemplate(component, state);
-  assert.match(sceneControls, /data-update="components\.0\.chain\.0\.source\.params\.renderQuality"/);
+  assert.match(sceneControls, /data-update="nodes\.groups\.\d+\.nodes\.\d+\.configuration\.source\.params\.renderQuality"/);
 });
 
 test("image source schema automatically exposes cut and feather in Live and published controls", () => {
   const { state, mapping } = stateWithScene();
   const component = state.components[0];
-  const source = component.chain[0];
+  const sourceLayer = componentLayerProjection(state, component)[0];
+  const source = sourceLayer.item;
   source.source = {
     type: "generator",
     generatorId: "mediaImage",
@@ -608,22 +639,22 @@ test("image source schema automatically exposes cut and feather in Live and publ
   mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
   mapping.surfaces[0].componentId = component.id;
   state.ui.live.selectedComponentId = component.id;
-  state.ui.live.selectedChainItemId = source.id;
+  state.ui.live.selectedChainItemId = sourceLayer.nodeId;
   state.ui.live.componentView = "elements";
 
   const elements = liveInspectorTemplate(state);
-  assert.match(elements, /data-live-update="chain\.0\.source\.params\.alphaCut"/);
-  assert.match(elements, /data-live-update="chain\.0\.source\.params\.alphaFeather"/);
+  assert.match(elements, /data-live-update="source\.params\.alphaCut"/);
+  assert.match(elements, /data-live-update="source\.params\.alphaFeather"/);
   assert.match(elements, /<span>Cut edge<\/span>/);
   assert.match(elements, /<span>Feather<\/span>/);
 
-  component.significantParams = ["chain.0.source.params.alphaFeather"];
-  assert.match(liveProgramSignificantControlsTemplate(state), /data-live-update="chain\.0\.source\.params\.alphaFeather"/);
+  markSignificant(state, component, ["chain.0.source.params.alphaFeather"]);
+  assert.match(liveProgramSignificantControlsTemplate(state), /data-live-update="source\.params\.alphaFeather"/);
 });
 
 test("Live publishes significant source parameters nested inside Groups", () => {
   const { state, mapping } = stateWithScene();
-  const component = state.components[0];
+  let component = state.components[0];
   const source = component.chain[0];
   component.chain = [{
     id: "group-a",
@@ -635,17 +666,20 @@ test("Live publishes significant source parameters nested inside Groups", () => 
     transform: { x: 0, y: 0, scale: 1, rotation: 0 },
     chain: [source],
   }];
-  component.significantParams = [
+  rebuildFixtureGraphs(state);
+  component = state.components.find((candidate) => candidate.id === component.id);
+  markSignificant(state, component, [
     "chain.0.chain.0.source.params.renderQuality",
     "chain.0.chain.0.transform.scale",
-  ];
-  mapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
-  mapping.surfaces[0].componentId = component.id;
+  ]);
+  const currentMapping = state.mappings.find((candidate) => candidate.id === mapping.id);
+  currentMapping.surfaces[0].sourceNodeId = `component:${encodeURIComponent(component.id)}`;
+  currentMapping.surfaces[0].componentId = component.id;
   state.ui.live.selectedComponentId = component.id;
   state.ui.live.componentView = "controls";
 
   const live = liveProgramSignificantControlsTemplate(state);
-  assert.match(live, /data-live-update="chain\.0\.chain\.0\.source\.params\.renderQuality"/);
-  assert.match(live, /data-live-update="chain\.0\.chain\.0\.transform\.scale"/);
-  assert.match(live, new RegExp(`data-live-item-id="${source.id}"`));
+  assert.match(live, /data-live-update="source\.params\.renderQuality"/);
+  assert.match(live, /data-live-update="transform\.scale"/);
+  assert.match(live, new RegExp(`data-live-node-id="${source.id}"`));
 });

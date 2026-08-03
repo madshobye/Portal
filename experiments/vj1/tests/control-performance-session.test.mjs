@@ -29,7 +29,7 @@ test("control performance session owns sampling, host events, and report complet
   assert.equal(session.start(), false);
   assert.equal(session.isActive(), true);
   session.recordStateEvent("workspace");
-  session.recordInteraction("live-input", { path: "chain.0.source.params.geometryDetail", value: 0.75 });
+  session.recordInteraction("live-input", { nodeId: "model-source", path: "source.params.geometryDetail", value: 0.75 });
   session.recordUiRender(3);
   assert.equal(session.captureSample(state, "output-metrics"), true);
   const report = session.finish();
@@ -43,7 +43,7 @@ test("control performance session owns sampling, host events, and report complet
   assert.deepEqual(report.timeline[0].control, { stateId: "state-a" });
   assert.deepEqual(report.timeline[1].interaction, {
     kind: "live-input",
-    payload: { path: "chain.0.source.params.geometryDetail", value: 0.75 },
+    payload: { nodeId: "model-source", path: "source.params.geometryDetail", value: 0.75 },
   });
   assert.deepEqual(report.analysis, { stateId: "state-a", sampleCount: 2 });
   assert.equal(report.host.uiRenderCount, 1);

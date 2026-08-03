@@ -2,6 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { createAppState } from "../js/app-state.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
+import { componentLayerProjection } from "../js/domain/component-layer-projection.js";
 import {
   createComponentEffect,
   createComponentGroup,
@@ -21,13 +23,21 @@ import { outputRenderPatchesForChange } from "../js/domain/render-transport-patc
 import {
   applyLiveRenderPatches,
   applyLiveRenderPatchesImmutable,
-  createLiveRenderPatch,
+  createComponentRenderPatch,
 } from "../js/domain/live-render-patch.js";
-import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
-import { planCompositorInputs, planPatchExecution } from "../js/graph/patch-planner.js";
 import { DataStoreNode, ObservableDataStore } from "../js/libraries/data-store/data-store/index.js";
 import { isMappingProjectionPresentation } from "../js/output/output-presentation-runtime.js";
 import { signalLoadMeter } from "../js/metrics/signal-load-meter.js";
+
+const appNodePackage = createVj1NodePackage();
+
+function createGraphAppState(initial = null, options = {}) {
+  return createAppState(initial, {
+    prepareState: appNodePackage.prepareProjectState,
+    prepareChange: appNodePackage.prepareProjectChange,
+    ...options,
+  });
+}
 
 function firstActiveTransition(state) {
   return Object.values(state.ui?.live?.transitionCoordinator || {})
@@ -36,7 +46,7 @@ function firstActiveTransition(state) {
 }
 
 test("one structurally shared world root is published read-only per emission", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   const before = store.getState();
   const firstSnapshots = [];
   const secondSnapshots = [];
@@ -62,7 +72,7 @@ test("one structurally shared world root is published read-only per emission", (
 
 test("a failed graph activation never publishes its candidate state", () => {
   const initial = createInitialState();
-  const store = createAppState(initial, {
+  const store = createGraphAppState(initial, {
     prepareChange: () => {
       throw new Error("GRAPH_PREFLIGHT_REJECTED");
     },
@@ -82,7 +92,9 @@ test("a failed graph activation never publishes its candidate state", () => {
 });
 
 test("render patches collected inside a world transaction publish as plain data", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
+  const component = store.getState().components[0];
+  const layer = componentLayerProjection(store.getState(), component)[0];
   const renderPatches = [];
   let observedEvent = null;
   store.subscribe((_state, _reason, event) => {
@@ -90,15 +102,18 @@ test("render patches collected inside a world transaction publish as plain data"
   });
 
   store.update((draft) => {
-    const item = draft.components[0].chain[0];
-    item.transform = { ...item.transform, x: 0.25, y: -0.5 };
+    const node = draft.nodes.groups
+      .flatMap((group) => group.nodes || [])
+      .find((candidate) => candidate.id === layer.nodeId);
+    node.configuration.transform = { ...node.configuration.transform, x: 0.25, y: -0.5 };
     renderPatches.push({
-      componentId: draft.components[0].id,
-      path: "chain.0.transform",
-      value: item.transform,
+      componentId: component.id,
+      nodeId: layer.nodeId,
+      path: "transform",
+      value: node.configuration.transform,
     });
   }, {
-    reason: "scrub:chain-transform",
+    reason: "scrub:element-transform",
     renderPatches,
   });
 
@@ -126,7 +141,7 @@ test("observable data store node owns shared snapshot publication", () => {
 });
 
 test("UI-only updates preserve project data and emit an explicit UI scope", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   const before = store.getState();
   let observedEvent = null;
   store.subscribe((_state, _reason, event) => {
@@ -147,7 +162,7 @@ test("UI-only updates preserve project data and emit an explicit UI scope", () =
 });
 
 test("workspace navigation is a structurally shared UI command, not a project autosave", () => {
-  const store = createAppState();
+  const store = createGraphAppState();
   const before = store.getState();
   let emitted = null;
   const unsubscribe = store.subscribe((state, reason, change) => {
@@ -172,7 +187,7 @@ test("Mapping selection changes only the editor projection", () => {
   const initial = createInitialState();
   const mapping = createEmptyMappingFromState(initial, "Mapping 2");
   initial.mappings.push(mapping);
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
   const authoredMappings = store.getState().mappings;
   let emitted = null;
   const unsubscribe = store.subscribe((_state, reason, change) => {
@@ -195,7 +210,7 @@ test("Live projection inspection is UI-only and does not reroute the program", (
   initial.ui.workspace = "live";
   initial.ui.live.selectedSceneId = scene.id;
   initial.ui.live.selectedComponentId = scene.id;
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
   const before = store.getState();
   const surface = before.mappings[0].surfaces.find((item) => item.destination?.type !== "direct");
   store.updateUi((ui) => {
@@ -234,7 +249,7 @@ test("Live Scene and projection preferences restore atomically without history",
   initial.ui.live.selectedComponentId = firstScene.id;
   initial.ui.live.previewSurfaceId = "__mapping__";
   const surface = initial.mappings[0].surfaces[0];
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
   let observedEvent = null;
   store.subscribe((_state, _reason, event) => {
     if (event.reason === "live:preference-restore") observedEvent = event;
@@ -269,7 +284,7 @@ test("a Live session restores multi-Surface routing and resets atomically to cle
     name: "Surface B",
   };
   initial.mappings[0].surfaces.push(secondSurface);
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
   const events = [];
   store.subscribe((_state, _reason, event) => {
     if (event.reason.startsWith("live:session-")) events.push(event);
@@ -369,7 +384,7 @@ test("Live output matrix presentation remains fixed across row selection and Sce
   state.ui.live.selectedSceneId = firstScene.id;
   state.ui.live.selectedComponentId = firstScene.id;
   state.ui.live.previewSurfaceId = "__mapping__";
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const mapping = store.getState().mappings[0];
   const direct = mapping.surfaces.find((surface) => surface.destination?.type === "direct");
   const projected = mapping.surfaces.find((surface) => surface.destination?.type !== "direct");
@@ -422,7 +437,7 @@ test("Live source selection targets exactly the selected output-matrix row", () 
   state.ui.live.selectedSceneId = overallScene.id;
   state.ui.live.selectedComponentId = overallScene.id;
   state.ui.live.previewSurfaceId = "__mapping__";
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const mapping = store.getState().mappings[0];
   const selectedSurface = mapping.surfaces.find((surface) => surface.destination?.type !== "direct");
   const fallbackSurface = mapping.surfaces.find((surface) =>
@@ -464,7 +479,7 @@ test("Live Surface visibility changes only the routed program and survives sourc
   state.components.push(firstScene, secondScene);
   state.ui.live.selectedSceneId = firstScene.id;
   state.ui.live.selectedComponentId = firstScene.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const before = store.getState();
   const surface = before.mappings[0].surfaces.find((item) => item.destination?.type !== "direct");
   let observedEvent = null;
@@ -490,7 +505,7 @@ test("Scene Mapping visibility removes only fallback routes while preserving dir
   state.components.push(scene, patchComponent);
   state.ui.live.selectedSceneId = scene.id;
   state.ui.live.selectedComponentId = scene.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const mapping = store.getState().mappings[0];
   const patchedSurface = mapping.surfaces.find((item) => item.destination?.type !== "direct");
 
@@ -546,7 +561,7 @@ test("Scene Mapping and Surface visibility state are independent while fallback 
   state.components.push(scene, patchComponent);
   state.ui.live.selectedSceneId = scene.id;
   state.ui.live.selectedComponentId = scene.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   store.update((draft) => {
     const direct = draft.mappings[0].surfaces.find((surface) => surface.destination?.type === "direct");
     direct.enabled = true;
@@ -627,7 +642,7 @@ test("restored hidden Scene Mapping cannot make an unpatched Surface eye inherit
   state.ui.live.selectedSceneId = scene.id;
   state.ui.live.selectedComponentId = scene.id;
   state.ui.live.sceneMappingVisible = false;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const surface = store.getState().mappings[0].surfaces
     .find((candidate) => candidate.destination?.type !== "direct" && candidate.enabled !== false);
 
@@ -661,7 +676,7 @@ test("hiding Scene Mapping suppresses its fallback routes and Overall transition
   state.ui.live.selectedSceneId = firstScene.id;
   state.ui.live.selectedComponentId = firstScene.id;
   state.ui.live.transitionDuration = 1;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(secondScene.id);
   assert.ok(compileLiveProjectionProgram(store.getState()).transition);
@@ -679,7 +694,7 @@ test("hiding Scene Mapping suppresses its fallback routes and Overall transition
 });
 
 test("Scene Mapping defaults to the first Surface when excluded but remains explicitly selectable in Live", () => {
-  const state = createAppState(createInitialState()).getState();
+  const state = createGraphAppState(createInitialState()).getState();
   const firstEnabledSurface = state.mappings[0].surfaces.find((surface) => surface.destination?.type === "direct");
   for (const surface of state.mappings[0].surfaces) surface.enabled = false;
   firstEnabledSurface.enabled = true;
@@ -687,7 +702,7 @@ test("Scene Mapping defaults to the first Surface when excluded but remains expl
   delete state.ui.live.sceneMappingVisible;
   state.ui.live.previewSurfaceId = "";
 
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   let normalized = store.getState();
   assert.equal(normalized.ui.live.previewSurfaceId, firstEnabledSurface.id);
   assert.equal(normalized.ui.live.sceneMappingVisible, false, "the absent session override follows Mapping's persisted default");
@@ -699,7 +714,7 @@ test("Scene Mapping defaults to the first Surface when excluded but remains expl
 });
 
 test("Mapping sets the Scene Mapping default while Live can override its current visibility", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   const directSurface = store.getState().mappings[0].surfaces.find((surface) => surface.destination?.type === "direct");
   store.update((draft) => {
     draft.mappings[0].surfaces.find((surface) => surface.id === directSurface.id).enabled = true;
@@ -733,7 +748,7 @@ test("Live Surface patch assignment and removal use the configured transition", 
   state.ui.live.transitionId = "org.vj1.transition.soft-wipe";
   state.ui.live.transitionParameters = { softness: 0.2 };
   state.ui.live.transitionDuration = 1.25;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(scene.id);
   const surface = store.getState().mappings[0].surfaces.find((item) => item.destination?.type !== "direct");
@@ -778,7 +793,7 @@ test("Live Surface patches can be removed while Overall is explicitly empty", ()
   state.components.push(scene, patchComponent);
   state.ui.live.selectedSceneId = "";
   state.ui.live.selectedComponentId = "";
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(scene.id);
   const surface = store.getState().mappings[0].surfaces.find((item) => item.destination?.type !== "direct");
@@ -806,7 +821,7 @@ test("Overall Scene and Component changes share the configured transition policy
   state.ui.live.selectedSceneId = "";
   state.ui.live.selectedComponentId = "";
   state.ui.live.transitionDuration = 0.9;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(firstScene.id);
   store.selectLiveScene(secondScene.id);
@@ -829,7 +844,7 @@ test("Live transition coordinator runs distinct Surface destinations concurrentl
   state.ui.live.selectedSceneId = scene.id;
   state.ui.live.selectedComponentId = scene.id;
   state.ui.live.transitionDuration = 1;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const surfaces = store.getState().mappings[0].surfaces
     .filter((surface) => surface.destination?.type !== "direct")
     .slice(0, 2);
@@ -892,7 +907,7 @@ test("mixed-aspect Overall transitions keep both endpoints inside one temporary 
   const portrait = createDefaultComponent(2);
   portrait.frameShape = "portrait";
   state.components.push(scene, portrait);
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(scene.id);
   store.selectLiveComponent(portrait.id);
@@ -917,7 +932,7 @@ test("Live transition descriptors retain identities without serializing a second
   state.ui.live.selectedSceneId = "";
   state.ui.live.selectedComponentId = "";
   state.ui.live.transitionDuration = 1;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(firstScene.id);
   store.selectLiveScene(secondScene.id);
@@ -934,7 +949,7 @@ test("Live Scene selection structurally shares authored project collections", ()
   const nextScene = createSceneComponent("Second Scene");
   initial.components.push(nextScene);
   let preparationCount = 0;
-  const store = createAppState(initial, {
+  const store = createGraphAppState(initial, {
     prepareState(value) {
       preparationCount++;
       return value;
@@ -958,7 +973,7 @@ test("Live transition descriptors contain control metadata but no executable end
   state.components.push(firstScene, secondScene);
   state.media.push({ id: "media/large.mov", name: "large.mov", type: "video", duration: 10 });
   state.ui.live.transitionDuration = 1;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(firstScene.id);
   store.selectLiveScene(secondScene.id);
@@ -986,7 +1001,7 @@ test("Live transition scheduling leaves endpoint visibility in the persistent di
   const secondScene = createSceneComponent(1, state.components[0].id);
   state.components.push(firstScene, secondScene);
   state.ui.live.transitionDuration = 1;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(firstScene.id);
   store.updateLive((draft) => {
@@ -1011,7 +1026,7 @@ test("active Live transition does not move either target's params into its descr
   const secondScene = createSceneComponent(1, source.id);
   state.components.push(firstScene, secondScene);
   state.ui.live.transitionDuration = 1;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(firstScene.id);
   store.updateLive((draft) => {
@@ -1044,7 +1059,7 @@ test("Overall transition identifies its selected target without copying any diff
   const destination = createDefaultComponent(2);
   state.components.push(patchedSurfaceSource, destination);
   state.ui.live.transitionDuration = 0;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveComponent(fire.id);
   store.updateLive((draft) => {
@@ -1081,7 +1096,7 @@ test("queued Live transition promotes target identity while diff banks remain pe
   const thirdScene = createSceneComponent(2, source.id);
   state.components.push(firstScene, secondScene, thirdScene);
   state.ui.live.transitionDuration = 1;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(firstScene.id);
   store.selectLiveScene(secondScene.id);
@@ -1113,7 +1128,7 @@ test("removing an Overall source transitions to an explicitly empty program", ()
   state.ui.live.selectedSceneId = "";
   state.ui.live.selectedComponentId = "";
   state.ui.live.transitionDuration = 0.75;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectLiveScene(scene.id);
   store.selectLiveComponent(liveComponent.id);
@@ -1148,7 +1163,7 @@ test("removing an Overall source transitions to an explicitly empty program", ()
   sceneOnlyState.components.push(sceneOnly);
   sceneOnlyState.ui.live.selectedSceneId = sceneOnly.id;
   sceneOnlyState.ui.live.selectedComponentId = "";
-  const sceneOnlyStore = createAppState(sceneOnlyState);
+  const sceneOnlyStore = createGraphAppState(sceneOnlyState);
   assert.equal(sceneOnlyStore.clearLiveOverallComponent(), true);
   assert.equal(sceneOnlyStore.getState().ui.live.overallSourceCleared, true);
 });
@@ -1160,7 +1175,7 @@ test("catalog markers cycle through star heart and pin across authored catalogs"
   const media = { id: "media/photo.png", name: "photo.png", type: "image", catalogMarker: 0 };
   state.mappings = [mapping];
   state.media = [media];
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   for (const [kind, id, collection] of [
     ["component", component.id, "components"],
@@ -1182,7 +1197,7 @@ test("component selection updates recent-use metadata through the local fast pat
   const initial = createInitialState();
   const second = createDefaultComponent(1);
   initial.components.push(second);
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
   const before = store.getState();
   let observedEvent = null;
   store.subscribe((_state, _reason, event) => {
@@ -1224,7 +1239,7 @@ test("new Mappings begin with only the required disabled direct Surfaces", () =>
   assert.ok(empty.surfaces.every((surface) => !previousPhysicalSurfaceIds.includes(surface.id)));
   assert.deepEqual(empty.calibration, {});
 
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
   store.addMapping("Blank");
   const next = store.getState();
   const mapping = next.mappings.at(-1);
@@ -1237,7 +1252,7 @@ test("new Mappings begin with only the required disabled direct Surfaces", () =>
 });
 
 test("creating a Component never implicitly assigns it to empty Surfaces", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   assert.ok(store.getState().surfaces.every((surface) => !surface.componentId));
 
   store.addComponent();
@@ -1248,7 +1263,7 @@ test("creating a Component never implicitly assigns it to empty Surfaces", () =>
 test("new Components start empty only after the visible Component list exceeds ten items", () => {
   const tenState = createInitialState();
   tenState.components = Array.from({ length: 10 }, (_, index) => createDefaultComponent(index));
-  const tenStore = createAppState(tenState);
+  const tenStore = createGraphAppState(tenState);
   tenStore.addComponent();
   assert.equal(tenStore.getState().components.at(-1).chain[0]?.source?.generatorId, "testPattern");
 
@@ -1257,7 +1272,7 @@ test("new Components start empty only after the visible Component list exceeds t
     ...Array.from({ length: 11 }, (_, index) => createDefaultComponent(index)),
     ...Array.from({ length: 3 }, (_, index) => createSceneComponent(index)),
   ];
-  const elevenStore = createAppState(elevenState);
+  const elevenStore = createGraphAppState(elevenState);
   elevenStore.addComponent();
   const added = elevenStore.getState().components.at(-1);
   assert.deepEqual(added.chain, []);
@@ -1269,7 +1284,7 @@ test("new Components start empty only after the visible Component list exceeds t
 test("an empty newly created Component accepts its first element immediately", () => {
   const initial = createInitialState();
   initial.components = Array.from({ length: 11 }, (_, index) => createDefaultComponent(index));
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
 
   store.addComponent();
   const componentId = store.getState().ui.selectedComponentId;
@@ -1280,14 +1295,13 @@ test("an empty newly created Component accepts its first element immediately", (
   assert.equal(added.chain[0].source.generatorId, "gradient");
   assert.equal("source" in added, false);
   assert.equal(store.getState().ui.selectedChainItemId, added.chain[0].id);
-  const patch = compileComponentPatch(added);
-  assert.equal(patch.nodes.filter((node) => node.role === "source").length, 1);
+  assert.equal(componentLayerProjection(store.getState(), added).filter((layer) => layer.item.kind === "source").length, 1);
 });
 
 test("new media elements keep their catalog-derived name out of project properties", () => {
   const initial = createInitialState();
   const component = initial.components.find((item) => item.type !== "scene");
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
 
   store.addChainSource(component.id, {
     type: "media",
@@ -1305,7 +1319,7 @@ test("new media elements keep their catalog-derived name out of project properti
 test("state normalization keeps Camera and Black as semantic visual generators", () => {
   const initial = createInitialState();
   const component = initial.components.find((item) => item.type !== "scene");
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
 
   store.addChainSource(component.id, {
     type: "camera",
@@ -1329,7 +1343,7 @@ test("state normalization keeps Camera and Black as semantic visual generators",
 });
 
 test("runtime metrics update without passing through project state normalization", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   const before = store.getState();
   let observedEvent = null;
   store.subscribe((_state, _reason, event) => {
@@ -1348,7 +1362,7 @@ test("runtime metrics update without passing through project state normalization
 });
 
 test("Live slider updates use the lightweight live-only state path", () => {
-  const store = createAppState();
+  const store = createGraphAppState();
   const componentId = store.getState().components[0].id;
   let change = null;
   store.subscribe((_state, _reason, event) => {
@@ -1385,19 +1399,21 @@ test("Live render baseline materializes every optional slider patch target", () 
   component.chain.push(createComponentEffect("hsvAlphaKey"));
   component.chain.push(createComponentLayer(2, { type: "media", mediaId: "still.png" }));
 
-  const baseline = createLiveRenderState(state);
+  const baseline = createLiveRenderState(appNodePackage.prepareProjectState(state));
+  const layers = componentLayerProjection(baseline, baseline.components[0]);
   const result = applyLiveRenderPatches(baseline, [
-    createLiveRenderPatch(component.id, "transform.scale", 1.25),
-    createLiveRenderPatch(component.id, "chain.1.params.hueMin", 170),
-    createLiveRenderPatch(component.id, "chain.2.source.params.alphaCut", 4),
+    createComponentRenderPatch(component.id, "", "transform.scale", 1.25),
+    createComponentRenderPatch(component.id, layers[1].nodeId, "params.hueMin", 170),
+    createComponentRenderPatch(component.id, layers[2].nodeId, "source.params.alphaCut", 4),
   ]);
 
   assert.equal(result.applied, true);
   assert.equal(baseline.components[0].transform.scale, 1.25);
-  assert.equal(baseline.components[0].chain[1].params.hueMin, 170);
-  assert.equal(baseline.components[0].chain[2].source.params.alphaCut, 4);
+  const patchedLayers = componentLayerProjection(baseline, baseline.components[0]);
+  assert.equal(patchedLayers[1].item.params.hueMin, 170);
+  assert.equal(patchedLayers[2].item.source.params.alphaCut, 4);
   assert.equal(applyLiveRenderPatches(baseline, [
-    createLiveRenderPatch(component.id, "transform.typo", 1),
+    createComponentRenderPatch(component.id, "", "transform.typo", 1),
   ]).applied, false, "unknown structural leaves remain invalid");
 });
 
@@ -1408,43 +1424,44 @@ test("immutable render patches path-copy only affected retained preview state", 
   const secondComponent = createDefaultComponent(1);
   secondComponent.id = "unaffected-component";
   state.components.push(secondComponent);
-  const firstChainItem = firstComponent.chain[0];
-  const originalParams = firstChainItem.source.params;
+  const prepared = appNodePackage.prepareProjectState(state);
+  const firstLayer = componentLayerProjection(prepared, prepared.components[0])[0];
+  const originalConfiguration = firstLayer.item;
 
-  const result = applyLiveRenderPatchesImmutable(state, [
-    createLiveRenderPatch(
+  const result = applyLiveRenderPatchesImmutable(prepared, [
+    createComponentRenderPatch(
       firstComponent.id,
-      "chain.0.source.params.renderMode",
+      firstLayer.nodeId,
+      "source.params.renderMode",
       "wireframe",
     ),
   ]);
 
   assert.equal(result.applied, true);
   assert.equal(
-    result.state.components[0].chain[0].source.params.renderMode,
+    componentLayerProjection(result.state, result.state.components[0])[0].item.source.params.renderMode,
     "wireframe",
   );
   assert.equal(
-    state.components[0].chain[0].source.params.renderMode,
+    originalConfiguration.source.params.renderMode,
     "surface",
     "the retained baseline cannot be mutated by its active renderer",
   );
   assert.notStrictEqual(result.state, state);
-  assert.notStrictEqual(result.state.components, state.components);
-  assert.notStrictEqual(result.state.components[0], firstComponent);
-  assert.notStrictEqual(result.state.components[0].chain[0], firstChainItem);
+  assert.strictEqual(result.state.components, prepared.components);
+  assert.notStrictEqual(result.state.nodes, prepared.nodes);
   assert.notStrictEqual(
-    result.state.components[0].chain[0].source.params,
-    originalParams,
+    componentLayerProjection(result.state, result.state.components[0])[0].item,
+    originalConfiguration,
   );
   assert.strictEqual(
     result.state.components[1],
-    secondComponent,
+    prepared.components[1],
     "unaffected Components remain structurally shared",
   );
   assert.strictEqual(
     result.state.media,
-    state.media,
+    prepared.media,
     "unrelated project collections are not cloned",
   );
 });
@@ -1457,7 +1474,7 @@ test("persistent scrubs atomically update the matching active Live diff", () => 
   state.ui.live.parameterDiffs[component.id] = {
     [component.id]: { opacity: 0.25 },
   };
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const outputState = store.getLiveRenderState();
   let event = null;
   store.subscribe((_state, _reason, change) => { event = change; });
@@ -1498,7 +1515,7 @@ test("render state uses the selected Mapping in Mapping workspace and selected S
   state.ui.selectedMappingId = mapping.id;
   state.ui.live.selectedSceneId = liveScene.id;
 
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   assert.equal(store.getRenderState().surfaces[0].componentId, "vj1-system-mapping-test-pattern");
 
   store.setWorkspace("live");
@@ -1521,7 +1538,7 @@ function liveSceneMappingFixture() {
 
 test("Mapping edits refresh Live without changing the selected Live Scene", () => {
   const { state, firstScene, mapping } = liveSceneMappingFixture();
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   store.update((draft) => {
     draft.mappings[0].surfaces[0].opacity = 0.37;
   }, "mapping-edit");
@@ -1533,14 +1550,14 @@ test("Mapping edits refresh Live without changing the selected Live Scene", () =
 test("an empty Live selection initializes to the first authored Scene independently from Mapping", () => {
   const { state, firstScene, mapping } = liveSceneMappingFixture();
   state.ui.live.selectedSceneId = "";
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   assert.equal(store.getState().ui.live.selectedSceneId, firstScene.id);
   assert.equal(store.getState().ui.selectedMappingId, mapping.id);
 });
 
 test("Live Scene cuts restore and timed transitions keep the selected Mapping", () => {
   const { state, firstScene, secondScene, mapping } = liveSceneMappingFixture();
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   store.selectLiveScene(secondScene.id);
   assert.deepEqual(store.getState().ui.live.transitionCoordinator, {});
   assert.equal(store.getLiveRenderState().liveTransition, undefined);
@@ -1568,7 +1585,7 @@ test("Live Scene cuts restore and timed transitions keep the selected Mapping", 
 
 test("Live temporary overrides persist per authored Scene until explicitly reset", () => {
   const { state, source, firstScene, secondScene } = liveSceneMappingFixture();
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   store.updateLive((draft) => {
     draft.ui.live.parameterDiffs[firstScene.id] = {
       [source.id]: { opacity: 0.25 },
@@ -1597,7 +1614,7 @@ test("Live Part temporary overrides reset through the shared target contract", (
   state.ui.live.parameterDiffs = {
     [part.id]: { [part.id]: { opacity: 0.4 } },
   };
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.resetLiveTarget(part.id);
 
@@ -1618,20 +1635,22 @@ test("persistent component edits update matching active Live params and retain u
       },
     },
   };
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
+  const layer = componentLayerProjection(store.getState(), store.getState().components[0])[0];
 
-  store.update((draft) => {
-    draft.components[0].chain[0].source.params.modelScale = 1.5;
-  }, "update:components.0.chain.0.source.params.modelScale");
+  store.setComponentValue(`${layer.path}.source.params.modelScale`, 1.5, {
+    reason: `update:${layer.path}.source.params.modelScale`,
+  });
 
   const overrides = store.getState().ui.live.parameterDiffs[componentId][componentId];
-  assert.equal(overrides.chain[0].source.params.modelScale, 1.5);
-  assert.equal(overrides.chain[0].source.params.depth, 3);
-  assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.modelScale, 1.5);
-  assert.equal(store.getLiveRenderState().components[0].chain[0].source.params.depth, 3);
+  assert.equal(overrides.nodes[layer.nodeId].source.params.modelScale, 1.5);
+  assert.equal(overrides.nodes[layer.nodeId].source.params.depth, 3);
+  const liveLayer = componentLayerProjection(store.getLiveRenderState(), store.getLiveRenderState().components[0])[0];
+  assert.equal(liveLayer.item.source.params.modelScale, 1.5);
+  assert.equal(liveLayer.item.source.params.depth, 3);
 });
 
-test("chain reordering rebases retained Live params by stable element identity", () => {
+test("graph reordering retains Live params by stable node identity", () => {
   const state = createInitialState();
   const component = state.components[0];
   const first = component.chain[0];
@@ -1645,14 +1664,9 @@ test("chain reordering rebases retained Live params by stable element identity",
   state.ui.live.parameterDiffs[component.id] = {
     [component.id]: { chain: [{ opacity: 0.35 }] },
   };
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
-  store.update((draft) => {
-    draft.components[0].chain.reverse();
-  }, {
-    reason: "update:chain-reorder",
-    effects: { graph: { mode: "recompile" } },
-  });
+  store.reorderChain(component.id, first.id, second.id, "after");
 
   const reordered = store.getState();
   const firstIndex = reordered.components[0].chain.findIndex(
@@ -1660,11 +1674,14 @@ test("chain reordering rebases retained Live params by stable element identity",
   );
   assert.equal(firstIndex, 1);
   assert.equal(
-    reordered.ui.live.parameterDiffs[component.id][component.id].chain[firstIndex].opacity,
+    reordered.ui.live.parameterDiffs[component.id][component.id].nodes[first.id].opacity,
     0.35,
   );
   assert.equal(
-    store.getLiveRenderState().components[0].chain[firstIndex].opacity,
+    componentLayerProjection(
+      store.getLiveRenderState(),
+      store.getLiveRenderState().components[0],
+    ).find((layer) => layer.nodeId === first.id).item.opacity,
     0.35,
   );
 });
@@ -1674,7 +1691,7 @@ test("ordinary components reject nested component sources while Canvas accepts t
   const source = createDefaultComponent(1);
   const canvas = createSceneComponent(0);
   state.components.push(source, canvas);
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const ordinary = store.getState().components[0];
   const ordinaryLength = ordinary.chain.length;
 
@@ -1700,7 +1717,7 @@ test("surface reorder updates active surfaces and scene snapshots", () => {
   const state = createInitialState();
   state.mappings = [createMappingFromState(state, "Scene 1")];
   const [firstSurface, secondSurface] = state.surfaces;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.reorderSurfaces(secondSurface.id, firstSurface.id);
   const next = store.getState();
@@ -1712,7 +1729,7 @@ test("surface reorder updates active surfaces and scene snapshots", () => {
 });
 
 test("all user-created projection surfaces can be removed", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   const mappedIds = store.getState().surfaces
     .filter((surface) => surface.destination?.type !== "direct")
     .map((surface) => surface.id);
@@ -1724,7 +1741,7 @@ test("all user-created projection surfaces can be removed", () => {
 
 test("new Surfaces join the selected Mapping and refresh its pending Live route", () => {
   const { state, firstScene, mapping } = liveSceneMappingFixture();
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   store.addSurface();
   const added = store.getState().surfaces.at(-1);
   let route = store.getState().mappings[0].surfaces.find((surface) => surface.id === added.id);
@@ -1740,7 +1757,7 @@ test("new Surfaces belong only to the selected Mapping", () => {
   const otherMapping = createMappingFromState(state, "Mapping 2");
   state.mappings.unshift(otherMapping);
   state.ui.selectedMappingId = mapping.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   store.addSurface();
   const next = store.getState();
   const added = next.surfaces.at(-1);
@@ -1756,7 +1773,7 @@ test("persistent Component edits cannot promote the editor Mapping or another Sc
   const otherMapping = createMappingFromState(state, "Mapping 2");
   state.mappings.push(otherMapping);
   state.ui.selectedMappingId = otherMapping.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   store.update((draft) => {
     draft.components.find((component) => component.id === source.id).opacity = 0.37;
   }, "scrub:component-opacity");
@@ -1778,7 +1795,7 @@ test("Canvas components use ordinary source and effect chain items", () => {
   state.components = [source, canvas];
   state.ui.selectedComponentId = canvas.id;
   state.ui.selectedChainItemId = canvas.chain[0].id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.addChainEffect(canvas.id, "pixelate");
   const nextCanvas = store.getState().components.find((component) => component.id === canvas.id);
@@ -1793,7 +1810,7 @@ test("Canvas components use ordinary source and effect chain items", () => {
 test("new Scenes start empty", () => {
   const state = createInitialState();
   state.components[0].name = "Loop A";
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.addScene();
 
@@ -1811,7 +1828,7 @@ test("copying a Component as Canvas preserves the original and opens the new Can
   component.name = "Source";
   state.components = [component];
   state.ui.workspace = "component";
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   const result = store.copyComponentToScene(component.id);
   const next = store.getState();
@@ -1835,7 +1852,7 @@ test("Canvas workspace selects a Canvas and components are added as ordinary sou
   state.render.canvasSize = { width: 2000, height: 1000 };
   state.components = [source, canvas];
   state.ui.selectedComponentId = source.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.setWorkspace("scene");
   store.addChainSource(canvas.id, { type: "component", componentId: source.id });
@@ -1865,7 +1882,7 @@ test("Component and Canvas workspaces remember their own selected component", ()
   state.ui.workspace = "component";
   state.ui.selectedComponentId = firstComponent.id;
   state.ui.workspaceSelectionIds = { component: firstComponent.id, scene: firstCanvas.id };
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.selectComponent(secondComponent.id);
   store.setWorkspace("scene");
@@ -1896,7 +1913,7 @@ test("project restore selects the remembered Scene before the first Scene previe
   state.ui.selectedComponentId = component.id;
   state.ui.workspaceSelectionIds = { component: component.id, scene: scene.id };
 
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   assert.equal(store.getState().ui.workspace, "scene");
   assert.equal(store.getState().ui.selectedComponentId, scene.id);
 });
@@ -1916,7 +1933,7 @@ test("Mapping Surfaces discard catalog-derived source bindings across catalog re
   state.ui.selectedMappingId = state.mappings[0].id;
   state.ui.workspace = "component";
   state.ui.catalogSortModes.scene = "recent";
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.setWorkspace("mapping");
   const route = store.getState().mappings[0].surfaces.find((surface) => surface.id === state.surfaces[0].id);
@@ -1931,7 +1948,7 @@ test("Scenes do not regain authored Frame configuration during normalization", (
   const secondCanvas = createSceneComponent(1, source.id);
   state.components = [source, firstCanvas, secondCanvas];
   state.mappings = [createMappingFromState(state, "Canvas scene")];
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const next = store.getState();
   assert.equal(Object.hasOwn(next, "frames"), false);
   assert.ok(next.components.filter((component) => component.type === "scene")
@@ -1956,7 +1973,7 @@ test("component chain preserves source elements and later effects", () => {
   ];
   state.components = [component];
 
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const chain = store.getState().components[0].chain;
 
   assert.equal(chain.length, 5);
@@ -1978,7 +1995,7 @@ test("adding a generator inserts a visible chain element without replacing media
   state.components = [component];
   state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = component.chain[0].id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.addChainSource(component.id, { type: "generator", generatorId: "gradient" });
   const chain = store.getState().components[0].chain;
@@ -2006,7 +2023,7 @@ test("new elements stay enabled until their Component graph is connected to a Li
   const scene = createMappingFromState(state, "Program");
   state.mappings = [scene];
   state.ui.live.selectedSceneId = scene.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.addChainEffect(component.id, "invert");
   let next = store.getState();
@@ -2043,7 +2060,7 @@ test("adding an element while a group is selected appends it inside the group", 
   state.components = [component];
   state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = group.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.addChainEffect(component.id, "pixelate");
   const nextGroup = store.getState().components[0].chain[1];
@@ -2067,7 +2084,7 @@ test("nested chain items remain selectable after state normalization", () => {
   state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = nested.id;
 
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   assert.equal(store.getState().ui.selectedChainItemId, nested.id);
 
@@ -2089,7 +2106,7 @@ test("Scene has one mutually exclusive Surface-or-element selection", () => {
   state.ui.selectedComponentId = scene.id;
   state.ui.selectedChainItemId = scene.chain[0].id;
   state.ui.workspaceSelectionIds.scene = scene.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const surface = store.getState().surfaces[0];
 
   store.selectSurface(surface.id);
@@ -2119,7 +2136,7 @@ test("selected nested chain items can be removed through the shared store action
   component.chain.push(group);
   state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = nested.id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.removeChainItem(component.id, nested.id);
 
@@ -2133,7 +2150,7 @@ test("the final element in an ordinary Component chain can be removed", () => {
   const component = state.components.find((item) => item.type !== "scene");
   state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = component.chain[0].id;
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.removeChainItem(component.id, component.chain[0].id);
 
@@ -2150,7 +2167,7 @@ test("existing chain item can move into a group by drag reorder", () => {
   const effect = createComponentEffect("invert");
   component.chain = [source, group, effect];
   state.components = [component];
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.reorderChain(component.id, effect.id, group.id, "inside");
   const chain = store.getState().components[0].chain;
@@ -2169,7 +2186,7 @@ test("nested chain item can move out below a group at the end", () => {
   group.chain = [effect];
   component.chain = [source, group];
   state.components = [component];
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
 
   store.reorderChain(component.id, effect.id, group.id, "after");
   const chain = store.getState().components[0].chain;
@@ -2191,7 +2208,7 @@ test("group transform alpha and blend survive normalization", () => {
   ];
   state.components = [component];
 
-  const store = createAppState(state);
+  const store = createGraphAppState(state);
   const normalizedGroup = store.getState().components[0].chain[1];
 
   assert.deepEqual(normalizedGroup.transform, group.transform);
@@ -2199,60 +2216,11 @@ test("group transform alpha and blend survive normalization", () => {
   assert.equal(normalizedGroup.blend, "screen");
 });
 
-test("component chain compiles as one accumulated image pipeline", () => {
-  const component = createDefaultComponent(0);
-  component.chain = [
-    createComponentLayer(0, { type: "generator", generatorId: "gradient" }),
-    createComponentLayer(1, { type: "generator", generatorId: "eyeball" }),
-    createComponentLayer(2, { type: "media", mediaId: "models/head.stl" }),
-    createComponentEffect("pixelate"),
-  ];
-
-  const patch = compileComponentPatch(component, { width: 1280, height: 720 });
-  const plan = planPatchExecution(patch);
-  const compositor = planCompositorInputs(plan);
-
-  assert.equal(patch.type, "linear-component");
-  assert.equal(compositor.inputs.length, 1);
-  assert.deepEqual(
-    compositor.inputs[0].effectComponentIds,
-    ["eyeball", "modelMedia", "pixelate"]
-  );
-});
-
-test("component chain compiles groups as isolated structure nodes", () => {
-  const component = createDefaultComponent(0);
-  const group = createComponentGroup(0);
-  group.chain = [
-    createComponentEffect("pixelate"),
-    createComponentEffect("invert"),
-  ];
-  component.chain = [
-    createComponentLayer(0, { type: "generator", generatorId: "gradient" }),
-    group,
-    createComponentEffect("glitchDistort"),
-  ];
-
-  const patch = compileComponentPatch(component, { width: 1280, height: 720 });
-  const plan = planPatchExecution(patch);
-  const compositor = planCompositorInputs(plan);
-
-  assert.equal(patch.type, "linear-component");
-  assert.equal(compositor.inputs.length, 1);
-  assert.deepEqual(
-    compositor.inputs[0].effectComponentIds,
-    ["structure.group", "glitchDistort"]
-  );
-  const groupNode = patch.nodes.find((node) => node.role === "group");
-  assert.equal(groupNode?.state?.group?.name, "Group 1");
-  assert.equal(groupNode?.params?.items, 2);
-});
-
 test("app state stamps direct edits but preserves activity imported from disk", () => {
   const importedAt = "2020-01-01T00:00:00.000Z";
   const initial = createInitialState();
   initial.components[0].activity = { createdAt: importedAt, updatedAt: importedAt, lastUsedAt: "" };
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
   const componentId = store.getState().components[0].id;
 
   store.update((draft) => {
@@ -2269,7 +2237,7 @@ test("app state stamps direct edits but preserves activity imported from disk", 
 test("one scrub gesture is one authored transaction while intermediate samples remain state events", () => {
   const meter = signalLoadMeter("control");
   meter.reset();
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   const events = [];
   store.subscribe((_state, _reason, event) => events.push(event));
 
@@ -2292,7 +2260,7 @@ test("one scrub gesture is one authored transaction while intermediate samples r
   meter.reset();
 });
 test("derived cache updates do not become project transactions", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   const events = [];
   store.subscribe((_state, _reason, event) => events.push(event));
   const componentId = store.getState().components[0].id;
@@ -2306,7 +2274,7 @@ test("derived cache updates do not become project transactions", () => {
 });
 
 test("derived cache updates preserve their targeted UI projection contract", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   const events = [];
   store.subscribe((_state, _reason, event) => events.push(event));
   const componentId = store.getState().components[0].id;
@@ -2328,7 +2296,7 @@ test("derived cache updates preserve their targeted UI projection contract", () 
 test("thumbnail replacement publishes atomically without clearing the previous derived image", () => {
   const initial = createInitialState();
   initial.components[0].thumbnail = "blob:previous";
-  const store = createAppState(initial);
+  const store = createGraphAppState(initial);
   const componentId = store.getState().components[0].id;
   const events = [];
   store.subscribe((_state, _reason, event) => events.push(event));
@@ -2351,7 +2319,7 @@ test("thumbnail replacement publishes atomically without clearing the previous d
 });
 
 test("mapping feedback updates only the mapping slice while retaining project history semantics", () => {
-  const store = createAppState(createInitialState());
+  const store = createGraphAppState(createInitialState());
   const events = [];
   store.subscribe((_state, _reason, event) => events.push(event));
   const mapping = { surfaces: [{ id: "surface-a", corners: [{ x: 10, y: 20 }] }] };
@@ -2376,7 +2344,7 @@ test("Component and Scene visibility toggles are scoped project transactions", (
   scene.activity.updatedAt = "2020-01-01T00:00:00.000Z";
   initial.ui.selectedChainItemId = "";
   let prepareCount = 0;
-  const store = createAppState(initial, {
+  const store = createGraphAppState(initial, {
     prepareState(value) {
       prepareCount++;
       return value;
@@ -2435,7 +2403,7 @@ test("Mapping Surface visibility commits one scoped route transaction", () => {
   initial.ui.live.selectedSceneId = "";
   initial.ui.live.overallSourceCleared = false;
   let prepareCount = 0;
-  const store = createAppState(initial, {
+  const store = createGraphAppState(initial, {
     prepareState(value) {
       prepareCount++;
       return value;

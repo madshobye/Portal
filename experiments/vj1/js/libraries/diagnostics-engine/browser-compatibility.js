@@ -8,7 +8,9 @@ export function reportBrowserCompatibility({ host = globalThis, mode = "control"
   if (prior) return prior;
 
   const browser = chromeBrowserIdentity(host.navigator || {});
-  const missing = requiredBrowserCapabilities(host, mode);
+  const capabilities = browserCapabilityReport(host, mode);
+  const missing = capabilities.required;
+  const degraded = capabilities.optional;
   const gpu = probeWebGl2(host);
   if (!gpu.supported) missing.push("WebGL2");
   else if (gpu.maxTextureSize < 8192 || gpu.maxRenderbufferSize < 8192) {
@@ -17,9 +19,18 @@ export function reportBrowserCompatibility({ host = globalThis, mode = "control"
   const wrongBrowser = !browser.isGoogleChrome;
   const oldBrowser = browser.major > 0 && browser.major < VJ1_MINIMUM_CHROME_MAJOR;
   const supported = !wrongBrowser && !oldBrowser && !missing.length;
-  const status = { browser, gpu, missing, wrongBrowser, oldBrowser, supported };
+  const status = { browser, gpu, missing, degraded, wrongBrowser, oldBrowser, supported };
   reportedHosts.set(host, status);
-  if (supported) return status;
+  if (supported) {
+    if (degraded.length) {
+      host.console?.warn?.("[VJ1_BROWSER_CAPABILITY_DEGRADED]", {
+        detected: browser.label,
+        capabilities: degraded,
+        message: "Optional subsystems are unavailable; core rendering remains supported.",
+      });
+    }
+    return status;
+  }
 
   host.console?.warn?.("[VJ1_BROWSER_UNSUPPORTED]", {
     expected: `Google Chrome ${VJ1_MINIMUM_CHROME_MAJOR}+ with WebGL2 and the required modern browser APIs`,
@@ -31,6 +42,18 @@ export function reportBrowserCompatibility({ host = globalThis, mode = "control"
     message: "VJ1 targets current Google Chrome on a capable GPU. Unsupported environments may fail; compatibility render fallbacks are not part of the supported architecture.",
   });
   return status;
+}
+
+export function recordBrowserCapabilityDiagnostics(diagnostics, status) {
+  if (!diagnostics?.record || !status?.supported || !Array.isArray(status.degraded)) return;
+  for (const capability of status.degraded) {
+    diagnostics.record("warning", [{
+      code: "VJ1_BROWSER_CAPABILITY_DEGRADED",
+      capability: capability.name,
+      subsystem: capability.subsystem,
+      fallback: capability.fallback,
+    }], "browser-capabilities");
+  }
 }
 
 export function assertP5RenderCapabilities(host = globalThis) {
@@ -63,27 +86,36 @@ export function chromeBrowserIdentity(navigatorValue = {}) {
   };
 }
 
-function requiredBrowserCapabilities(host, mode) {
+export function browserCapabilityReport(host, mode = "control") {
   const required = [
     ["BroadcastChannel", host.BroadcastChannel],
-    ["Worker", host.Worker],
-    ["OffscreenCanvas", host.OffscreenCanvas],
-    ["createImageBitmap", host.createImageBitmap],
     ["requestAnimationFrame", host.requestAnimationFrame],
-    ["requestIdleCallback", host.requestIdleCallback],
-    ["ResizeObserver", host.ResizeObserver],
-    ["IntersectionObserver", host.IntersectionObserver],
-    ["PerformanceObserver", host.PerformanceObserver],
     ["structuredClone", host.structuredClone],
-    ["HTMLVideoElement.requestVideoFrameCallback", host.HTMLVideoElement?.prototype?.requestVideoFrameCallback],
-    ["HTMLVideoElement.cancelVideoFrameCallback", host.HTMLVideoElement?.prototype?.cancelVideoFrameCallback],
-    ["navigator.mediaDevices.getDisplayMedia", host.navigator?.mediaDevices?.getDisplayMedia],
   ];
   if (mode === "control") {
     required.push(["showDirectoryPicker", host.showDirectoryPicker]);
-    required.push(["FileSystemObserver", host.FileSystemObserver]);
   }
-  return required.filter(([, value]) => typeof value !== "function").map(([name]) => name);
+  const optional = [
+    ["Worker", host.Worker, "3D model processing", "Model nodes report unavailable until a Worker-capable browser is used."],
+    ["OffscreenCanvas", host.OffscreenCanvas, "background image processing", "Processing uses the supported main-thread path."],
+    ["createImageBitmap", host.createImageBitmap, "fast image decoding", "Images use browser element decoding."],
+    ["requestIdleCallback", host.requestIdleCallback, "idle scheduling", "Work uses bounded timer scheduling."],
+    ["ResizeObserver", host.ResizeObserver, "host resize observation", "p5 window resize remains active."],
+    ["IntersectionObserver", host.IntersectionObserver, "lazy picker previews", "Picker previews use their bounded eager fallback."],
+    ["PerformanceObserver", host.PerformanceObserver, "long-task diagnostics", "Frame and explicit profiler metrics remain available."],
+    ["HTMLVideoElement.requestVideoFrameCallback", host.HTMLVideoElement?.prototype?.requestVideoFrameCallback, "video frame callbacks", "Video invalidation uses the renderer cadence."],
+    ["HTMLVideoElement.cancelVideoFrameCallback", host.HTMLVideoElement?.prototype?.cancelVideoFrameCallback, "video frame callbacks", "Video invalidation uses the renderer cadence."],
+    ["navigator.mediaDevices.getDisplayMedia", host.navigator?.mediaDevices?.getDisplayMedia, "screen capture", "Screen-input nodes remain unavailable."],
+  ];
+  if (mode === "control") {
+    optional.push(["FileSystemObserver", host.FileSystemObserver, "automatic project-folder refresh", "The explicit Refresh command remains available."]);
+  }
+  return Object.freeze({
+    required: required.filter(([, value]) => typeof value !== "function").map(([name]) => name),
+    optional: optional
+      .filter(([, value]) => typeof value !== "function")
+      .map(([name, _value, subsystem, fallback]) => Object.freeze({ name, subsystem, fallback })),
+  });
 }
 
 function probeWebGl2(host) {

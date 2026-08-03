@@ -297,13 +297,19 @@ function collectLiveComponentGraph(state, componentId, ids) {
   const component = state.components?.find((candidate) => String(candidate.id) === id);
   if (!component) return;
   ids.add(id);
-  collectLiveComponentChain(state, component.chain || [], ids);
+  const group = state.nodes?.groups?.find((candidate) =>
+    candidate.generatedBy === "vj1-component-compiler" &&
+    String(candidate.componentId || "") === id
+  );
+  collectLiveComponentNodes(state, group?.nodes || [], ids);
 }
 
-function collectLiveComponentChain(state, chain, ids) {
-  for (const item of chain || []) {
+function collectLiveComponentNodes(state, nodes, ids) {
+  for (const node of nodes || []) {
+    if (!["source", "effect", "group"].includes(node?.role) || node.auxiliaryFor) continue;
+    const item = node.configuration || {};
     if (item.enabled === false) continue;
-    if (item.kind === "group") collectLiveComponentChain(state, item.chain, ids);
+    if (node.role === "group") collectLiveComponentNodes(state, node.nodes || [], ids);
     else collectLiveComponentSource(state, item.source, ids);
   }
 }

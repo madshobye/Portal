@@ -8,6 +8,21 @@ import { createProjectVisualGroupDefinition, defineNode, NodeRegistry } from "..
 import { graphNodeFromDefinition } from "../js/control/node-graph-canvas.js";
 import { withProjectNodeGraph, withProjectNodeParameterExposure } from "../js/control/node-editor-view.js";
 import { listEffectNodeComponents, listGeneratorNodeComponents } from "../js/libraries/visual-nodes/catalog.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
+
+const appNodePackage = createVj1NodePackage();
+
+function prepareComponentViewState(state) {
+  return appNodePackage.prepareProjectState(state);
+}
+
+function preparedSettingsTemplate(component, state) {
+  const prepared = prepareComponentViewState(state);
+  return componentSelectedChainSettingsTemplate(
+    prepared.components.find((candidate) => candidate.id === component.id),
+    prepared,
+  );
+}
 
 test("video trim uses decoded duration and never invents a silent timeline", () => {
   assert.deepEqual(videoTrimValues({}, { duration: 10 }), {
@@ -81,10 +96,10 @@ test("visual placements use clean catalog names, identify ISF, and remain rename
   component.chain = [effect];
   state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = effect.id;
-  const html = componentSelectedChainSettingsTemplate(component, state);
+  const html = preparedSettingsTemplate(component, state);
   assert.match(
     html,
-    /class="section-title-input"[^>]*data-update="components\.[0-9]+\.chain\.0\.name"[^>]*value="Mirror Room"/,
+    /class="section-title-input"[^>]*data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.name"[^>]*value="Mirror Room"/,
   );
 });
 
@@ -111,11 +126,11 @@ test("ISF image inlets use persisted source-picker controls without exposing the
   state.ui.selectedComponentId = component.id;
   state.ui.selectedChainItemId = effect.id;
 
-  const html = componentSelectedChainSettingsTemplate(component, state);
+  const html = preparedSettingsTemplate(component, state);
   assert.equal(effect.imageInputs.maskImage.componentId, "mask-component");
   assert.match(html, />mask image</i);
   assert.match(html, />Mask Source</);
-  assert.match(html, /data-open-source-choice="components\.[0-9]+\.chain\.0\.imageInputs\.maskImage"/);
+  assert.match(html, /data-open-source-choice="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.imageInputs\.maskImage"/);
   assert.match(html, /data-source-choice-components="true"/);
   assert.doesNotMatch(html, /\.imageInputs\.inputImage/);
 });
@@ -129,9 +144,12 @@ test("Component and Canvas chain presentation lives outside the control orchestr
     type: "scene",
     canvas: { width: 1920, height: 1080 },
   };
-  const componentHtml = componentTemplate(component, state);
-  const settingsHtml = componentSelectedChainSettingsTemplate(component, state);
-  const canvasHtml = sceneInspectorTemplate(canvas, { ...state, components: [...state.components, canvas] });
+  const prepared = prepareComponentViewState({ ...state, components: [...state.components, canvas] });
+  const preparedComponent = prepared.components.find((candidate) => candidate.id === component.id);
+  const preparedCanvas = prepared.components.find((candidate) => candidate.id === canvas.id);
+  const componentHtml = componentTemplate(preparedComponent, prepared);
+  const settingsHtml = componentSelectedChainSettingsTemplate(preparedComponent, prepared);
+  const canvasHtml = sceneInspectorTemplate(preparedCanvas, prepared);
   const controller = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
 
   assert.match(componentHtml, /class="component-frame-controls"/);
@@ -141,10 +159,10 @@ test("Component and Canvas chain presentation lives outside the control orchestr
   assert.match(settingsHtml, />Content<\/label>|>Primary<\/label>/);
   assert.match(settingsHtml, />General<\/label>/);
   assert.ok(settingsHtml.indexOf("ui-section-header rail-title") < settingsHtml.indexOf("chain-param-views"));
-  assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.transform\.x"/);
-  assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.opacity"/);
-  assert.match(settingsHtml, /data-update="components\.[0-9]+\.chain\.0\.blend"/);
-  assert.match(settingsHtml, /data-param-context-path="components\.[0-9]+\.chain\.0\.transform\.scale"/);
+  assert.match(settingsHtml, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.transform\.x"/);
+  assert.match(settingsHtml, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.opacity"/);
+  assert.match(settingsHtml, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.blend"/);
+  assert.match(settingsHtml, /data-param-context-path="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.transform\.scale"/);
   assert.equal((settingsHtml.match(/<span>Render quality<\/span>/g) || []).length, 1);
   assert.ok(settingsHtml.indexOf("chain-param-view-general") < settingsHtml.indexOf("<span>Render quality</span>"), "source render quality is owned by General");
   assert.doesNotMatch(canvasHtml, /\.canvas\.(?:width|height)"/);
@@ -180,11 +198,11 @@ test("Canvas component placements render selected settings without a redundant s
     ui: { ...state.ui, selectedChainItemId: placement.id },
   };
 
-  const html = componentSelectedChainSettingsTemplate(canvas, canvasState);
+  const html = preparedSettingsTemplate(canvas, canvasState);
   assert.match(html, new RegExp(`>${referenced.name}<\\/span>`));
   assert.match(html, new RegExp(`data-edit-component="${referenced.id}"`));
   assert.doesNotMatch(html, /<label class="field">Component /);
-  assert.match(html, /data-update="components\.[0-9]+\.chain\.0\.opacity"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.opacity"/);
 });
 
 test("effects separate shader strength from generic compositing controls", () => {
@@ -194,12 +212,12 @@ test("effects separate shader strength from generic compositing controls", () =>
   component.chain.push(effect);
   state.ui.selectedChainItemId = effect.id;
 
-  const html = componentSelectedChainSettingsTemplate(component, state);
+  const html = preparedSettingsTemplate(component, state);
   assert.match(html, /<span>Effect strength<\/span>/);
   assert.match(html, />General<\/label>/);
-  assert.match(html, new RegExp(`data-update="components\\.0\\.chain\\.1\\.opacity"`));
-  assert.match(html, new RegExp(`data-update="components\\.0\\.chain\\.1\\.blend"`));
-  assert.match(html, new RegExp(`data-update="components\\.0\\.chain\\.1\\.transform\\.x"`));
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.opacity"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.blend"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.transform\.x"/);
   assert.equal((html.match(/<span>Render quality<\/span>/g) || []).length, 1);
   assert.ok(html.indexOf("chain-param-view-general") < html.indexOf("<span>Render quality</span>"), "effect render quality is owned by General");
 });
@@ -236,17 +254,17 @@ test("STL sources expose the same Primary Details and General views in Component
   state.media.push({ id: source.source.params.mediaId, name: "sculpture.stl", type: "model" });
   state.ui.selectedChainItemId = source.id;
 
-  const html = componentSelectedChainSettingsTemplate(component, state);
+  const html = preparedSettingsTemplate(component, state);
 
   assert.match(html, />Primary<\/label>/);
   assert.match(html, />Details<\/label>/);
   assert.match(html, />General<\/label>/);
-  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.rotationX"/);
-  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.modelScale"/);
-  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.geometryDetail"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.source\.params\.rotationX"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.source\.params\.modelScale"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.source\.params\.geometryDetail"/);
   assert.match(html, />Geometry detail</);
-  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.renderQuality"/);
-  assert.match(html, /data-update="components\.0\.chain\.0\.transform\.scale"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.source\.params\.renderQuality"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.transform\.scale"/);
 });
 
 test("compound generators project child-node controls into the shared Component inspector", () => {
@@ -260,16 +278,16 @@ test("compound generators project child-node controls into the shared Component 
   };
   state.ui.selectedChainItemId = source.id;
 
-  const html = componentSelectedChainSettingsTemplate(component, state);
+  const html = preparedSettingsTemplate(component, state);
 
   for (const section of ["Flight", "Geometry", "Camera", "Surface material", "Wire material", "Render"]) {
     assert.match(html, new RegExp(`<span>${section}<\\/span>`));
   }
   assert.match(html, /data-control-section="geometry"/);
-  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.mountainHeight"/);
-  assert.match(html, /data-color-path="components\.0\.chain\.0\.source\.params\.wireColor"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.source\.params\.mountainHeight"/);
+  assert.match(html, /data-color-path="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.source\.params\.wireColor"/);
   assert.equal(
-    (html.match(/data-update="components\.0\.chain\.0\.source\.params\.style"/g) || []).length,
+    (html.match(/data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.source\.params\.style"/g) || []).length,
     1,
     "a public parameter bound to multiple child nodes is still one shared UI control",
   );
@@ -330,11 +348,11 @@ test("project-authored Group controls use the same shared Component inspector", 
     forks: nodes.forks,
   };
   state.ui.selectedChainItemId = source.id;
-  const html = componentSelectedChainSettingsTemplate(component, state);
+  const html = preparedSettingsTemplate(component, state);
 
   assert.match(html, /data-control-section="child"/);
   assert.match(html, /<span>Project controls<\/span>/);
-  assert.match(html, /data-update="components\.0\.chain\.0\.source\.params\.gain"/);
+  assert.match(html, /data-update="nodes\.groups\.[0-9]+\.nodes\.[0-9]+\.configuration\.source\.params\.gain"/);
 });
 
 test("all specialized visual Groups use the same declarative inspector projection", () => {
@@ -357,13 +375,13 @@ test("all specialized visual Groups use the same declarative inspector projectio
     source.source = { type: "generator", generatorId: example.generatorId, params: {} };
     state.ui.selectedChainItemId = source.id;
 
-    const html = componentSelectedChainSettingsTemplate(component, state);
+    const html = preparedSettingsTemplate(component, state);
     for (const section of example.sections) {
       assert.match(html, new RegExp(`<span>${section}<\\/span>`), `${example.generatorId} contributes ${section}`);
     }
     assert.match(
       html,
-      new RegExp(`data-update="components\\.0\\.chain\\.0\\.source\\.params\\.${example.parameterPath}"`),
+      new RegExp(`data-update="nodes\\.groups\\.[0-9]+\\.nodes\\.[0-9]+\\.configuration\\.source\\.params\\.${example.parameterPath}"`),
     );
   }
 });

@@ -8,6 +8,7 @@ import { canvasPointerToLogicalPoint } from "./preview-interaction-geometry.js";
 import { createThumbnailUrlLease } from "../services/component-thumbnail-store.js";
 import { assertP5RenderCapabilities } from "../libraries/diagnostics-engine/browser-compatibility.js";
 import { applyLiveRenderPatchesImmutable } from "../domain/live-render-patch.js";
+import { componentGraphNode } from "../domain/component-graph-commands.js";
 import { CONTROL_SIGNAL_COMMAND, publishRendererControlSignal } from "./control-signal-command.js";
 import {
   pointerSignalValues,
@@ -19,6 +20,7 @@ import {
   claimPresentationCanvas,
   publishCanvasOwnershipDiagnostics,
 } from "./canvas-ownership.js";
+import { createPresentationHostLifecycle } from "./presentation-host-lifecycle.js";
 
 export function createEmbeddedPreviewApp({
   store,
@@ -27,6 +29,7 @@ export function createEmbeddedPreviewApp({
   onChainItemTarget,
   onControlSignal = null,
   onDmxFixture = null,
+  screenCapture = null,
 }) {
   let host = null;
   let stage = null;
@@ -36,11 +39,6 @@ export function createEmbeddedPreviewApp({
   let pendingState = null;
   let pendingMode = "preview";
   let started = false;
-  let setupStarted = false;
-  let resizeObserver = null;
-  let observedResizeFrame = 0;
-  let observedResizeSignature = "";
-  let observedStage = null;
   let settleResizeFrame = 0;
   let settleResizeToken = 0;
   let layoutSettleActive = false;
@@ -70,6 +68,10 @@ export function createEmbeddedPreviewApp({
       renderer?.frameRuntime.presentationMode() === "on-change",
     start: () => { if (typeof loop === "function") loop(); },
     stop: () => { if (typeof noLoop === "function") noLoop(); },
+  });
+  const presentationHost = createPresentationHostLifecycle({
+    canResize: () => !layoutSettleActive,
+    onResize: () => resizeToStage(),
   });
   let activeRetimedTransition = null;
   let activeRetimedTransitionSceneId = "";
@@ -110,7 +112,7 @@ export function createEmbeddedPreviewApp({
     presentationIdle.resume();
     applyPreviewFrameRate();
     bindStageViewportEvents();
-    observeCurrentStage();
+    presentationHost.observe(stage);
     if (canvas && stage) canvas.parent(stage);
     if (renderer) {
       renderer.visualNodeRuntime.setInstalledPackages(projectService?.getInstalledNodePackages?.() || []);
@@ -166,7 +168,10 @@ export function createEmbeddedPreviewApp({
     // Resolve and path-copy before mutating the renderer because pendingState
     // and renderer.state may still share untouched structural branches.
     const pendingResult = applyLiveRenderPatchesImmutable(pendingState, patches);
-    if (!pendingResult.applied) return pendingResult;
+    if (!pendingResult.applied) {
+      renderer.livePatchRuntime.reportRejection(pendingResult, patches);
+      return pendingResult;
+    }
     const rendererResult = mode === "live"
       ? renderer.livePatchRuntime.applyLive(patches)
       : renderer.livePatchRuntime.apply(patches);
@@ -239,12 +244,7 @@ export function createEmbeddedPreviewApp({
     preparedLiveErrorSignature = "";
     activeRetimedTransition = null;
     activeRetimedTransitionSceneId = "";
-    resizeObserver?.disconnect?.();
-    resizeObserver = null;
-    if (observedResizeFrame) cancelAnimationFrame(observedResizeFrame);
-    observedResizeFrame = 0;
-    observedResizeSignature = "";
-    observedStage = null;
+    presentationHost.dispose();
     cancelSettledResize();
     viewportController?.destroy?.();
     viewportController = null;
@@ -262,7 +262,7 @@ export function createEmbeddedPreviewApp({
     loadClassicScript(VJ1.p5Script)
       .then(() => {
         setTimeout(() => {
-          if (!setupStarted && typeof createCanvas === "function") setup();
+          if (!presentationHost.setupClaimed && typeof createCanvas === "function") setup();
         }, 0);
       })
       .catch((error) => {
@@ -271,8 +271,7 @@ export function createEmbeddedPreviewApp({
   }
 
   async function setup() {
-    if (setupStarted) return;
-    setupStarted = true;
+    if (!presentationHost.claimSetup()) return;
     const size = stageSize();
     canvas = createCanvas(size.width, size.height, WEBGL);
     assertP5RenderCapabilities();
@@ -287,8 +286,6 @@ export function createEmbeddedPreviewApp({
     pixelDensity(1);
     applyPreviewFrameRate();
     if (window.p5) window.p5.disableFriendlyErrors = true;
-    window.PORTAL_CANVAS_RESIZE_MODE = "none";
-    await loadClassicScript(VJ1.portalScript);
     renderFont = await loadVjRenderFont();
     applyLoadedFont();
     renderer = new OutputRenderer({
@@ -308,18 +305,14 @@ export function createEmbeddedPreviewApp({
       requestMediaFiles: () => importMediaFilesIfChanged(true),
       requestPresentationFrame: wakePreviewPresentation,
       sendDmxFixture: onDmxFixture,
+      screenCapture,
       onSurfaceSelect: selectSurface,
       installedNodePackages: projectService?.getInstalledNodePackages?.() || [],
     });
     await renderer.setup(previewSizedState(size), { normalized: true });
     publishCanvasOwnershipDiagnostics(stage, "embedded-preview");
     importMediaFilesIfChanged(true);
-    // ResizeObserver callbacks run inside layout delivery. Resizing a p5
-    // canvas synchronously from that callback can produce another notification
-    // in the same delivery cycle. Coalesce onto the next frame and ignore
-    // duplicate integer sizes; the renderer still receives every visible size.
-    resizeObserver = new ResizeObserver(scheduleObservedStageResize);
-    observeCurrentStage();
+    presentationHost.observe(stage);
   }
 
   function applyLoadedFont() {
@@ -521,29 +514,6 @@ export function createEmbeddedPreviewApp({
     canvasFitSignature = nextSignature;
     fitCanvasToStage(size, logical);
     return true;
-  }
-
-  function observeCurrentStage() {
-    if (!resizeObserver || observedStage === stage) return;
-    if (observedStage) resizeObserver.unobserve?.(observedStage);
-    observedStage = stage;
-    observedResizeSignature = "";
-    if (observedStage) resizeObserver.observe(observedStage);
-  }
-
-  function scheduleObservedStageResize(entries = []) {
-    const entry = entries.find((candidate) => candidate.target === observedStage) || entries.at(-1);
-    const rect = entry?.contentRect;
-    const signature = rect
-      ? `${Math.floor(Number(rect.width) || 0)}:${Math.floor(Number(rect.height) || 0)}`
-      : "";
-    if (signature && signature === observedResizeSignature) return;
-    observedResizeSignature = signature;
-    if (layoutSettleActive || observedResizeFrame) return;
-    observedResizeFrame = requestAnimationFrame(() => {
-      observedResizeFrame = 0;
-      if (!layoutSettleActive) resizeToStage();
-    });
   }
 
   function scheduleSettledResize({ revealAfterDraw = false } = {}) {
@@ -944,15 +914,14 @@ export function createEmbeddedPreviewApp({
   function commitChainTransform(componentId, itemId, transform, commit) {
     const renderPatches = [];
     store.update((draft) => {
-      const component = draft.components.find((item) => item.id === componentId);
-      const itemPath = chainItemPath(component?.chain, itemId);
-      const item = findChainItemById(component?.chain, itemId);
-      if (!item) return;
-      item.transform = { ...item.transform, ...transform };
-      if (itemPath) renderPatches.push({
+      const node = componentGraphNode(draft, componentId, itemId);
+      if (!node?.configuration) return;
+      node.configuration.transform = { ...node.configuration.transform, ...transform };
+      renderPatches.push({
         componentId,
-        path: `${itemPath}.transform`,
-        value: item.transform,
+        nodeId: itemId,
+        path: "transform",
+        value: node.configuration.transform,
       });
     }, {
       reason: commit ? "update:chain-transform" : "scrub:chain-transform",
@@ -982,15 +951,14 @@ export function createEmbeddedPreviewApp({
   function commitChainBoundary(componentId, itemId, boundary, commit) {
     const renderPatches = [];
     store.update((draft) => {
-      const component = draft.components.find((item) => item.id === componentId);
-      const itemPath = chainItemPath(component?.chain, itemId);
-      const item = findChainItemById(component?.chain, itemId);
-      if (!item) return;
-      item.boundary = { ...item.boundary, ...boundary };
-      if (itemPath) renderPatches.push({
+      const node = componentGraphNode(draft, componentId, itemId);
+      if (!node?.configuration) return;
+      node.configuration.boundary = { ...node.configuration.boundary, ...boundary };
+      renderPatches.push({
         componentId,
-        path: `${itemPath}.boundary`,
-        value: item.boundary,
+        nodeId: itemId,
+        path: "boundary",
+        value: node.configuration.boundary,
       });
     }, {
       reason: commit ? "update:chain-boundary" : "scrub:chain-boundary",
@@ -1121,29 +1089,6 @@ export function previewFitSignature({ mode = "preview", size = {}, logical = {},
     Number(viewport.y) || 0,
     outputs,
   ].join(":");
-}
-
-function findChainItemById(chain = [], id = "") {
-  if (!Array.isArray(chain) || !id) return null;
-  for (const item of chain) {
-    if (item.id === id) return item;
-    const nested = item.kind === "group" ? findChainItemById(item.chain, id) : null;
-    if (nested) return nested;
-  }
-  return null;
-}
-
-function chainItemPath(chain = [], id = "", prefix = "chain") {
-  for (let index = 0; index < (chain || []).length; index++) {
-    const item = chain[index];
-    const path = `${prefix}.${index}`;
-    if (item?.id === id) return path;
-    if (item?.kind === "group") {
-      const nested = chainItemPath(item.chain, id, `${path}.chain`);
-      if (nested) return nested;
-    }
-  }
-  return "";
 }
 
 function loadClassicScript(src) {

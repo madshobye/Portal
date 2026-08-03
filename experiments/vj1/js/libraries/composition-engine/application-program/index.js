@@ -6,6 +6,7 @@ const APPLICATION_RUNTIME_PORTS = Object.freeze({
   timing: { outlets: { time: runtimePort("time") } },
   "state-command": { inlets: { change: runtimePort("command") }, outlets: { event: runtimePort("event") } },
   "data-store": { inlets: { command: runtimePort("event") }, outlets: { snapshot: runtimePort("state") } },
+  "session-devices": { inlets: { state: runtimePort("state") } },
   "media-lifecycle": { outlets: { resource: runtimePort("media") } },
   diagnostics: { inlets: { event: runtimePort("metrics") }, outlets: { entries: runtimePort("diagnostics") } },
   "live-synchronization": {
@@ -54,6 +55,9 @@ export function compileApplicationProgramTopology() {
     node("clock", "core.timing.visual-time-scale", "timing"),
     node("command", "core.state.command-engine", "state-command"),
     node("state", "core.data.observable-store", "data-store", ["state-command"]),
+    node("devices", "core.devices.session-lifecycle", "session-devices", [
+      "data-store", "live-synchronization", "diagnostics",
+    ]),
     node("media", "core.media.input-lifecycle", "media-lifecycle"),
     node("diagnostics", "core.diagnostics.engine", "diagnostics"),
     node("live", "core.synchronization.live-patches", "live-synchronization", [
@@ -73,6 +77,7 @@ export function compileApplicationProgramTopology() {
     edge("command.event", "state.command", "event"),
     edge("state.snapshot", "live.state", "state"),
     edge("state.snapshot", "storage.value", "state"),
+    edge("state.snapshot", "devices.state", "state"),
     edge("media.resource", "live.media", "media"),
     edge("live.batch", "storage.live", "patches"),
     edge("live.batch", "output.scene", "patches"),
@@ -91,7 +96,7 @@ export function compileApplicationProgramTopology() {
     nodes,
     connections,
     compiler: { id: "vj1.application.service-program", target: "bootstrap", strategy: "compile-setup-dependencies" },
-    topologyVersion: 2,
+    topologyVersion: 3,
     generatedBy: APPLICATION_PROGRAM_GENERATOR,
   };
 }

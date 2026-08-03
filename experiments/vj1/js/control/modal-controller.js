@@ -10,7 +10,6 @@ import { mergeSourceChoice } from "../domain/source-choice.js";
 import {
   createAuthoredMediaSource,
 } from "../domain/authored-visual-source.js";
-import { renameScreenCaptureInput, screenCaptureStatus, startScreenCapture, stopScreenCapture, stopScreenCaptureInput, subscribeScreenCapture } from "../output/screen-capture-service.js";
 import { screenInputOptionsTemplate } from "./parameter-view.js";
 
 export function nextPickerFilter(activeFilter = "all", requestedFilter = "all") {
@@ -34,7 +33,9 @@ export function createModalController({
   bindCatalogSortControls,
   midiInput = null,
   dmxOutput = null,
+  screenCapture = null,
 }) {
+  if (!screenCapture) throw new Error("SCREEN_CAPTURE_SERVICE_REQUIRED");
   let elementPicker = null;
   let sourceChoicePicker = null;
   const elementPickerMemory = { filter: "all", search: "" };
@@ -49,7 +50,7 @@ export function createModalController({
   const maxRetainedMediaPreviews = 500;
   let reportedPreviewObserverFallback = false;
   let mediaRefreshInFlight = false;
-  subscribeScreenCapture((status) => {
+  screenCapture.subscribe((status) => {
     syncScreenCaptureStatus(getHost(), status);
     syncScreenInputSelects(status.inputs);
   });
@@ -82,7 +83,13 @@ export function createModalController({
     resetDemandMediaPreviews();
     settingsTab = normalizeSettingsTab(settingsTab);
     if (!host.querySelector("[data-settings-modal]")) {
-      replaceHtmlIfChanged(host, settingsModalTemplate(state, settingsTab, midiInput?.snapshot?.(), dmxOutput?.snapshot?.()));
+      replaceHtmlIfChanged(host, settingsModalTemplate(
+        state,
+        settingsTab,
+        midiInput?.snapshot?.(),
+        dmxOutput?.snapshot?.(),
+        screenCapture.snapshot().inputs,
+      ));
       bindClose(host, closeSettings);
       host.querySelectorAll("[data-settings-tab]").forEach((button) => {
         button.addEventListener("click", () => {
@@ -375,7 +382,7 @@ export function createModalController({
     });
     bindOnce(host, "[data-render-preset]", (button) => applyRenderPreset(button.dataset.renderPreset));
     bindOnce(host, "[data-start-screen-capture]", startConfiguredScreenCapture);
-    bindOnce(host, "[data-stop-screen-capture]", () => stopScreenCapture());
+    bindOnce(host, "[data-stop-screen-capture]", () => screenCapture.stopAll());
     bindScreenCaptureInputs(host);
     bindOnce(host, "[data-add-output]", addConfiguredOutput);
     bindOnce(host, "[data-remove-output]", (button) => removeConfiguredOutput(button.dataset.removeOutput));
@@ -398,13 +405,13 @@ export function createModalController({
   async function startConfiguredScreenCapture() {
     const settings = normalizeRenderSettings(getState().render || {}).screenCapture;
     try {
-      await startScreenCapture(settings);
+      await screenCapture.start(settings);
     } catch {
       // The shared service reports the actionable browser/permission error.
     }
   }
 
-  function syncScreenCaptureStatus(host, status = screenCaptureStatus()) {
+  function syncScreenCaptureStatus(host, status = screenCapture.snapshot()) {
     const output = host?.querySelector?.("[data-screen-capture-status]");
     if (!output) return;
     const list = host.querySelector("[data-screen-capture-list]");
@@ -435,12 +442,12 @@ export function createModalController({
     host.querySelectorAll("[data-screen-capture-name]").forEach((input) => {
       if (input.dataset.captureBound) return;
       input.dataset.captureBound = "true";
-      input.addEventListener("change", () => renameScreenCaptureInput(input.dataset.screenCaptureName, input.value));
+      input.addEventListener("change", () => screenCapture.rename(input.dataset.screenCaptureName, input.value));
     });
     host.querySelectorAll("[data-stop-screen-capture-input]").forEach((button) => {
       if (button.dataset.captureBound) return;
       button.dataset.captureBound = "true";
-      button.addEventListener("click", () => stopScreenCaptureInput(button.dataset.stopScreenCaptureInput));
+      button.addEventListener("click", () => screenCapture.stop(button.dataset.stopScreenCaptureInput));
     });
   }
 

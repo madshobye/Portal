@@ -716,7 +716,7 @@ export function createOutputBridge({
       const targetKey = patch?.target === "state"
         ? "state"
         : patch?.componentId
-          ? `component:${patch.componentId}${patch.itemId ? `:item:${patch.itemId}` : ""}`
+          ? `component:${patch.componentId}${patch.nodeId ? `:node:${patch.nodeId}` : ""}`
           : "";
       if (targetKey && patch?.path) pendingLivePatch.patches.set(`${targetKey}:${patch.path}`, patch);
     }

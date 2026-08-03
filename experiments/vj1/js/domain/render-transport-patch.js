@@ -9,7 +9,10 @@ export function componentRenderPatchesForChange(state, change = {}) {
   if (!match) return [];
   const component = state?.components?.[Number(match[1])];
   const path = match[2];
-  if (!component?.id || !isRenderableComponentPath(path)) return [];
+  // Element configuration is addressed exclusively by graph node id. A
+  // positional Component projection may exist in memory for optimized
+  // execution, but it is never a renderer transport address.
+  if (!component?.id || path === "chain" || path.startsWith("chain.") || !isRenderableComponentPath(path)) return [];
   const resolution = valueAtPath(component, path);
   if (!resolution.found) return [];
   return [{ componentId: String(component.id), path, value: resolution.value }];

@@ -369,7 +369,7 @@ test("Feature Morph V2 remains dynamic only while media or MobileNet analysis is
   assert.equal(renderer.sourceRuntime.sourceIsFrameDynamic(source), true);
 });
 
-test("Feature Morph V2 uses CDN MobileNet and the shared compiled morph renderer", () => {
+test("Feature Morph V2 uses vendored MobileNet and the shared compiled morph renderer", () => {
   const component = getGeneratorComponent("featureMorphV2");
   const serviceSource = readFileSync(new URL("../js/output/specialized/mobilenet-morph-service.js", import.meta.url), "utf8");
   const rendererSource = [
@@ -382,8 +382,9 @@ test("Feature Morph V2 uses CDN MobileNet and the shared compiled morph renderer
     emptyDetail: "MobileNet input",
   });
 
-  assert.ok(serviceSource.includes("@tensorflow/tfjs@4.22.0"));
-  assert.ok(serviceSource.includes("@tensorflow-models/mobilenet@2.1.1"));
+  assert.ok(serviceSource.includes("vendor/tensorflow/tfjs-4.22.0.min.js"));
+  assert.ok(serviceSource.includes("vendor/tensorflow/mobilenet-2.1.1.min.js"));
+  assert.doesNotMatch(serviceSource, /https?:\/\//);
   assert.ok(serviceSource.includes("extractMobileNetSpatialGrid"));
   assert.ok(serviceSource.includes("imageFeatureCache"));
   assert.ok(!serviceSource.includes("superpoint"));

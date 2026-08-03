@@ -1,3 +1,5 @@
+import { liveComponentLayerProjection } from "../domain/component-layer-projection.js";
+
 // Expensive semantic snapshots for the bounded performance capture only.
 // Callers must gate this behind an active profiling session.
 export function captureControlLiveProfileDiagnostic(state = {}, renderState = {}, context = {}) {
@@ -6,7 +8,7 @@ export function captureControlLiveProfileDiagnostic(state = {}, renderState = {}
   const relevantComponentIds = collectRelevantComponentIds(live, renderState);
   const componentIds = [...relevantComponentIds];
   const common = {
-    schema: "vj1-live-profile-diagnostic@3",
+    schema: "vj1-live-profile-diagnostic@4",
     capturedAtMs: performance.now(),
     control: {
       workspace: String(state.ui?.workspace || ""),
@@ -41,7 +43,7 @@ export function captureControlLiveProfileDiagnostic(state = {}, renderState = {}
         .slice(0, 12)
         .map((id) => componentById.get(id))
         .filter(Boolean)
-        .map(snapshotComponent),
+        .map((component) => snapshotComponent(renderState, component)),
     },
   };
 }
@@ -65,7 +67,7 @@ function collectRelevantComponentIds(live = {}, renderState = {}) {
   return ids;
 }
 
-function snapshotComponent(component = {}) {
+function snapshotComponent(state = {}, component = {}) {
   return {
     id: String(component.id || ""),
     name: String(component.name || ""),
@@ -74,7 +76,17 @@ function snapshotComponent(component = {}) {
     speed: component.speed,
     blend: component.blend,
     transform: boundedProfileValue(component.transform),
-    chain: (component.chain || []).slice(0, 32).map(snapshotChainItem),
+    nodes: liveComponentLayerProjection(state, component)
+      .slice(0, 32)
+      .map(snapshotLayer),
+  };
+}
+
+function snapshotLayer(layer = {}) {
+  return {
+    nodeId: String(layer.nodeId || ""),
+    configuration: snapshotChainItem(layer.item),
+    nodes: (layer.children || []).slice(0, 32).map(snapshotLayer),
   };
 }
 
@@ -96,7 +108,6 @@ function snapshotChainItem(item = {}) {
       params: boundedProfileValue(item.source.params || {}),
     } : undefined,
     params: boundedProfileValue(item.params),
-    chain: Array.isArray(item.chain) ? item.chain.slice(0, 32).map(snapshotChainItem) : undefined,
   };
 }
 
@@ -117,6 +128,7 @@ function snapshotPatch(patch = {}) {
     target: String(patch.target || "component"),
     targetId: String(patch.targetId || ""),
     componentId: String(patch.componentId || ""),
+    nodeId: String(patch.nodeId || ""),
     path: String(patch.path || ""),
     value: boundedProfileValue(patch.value),
   };

@@ -18,6 +18,11 @@ import { parameterAnimationTracks } from "../libraries/composition-engine/shared
 import { getByPath } from "./path-input-utils.js";
 import { dmxProbeComponentForState } from "../libraries/dmx-engine/index.js";
 import { liveParameterDiffBank } from "../domain/live-parameter-diffs.js";
+import {
+  componentLayerProjection,
+  componentParameterAddress,
+  liveComponentLayerProjection,
+} from "../domain/component-layer-projection.js";
 
 const PROJECTION_FIT_MODES = ["cover", "contain", "stretch"];
 
@@ -154,7 +159,7 @@ export function liveScenePillTemplate(scene, state) {
     : (live.overallSourceCleared === true ? "" : live.selectedComponentId || liveSelectedSceneId(state)));
   const selected = selectedTargetId === String(scene.id);
   return `
-    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(scene))}">
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(scene, state))}">
       <button type="button" class="component-card scene-card live-scene-card ${selected ? "is-selected" : ""}" data-live-scene="${esc(scene.id)}">
         ${thumbnailTemplate(scene.thumbnail, UI_ICONS.scene, scene.id)}
         ${componentCardBarTemplate(scene.name, UI_ICONS.scene)}
@@ -172,7 +177,7 @@ export function liveTargetComponentPillTemplate(component, state) {
     : live.selectedComponentId || "";
   const selected = String(selectedId) === String(component.id);
   return `
-    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(component))}">
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(component, state))}">
       <button type="button" class="component-card live-component-picker ${selected ? "is-selected" : ""}" data-live-target-component="${esc(component.id)}">
         ${thumbnailTemplate(component.thumbnail, UI_ICONS.component, component.id)}
         ${componentCardBarTemplate(component.name, UI_ICONS.component)}
@@ -194,9 +199,10 @@ export function liveInspectorTemplate(state) {
   const selected = getLiveSelectedTarget(state);
   if (!selected) return panelTemplate("tune", "Live", emptyStateTemplate("No sources"), { empty: true });
   const selectedView = selected ? createLiveComponentView(selected, state) : null;
-  const selectedElement = selected ? selectedLiveChainItem(selectedView?.chain || [], selected.id, state) : null;
+  const layers = selected ? liveComponentLayerProjection(state, selected) : [];
+  const selectedElement = selected ? selectedLiveLayer(layers, selected.id, state) : null;
   const componentView = state.ui?.live?.componentView === "elements" ? "elements" : "controls";
-  return `${selected ? liveComponentTemplate(selected, selectedView, selectedElement, state, componentView) : ""}${componentView === "elements" && selectedElement ? liveSelectedChainSettingsTemplate(selectedElement, selected.id, state) : ""}`
+  return `${selected ? liveComponentTemplate(selected, selectedView, layers, selectedElement, state, componentView) : ""}${componentView === "elements" && selectedElement ? liveSelectedChainSettingsTemplate(selectedElement, selected.id, state) : ""}`
     || panelTemplate("tune", selected.name, emptyStateTemplate("No controls"));
 }
 
@@ -217,7 +223,7 @@ export function liveNavigableComponents(scene, state) {
     if (!component || seen.has(component.id)) return;
     seen.add(component.id);
     result.push(component);
-    for (const item of nestedChainItems(component.chain || [])) {
+    for (const { item } of nestedLayers(componentLayerProjection(state, component))) {
       if (item.kind !== "source" || item.source?.type !== "component") continue;
       visit(state.components?.find((candidate) => candidate.id === item.source.componentId));
     }
@@ -266,7 +272,7 @@ export function liveProgramSignificantControlsTemplate(state = {}) {
           `data-live-animation-track-id="${esc(assignment.trackId)}"`,
           "data-live-animation-update",
         ].join(" ")
-      : liveParamAttrs(component.id, assignment.itemId);
+      : liveParamAttrs(component.id, assignment.nodeId);
     return paramControlTemplate({
       id: assignment.field || assignment.path,
       label: assignment.name,
@@ -291,6 +297,10 @@ function liveSignificantAssignmentValue(assignment, component, state) {
       assignment.targetNodeId,
     ).find((track) => track.id === assignment.trackId)?.[assignment.field];
   }
+  if (assignment.nodeId) {
+    const layer = findLayer(liveComponentLayerProjection(state, component), assignment.nodeId);
+    return getByPath(layer?.item, assignment.path);
+  }
   return getByPath(createLiveComponentView(component, state), assignment.path);
 }
 
@@ -314,11 +324,10 @@ export function significantParameterValueFromUnit(assignment = {}, unitValue = 0
 
 function componentSignificantParameterAssignments(component, state) {
   const registry = new Map();
-  collectSignificantParameterDefinitions(component.chain || [], {
+  collectSignificantParameterDefinitions(componentLayerProjection(state, component), {
     component,
     state,
     registry,
-    relativeBase: "chain",
   });
   const chainAssignments = (component.significantParams || [])
     .map((path) => registry.get(path))
@@ -354,28 +363,27 @@ function componentSignificantAnimationAssignments(component, state) {
   });
 }
 
-function collectSignificantParameterDefinitions(chain, {
+function collectSignificantParameterDefinitions(layers, {
   component,
   state,
   registry,
-  relativeBase,
 }) {
-  for (let index = 0; index < (chain || []).length; index++) {
-    const item = chain[index];
-    const relativePath = `${relativeBase}.${index}`;
+  for (let index = 0; index < (layers || []).length; index++) {
+    const layer = layers[index];
+    const item = layer.item;
     const itemLabel = item?.name || item?.id || `Element ${index + 1}`;
-    const register = (markedPath, updatePath, param) => {
+    const register = (configurationPath, param) => {
       if (param?.type !== "number") return;
       const min = Number(param.min);
       const max = Number(param.max);
       if (!Number.isFinite(min) || !Number.isFinite(max) || max <= min) return;
-      registry.set(markedPath, {
-        id: `${component.id}:${updatePath}`,
+      registry.set(componentParameterAddress(layer.nodeId, configurationPath), {
+        id: `${component.id}:${layer.nodeId}:${configurationPath}`,
         name: `${component.name} · ${param.label || param.id}`,
         detail: itemLabel,
         componentId: component.id,
-        itemId: String(item?.id || ""),
-        path: updatePath,
+        nodeId: layer.nodeId,
+        path: configurationPath,
         min,
         max,
         step: Number(param.step) || 0,
@@ -384,28 +392,19 @@ function collectSignificantParameterDefinitions(chain, {
     };
 
     for (const param of CHAIN_COMPOSITE_PARAMS) {
-      register(`${relativePath}.${param.id}`, `${relativePath}.${param.id}`, param);
+      register(param.id, param);
     }
     for (const param of chainTransformParams(item?.transform)) {
-      register(
-        `${relativePath}.transform.${param.id}`,
-        `${relativePath}.transform.${param.id}`,
-        param,
-      );
+      register(`transform.${param.id}`, param);
     }
     for (const param of chainBoundaryPositionParams(item?.boundary)) {
-      register(
-        `${relativePath}.boundary.${param.id}`,
-        `${relativePath}.boundary.${param.id}`,
-        param,
-      );
+      register(`boundary.${param.id}`, param);
     }
     if (item?.kind === "group") {
-      collectSignificantParameterDefinitions(item.chain || [], {
+      collectSignificantParameterDefinitions(layer.children || [], {
         component,
         state,
         registry,
-        relativeBase: `${relativePath}.chain`,
       });
       continue;
     }
@@ -414,12 +413,9 @@ function collectSignificantParameterDefinitions(chain, {
       : sourceLiveParams(item?.source || {}, null, state);
     for (const param of definitions) {
       const updatePath = item?.kind === "source"
-        ? `${relativePath}.source.params.${param.id}`
-        : `${relativePath}.params.${param.id}`;
-      register(updatePath, updatePath, param);
-      if (item?.kind === "source") {
-        register(`${relativePath}.params.${param.id}`, updatePath, param);
-      }
+        ? `source.params.${param.id}`
+        : `params.${param.id}`;
+      register(updatePath, param);
     }
   }
 }
@@ -437,12 +433,9 @@ export function liveProgramNavigableComponents(state, nowMs = Date.now()) {
 
 export function sceneSignificantComponentTemplate(component, state) {
   const paths = new Set(component?.significantParams || []);
-  const componentIndex = state.components?.findIndex((candidate) => candidate.id === component?.id) ?? -1;
-  if (!component || componentIndex < 0 || !paths.size) return "";
-  const controls = significantChainControls(component.chain || [], {
+  if (!component || !paths.size) return "";
+  const controls = significantLayerControls(componentLayerProjection(state, component), {
     componentId: component.id,
-    relativeBase: "chain",
-    updateBase: `components.${componentIndex}.chain`,
     paths,
     attrs: "data-update",
     media: state.media || [],
@@ -452,28 +445,27 @@ export function sceneSignificantComponentTemplate(component, state) {
   return `<section class="ui-section focus-panel scene-significant-panel"><header class="ui-section-header panel-title"><span class="material-symbols-rounded">star</span><span>Significant · ${esc(component.name)}</span>${deepEditButtonTemplate(component.id, { className: "header-edit-button", label: `Edit ${component.name}` })}</header>${controls}</section>`;
 }
 
-function significantChainControls(chain, options) {
-  const { componentId, relativeBase, updateBase, paths, attrs, media = [], state = {} } = options;
-  return (chain || []).map((item, index) => {
+function significantLayerControls(layers, options) {
+  const { componentId, paths, attrs, media = [], state = {} } = options;
+  return (layers || []).map((layer, index) => {
+    const item = layer.item;
     const controlAttrs = attrs.includes("data-live-update")
-      ? liveParamAttrs(componentId, item.id)
+      ? liveParamAttrs(componentId, layer.nodeId)
       : attrs;
-    const relativePath = `${relativeBase}.${index}`;
-    const updatePath = `${updateBase}.${index}`;
-    const nested = item.kind === "group" ? significantChainControls(item.chain || [], {
+    const updatePath = layer.path;
+    const marked = (path) => paths.has(componentParameterAddress(layer.nodeId, path));
+    const nested = item.kind === "group" ? significantLayerControls(layer.children || [], {
       ...options,
-      relativeBase: `${relativePath}.chain`,
-      updateBase: `${updatePath}.chain`,
     }) : "";
     const significantTransforms = chainTransformParams(item.transform)
-      .filter((param) => paths.has(`${relativePath}.transform.${param.id}`));
+      .filter((param) => marked(`transform.${param.id}`));
     const transformControls = significantTransforms.length ? paramControlsTemplate(significantTransforms, {
       pathFor: (param) => `${updatePath}.transform.${param.id}`,
       valueFor: (param) => normalizeParamValue(param, item.transform?.[param.id]),
       attrs: controlAttrs,
       isSignificant: () => attrs === "data-update",
     }) : "";
-    const significantComposite = CHAIN_COMPOSITE_PARAMS.filter((param) => paths.has(`${relativePath}.${param.id}`));
+    const significantComposite = CHAIN_COMPOSITE_PARAMS.filter((param) => marked(param.id));
     const compositeControls = significantComposite.length ? paramControlsTemplate(significantComposite, {
       pathFor: (param) => `${updatePath}.${param.id}`,
       valueFor: (param) => normalizeParamValue(param, item?.[param.id]),
@@ -489,25 +481,17 @@ function significantChainControls(chain, options) {
     const definitions = item.kind === "effect"
       ? visualEffectComponent(state, item.componentId, item)?.params || []
       : sourceLiveParams(item.source || {}, media.find((entry) => entry.id === item.source?.mediaId), state);
-    const significant = definitions.filter((param) => significantParamPath(
-      paths,
-      relativePath,
-      param.id,
-      item.kind === "source"
+    const significant = definitions.filter((param) => marked(
+      item.kind === "source" ? `source.params.${param.id}` : `params.${param.id}`
     ));
     if (!significant.length && !transformControls && !compositeControls) return "";
     const values = item.kind === "effect"
       ? item
       : { params: { ...(item.source?.params || {}) } };
     const contentControls = significant.length ? paramControlsTemplate(significant, {
-      pathFor: (param) => significantParamUpdatePath({
-        attrs,
-        paths,
-        relativePath,
-        updatePath,
-        paramId: param.id,
-        source: item.kind === "source",
-      }),
+      pathFor: (param) => item.kind === "source"
+        ? `${updatePath}.source.params.${param.id}`
+        : `${updatePath}.params.${param.id}`,
       valueFor: (param) => item.kind === "effect"
         ? paramCurrentValue(visualEffectComponent(state, item.componentId, item), values, param)
         : normalizeParamValue(param, values.params[param.id]),
@@ -523,25 +507,14 @@ function significantChainControls(chain, options) {
   }).join("");
 }
 
-function significantParamPath(paths, relativePath, paramId, source = false) {
-  if (paths.has(`${relativePath}.params.${paramId}`)) return true;
-  return source && paths.has(`${relativePath}.source.params.${paramId}`);
-}
-
-function significantParamUpdatePath({ attrs, paths, relativePath, updatePath, paramId, source }) {
-  const persistedSourcePath = `${relativePath}.source.params.${paramId}`;
-  if (source) return `${updatePath}.source.params.${paramId}`;
-  return `${updatePath}.params.${paramId}`;
-}
-
-function* nestedChainItems(chain = []) {
-  for (const item of chain || []) {
-    yield item;
-    if (item?.kind === "group") yield* nestedChainItems(item.chain || []);
+function* nestedLayers(layers = []) {
+  for (const layer of layers || []) {
+    yield layer;
+    yield* nestedLayers(layer.children || []);
   }
 }
 
-function liveComponentTemplate(component, view, selectedElement, state, componentView = "controls") {
+function liveComponentTemplate(component, view, layers, selectedElement, state, componentView = "controls") {
   return `
     <article class="ui-section focus-panel live-component-card">
       <header class="ui-section-header panel-title live-component-head">
@@ -555,7 +528,7 @@ function liveComponentTemplate(component, view, selectedElement, state, componen
       </div>
       ${componentView === "controls"
         ? liveComponentControlsTemplate(component, view, state)
-        : liveChainOutlineTemplate(view?.chain || [], component.id, selectedElement?.item?.id, "chain", state)}
+        : liveLayerOutlineTemplate(layers, component.id, selectedElement?.nodeId, state)}
     </article>
   `;
 }
@@ -578,11 +551,11 @@ function liveComponentControlsTemplate(component, view, state = {}) {
   `;
 }
 
-function liveChainOutlineTemplate(chain, componentId, selectedItemId = "", pathBase = "chain", state = {}) {
-  if (!chain?.length) return emptyNote("No elements");
+function liveLayerOutlineTemplate(layers, componentId, selectedNodeId = "", state = {}) {
+  if (!layers?.length) return emptyNote("No elements");
   return elementListTemplate(
     `live-elements:${componentId}`,
-    chain.map((item, index) => liveChainOutlineItemTemplate(item, componentId, selectedItemId, `${pathBase}.${index}`, state)).join(""),
+    layers.map((layer) => liveLayerOutlineItemTemplate(layer, componentId, selectedNodeId, state)).join(""),
     {
       className: "live-element-list-surface",
       listClassName: "live-chain-outline",
@@ -592,17 +565,18 @@ function liveChainOutlineTemplate(chain, componentId, selectedItemId = "", pathB
   );
 }
 
-function liveChainOutlineItemTemplate(item, componentId, selectedItemId, path, state) {
+function liveLayerOutlineItemTemplate(layer, componentId, selectedNodeId, state) {
+  const item = layer.item;
   const label = liveChainItemLabel(item, state);
   const iconName = item.kind === "effect" ? effectIcon(item.componentId) : item.kind === "group" ? UI_ICONS.group : sourceIcon(item.source || {});
   const type = item.kind === "effect" ? "effect" : item.kind === "group" ? "group" : item.source?.type === "generator" ? "generator" : "source";
   const row = textListItemTemplate({
     rowClass: "live-chain-outline-row compact-list-row",
-    selected: item.id === selectedItemId,
+    selected: layer.nodeId === selectedNodeId,
     leadingHtml: enableToggleButton({
-      livePath: `${path}.enabled`,
+      livePath: "enabled",
       componentId,
-      itemId: item.id,
+      nodeId: layer.nodeId,
       value: item.enabled !== false,
       iconName,
       label,
@@ -611,26 +585,26 @@ function liveChainOutlineItemTemplate(item, componentId, selectedItemId, path, s
     meta: type,
     mainClass: "live-chain-outline-select",
     mainAction: "data-live-chain-item",
-    mainActionId: item.id,
+    mainActionId: layer.nodeId,
     mainAttributes: `data-live-component-id="${esc(componentId)}"`,
   });
   return `
     <div class="live-chain-outline-branch" role="treeitem" aria-expanded="${item.kind === "group" ? "true" : "false"}">
       ${row}
-      ${item.kind === "group" && item.chain?.length ? `<div class="live-chain-outline-children">${item.chain.map((child, index) => liveChainOutlineItemTemplate(child, componentId, selectedItemId, `${path}.chain.${index}`, state)).join("")}</div>` : ""}
+      ${item.kind === "group" && layer.children.length ? `<div class="live-chain-outline-children">${layer.children.map((child) => liveLayerOutlineItemTemplate(child, componentId, selectedNodeId, state)).join("")}</div>` : ""}
     </div>
   `;
 }
 
 function liveSelectedChainSettingsTemplate(selected, componentId, state) {
-  const { item, path } = selected;
+  const { item, nodeId } = selected;
   const label = liveChainItemLabel(item, state);
   const iconName = item.kind === "effect" ? effectIcon(item.componentId) : item.kind === "group" ? UI_ICONS.group : sourceIcon(item.source || {});
   const tabName = `live-chain-param-view-${String(componentId).replace(/[^a-z0-9_-]/gi, "-")}-${String(item.id).replace(/[^a-z0-9_-]/gi, "-")}`;
-  const primary = liveChainItemContentTemplate(item, componentId, path, "primary", state);
-  const details = liveChainItemContentTemplate(item, componentId, path, "details", state);
-  const views = chainParamViewDefinitions(primary, details, chainGeneralControlsTemplate(item, path, {
-    attrs: liveParamAttrs(componentId, item.id),
+  const primary = liveChainItemContentTemplate(item, componentId, "", "primary", state, nodeId);
+  const details = liveChainItemContentTemplate(item, componentId, "", "details", state, nodeId);
+  const views = chainParamViewDefinitions(primary, details, chainGeneralControlsTemplate(item, "", {
+    attrs: liveParamAttrs(componentId, nodeId),
   }));
   return `
     <section class="ui-section focus-panel chain-settings-panel live-chain-settings" aria-label="Selected live element parameters">
@@ -646,18 +620,18 @@ function liveSelectedChainSettingsTemplate(selected, componentId, state) {
   `;
 }
 
-function liveChainItemContentTemplate(item, componentId, path, paramView = "primary", state = {}) {
+function liveChainItemContentTemplate(item, componentId, path, paramView = "primary", state = {}, nodeId = "") {
   if (item.kind === "effect") {
     const component = visualEffectComponent(state, item.componentId, item);
     const params = (componentParamViews(component)[paramView] || []).map(effectDisplayParam);
-    return params.length ? liveShaderParamControlsTemplate(component, item, componentId, path, params) : "";
+    return params.length ? liveShaderParamControlsTemplate(component, item, componentId, path, params, nodeId) : "";
   }
   if (item.kind === "group") return "";
   const media = state.media?.find((entry) => entry.id === sourceBackedMediaId(item.source)) || null;
   const params = sourceLiveParams(item.source || {}, media, state);
   const viewParams = componentParamViews({ params })[paramView] || [];
-  if (paramView === "details") return viewParams.length ? liveSourceParamControlsTemplate(item, componentId, path, viewParams) : "";
-  return liveSourceParamControlsTemplate(item, componentId, path, viewParams);
+  if (paramView === "details") return viewParams.length ? liveSourceParamControlsTemplate(item, componentId, path, viewParams, nodeId) : "";
+  return liveSourceParamControlsTemplate(item, componentId, path, viewParams, nodeId);
 }
 
 function liveComponentPlacementControlsTemplate(transform = {}, componentId) {
@@ -672,28 +646,19 @@ function effectDisplayParam(param) {
   return param?.id === "amount" ? { ...param, label: "Effect strength" } : param;
 }
 
-function selectedLiveChainItem(chain, componentId, state) {
+function selectedLiveLayer(layers, componentId, state) {
   const selectedByComponent = state.ui?.live?.selectedChainItemIds?.[componentId];
   const selectedId = selectedByComponent || state.ui?.live?.selectedChainItemId || "";
-  return findLiveChainItem(chain, selectedId) || firstLiveChainItem(chain);
+  return findLayer(layers, selectedId) || layers?.[0] || null;
 }
 
-function findLiveChainItem(chain, id, base = "chain") {
-  for (let index = 0; index < (chain || []).length; index++) {
-    const item = chain[index];
-    const path = `${base}.${index}`;
-    if (item.id === id) return { item, path };
-    if (item.kind === "group") {
-      const nested = findLiveChainItem(item.chain || [], id, `${path}.chain`);
-      if (nested) return nested;
-    }
+function findLayer(layers, id) {
+  for (const layer of layers || []) {
+    if (layer.nodeId === id) return layer;
+    const nested = findLayer(layer.children, id);
+    if (nested) return nested;
   }
   return null;
-}
-
-function firstLiveChainItem(chain, base = "chain") {
-  const item = chain?.[0];
-  return item ? { item, path: `${base}.0` } : null;
 }
 
 function liveChainItemLabel(item, state = {}) {
@@ -704,28 +669,28 @@ function liveChainItemLabel(item, state = {}) {
   return sourceChainItemDisplayName(item, media, component, state);
 }
 
-function liveShaderParamControlsTemplate(component, item, componentId, itemPath, params = component?.params || []) {
+function liveShaderParamControlsTemplate(component, item, componentId, itemPath, params = component?.params || [], nodeId = "") {
   if (!params.length) return "";
   return `
     <div class="chain-param-list">
       ${paramControlsTemplate(params, {
-        pathFor: (param) => `${itemPath}.params.${param.id}`,
+        pathFor: (param) => joinConfigurationPath(itemPath, `params.${param.id}`),
         valueFor: (param) => paramCurrentValue(component, item, param),
-        attrs: liveParamAttrs(componentId, item.id),
+        attrs: liveParamAttrs(componentId, nodeId),
       })}
     </div>
   `;
 }
 
-function liveSourceParamControlsTemplate(item, componentId, itemPath, params = []) {
+function liveSourceParamControlsTemplate(item, componentId, itemPath, params = [], nodeId = "") {
   if (!params.length) return "";
   const values = item.source?.params && typeof item.source.params === "object" ? item.source.params : {};
   return `
     <div class="chain-param-list">
       ${paramControlsTemplate(params, {
-        pathFor: (param) => `${itemPath}.source.params.${param.id}`,
+        pathFor: (param) => joinConfigurationPath(itemPath, `source.params.${param.id}`),
         valueFor: (param) => normalizeParamValue(param, values[param.id]),
-        attrs: liveParamAttrs(componentId, item.id),
+        attrs: liveParamAttrs(componentId, nodeId),
       })}
     </div>
   `;
@@ -748,8 +713,14 @@ function visualEffectComponent(state, id, item = {}) {
   return dmxProbeComponentForState(component, state, item);
 }
 
-function liveParamAttrs(componentId, itemId = "") {
-  return `data-live-component-id="${esc(componentId)}" ${itemId ? `data-live-item-id="${esc(itemId)}" ` : ""}data-live-update`;
+function liveParamAttrs(componentId, nodeId = "") {
+  return `data-live-component-id="${esc(componentId)}" ${nodeId ? `data-live-node-id="${esc(nodeId)}" ` : ""}data-live-update`;
+}
+
+function joinConfigurationPath(base, path) {
+  return [String(base || "").replace(/\.$/, ""), String(path || "").replace(/^\./, "")]
+    .filter(Boolean)
+    .join(".");
 }
 
 function liveRangeTemplate(label, componentId, path, value, min = 0, max = 1, step = 0.01) {

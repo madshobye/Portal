@@ -1,0 +1,35 @@
+{
+  "formatVersion": 1,
+  "dependencies": [
+    {
+      "name": "p5.js",
+      "version": "2.2.0",
+      "path": "vendor/p5/p5-2.2.0.min.js",
+      "sha256": "247c3a92239a0f380b869931d7d3ce7af2fa0f69e7f3800336c872e01eaead15"
+    },
+    {
+      "name": "@tensorflow/tfjs",
+      "version": "4.22.0",
+      "path": "vendor/tensorflow/tfjs-4.22.0.min.js",
+      "sha256": "300dfae273d20b4046f46a06d735688f03675a807561e9bcb5f664eb2f3d2831"
+    },
+    {
+      "name": "@tensorflow-models/mobilenet",
+      "version": "2.1.1",
+      "path": "vendor/tensorflow/mobilenet-2.1.1.min.js",
+      "sha256": "8d647cdfef79d37353fea7a1645a451aca63b0118ad1ec21d451026386411f9e"
+    },
+    {
+      "name": "Material Symbols Rounded",
+      "version": "v365",
+      "path": "vendor/material-symbols/material-symbols-rounded-v365.ttf",
+      "sha256": "9df663cb874c89dee9638c1ceb7e0fbe1d7fecbf9ed79886ac8fa6d87546d52a"
+    },
+    {
+      "name": "Roboto Mono",
+      "version": "project-pinned",
+      "path": "assets/RobotoMono-Regular.ttf",
+      "sha256": "e4bf45837847d4abfa5a502b807a83393aa138727bdb9ea9c93fb17d53208d95"
+    }
+  ]
+}

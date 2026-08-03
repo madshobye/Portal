@@ -25,6 +25,8 @@ export class OutputMediaRuntime {
     maxCachedMedia = 12,
     maxCachedMediaBytes = 256 * 1024 * 1024,
     cameraIdleGraceMs,
+    cameraFactory,
+    screenCapture,
   } = {}) {
     this.getRenderSettings = getRenderSettings || (() => ({}));
     this.requestMediaFiles = requestMediaFiles;
@@ -35,7 +37,12 @@ export class OutputMediaRuntime {
     this.media = new Map();
     this.pendingRenditionSaves = new Set();
     this.lastMediaRequestAt = 0;
-    this.inputRuntime = new SharedInputRuntime({ getRenderSettings: this.getRenderSettings, cameraIdleGraceMs });
+    this.inputRuntime = new SharedInputRuntime({
+      getRenderSettings: this.getRenderSettings,
+      cameraIdleGraceMs,
+      cameraFactory,
+      screenCapture,
+    });
     this.activeVideos = new Set();
     this.activeMediaItems = new Set();
     this.reservedMediaIds = new Set();

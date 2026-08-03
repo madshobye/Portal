@@ -61,6 +61,13 @@ test("typed effects replace downstream reason/scope policy duplication", () => {
   });
   assert.deepEqual(live.effects.output, { mode: "live-patches", coalesce: false });
   assert.deepEqual(live.effects.preview, { mode: "live-patches" });
+  assert.deepEqual(createChangeEvent("output-metrics").effects.output, { mode: "none" });
+  assert.deepEqual(createChangeEvent("live:scene").effects.preview, { mode: "live-program" });
+  assert.deepEqual(createChangeEvent("workspace").effects.session, {
+    workspace: "persist",
+    live: "persist",
+  });
+  assert.equal(createChangeEvent("project-open").effects.session.live, "restore");
   assert.equal(Object.isFrozen(live.effects), true);
   assert.equal(Object.isFrozen(live.effects.output), true);
 

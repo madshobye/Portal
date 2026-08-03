@@ -29,11 +29,54 @@ export function setLiveParameterDiff(state, componentId, path, value, targetId) 
   return setPathValue(override, path, value, { createMissing: true });
 }
 
+// Node configuration overrides use the same stable address as render patches:
+// Component identity + node identity + configuration-relative path. They do
+// not inherit authored array positions and therefore survive graph reordering.
+export function setLiveNodeParameterDiff(
+  state,
+  componentId,
+  nodeId,
+  path,
+  value,
+  targetId,
+) {
+  if (!componentId || !nodeId || !path) return false;
+  const bank = ensureLiveParameterDiffBank(state, targetId);
+  if (!bank) return false;
+  const override = bank[componentId] ||= {};
+  override.nodes ||= {};
+  const nodeOverride = override.nodes[nodeId] ||= {};
+  return setPathValue(nodeOverride, path, value, { createMissing: true });
+}
+
 export function updateLiveParameterDiffIfPresent(state, componentId, path, value, targetId) {
   const bank = liveParameterDiffBank(state.ui?.live, targetId);
   const override = bank?.[componentId];
   if (!override || !pathValue(override, path).found) return false;
   return setPathValue(override, path, value);
+}
+
+export function updateLiveNodeParameterDiffIfPresent(
+  state,
+  componentId,
+  nodeId,
+  path,
+  value,
+  targetId,
+) {
+  const bank = liveParameterDiffBank(state.ui?.live, targetId);
+  const nodeOverride = bank?.[componentId]?.nodes?.[nodeId];
+  if (!nodeOverride || !pathValue(nodeOverride, path).found) return false;
+  return setPathValue(nodeOverride, path, value);
+}
+
+export function liveNodeParameterDiff(
+  live = {},
+  componentId = "",
+  nodeId = "",
+  targetId = activeLiveTargetId(live),
+) {
+  return liveParameterDiffBank(live, targetId)?.[componentId]?.nodes?.[nodeId] || EMPTY_BANK;
 }
 
 export function clearLiveTargetParameterDiffs(state, targetId) {

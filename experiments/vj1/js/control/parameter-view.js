@@ -2,7 +2,7 @@ import { BLEND_MODES } from "../constants.js";
 import { RENDER_QUALITY_PARAM, createEnumParam, createNumberParam, normalizeParamValue } from "../libraries/visual-nodes/shared/component-schema.js";
 import { esc, formatRangeValue, paramContextAttributes, paramRangePairTemplate } from "./template-utils.js";
 import { markdownToEditorHtml } from "./markdown-editor.js";
-import { screenCaptureStatus } from "../output/screen-capture-service.js";
+import { screenCaptureStatus } from "../libraries/device-engine/index.js";
 import { nodeBoundaryUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
   CHAIN_GENERAL_CONTROL_PATHS,
@@ -144,8 +144,8 @@ export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) 
     pathFor: (param) => param === RENDER_QUALITY_PARAM
       ? qualityTarget.path
       : CHAIN_COMPOSITE_PARAMS.includes(param)
-        ? `${basePath}.${param.id}`
-        : `${basePath}.transform.${param.id}`,
+        ? joinControlPath(basePath, param.id)
+        : joinControlPath(basePath, `transform.${param.id}`),
     valueFor: (param) => param === RENDER_QUALITY_PARAM
       ? normalizeParamValue(param, qualityTarget.value)
       : CHAIN_COMPOSITE_PARAMS.includes(param)
@@ -156,14 +156,14 @@ export function chainGeneralControlsTemplate(item = {}, basePath, options = {}) 
   });
   const normalizedBoundary = normalizeNodeBoundary(item?.boundary);
   const boundaryPosition = paramControlsTemplate(chainBoundaryPositionParams(normalizedBoundary), {
-    pathFor: (param) => `${basePath}.boundary.${param.id}`,
+    pathFor: (param) => joinControlPath(basePath, `boundary.${param.id}`),
     valueFor: (param) => normalizeParamValue(param, normalizedBoundary[param.id]),
     attrs: options.attrs || "data-update",
     isSignificant: options.isSignificant || (() => false),
   });
   const boundaryScale = paramControlTemplate(
     CHAIN_BOUNDARY_SCALE_PARAM,
-    `${basePath}.boundary.scale`,
+    joinControlPath(basePath, "boundary.scale"),
     nodeBoundaryUniformScale(normalizedBoundary),
     options.attrs || "data-update",
     {
@@ -212,12 +212,18 @@ export function chainGeneralAnimationParameters(item = {}) {
 
 export function chainRenderQualityTarget(item = {}, basePath = "") {
   if (item?.kind === "effect") {
-    return { path: `${basePath}.params.${RENDER_QUALITY_PARAM.id}`, value: item?.params?.[RENDER_QUALITY_PARAM.id] };
+    return { path: joinControlPath(basePath, `params.${RENDER_QUALITY_PARAM.id}`), value: item?.params?.[RENDER_QUALITY_PARAM.id] };
   }
   if (item?.kind === "source" && (item?.source?.type === "generator" || item?.source?.type === "media")) {
-    return { path: `${basePath}.source.params.${RENDER_QUALITY_PARAM.id}`, value: item?.source?.params?.[RENDER_QUALITY_PARAM.id] };
+    return { path: joinControlPath(basePath, `source.params.${RENDER_QUALITY_PARAM.id}`), value: item?.source?.params?.[RENDER_QUALITY_PARAM.id] };
   }
   return null;
+}
+
+function joinControlPath(base, relative) {
+  return [String(base || "").replace(/\.$/, ""), String(relative || "").replace(/^\./, "")]
+    .filter(Boolean)
+    .join(".");
 }
 
 export function paramControlsTemplate(params = [], {
@@ -353,8 +359,8 @@ export function screenInputParamControlTemplate(param, path, value, attrs = "dat
 function toggleParamAttributes(attrs, path) {
   if (!attrs.includes("data-live-update")) return `data-toggle-path="${esc(path)}"`;
   const componentId = /data-live-component-id="([^"]*)"/.exec(attrs)?.[1] || "";
-  const itemId = /data-live-item-id="([^"]*)"/.exec(attrs)?.[1] || "";
-  return `data-live-component-id="${esc(componentId)}" ${itemId ? `data-live-item-id="${esc(itemId)}" ` : ""}data-live-toggle="${esc(path)}"`;
+  const nodeId = /data-live-node-id="([^"]*)"/.exec(attrs)?.[1] || "";
+  return `data-live-component-id="${esc(componentId)}" ${nodeId ? `data-live-node-id="${esc(nodeId)}" ` : ""}data-live-toggle="${esc(path)}"`;
 }
 
 export function screenInputOptionsTemplate(inputs = [], selectedId = "") {
@@ -408,12 +414,12 @@ export function colorParamControlTemplate(param, path, value, attrs = "data-upda
   const mode = attrs.includes("data-live-update") ? "live" : "state";
   const liveComponentMatch = /data-live-component-id="([^"]*)"/.exec(attrs);
   const liveComponentId = liveComponentMatch?.[1] || "";
-  const liveItemId = /data-live-item-id="([^"]*)"/.exec(attrs)?.[1] || "";
+  const liveNodeId = /data-live-node-id="([^"]*)"/.exec(attrs)?.[1] || "";
   const rgba = normalizeColorHex(value || param.defaultValue || "#ffffffff");
   const rgb = rgba.slice(0, 7);
   const alpha = colorAlphaFromHex(rgba);
   return `
-    <div class="field range-field color-param chain-param param-context-target${significant ? " is-significant" : ""}" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${paramContextAttributes(path, param.defaultValue, attrs, context)} ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""} ${liveItemId ? `data-live-item-id="${esc(liveItemId)}"` : ""}>
+    <div class="field range-field color-param chain-param param-context-target${significant ? " is-significant" : ""}" data-color-param data-color-mode="${mode}" data-color-path="${esc(path)}" ${paramContextAttributes(path, param.defaultValue, attrs, context)} ${liveComponentId ? `data-live-component-id="${esc(liveComponentId)}"` : ""} ${liveNodeId ? `data-live-node-id="${esc(liveNodeId)}"` : ""}>
       <span>${esc(param.label || param.id)}</span>
       <div class="param-control-track color-param-row">
         <input type="range" min="0" max="1" step="0.01" data-color-alpha value="${alpha}" aria-label="${esc(param.label || param.id)} alpha" />

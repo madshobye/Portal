@@ -198,6 +198,11 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
       if (!definition) throw new Error(`VISUAL_COMPOUND_DEFINITION_MISSING:${path}`);
       const graph = definition.parts?.find((part) => part.kind === "graph");
       if (!graph) throw new Error(`VISUAL_COMPOUND_GRAPH_MISSING:${path}`);
+      // A definition graph is an immutable template shared by every authored
+      // instance. Lower from an instance-owned node tree so public parameter
+      // synchronization cannot mutate a sibling compound's private renderer,
+      // control, or retained-value configuration.
+      const privateNodes = cloneCompoundGraphNodes(graph.nodes || []);
       const selectedOutputs = selectCompoundVisualOutputs(
         definition,
         graph,
@@ -206,10 +211,10 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
       );
       const connections = compoundVisualConnections(definition, graph, path, selectedOutputs);
       const childOperations = compileChildren({
-        nodes: graph.nodes || [],
+        nodes: privateNodes,
         connections,
       }, {
-        chain: (graph.nodes || [])
+        chain: privateNodes
           .filter((child) => child.role !== "control")
           // A Node definition is an immutable template shared by every
           // instance. Its private child configurations are runtime parameter
@@ -232,12 +237,12 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
       // exact render consumer without rebuilding the visual graph.
       const dependencyControlProgram = compileVisualControlProgram({
         id: `${path}.controls`,
-        nodes: graph.nodes || [],
+        nodes: privateNodes,
         connections,
       }, operations, { resolveDefinition });
       const dependencyValueProgram = compileVisualValueProgram({
         id: `${path}.values`,
-        nodes: graph.nodes || [],
+        nodes: privateNodes,
         connections,
       }, operations, { resolveDefinition });
       const dependencyPublicBindings = compileCompoundPublicParameterBindings(
@@ -262,12 +267,12 @@ const defaultVisualHookRegistry = new VisualNodeCompilerHookRegistry([
       dependencyValueProgram.dispose();
       const controlProgram = compileVisualControlProgram({
         id: `${path}.controls`,
-        nodes: graph.nodes || [],
+        nodes: privateNodes,
         connections,
       }, boundOperations, { resolveDefinition });
       const valueProgram = compileVisualValueProgram({
         id: `${path}.values`,
-        nodes: graph.nodes || [],
+        nodes: privateNodes,
         connections,
       }, boundOperations, { resolveDefinition });
       const placementLowering = compoundPlacementLowering(boundOperations, selectedOutputs);
@@ -567,7 +572,6 @@ export function compileVisualRenderPlan(group = {}, component = {}, {
   const authoredOperations = compileOperations(
     group.nodes || [],
     group.connections || [],
-    component.chain || [],
     group.id || "component",
     hooks,
     diagnostics,
@@ -660,14 +664,6 @@ export function visualRenderPlanConfiguration(plan = {}) {
 export function visualRenderPlanRegionSafe(plan = {}, component = null, {
   resolveRoi = null,
 } = {}) {
-  const authoredConfiguration = new Map();
-  const collectAuthored = (chain = []) => {
-    for (const item of chain || []) {
-      if (item?.id) authoredConfiguration.set(String(item.id), item);
-      if (item?.kind === "group") collectAuthored(item.chain || []);
-    }
-  };
-  collectAuthored(component?.chain || []);
   let activeKernels = 0;
   const operationSafe = (operation, configuration) => {
     const contract = operation.contract || {};
@@ -682,9 +678,7 @@ export function visualRenderPlanRegionSafe(plan = {}, component = null, {
   };
   const visit = (operations = [], parentEnabled = true) => {
     for (const operation of operations) {
-      const configuration = authoredConfiguration.get(String(operation.id || ""))
-        || operation.configuration
-        || {};
+      const configuration = operation.configuration || {};
       const enabled = parentEnabled && configuration.enabled !== false;
       if (!enabled) continue;
       const compound = operation.opcode === VISUAL_RENDER_OPCODES.GROUP
@@ -890,18 +884,16 @@ export function inspectVisualRenderPlan(plan = {}) {
     || new VisualRenderPlanIntrospection(plan).snapshot();
 }
 
-function compileOperations(nodes, connections, currentChain, path, hooks, diagnostics, resolveDefinition) {
+function compileOperations(nodes, connections, path, hooks, diagnostics, resolveDefinition) {
   const renderNodes = orderedRenderNodes(nodes, connections, path, diagnostics);
-  const configurationById = new Map((currentChain || []).map((item) => [String(item.id || ""), item]));
   return renderNodes.map((node) => {
-    // The persisted graph owns topology and compiler metadata. Its materialized
-    // Component projection owns live runtime values, so bind the operation to
-    // that exact object when available. Live patches then become visible by
-    // identity without recompiling the plan or synchronizing in the frame loop.
+    // The persisted graph owns both topology and configuration. The compiled
+    // operation is the sole temporary execution model; Component-shaped UI
+    // projections never participate in lowering or retained patch identity.
     const definition = typeof resolveDefinition === "function" ? resolveDefinition(node) : null;
     const compilerHook = node.compilerHook || definition?.metadata?.visualCompilerHook;
     const effectiveNode = compilerHook ? { ...node, compilerHook } : node;
-    const configuration = configurationById.get(String(node.id || "")) || node.configuration
+    const configuration = node.configuration
       || (compilerHook?.id === VISUAL_COMPILER_HOOKS.TEXTURE_OPERATOR
         ? textureOperatorConfiguration(node, definition, compilerHook)
         : null);
@@ -921,7 +913,6 @@ function compileOperations(nodes, connections, currentChain, path, hooks, diagno
       compileChildren: (groupNode, groupConfiguration, groupPath) => compileOperations(
         groupNode.nodes || [],
         groupNode.connections || [],
-        groupConfiguration.chain || [],
         groupPath,
         hooks,
         diagnostics,
@@ -1228,6 +1219,21 @@ function cloneCompoundConfiguration(value, seen = new Map()) {
     clone[key] = cloneCompoundConfiguration(item, seen);
   }
   return clone;
+}
+
+function cloneCompoundGraphNodes(nodes = []) {
+  return nodes.map((node) => ({
+    ...node,
+    ...(node.configuration
+      ? { configuration: cloneCompoundConfiguration(node.configuration) }
+      : {}),
+    ...(node.parameters
+      ? { parameters: cloneCompoundConfiguration(node.parameters) }
+      : {}),
+    ...(node.nodes
+      ? { nodes: cloneCompoundGraphNodes(node.nodes) }
+      : {}),
+  }));
 }
 
 function normalizeOperationContract(operation, diagnostics) {

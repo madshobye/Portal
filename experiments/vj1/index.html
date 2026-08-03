@@ -9,7 +9,6 @@
     />
     <title>VJ1</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'/%3E" />
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0" />
     <link rel="stylesheet" type="text/css" href="style.css?v=isf-toggle-buttons-1" />
   </head>
   <body data-gramm="false" data-gramm_editor="false" data-enable-grammarly="false">
@@ -42,11 +41,21 @@
             workerUrl,
             { scope: "./", updateViaCache: "none" },
           );
-          await registration.update();
-          await navigator.serviceWorker.ready;
           const controllerMatches = () =>
             navigator.serviceWorker.controller?.scriptURL === workerUrl;
-          if (!controllerMatches()) {
+          if (controllerMatches()) {
+            sessionStorage.removeItem(`vj1-source-worker:${sourceRevision}`);
+            registration.update().catch((error) => {
+              console.warn("[VJ1_SOURCE_COHERENCE_REFRESH_FAILED]", error);
+            });
+          } else {
+            await Promise.race([
+              Promise.all([
+                registration.update(),
+                navigator.serviceWorker.ready,
+              ]),
+              new Promise((resolve) => setTimeout(resolve, 4000)),
+            ]);
             await Promise.race([
               new Promise((resolve) => {
                 const changed = () => {
@@ -58,16 +67,15 @@
               }),
               new Promise((resolve) => setTimeout(resolve, 4000)),
             ]);
-          }
-          if (!controllerMatches()) {
-            const reloadKey = `vj1-source-worker:${sourceRevision}`;
-            if (sessionStorage.getItem(reloadKey) !== "ready") {
-              sessionStorage.setItem(reloadKey, "ready");
-              location.reload();
-              return;
+            if (!controllerMatches()) {
+              const reloadKey = `vj1-source-worker:${sourceRevision}`;
+              if (sessionStorage.getItem(reloadKey) !== "ready") {
+                sessionStorage.setItem(reloadKey, "ready");
+                location.reload();
+                return;
+              }
+              throw new Error("VJ1_SOURCE_WORKER_REVISION_MISMATCH");
             }
-            throw new Error("VJ1_SOURCE_WORKER_REVISION_MISMATCH");
-          } else {
             sessionStorage.removeItem(`vj1-source-worker:${sourceRevision}`);
           }
         } catch (error) {

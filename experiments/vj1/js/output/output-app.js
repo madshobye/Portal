@@ -21,6 +21,8 @@ import {
   claimPresentationCanvas,
   publishCanvasOwnershipDiagnostics,
 } from "./canvas-ownership.js";
+import { createPresentationHostLifecycle } from "./presentation-host-lifecycle.js";
+import { screenCaptureService } from "../libraries/device-engine/index.js";
 
 let outputFitSignature = "";
 
@@ -86,12 +88,8 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
   let installedNodePackages = [];
   let bridge = null;
   let renderFont = null;
-  let resizeObserver = null;
-  let observedResizeFrame = 0;
-  let observedResizeSignature = "";
   let diagnosticForwarder = null;
   let pointerSignalSequence = 0;
-  let setupStarted = false;
   const fixtureUrl = fixtureStateUrl();
   const initialStateGate = createOutputInitialStateGate();
   const presentationIdle = createPresentationIdleLifecycle({
@@ -104,15 +102,18 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     start: () => { if (typeof loop === "function") loop(); },
     stop: () => { if (typeof noLoop === "function") noLoop(); },
   });
+  const presentationHost = createPresentationHostLifecycle({
+    onResize: () => {
+      wakeOutputPresentation();
+      resizeOutputIfNeeded(pendingState, mode, renderer);
+    },
+  });
 
   window.addEventListener("pagehide", () => {
     renderer?.dispose?.();
     renderer = null;
     presentationIdle.reset();
-    resizeObserver?.disconnect?.();
-    resizeObserver = null;
-    if (observedResizeFrame) cancelAnimationFrame(observedResizeFrame);
-    observedResizeFrame = 0;
+    presentationHost.dispose();
     diagnosticForwarder?.destroy?.();
     diagnosticForwarder = null;
     diagnostics?.destroy?.();
@@ -125,8 +126,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     // global setup callback. Output owns exactly one presentation renderer;
     // ignore a second setup entry before it can allocate another full-size
     // WebGL canvas/context.
-    if (setupStarted) return;
-    setupStarted = true;
+    if (!presentationHost.claimSetup()) return;
     // p5 can finish loading before either the fixture or Control's registration
     // baseline. Compiling null is never a valid fallback: keep setup pending
     // until the first authoritative state arrives. The bridge heartbeat can
@@ -145,31 +145,10 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
     applyLoadedFont();
     fitOutputCanvas(size);
     const stage = document.querySelector("#output-stage");
-    resizeObserver = typeof ResizeObserver === "function"
-      ? new ResizeObserver((entries = []) => {
-          const rect = entries.at(-1)?.contentRect;
-          const signature = rect
-            ? `${Math.floor(Number(rect.width) || 0)}:${Math.floor(Number(rect.height) || 0)}`
-            : "";
-          if (signature && signature === observedResizeSignature) return;
-          observedResizeSignature = signature;
-          if (observedResizeFrame) return;
-          // Leave ResizeObserver's layout-delivery cycle before resizeCanvas
-          // mutates the output canvas. This prevents undelivered notification
-          // loops while retaining one resize per displayed browser frame.
-          observedResizeFrame = requestAnimationFrame(() => {
-            observedResizeFrame = 0;
-            wakeOutputPresentation();
-            resizeOutputIfNeeded(pendingState, mode, renderer);
-          });
-        })
-      : null;
-    if (resizeObserver && stage) resizeObserver.observe(stage);
+    presentationHost.observe(stage);
     pixelDensity(1);
     frameRate(renderMaxFrameRate(pendingState?.render));
     if (window.p5) window.p5.disableFriendlyErrors = true;
-    window.PORTAL_CANVAS_RESIZE_MODE = "none";
-    await loadClassicScript(VJ1.portalScript);
     renderFont = await loadVjRenderFont();
     applyLoadedFont(renderFont);
     renderer = new OutputRenderer({
@@ -184,6 +163,7 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       sendMapping: (id, mapping, status, meta) => bridge?.mappingState(id, mapping, status, meta),
       requestMediaFiles: (ids) => bridge?.requestMediaFiles(ids),
       requestPresentationFrame: wakeOutputPresentation,
+      screenCapture: screenCaptureService(),
       installedNodePackages,
     });
     // Both startup sources already provide a prepared render state: Control
@@ -363,10 +343,24 @@ export function installOutputApp({ root, mode, diagnostics = null }) {
       const result = preparedState
         ? applyLiveRenderPatches(preparedState, patches)
         : renderer
-          ? renderer.livePatchRuntime.applyLive(patches)
+          ? renderer.livePatchRuntime.applyLive(
+            patches,
+            performance.now(),
+            { transportRevision: revision },
+          )
           : applyLiveRenderPatches(acceptedState, patches);
       if (!result.applied) {
-        requestLivePatchResync("path", { failedPatch: result.failedPatch });
+        renderer?.livePatchRuntime.reportRejection(result, patches, {
+          transportRevision: revision,
+        });
+        requestLivePatchResync("path", {
+          failedPatch: result.failedPatch,
+          rejectionReason: result.rejectionReason,
+          baseRevision,
+          revision,
+          acceptedRevision,
+          receivedRevision,
+        });
         return;
       }
       receivedRevision = revision;

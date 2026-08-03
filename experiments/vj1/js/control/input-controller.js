@@ -1,12 +1,17 @@
 import { bindReorderList } from "./reorder-list.js";
 import { formatTrimTime, roundTrimTime } from "./component-view.js";
 import { getByPath, readInputValue, setByPath, setByPathCreate, syncRangeValue } from "./path-input-utils.js";
-import { createLiveRenderPatch } from "../domain/live-render-patch.js";
+import { createComponentRenderPatch } from "../domain/live-render-patch.js";
 import {
   ensureLiveParameterDiffBank,
   setLiveParameterDiff,
+  setLiveNodeParameterDiff,
 } from "../domain/live-parameter-diffs.js";
 import { applyEditorSelection } from "../domain/editor-selection.js";
+import {
+  componentParameterAddress,
+  componentParameterAddressForPath,
+} from "../domain/component-layer-projection.js";
 import { bindMarkdownEditors } from "./markdown-editor.js";
 import { nodeBoundaryWithUniformScale } from "../libraries/render-engine/roi/index.js";
 import {
@@ -15,6 +20,15 @@ import {
   removeParameterAnimationTrack,
   updateParameterAnimationTrack,
 } from "../libraries/composition-engine/shared/parameter-animation-tracks.js";
+
+function controlRenderPatch(componentId, nodeId, controlPath, value) {
+  return createComponentRenderPatch(
+    componentId,
+    nodeId,
+    controlPath,
+    value,
+  );
+}
 
 export function createInputController({
   store,
@@ -581,14 +595,26 @@ export function createInputController({
     const live = control.dataset.paramContextMode === "live";
     const animation = control.dataset.paramContextKind === "animation";
     const liveComponentId = control.dataset.paramContextComponentId || control.dataset.liveComponentId || "";
-    const liveItemId = control.dataset.paramContextItemId || control.dataset.liveItemId || "";
+    const liveNodeId = control.dataset.paramContextNodeId || control.dataset.liveNodeId || "";
     const componentMatch = /^components\.(\d+)\.(.+)$/.exec(path);
     const state = getState();
+    const graphMatch = /^nodes\.groups\.(\d+)\./.exec(path);
+    const graphComponentId = graphMatch
+      ? String(state.nodes?.groups?.[Number(graphMatch[1])]?.componentId || "")
+      : "";
     const componentIndex = live || animation
       ? state.components?.findIndex((item) => String(item.id) === String(liveComponentId)) ?? -1
-      : componentMatch ? Number(componentMatch[1]) : -1;
+      : componentMatch
+        ? Number(componentMatch[1])
+        : graphComponentId
+          ? state.components?.findIndex((item) => String(item.id) === graphComponentId) ?? -1
+          : -1;
     const component = componentIndex >= 0 ? state.components?.[componentIndex] : null;
-    const relativePath = live ? path : animation ? "" : componentMatch?.[2] || "";
+    const significantAddress = animation || !component
+      ? ""
+      : live
+        ? componentParameterAddress(liveNodeId, path)
+        : componentParameterAddressForPath(state, component, path);
     const animationIdentity = animation ? {
       targetNodeId: control.dataset.paramContextAnimationTargetNodeId || "",
       trackId: control.dataset.paramContextAnimationTrackId || "",
@@ -600,12 +626,12 @@ export function createInputController({
           entry.trackId === animationIdentity.trackId &&
           entry.field === animationIdentity.field
         )
-      : (component.significantParams || []).includes(relativePath));
+      : (component.significantParams || []).includes(significantAddress));
     const boundaryScaleInput = control.querySelector?.("input[type='range']");
     const canMarkSignificant = !!component &&
       (animation
         ? !!animationIdentity.targetNodeId && !!animationIdentity.trackId && !!animationIdentity.field
-        : !!relativePath && !isBoundaryScaleInput(boundaryScaleInput, path));
+        : !!significantAddress && !isBoundaryScaleInput(boundaryScaleInput, path));
     const resettable = control.dataset.paramContextResettable !== "false";
     const menu = document.createElement("div");
     menu.className = "param-context-menu";
@@ -636,8 +662,8 @@ export function createInputController({
           const widthPath = path.replace(/\.scale$/, ".width");
           const heightPath = path.replace(/\.scale$/, ".height");
           if (live) {
-            setLiveOverride(draft, liveComponentId, widthPath, boundaryReset.width);
-            setLiveOverride(draft, liveComponentId, heightPath, boundaryReset.height);
+            setLiveOverride(draft, liveComponentId, widthPath, boundaryReset.width, liveNodeId);
+            setLiveOverride(draft, liveComponentId, heightPath, boundaryReset.height, liveNodeId);
           } else {
             setByPath(draft, widthPath, boundaryReset.width);
             setByPath(draft, heightPath, boundaryReset.height);
@@ -645,7 +671,7 @@ export function createInputController({
           }
           return;
         }
-        if (live) setLiveOverride(draft, liveComponentId, path, value);
+        if (live) setLiveOverride(draft, liveComponentId, path, value, liveNodeId);
         else {
           setByPathCreate(draft, path, value);
           syncMappingEdits(draft, path);
@@ -653,15 +679,15 @@ export function createInputController({
       };
       const livePatches = boundaryReset
         ? [
-            createLiveRenderPatch(liveComponentId, path.replace(/\.scale$/, ".width"), boundaryReset.width, liveItemId),
-            createLiveRenderPatch(liveComponentId, path.replace(/\.scale$/, ".height"), boundaryReset.height, liveItemId),
+            controlRenderPatch(liveComponentId, liveNodeId, path.replace(/\.scale$/, ".width"), boundaryReset.width),
+            controlRenderPatch(liveComponentId, liveNodeId, path.replace(/\.scale$/, ".height"), boundaryReset.height),
           ]
-        : [createLiveRenderPatch(liveComponentId, path, value, liveItemId)];
+        : [controlRenderPatch(liveComponentId, liveNodeId, path, value)];
       updateLiveAware(live, reset, live ? "live:reset-default" : `update:${path}`, live ? livePatches : []);
       menu.remove();
     });
     menu.querySelector("[data-param-significant]")?.addEventListener("click", () => {
-      if (!component || (!relativePath && !animation)) return menu.remove();
+      if (!component || (!significantAddress && !animation)) return menu.remove();
       store.update((draft) => {
         const target = draft.components?.[componentIndex];
         if (!target) return;
@@ -685,8 +711,8 @@ export function createInputController({
           return;
         }
         const paths = new Set(target.significantParams || []);
-        if (paths.has(relativePath)) paths.delete(relativePath);
-        else paths.add(relativePath);
+        if (paths.has(significantAddress)) paths.delete(significantAddress);
+        else paths.add(significantAddress);
         target.significantParams = [...paths];
       }, {
         reason: "update:significant-param",
@@ -787,18 +813,18 @@ export function createInputController({
     if (!path) return;
     const value = colorValueFromControl(control);
     const componentId = control.dataset.liveComponentId;
-    const itemId = control.dataset.liveItemId || "";
+    const nodeId = control.dataset.liveNodeId || "";
     if (control.dataset.colorMode !== "live" &&
         commitComponentValues([{ path, value }], reason)) return;
     updateLiveAware(control.dataset.colorMode === "live", (draft) => {
       if (control.dataset.colorMode === "live") {
-        setLiveOverride(draft, componentId, path, value);
+        setLiveOverride(draft, componentId, path, value, nodeId);
         return;
       }
       const setter = path.includes(".source.params.") ? setByPathCreate : setByPath;
       setter(draft, path, value);
       syncMappingEdits(draft, path);
-    }, reason, [createLiveRenderPatch(componentId, path, value, itemId)]);
+    }, reason, [controlRenderPatch(componentId, nodeId, path, value)]);
   }
 
   function updateVideoTrimFromInputs(control, activeRole, reason) {
@@ -849,23 +875,23 @@ export function createInputController({
     maxInput.value = String(maxValue);
     syncParamRangeControl(control, minValue, maxValue);
     const componentId = minInput.dataset.liveComponentId;
-    const itemId = minInput.dataset.liveItemId || "";
+    const nodeId = minInput.dataset.liveNodeId || "";
     if (!minInput.dataset.liveUpdate && commitComponentValues([
       { path: minPath, value: minValue },
       { path: maxPath, value: maxValue },
     ], reason)) return;
     updateLiveAware(!!minInput.dataset.liveUpdate, (draft) => {
       if (minInput.dataset.liveUpdate) {
-        setLiveOverride(draft, componentId, minPath, minValue);
-        setLiveOverride(draft, componentId, maxPath, maxValue);
+        setLiveOverride(draft, componentId, minPath, minValue, nodeId);
+        setLiveOverride(draft, componentId, maxPath, maxValue, nodeId);
         return;
       }
       setByPathCreate(draft, minPath, minValue);
       setByPathCreate(draft, maxPath, maxValue);
       syncMappingEdits(draft, minPath);
     }, reason, [
-      createLiveRenderPatch(componentId, minPath, minValue, itemId),
-      createLiveRenderPatch(componentId, maxPath, maxValue, itemId),
+      controlRenderPatch(componentId, nodeId, minPath, minValue),
+      controlRenderPatch(componentId, nodeId, maxPath, maxValue),
     ]);
   }
 
@@ -883,7 +909,8 @@ export function createInputController({
         return;
       }
     }
-    if (path.startsWith("components.") && typeof store.setComponentValue === "function") {
+    if ((path.startsWith("components.") || path.startsWith("nodes.groups.")) &&
+        typeof store.setComponentValue === "function") {
       const handled = store.setComponentValue(path, nextValue, {
         reason,
         selectAction: button.dataset.toggleSelectAction || "",
@@ -909,7 +936,10 @@ export function createInputController({
   function commitComponentValues(entries, reason, options = {}) {
     if (typeof store.setComponentValues !== "function" ||
         !entries.length ||
-        entries.some((entry) => !String(entry?.path || "").startsWith("components."))) {
+        entries.some((entry) => {
+          const path = String(entry?.path || "");
+          return !path.startsWith("components.") && !path.startsWith("nodes.groups.");
+        })) {
       return false;
     }
     return store.setComponentValues(entries, { reason, ...options }) === true;
@@ -917,13 +947,13 @@ export function createInputController({
 
   function updateLivePathFromInput(input, reason) {
     const componentId = input.dataset.liveComponentId;
-    const itemId = input.dataset.liveItemId || "";
+    const nodeId = input.dataset.liveNodeId || "";
     const path = input.dataset.liveUpdate;
     const value = readInputValue(input);
     onLiveInput({
       reason,
       componentId: String(componentId || ""),
-      itemId: String(itemId || ""),
+      nodeId: String(nodeId || ""),
       path: String(path || ""),
       value,
       inputType: String(input.type || input.tagName || ""),
@@ -933,11 +963,11 @@ export function createInputController({
       const widthPath = path.replace(/\.scale$/, ".width");
       const heightPath = path.replace(/\.scale$/, ".height");
       updateLiveAware(true, (draft) => {
-        setLiveOverride(draft, componentId, widthPath, boundary.width);
-        setLiveOverride(draft, componentId, heightPath, boundary.height);
+        setLiveOverride(draft, componentId, widthPath, boundary.width, nodeId);
+        setLiveOverride(draft, componentId, heightPath, boundary.height, nodeId);
       }, reason, [
-        createLiveRenderPatch(componentId, widthPath, boundary.width, itemId),
-        createLiveRenderPatch(componentId, heightPath, boundary.height, itemId),
+        controlRenderPatch(componentId, nodeId, widthPath, boundary.width),
+        controlRenderPatch(componentId, nodeId, heightPath, boundary.height),
       ]);
       return;
     }
@@ -945,21 +975,22 @@ export function createInputController({
       draft,
       componentId,
       path,
-      value
-    ), reason, [createLiveRenderPatch(componentId, path, value, itemId)]);
+      value,
+      nodeId,
+    ), reason, [controlRenderPatch(componentId, nodeId, path, value)]);
   }
 
   function toggleLivePathFromButton(button, reason) {
     const componentId = button.dataset.liveComponentId;
-    const itemId = button.dataset.liveItemId || "";
+    const nodeId = button.dataset.liveNodeId || "";
     const path = button.dataset.liveToggle;
     if (!componentId || !path) return;
     const nextValue = applyOptimisticToggleIntent(button);
     updateLiveAware(
       true,
-      (draft) => setLiveOverride(draft, componentId, path, nextValue),
+      (draft) => setLiveOverride(draft, componentId, path, nextValue, nodeId),
       reason,
-      [createLiveRenderPatch(componentId, path, nextValue, itemId)]
+      [controlRenderPatch(componentId, nodeId, path, nextValue)]
     );
     selectToggleTarget(button);
   }
@@ -1006,7 +1037,9 @@ export function isfEventTarget(state = {}, path = "") {
 }
 
 export function isBoundaryScaleInput(input, path = "") {
-  return path.endsWith(".boundary.scale") && input?.dataset?.boundaryWidth !== undefined && input?.dataset?.boundaryHeight !== undefined;
+  return /(^|\.)boundary\.scale$/.test(String(path || "")) &&
+    input?.dataset?.boundaryWidth !== undefined &&
+    input?.dataset?.boundaryHeight !== undefined;
 }
 
 export function boundaryFromScaleInput(input, scale) {
@@ -1041,8 +1074,9 @@ export function applyOptimisticToggleIntent(button) {
   return nextValue;
 }
 
-export function setLiveOverride(state, componentId, path, value) {
-  setLiveParameterDiff(state, componentId, path, value);
+export function setLiveOverride(state, componentId, path, value, nodeId = "") {
+  if (nodeId) setLiveNodeParameterDiff(state, componentId, nodeId, path, value);
+  else setLiveParameterDiff(state, componentId, path, value);
 }
 
 export function setLiveAnimationOverride(

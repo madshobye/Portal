@@ -4,12 +4,11 @@ import { readFileSync } from "node:fs";
 import { generatorIcon } from "../js/control/picker-view.js";
 import { createAuthoredMediaSource } from "../js/domain/authored-visual-source.js";
 
-import { createSceneComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, sanitizeState, sceneSourceNodeId } from "../js/domain/models.js";
+import { createSceneComponent, createComponentEffect, createComponentLayer, createDefaultComponent, createInitialState, createLiveComponentView, createLiveRenderState, sanitizeState, sceneSourceNodeId } from "../js/domain/models.js";
 import { normalizeParamValue, renderQualityScale } from "../js/libraries/visual-nodes/shared/component-schema.js";
 import { getGeneratorNodeComponent as getGeneratorComponent, listGeneratorNodeComponents as listGeneratorComponents } from "../js/libraries/visual-nodes/index.js";
 import { RenderNodeRuntime, textureStateKey } from "../js/libraries/render-engine/render-node-contract.js";
 import { mediaRenderInvalidation } from "../js/libraries/render-engine/invalidation/index.js";
-import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
 import { createOutputInitialStateGate, hasActiveLiveTransition, outputSceneId, retimePreparedSceneTransition, shouldHoldCurrentOutputState, shouldPrepareLiveSceneState, shouldSuspendStableOutputPresentation, transitionTerminalState } from "../js/output/output-app.js";
 import { drawMediaFit } from "../js/output/media-utils.js";
 import { registerRenderTarget, RENDER_TARGET_KIND } from "../js/output/render-target-contract.js";
@@ -17,6 +16,14 @@ import { isReadyMediaItem } from "../js/output/component-render-state.js";
 import { advanceRateClock, advanceSpatialScale, modelDepthCutoff, OutputRenderer, parseObjMesh, qualityAdjustedGeneratorParams, qualityScaledRenderRequest, resolutionScaledStrokeWidth, sourceWithNodeParams, terrainExpandedGridWireVertices, terrainExpandedWireVertices, terrainGridSize, terrainSafeNearDistance, terrainSurfaceGridVertices, terrainSurfaceTriangleIndices, terrainTriangleEdgeUvs, transformedModelDepthRange } from "../js/output/output-renderer.js";
 import { terrainCameraView } from "../js/output/specialized/specialized-source-runtime.js";
 import { getMediaType, isMediaFile } from "../js/services/media-library-service.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
+import { componentLayerProjection, liveComponentLayerProjection } from "../js/domain/component-layer-projection.js";
+import { compileComponentRenderPrograms } from "../js/libraries/composition-engine/index.js";
+
+function preparedGraphSource(state) {
+  const prepared = createVj1NodePackage().prepareProjectState(state);
+  return componentLayerProjection(prepared, prepared.components[0])[0].item.source;
+}
 
 test("media drawing keeps p5 wrappers for WebGL and browser elements for Canvas2D", () => {
   const element = { tagName: "VIDEO", videoWidth: 640, videoHeight: 360 };
@@ -146,12 +153,11 @@ test("media sources keep trim and playback speed through normalization and graph
   assert.equal(source.params.speed, 0.65);
   assert.equal(source.params.fit, "contain");
 
-  const patch = compileComponentPatch(normalized.components[0]);
-  const sourceNode = patch.nodes.find((node) => node.role === "source");
-  assert.equal(sourceNode.params.start, 1.25);
-  assert.equal(sourceNode.params.end, 5.5);
-  assert.equal(sourceNode.params.speed, 0.65);
-  assert.equal(sourceNode.params.fit, "contain");
+  const graphSource = preparedGraphSource(normalized);
+  assert.equal(graphSource.params.start, 1.25);
+  assert.equal(graphSource.params.end, 5.5);
+  assert.equal(graphSource.params.speed, 0.65);
+  assert.equal(graphSource.params.fit, "contain");
 });
 
 test("generator sources keep personality params through normalization and graph compile", () => {
@@ -181,14 +187,13 @@ test("generator sources keep personality params through normalization and graph 
   assert.equal(source.params.pauseAmount, 0.9);
   assert.equal(source.params.jitter, 0.8);
 
-  const patch = compileComponentPatch(normalized.components[0]);
-  const sourceNode = patch.nodes.find((node) => node.role === "source");
-  assert.equal(sourceNode.params.generatorId, "eyeball");
-  assert.equal(sourceNode.params.irisSize, 1.2);
-  assert.equal(sourceNode.params.pupilSize, 1.35);
-  assert.equal(sourceNode.params.motionSpeed, 0.45);
-  assert.equal(sourceNode.params.pauseAmount, 0.9);
-  assert.equal(sourceNode.params.jitter, 0.8);
+  const graphSource = preparedGraphSource(normalized);
+  assert.equal(graphSource.generatorId, "eyeball");
+  assert.equal(graphSource.params.irisSize, 1.2);
+  assert.equal(graphSource.params.pupilSize, 1.35);
+  assert.equal(graphSource.params.motionSpeed, 0.45);
+  assert.equal(graphSource.params.pauseAmount, 0.9);
+  assert.equal(graphSource.params.jitter, 0.8);
 });
 
 test("every generator exposes the shared render quality budget at the current midpoint", () => {
@@ -768,38 +773,44 @@ test("live source param overrides compile through node params", () => {
     }),
   ];
   state.components = [component];
-  state.ui.live = {
+  const packageRoot = createVj1NodePackage();
+  const prepared = packageRoot.prepareProjectState(state);
+  const nodeId = componentLayerProjection(prepared, prepared.components[0])[0].nodeId;
+  prepared.ui.live = {
     selectedSceneId: "",
     selectedComponentId: component.id,
     parameterDiffs: {
       [component.id]: {
         [component.id]: {
         transform: { x: 0.25, y: -0.4, scale: 1.75, rotation: 0.3 },
-        chain: [{
-          source: {
-            params: {
-              colorA: "#ff000080",
-              mode: "single",
+        nodes: {
+          [nodeId]: {
+            source: {
+              params: {
+                colorA: "#ff000080",
+                mode: "single",
+              },
             },
           },
-        }],
+        },
         },
       },
     },
   };
 
-  const liveView = createLiveComponentView(component, state);
+  const liveState = createLiveRenderState(prepared);
+  const liveView = liveState.components[0];
+  const liveLayer = liveComponentLayerProjection(prepared, prepared.components[0])[0].item;
   assert.deepEqual(liveView.transform, { x: 0.25, y: -0.4, scale: 1.75, rotation: 0.3 });
-  assert.equal(liveView.chain[0].source.params.colorA, "#ff000080");
-  assert.equal(liveView.chain[0].source.params.mode, "single");
-  assert.equal(liveView.chain[0].params, undefined);
+  assert.equal(liveLayer.source.params.colorA, "#ff000080");
+  assert.equal(liveLayer.source.params.mode, "single");
+  const program = compileComponentRenderPrograms(liveState.components, liveState.nodes.groups, {
+    resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
+  }).get(component.id);
+  assert.equal(program.plan.operations[0].configuration.source.params.colorA, "#ff000080");
+  assert.equal(program.plan.operations[0].configuration.source.params.mode, "single");
 
-  const patch = compileComponentPatch(liveView);
-  const sourceNode = patch.nodes.find((node) => node.role === "source");
-  assert.equal(sourceNode.params.colorA, "#ff000080");
-  assert.equal(sourceNode.params.mode, "single");
-
-  const renderedSource = sourceWithNodeParams(liveView.chain[0].source, {}, liveView.chain[0].id);
+  const renderedSource = sourceWithNodeParams(liveLayer.source, {}, liveLayer.id);
   assert.equal(renderedSource.params.colorA, "#ff000080");
   assert.equal(renderedSource.params.mode, "single");
 
@@ -856,17 +867,16 @@ test("3d model media is detected and keeps render params", () => {
   assert.equal(source.params.surfaceColor, "#3366ccaa");
   assert.equal(source.params.wireColor, "#ffcc00ff");
 
-  const patch = compileComponentPatch(normalized.components[0]);
-  const sourceNode = patch.nodes.find((node) => node.role === "source");
-  assert.equal(sourceNode.params.mediaId, "models/head.stl");
-  assert.equal(sourceNode.params.renderMode, "wireframe");
-  assert.equal(sourceNode.params.spinY, 0.2);
-  assert.equal(sourceNode.params.pointBudget, 8000);
-  assert.equal(sourceNode.params.visibleDepth, 0.42);
-  assert.equal(sourceNode.params.frontCut, 0.18);
-  assert.equal(sourceNode.params.wireThickness, 3.5);
-  assert.equal(sourceNode.params.surfaceColor, "#3366ccaa");
-  assert.equal(sourceNode.params.wireColor, "#ffcc00ff");
+  const graphSource = preparedGraphSource(normalized);
+  assert.equal(graphSource.params.mediaId, "models/head.stl");
+  assert.equal(graphSource.params.renderMode, "wireframe");
+  assert.equal(graphSource.params.spinY, 0.2);
+  assert.equal(graphSource.params.pointBudget, 8000);
+  assert.equal(graphSource.params.visibleDepth, 0.42);
+  assert.equal(graphSource.params.frontCut, 0.18);
+  assert.equal(graphSource.params.wireThickness, 3.5);
+  assert.equal(graphSource.params.surfaceColor, "#3366ccaa");
+  assert.equal(graphSource.params.wireColor, "#ffcc00ff");
 });
 
 test("source params are canonical and chain-level params are discarded", () => {
@@ -891,9 +901,9 @@ test("source params are canonical and chain-level params are discarded", () => {
   assert.equal(normalizedItem.source.params.surfaceColor, "#3366ccff");
   assert.equal(normalizedItem.source.params.wireColor, "#141414dd");
 
-  const sourceNode = compileComponentPatch(normalized.components[0]).nodes.find((node) => node.role === "source");
-  assert.equal(sourceNode.params.surfaceColor, "#3366ccff");
-  assert.equal(sourceNode.params.wireColor, "#141414dd");
+  const graphSource = preparedGraphSource(normalized);
+  assert.equal(graphSource.params.surfaceColor, "#3366ccff");
+  assert.equal(graphSource.params.wireColor, "#141414dd");
 });
 
 test("obj parser triangulates polygon faces and supports negative indices", () => {
@@ -1040,7 +1050,7 @@ test("live source controls use dynamic param metadata", () => {
   const source = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
   const parameterSource = readFileSync(new URL("../js/control/parameter-view.js", import.meta.url), "utf8");
 
-  assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path, viewParams)"));
+  assert.ok(source.includes("liveSourceParamControlsTemplate(item, componentId, path, viewParams, nodeId)"));
   assert.ok(source.includes("visualGeneratorComponent(state, source.generatorId)?.params"));
   assert.ok(source.includes("listProjectIsfVisualComponents(state)"));
   assert.ok(source.includes("paramControlsTemplate(params,"));
@@ -1626,6 +1636,7 @@ test("playback control pauses the shared preview and output transport", () => {
   const rendererSource = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const frameRuntimeSource = readFileSync(new URL("../js/output/output-frame-runtime.js", import.meta.url), "utf8");
   const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  const sourceResources = readFileSync(new URL("../js/output/source-media-resource-runtime.js", import.meta.url), "utf8");
   const bridgeSource = readFileSync(new URL("../js/services/output-bridge-service.js", import.meta.url), "utf8");
   const paused = createInitialState();
   paused.global.playing = false;
@@ -1641,15 +1652,15 @@ test("playback control pauses the shared preview and output transport", () => {
   assert.ok(frameRuntimeSource.includes("if (!playing) return"));
   assert.ok(frameRuntimeSource.includes("return this.host.state?.global?.playing !== false"));
   assert.doesNotMatch(frameRuntimeSource, /this\.mode !== "output" \|\| this\.state\?\.global\?\.playing/);
-  assert.ok(sourceRuntime.includes("host.frameRuntime.isPlaybackActive() ? 1 : 0"));
-  const playbackOptions = sourceRuntime.slice(
-    sourceRuntime.indexOf("  videoPlaybackOptions("),
-    sourceRuntime.indexOf("  componentContainsVideo(")
+  assert.ok(sourceResources.includes("host.frameRuntime.isPlaybackActive() ? 1 : 0"));
+  const playbackOptions = sourceResources.slice(
+    sourceResources.indexOf("  videoPlaybackOptions("),
+    sourceResources.indexOf("  drawableResourcePlaybackOptions(")
   );
   assert.ok(playbackOptions.includes("globalVisualTimeScale(host.state?.global)"));
   assert.ok(playbackOptions.includes("Number(source.speed)"));
   assert.doesNotMatch(sourceRuntime, /source\.type === "media"/);
-  assert.ok(sourceRuntime.includes("this.videoPlaybackOptions(params, component)"));
+  assert.ok(sourceResources.includes("this.videoPlaybackOptions(params, component)"));
   assert.ok(bridgeSource.includes("const clientWatchdog = setInterval"));
 });
 
@@ -1813,17 +1824,20 @@ test("a Live Canvas element scale patch updates compiled placement demand and re
   const child = createDefaultComponent(0, { empty: true });
   const canvas = createSceneComponent(0, child.id);
   state.components = [child, canvas];
-  renderer.state = state;
+  const prepared = createVj1NodePackage().prepareProjectState(state);
+  const preparedCanvas = prepared.components.find((component) => component.id === canvas.id);
+  const canvasLayer = componentLayerProjection(prepared, preparedCanvas)[0];
+  renderer.state = prepared;
   renderer.componentProgramRuntime.rebuild();
 
   let compiledPlacement = null;
   renderer.componentProgramRuntime.programs.get(canvas.id).forEachOperation((operation) => {
-    if (operation.configuration?.id === canvas.chain[0].id) compiledPlacement = operation.configuration;
+    if (operation.configuration?.id === canvasLayer.item.id) compiledPlacement = operation.configuration;
   });
-  assert.equal(compiledPlacement, canvas.chain[0], "the compiled Canvas operation owns the live materialized element by identity");
+  assert.equal(compiledPlacement, canvasLayer.item, "the compiled Canvas operation owns the graph configuration by identity");
 
   const outputRequest = { role: "component", width: 1000, height: 500 };
-  const signatureBefore = renderer.componentRenderRuntime.stableSignature(canvas, outputRequest);
+  const signatureBefore = renderer.componentRenderRuntime.stableSignature(preparedCanvas, outputRequest);
   let childRequest = null;
   renderer.componentRenderRuntime.render = (_component, _time, request) => {
     childRequest = request;
@@ -1836,7 +1850,7 @@ test("a Live Canvas element scale patch updates compiled placement demand and re
       contentTransform: compiledPlacement.transform,
       instanceId: compiledPlacement.id,
     },
-    canvas,
+    preparedCanvas,
     0,
     outputRequest,
   );
@@ -1845,13 +1859,14 @@ test("a Live Canvas element scale patch updates compiled placement demand and re
 
   const result = renderer.livePatchRuntime.apply([{
     target: "component",
-    componentId: canvas.id,
-    path: "chain.0.transform.scale",
+    componentId: preparedCanvas.id,
+    nodeId: canvasLayer.nodeId,
+    path: "transform.scale",
     value: 2,
   }], 0, 0);
   assert.equal(result.applied, true);
   assert.equal(compiledPlacement.transform.scale, 2);
-  assert.notEqual(renderer.componentRenderRuntime.stableSignature(canvas, outputRequest), signatureBefore);
+  assert.notEqual(renderer.componentRenderRuntime.stableSignature(preparedCanvas, outputRequest), signatureBefore);
 
   resolvePlacement();
   assert.ok(childRequest.width > widthBefore, "Content scale raises the nested Component raster demand through the shared placement contract");

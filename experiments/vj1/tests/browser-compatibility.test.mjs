@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   assertP5RenderCapabilities,
   chromeBrowserIdentity,
+  recordBrowserCapabilityDiagnostics,
   reportBrowserCompatibility,
   VJ1_MINIMUM_CHROME_MAJOR,
 } from "../js/libraries/diagnostics-engine/browser-compatibility.js";
@@ -67,9 +68,43 @@ test("wrong or old browsers produce one explicit startup warning", () => {
   delete host.OffscreenCanvas;
   const status = reportBrowserCompatibility({ host, mode: "control" });
   assert.equal(status.wrongBrowser, true);
-  assert.ok(status.missing.includes("OffscreenCanvas"));
+  assert.ok(status.degraded.some((entry) => entry.name === "OffscreenCanvas"));
   assert.equal(host.warnings.length, 1);
   assert.equal(host.warnings[0][0], "[VJ1_BROWSER_UNSUPPORTED]");
+});
+
+test("optional subsystem capabilities degrade without blocking core startup", () => {
+  const host = capableHost();
+  delete host.FileSystemObserver;
+  delete host.navigator.mediaDevices.getDisplayMedia;
+  const status = reportBrowserCompatibility({ host, mode: "control" });
+  assert.equal(status.supported, true);
+  assert.deepEqual(status.missing, []);
+  assert.deepEqual(status.degraded.map((entry) => entry.subsystem), [
+    "screen capture",
+    "automatic project-folder refresh",
+  ]);
+  assert.equal(host.warnings[0][0], "[VJ1_BROWSER_CAPABILITY_DEGRADED]");
+});
+
+test("optional capability degradation is copied into production diagnostics", () => {
+  const host = capableHost();
+  delete host.FileSystemObserver;
+  const status = reportBrowserCompatibility({ host, mode: "control" });
+  const recorded = [];
+  recordBrowserCapabilityDiagnostics({
+    record: (...args) => recorded.push(args),
+  }, status);
+  assert.deepEqual(recorded, [[
+    "warning",
+    [{
+      code: "VJ1_BROWSER_CAPABILITY_DEGRADED",
+      capability: "FileSystemObserver",
+      subsystem: "automatic project-folder refresh",
+      fallback: "The explicit Refresh command remains available.",
+    }],
+    "browser-capabilities",
+  ]]);
 });
 
 test("an otherwise capable old Chrome build is rejected explicitly", () => {

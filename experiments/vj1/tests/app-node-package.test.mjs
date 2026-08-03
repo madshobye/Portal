@@ -44,6 +44,7 @@ import {
   createLiveRenderState,
 } from "../js/domain/models.js";
 import { migrateProjectData } from "../js/domain/project-migrations.js";
+import { componentLayerProjection } from "../js/domain/component-layer-projection.js";
 import {
   prepareProjectNodeDefinitionEdit,
   selectedNodeEditorTemplate,
@@ -94,6 +95,13 @@ function retainedRenderContext(target, time = 0) {
 function nodeLibraryItemTag(html, definitionId) {
   const escapedId = String(definitionId).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return html.match(new RegExp(`<button[^>]*data-node-library-definition="${escapedId}"[^>]*>`))?.[0] || "";
+}
+
+function graphGroupWithNodeConfiguration(group, nodeId, configuration) {
+  const replace = (nodes = []) => nodes.map((node) => String(node.id || "") === String(nodeId)
+    ? { ...node, configuration }
+    : { ...node, ...(node.nodes ? { nodes: replace(node.nodes) } : {}) });
+  return { ...group, nodes: replace(group.nodes) };
 }
 
 test("application composition root registers reusable visual node definitions", () => {
@@ -341,8 +349,8 @@ test("Components and Canvases persist and compile their executable node topology
   assert.equal(canvasLayerGroup.nodes.find((node) => node.role !== "control").nodeId, "core.visual.source");
   assert.equal(state.nodes.instances.some((instance) => instance.id === "vj1.component.canvas-a/group-a/component-source"), true);
   assert.equal(state.nodes.definitions.some((definition) => definition.id === "vj1.visual.generator.waves"), true);
-  assert.deepEqual(programs.get("component-a").configurationState().map((item) => item.id), ["source-a", "effect-a"]);
-  assert.deepEqual(programs.get("canvas-a").configurationState()[0].chain.map((item) => item.id), ["component-source"]);
+  assert.deepEqual(componentLayerProjection(state, state.components[0]).map((layer) => layer.item.id), ["source-a", "effect-a"]);
+  assert.deepEqual(componentLayerProjection(state, state.components[1])[0].children.map((layer) => layer.item.id), ["component-source"]);
   assert.deepEqual(programs.get("component-a").plan.operations.map((operation) => operation.backend), ["shader-generator", "shader-effect"]);
   assert.equal(programs.get("component-a").plan.executionModel, "compiled-chain");
   assert.deepEqual(programs.get("component-a").plan.operations.map((operation) => operation.textureInputs), [{}, {}]);
@@ -769,6 +777,7 @@ test("model media compiles as an editable mesh-to-Scene node Group", () => {
   const program = compileComponentRenderPrograms(state.components, state.nodes.groups, {
     resolveNodeDefinition: (node) => packageRoot.registry.get(node.nodeId, node.nodeVersion),
   }).get(component.id);
+  const modelNodeId = componentLayerProjection(state, state.components[0])[0].nodeId;
   const operation = program.plan.operations[0];
   const render = operation.operations[0];
   assert.equal(operation.backend, "compiled-visual-group");
@@ -882,7 +891,7 @@ test("model media compiles as an editable mesh-to-Scene node Group", () => {
       },
     },
   };
-  program.replaceChainItem(staticItem.id, staticItem);
+  program.replaceNodeConfiguration(modelNodeId, staticItem);
   operation.valueProgram.evaluate({
     componentTime: 1,
     renderRequest: { width: 640, height: 360 },
@@ -911,7 +920,7 @@ test("model media compiles as an editable mesh-to-Scene node Group", () => {
       },
     },
   };
-  program.replaceChainItem(editedStaticItem.id, editedStaticItem);
+  program.replaceNodeConfiguration(modelNodeId, editedStaticItem);
   operation.valueProgram.evaluate({
     componentTime: 1,
     renderRequest: { width: 640, height: 360 },
@@ -933,7 +942,7 @@ test("model media compiles as an editable mesh-to-Scene node Group", () => {
       },
     },
   };
-  program.replaceChainItem(wireframeItem.id, wireframeItem);
+  program.replaceNodeConfiguration(modelNodeId, wireframeItem);
   operation.valueProgram.evaluate({
     componentTime: 1,
     renderRequest: { width: 640, height: 360 },
@@ -952,7 +961,7 @@ test("model media compiles as an editable mesh-to-Scene node Group", () => {
       },
     },
   };
-  program.replaceChainItem(recoloredSurfaceItem.id, recoloredSurfaceItem);
+  program.replaceNodeConfiguration(modelNodeId, recoloredSurfaceItem);
   operation.valueProgram.evaluate({
     componentTime: 1,
     renderRequest: { width: 640, height: 360 },
@@ -1076,6 +1085,7 @@ test("compiled compound instances own isolated private render configuration", ()
     },
   ).get(component.id);
   const [first, second] = program.plan.operations;
+  const firstNodeId = componentLayerProjection(state, state.components[0])[0].nodeId;
   const firstRender = first.operations.find((child) => child.id === "render");
   const secondRender = second.operations.find((child) => child.id === "render");
 
@@ -1092,7 +1102,7 @@ test("compiled compound instances own isolated private render configuration", ()
   );
 
   const firstConfiguration = state.components[0].chain[0];
-  program.replaceChainItem(firstConfiguration.id, {
+  program.replaceNodeConfiguration(firstNodeId, {
     ...firstConfiguration,
     source: {
       ...firstConfiguration.source,
@@ -1180,33 +1190,31 @@ test("one authored-parameter epoch consistently invalidates raster, SVG, and STL
     program.plan.operations.find((candidate) => candidate.id === id);
   const child = (id, childId) =>
     operation(id).operations.find((candidate) => candidate.id === childId);
-  const withParam = (current, itemId, parameter, value) => ({
-    ...current,
-    chain: current.chain.map((item) => item.id === itemId
-      ? {
-          ...item,
-          source: {
-            ...item.source,
-            params: {
-              ...item.source.params,
-              [parameter]: value,
-            },
-          },
-        }
-      : item),
-  });
+  const group = state.nodes.groups.find((candidate) => candidate.componentId === component.id);
+  const layers = componentLayerProjection(state, state.components[0]);
+  const nodeIds = new Map(layers.map((layer) => [layer.item.id, layer.nodeId]));
+  const configurations = new Map(layers.map((layer) => [layer.item.id, layer.item]));
+  let editedGroup = group;
+  const withParam = (itemId, parameter, value) => {
+    const current = configurations.get(itemId);
+    const configuration = {
+      ...current,
+      source: {
+        ...current.source,
+        params: { ...current.source.params, [parameter]: value },
+      },
+    };
+    configurations.set(itemId, configuration);
+    editedGroup = graphGroupWithNodeConfiguration(editedGroup, nodeIds.get(itemId), configuration);
+    return editedGroup;
+  };
 
-  const rasterEdit = withParam(
-    state.components[0],
-    "raster-source",
-    "fit",
-    "cover",
-  );
+  const rasterEdit = withParam("raster-source", "fit", "cover");
   assert.deepEqual(
-    program.syncProjectedItems(rasterEdit, ["raster-source"]),
+    program.syncGraphNodes(rasterEdit, [nodeIds.get("raster-source")]),
     {
       applied: true,
-      changedIds: ["raster-source"],
+      changedIds: [nodeIds.get("raster-source")],
       missingIds: [],
     },
   );
@@ -1217,9 +1225,9 @@ test("one authored-parameter epoch consistently invalidates raster, SVG, and STL
   assert.equal(child("svg-source", "render").configuration.source.params.fit, "contain");
   assert.equal(operation("model-source").configurationRevision, undefined);
 
-  const svgEdit = withParam(rasterEdit, "svg-source", "fit", "stretch");
+  const svgEdit = withParam("svg-source", "fit", "stretch");
   assert.equal(
-    program.syncProjectedItems(svgEdit, ["svg-source"]).applied,
+    program.syncGraphNodes(svgEdit, [nodeIds.get("svg-source")]).applied,
     true,
   );
   assert.equal(operation("raster-source").configurationRevision, 1);
@@ -1227,14 +1235,9 @@ test("one authored-parameter epoch consistently invalidates raster, SVG, and STL
   assert.equal(child("svg-source", "render").configuration.source.params.fit, "stretch");
   assert.equal(operation("model-source").configurationRevision, undefined);
 
-  const modelEdit = withParam(
-    svgEdit,
-    "model-source",
-    "geometryDetail",
-    0.9,
-  );
+  const modelEdit = withParam("model-source", "geometryDetail", 0.9);
   assert.equal(
-    program.syncProjectedItems(modelEdit, ["model-source"]).applied,
+    program.syncGraphNodes(modelEdit, [nodeIds.get("model-source")]).applied,
     true,
   );
   assert.equal(operation("raster-source").configurationRevision, 1);
@@ -1245,14 +1248,9 @@ test("one authored-parameter epoch consistently invalidates raster, SVG, and STL
     0.9,
   );
 
-  const modelModeEdit = withParam(
-    modelEdit,
-    "model-source",
-    "renderMode",
-    "wireframe",
-  );
+  const modelModeEdit = withParam("model-source", "renderMode", "wireframe");
   assert.equal(
-    program.syncProjectedItems(modelModeEdit, ["model-source"]).applied,
+    program.syncGraphNodes(modelModeEdit, [nodeIds.get("model-source")]).applied,
     true,
   );
   const modelOperation = operation("model-source");
@@ -2400,10 +2398,11 @@ test("outgoing transition graph retains its Live diff without pruning the bank",
   store.advanceLiveTransitions(
     initialTransition.startedAtMs + initialTransition.durationMs + 1,
   );
+  const outgoingNodeId = componentLayerProjection(store.getState(), store.getState().components[0])[0].nodeId;
   store.updateLive((draft) => {
     draft.ui.live.parameterDiffs[outgoing.id] = {
       [outgoing.id]: {
-        chain: [{ source: { params: { renderQuality: 0.13 } } }],
+        nodes: { [outgoingNodeId]: { source: { params: { renderQuality: 0.13 } } } },
       },
     };
   }, "live:test-outgoing-diff");
@@ -2418,7 +2417,7 @@ test("outgoing transition graph retains its Live diff without pruning the bank",
   const presentedPrograms = renderer.componentProgramRuntime.programs;
   const presentedOutgoing = presentedPrograms.get(outgoing.id);
   assert.equal(
-    presentedOutgoing.configurationState()[0].source.params.renderQuality,
+    presentedOutgoing.plan.operations[0].configuration.source.params.renderQuality,
     0.13,
     "the running branch has the applied Live diff before transition activation",
   );
@@ -2442,7 +2441,7 @@ test("outgoing transition graph retains its Live diff without pruning the bank",
   assert.strictEqual(outgoingProgram, presentedOutgoing);
   assert.notStrictEqual(outgoingContext.programs, activePrograms);
   assert.equal(
-    outgoingProgram.configurationState()[0].source.params.renderQuality,
+    outgoingProgram.plan.operations[0].configuration.source.params.renderQuality,
     0.13,
   );
   renderer.surfaceRuntime.withRenderState(
@@ -2496,16 +2495,19 @@ test("cold Live activation compiles STL diffs into retained LOD and material nod
   const prepared = packageRoot.prepareProjectState(initial);
   prepared.ui.live.selectedComponentId = component.id;
   prepared.ui.live.selectedSceneId = "";
+  const modelNodeId = componentLayerProjection(prepared, prepared.components[0])[0].nodeId;
   prepared.ui.live.parameterDiffs[component.id] = {
     [component.id]: {
-      chain: [{
-        source: {
-          params: {
-            geometryDetail: 2.25,
-            renderMode: "points",
+      nodes: {
+        [modelNodeId]: {
+          source: {
+            params: {
+              geometryDetail: 2.25,
+              renderMode: "points",
+            },
           },
         },
-      }],
+      },
     },
   };
 
@@ -2530,7 +2532,7 @@ test("cold Live activation compiles STL diffs into retained LOD and material nod
   assert.equal(lod.parameters.geometryDetail, 2.25);
   assert.equal(material.parameters.renderMode, "points");
   assert.equal(
-    prepared.ui.live.parameterDiffs[component.id][component.id].chain[0].source.params.geometryDetail,
+    prepared.ui.live.parameterDiffs[component.id][component.id].nodes[modelNodeId].source.params.geometryDetail,
     2.25,
     "activation projects the diff without mutating or pruning its persistent bank",
   );
@@ -2659,6 +2661,7 @@ test("the persisted application program connects controls Live services and outp
     "timing",
     "state-command",
     "data-store",
+    "session-devices",
     "media-lifecycle",
     "diagnostics",
     "live-synchronization",
@@ -2668,6 +2671,7 @@ test("the persisted application program connects controls Live services and outp
   ]);
   assert.equal(program.connections.some((edge) => edge.from === "state.snapshot" && edge.to === "live.state"), true);
   assert.equal(program.connections.some((edge) => edge.from === "state.snapshot" && edge.to === "storage.value"), true);
+  assert.equal(program.connections.some((edge) => edge.from === "state.snapshot" && edge.to === "devices.state"), true);
   assert.equal(program.connections.some((edge) => edge.from === "state.$service" && edge.to === "live.$dependency.data-store" && edge.phase === "setup"), true);
   assert.deepEqual(compileApplicationServicePlan(program).nodes.find((node) => node.role === "live-synchronization").dependencies, [
     "data-store", "media-lifecycle", "diagnostics",
@@ -2796,7 +2800,7 @@ test("application topology upgrades add setup wires once without restoring later
     },
   });
   let upgraded = state.nodes.groups.find((item) => item.id === legacyGroup.id);
-  assert.equal(upgraded.topologyVersion, 2);
+  assert.equal(upgraded.topologyVersion, 3);
   assert.equal(upgraded.connections.some((edge) => edge.phase === "setup"), true);
 
   upgraded = {
@@ -3356,6 +3360,7 @@ test("the application program constructs real services from its compiled setup w
       timing: () => service("timing"),
       "state-command": () => service("state-command"),
       "data-store": (dependencies) => service("data-store", dependencies),
+      "session-devices": (dependencies) => service("session-devices", dependencies),
       "media-lifecycle": () => service("media-lifecycle"),
       diagnostics: () => service("diagnostics"),
       "live-synchronization": (dependencies) => service("live-synchronization", dependencies),
@@ -3368,12 +3373,13 @@ test("the application program constructs real services from its compiled setup w
 
   assert.equal(runtime.get("data-store").dependencies["state-command"], runtime.get("state-command"));
   assert.equal(runtime.get("live-synchronization").dependencies["data-store"], runtime.get("data-store"));
+  assert.equal(runtime.get("session-devices").dependencies["live-synchronization"], runtime.get("live-synchronization"));
   assert.equal(runtime.get("storage").dependencies["live-synchronization"], runtime.get("live-synchronization"));
   assert.equal(runtime.get("output").dependencies.cache.executionDomain, "output");
   assert.equal(packageRoot.registry.has(runtime.node("cache").nodeId, runtime.node("cache").nodeVersion), true);
   assert.deepEqual(created, [
     "timing", "state-command", "data-store", "media-lifecycle", "diagnostics",
-    "live-synchronization", "storage", "output",
+    "live-synchronization", "session-devices", "storage", "output",
   ]);
 });
 

@@ -116,26 +116,43 @@ it would be interesting to have a global definition of sun position and brightne
 
 i want to be able to have a remote control interface where i can use a tablet as interface for live view. it needs the following. communication should be based on peer js. and there should be a qr code in settings with an url underneat going to that url should show a live view version without the rest and where the params are transported over webrtc. it is important that it is just a boiled down version without a full copy of the whole project and media files. so the remote should show the same as liveview a thumbnail list and params etc. the live view should just send change information back to the master and changes on the master should also be updated on the remote view. the key to use to connect the two so be a randomly and long generated key that can be changed in settings. make sure that it is possible to have multiple remotes connecting at the same time.
 
- 
-- [ ] Moon phases. Convert eye to moon. 
-- [ ] Sun blackout convert eye to sun blackout. 
+we need to add a dynamic way to adjust cpu and gpu load whenever fps drops. i suggest that we do two things. go through the render quality param for effects and elements. it should ideally work as a slider for amount of repetition or amount of elements. amounts of steps etc not as a simple resolution slider. this should only be in the cases where there is not a natural place to adjust load. then i suggest we define pixel density and fps in settings as targets. and then impliment some kind of generic algorithm which adjust pixel density and render quality and the individual pixel density on the different elements as live params such that the fps target is meet. here is it also relevant to look at the max texture size since that one can quickly become heavy. The idea is that there is som pid or running avg like profiler that looks at the live profiler and adjusts according. next to fps in the topbar and the output there should be some meter that indicates how much is adjusted in the given situation. aim is to prioritise render quality over fps stutter when doing live sessions and making sure that it recalibrates back to target quality whenever the load is less. e.g. that one can add a heavy shader and the quality of that shader is lowered instead of the fps dropping or stutter appears. this should be a setting which is on by default such that it can be disabled whenever development or debugging is needed where behind the scenes adjustments can hide cpu overhead etc that needs to be fixed. also this scheduler should prioritise the output window vs that preview render if both are running by lowering the fps for the previev window. e.g. the preview can run 10fps if this adds processing space for the output window. it is important that this does not change the actual project settings but just adjusts the live params on the fly.
 
-- [ ] Virtuel keyboard
+in the output window it when debug is on it shows all the components and elements and their render sizes. i would like that list to be a part of the profiling popup one for the current preview and one for the output window. just make the profiling popup a scrollable list so i can scroll down and see it. remove it from the output window the it has been added to the profiler popup.
 
-- [ ] Gamepads control eyes as animatronics interface.
-- [ ] Pulse
-- [ ] Facemesh.
-- [ ] Shader on mesh.
-- [ ] Handpuppet.
+When changing projection mappings and debug is on i want the boundary and the corners shown in the out window such that it is simplere to map and see where the corners goes to. 
+
+there seems to be a difference in how to grab elements between components and scenes. when clicking in a scene it seems to catch the principle of selecting via alpha channel it does not seem to work with components view. here it often selects the top one and often an effect instead of a visible object. 
+
+We need to review the difference between components and scenes. They should foundamentally be the same except the following: surface frame as mapped in scene view and scenes cannot be added to components. We have earlier had the rule that components cannot be added to components however i think that should be possible. here it is of course super relevant to make a solid verification that it is not recursive or at least that if it is recursive it only creates interesting glitches but does not create a stall.
+
+we need to make an animatronics interface where either a hand tracking view computer vision or via a gamepad can be used as a generic animation interface that controls multiple parameters .e.g the eye moving around blinking and looking around and getting smaller and bigger. Think in terms of a hand puppeting. we also need a posenet input. have a look at portal for code pieces for this.
+
+we need to add a pulse sensor over ble to the possible inputs. look at the portal system and see the pulse sensor input system and copy it over and make it a general omponent for animations.
+
+In portal there is a facemesh component look at that and integrate it as a generator. make sure to optimize such that we are using existing generators if it is a 3d object and make sure to render it in a shader and not through p5 line drawings etc. give it similar params as other 3d objects. 
+
+animations does not seems to follow when one copies an element between scenes or components.
+
+when creating a new animation and the element is a part of a live output the default setting should be that the animation is disable similar to when adding effects and eleemtns.
+
+We need to design a Lego component view where the existing nodes has a Lego piece information and then one can create a group of nodes by combining the Lego pieces.  One Lego piece is defined as the output piece and that defines the interface. If the output piece is a image buffer then it can be added to the component chains. There should be the param view like elements in the components view. Any param made significant here should be available in the element param view when added in component view. So significant is on another abstraction layer. Each node may need to have multiple types of LEGO connectors. Eg. The stl loader might have both a raw stl and xxx
+
+the current text generator is buggy and overly simple. the mardkwon editor does not work. have a look at the one in Portal/p1_embed/web/ and the rendering seems heavy i suggest that we make some kind of fast xx.
+
+on refresh on has to reconnect dmx this should be done automatically if possible there should not be a reconnect usb button
+
+the resolution ceiling setting in settings i am not sure what it exactly does. it think it should be a general max render resolution where one can say no texture, buffer, image etch is allocated beyond this resolution. and there shuld be hd and fullhd as params and there should be a mode called none.
+
+the reset live param btn seems to have a timing similar to the delete btn in other views. it should should be present all the time. also it should work. and I am missing a globale live param reset btn that should be next to the "sources" header and right justified. Further more the live params are current stored in the browser the live params should be stored in the project but only as diffs.
+
+animation params is not a part of live params that can be changed.
+
+
 - [ ] Filter that takes mobile llm and evolves on top of current image.
 - [ ] 3d model + noise shader morphing.
 - [ ] Warping projection mapping
-- [ ] 3d mapping of shaders
 - [ ] Web xr
-- [ ] Glas friser. Generate frame in gpt. Use shader.
-- [ ] Morphing svg
-- [ ] Image to svg in a shader
-- [ ] Transition between two groups so
 - [ ] Special groups as tracks that are merged at the end of the group.
 - [ ] Embedded components as existing generator and effect groups.
 - [ ] Example components/groups as templates
@@ -144,12 +161,58 @@ i want to be able to have a remote control interface where i can use a tablet as
 - [ ] Yolo or the like as tracking
 - [ ] Fdm based font
 - [ ] Markers and cad like trackers on image
-- [ ] Hanging keychain skulls on face mesh
-- [ ] Posenet as dancing skeletons
-- [ ] Read this project I want to have a conversation about the state of the architecture and discuss what to do next. I am specifically interested in how the groups of nodes work right now and whether it would be possible to create a Lego piece concept where a group in eg component editor could be a chain of nodes where the last on is the output that generates the images or at the last one has to generate an image.
 - [ ] Generate smart group nodes that expects a certain type of input and generates and output. Eg a scene to image node that takes in a 3d model
-- [ ] We need to design a Lego component view where the existing nodes has a Lego piece information and then one can create a group of nodes by combining the Lego pieces.  One Lego piece is defined as the output piece and that defines the interface. If the output piece is a image buffer then it can be added to the component chains. There should be the param view like elements in the components view. Any param made significant here should be available in the element param view when added in component view. So significant is on another abstraction layer. Each node may need to have multiple types of LEGO connectors. Eg. The stl loader might have both a raw stl and xxx
+- [ ] 
 
 
+1. VJ1 is not a self-contained deployable product
+The main output depends on:
+p5 loaded dynamically from jsDelivr in [constants.js (line 11)](/Users/madshobye/Media/codeRepo/Portal/experiments/vj1/js/constants.js:11).
+Code outside VJ1: ../../P1/portal/portal.js, loaded in [output-app.js (line 148)](/Users/madshobye/Media/codeRepo/Portal/experiments/vj1/js/output/output-app.js:148).
+Portal then loads WebFont Loader and CryptoJS from another CDN, plus Portal-local scripts and fonts.
+TensorFlow.js and MobileNet are also loaded dynamically from jsDelivr in [mobilenet-morph-service.js (line 23)](/Users/madshobye/Media/codeRepo/Portal/experiments/vj1/js/output/specialized/mobilenet-morph-service.js:23).
+Material Symbols come from Google Fonts in [index.html (line 12)](/Users/madshobye/Media/codeRepo/Portal/experiments/vj1/index.html:12).
+This creates offline, deployment, version, and supply-chain failure modes. Deploying only experiments/vj1 will break rendering and camera/font initialization.
+Required work:
+Vendor or package all runtime dependencies.
+Remove the dependency on P1/portal by extracting the small capabilities VJ1 genuinely needs.
+Produce one versioned, immutable deployment artifact.
+Add dependency integrity, licenses/notices, and a reproducible dependency lock.
+Decide explicitly whether offline show operation is required. For a VJ tool, I strongly recommend it.
+
+
+6. The executable-project trust model is undefined
+VJ1 intentionally evaluates editable JavaScript using Function in node editors, procedural drawing, ISF expressions, and package migrations. With no CSP and unrestricted remote script loading, an imported malicious project or node package can execute with the application origin’s privileges.
+
+
+Reduce remaining orchestration hotspots
+The architecture is modular, but several files remain too large to safely evolve:
+control-shell-controller.js: 2,489 lines.
+source-render-runtime.js: 2,111 lines.
+visual-render-plan.js: 2,069 lines.
+project-migrations.js: 2,058 lines.
+parameter-animation-tracks.js: 2,042 lines.
+models.js: 1,791 lines.
+project-folder-service.js: 1,469 lines.
+
+
+
+Eliminate implicit global integration
+Portal capabilities are accessed through globals and even Function("return typeof pSetup...") in [font-loader.js (line 30)](/Users/madshobye/Media/codeRepo/Portal/experiments/vj1/js/output/font-loader.js:30) and [shared-input-runtime.js (line 146)](/Users/madshobye/Media/codeRepo/Portal/experiments/vj1/js/output/shared-input-runtime.js:146).
+Replace these with injected contracts:
+Font loader
+Camera input
+Canvas lifecycle
+Optional Portal compatibility adapter
+This should also help locate the duplicate canvas.
+
+4. Browser support policy and fallback behavior conflict
+The compatibility gate requires Chrome 150+, FileSystemObserver, screen capture, OffscreenCanvas, and several other APIs in [browser-compatibility.js (line 1)](/Users/madshobye/Media/codeRepo/Portal/experiments/vj1/js/libraries/diagnostics-engine/browser-compatibility.js:1).
+However, the project-folder service contains an intentional manual-refresh fallback when FileSystemObserver is unavailable. The global compatibility gate prevents reaching that fallback.
+Required work:
+Separate hard requirements from optional capabilities.
+Display capability degradation per subsystem.
+Fail the application only for genuinely indispensable capabilities.
+Maintain and test one explicit supported Chrome/GPU/OS matrix.
 #Done
 

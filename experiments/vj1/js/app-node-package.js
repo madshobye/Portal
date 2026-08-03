@@ -58,6 +58,7 @@ import {
   TextureOperatorNodeDefinitions,
   VisualSourceNode,
   compileComponentGroupTopology,
+  compileComponentRenderPrograms,
   compileVisualRenderPlan,
   componentProgramInstances,
   reconcileComponentGroupTopology,
@@ -80,6 +81,7 @@ import {
   compileApplicationProgramPlan,
   compileApplicationProgramTopology,
 } from "./libraries/composition-engine/index.js";
+import { SessionDeviceLifecycleNode } from "./libraries/device-engine/index.js";
 import { StateCommandNode } from "./libraries/state-engine/index.js";
 import { SerializedStorageNode } from "./libraries/storage-engine/index.js";
 import { LivePatchSynchronizerNode } from "./libraries/synchronization-engine/index.js";
@@ -100,6 +102,7 @@ import {
   compileScene3dProgram,
 } from "./libraries/mesh-engine/index.js";
 import { listProjectIsfVisualComponents } from "./libraries/isf-engine/index.js";
+import { migrateLegacyComponentParameterAddress } from "./domain/component-layer-projection.js";
 
 const ProjectComponentNode = semanticProjectNode("vj1.project.component", "Component", "A task-oriented visual program composed from reusable nodes.", "texture");
 const ProjectSceneNode = semanticProjectNode("vj1.project.scene", "Scene", "A spatial visual program arranging reusable Components against shared projection Surfaces.", "texture");
@@ -154,6 +157,7 @@ const CORE_NODE_DEFINITIONS = Object.freeze([
   MappingProgramNode,
   OutputProgramNode,
   ApplicationProgramNode,
+  SessionDeviceLifecycleNode,
   StateCommandNode,
   SerializedStorageNode,
   LivePatchSynchronizerNode,
@@ -396,7 +400,7 @@ export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] 
   ));
   const components = reconciled.map((entry) => entry.component);
   const componentGroups = reconciled.map((entry) => entry.group);
-  return {
+  const prepared = migrateLiveDiffsToGraphNodes({
     ...state,
     components,
     nodes: ensureVj1NodeProjectData(currentNodes, components, {
@@ -406,7 +410,83 @@ export function prepareVj1NodeProjectState(state = {}, { visualDefinitions = [] 
       surfaces: state?.surfaces,
       componentGroups,
     }),
+  }, componentGroups);
+  return migrateSignificantParametersToGraphNodes(prepared);
+}
+
+function migrateSignificantParametersToGraphNodes(state) {
+  let changed = false;
+  const components = (state.components || []).map((component) => {
+    const significantParams = [...new Set((component.significantParams || []).flatMap((path) => {
+      const address = migrateLegacyComponentParameterAddress(state, component, path);
+      if (!address) return [];
+      if (address !== path) changed = true;
+      return [address];
+    }))];
+    if (significantParams.length === (component.significantParams || []).length &&
+        significantParams.every((path, index) => path === component.significantParams[index])) {
+      return component;
+    }
+    changed = true;
+    return { ...component, significantParams };
+  });
+  return changed ? { ...state, components } : state;
+}
+
+// Project loading is the one compatibility boundary. Older saves addressed
+// Live values by chain array position; convert them once to stable graph node
+// identities and remove the old field before the world can be published.
+function migrateLiveDiffsToGraphNodes(state, componentGroups = []) {
+  const banks = state.ui?.live?.parameterDiffs;
+  if (!banks || typeof banks !== "object") return state;
+  const groups = new Map(componentGroups.map((group) => [String(group.componentId || ""), group]));
+  let changed = false;
+  const parameterDiffs = Object.fromEntries(Object.entries(banks).map(([targetId, bank]) => [
+    targetId,
+    Object.fromEntries(Object.entries(bank || {}).map(([componentId, override]) => {
+      if (!Array.isArray(override?.chain)) return [componentId, override];
+      const nodes = { ...(override.nodes || {}) };
+      migrateLegacyChainOverrides(groups.get(String(componentId))?.nodes || [], override.chain, nodes);
+      const { chain: _removed, ...componentOverride } = override;
+      changed = true;
+      return [componentId, {
+        ...componentOverride,
+        ...(Object.keys(nodes).length ? { nodes } : {}),
+      }];
+    })),
+  ]));
+  if (!changed) return state;
+  return {
+    ...state,
+    ui: {
+      ...state.ui,
+      live: {
+        ...state.ui.live,
+        parameterDiffs,
+      },
+    },
   };
+}
+
+function migrateLegacyChainOverrides(nodes = [], chain = [], result = {}) {
+  const renderNodes = (nodes || []).filter((node) =>
+    ["source", "effect", "group"].includes(node?.role) && !node?.auxiliaryFor
+  );
+  for (let index = 0; index < renderNodes.length; index++) {
+    const node = renderNodes[index];
+    const override = chain[index];
+    if (!override || typeof override !== "object") continue;
+    const { chain: children, ...configuration } = override;
+    if (Object.keys(configuration).length) {
+      result[String(node.id || "")] = {
+        ...(result[String(node.id || "")] || {}),
+        ...configuration,
+      };
+    }
+    if (node.role === "group" && Array.isArray(children)) {
+      migrateLegacyChainOverrides(node.nodes || [], children, result);
+    }
+  }
 }
 
 // Component configuration changes keep the same compiled topology. Reconcile
@@ -419,6 +499,10 @@ export function prepareVj1NodeProjectChange(previous = {}, next = {}, {
 } = {}) {
   if (previous === next) return next;
   if (previous.nodes !== next.nodes) {
+    const incremental = prepareComponentGraphConfigurationChange(previous, next, {
+      visualDefinitions,
+    });
+    if (incremental) return incremental;
     return prepareVj1NodeProjectState(next, { visualDefinitions });
   }
   const previousComponents = previous.components || [];
@@ -537,6 +621,84 @@ export function prepareVj1NodeProjectChange(previous = {}, next = {}, {
       groups,
       instances,
       artifacts,
+    },
+  };
+}
+
+function prepareComponentGraphConfigurationChange(previous, next, {
+  visualDefinitions = [],
+} = {}) {
+  if (
+    previous.components?.length !== next.components?.length ||
+    previous.nodes?.groups?.length !== next.nodes?.groups?.length ||
+    previous.nodes?.definitions !== next.nodes?.definitions ||
+    previous.nodes?.pins !== next.nodes?.pins ||
+    previous.nodes?.artifacts !== next.nodes?.artifacts
+  ) return null;
+  const changedGroupIndexes = next.nodes.groups.flatMap((group, index) =>
+    group === previous.nodes.groups[index] ? [] : [index]
+  );
+  if (!changedGroupIndexes.length || changedGroupIndexes.some((index) => {
+    const before = previous.nodes.groups[index];
+    const after = next.nodes.groups[index];
+    return before?.generatedBy !== COMPONENT_PROGRAM_GENERATOR ||
+      after?.generatedBy !== COMPONENT_PROGRAM_GENERATOR ||
+      String(before.id || "") !== String(after.id || "") ||
+      componentTopologyShape(before) !== componentTopologyShape(after);
+  })) return null;
+
+  const projectVisualDefinitions = listProjectIsfVisualComponents(next)
+    .map((component) => component.nodeDefinition);
+  const definitions = componentTopologyDefinitionMap({
+    visualDefinitions,
+    projectVisualDefinitions,
+  });
+  const groups = next.nodes.groups.slice();
+  const components = next.components.slice();
+  const changedGroupIds = new Set();
+  for (const groupIndex of changedGroupIndexes) {
+    const candidate = groups[groupIndex];
+    const componentIndex = components.findIndex((component) =>
+      String(component.id || "") === String(candidate.componentId || "")
+    );
+    if (componentIndex < 0) return null;
+    const reconciled = reconcileComponentGroupTopology(
+      components[componentIndex],
+      candidate,
+      { definitions },
+    );
+    const group = {
+      ...reconciled.group,
+      persistence: reconciled.group.authoredConnections === true ? "project-diff" : "compact",
+    };
+    // Compilation is the activation preflight. Nothing has been published yet;
+    // a malformed configuration therefore leaves the previous executable
+    // world and all unrelated retained programs untouched.
+    const validation = compileComponentRenderPrograms(
+      [reconciled.component],
+      [group],
+      { resolveNodeDefinition: (node) => definitions.get(String(node?.nodeId || "")) },
+    );
+    for (const program of validation.values()) program.dispose?.();
+    groups[groupIndex] = group;
+    components[componentIndex] = reconciled.component;
+    changedGroupIds.add(String(group.id || ""));
+  }
+  const instances = next.nodes.instances.filter((instance) =>
+    ![...changedGroupIds].some((groupId) => String(instance.id || "").startsWith(`${groupId}/`))
+  );
+  for (const group of groups) {
+    if (changedGroupIds.has(String(group.id || ""))) {
+      instances.push(...componentProgramInstances(group));
+    }
+  }
+  return {
+    ...next,
+    components,
+    nodes: {
+      ...next.nodes,
+      groups,
+      instances,
     },
   };
 }

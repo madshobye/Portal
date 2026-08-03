@@ -60,21 +60,58 @@ test("optimized output reads compiled programs instead of compatibility chains",
     ) {
       rawChainReaders.push(name);
     }
-    if (
-      name !== "graph/legacy-chain-render-projection.js" &&
-      source.includes("legacy-chain-render-projection.js")
-    ) {
+    if (source.includes("legacy-chain-render-projection.js")) {
       legacyProjectionImports.push(name);
     }
   }
   assert.deepEqual(rawChainReaders, []);
   assert.deepEqual(legacyProjectionImports, []);
+  assert.equal(moduleSet.has(resolve(jsRoot, "graph/legacy-chain-render-projection.js")), false);
+  assert.equal(moduleSet.has(resolve(jsRoot, "graph/patch-planner.js")), false);
   assert.equal(moduleSet.has(resolve(jsRoot, "graph/render-scheduler.js")), false);
   assert.equal(moduleSet.has(resolve(jsRoot, "graph/shader-scheduler.js")), true);
   assert.match(
     readFileSync(resolve(jsRoot, "output/output-thumbnail-runtime.js"), "utf8"),
     /getComponentProgram/,
   );
+});
+
+test("session device services have one application owner and explicit presentation-host injection", () => {
+  const app = readFileSync(resolve(jsRoot, "app.js"), "utf8");
+  const control = readFileSync(resolve(jsRoot, "control/control-shell-controller.js"), "utf8");
+  const preview = readFileSync(resolve(jsRoot, "output/embedded-preview-app.js"), "utf8");
+  const output = readFileSync(resolve(jsRoot, "output/output-app.js"), "utf8");
+  const renderer = readFileSync(resolve(jsRoot, "output/output-renderer.js"), "utf8");
+
+  assert.equal(moduleSet.has(resolve(jsRoot, "output/screen-capture-service.js")), false);
+  assert.match(app, /\.\/libraries\/device-engine\/index\.js/);
+  assert.match(app, /"session-devices"/);
+  assert.match(control, /createEmbeddedPreviewApp\([\s\S]*?screenCapture/);
+  assert.match(preview, /new OutputRenderer\([\s\S]*?screenCapture/);
+  assert.match(output, /new OutputRenderer\([\s\S]*?screenCapture: screenCaptureService\(\)/);
+  assert.match(renderer, /new OutputMediaRuntime\([\s\S]*?screenCapture/);
+
+  const deviceCreators = modules.filter((filename) => {
+    const source = readFileSync(filename, "utf8");
+    return /createMidiInputService\(|createDmxOutputService\(/.test(source) &&
+      !moduleName(filename).startsWith("services/");
+  }).map(moduleName);
+  assert.deepEqual(deviceCreators, ["app.js"]);
+});
+
+test("source rendering separates resource discovery placement and backend execution", () => {
+  const backend = readFileSync(resolve(jsRoot, "output/source-render-runtime.js"), "utf8");
+  const resources = readFileSync(resolve(jsRoot, "output/source-media-resource-runtime.js"), "utf8");
+  const placement = readFileSync(resolve(jsRoot, "output/source-placement-runtime.js"), "utf8");
+
+  assert.match(backend, /new SourceMediaResourceRuntime/);
+  assert.match(backend, /new SourcePlacementRuntime/);
+  assert.doesNotMatch(backend, /import \{ visitVisualParameterReferences \}/);
+  assert.match(resources, /visitVisualParameterReferences/);
+  assert.match(resources, /visualMediaResourceIds\(/);
+  assert.doesNotMatch(resources, /drawPlaced|renderFramebuffer|drawGenerator/);
+  assert.match(placement, /resolvePlacedSourceResult/);
+  assert.doesNotMatch(placement, /visitVisualParameterReferences|renderFramebufferPassSequence/);
 });
 
 test("browser source loading bypasses caches for the complete native module graph on ordinary refresh", () => {
@@ -92,6 +129,11 @@ test("browser source loading bypasses caches for the complete native module grap
   assert.match(index, /import\("\.\/js\/app\.js"\)/);
   assert.match(index, /data-vj1-startup-status/);
   assert.match(index, /Loading application modules/);
+  assert.match(
+    index,
+    /if \(controllerMatches\(\)\) \{[\s\S]*?registration\.update\(\)\.catch[\s\S]*?\} else \{[\s\S]*?registration\.update\(\)/,
+    "an already coherent Output window must not block application startup on a worker update",
+  );
   assert.doesNotMatch(index, /<script[^>]+type="module"[^>]+src="js\/app\.js/);
   assert.match(worker, /self\.skipWaiting\(\)/);
   assert.match(worker, /self\.clients\.claim\(\)/);

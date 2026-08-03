@@ -1,7 +1,8 @@
 import { frameSize } from "./render-geometry.js";
-import { screenCaptureService } from "./screen-capture-service.js";
+import { screenCaptureService } from "../libraries/device-engine/index.js";
 import { MediaInputLifecycle } from "../libraries/media-engine/media-input-lifecycle/index.js";
 import { isDrawableMedia } from "./media-utils.js";
+import { createBrowserCameraCapture } from "./browser-camera-capture.js";
 
 const CAMERA_RETRY_MS = 3000;
 const CAMERA_IDLE_GRACE_MS = 750;
@@ -10,9 +11,17 @@ const CAMERA_IDLE_GRACE_MS = 750;
 // latest frame during a renderer frame; stored Components and catalog work do
 // not participate in input lifecycle.
 export class SharedInputRuntime {
-  constructor({ getRenderSettings, cameraIdleGraceMs = CAMERA_IDLE_GRACE_MS } = {}) {
+  constructor({
+    getRenderSettings,
+    cameraIdleGraceMs = CAMERA_IDLE_GRACE_MS,
+    cameraFactory = createBrowserCameraCapture,
+    screenCapture = screenCaptureService(),
+  } = {}) {
     this.getRenderSettings = getRenderSettings || (() => ({}));
     this.cameraIdleGraceMs = Math.max(0, Number(cameraIdleGraceMs) || 0);
+    this.cameraFactory = cameraFactory;
+    if (!screenCapture) throw new Error("SCREEN_CAPTURE_SERVICE_REQUIRED");
+    this.screenCapture = screenCapture;
     this.camera = new MediaInputLifecycle({
       idleGraceMs: this.cameraIdleGraceMs,
       retryMs: CAMERA_RETRY_MS,
@@ -31,17 +40,12 @@ export class SharedInputRuntime {
     const render = this.getRenderSettings();
     const settings = cameraCaptureSettings(render);
     const signature = cameraSettingsSignature(render);
-    const setupWebcamera = getPortalWebcameraSetup();
-    if (!setupWebcamera) {
-      this.camera.fail("camera unavailable", signature);
-      return null;
-    }
     return this.camera.acquire(signature, () =>
-      setupWebcamera(settings.front, settings.width, settings.height, settings.mirrored, settings.maxResolution));
+      this.cameraFactory(settings));
   }
 
   acquireScreen(inputId = "") {
-    const service = screenCaptureService();
+    const service = this.screenCapture;
     const video = service.videoFor(inputId);
     if (video) {
       this.reportedScreenErrors.delete(inputId);
@@ -79,7 +83,7 @@ export class SharedInputRuntime {
 
   screenStatus(inputId = "", { acquire = true } = {}) {
     const id = String(inputId || "");
-    const service = screenCaptureService();
+    const service = this.screenCapture;
     const resource = acquire ? this.acquireScreen(id) : service.videoFor(id);
     if (isDrawableMedia(resource)) {
       return Object.freeze({
@@ -126,7 +130,7 @@ export class SharedInputRuntime {
   }
 
   screenError(inputId = "") {
-    const service = screenCaptureService();
+    const service = this.screenCapture;
     if (service.error) return service.error;
     if (!inputId) return "choose a shared input";
     if (service.status === "requesting") return "waiting for screen selection";
@@ -141,16 +145,6 @@ export class SharedInputRuntime {
 
 function runtimeMillis() {
   return typeof globalThis.millis === "function" ? globalThis.millis() : Date.now();
-}
-
-function getPortalWebcameraSetup() {
-  if (typeof globalThis.setupWebcamera === "function") return globalThis.setupWebcamera;
-  try {
-    return Function("return typeof setupWebcamera === 'function' ? setupWebcamera : null")();
-  } catch (error) {
-    console.warn("[VJ1_CAMERA_SETUP_LOOKUP_FAILED]", { fallback: "camera source unavailable", message: error?.message || String(error) });
-    return null;
-  }
 }
 
 export function cameraCaptureSettings(render = {}) {

@@ -9,6 +9,23 @@ const STRUCTURAL_CHANGE_PREFIXES = Object.freeze([
   "add-chain-", "remove-chain-", "reorder-chain", "paste", "cut", "select-",
 ]);
 
+const METRIC_REASONS = Object.freeze([
+  "output-metrics", "preview-metrics", "project-history", "project-autosave", "project-autosave-error",
+]);
+
+const OUTPUT_SILENT_REASONS = Object.freeze([
+  "init", "view", "project-undo", "project-redo", ...METRIC_REASONS,
+]);
+
+const LIVE_PROGRAM_PREVIEW_REASONS = Object.freeze([
+  "live:scene",
+  "live:target",
+  "live:surface-patch-clear",
+  "live:overall-component-clear",
+  "live:surface-visibility",
+  "live:transition-advance",
+]);
+
 export function createChangeEvent(change = "change") {
   const supplied = change && typeof change === "object" ? change : {};
   for (const field of ["scope", "phase", "topic", "history", "projectRestore", "controlInvalidation", "structural"]) {
@@ -71,11 +88,13 @@ export function changeEffectPlan(event = {}, overrides = null, policy = {}) {
   const persistence = persistenceEffect(semanticEvent, reason, domain, phase, policy.history === true);
   const output = outputEffect(semanticEvent, reason, domain, phase, topic, policy.control);
   const preview = previewEffect(semanticEvent, reason, domain, phase, topic);
+  const session = sessionEffect(semanticEvent, reason, domain, phase, policy.restoresProject === true);
   const supplied = overrides && typeof overrides === "object" ? overrides : {};
   return Object.freeze({
     persistence: Object.freeze({ ...persistence, ...(supplied.persistence || {}) }),
     output: Object.freeze({ ...output, ...(supplied.output || {}) }),
     preview: Object.freeze({ ...preview, ...(supplied.preview || {}) }),
+    session: Object.freeze({ ...session, ...(supplied.session || {}) }),
     graph: Object.freeze({
       mode: policy.structural === true ? "recompile" : "configuration",
       ...(supplied.graph || {}),
@@ -126,6 +145,11 @@ export function controlInvalidationForPaths(paths = []) {
       continue;
     }
     if (/^components\.\d+\./.test(path)) {
+      regions.add("inspector");
+      requiresRenderPatch = true;
+      continue;
+    }
+    if (/^nodes\.groups\.\d+\.nodes\./.test(path)) {
       regions.add("inspector");
       requiresRenderPatch = true;
       continue;
@@ -189,7 +213,13 @@ export const StateCommandNode = defineNode({
   inlets: { command: { type: "any", required: true } },
   outlets: { event: { type: "any" } },
   execution: { trigger: "input-change", domain: "main", pure: true },
-  moduleBindings: { PROJECT_RESTORE_PREFIXES, STRUCTURAL_CHANGE_PREFIXES },
+  moduleBindings: {
+    PROJECT_RESTORE_PREFIXES,
+    STRUCTURAL_CHANGE_PREFIXES,
+    METRIC_REASONS,
+    OUTPUT_SILENT_REASONS,
+    LIVE_PROGRAM_PREVIEW_REASONS,
+  },
   parts: [
     {
       id: "change-command-policy",
@@ -211,6 +241,7 @@ export const StateCommandNode = defineNode({
         persistenceEffect,
         outputEffect,
         previewEffect,
+        sessionEffect,
         freezeOptionalPlan,
         isMappingSurfaceVisibilityReason,
       ]
@@ -280,6 +311,7 @@ function persistenceEffect(_event, reason, domain, phase, history) {
 
 function outputEffect(event, reason, domain, phase, topic, control) {
   if (event.outputState === "unchanged") return { mode: "none" };
+  if (OUTPUT_SILENT_REASONS.includes(reason)) return { mode: "none" };
   if (domain === "live") {
     return {
       mode: Array.isArray(event.livePatches) && event.livePatches.length ? "live-patches" : "state",
@@ -305,7 +337,7 @@ function outputEffect(event, reason, domain, phase, topic, control) {
 }
 
 function previewEffect(event, reason, domain, phase, topic) {
-  if (["output-metrics", "preview-metrics", "project-history", "project-autosave", "project-autosave-error"].includes(reason)) {
+  if (METRIC_REASONS.includes(reason)) {
     return { mode: "metrics" };
   }
   if (topic === "mapping-state") return { mode: "mapping", coalesce: phase === "scrub" };
@@ -319,9 +351,27 @@ function previewEffect(event, reason, domain, phase, topic) {
   if (domain === "live" && Array.isArray(event.livePatches) && event.livePatches.length) {
     return { mode: "live-patches" };
   }
+  if (LIVE_PROGRAM_PREVIEW_REASONS.includes(reason)) return { mode: "live-program" };
   if (Array.isArray(event.renderPatches) && event.renderPatches.length) return { mode: "render-patches" };
   if (phase === "edit") return { mode: "controls-only" };
   return { mode: "refresh" };
+}
+
+function sessionEffect(_event, reason, domain, phase, restoresProject) {
+  const live = restoresProject
+    ? "restore"
+    : phase === "commit" && (
+      domain === "live" ||
+      domain === "project" ||
+      reason === "select-mapping" ||
+      reason === "live:preview-surface"
+    )
+      ? "persist"
+      : "unchanged";
+  return {
+    workspace: reason === "workspace" ? "persist" : "unchanged",
+    live,
+  };
 }
 
 function freezeOptionalPlan(value) {

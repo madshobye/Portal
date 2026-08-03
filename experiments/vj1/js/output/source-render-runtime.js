@@ -1,17 +1,14 @@
 import {
   normalizeParamValues,
 } from "../libraries/visual-nodes/shared/component-schema.js";
-import { visitVisualParameterReferences } from "../libraries/visual-nodes/shared/parameter-references.js";
 import {
   VISUAL_SOURCE_RENDERERS,
   visualSourceRenderer,
 } from "../libraries/composition-engine/index.js";
 import {
   createPlacedRenderResult,
-  directPlacementKind,
   transformedPlacementDemandRect,
 } from "../graph/placed-render-result.js";
-import { clamp01 } from "../domain/models.js";
 import {
   RenderNodeRuntime,
   textureStateKey,
@@ -30,12 +27,9 @@ import {
 } from "./component-patch-adapter.js";
 import {
   combineContentTransforms,
-  normalizedContentTransform,
   transformedRectBounds,
   transformedRectVisibleRegion,
 } from "./preview-interaction-geometry.js";
-import { contentTransformCanvasPlacement } from "./content-coordinate-space.js";
-import { applyBlend } from "./blend-utils.js";
 import {
   disposeGraphics,
   drawWithContentTransform,
@@ -45,7 +39,6 @@ import {
 } from "./shared-framebuffer-target.js";
 import {
   componentInstanceTime,
-  globalVisualTimeScale,
   instanceTime,
   qualityScaledRenderRequest,
 } from "./render-runtime-math.js";
@@ -72,7 +65,6 @@ import {
   componentReferenceRenderRequest,
   componentReferenceVisibleRenderRequest,
   componentRenderInstanceKey,
-  fullTargetRect,
 } from "./component-render-layout.js";
 import {
   withRenderTarget2D,
@@ -91,6 +83,8 @@ import {
   staticMediaStateForIds,
   staticSourceState,
 } from "./component-render-state.js";
+import { SourceMediaResourceRuntime } from "./source-media-resource-runtime.js";
+import { SourcePlacementRuntime } from "./source-placement-runtime.js";
 
 const SOURCE_RUNTIME_METHODS = Object.freeze({
   [VISUAL_SOURCE_RENDERERS.COMPONENT]: "drawComponentReferenceSource",
@@ -261,7 +255,16 @@ export class SourceRenderRuntime {
   } = {}) {
     this.host = host;
     this.mediaRuntime = mediaRuntime;
-    this.componentVideoPresence = new WeakMap();
+    this.resourceRuntime = new SourceMediaResourceRuntime(host, {
+      mediaRuntime,
+      runtimeValueMediaResources,
+      mediaSourceDemandWidth,
+      resolveStageContract: (...args) => this.specializedVisualStageContract(...args),
+    });
+    this.placementRuntime = new SourcePlacementRuntime(host, {
+      mediaRuntime,
+      resourceRuntime: this.resourceRuntime,
+    });
     this.nodeRuntimes = new Map();
     this.directPlacementResults = new Map();
     this.compiledNodeProcessContexts = new WeakMap();
@@ -277,7 +280,7 @@ export class SourceRenderRuntime {
     this.missingNativeRendererDiagnostics.clear();
     this.missingGeneratorImplementationDiagnostics.clear();
     this.sourceCrashDiagnostics.clear();
-    this.componentVideoPresence = new WeakMap();
+    this.resourceRuntime.dispose();
     this.nodeRuntimes.clear();
     this.directPlacementResults.clear();
   }
@@ -285,7 +288,7 @@ export class SourceRenderRuntime {
   invalidateStructure() {
     this.host.recordSignal?.("cacheInvalidations", 1, "source-structure");
     this.host.previewHitCoverage?.invalidateStructure();
-    this.componentVideoPresence = new WeakMap();
+    this.resourceRuntime.invalidateStructure();
     this.directPlacementResults.clear();
   }
 
@@ -323,35 +326,7 @@ export class SourceRenderRuntime {
     operation = null,
     component = {},
   ) {
-    const host = this.host;
-    // Direct placement uses the allocation as its complete fit rectangle.
-    // A node-local ROI is only a cropped allocation within the authored node
-    // boundary, so it must use the render-view-aware retained source path.
-    // `regionView` is intentionally not checked here: it describes a regional
-    // render of the whole Component and has different placement ownership.
-    if (renderRequest.nodeRegionView === true) return false;
-    const source = item.source || {};
-    const dependency = source.type === "component"
-      ? host.state?.components?.find(
-          (component) => component.id === source.componentId,
-        )
-      : null;
-    const directResource = this.directPlacementResource(
-      operation,
-      source,
-      component,
-      renderRequest,
-    );
-    return !!directPlacementKind({
-      source,
-      blend: item.blend || "normal",
-      dependency,
-      drawableResourceDrawable:
-        !!directResource?.drawable &&
-        isDrawableMedia(directResource.drawable),
-      drawableResourceRequiresRetainedFrame:
-        directResource?.requiresRetainedFrame === true,
-    });
+    return this.placementRuntime.canDirectComposite(item, renderRequest, operation, component);
   }
 
   directPlacementResource(
@@ -360,40 +335,7 @@ export class SourceRenderRuntime {
     component = {},
     renderRequest = {},
   ) {
-    const contract = operation?.directPlacement;
-    if (
-      contract?.kind !== "drawable-resource" ||
-      source.type !== "generator"
-    ) {
-      return null;
-    }
-    const params = source.params || {};
-    if (params[contract.mirrorParameter || "mirrored"] === true) return null;
-    const descriptor = operation.runtimeValueInputs?.get?.(
-      contract.input || "resource",
-    );
-    if (!descriptor?.ready) return null;
-    const drawable = this.mediaRuntime.acquireDrawableResource(
-      descriptor,
-      Math.max(1, Number(renderRequest.width) || 1),
-      {
-        playback: this.drawableResourcePlaybackOptions(
-          descriptor,
-          component,
-        ),
-      },
-    );
-    const runtimeMedia = descriptor.kind === "project-media-resource"
-      ? this.host.media.get(String(descriptor.mediaId || ""))
-      : null;
-    return {
-      contract,
-      descriptor,
-      drawable,
-      requiresRetainedFrame:
-        contract.retainProjectVideoFrame === true &&
-        !!runtimeMedia?.video,
-    };
+    return this.placementRuntime.directPlacementResource(operation, source, component, renderRequest);
   }
 
   componentRegionSafe(component = {}) {
@@ -437,182 +379,19 @@ export class SourceRenderRuntime {
   }
 
   videoPlaybackOptions(source = {}, component = {}) {
-    const host = this.host;
-    return {
-      start: source.start,
-      end: source.end,
-      speed: (host.frameRuntime.isPlaybackActive() ? 1 : 0) *
-        globalVisualTimeScale(host.state?.global) *
-        (Number(source.speed) || 1) *
-        Math.max(0, Number(component.speed) || 0),
-    };
+    return this.resourceRuntime.videoPlaybackOptions(source, component);
   }
 
   drawableResourcePlaybackOptions(descriptor = {}, component = {}) {
-    if (descriptor?.kind !== "project-media-resource") return null;
-    return this.videoPlaybackOptions({
-      start: descriptor.start,
-      end: descriptor.end,
-      speed: descriptor.speed,
-    }, component);
+    return this.resourceRuntime.drawableResourcePlaybackOptions(descriptor, component);
   }
 
   componentContainsVideo(component = {}, visiting = new Set()) {
-    const host = this.host;
-    if (!component?.id) return false;
-    const cached = this.componentVideoPresence.get(component);
-    if (cached != null) return cached;
-    if (visiting.has(component.id)) return false;
-    visiting.add(component.id);
-    const inspection = host.componentProgramRuntime.programs
-      .get(component.id)
-      ?.inspect();
-    if (!inspection) {
-      visiting.delete(component.id);
-      throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id}`);
-    }
-    let containsVideo = false;
-    for (const dependencyId of inspection.dependencies.components || []) {
-      const dependency = host.state?.components?.find(
-        (candidate) => candidate.id === dependencyId,
-      );
-      if (dependency && this.componentContainsVideo(dependency, visiting)) {
-        containsVideo = true;
-        break;
-      }
-    }
-    if (!containsVideo) {
-      for (const mediaId of inspection.mediaDemand.ids || []) {
-        const runtimeItem = host.media.get(mediaId);
-        const mediaMeta = (host.state?.media || []).find(
-          (entry) => entry.id === mediaId,
-        );
-        if (
-          mediaMeta?.type === "video" ||
-          !!runtimeItem?.video ||
-          /\.(mp4|m4v|mov|webm|ogv)$/i.test(mediaId)
-        ) {
-          containsVideo = true;
-          break;
-        }
-      }
-    }
-    visiting.delete(component.id);
-    this.componentVideoPresence.set(component, containsVideo);
-    return containsVideo;
+    return this.resourceRuntime.componentContainsVideo(component, visiting);
   }
 
   claimRetainedComponentMedia(component = {}, visiting = new Set()) {
-    const host = this.host;
-    if (!component?.id || visiting.has(component.id)) return;
-    visiting.add(component.id);
-    const program = host.componentProgramRuntime.programs.get(component.id);
-    if (!program) {
-      visiting.delete(component.id);
-      throw new Error(`VJ1_COMPONENT_PROGRAM_MISSING:${component.id}`);
-    }
-    const inspection = program.inspect();
-    for (const mediaId of inspection.mediaDemand.ids || []) {
-      const runtimeItem = host.media.get(mediaId);
-      const mediaMeta = (host.state?.media || []).find(
-        (entry) => entry.id === mediaId,
-      );
-      const video =
-        mediaMeta?.type === "video" ||
-        !!runtimeItem?.video ||
-        /\.(mp4|m4v|mov|webm|ogv)$/i.test(mediaId);
-      if (!video) host.mediaRuntime.retainMediaById(mediaId);
-    }
-    for (const dependencyId of inspection.dependencies.components || []) {
-      const dependency = host.state?.components?.find(
-        (candidate) => candidate.id === dependencyId,
-      );
-      if (dependency) this.claimRetainedComponentMedia(dependency, visiting);
-    }
-    if (!this.componentContainsVideo(component)) {
-      visiting.delete(component.id);
-      return;
-    }
-    const claimedVideoIds = new Set();
-    program.forEachOperation((operation) => {
-      if (
-        operation.configuration?.enabled === false ||
-        (
-          operation.opcode !== "source" &&
-          operation.backend !== "compiled-visual-group"
-        )
-      ) {
-        return;
-      }
-      const source = sourceWithNodeParams(
-        operation.configuration?.source,
-        {},
-        operation.id,
-      );
-      if (source.type === "component") {
-        return;
-      }
-      // A compiled compound publishes media ownership through its typed value
-      // inputs. The child renderer's configuration intentionally contains only
-      // rendering parameters, so reconstructing ownership from generator
-      // parameters loses the decoder lease whenever the retained Component
-      // texture is reused. Renew playback from the exact resource descriptor
-      // that the compiled operation consumed.
-      for (const descriptor of runtimeValueMediaResources(
-        operation.runtimeValueInputs,
-      )) {
-        const mediaId = String(descriptor.mediaId || "");
-        if (!mediaId || claimedVideoIds.has(mediaId)) continue;
-        const runtimeItem = host.media.get(mediaId);
-        const mediaMeta = (host.state?.media || []).find(
-          (entry) => entry.id === mediaId,
-        );
-        if (
-          mediaMeta?.type !== "video" &&
-          !runtimeItem?.video &&
-          !/\.(mp4|m4v|mov|webm|ogv)$/i.test(mediaId)
-        ) {
-          continue;
-        }
-        claimedVideoIds.add(mediaId);
-        this.mediaRuntime.acquireMediaById(mediaId, {
-          playback: this.drawableResourcePlaybackOptions(
-            descriptor,
-            component,
-          ),
-        });
-      }
-      if (source.type === "generator") {
-        const generator = host.visualNodeRuntime.generator(source.generatorId);
-        const params = generator
-          ? normalizeParamValues(generator, source.params || {})
-          : { ...(source.params || {}) };
-        for (const mediaId of this.visualMediaResourceIds(
-          source.generatorId,
-          source.params || {},
-          params,
-        )) {
-          const runtimeItem = host.media.get(mediaId);
-          const mediaMeta = (host.state?.media || []).find(
-            (entry) => entry.id === mediaId,
-          );
-          if (
-            mediaMeta?.type !== "video" &&
-            !runtimeItem?.video &&
-            !/\.(mp4|m4v|mov|webm|ogv)$/i.test(mediaId)
-          ) {
-            continue;
-          }
-          if (claimedVideoIds.has(mediaId)) continue;
-          claimedVideoIds.add(mediaId);
-          this.mediaRuntime.acquireMediaById(mediaId, {
-            playback: this.videoPlaybackOptions(params, component),
-          });
-        }
-        return;
-      }
-    });
-    visiting.delete(component.id);
+    return this.resourceRuntime.claimRetainedComponentMedia(component, visiting);
   }
 
   claimRetainedSourceMedia(
@@ -621,43 +400,12 @@ export class SourceRenderRuntime {
     renderRequest = {},
     declaredMediaIds = null,
   ) {
-    const host = this.host;
-    if (source.type !== "generator") return [];
-    const generator = host.visualNodeRuntime.generator(source.generatorId);
-    const params = generator
-      ? normalizeParamValues(generator, source.params || {})
-      : { ...(source.params || {}) };
-    const qualityRequest = qualityScaledRenderRequest(
+    return this.resourceRuntime.claimRetainedSourceMedia(
+      source,
+      component,
       renderRequest,
-      params,
+      declaredMediaIds,
     );
-    const claimed = [];
-    const mediaIds = declaredMediaIds
-      ? Array.from(declaredMediaIds)
-      : this.visualMediaResourceIds(
-          source.generatorId,
-          source.params || {},
-          params,
-        );
-    for (const mediaId of mediaIds) {
-      const runtimeItem = host.media.get(mediaId);
-      const mediaMeta = (host.state?.media || []).find(
-        (entry) => entry.id === mediaId,
-      );
-      if (
-        mediaMeta?.type !== "video" &&
-        !runtimeItem?.video &&
-        !/\.(mp4|m4v|mov|webm|ogv)$/i.test(mediaId)
-      ) {
-        claimed.push(this.mediaRuntime.retainMediaById(mediaId));
-        continue;
-      }
-      claimed.push(this.mediaRuntime.acquireMediaById(mediaId, {
-        playback: this.videoPlaybackOptions(params, component),
-        width: mediaSourceDemandWidth(qualityRequest, source),
-      }));
-    }
-    return claimed;
   }
 
   specializedVisualStageContract(
@@ -746,35 +494,11 @@ export class SourceRenderRuntime {
     authoredParameters = {},
     normalizedParameters = null,
   ) {
-    const host = this.host;
-    const component = host.visualNodeRuntime.generator(generatorId);
-    const graph = component?.nodeDefinition?.parts?.find(
-      (part) => part.kind === "graph",
+    return this.resourceRuntime.visualMediaResourceIds(
+      generatorId,
+      authoredParameters,
+      normalizedParameters,
     );
-    const normalized =
-      normalizedParameters ||
-      (component
-        ? normalizeParamValues(component, authoredParameters || {})
-        : { ...(authoredParameters || {}) });
-    const ids = new Set();
-    visitVisualParameterReferences(normalized, ({ kind, id }) => {
-      if (kind === "media" && id) ids.add(id);
-    });
-    for (const node of graph?.nodes || []) {
-      const nodeDefinition = host.visualNodeRuntime.definition(node.type);
-      if (!nodeDefinition?.capabilities?.includes("media-resource")) {
-        continue;
-      }
-      const stage = this.specializedVisualStageContract(
-        generatorId,
-        node.id,
-        authoredParameters,
-        normalized,
-      );
-      const mediaId = String(stage?.params?.mediaId || "");
-      if (mediaId) ids.add(mediaId);
-    }
-    return [...ids];
   }
 
   featureMorphAnalysisContract(
@@ -1483,63 +1207,11 @@ export class SourceRenderRuntime {
   }
 
   drawPlacedSourceResult(output, placed, layer = {}, clipRect = null) {
-    output.push();
-    applyBlend(output, layer.blend);
-    output.tint(255, 255 * clamp01(layer.opacity ?? 1));
-    withTargetScissor(
-      output,
-      clipRect,
-      () => this.drawPlacedResultGeometry(output, placed),
-    );
-    output.noTint();
-    output.blendMode(BLEND);
-    output.pop();
+    return this.placementRuntime.drawPlacedSourceResult(output, placed, layer, clipRect);
   }
 
   drawPlacedResultGeometry(output, placed, coordinateTarget = output) {
-    const rect = placed.destinationRect;
-    const transform = normalizedContentTransform(placed.transform);
-    const coordinateWidth = Math.max(
-      1,
-      Number(coordinateTarget?.width) || Number(output.width) || 1,
-    );
-    const coordinateHeight = Math.max(
-      1,
-      Number(coordinateTarget?.height) || Number(output.height) || 1,
-    );
-    const placement = contentTransformCanvasPlacement(
-      transform,
-      coordinateWidth,
-      coordinateHeight,
-    );
-    output.push();
-    output.translate(placement.centerX, placement.centerY);
-    output.rotate(transform.rotation);
-    output.scale(transform.scale);
-    const x = rect.x - coordinateWidth * 0.5;
-    const y = rect.y - coordinateHeight * 0.5;
-    if (placed.fit === "stretch") {
-      drawBuffer(
-        output,
-        placed.texture,
-        x,
-        y,
-        rect.width,
-        rect.height,
-        placed.sourceIsWebGL,
-      );
-    } else {
-      drawMediaFit(
-        output,
-        placed.texture,
-        x,
-        y,
-        rect.width,
-        rect.height,
-        placed.fit,
-      );
-    }
-    output.pop();
+    return this.placementRuntime.drawPlacedResultGeometry(output, placed, coordinateTarget);
   }
 
   registerNativeRenderer(rendererId, renderer, { replace = false } = {}) {
@@ -1932,65 +1604,14 @@ export class SourceRenderRuntime {
     renderRequest,
     operation = null,
   ) {
-    const host = this.host;
-    const target = { width: output.width, height: output.height };
-    const directResource = this.directPlacementResource(
-      operation,
+    return this.placementRuntime.resolvePlacedSourceResult(
+      output,
       source,
       component,
+      componentTime,
       renderRequest,
+      operation,
     );
-    if (
-      directResource?.drawable &&
-      !directResource.requiresRetainedFrame &&
-      isDrawableMedia(directResource.drawable)
-    ) {
-      const fitParameter =
-        directResource.contract.fitParameter || "fit";
-      const fit = source.params?.[fitParameter] || "contain";
-      return createPlacedRenderResult(directResource.drawable, {
-        destinationRect: fullTargetRect(target),
-        fit,
-        transform: source.contentTransform,
-      });
-    }
-    if (source.type === "component") {
-      const dependency = host.componentProgramRuntime.componentForId(source.componentId);
-      if (!dependency || dependency.id === component.id || dependency.type === "scene") return null;
-      const placement = componentReferencePlacement(
-        component,
-        dependency,
-        host.state.render,
-        target,
-        source.placement,
-      );
-      const placementTransform = combineContentTransforms(
-        source.contentTransform,
-        dependency.transform,
-      );
-      const demandRect = transformedPlacementDemandRect(placement, placementTransform);
-      const dependencyTime = host.frameRuntime.componentTimes.get(dependency.id) || componentTime;
-      const renderIdentity = componentRenderInstanceKey(dependency, source.instanceId);
-      const referenceCount = componentReferenceCount(
-        host.componentProgramRuntime.programs.get(component.id),
-        dependency.id,
-      );
-      const texture = host.componentRenderRuntime.render(
-        dependency,
-        componentInstanceTime(dependency, dependencyTime, source.instanceId),
-        componentReferenceRenderRequest(host.state.render, dependency, demandRect, {
-          reason: "direct-component-reference",
-          renderIdentity,
-          sharedResolutionClass: dependency.syncInstances !== false && referenceCount > 1,
-        }),
-      );
-      return createPlacedRenderResult(texture, {
-        destinationRect: placement,
-        transform: placementTransform,
-        sourceIsWebGL: host.renderTargetRuntime.isShaderBuffer(texture),
-      });
-    }
-    return null;
   }
 }
 
@@ -2035,77 +1656,4 @@ function stableStringifyValue(value) {
       .join(",")}}`;
   }
   return JSON.stringify(value);
-}
-
-function withTargetScissor(target, rect, draw) {
-  if (!rect || typeof draw !== "function") return draw?.();
-  const gl = target?.drawingContext;
-  if (!gl?.scissor || !gl?.enable) {
-    if (!gl?.save || !gl?.beginPath || !gl?.rect || !gl?.clip) {
-      return draw();
-    }
-    gl.save();
-    gl.beginPath();
-    gl.rect(
-      Number(rect.x) || 0,
-      Number(rect.y) || 0,
-      Math.max(0, Number(rect.width) || 0),
-      Math.max(0, Number(rect.height) || 0),
-    );
-    gl.clip();
-    try {
-      return draw();
-    } finally {
-      gl.restore();
-    }
-  }
-  const targetWidth = Math.max(1, Number(target?.width) || 1);
-  const targetHeight = Math.max(1, Number(target?.height) || 1);
-  const density = target?.__vj1SharedFramebuffer
-    ? 1
-    : Math.max(1, Number(target?.pixelDensity?.()) || 1);
-  const left = Math.max(
-    0,
-    Math.min(targetWidth, Number(rect.x) || 0),
-  );
-  const top = Math.max(
-    0,
-    Math.min(targetHeight, Number(rect.y) || 0),
-  );
-  const right = Math.max(
-    left,
-    Math.min(
-      targetWidth,
-      left + Math.max(0, Number(rect.width) || 0),
-    ),
-  );
-  const bottom = Math.max(
-    top,
-    Math.min(
-      targetHeight,
-      top + Math.max(0, Number(rect.height) || 0),
-    ),
-  );
-  const wasEnabled = gl.isEnabled?.(gl.SCISSOR_TEST) === true;
-  const previousBox = gl.getParameter?.(gl.SCISSOR_BOX);
-  gl.enable(gl.SCISSOR_TEST);
-  gl.scissor(
-    Math.floor(left * density),
-    Math.floor((targetHeight - bottom) * density),
-    Math.max(1, Math.ceil((right - left) * density)),
-    Math.max(1, Math.ceil((bottom - top) * density)),
-  );
-  try {
-    return draw();
-  } finally {
-    if (previousBox?.length === 4) {
-      gl.scissor(
-        previousBox[0],
-        previousBox[1],
-        previousBox[2],
-        previousBox[3],
-      );
-    }
-    if (!wasEnabled) gl.disable(gl.SCISSOR_TEST);
-  }
 }

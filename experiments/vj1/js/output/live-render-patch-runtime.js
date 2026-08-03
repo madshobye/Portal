@@ -20,21 +20,43 @@ export function renderPatchChangesProgramReachability(patch = {}) {
 export function renderPatchChangesProgramTopology(patch = {}) {
   if (patch?.target === "state") return false;
   const parts = String(patch?.path || "").split(".").filter(Boolean);
-  const chainIndex = parts.lastIndexOf("chain");
-  if (chainIndex < 0) return false;
-  if (parts.length <= chainIndex + 2) return true;
-  const itemField = String(parts[chainIndex + 2] || "");
+  if (!patch?.nodeId || !parts.length) return false;
+  const itemField = String(parts[0] || "");
   if (["id", "kind", "componentId"].includes(itemField)) return true;
   if (itemField !== "source") return false;
-  return ["type", "generatorId", "componentId"].includes(String(parts[chainIndex + 3] || ""));
+  return ["type", "generatorId", "componentId"].includes(String(parts[1] || ""));
+}
+
+export function renderPatchRejectionDiagnostic(host, patches, result, metadata = {}) {
+  const failedPatch = result?.failedPatch || patches?.[0] || null;
+  return {
+    code: "VJ1_RENDER_PATCH_REJECTED",
+    host: {
+      mode: String(host?.mode || "unknown"),
+      outputId: String(host?.outputId || ""),
+    },
+    rejectionReason: String(result?.rejectionReason || "unknown"),
+    transportRevision: Number.isFinite(Number(metadata?.transportRevision))
+      ? Number(metadata.transportRevision)
+      : null,
+    patchCount: Array.isArray(patches) ? patches.length : 0,
+    failedPatch: failedPatch ? {
+      target: String(failedPatch.target || "component"),
+      componentId: String(failedPatch.componentId || ""),
+      nodeId: String(failedPatch.nodeId || ""),
+      path: String(failedPatch.path || ""),
+    } : null,
+  };
 }
 
 // Owns the transition from authored live patches to already-compiled program
 // configuration. Temporary interpolation is applied only around one render
 // frame and canonical project state is restored immediately afterward.
 export class LiveRenderPatchRuntime {
-  constructor(host) {
+  constructor(host, { warn = console.warn } = {}) {
     this.host = host;
+    this.warn = warn;
+    this.rejectionWarningKeys = new Set();
     this.fades = new Map();
     this.frameRestores = [];
   }
@@ -43,19 +65,20 @@ export class LiveRenderPatchRuntime {
     return this.fades.size > 0;
   }
 
-  applyLive(patches = [], nowMs = performance.now()) {
+  applyLive(patches = [], nowMs = performance.now(), metadata = {}) {
     const durationMs = Math.max(
       0,
       Number(this.host.state?.ui?.live?.paramFadeDuration) || 0,
     ) * 1000;
-    return this.apply(patches, nowMs, durationMs);
+    return this.apply(patches, nowMs, durationMs, metadata);
   }
 
-  apply(patches = [], nowMs = performance.now(), durationMs = 0) {
+  apply(patches = [], nowMs = performance.now(), durationMs = 0, metadata = {}) {
     const host = this.host;
     const resolution = resolveLiveRenderPatches(host.state, patches);
     const finish = (result) => {
       host.profileRuntime?.recordLivePatch?.(host, patches, resolution, result);
+      if (!result?.applied) this.reportRejection(result, patches, metadata);
       return result;
     };
     if (!resolution.applied) return finish(resolution);
@@ -91,7 +114,7 @@ export class LiveRenderPatchRuntime {
     }
     durationMs = Math.max(0, Number(durationMs) || 0);
     const candidates = resolution.destinations.map((destination) => {
-      const key = `${destination.componentId}:${destination.path}`;
+      const key = `${destination.componentId}:${destination.nodeId || "$component"}:${destination.path}`;
       const active = this.fades.get(key);
       const from = active
         ? interpolatedLiveRenderValue(
@@ -110,7 +133,7 @@ export class LiveRenderPatchRuntime {
       const { destination, key, active, from } = candidate;
       const to = destination.value;
       const canFade = durationMs > 0 &&
-        isInterpolableLiveRenderPath(destination.path) &&
+        isInterpolableLiveRenderPath(destination.path, destination.nodeId) &&
         Number.isFinite(from) &&
         Number.isFinite(to);
       if (!canFade || Object.is(from, to)) {
@@ -156,9 +179,9 @@ export class LiveRenderPatchRuntime {
           continue;
         }
         const synchronized =
-          host.componentProgramRuntime.syncConfigurationItems(
+          host.componentProgramRuntime.syncGraphNodes(
             target.componentId,
-            target.itemIds,
+            target.nodeIds,
           );
         if (!synchronized.applied) missingTargets.push(target);
       }
@@ -187,6 +210,7 @@ export class LiveRenderPatchRuntime {
         applied: false,
         stateApplied: true,
         configurationApplied: false,
+        rejectionReason: "configuration-sync-failed",
         failedPatch: patches.find((patch) =>
           missingComponentIds.has(String(patch?.componentId || ""))
         ) || null,
@@ -201,6 +225,27 @@ export class LiveRenderPatchRuntime {
       resolution.destinations,
     );
     return finish(result);
+  }
+
+  reportRejection(result, patches = [], metadata = {}) {
+    if (result?.applied) return;
+    const diagnostic = renderPatchRejectionDiagnostic(this.host, patches, result, metadata);
+    const patch = diagnostic.failedPatch;
+    const key = [
+      diagnostic.host.mode,
+      diagnostic.host.outputId,
+      diagnostic.rejectionReason,
+      patch?.target,
+      patch?.componentId,
+      patch?.nodeId,
+      patch?.path,
+    ].join(":");
+    if (this.rejectionWarningKeys.has(key)) return;
+    this.rejectionWarningKeys.add(key);
+    if (this.rejectionWarningKeys.size > 128) {
+      this.rejectionWarningKeys.delete(this.rejectionWarningKeys.values().next().value);
+    }
+    this.warn?.("[VJ1_RENDER_PATCH_REJECTED]", diagnostic);
   }
 
   applyFrame(nowMs = performance.now()) {
@@ -242,5 +287,6 @@ export class LiveRenderPatchRuntime {
   clear() {
     this.restoreFrame();
     this.fades.clear();
+    this.rejectionWarningKeys.clear();
   }
 }

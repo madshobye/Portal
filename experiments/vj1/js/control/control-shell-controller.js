@@ -43,20 +43,6 @@ const performanceHealthClasses = Object.freeze([
   "health-5", "health-6", "health-7", "health-8",
 ]);
 const performanceHealthThresholds = Object.freeze([0.18, 0.32, 0.46, 0.60, 0.72, 0.82, 0.92, 1.0]);
-const liveProgramRenderReasons = new Set([
-  "live:scene",
-  "live:target",
-  "live:surface-patch-clear",
-  "live:overall-component-clear",
-  "live:surface-visibility",
-  "live:transition-advance",
-]);
-const previewViewportReasons = new Set([
-  "preview-zoom",
-  "preview-pan",
-  "preview-fit-world",
-  "preview-fit-frame",
-]);
 
 export function rememberParamViewSelections(scope, selections = new Map()) {
   for (const input of scope?.querySelectorAll?.(".chain-param-view-input:checked") || []) {
@@ -201,10 +187,11 @@ export function createControlShell({
   projectService,
   midiInput,
   dmxOutput,
+  screenCapture,
   diagnostics = null,
   nodePackage = null,
 }) {
-  if (!midiInput || !dmxOutput) throw new Error("CONTROL_DEVICE_SERVICES_REQUIRED");
+  if (!midiInput || !dmxOutput || !screenCapture) throw new Error("CONTROL_DEVICE_SERVICES_REQUIRED");
   let refs = {};
   let latestState = store.getState();
   let renderFrame = 0;
@@ -268,6 +255,7 @@ export function createControlShell({
     bindCatalogSortControls,
     midiInput,
     dmxOutput,
+    screenCapture,
   });
   let animationTriggerSequence = 0;
   const inputs = createInputController({
@@ -310,6 +298,7 @@ export function createControlShell({
     onControlSignal: (payload) =>
       bridge.command(CONTROL_SIGNAL_COMMAND, payload),
     onDmxFixture: (payload) => dmxOutput.receiveProbe(payload),
+    screenCapture,
     onChainItemTarget: (componentId, itemId) => {
       clipboard.setChainItemTarget(componentId, itemId);
     },
@@ -408,7 +397,7 @@ export function createControlShell({
         if (change.command.phase !== "scrub") renderPreview(state, { reason, change });
         return;
       }
-      if (reason === "output-metrics" || reason === "preview-metrics" || reason === "project-history" || reason === "project-autosave" || reason === "project-autosave-error") {
+      if (change.effects.preview.mode === "metrics") {
         renderTopbar(state);
         return;
       }
@@ -416,7 +405,7 @@ export function createControlShell({
         patchComponentThumbnails(change.projection.entries);
         return;
       }
-      if (change.effects.preview.mode === "viewport" && previewViewportReasons.has(reason)) {
+      if (change.effects.preview.mode === "viewport") {
         // Navigation changes only the retained p5 presentation transform.
         // A full state replacement would rebuild the render graph and, in
         // Live, discard its temporary parameter overlay.
@@ -494,7 +483,7 @@ export function createControlShell({
         });
         return;
       }
-      if (currentWorkspace(state) === "live" && liveProgramRenderReasons.has(reason)) {
+      if (currentWorkspace(state) === "live" && change.effects.preview.mode === "live-program") {
         scheduleRenderNow(state, { force: true, reason, change, projection: "live-program" });
         return;
       }

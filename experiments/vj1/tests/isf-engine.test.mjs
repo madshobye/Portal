@@ -26,7 +26,6 @@ import { mapperTransitionFragmentShaderSource } from "../js/libraries/mapping-en
 import { serializeNodeProjectData } from "../js/libraries/node-engine/node-project.js";
 import { createProjectNodeFork } from "../js/libraries/node-engine/node-editor.js";
 import { createProjectVisualNodeResolver } from "../js/libraries/visual-nodes/project-visual-node-resolver.js";
-import { compileComponentPatch } from "../js/graph/legacy-chain-render-projection.js";
 import { compileShaderSchedule } from "../js/graph/shader-scheduler.js";
 
 const profile = (source) => canonicalizeIsfWebgl2Source(source);
@@ -666,38 +665,4 @@ test("project visual resolution tolerates file-backed definitions that are still
   assert.equal(resolver.generator("isf-shaders-pending"), null);
   assert.equal(resolver.generatorShader("isf-shaders-pending"), null);
   assert.equal(resolver.effect("isf-shaders-pending"), null);
-});
-
-test("component graph compilation treats pending visual files as transparent or pass-through", () => {
-  const patch = compileComponentPatch({
-    id: "pending-component",
-    chain: [
-      { id: "source", kind: "source", source: { type: "generator", generatorId: "isf-pending-generator" } },
-      { id: "effect", kind: "effect", componentId: "isf-pending-effect", amount: 1 },
-    ],
-  }, {}, {
-    getGeneratorComponent: () => null,
-    getEffectComponent: () => null,
-  });
-  assert.deepEqual(patch.nodes.map((node) => node.role), ["output"]);
-  assert.deepEqual(patch.edges, []);
-});
-
-test("component graph compilation activates a pending ISF source when its definition arrives", () => {
-  const generatorSource = FILTER
-    .replace('"NAME": "inputImage"', '"NAME": "unused"')
-    .replace('"TYPE": "image"', '"TYPE": "float"');
-  const definition = createIsfNodeDefinition({
-    path: "shaders/tint.fs",
-    source: generatorSource,
-  });
-  const resolver = createProjectVisualNodeResolver({ nodes: { definitions: [definition] } });
-  const patch = compileComponentPatch({
-    id: "loaded-component",
-    chain: [{ id: "source", kind: "source", source: { type: "generator", generatorId: definition.metadata.visualId } }],
-  }, {}, {
-    getGeneratorComponent: resolver.generator,
-    getEffectComponent: resolver.effect,
-  });
-  assert.deepEqual(patch.nodes.map((node) => node.role), ["source", "output"]);
 });

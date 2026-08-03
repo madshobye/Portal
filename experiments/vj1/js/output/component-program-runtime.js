@@ -141,33 +141,22 @@ export class ComponentProgramRuntime {
     }
   }
 
-  syncConfiguration(componentId, state = this.getState?.()) {
+  syncGraphNodes(componentId, nodeIds = [], state = this.getState?.()) {
     const id = String(componentId || "");
-    const component = (state?.components || []).find(
-      (candidate) => String(candidate?.id || "") === id,
+    const group = state?.nodes?.groups?.find((candidate) =>
+      candidate.generatedBy === "vj1-component-compiler" &&
+      String(candidate.componentId || "") === id
     );
     const program = this.programs.get(id);
-    if (!component || !program) return false;
-    return program.syncProjectedConfiguration(component);
-  }
-
-  syncConfigurationItems(componentId, itemIds = [], state = this.getState?.()) {
-    const id = String(componentId || "");
-    const component = (state?.components || []).find(
-      (candidate) => String(candidate?.id || "") === id,
-    );
-    const program = this.programs.get(id);
-    if (!component || !program) {
-      return Object.freeze({
-        applied: false,
-        componentId: id,
-        changedIds: Object.freeze([]),
-        missingIds: Object.freeze(Array.from(itemIds || [], String)),
-      });
-    }
+    if (!group || !program) return Object.freeze({
+      applied: false,
+      componentId: id,
+      changedIds: Object.freeze([]),
+      missingIds: Object.freeze(Array.from(nodeIds || [], String)),
+    });
     return Object.freeze({
       componentId: id,
-      ...program.syncProjectedItems(component, itemIds),
+      ...program.syncGraphNodes(group, nodeIds),
     });
   }
 

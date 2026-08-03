@@ -5,6 +5,7 @@ import {
   boundedProfileValue,
   captureControlLiveProfileDiagnostic,
 } from "../js/control/live-profile-diagnostics.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
 
 test("control event diagnostics omit projected graphs and bound large values", () => {
   const state = {
@@ -23,37 +24,43 @@ test("control event diagnostics omit projected graphs and bound large values", (
     kind: "event",
     reason: "scrub:live",
     change: {
-      livePatches: [{ componentId: "fire", path: "chain.0.source.params.geometryDetail", value: 0.75 }],
+      livePatches: [{ componentId: "fire", nodeId: "fire-source", path: "source.params.geometryDetail", value: 0.75 }],
     },
   });
 
   assert.equal(event.projection, undefined);
   assert.match(event.parameterDiffBank.values.fire.source.code, /\[truncated/);
   assert.ok(event.parameterDiffBank.values.fire.source.code.length < 8300);
-  assert.equal(event.event.livePatches[0].path, "chain.0.source.params.geometryDetail");
+  assert.equal(event.event.livePatches[0].nodeId, "fire-source");
+  assert.equal(event.event.livePatches[0].path, "source.params.geometryDetail");
 });
 
 test("control sample diagnostics prioritize the selected target and omit executable graph source", () => {
   const selected = {
     id: "selected",
     name: "Selected STL",
+    type: "chain",
     chain: [{
       id: "stl",
       kind: "source",
-      source: { generatorId: "modelMedia", params: { geometryDetail: 0.5 }, code: "x".repeat(20000) },
+      source: { type: "generator", generatorId: "modelMedia", params: { geometryDetail: 0.5 }, code: "x".repeat(20000) },
     }],
   };
   const state = {
     ui: { live: { selectedComponentId: "selected", parameterDiffs: { selected: {} } } },
   };
-  const components = Array.from({ length: 30 }, (_, index) => ({ id: `other-${index}`, chain: [] }));
-  components.push(selected);
+  const renderState = createVj1NodePackage().prepareProjectState({
+    components: [selected],
+    nodes: {},
+    surfaces: [],
+    ui: state.ui,
+  });
 
-  const diagnostic = captureControlLiveProfileDiagnostic(state, { components, surfaces: [] }, { kind: "sample" });
+  const diagnostic = captureControlLiveProfileDiagnostic(renderState, renderState, { kind: "sample" });
 
   assert.equal(diagnostic.projection.components[0].id, "selected");
-  assert.equal(diagnostic.projection.components[0].chain[0].source.params.geometryDetail, 0.5);
-  assert.equal(Object.hasOwn(diagnostic.projection.components[0].chain[0].source, "code"), false);
+  assert.equal(diagnostic.projection.components[0].nodes[0].configuration.source.params.geometryDetail, 0.5);
+  assert.equal(Object.hasOwn(diagnostic.projection.components[0].nodes[0].configuration.source, "code"), false);
   assert.equal(Object.hasOwn(diagnostic.projection, "nodeGroups"), false);
 });
 

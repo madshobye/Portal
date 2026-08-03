@@ -33,6 +33,10 @@ import {
   DefaultBuiltInTransition,
 } from "../js/libraries/visual-nodes/catalog.js";
 import { VisualComponent as PhotoGradeVisualComponent } from "../js/libraries/visual-nodes/effects/photo-grade/index.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
+import { componentLayerProjection } from "../js/domain/component-layer-projection.js";
+
+const appNodePackage = createVj1NodePackage();
 
 test("effect opacity and blend request a separate generic composite", () => {
   assert.equal(effectNeedsComposite({}), false);
@@ -1648,13 +1652,14 @@ test("Component program reachability remains structural across visibility patche
   };
   const root = { id: "root", type: "scene", chain: [reference] };
   const renderer = new OutputRenderer({ mode: "component" });
-  renderer.state = {
+  renderer.state = appNodePackage.prepareProjectState({
     components: [root, child, replacement],
     nodes: { groups: [] },
     render: {},
     surfaces: [],
     ui: { selectedComponentId: root.id },
-  };
+  });
+  const rootNodeId = componentLayerProjection(renderer.state, renderer.state.components[0])[0].nodeId;
   renderer.visualNodeRuntime.rebuild();
   renderer.componentProgramRuntime.rebuild();
   assert.deepEqual(
@@ -1670,12 +1675,13 @@ test("Component program reachability remains structural across visibility patche
 
   const result = renderer.livePatchRuntime.apply([{
     componentId: root.id,
-    path: "chain.0.enabled",
+    nodeId: rootNodeId,
+    path: "enabled",
     value: true,
   }]);
 
   assert.equal(result.applied, true);
-  assert.equal(renderer.state.components[0].chain[0].enabled, true);
+  assert.equal(componentLayerProjection(renderer.state, renderer.state.components[0])[0].item.enabled, true);
   assert.deepEqual([...renderer.componentProgramRuntime.programs.keys()].sort(), [child.id, root.id]);
   let patchedReference = null;
   renderer.componentProgramRuntime.programs.get(root.id).forEachOperation((operation) => {
@@ -1689,7 +1695,8 @@ test("Component program reachability remains structural across visibility patche
 
   renderer.livePatchRuntime.apply([{
     componentId: root.id,
-    path: "chain.0.source.componentId",
+    nodeId: rootNodeId,
+    path: "source.componentId",
     value: replacement.id,
   }]);
   assert.deepEqual(
@@ -1765,16 +1772,17 @@ function assertClose(actual, expected, epsilon = 1e-6) {
 }
 
 test("local transform overlays path-copy store-owned component and Surface state", () => {
-  const child = { id: "child", kind: "source", transform: { x: 0, y: 0, scale: 1, rotation: 0 } };
+  const child = { id: "child", kind: "source", source: { type: "generator", generatorId: "gradient" }, transform: { x: 0, y: 0, scale: 1, rotation: 0 }, boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 } };
   const group = { id: "group", kind: "group", chain: [child] };
-  const component = { id: "component", chain: [group] };
+  const component = { id: "component", type: "component", chain: [group] };
   const surface = { id: "surface", x: 0, y: 0, width: 100, height: 100 };
-  const state = {
+  const state = appNodePackage.prepareProjectState({
     components: [component],
     mappings: [{ id: "mapping", surfaces: [surface] }],
     surfaces: [surface],
     ui: { selectedMappingId: "mapping" },
-  };
+    nodes: {},
+  });
 
   const transformed = stateWithChainItemTransform(state, component.id, child.id, { x: 0.5 });
   const bounded = stateWithChainItemBoundary(transformed, component.id, child.id, { width: 0.5, height: 0.5, rotation: 0.3 });
@@ -1782,9 +1790,10 @@ test("local transform overlays path-copy store-owned component and Surface state
 
   assert.equal(child.transform.x, 0, "the store-owned nested item is not mutated");
   assert.equal(surface.y, 0, "the store-owned Surface is not mutated");
-  assert.equal(surfaced.components[0].chain[0].chain[0].transform.x, 0.5);
-  assert.equal(surfaced.components[0].chain[0].chain[0].boundary.rotation, 0.3);
-  assert.equal(surfaced.components[0].chain[0].chain[0].boundary.width, 0.5);
+  const transformedChild = componentLayerProjection(surfaced, surfaced.components[0])[0].children[0].item;
+  assert.equal(transformedChild.transform.x, 0.5);
+  assert.equal(transformedChild.boundary.rotation, 0.3);
+  assert.equal(transformedChild.boundary.width, 0.5);
   assert.equal(surfaced.mappings[0].surfaces[0].y, 24);
   assert.equal(surfaced.surfaces[0].y, 24);
   assert.equal(surfaced.components[0].chain[0].id, group.id);
@@ -1811,20 +1820,21 @@ test("a hidden selected element cannot expose transform handles or begin a drag"
 });
 
 test("local drag overlays refresh only Component lookup entries while Surface geometry stays in Mapping state", () => {
-  const component = { id: "component", chain: [{ id: "item", kind: "source", transform: {} }] };
+  const component = { id: "component", type: "component", chain: [{ id: "item", kind: "source", transform: {}, source: { type: "generator", generatorId: "gradient" } }] };
   const surface = { id: "surface", x: 0, y: 0, width: 100, height: 100 };
   const renderer = new OutputRenderer({ mode: "component" });
-  renderer.state = {
+  renderer.state = appNodePackage.prepareProjectState({
     components: [component],
     mappings: [{ id: "mapping", surfaces: [surface] }],
     surfaces: [surface],
     render: {},
     ui: { selectedMappingId: "mapping" },
-  };
+    nodes: {},
+  });
   renderer.componentProgramRuntime.rebuildLookups();
   let patchedProgramItem = null;
   renderer.componentProgramRuntime.programs.set(component.id, {
-    replaceChainItem(itemId, item) {
+    replaceNodeConfiguration(itemId, item) {
       assert.equal(itemId, "item");
       patchedProgramItem = item;
       return true;
@@ -1838,7 +1848,7 @@ test("local drag overlays refresh only Component lookup entries while Surface ge
   interaction.applyLocalSurface(surface.id, { y: 20 });
 
   assert.equal(fullRebuilds, 0);
-  assert.equal(renderer.componentProgramRuntime.componentById.get(component.id).chain[0].transform.x, 0.25);
+  assert.equal(componentLayerProjection(renderer.state, renderer.state.components[0])[0].item.transform.x, 0.25);
   assert.equal(patchedProgramItem.transform.x, 0.25, "the rendered program follows the local preview overlay immediately");
   assert.equal(renderer.state.mappings[0].surfaces[0].y, 20);
   assert.equal(renderer.state.surfaces[0].y, 20);
@@ -1878,12 +1888,13 @@ test("preview transform ownership survives stale state until an exact acknowledg
   const transform = { x: 0.4, y: -0.2, scale: 1.5, rotation: 0.3 };
   const rect = { x: 30, y: 40, width: 120, height: 80 };
   const surface = { id: "surface", x: 0, y: 0, width: 100, height: 100 };
-  const stale = {
-    components: [{ id: "component", chain: [{ id: "item", kind: "source", transform: { x: 0, y: 0, scale: 1, rotation: 0 } }] }],
+  const stale = appNodePackage.prepareProjectState({
+    components: [{ id: "component", type: "component", chain: [{ id: "item", kind: "source", source: { type: "generator", generatorId: "gradient" }, transform: { x: 0, y: 0, scale: 1, rotation: 0 } }] }],
     mappings: [{ id: "mapping", surfaces: [surface] }],
     surfaces: [surface],
     ui: { selectedChainItemId: "", selectedMappingId: "mapping" },
-  };
+    nodes: {},
+  });
   const interaction = new ComponentPreviewInteraction({});
   interaction.pendingChainTransform = { componentId: "component", itemId: "item", transform };
   interaction.pendingSurface = { surfaceId: "surface", rect };
@@ -1891,7 +1902,7 @@ test("preview transform ownership survives stale state until an exact acknowledg
   const reconciled = interaction.reconcileIncomingState(stale);
   assert.deepEqual(stale.components[0].chain[0].transform, { x: 0, y: 0, scale: 1, rotation: 0 });
   assert.equal(stale.mappings[0].surfaces[0].x, 0);
-  assert.deepEqual(reconciled.components[0].chain[0].transform, transform);
+  assert.deepEqual(componentLayerProjection(reconciled, reconciled.components[0])[0].item.transform, transform);
   assert.deepEqual(reconciled.mappings[0].surfaces[0], { id: "surface", ...rect });
   assert.deepEqual(reconciled.surfaces[0], { id: "surface", ...rect });
   assert.equal(reconciled.ui.selectedChainItemId, "item");
@@ -1923,10 +1934,10 @@ test("authoritative retained controls supersede completed preview handle ownersh
 
   interaction.acceptAuthoritativeConfigurationPatches([
     {
-      targetType: "component",
+      targetType: "node",
       componentId: "component",
-      itemId: "item",
-      path: "chain.0.boundary.width",
+      nodeId: "item",
+      path: "boundary.width",
       value: 1,
     },
   ]);
@@ -1936,10 +1947,10 @@ test("authoritative retained controls supersede completed preview handle ownersh
 
   interaction.acceptAuthoritativeConfigurationPatches([
     {
-      targetType: "component",
+      targetType: "node",
       componentId: "component",
-      itemId: "item",
-      path: "chain.0.transform.scale",
+      nodeId: "item",
+      path: "transform.scale",
       value: 1,
     },
   ]);
@@ -2128,11 +2139,11 @@ test("preview picking selects physical sources, spatial effects, and containing 
   const selected = [];
   const renderer = new OutputRenderer({ mode: "component", onChainItemSelect: (id) => selected.push(id) });
   const source = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
-  const groupedSource = { id: "source-b", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "media", mediaId: "image-a" } };
+  const groupedSource = { id: "source-b", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "mediaImage", params: { mediaId: "image-a" } } };
   const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, chain: [groupedSource] };
   const ordinaryEffect = { id: "effect-a", kind: "effect", componentId: "labelChromatic", enabled: true, opacity: 1, transform: {} };
   const component = { id: "component-a", type: "chain", chain: [source, group, ordinaryEffect] };
-  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: "" } };
+  renderer.state = appNodePackage.prepareProjectState({ components: [component], nodes: {}, render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: "" } });
   renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
   assert.equal(renderer.previewInteraction.selectChainItemAtPoint(100, 50)?.id, group.id);
@@ -2140,7 +2151,7 @@ test("preview picking selects physical sources, spatial effects, and containing 
   assert.deepEqual(selected, [group.id]);
 
   component.chain.push({ id: "effect-spatial", kind: "effect", componentId: "ripple", enabled: true, opacity: 1, transform: {} });
-  renderer.state.ui.selectedChainItemId = "";
+  renderer.state = appNodePackage.prepareProjectState({ components: [component], nodes: {}, render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: "" } });
   assert.equal(renderer.previewInteraction.selectChainItemAtPoint(100, 50)?.id, "effect-spatial");
 });
 
@@ -2163,20 +2174,22 @@ test("preview body picking follows compositor z-order even when a covered item w
     source: { type: "generator", generatorId: "plasma" },
   };
   const component = { id: "component-a", type: "chain", chain: [left, right] };
-  renderer.state = {
+  renderer.state = appNodePackage.prepareProjectState({
     components: [component],
+    nodes: {},
     render: {},
     ui: { selectedComponentId: component.id, selectedChainItemId: left.id },
-  };
+  });
   renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
-  assert.equal(renderer.previewInteraction.chainItemAtPoint(50, 50), left);
-  assert.equal(renderer.previewInteraction.chainItemAtPoint(150, 50), right);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(50, 50)?.id, left.id);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(150, 50)?.id, right.id);
 
   right.boundary = { x: 0, y: 0, width: 1, height: 1, rotation: 0 };
+  renderer.state = appNodePackage.prepareProjectState({ components: [component], nodes: {}, render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: left.id } });
   assert.equal(
-    renderer.previewInteraction.chainItemAtPoint(50, 50),
-    right,
+    renderer.previewInteraction.chainItemAtPoint(50, 50)?.id,
+    right.id,
     "the frontmost body wins even when the covered item owns selection",
   );
 });
@@ -2213,7 +2226,7 @@ test("one preview press selects a physical element and begins moving it", () => 
   const renderer = new OutputRenderer({ mode: "component" });
   const source = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
   const component = { id: "component-a", type: "chain", chain: [source] };
-  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: "" } };
+  renderer.state = appNodePackage.prepareProjectState({ components: [component], nodes: {}, render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: "" } });
   renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
   renderer.mousePressed(80, 40);
@@ -2225,10 +2238,10 @@ test("one preview press selects a physical element and begins moving it", () => 
 
 test("an already selected child inside a group owns the next preview drag", () => {
   const renderer = new OutputRenderer({ mode: "component" });
-  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
+  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, source: { type: "generator", generatorId: "noise" } };
   const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, chain: [child] };
   const component = { id: "component-a", type: "chain", chain: [group] };
-  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } };
+  renderer.state = appNodePackage.prepareProjectState({ components: [component], render: {}, nodes: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } });
   renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
   renderer.mousePressed(100, 50);
@@ -2237,7 +2250,7 @@ test("an already selected child inside a group owns the next preview drag", () =
   assert.equal(renderer.state.ui.selectedChainItemId, child.id);
   assert.equal(renderer.previewInteraction.chainTransformDrag?.itemId, child.id);
   assert.equal(renderer.previewInteraction.chainTransformDrag?.mode, "boundary-move");
-  assert.equal(renderer.state.components[0].chain[0].chain[0].boundary.x, 0.2);
+  assert.equal(componentLayerProjection(renderer.state, renderer.state.components[0])[0].children[0].item.boundary.x, 0.2);
   assert.deepEqual(child.transform, {}, "dragging does not mutate the store-owned fixture");
   assert.deepEqual(group.transform, {});
 });
@@ -2255,14 +2268,15 @@ test("a selected Canvas Group cannot be picked outside the union of its placed c
   };
   const group = { id: "group", kind: "group", enabled: true, opacity: 1, transform: {}, chain: [child] };
   const canvas = { id: "canvas", type: "scene", canvas: { width: 400, height: 400 }, chain: [group] };
-  renderer.state = {
+  renderer.state = appNodePackage.prepareProjectState({
     components: [canvas, childComponent],
+    nodes: {},
     render: { canvasSize: { width: 400, height: 400 } },
     ui: { selectedComponentId: canvas.id, selectedChainItemId: group.id },
-  };
+  });
   renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 400, height: 400 });
 
-  assert.equal(renderer.previewInteraction.chainItemAtPoint(200, 200), group);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(200, 200)?.id, group.id);
   assert.equal(renderer.previewInteraction.chainItemAtPoint(20, 20), null);
 });
 
@@ -2286,30 +2300,31 @@ test("default Canvas Component references pick their placement instead of the wh
     source: { type: "component", componentId: childComponent.id, placement: { scale: 0.25 } },
   };
   const canvas = { id: "canvas", type: "scene", chain: [left, right] };
-  renderer.state = {
+  renderer.state = appNodePackage.prepareProjectState({
     components: [canvas, childComponent],
+    nodes: {},
     render: { sceneAspectRatio: 1, componentAspectRatio: 1 },
     ui: { selectedComponentId: canvas.id, selectedChainItemId: left.id },
-  };
+  });
   renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 400, height: 400 });
 
-  assert.equal(renderer.previewInteraction.chainItemAtPoint(100, 200), left);
-  assert.equal(renderer.previewInteraction.chainItemAtPoint(300, 200), right);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(100, 200)?.id, left.id);
+  assert.equal(renderer.previewInteraction.chainItemAtPoint(300, 200)?.id, right.id);
   assert.equal(renderer.previewInteraction.chainItemAtPoint(20, 20), null);
 });
 
 test("child preview dragging is converted through its parent oriented boundary", () => {
   const renderer = new OutputRenderer({ mode: "component" });
-  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
+  const child = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, boundary: { x: 0, y: 0, width: 1, height: 1, rotation: 0 }, source: { type: "generator", generatorId: "noise" } };
   const group = { id: "group-a", kind: "group", enabled: true, opacity: 1, transform: {}, boundary: { x: 0, y: 0, width: 2, height: 2, rotation: Math.PI / 2 }, chain: [child] };
   const component = { id: "component-a", type: "chain", chain: [group] };
-  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } };
+  renderer.state = appNodePackage.prepareProjectState({ components: [component], render: {}, nodes: {}, ui: { selectedComponentId: component.id, selectedChainItemId: child.id } });
   renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
   renderer.mousePressed(100, 50);
   renderer.mouseDragged(120, 50);
 
-  const renderedChild = renderer.state.components[0].chain[0].chain[0];
+  const renderedChild = componentLayerProjection(renderer.state, renderer.state.components[0])[0].children[0].item;
   assert.ok(Math.abs(renderedChild.boundary.x) < 1e-12);
   assert.equal(renderedChild.boundary.y, -0.2);
   assert.deepEqual(child.transform, {}, "nested dragging path-copies instead of mutating its source state");
@@ -2324,7 +2339,7 @@ test("releasing a direct element drag commits one undoable boundary change", () 
   });
   const source = { id: "source-a", kind: "source", enabled: true, opacity: 1, transform: {}, source: { type: "generator", generatorId: "noise" } };
   const component = { id: "component-a", type: "chain", chain: [source] };
-  renderer.state = { components: [component], render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: source.id } };
+  renderer.state = appNodePackage.prepareProjectState({ components: [component], nodes: {}, render: {}, ui: { selectedComponentId: component.id, selectedChainItemId: source.id } });
   renderer.presentationRuntime.componentPreviewRect = () => ({ x: 0, y: 0, width: 200, height: 100 });
 
   renderer.mousePressed(100, 50);
@@ -2958,7 +2973,7 @@ test("Live Component transform is placed by its parent instead of cropped into i
   const source = readFileSync(new URL("../js/output/output-renderer.js", import.meta.url), "utf8");
   const presentationSource = readFileSync(new URL("../js/output/output-presentation-runtime.js", import.meta.url), "utf8");
   const componentRenderSource = readFileSync(new URL("../js/output/component-render-runtime.js", import.meta.url), "utf8");
-  const sourceBackend = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
+  const sourceBackend = readFileSync(new URL("../js/output/source-placement-runtime.js", import.meta.url), "utf8");
   const surfaceSource = readFileSync(new URL("../js/output/output-surface-runtime.js", import.meta.url), "utf8");
 
   assert.ok(componentRenderSource.includes("return host.compositeRuntime.renderComponentPipeline({"));
@@ -2966,7 +2981,7 @@ test("Live Component transform is placed by its parent instead of cropped into i
   assert.ok(presentationSource.includes("transform: component.transform"));
   assert.ok(sourceBackend.includes("combineContentTransforms("));
   assert.ok(sourceBackend.includes("source.contentTransform,"));
-  assert.ok(sourceBackend.includes("dependency.transform,"));
+  assert.ok(sourceBackend.includes("dependency.transform"));
   assert.ok(surfaceSource.includes("drawTransformedSampleRect("));
   assert.ok(surfaceSource.includes('surface.sourceFitActive ? surface.sourceFit : "stretch"'));
   assert.ok(surfaceSource.includes("isIdentityTransform(route.component?.transform)"));
@@ -3523,8 +3538,9 @@ test("Scene rendering evaluates ordinary sources, Groups, effects, and compiled 
   assert.ok(visualPlanSource.includes("host.compositeRuntime.renderLayerNodeState("));
   assert.ok(visualPlanSource.includes("host.compositeRuntime.renderBoundedLayerNodeState("));
   const sourceRuntime = readFileSync(new URL("../js/output/source-render-runtime.js", import.meta.url), "utf8");
-  assert.ok(sourceRuntime.includes("output.tint(255, 255 * clamp01(layer.opacity ?? 1))"));
-  assert.ok(sourceRuntime.includes("applyBlend(output, layer.blend)"));
+  const sourcePlacementRuntime = readFileSync(new URL("../js/output/source-placement-runtime.js", import.meta.url), "utf8");
+  assert.ok(sourcePlacementRuntime.includes("output.tint(255, 255 * clamp01(layer.opacity ?? 1))"));
+  assert.ok(sourcePlacementRuntime.includes("applyBlend(output, layer.blend)"));
   assert.ok(sourceRuntime.includes('source.type === "component"'));
   assert.ok(surfaceRuntimeSource.includes("renderer.componentProgramRuntime.resolveRouteSourceNode(surface)"));
   assert.ok(programSource.includes("sceneSourceNodes(state || {}, { includeSystem: true })"));

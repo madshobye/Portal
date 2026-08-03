@@ -37,6 +37,17 @@ import {
   placementAxisRange,
 } from "../js/control/parameter-view.js";
 import { createChangeEvent } from "../js/libraries/state-engine/state-command/index.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
+
+const appNodePackage = createVj1NodePackage();
+
+function preparedComponentSettings(component, state) {
+  const prepared = appNodePackage.prepareProjectState(state);
+  return componentSelectedChainSettingsTemplate(
+    prepared.components.find((candidate) => candidate.id === component.id),
+    prepared,
+  );
+}
 
 test("ISF events render as transient trigger buttons and resolve their chain instance", () => {
   const html = paramControlTemplate(
@@ -645,7 +656,7 @@ test("all renderable chain elements expose shared quality opacity blend and plac
   assert.equal(parameterSource.includes('"Boundary width"'), false);
   assert.equal(parameterSource.includes('"Boundary height"'), false);
   assert.ok(componentSource.includes("chainGeneralControlsTemplate(item, base"));
-  assert.ok(sceneLiveSource.includes("chainGeneralControlsTemplate(item, path"));
+  assert.ok(sceneLiveSource.includes('chainGeneralControlsTemplate(item, ""'));
   assert.doesNotMatch(componentSource, /rangeTemplate\("Alpha", `\$\{base\}\.opacity`/);
   assert.doesNotMatch(sceneLiveSource, /liveRangeTemplate\("Alpha", componentId, `\$\{path\}\.opacity`/);
 });
@@ -653,6 +664,11 @@ test("all renderable chain elements expose shared quality opacity blend and plac
 test("boundary scale controls write one aspect-preserving ROI change", () => {
   const input = { dataset: { boundaryWidth: "0.8", boundaryHeight: "0.4" } };
   assert.equal(isBoundaryScaleInput(input, "components.0.chain.0.boundary.scale"), true);
+  assert.equal(
+    isBoundaryScaleInput(input, "boundary.scale"),
+    true,
+    "Live graph-node controls use a node-relative path",
+  );
   assert.deepEqual(boundaryFromScaleInput(input, Math.sqrt(0.32) * 2), {
     width: 1.6,
     height: 0.8,
@@ -986,16 +1002,19 @@ test("component catalogs expose shared local filtering", () => {
 });
 
 test("component catalog search includes nested visual and media identities", () => {
-  const search = componentCatalogSearchText({
+  const component = {
     id: "component-1",
     name: "Portrait",
+    type: "chain",
     chain: [
       {
+        id: "finishing",
         kind: "group",
         name: "Finishing",
         chain: [
-          { kind: "effect", name: "Soft Blur", componentId: "blur" },
+          { id: "blur", kind: "effect", name: "Soft Blur", componentId: "blur" },
           {
+            id: "media",
             kind: "source",
             name: "",
             componentId: "mediaImage",
@@ -1008,7 +1027,13 @@ test("component catalog search includes nested visual and media identities", () 
         ],
       },
     ],
+  };
+  const state = appNodePackage.prepareProjectState({
+    ...createInitialState(),
+    components: [component],
+    nodes: {},
   });
+  const search = componentCatalogSearchText(state.components[0], state);
 
   assert.match(search, /portrait/);
   assert.match(search, /soft blur/);
@@ -1098,9 +1123,10 @@ test("Live exposes a phase-continuous global visual time stretch", () => {
 
 test("embedded preview retargets resize observation after workspace DOM replacement", () => {
   const source = readFileSync(new URL("../js/output/embedded-preview-app.js", import.meta.url), "utf8");
+  const lifecycle = readFileSync(new URL("../js/output/presentation-host-lifecycle.js", import.meta.url), "utf8");
   const controllerSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
-  assert.ok(source.includes("function observeCurrentStage()"));
-  assert.ok(source.includes("resizeObserver.unobserve?.(observedStage)"));
+  assert.ok(source.includes("presentationHost.observe(stage)"));
+  assert.ok(lifecycle.includes("observer?.unobserve?.(observedTarget)"));
   assert.ok(source.includes("function scheduleSettledResize("));
   assert.ok(source.includes("stableMeasurements < 1 && attempts < 8"));
   assert.ok(source.includes("hideCanvasUntilSettledDraw()"));
@@ -1251,8 +1277,9 @@ test("deferred UI frames consume current user truth instead of captured snapshot
 
 test("Live transitions avoid a second full control-shell rebuild at expiry", () => {
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
+  const commandSource = readFileSync(new URL("../js/libraries/state-engine/state-command/index.js", import.meta.url), "utf8");
 
-  assert.match(source, /liveProgramRenderReasons[\s\S]*?"live:scene"[\s\S]*?"live:target"/);
+  assert.match(commandSource, /LIVE_PROGRAM_PREVIEW_REASONS[\s\S]*?"live:scene"[\s\S]*?"live:target"/);
   assert.match(source, /live-transition-expired[\s\S]*?\["live-projection-rail"[\s\S]*?\["inspector"/);
   assert.match(source, /createControlRenderDiagnostics\(\{ diagnostics \}\)/);
 });
@@ -1299,7 +1326,7 @@ test("Live program selection reconciles outside the originating click event", ()
   const source = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   assert.match(
     source,
-    /currentWorkspace\(state\) === "live" && liveProgramRenderReasons\.has\(reason\)[\s\S]*?scheduleRenderNow\(state, \{ force: true, reason, change, projection: "live-program" \}\);[\s\S]*?return;/,
+    /currentWorkspace\(state\) === "live" && change\.effects\.preview\.mode === "live-program"[\s\S]*?scheduleRenderNow\(state, \{ force: true, reason, change, projection: "live-program" \}\);[\s\S]*?return;/,
   );
   assert.match(
     source,
@@ -1402,13 +1429,9 @@ test("Surface eyes commit visibility through the shared selection contract and r
 test("Component and Scene controls retain the render plan and reconcile only their inspector", () => {
   const shellSource = readFileSync(new URL("../js/control/control-shell-controller.js", import.meta.url), "utf8");
   const commandSource = readFileSync(new URL("../js/libraries/state-engine/state-command/index.js", import.meta.url), "utf8");
-  const activationSource = readFileSync(new URL("../js/control/preview-state-activation.js", import.meta.url), "utf8");
   const patchRuntimeSource = readFileSync(new URL("../js/output/live-render-patch-runtime.js", import.meta.url), "utf8");
 
-  assert.match(
-    activationSource,
-    /isComponentElementVisibilityReason[\s\S]*?\^toggle:components\\\.\\d\+\\\.chain\\\..\+\\\.enabled\$/,
-  );
+  assert.doesNotMatch(commandSource, /toggle:components\\\.\\d\+\\\.chain/);
   assert.match(
     commandSource,
     /function controlInvalidationForPaths[\s\S]*?\^components\\\.\\d\+\\\.[\s\S]*?regions\.add\("inspector"\)[\s\S]*?requiresRenderPatch = true/,
@@ -1440,7 +1463,7 @@ test("Live elements use the shared compact list row and leading visibility toggl
   const source = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
 
   assert.match(source, /const row = textListItemTemplate\(\{[\s\S]*?rowClass: "live-chain-outline-row compact-list-row"/);
-  assert.match(source, /leadingHtml: enableToggleButton\(\{[\s\S]*?livePath: `\$\{path\}\.enabled`[\s\S]*?iconName,/);
+  assert.match(source, /leadingHtml: enableToggleButton\(\{[\s\S]*?livePath: "enabled"[\s\S]*?nodeId: layer\.nodeId[\s\S]*?iconName,/);
   assert.match(source, /mainAttributes: `data-live-component-id="/);
   assert.doesNotMatch(source, /iconName: item\.enabled === false \? "visibility_off" : "visibility"/);
   assert.match(style, /\.live-chain-outline-select \{\s*cursor: grab;/);
@@ -1469,7 +1492,7 @@ test("preview navigation bypasses full renderer state replacement and drag wakes
   const viewportEnd = preview.indexOf("\n  function setInstalledNodePackages(", viewportStart);
   const setViewportSource = preview.slice(viewportStart, viewportEnd);
 
-  assert.match(controller, /change\.effects\.preview\.mode === "viewport" && previewViewportReasons\.has\(reason\)[\s\S]*?embeddedPreview\.setViewport\(state\.ui\);[\s\S]*?return;/);
+  assert.match(controller, /change\.effects\.preview\.mode === "viewport"[\s\S]*?embeddedPreview\.setViewport\(state\.ui\);[\s\S]*?return;/);
   assert.match(setViewportSource, /renderer\?\.presentationGeometry\?\.setViewport\(resolvedViewport\)/);
   assert.doesNotMatch(setViewportSource, /renderer\?\.setState/);
   assert.match(preview, /const onPointerMove = \(event\) => \{[\s\S]*?publishPointer\(position,[\s\S]*?if \(!pointerActive \|\| event\.pointerId !== activePointerId\) return;\s*wakePreviewPresentation\(\)/);
@@ -1693,7 +1716,7 @@ test("Live navigates referenced components separately and edits one selected nes
   assert.match(sceneLiveSource, /function liveComponentTemplate[\s\S]*?<article class="ui-section focus-panel live-component-card">[\s\S]*?<header class="ui-section-header panel-title live-component-head">/);
   assert.ok(!sceneLiveSource.includes('class="live-panel"'));
   assert.ok(sceneLiveSource.includes("visit(state.components?.find"));
-  assert.ok(sceneLiveSource.includes("liveChainOutlineTemplate"));
+  assert.ok(sceneLiveSource.includes("liveLayerOutlineTemplate"));
   assert.ok(sceneLiveSource.includes("liveSelectedChainSettingsTemplate"));
   assert.ok(sceneLiveSource.includes("live-chain-outline-children"));
   assert.ok(sceneLiveSource.includes("chainGeneralControlsTemplate"));
@@ -1834,9 +1857,10 @@ test("project settings own named session-persistent screen inputs without target
   assert.ok(source.includes("data-screen-capture-list"));
   assert.ok(source.includes("data-screen-capture-name"));
   assert.ok(source.includes("data-stop-screen-capture-input"));
-  assert.ok(source.includes("renameScreenCaptureInput"));
-  assert.ok(source.includes("stopScreenCaptureInput"));
-  assert.ok(source.includes("startScreenCapture(settings)"));
+  assert.ok(source.includes("screenCapture.rename"));
+  assert.ok(source.includes("screenCapture.stop"));
+  assert.ok(source.includes("screenCapture.start(settings)"));
+  assert.ok(source.includes("SCREEN_CAPTURE_SERVICE_REQUIRED"));
   assert.equal(source.includes('render.screenCapture.width'), false);
   assert.equal(source.includes('render.screenCapture.height'), false);
 });
@@ -1891,10 +1915,10 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(!appSource.includes("setTimeout(() => bridge.sendState(), 90)"));
   assert.ok(stateSource.includes("function updateLive(recipe"));
   assert.ok(inputSource.includes('typeof store.updateLive === "function"'));
-  assert.ok(inputSource.includes("createLiveRenderPatch"));
-  assert.ok(inputSource.includes("dataset.liveItemId"));
+  assert.ok(inputSource.includes("createComponentRenderPatch"));
+  assert.ok(inputSource.includes("dataset.liveNodeId"));
   const liveViewSource = readFileSync(new URL("../js/control/mapping-live-view.js", import.meta.url), "utf8");
-  assert.ok(liveViewSource.includes("data-live-item-id"));
+  assert.ok(liveViewSource.includes("data-live-node-id"));
   assert.ok(previewSource.includes("pendingState?.ui?.outputWindowOpen"));
   assert.ok(!previewSource.includes('outputWindowOpen && pendingState?.ui?.workspace !== "live"'));
   assert.ok(previewSource.includes('renderer.setState(previewSizedState(), { normalized: true });'));
@@ -1912,7 +1936,7 @@ test("scrub changes send coalesced param patches without waiting for a preview f
   assert.ok(appSource.includes('bridge.sendState(null, { activation: "assets" })'));
   assert.ok(outputSource.includes('renderer?.setState(runtimeState, { normalized: true });'));
   assert.ok(outputSource.includes('renderer?.setAssetState(runtimeState, { normalized: true });'));
-  assert.ok(outputSource.includes("renderer.livePatchRuntime.applyLive(patches)"));
+  assert.match(outputSource, /renderer\.livePatchRuntime\.applyLive\(\s*patches,/);
   assert.ok(previewSource.includes("renderer.livePatchRuntime.applyLive(patches)"));
 });
 
@@ -1922,7 +1946,7 @@ test("parameter context menus are delegated across inspector replacements", () =
   assert.ok(source.includes('scope.addEventListener("contextmenu"'));
   assert.ok(source.includes('event.target?.closest?.("[data-param-context-path]")'));
   assert.ok(source.includes('control.dataset.paramContextMode === "live"'));
-  assert.ok(source.includes("setLiveOverride(draft, liveComponentId, path, value)"));
+  assert.ok(source.includes("setLiveOverride(draft, liveComponentId, path, value, liveNodeId)"));
   assert.ok(source.includes('updateLiveAware(live, reset, live ? "live:reset-default"'));
   assert.ok(!source.includes('scope.querySelectorAll("[data-param-context-path]").forEach'));
 });
@@ -2322,7 +2346,7 @@ test("3d model controls use full-width slider rows", () => {
   };
   state.media.push({ id: "media/head.stl", type: "model" });
   state.ui.selectedChainItemId = item.id;
-  const modelControls = componentSelectedChainSettingsTemplate(component, state);
+  const modelControls = preparedComponentSettings(component, state);
 
   assert.match(modelControls, /<span>Depth scale<\/span>/);
   assert.match(modelControls, /<span>Visible depth<\/span>/);
@@ -2362,7 +2386,7 @@ test("selected generators omit the redundant source chooser", () => {
   const state = createInitialState();
   const component = state.components.find((item) => item.type !== "scene");
   state.ui.selectedChainItemId = component.chain[0].id;
-  const html = componentSelectedChainSettingsTemplate(component, state);
+  const html = preparedComponentSettings(component, state);
 
   assert.doesNotMatch(html, /Choose source/);
   assert.doesNotMatch(html, /data-open-source-picker/);

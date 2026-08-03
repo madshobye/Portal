@@ -264,7 +264,7 @@ function componentPillTemplate(component, state, renderSelection = true) {
     ? ordinaryComponents(state).length <= 1
     : state.components.length <= 1;
   return `
-    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(component))}">
+    <div class="component-card-row has-catalog-marker" data-component-filter-card="${esc(componentCatalogSearchText(component, state))}">
       <button type="button" class="component-card ${selected ? "is-selected" : ""}" data-select-component="${esc(component.id)}">
         ${thumbnailTemplate(component.thumbnail, fallbackIcon, component.id)}
         ${componentCardBarTemplate(component.name, fallbackIcon)}

@@ -68,7 +68,7 @@ export class OutputRenderProfile {
           componentIds: [...componentIds],
           configurationTargets: (resolution.configurationTargets || []).slice(0, 16).map((target) => ({
             componentId: String(target?.componentId || ""),
-            itemIds: (target?.itemIds || []).slice(0, 32).map(String),
+            nodeIds: (target?.nodeIds || []).slice(0, 32).map(String),
           })),
         },
         result: {
@@ -226,6 +226,7 @@ function snapshotRenderPatch(patch = {}) {
     target: String(patch.target || "component"),
     targetId: String(patch.targetId || ""),
     componentId: String(patch.componentId || ""),
+    nodeId: String(patch.nodeId || ""),
     path: String(patch.path || ""),
     value: boundedProfileValue(patch.value),
   };

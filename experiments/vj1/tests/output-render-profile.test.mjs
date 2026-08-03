@@ -172,7 +172,8 @@ test("live patch diagnostics retain bounded path resolution and compiled acknowl
   };
   const patch = {
     componentId: "stl-component",
-    path: "chain.0.source.params.geometryDetail",
+    nodeId: "stl-item",
+    path: "source.params.geometryDetail",
     value: 0.75,
   };
 
@@ -180,7 +181,7 @@ test("live patch diagnostics retain bounded path resolution and compiled acknowl
   profile.recordLivePatch(host, [patch], {
     applied: true,
     componentIds: ["stl-component"],
-    configurationTargets: [{ componentId: "stl-component", itemIds: ["stl-item"] }],
+    configurationTargets: [{ componentId: "stl-component", nodeIds: ["stl-item"] }],
   }, { applied: true, configurationApplied: true });
   const diagnostic = profile.captureDiagnostic(host);
 

@@ -78,13 +78,13 @@ export function paramContextAttributes(path, defaultValue, attrs = "data-update"
   if (!context) return "";
   const live = attrs.includes("data-live-update");
   const liveComponentId = live ? /data-live-component-id="([^"]*)"/.exec(attrs)?.[1] || "" : "";
-  const liveItemId = live ? /data-live-item-id="([^"]*)"/.exec(attrs)?.[1] || "" : "";
+  const liveNodeId = live ? /data-live-node-id="([^"]*)"/.exec(attrs)?.[1] || "" : "";
   return [
     `data-param-context-path="${esc(path)}"`,
     `data-param-default="${esc(JSON.stringify(defaultValue))}"`,
     `data-param-context-mode="${live ? "live" : "state"}"`,
     liveComponentId ? `data-param-context-component-id="${esc(liveComponentId)}"` : "",
-    liveItemId ? `data-param-context-item-id="${esc(liveItemId)}"` : "",
+    liveNodeId ? `data-param-context-node-id="${esc(liveNodeId)}"` : "",
   ].filter(Boolean).join(" ");
 }
 

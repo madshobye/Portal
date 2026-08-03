@@ -1,9 +1,14 @@
 import { clone, createSceneComponent, createMappingSurface, uid } from "./models.js";
 import { componentFrameMetrics } from "./component-frame.js";
 import { sceneLogicalSize } from "./render-settings.js";
-import { insertChainItemNearSelection } from "./chain-operations.js";
 import { initializeLiveChainInsertion } from "./scene-routing.js";
 import { applyEditorSelection } from "./editor-selection.js";
+import { componentLayerProjection } from "./component-layer-projection.js";
+import {
+  applyComponentGraphCommand,
+  componentGraphNode,
+  COMPONENT_GRAPH_COMMANDS,
+} from "./component-graph-commands.js";
 import {
   canonicalizeAuthoredVisualChain,
   canonicalizeAuthoredVisualSource,
@@ -15,11 +20,14 @@ export const VJ1_CLIPBOARD_TYPE = "application/x-vj1-item";
 export function clipboardPayloadForTarget(state = {}, target = {}) {
   if (target.kind === "component-list" || target.kind === "scene-list") {
     const value = state.components?.find((item) => item.id === target.itemId);
-    return value ? { kind: "component", value: clone(value) } : null;
+    return value ? { kind: "component", value: clone(componentWithProjectedLayers(state, value)) } : null;
   }
   if (target.kind === "chain-item") {
     const component = state.components?.find((item) => item.id === target.componentId);
-    const value = findChainItem(component?.chain, target.itemId);
+    const value = projectedLayerItem(findProjectedLayer(
+      componentLayerProjection(state, component),
+      target.itemId,
+    ));
     return value ? { kind: "chain-item", value: clone(value) } : null;
   }
   if (target.kind === "mapping-list") {
@@ -49,7 +57,8 @@ export function pasteClipboardPayload(draft = {}, payload = {}, target = {}) {
 }
 
 export function copyComponentAsScene(draft = {}, componentId = "") {
-  const source = draft.components?.find((item) => item.id === componentId && item.type !== "scene");
+  const storedSource = draft.components?.find((item) => item.id === componentId && item.type !== "scene");
+  const source = storedSource ? componentWithProjectedLayers(draft, storedSource) : null;
   if (!source) return { converted: false, reason: "missing-component" };
 
   const sceneCount = (draft.components || []).filter((item) => item.type === "scene").length;
@@ -78,7 +87,7 @@ export function copyComponentAsScene(draft = {}, componentId = "") {
 export function chainPasteTarget(state = {}, componentId = "", selectedItemId = "") {
   const component = state.components?.find((item) => item.id === componentId);
   if (!component) return { kind: "media-library" };
-  const selected = findChainItem(component.chain, selectedItemId);
+  const selected = findProjectedLayer(componentLayerProjection(state, component), selectedItemId)?.item;
   return {
     kind: selected?.kind === "group" ? "group" : "chain",
     componentId: component.id,
@@ -181,15 +190,16 @@ function insertIntoTarget(draft, target, item) {
   const component = targetComponent(draft, target);
   if (!component || !item) return { pasted: false, reason: "missing-target" };
   initializeLiveChainInsertion(draft, component.id, item);
-  component.chain ||= [];
-  if (target.kind === "group") {
-    const group = findChainItem(component.chain, target.itemId);
-    if (!group || group.kind !== "group") return { pasted: false, reason: "missing-group" };
-    group.chain ||= [];
-    group.chain.push(item);
-  } else {
-    insertChainItemNearSelection(component.chain, target.itemId, item);
+  if (target.kind === "group" && componentGraphNode(draft, component.id, target.itemId)?.role !== "group") {
+    return { pasted: false, reason: "missing-group" };
   }
+  const result = applyComponentGraphCommand(draft, {
+    type: COMPONENT_GRAPH_COMMANDS.INSERT,
+    componentId: component.id,
+    afterNodeId: target.itemId || "",
+    item,
+  });
+  if (!result.changed) return { pasted: false, reason: "missing-target" };
   draft.ui.selectedComponentId = component.id;
   applyEditorSelection(draft.ui, "element", item.id);
   return { pasted: true, kind: "chain-item", id: item.id };
@@ -235,11 +245,27 @@ function componentListChainTarget(draft, target) {
   return component ? { kind: "chain", componentId: component.id, itemId: "" } : target;
 }
 
-function findChainItem(chain = [], id = "") {
-  if (!id) return null;
-  for (const item of chain || []) {
-    if (item.id === id) return item;
-    const nested = item.kind === "group" ? findChainItem(item.chain, id) : null;
+function componentWithProjectedLayers(state, component) {
+  return {
+    ...component,
+    chain: componentLayerProjection(state, component).map(projectedLayerItem),
+  };
+}
+
+function projectedLayerItem(layer) {
+  if (!layer) return null;
+  return {
+    ...layer.item,
+    ...(layer.item.kind === "group"
+      ? { chain: layer.children.map(projectedLayerItem) }
+      : {}),
+  };
+}
+
+function findProjectedLayer(layers = [], nodeId = "") {
+  for (const layer of layers) {
+    if (layer.nodeId === nodeId) return layer;
+    const nested = findProjectedLayer(layer.children, nodeId);
     if (nested) return nested;
   }
   return null;

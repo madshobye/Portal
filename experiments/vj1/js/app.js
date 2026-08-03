@@ -12,12 +12,16 @@ import { createProjectFolderService } from "./services/project-folder-service.js
 import { createControlBridge } from "./services/output-bridge-service.js";
 import { installOutputApp } from "./output/output-app.js";
 import { outputRenderPatchesForChange } from "./domain/render-transport-patch.js";
-import { createRenderStatePatch } from "./domain/live-render-patch.js";
+import { createComponentRenderPatch, createRenderStatePatch } from "./domain/live-render-patch.js";
 import { CONTROL_SIGNAL_COMMAND } from "./output/control-signal-command.js";
 import { createDiagnosticsService } from "./libraries/diagnostics-engine/diagnostics-engine/index.js";
-import { reportBrowserCompatibility } from "./libraries/diagnostics-engine/browser-compatibility.js";
+import {
+  recordBrowserCapabilityDiagnostics,
+  reportBrowserCompatibility,
+} from "./libraries/diagnostics-engine/browser-compatibility.js";
 import { createMidiInputService } from "./services/midi-input-service.js";
 import { createDmxOutputService } from "./services/dmx-output-service.js";
+import { screenCaptureService } from "./libraries/device-engine/index.js";
 import {
   liveSignificantParameterAssignments,
   significantParameterValueFromUnit,
@@ -42,6 +46,7 @@ if (!compatibility?.supported) {
 } else if (mode === "output" || mode === "preview" || mode === "component") {
   const diagnostics = createDiagnosticsService();
   diagnostics.install();
+  recordBrowserCapabilityDiagnostics(diagnostics, compatibility);
   installOutputApp({ root, mode, diagnostics });
 } else {
   installControlApp().catch(showStartupFailure);
@@ -77,6 +82,7 @@ async function installControlApp() {
     applicationBootstrap = await loadStoredApplicationProgram(nodePackage);
   }
   showStartupStage("Initializing application services…");
+  let controlShell = null;
   const application = await nodePackage.createApplicationRuntime({
     group: applicationBootstrap.group,
     factories: {
@@ -110,6 +116,64 @@ async function installControlApp() {
         // subscription when instantiated by the node program.
         subscribeStore: false,
       }),
+      "session-devices": (dependencies) => {
+        const store = dependencies["data-store"];
+        const bridge = dependencies["live-synchronization"];
+        const dmxOutput = createDmxOutputService({
+          onStatus: () => controlShell?.refreshDeviceStatus(),
+        });
+        const midiInput = createMidiInputService({
+          onSignal(payload) {
+            controlShell?.deliverControlSignal(payload);
+            bridge.command(CONTROL_SIGNAL_COMMAND, payload);
+          },
+          onSelectScene: (id) => store.selectLiveScene(id),
+          onSelectComponent: (id) => store.selectLiveComponent(id),
+          resolveSignificantParameters: (state) => liveSignificantParameterAssignments(state),
+          onAdjustSignificantParameter({ assignment, unitValue }) {
+            const value = significantParameterValueFromUnit(assignment, unitValue);
+            if (assignment.kind === "animation") {
+              store.updateLive((draft) => {
+                setLiveAnimationOverride(
+                  draft,
+                  assignment.componentId,
+                  assignment.targetNodeId,
+                  assignment.trackId,
+                  assignment.field,
+                  value,
+                );
+              }, { reason: "live:animation-update", input: "midi" });
+              return;
+            }
+            store.updateLive((draft) => {
+              setLiveOverride(draft, assignment.componentId, assignment.path, value, assignment.nodeId);
+            }, {
+              reason: "live:update",
+              input: "midi",
+              livePatches: [createComponentRenderPatch(
+                assignment.componentId,
+                assignment.nodeId,
+                assignment.path,
+                value,
+              )],
+            });
+          },
+          onStatus: () => controlShell?.refreshDeviceStatus(),
+        });
+        return Object.freeze({
+          midiInput,
+          dmxOutput,
+          screenCapture: screenCaptureService(),
+          syncState(state) {
+            midiInput.syncState(state);
+            dmxOutput.syncState(state);
+          },
+          dispose() {
+            midiInput.disconnect();
+            dmxOutput.dispose();
+          },
+        });
+      },
       storage: (dependencies) => createProjectFolderService({
         mediaLibrary: dependencies["media-lifecycle"],
         store: dependencies["data-store"],
@@ -126,6 +190,7 @@ async function installControlApp() {
     },
   }).initialize();
   const diagnostics = application.get("diagnostics");
+  recordBrowserCapabilityDiagnostics(diagnostics, compatibility);
   const store = application.get("data-store");
   const initialWorkspace = getInitialWorkspace();
   store.setWorkspace(initialWorkspace);
@@ -141,6 +206,8 @@ async function installControlApp() {
   const mediaLibrary = application.get("media-lifecycle");
   const bridge = application.get("live-synchronization");
   const projectService = application.get("storage");
+  const devices = application.get("session-devices");
+  const { midiInput, dmxOutput } = devices;
   let bridgeScrubFrame = 0;
 
   function sendScrubState() {
@@ -194,53 +261,11 @@ async function installControlApp() {
       sendScrubState();
       return;
     }
-    if (!["init", "output-metrics", "preview-metrics", "view", "project-history", "project-undo", "project-redo", "project-autosave", "project-autosave-error"].includes(reason)) {
-      bridge.sendState();
-    }
+    bridge.sendState();
   });
 
-  let controlShell = null;
-  const dmxOutput = createDmxOutputService({
-    onStatus: () => controlShell?.refreshDeviceStatus(),
-  });
-  const midiInput = createMidiInputService({
-    onSignal(payload) {
-      controlShell?.deliverControlSignal(payload);
-      bridge.command(CONTROL_SIGNAL_COMMAND, payload);
-    },
-    onSelectScene: (id) => store.selectLiveScene(id),
-    onSelectComponent: (id) => store.selectLiveComponent(id),
-    resolveSignificantParameters: (state) => liveSignificantParameterAssignments(state),
-    onAdjustSignificantParameter({ assignment, unitValue }) {
-      const value = significantParameterValueFromUnit(assignment, unitValue);
-      if (assignment.kind === "animation") {
-        store.updateLive((draft) => {
-          setLiveAnimationOverride(
-            draft,
-            assignment.componentId,
-            assignment.targetNodeId,
-            assignment.trackId,
-            assignment.field,
-            value,
-          );
-        }, { reason: "live:animation-update", input: "midi" });
-        return;
-      }
-      store.updateLive((draft) => {
-        setLiveOverride(draft, assignment.componentId, assignment.path, value);
-      }, {
-        reason: "live:update",
-        input: "midi",
-        livePatches: [createLiveRenderPatch(
-          assignment.componentId,
-          assignment.path,
-          value,
-          assignment.itemId,
-        )],
-      });
-    },
-    onStatus: () => controlShell?.refreshDeviceStatus(),
-  });
+  application.bindInput("session-devices", "state", ({ state }) => devices.syncState(state));
+
   controlShell = createControlShell({
     root,
     store,
@@ -249,31 +274,25 @@ async function installControlApp() {
     projectService,
     midiInput,
     dmxOutput,
+    screenCapture: devices.screenCapture,
     diagnostics,
     nodePackage,
   });
   controlShell.mount();
   window.addEventListener("pagehide", () => {
-    midiInput.disconnect();
-    dmxOutput.dispose();
+    devices.dispose();
   }, { once: true });
 
   store.subscribe((state, reason, change) => {
-    if (reason === "workspace") persistWorkspace(state.ui.workspace);
-    if (change.effects.lifecycle.project === "restore") {
+    if (change.effects.session.workspace === "persist") persistWorkspace(state.ui.workspace);
+    if (change.effects.session.live === "restore") {
       const session = preferredLiveSession(state);
       if (session) {
         store.restoreLiveSession(session);
         return;
       }
     }
-    const liveSessionCommit =
-      change.command.phase === "commit" &&
-      (change.command.domain === "live" ||
-        change.command.domain === "project" ||
-        reason === "select-mapping" ||
-        reason === "live:preview-surface");
-    if (liveSessionCommit) persistLiveSession(state);
+    if (change.effects.session.live === "persist") persistLiveSession(state);
     // The compiled state.snapshot edges decide whether Live transport and
     // storage receive this emission. Dispatch is event-driven and happens
     // only on store changes; it never enters the visual frame loop.

@@ -31,12 +31,15 @@ import { WORKSPACES } from "./constants.js";
 import { createChangeEvent } from "./libraries/state-engine/state-command/index.js";
 import { sceneLogicalSize } from "./domain/render-settings.js";
 import { nextCatalogMarker } from "./domain/catalog-marker.js";
-import { clearComponentReferences, countChainGroups, findChainItemLocation, moveById } from "./domain/chain-operations.js";
+import { moveById } from "./domain/list-operations.js";
 import {
   applyComponentGraphCommand,
+  clearComponentGraphReferences,
+  componentGraphNode,
   componentGraphCommandEvent,
   COMPONENT_GRAPH_COMMANDS,
 } from "./domain/component-graph-commands.js";
+import { componentLayerProjection } from "./domain/component-layer-projection.js";
 import { copyComponentAsScene, pasteClipboardPayload } from "./domain/clipboard.js";
 import { initializeLiveChainInsertion } from "./domain/scene-routing.js";
 import {
@@ -52,6 +55,7 @@ import {
   clearLiveTargetParameterDiffs,
   liveParameterDiffBank,
   updateLiveParameterDiffIfPresent,
+  updateLiveNodeParameterDiffIfPresent,
 } from "./domain/live-parameter-diffs.js";
 
 export function createAppState(initial = null, {
@@ -523,14 +527,9 @@ export function createAppState(initial = null, {
       selectAction = "",
       selectId = "",
     } = {}) {
-      const normalizedEntries = entries.map((entry) => {
-        const match = /^components\.(\d+)\.(.+)$/.exec(String(entry?.path || ""));
-        return match ? {
-          componentIndex: Number(match[1]),
-          relativePath: match[2],
-          value: entry.value,
-        } : null;
-      });
+      const normalizedEntries = entries.map((entry) =>
+        normalizeComponentControlEntry(state, entry)
+      );
       const componentIndex = normalizedEntries[0]?.componentIndex;
       const previousComponent = state.components?.[componentIndex];
       if (
@@ -539,14 +538,25 @@ export function createAppState(initial = null, {
         !previousComponent
       ) return false;
       let nextComponent = previousComponent;
+      let nextNodes = state.nodes;
       for (const entry of normalizedEntries) {
-        nextComponent = copyPathWithValue(
-          nextComponent,
-          entry.relativePath,
-          entry.value,
-          { createMissing: true },
-        );
-        if (!nextComponent) return false;
+        if (entry.nodeId) {
+          nextNodes = copyPathWithValue(
+            nextNodes,
+            entry.graphPath.slice("nodes.".length),
+            entry.value,
+            { createMissing: true },
+          );
+          if (!nextNodes) return false;
+        } else {
+          nextComponent = copyPathWithValue(
+            nextComponent,
+            entry.relativePath,
+            entry.value,
+            { createMissing: true },
+          );
+          if (!nextComponent) return false;
+        }
       }
       nextComponent.activity = { ...(previousComponent.activity || {}) };
       // Stamp only the affected Component. Inspector controls already produce
@@ -567,18 +577,19 @@ export function createAppState(initial = null, {
       }
       const previous = state;
       const changedPaths = normalizedEntries.map((entry) =>
-        `components.${componentIndex}.${entry.relativePath}`
+        entry.graphPath || `components.${componentIndex}.${entry.relativePath}`
       );
-      const next = { ...state, components, ui };
-      reconcileLiveParameterDiffsWithPersistentEdits(previous, next);
-      synchronizeActiveLiveDiffsForProjectChange(next, { changedPaths });
-      state = typeof prepareChange === "function"
+      let next = { ...state, components, nodes: nextNodes, ui };
+      next = typeof prepareChange === "function"
         ? prepareChange(previous, next, classifyChange({
           reason: reason || `update:components.${componentIndex}.${normalizedEntries[0].relativePath}`,
           command: { domain: "project" },
           changedPaths,
         }))
         : next;
+      reconcileLiveParameterDiffsWithPersistentEdits(previous, next);
+      synchronizeActiveLiveDiffsForProjectChange(next, { changedPaths });
+      state = next;
       pendingEditBaseline = null;
       const selectionChangedPaths = selectAction === "chain-item" && selectId
         ? editorSelectionChangedPaths(state.ui, "element")
@@ -596,6 +607,7 @@ export function createAppState(initial = null, {
           )
         ).map((entry) => ({
           componentId: String(previousComponent.id),
+          nodeId: entry.nodeId,
           path: entry.relativePath,
           value: entry.value,
         })),
@@ -620,7 +632,7 @@ export function createAppState(initial = null, {
       touchComponentUsed({ components }, id);
       const ui = clone(state.ui);
       ui.selectedComponentId = id;
-      applyEditorSelection(ui, "element", component.chain?.[0]?.id || "");
+      applyEditorSelection(ui, "element", componentLayerProjection(state, component)[0]?.nodeId || "");
       rememberWorkspaceComponent({ ui }, ui.workspace, component);
       state = { ...state, components, ui };
       // Selection is local to the editor. It is still autosaved so recent-use
@@ -727,7 +739,7 @@ export function createAppState(initial = null, {
         });
         return;
       }
-      if (!findChainItemLocation(selected?.chain, id)) return;
+      if (!componentGraphNode(state, selected?.id, id)) return;
       const changedPaths = editorSelectionChangedPaths(state.ui, "element");
       updateUi((ui) => {
         applyEditorSelection(ui, "element", id);
@@ -758,7 +770,7 @@ export function createAppState(initial = null, {
         const component = draft.components.find((item) => item.id === componentId);
         if (!component) return;
         if (source.type === "component" && component.type !== "scene") return;
-        const layer = createComponentLayer(component.chain?.length || 0, source);
+        const layer = createComponentLayer(componentLayerCount(draft, component), source);
         initializeLiveChainInsertion(draft, component.id, layer);
         if (source.type === "component" && component.type === "scene") {
           const referenced = draft.components.find((item) => item.id === source.componentId && item.type !== "scene");
@@ -805,7 +817,7 @@ export function createAppState(initial = null, {
       update((draft) => {
         const component = draft.components.find((item) => item.id === componentId);
         if (!component) return;
-        const group = createComponentGroup(countChainGroups(component.chain));
+        const group = createComponentGroup(componentGroupCount(draft, component));
         initializeLiveChainInsertion(draft, component.id, group);
         applyComponentGraphCommand(draft, {
           type: COMPONENT_GRAPH_COMMANDS.INSERT,
@@ -855,7 +867,7 @@ export function createAppState(initial = null, {
             if (surface.componentId === id) surface.componentId = draft.ui.selectedComponentId;
           }
         }
-        for (const component of draft.components) clearComponentReferences(component.chain, id);
+        clearComponentGraphReferences(draft, id);
         restoreWorkspaceComponent(draft, draft.ui.workspace);
       }, "remove-component");
     },
@@ -1200,7 +1212,20 @@ function restoreWorkspaceComponent(draft, workspace) {
   if (!component) return;
   draft.ui.workspaceSelectionIds[workspace] = component.id;
   draft.ui.selectedComponentId = component.id;
-  applyEditorSelection(draft.ui, "element", component.chain?.[0]?.id || "");
+  applyEditorSelection(draft.ui, "element", componentLayerProjection(draft, component)[0]?.nodeId || "");
+}
+
+function componentLayerCount(state, component) {
+  return flattenComponentLayers(componentLayerProjection(state, component)).length;
+}
+
+function componentGroupCount(state, component) {
+  return flattenComponentLayers(componentLayerProjection(state, component))
+    .filter((layer) => layer.item?.kind === "group").length;
+}
+
+function flattenComponentLayers(layers = []) {
+  return (layers || []).flatMap((layer) => [layer, ...flattenComponentLayers(layer.children)]);
 }
 
 // Overall selection changes the base Live program. Explicit per-Surface
@@ -1292,6 +1317,45 @@ function copyPathWithValue(target, path, value, { createMissing = false } = {}) 
   return copy;
 }
 
+function normalizeComponentControlEntry(state, entry = {}) {
+  const path = String(entry?.path || "");
+  const componentMatch = /^components\.(\d+)\.(.+)$/.exec(path);
+  if (componentMatch) return {
+    componentIndex: Number(componentMatch[1]),
+    componentId: String(state.components?.[Number(componentMatch[1])]?.id || ""),
+    nodeId: "",
+    graphPath: "",
+    relativePath: componentMatch[2],
+    value: entry.value,
+  };
+  const parts = path.split(".").filter(Boolean);
+  if (parts[0] !== "nodes" || parts[1] !== "groups" || !/^\d+$/.test(parts[2] || "")) return null;
+  const configurationIndex = parts.lastIndexOf("configuration");
+  if (configurationIndex < 5 || !parts.slice(configurationIndex + 1).length) return null;
+  const group = state.nodes?.groups?.[Number(parts[2])];
+  if (group?.generatedBy !== "vj1-component-compiler") return null;
+  let cursor = state;
+  let node = null;
+  for (let index = 0; index < configurationIndex; index++) {
+    const part = /^\d+$/.test(parts[index]) ? Number(parts[index]) : parts[index];
+    if (cursor == null || typeof cursor !== "object" || !(part in cursor)) return null;
+    cursor = cursor[part];
+    if (index > 0 && parts[index - 1] === "nodes" && typeof part === "number") node = cursor;
+  }
+  const componentIndex = state.components?.findIndex((component) =>
+    String(component.id || "") === String(group.componentId || "")
+  ) ?? -1;
+  if (componentIndex < 0 || !node?.id) return null;
+  return {
+    componentIndex,
+    componentId: String(group.componentId || ""),
+    nodeId: String(node.id),
+    graphPath: path,
+    relativePath: parts.slice(configurationIndex + 1).join("."),
+    value: entry.value,
+  };
+}
+
 function reconcileLiveParameterDiffsWithPersistentEdits(previous, next) {
   const previousComponents = new Map((previous?.components || []).map((component) => [String(component.id), component]));
   const nextComponents = new Map((next?.components || []).map((component) => [String(component.id), component]));
@@ -1318,6 +1382,21 @@ function synchronizeActiveLiveDiffsForProjectChange(state, event = {}) {
   const targetId = activeLiveTargetId(state.ui?.live);
   if (!targetId) return;
   for (const path of paths) {
+    const graphEntry = normalizeComponentControlEntry(state, { path });
+    if (graphEntry?.nodeId && graphEntry.graphPath) {
+      const graphNode = componentGraphNode(state, graphEntry.componentId, graphEntry.nodeId);
+      const current = valueAtRelativePath(graphNode?.configuration, graphEntry.relativePath);
+      if (!current.found) continue;
+      updateLiveNodeParameterDiffIfPresent(
+        state,
+        graphEntry.componentId,
+        graphEntry.nodeId,
+        graphEntry.relativePath,
+        clone(current.value),
+        targetId,
+      );
+      continue;
+    }
     const match = /^components\.(\d+)\.(.+)$/.exec(String(path || ""));
     if (!match) continue;
     const component = state.components?.[Number(match[1])];

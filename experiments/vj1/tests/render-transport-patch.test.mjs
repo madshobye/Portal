@@ -5,17 +5,26 @@ import {
   outputRenderPatchesForChange,
 } from "../js/domain/render-transport-patch.js";
 
-test("Component project paths become stable-id render patches", () => {
+test("Component metadata paths become stable-id render patches", () => {
+  const state = {
+    components: [{ id: "component-a", opacity: 0.75 }],
+  };
+  assert.deepEqual(componentRenderPatchesForChange(state, {
+    command: { topic: "components.0.opacity" },
+  }), [{
+    componentId: "component-a",
+    path: "opacity",
+    value: 0.75,
+  }]);
+});
+
+test("positional Component projections can never become renderer patch addresses", () => {
   const state = {
     components: [{ id: "component-a", chain: [{ params: { amount: 0.75 } }] }],
   };
   assert.deepEqual(componentRenderPatchesForChange(state, {
     command: { topic: "components.0.chain.0.params.amount" },
-  }), [{
-    componentId: "component-a",
-    path: "chain.0.params.amount",
-    value: 0.75,
-  }]);
+  }), []);
 });
 
 test("non-render and non-Component changes do not become render patches", () => {

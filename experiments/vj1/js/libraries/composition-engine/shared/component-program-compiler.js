@@ -70,6 +70,62 @@ export function compileComponentGroupTopology(component = {}, {
     : group;
 }
 
+// Product editors insert one semantic visual element at a time. Expose the
+// same topology lowering used by initial project migration so graph commands
+// never have to mutate `component.chain` and wait for a later reconciliation
+// pass to discover the intended node bundle.
+export function compileComponentGraphItemTopology(item = {}, {
+  definitions = new Map(),
+  statePath = "component-graph",
+} = {}) {
+  const nodes = compileChainNodes([item], statePath, definitions);
+  return Object.freeze({
+    nodes,
+    connections: linearConnections(nodes, definitions),
+  });
+}
+
+// Reordering the abstract layer projection changes only the composition spine.
+// Keep authored animation/control/auxiliary edges intact and rebuild the
+// ordered texture edges from the graph nodes that now occupy the scope.
+export function reconcileComponentCompositionConnections(
+  nodes = [],
+  connections = [],
+  definitions = new Map(),
+) {
+  const renderIds = new Set(nodes
+    .filter((node) => isComponentRenderNode(node))
+    .map((node) => String(node.id || "")));
+  const retained = (connections || []).filter((edge) =>
+    !isCompositionSpineConnection(edge, renderIds)
+  );
+  const spine = linearConnections(nodes, definitions)
+    .filter((edge) => isCompositionSpineConnection(edge, renderIds))
+    .map((edge) => ({ ...edge, semantic: "composition" }));
+  return [...retained, ...spine];
+}
+
+function isComponentRenderNode(node = {}) {
+  return ["source", "effect", "group"].includes(node.role) && !node.auxiliaryFor;
+}
+
+function isCompositionSpineConnection(edge = {}, renderIds = new Set()) {
+  if (edge.semantic === "composition") return true;
+  const from = String(edge.from || "");
+  const to = String(edge.to || "");
+  if (to === "$out.texture") return renderIds.has(endpointNodeId(from));
+  if (edge.semantic) return false;
+  const target = endpointNodeId(to);
+  if (!renderIds.has(target)) return false;
+  const source = endpointNodeId(from);
+  return source === "$in" || renderIds.has(source);
+}
+
+function endpointNodeId(endpoint = "") {
+  const value = String(endpoint || "");
+  return value.startsWith("$in.") || value === "$in" ? "$in" : value.split(".")[0];
+}
+
 export function reconcileComponentGroupTopology(component = {}, existingGroup = null, options = {}) {
   if (existingGroup?.compactTopology === true) {
     existingGroup = hydrateCompactComponentGroup(existingGroup, options.definitions || new Map());
@@ -219,10 +275,7 @@ export function compileComponentRenderPrograms(components = [], groups = [], {
     .map((group) => [group.componentId, group]));
   const componentById = new Map((components || []).map((component) => [String(component.id || ""), component]));
   const compileComponent = (component) => {
-    const semanticComponent = {
-      ...component,
-      chain: canonicalizeAuthoredVisualChain(component.chain || []),
-    };
+    const semanticComponent = { ...component };
     // Old project snapshots are upgraded in memory at the compilation
     // boundary. Rendering therefore always consumes a Component program and
     // never needs a second raw-chain execution path.
@@ -366,7 +419,6 @@ export class CompiledComponentRenderProgram {
     // frame just as live configuration patches do; otherwise a stale projected
     // value can temporarily overwrite the materialized operation it controls.
     this.plan.controlProgram?.syncGeneratedControlsFromConfiguration?.();
-    this.configurationProjection = visualRenderPlanConfiguration(this.plan);
     this.generatedBy = COMPONENT_PROGRAM_GENERATOR;
   }
 
@@ -376,79 +428,35 @@ export class CompiledComponentRenderProgram {
     return runtime.execute(this.plan, component, componentTime, renderRequest, scopeId);
   }
 
-  replaceChainItem(itemId, nextItem) {
-    const result = replaceMaterializedChainItem(this.configurationProjection, String(itemId || ""), nextItem);
-    if (result.changed) {
-      this.configurationProjection = result.chain;
-      if (!this.plan.replaceConfiguration(itemId, nextItem)) {
-        throw new Error(
-          `VJ1_COMPILED_CONFIGURATION_TARGET_MISSING:${this.componentId}:${String(itemId || "")}`,
-        );
-      }
+  replaceNodeConfiguration(nodeId, configuration) {
+    const id = String(nodeId || "");
+    if (!id || !configuration) return false;
+    if (!this.plan.replaceConfiguration(id, configuration)) {
+      throw new Error(`VJ1_COMPILED_CONFIGURATION_TARGET_MISSING:${this.componentId}:${id}`);
     }
-    return result.changed;
+    return true;
   }
 
-  syncProjectedItems(component = {}, itemIds = []) {
-    const requested = new Set(
-      Array.from(itemIds || [], (id) => String(id || "")).filter(Boolean),
-    );
-    if (!requested.size) {
-      return Object.freeze({
-        applied: true,
-        changedIds: Object.freeze([]),
-        missingIds: Object.freeze([]),
-      });
-    }
-    const items = new Map();
-    const visit = (chain = []) => {
-      for (const item of chain || []) {
-        const id = String(item?.id || "");
-        if (id && requested.has(id)) items.set(id, item);
-        if (item?.kind === "group") visit(item.chain || []);
-      }
-    };
-    visit(component.chain || []);
-    const missingIds = [...requested].filter((id) => !items.has(id));
-    if (missingIds.length) {
-      return Object.freeze({
-        applied: false,
-        changedIds: Object.freeze([]),
-        missingIds: Object.freeze(missingIds),
-      });
-    }
+  syncGraphNodes(group = {}, nodeIds = []) {
+    const requested = new Set(Array.from(nodeIds || [], String).filter(Boolean));
+    const configurations = new Map();
+    collectGraphNodeConfigurations(group.nodes || [], requested, configurations);
+    const missingIds = [...requested].filter((id) => !configurations.has(id));
+    if (missingIds.length) return Object.freeze({
+      applied: false,
+      changedIds: Object.freeze([]),
+      missingIds: Object.freeze(missingIds),
+    });
     const changedIds = [];
     for (const id of requested) {
-      if (this.replaceChainItem(id, items.get(id))) changedIds.push(id);
+      if (this.replaceNodeConfiguration(id, configurations.get(id))) changedIds.push(id);
     }
     if (changedIds.length) this.syncGeneratedControlsFromConfiguration();
     return Object.freeze({
       applied: changedIds.length === requested.size,
       changedIds: Object.freeze(changedIds),
-      missingIds: Object.freeze(
-        changedIds.length === requested.size
-          ? []
-          : [...requested].filter((id) => !changedIds.includes(id)),
-      ),
+      missingIds: Object.freeze([]),
     });
-  }
-
-  syncProjectedConfiguration(component = {}) {
-    let changed = false;
-    const visit = (chain = []) => {
-      for (const item of chain || []) {
-        if (!item?.id) continue;
-        changed = this.replaceChainItem(item.id, item) || changed;
-        if (item.kind === "group") visit(item.chain || []);
-      }
-    };
-    visit(component.chain || []);
-    if (changed) this.syncGeneratedControlsFromConfiguration();
-    return changed;
-  }
-
-  configurationState() {
-    return this.configurationProjection;
   }
 
   isRegionSafe(component = null, options = {}) {
@@ -476,20 +484,12 @@ export class CompiledComponentRenderProgram {
   }
 }
 
-function replaceMaterializedChainItem(chain = [], itemId, nextItem) {
-  let changed = false;
-  const nextChain = chain.map((item) => {
-    if (String(item?.id || "") === itemId) {
-      changed = true;
-      return nextItem;
-    }
-    if (item?.kind !== "group" || !item.chain?.length) return item;
-    const nested = replaceMaterializedChainItem(item.chain, itemId, nextItem);
-    if (!nested.changed) return item;
-    changed = true;
-    return { ...item, chain: nested.chain };
-  });
-  return { chain: changed ? nextChain : chain, changed };
+function collectGraphNodeConfigurations(nodes, requested, result) {
+  for (const node of nodes || []) {
+    const id = String(node?.id || "");
+    if (requested.has(id) && node.configuration) result.set(id, node.configuration);
+    collectGraphNodeConfigurations(node?.nodes || [], requested, result);
+  }
 }
 
 function compileChainNodes(chain, path, definitions) {

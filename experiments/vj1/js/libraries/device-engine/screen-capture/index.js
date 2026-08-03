@@ -1,3 +1,4 @@
+// Session-scoped device service shared by Control, Preview, and Output hosts.
 const SERVICE_KEY = "__vj1ScreenCaptureServiceV1";
 
 export class ScreenCaptureService {

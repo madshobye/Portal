@@ -20,8 +20,8 @@ const FALLBACK_ANALYSIS_MODULE = Object.freeze({
   mobileNetMorphFieldForStrategy,
 });
 
-const TFJS_URL = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js";
-const MOBILENET_URL = "https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1/dist/mobilenet.min.js";
+const TFJS_URL = "vendor/tensorflow/tfjs-4.22.0.min.js";
+const MOBILENET_URL = "vendor/tensorflow/mobilenet-2.1.1.min.js";
 const MODEL_ID = "mobilenet-v2-050-dense-flow-v3";
 const ANALYSIS_SIZE = 224;
 const CACHE_DB_NAME = "vj1-mobilenet-morph-cache";

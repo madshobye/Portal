@@ -1,5 +1,11 @@
 import { visibleSceneSurfaceIds } from "../domain/scene-routing.js";
 import { applyEditorSelection } from "../domain/editor-selection.js";
+import { componentGraphNode } from "../domain/component-graph-commands.js";
+import { componentLayerProjection } from "../domain/component-layer-projection.js";
+import {
+  applyLiveRenderPatchesImmutable,
+  createComponentRenderPatch,
+} from "../domain/live-render-patch.js";
 import { getEffectNodeComponent as getShaderComponent } from "../libraries/visual-nodes/index.js";
 import { isFullNodeBoundary, nodeBoundaryUniformScale, nodeBoundaryWithUniformScale, normalizeNodeBoundary } from "../libraries/render-engine/roi/index.js";
 import {
@@ -179,7 +185,7 @@ export class ComponentPreviewInteraction {
   }
 
   chainItemBoundaryPreviewGeometry(component, item, frame) {
-    const path = findChainItemPath(component?.chain, item?.id);
+    const path = findChainItemPath(componentInteractionChain(this.renderer.state, component), item?.id);
     let context = {
       originX: Number(frame?.x) || 0,
       originY: Number(frame?.y) || 0,
@@ -350,9 +356,10 @@ export class ComponentPreviewInteraction {
   selectedTransformableChainItem() {
     const renderer = this.renderer;
     const component = renderer.state?.components?.find((item) => item.id === renderer.state?.ui?.selectedComponentId);
-    if (!component?.chain?.length) return null;
-    const selected = findChainItemById(component.chain, renderer.state.ui.selectedChainItemId)
-      || (component.chain.length === 1 ? component.chain[0] : null);
+    const chain = componentInteractionChain(renderer.state, component);
+    if (!chain.length) return null;
+    const selected = findChainItemById(chain, renderer.state.ui.selectedChainItemId)
+      || (chain.length === 1 ? chain[0] : null);
     if (!selected || selected.enabled === false || Number(selected.opacity ?? 1) <= 0.001) return null;
     if (selected?.kind === "source" || selected?.kind === "group") return selected;
     const effectComponent = selected?.kind === "effect"
@@ -366,13 +373,14 @@ export class ComponentPreviewInteraction {
   chainItemAtPoint(x, y) {
     const renderer = this.renderer;
     const component = renderer.state?.components?.find((item) => item.id === renderer.state?.ui?.selectedComponentId);
-    if (!component?.chain?.length) return null;
+    const chain = componentInteractionChain(renderer.state, component);
+    if (!chain.length) return null;
     const frame = renderer.presentationRuntime.componentPreviewRect(component, renderer.resourceRuntime.componentOutput.get(component.id));
     // Body hits always follow compositor z-order. The selected item's handles
     // are tested before this method in mousePressed(), but selection must not
     // turn its whole boundary into an invisible layer above later items.
     return hitTestChainItems({
-      chain: component.chain,
+      chain,
       component,
       frame,
       x,
@@ -452,7 +460,10 @@ export class ComponentPreviewInteraction {
     if (hit?.kind !== "group") return false;
     const renderer = this.renderer;
     const component = renderer.state?.components?.find((item) => item.id === renderer.state?.ui?.selectedComponentId);
-    const selected = findChainItemById(component?.chain, renderer.state?.ui?.selectedChainItemId);
+    const selected = findChainItemById(
+      componentInteractionChain(renderer.state, component),
+      renderer.state?.ui?.selectedChainItemId,
+    );
     if (!selected || selected.id === hit.id || !findChainItemById(hit.chain, selected.id)) return false;
     if (
       selected.kind !== "group" &&
@@ -521,7 +532,10 @@ export class ComponentPreviewInteraction {
     const renderer = this.renderer;
     const frame = renderer.presentationRuntime.componentPreviewRect(component, renderer.resourceRuntime.componentOutput.get(component.id));
     const baseRect = this.chainItemBaseRect(component, item, frame);
-    const context = findChainItemTransformContext(component.chain, item.id);
+    const context = findChainItemTransformContext(
+      componentInteractionChain(renderer.state, component),
+      item.id,
+    );
     const localTransform = normalizedContentTransform(item.transform);
     const parentTransform = context?.parentTransform || normalizedContentTransform();
     const transform = context?.transform || combineContentTransforms(parentTransform, localTransform);
@@ -617,16 +631,15 @@ export class ComponentPreviewInteraction {
     const renderer = this.renderer;
     renderer.state = stateWithChainItemTransform(renderer.state, componentId, itemId, transform);
     renderer.componentProgramRuntime.refreshLookup(componentId);
-    const component = renderer.state?.components?.find((entry) => entry.id === componentId);
-    const item = findChainItemById(component?.chain, itemId);
+    const configuration = componentGraphNode(renderer.state, componentId, itemId)?.configuration;
     // Compiled Component programs intentionally avoid traversing project node
     // metadata in the frame loop. During a preview drag, patch only the one
     // materialized chain item so the local pointer overlay remains immediate;
     // waiting for the RAF-coalesced store echo makes motion visibly stair-step.
-    if (item) {
+    if (configuration) {
       renderer.componentProgramRuntime.programs
         .get(componentId)
-        ?.replaceChainItem?.(itemId, item);
+        ?.replaceNodeConfiguration?.(itemId, configuration);
     }
   }
 
@@ -634,12 +647,11 @@ export class ComponentPreviewInteraction {
     const renderer = this.renderer;
     renderer.state = stateWithChainItemBoundary(renderer.state, componentId, itemId, boundary);
     renderer.componentProgramRuntime.refreshLookup(componentId);
-    const component = renderer.state?.components?.find((entry) => entry.id === componentId);
-    const item = findChainItemById(component?.chain, itemId);
-    if (item) {
+    const configuration = componentGraphNode(renderer.state, componentId, itemId)?.configuration;
+    if (configuration) {
       renderer.componentProgramRuntime.programs
         .get(componentId)
-        ?.replaceChainItem?.(itemId, item);
+        ?.replaceNodeConfiguration?.(itemId, configuration);
     }
   }
 
@@ -687,8 +699,7 @@ export class ComponentPreviewInteraction {
         }
       : this.pendingChainTransform;
     if (chainOwner) {
-      const component = nextState.components?.find((item) => item.id === chainOwner.componentId);
-      const item = findChainItemById(component?.chain, chainOwner.itemId);
+      const item = componentGraphNode(nextState, chainOwner.componentId, chainOwner.itemId)?.configuration;
       if (!item) this.pendingChainTransform = null;
       else if (!this.chainTransformDrag && recordIncludes(item.transform, chainOwner.transform)) {
         this.pendingChainTransform = null;
@@ -715,8 +726,7 @@ export class ComponentPreviewInteraction {
         }
       : this.pendingChainBoundary;
     if (boundaryOwner) {
-      const component = nextState.components?.find((item) => item.id === boundaryOwner.componentId);
-      const item = findChainItemById(component?.chain, boundaryOwner.itemId);
+      const item = componentGraphNode(nextState, boundaryOwner.componentId, boundaryOwner.itemId)?.configuration;
       if (!item) this.pendingChainBoundary = null;
       else if (!this.chainTransformDrag && recordIncludes(item.boundary, boundaryOwner.boundary)) {
         this.pendingChainBoundary = null;
@@ -754,28 +764,20 @@ export class ComponentPreviewInteraction {
 
 export function stateWithChainItemTransform(state, componentId, itemId, transform) {
   if (!state || !Array.isArray(state.components)) return state;
-  let componentChanged = false;
-  const components = state.components.map((component) => {
-    if (component.id !== componentId) return component;
-    const chain = chainWithItemTransform(component.chain, itemId, transform);
-    if (chain === component.chain) return component;
-    componentChanged = true;
-    return { ...component, chain };
-  });
-  return componentChanged ? { ...state, components } : state;
+  const graphResult = applyLiveRenderPatchesImmutable(state, [
+    createComponentRenderPatch(componentId, itemId, "transform", transform),
+  ]);
+  if (!graphResult.applied) return state;
+  return graphResult.state;
 }
 
 export function stateWithChainItemBoundary(state, componentId, itemId, boundary) {
   if (!state || !Array.isArray(state.components)) return state;
-  let componentChanged = false;
-  const components = state.components.map((component) => {
-    if (component.id !== componentId) return component;
-    const chain = chainWithItemBoundary(component.chain, itemId, boundary);
-    if (chain === component.chain) return component;
-    componentChanged = true;
-    return { ...component, chain };
-  });
-  return componentChanged ? { ...state, components } : state;
+  const graphResult = applyLiveRenderPatchesImmutable(state, [
+    createComponentRenderPatch(componentId, itemId, "boundary", boundary),
+  ]);
+  if (!graphResult.applied) return state;
+  return graphResult.state;
 }
 
 export function stateWithSurfaceRect(state, surfaceId, rect) {
@@ -794,38 +796,11 @@ export function stateWithSurfaceRect(state, surfaceId, rect) {
   return { ...state, mappings, surfaces };
 }
 
-function chainWithItemTransform(chain, itemId, transform) {
-  if (!Array.isArray(chain)) return chain;
-  let changed = false;
-  const next = chain.map((item) => {
-    if (item.id === itemId) {
-      changed = true;
-      return { ...item, transform: { ...item.transform, ...transform } };
-    }
-    if (item.kind !== "group" || !Array.isArray(item.chain)) return item;
-    const nested = chainWithItemTransform(item.chain, itemId, transform);
-    if (nested === item.chain) return item;
-    changed = true;
-    return { ...item, chain: nested };
-  });
-  return changed ? next : chain;
-}
-
-function chainWithItemBoundary(chain, itemId, boundary) {
-  if (!Array.isArray(chain)) return chain;
-  let changed = false;
-  const next = chain.map((item) => {
-    if (item.id === itemId) {
-      changed = true;
-      return { ...item, boundary: { ...item.boundary, ...boundary } };
-    }
-    if (item.kind !== "group" || !Array.isArray(item.chain)) return item;
-    const nested = chainWithItemBoundary(item.chain, itemId, boundary);
-    if (nested === item.chain) return item;
-    changed = true;
-    return { ...item, chain: nested };
-  });
-  return changed ? next : chain;
+function componentInteractionChain(state, component) {
+  const project = (layer) => layer.item.kind === "group"
+    ? { ...layer.item, chain: layer.children.map(project) }
+    : layer.item;
+  return componentLayerProjection(state, component).map(project);
 }
 
 function findChainItemPath(chain = [], itemId = "", ancestors = []) {
@@ -853,11 +828,10 @@ function recordIncludes(actual, expected) {
 
 function configurationPatchMatchesOwner(destination = {}, owner = {}, record = "") {
   if (
-    destination.targetType !== "component" ||
+    destination.targetType !== "node" ||
     String(destination.componentId || "") !== String(owner.componentId || "") ||
-    String(destination.itemId || "") !== String(owner.itemId || "")
+    String(destination.nodeId || "") !== String(owner.itemId || "")
   ) return false;
   const parts = String(destination.path || "").split(".").filter(Boolean);
-  const recordIndex = parts.lastIndexOf(record);
-  return recordIndex >= 0 && recordIndex === parts.lastIndexOf("chain") + 2;
+  return parts[0] === record;
 }

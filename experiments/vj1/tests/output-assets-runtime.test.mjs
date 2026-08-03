@@ -17,7 +17,7 @@ import {
   recoveredOutputProjectState,
 } from "../js/services/output-bridge-service.js";
 
-import { applyLiveRenderPatches, applyLiveRenderPatchesImmutable, createLiveRenderPatch, createRenderStatePatch, resolveLiveRenderPatches } from "../js/domain/live-render-patch.js";
+import { applyLiveRenderPatches, applyLiveRenderPatchesImmutable, createComponentRenderPatch, createRenderStatePatch, resolveLiveRenderPatches } from "../js/domain/live-render-patch.js";
 import { createMediaLibrary } from "../js/services/media-library-service.js";
 import { mediaRenditionPath, mediaSourceRevision, parseMediaRenditionPath } from "../js/services/media-rendition-service.js";
 import { compileComponentGroupTopology } from "../js/libraries/composition-engine/index.js";
@@ -1965,11 +1965,11 @@ test("output bridge owns realtime Live-state delivery independently of animation
 
     listener({}, "scrub:live", createChangeEvent({
       reason: "scrub:live",
-      livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.25)],
+      livePatches: [createComponentRenderPatch("component-a", "item-a", "params.amount", 0.25)],
     }));
     listener({}, "scrub:live", createChangeEvent({
       reason: "scrub:live",
-      livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.3)],
+      livePatches: [createComponentRenderPatch("component-a", "item-a", "params.amount", 0.3)],
     }));
     assert.equal(messages.filter((message) => message.type === "state").length, 0);
     revision = 2;
@@ -1981,7 +1981,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       baseRevision: 0,
       revision: 1,
       sessionId,
-      patches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.3)],
+      patches: [createComponentRenderPatch("component-a", "item-a", "params.amount", 0.3)],
       transport: undefined,
       protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION,
     });
@@ -1989,7 +1989,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
     revision = 3;
     listener({}, "live:update", createChangeEvent({
       reason: "live:update",
-      livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.5)],
+      livePatches: [createComponentRenderPatch("component-a", "item-a", "params.amount", 0.5)],
     }));
     const secondPatchMessage = messages.filter((message) => message.type === "live-patch").at(-1);
     assert.equal(Number.isFinite(secondPatchMessage.transport?.sentAtMs), true);
@@ -1998,7 +1998,7 @@ test("output bridge owns realtime Live-state delivery independently of animation
       baseRevision: 1,
       revision: 2,
       sessionId,
-      patches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.5)],
+      patches: [createComponentRenderPatch("component-a", "item-a", "params.amount", 0.5)],
       transport: undefined,
       protocolVersion: OUTPUT_BRIDGE_PROTOCOL_VERSION,
     });
@@ -2049,7 +2049,7 @@ test("Application graph can own bridge state delivery without a hidden store sub
     assert.equal(subscribed, false);
     bridge.acceptStateChange(state, "scrub:live", createChangeEvent({
       reason: "scrub:live",
-      livePatches: [createLiveRenderPatch("component-a", "chain.0.params.amount", 0.75)],
+      livePatches: [createComponentRenderPatch("component-a", "item-a", "params.amount", 0.75)],
     }));
     await Promise.resolve();
     assert.equal(messages.filter((message) => message.type === "live-patch").at(-1).patches[0].value, 0.75);
@@ -2211,10 +2211,10 @@ test("persistent Component scrubs use the same small revisioned patch transport"
       mediaLibrary: { getAllFiles: () => [] },
     });
     bridge.sendRenderPatches([
-      createLiveRenderPatch("component-a", "chain.0.params.amount", 0.4),
+      createComponentRenderPatch("component-a", "item-a", "params.amount", 0.4),
     ], { coalesce: true });
     bridge.sendRenderPatches([
-      createLiveRenderPatch("component-a", "chain.0.params.amount", 0.6),
+      createComponentRenderPatch("component-a", "item-a", "params.amount", 0.6),
     ], { coalesce: true });
     await Promise.resolve();
     const patch = messages.filter((message) => message.type === "live-patch").at(-1);
@@ -2247,7 +2247,7 @@ test("committed Component placement sends one patch and never a project snapshot
       mediaLibrary: { getAllFiles: () => [] },
     });
     bridge.sendRenderPatches([
-      createLiveRenderPatch("component-a", "chain.0.boundary", {
+      createComponentRenderPatch("component-a", "item-a", "boundary", {
         x: 0.25,
         y: -0.1,
         width: 0.5,
@@ -2317,9 +2317,10 @@ test("structurally shared object parameters cross the live patch transport as pl
     });
 
     bridge.sendRenderPatches([
-      createLiveRenderPatch(
+      createComponentRenderPatch(
         "component-a",
-        "chain.0.params",
+        "item-a",
+        "params",
         state.components[0].chain[0].params,
       ),
     ], { coalesce: false });
@@ -2347,14 +2348,14 @@ test("draft-backed render patch values detach at the BroadcastChannel boundary",
     let transactionValue = null;
     const state = produceStructuralShare({
       metrics: { clients: 0, outputs: {} },
-      components: [{
-        id: "component-a",
-        chain: [{ transform: { x: 0, y: 0, scale: 1, rotation: 0 } }],
-      }],
+      nodes: { groups: [{ nodes: [{
+        id: "source-a",
+        configuration: { transform: { x: 0, y: 0, scale: 1, rotation: 0 } },
+      }] }] },
     }, (draft) => {
-      const item = draft.components[0].chain[0];
-      item.transform = { ...item.transform, x: 0.5 };
-      transactionValue = item.transform;
+      const configuration = draft.nodes.groups[0].nodes[0].configuration;
+      configuration.transform = { ...configuration.transform, x: 0.5 };
+      transactionValue = configuration.transform;
     });
     assert.throws(() => structuredClone(transactionValue), { name: "DataCloneError" });
 
@@ -2369,7 +2370,8 @@ test("draft-backed render patch values detach at the BroadcastChannel boundary",
     });
     bridge.sendRenderPatches([{
       componentId: "component-a",
-      path: "chain.0.transform",
+      nodeId: "source-a",
+      path: "transform",
       value: transactionValue,
     }]);
 
@@ -2397,13 +2399,13 @@ test("a failed patch delivery is consumed once and does not advance transport re
       packets.push(packet);
     },
   });
-  synchronizer.queue([createLiveRenderPatch("component-a", "chain.0.params.amount", 0.25)]);
+  synchronizer.queue([createComponentRenderPatch("component-a", "item-a", "params.amount", 0.25)]);
   assert.throws(() => synchronizer.flush(), { name: "DataCloneError" });
   assert.equal(synchronizer.revision, 0);
   assert.equal(synchronizer.pendingCount, 0);
   assert.equal(synchronizer.flush(), null);
 
-  synchronizer.queue([createLiveRenderPatch("component-a", "chain.0.params.amount", 0.5)]);
+  synchronizer.queue([createComponentRenderPatch("component-a", "item-a", "params.amount", 0.5)]);
   const recovered = synchronizer.flush();
   assert.equal(recovered.baseRevision, 0);
   assert.equal(recovered.revision, 1);
@@ -2411,26 +2413,26 @@ test("a failed patch delivery is consumed once and does not advance transport re
   assert.equal(packets.length, 1);
 });
 
-test("patch coalescing keeps equal paths for distinct stable chain items", () => {
+test("patch coalescing keeps equal paths for distinct stable graph nodes", () => {
   const synchronizer = new LivePatchSynchronizer();
   synchronizer.queue([
-    createLiveRenderPatch(
+    createComponentRenderPatch(
       "component-a",
-      "chain.0.params.amount",
-      0.25,
       "item-a",
+      "params.amount",
+      0.25,
     ),
-    createLiveRenderPatch(
+    createComponentRenderPatch(
       "component-a",
-      "chain.0.params.amount",
-      0.75,
       "item-b",
+      "params.amount",
+      0.75,
     ),
   ]);
 
   const packet = synchronizer.flush();
   assert.equal(packet.patches.length, 2);
-  assert.deepEqual(packet.patches.map((patch) => patch.itemId), [
+  assert.deepEqual(packet.patches.map((patch) => patch.nodeId), [
     "item-a",
     "item-b",
   ]);
@@ -2592,7 +2594,7 @@ test("a complete startup state subsumes buffered patches without a revision resy
       sessionId: "control-a",
       baseRevision: 150,
       revision: 151,
-      patches: [createLiveRenderPatch("component-a", "opacity", 0.5)],
+      patches: [createComponentRenderPatch("component-a", "", "opacity", 0.5)],
     }) });
     channel.onmessage({ data: protocol({
       type: "state",
@@ -2637,7 +2639,7 @@ test("a buffered patch newer than startup state continues from the installed rev
       sessionId: "control-a",
       baseRevision: 150,
       revision: 152,
-      patches: [createLiveRenderPatch("component-a", "opacity", 0.75)],
+      patches: [createComponentRenderPatch("component-a", "", "opacity", 0.75)],
     }) });
     channel.onmessage({ data: protocol({
       type: "state",
@@ -2659,76 +2661,77 @@ test("a buffered patch newer than startup state continues from the installed rev
   }
 });
 
-test("Live render patches mutate only the addressed Component path", () => {
+test("Live render patches mutate only the addressed graph node", () => {
   const state = {
     components: [
-      { id: "component-a", opacity: 1, chain: [{ id: "item-a", params: { amount: 0.1 } }] },
-      { id: "component-b", opacity: 0.75, chain: [{ id: "item-b", params: { amount: 0.2 } }] },
+      { id: "component-a", opacity: 1 },
+      { id: "component-b", opacity: 0.75 },
     ],
+    nodes: { groups: [
+      { generatedBy: "vj1-component-compiler", componentId: "component-a", nodes: [{ id: "item-a", configuration: { params: { amount: 0.1 } } }] },
+      { generatedBy: "vj1-component-compiler", componentId: "component-b", nodes: [{ id: "item-b", configuration: { params: { amount: 0.2 } } }] },
+    ] },
   };
-  const untouched = state.components[1];
+  const untouched = state.nodes.groups[1];
   const result = applyLiveRenderPatches(state, [
-    createLiveRenderPatch("component-a", "chain.0.params.amount", 0.8),
+    createComponentRenderPatch("component-a", "item-a", "params.amount", 0.8),
   ]);
 
   assert.equal(result.applied, true);
   assert.deepEqual(result.componentIds, ["component-a"]);
   assert.deepEqual(result.configurationTargets, [{
     componentId: "component-a",
-    itemIds: ["item-a"],
+    nodeIds: ["item-a"],
   }]);
-  assert.equal(state.components[0].chain[0].params.amount, 0.8);
-  assert.equal(state.components[1], untouched);
-  const beforeAtomicFailure = state.components[0].chain[0].params.amount;
+  assert.equal(state.nodes.groups[0].nodes[0].configuration.params.amount, 0.8);
+  assert.equal(state.nodes.groups[1], untouched);
+  const beforeAtomicFailure = state.nodes.groups[0].nodes[0].configuration.params.amount;
   const failed = applyLiveRenderPatches(state, [
-    createLiveRenderPatch("component-a", "chain.0.params.amount", 0.3),
-    createLiveRenderPatch("component-a", "chain.9.params.amount", 1),
+    createComponentRenderPatch("component-a", "item-a", "params.amount", 0.3),
+    createComponentRenderPatch("component-a", "missing-item", "params.amount", 1),
   ]);
   assert.equal(failed.applied, false);
-  assert.equal(state.components[0].chain[0].params.amount, beforeAtomicFailure);
+  assert.equal(state.nodes.groups[0].nodes[0].configuration.params.amount, beforeAtomicFailure);
 });
 
-test("Live render patches follow stable chain item identity across index drift", () => {
+test("Live render patches follow stable graph node identity across order changes", () => {
   const state = {
-    components: [{
-      id: "component-a",
-      chain: [
-        { id: "item-a", params: { amount: 0.1 } },
-        { id: "item-b", params: { amount: 0.2 } },
+    components: [{ id: "component-a" }],
+    nodes: { groups: [{
+      generatedBy: "vj1-component-compiler",
+      componentId: "component-a",
+      nodes: [
+        { id: "item-a", configuration: { params: { amount: 0.1 } } },
+        { id: "item-b", configuration: { params: { amount: 0.2 } } },
       ],
-    }],
+    }] },
   };
-  const patch = createLiveRenderPatch(
+  const patch = createComponentRenderPatch(
     "component-a",
-    "chain.0.params.amount",
-    0.8,
     "item-b",
+    "params.amount",
+    0.8,
   );
   const resolved = resolveLiveRenderPatches(state, [patch]);
-  assert.equal(resolved.destinations[0].itemId, "item-b");
-  assert.equal(resolved.destinations[0].path, "chain.1.params.amount");
+  assert.equal(resolved.destinations[0].nodeId, "item-b");
+  assert.equal(resolved.destinations[0].path, "params.amount");
   const immutable = applyLiveRenderPatchesImmutable(state, [patch]);
 
   assert.equal(immutable.applied, true);
-  assert.equal(immutable.state.components[0].chain[0].params.amount, 0.1);
-  assert.equal(immutable.state.components[0].chain[1].params.amount, 0.8);
-  assert.equal(state.components[0].chain[1].params.amount, 0.2);
+  assert.equal(immutable.state.nodes.groups[0].nodes[0].configuration.params.amount, 0.1);
+  assert.equal(immutable.state.nodes.groups[0].nodes[1].configuration.params.amount, 0.8);
+  assert.equal(state.nodes.groups[0].nodes[1].configuration.params.amount, 0.2);
   assert.deepEqual(immutable.configurationTargets, [{
     componentId: "component-a",
-    itemIds: ["item-b"],
+    nodeIds: ["item-b"],
   }]);
 
   const mutable = applyLiveRenderPatches(state, [patch]);
   assert.equal(mutable.applied, true);
-  assert.equal(state.components[0].chain[0].params.amount, 0.1);
-  assert.equal(state.components[0].chain[1].params.amount, 0.8);
+  assert.equal(state.nodes.groups[0].nodes[0].configuration.params.amount, 0.1);
+  assert.equal(state.nodes.groups[0].nodes[1].configuration.params.amount, 0.8);
   assert.equal(applyLiveRenderPatches(state, [
-    createLiveRenderPatch(
-      "component-a",
-      "chain.0.params.amount",
-      1,
-      "missing-item",
-    ),
+    createComponentRenderPatch("component-a", "missing-item", "params.amount", 1),
   ]).applied, false);
 });
 
@@ -2806,26 +2809,70 @@ test("a route projection patch retains visual programs and rebuilds only Mapping
   ]);
 });
 
+test("rejected render patches emit one structured warning per semantic address", () => {
+  const renderer = new OutputRenderer({ mode: "output", outputId: "output-a" });
+  renderer.state = {
+    components: [],
+    nodes: { groups: [] },
+    ui: { live: { paramFadeDuration: 0 } },
+  };
+  const warnings = [];
+  renderer.livePatchRuntime.warn = (...args) => warnings.push(args);
+  const patch = createComponentRenderPatch(
+    "missing-component",
+    "missing-node",
+    "params.amount",
+    0.5,
+  );
+
+  const first = renderer.livePatchRuntime.applyLive([patch], performance.now(), {
+    transportRevision: 17,
+  });
+  renderer.livePatchRuntime.applyLive([{ ...patch, value: 0.75 }], performance.now(), {
+    transportRevision: 18,
+  });
+
+  assert.equal(first.applied, false);
+  assert.equal(first.rejectionReason, "component-not-found");
+  assert.equal(warnings.length, 1, "slider scrubbing does not flood one rejection warning");
+  assert.equal(warnings[0][0], "[VJ1_RENDER_PATCH_REJECTED]");
+  assert.deepEqual(warnings[0][1], {
+    code: "VJ1_RENDER_PATCH_REJECTED",
+    host: { mode: "output", outputId: "output-a" },
+    rejectionReason: "component-not-found",
+    transportRevision: 17,
+    patchCount: 1,
+    failedPatch: {
+      target: "component",
+      componentId: "missing-component",
+      nodeId: "missing-node",
+      path: "params.amount",
+    },
+  });
+});
+
 test("Live render patches may author omitted parameter defaults but not structure", () => {
   const state = {
-    components: [{
-      id: "component-a",
-      chain: [
-        { kind: "effect", params: { amount: 1 } },
-        { kind: "source", source: { type: "media", params: {} } },
+    components: [{ id: "component-a" }],
+    nodes: { groups: [{
+      generatedBy: "vj1-component-compiler",
+      componentId: "component-a",
+      nodes: [
+        { id: "item-a", configuration: { kind: "effect", params: { amount: 1 } } },
+        { id: "item-b", configuration: { kind: "source", source: { type: "media", params: {} } } },
       ],
-    }],
+    }] },
   };
   const result = applyLiveRenderPatches(state, [
-    createLiveRenderPatch("component-a", "chain.0.params.hueMin", 170),
-    createLiveRenderPatch("component-a", "chain.1.source.params.alphaCut", 4),
+    createComponentRenderPatch("component-a", "item-a", "params.hueMin", 170),
+    createComponentRenderPatch("component-a", "item-b", "source.params.alphaCut", 4),
   ]);
 
   assert.equal(result.applied, true);
-  assert.equal(state.components[0].chain[0].params.hueMin, 170);
-  assert.equal(state.components[0].chain[1].source.params.alphaCut, 4);
+  assert.equal(state.nodes.groups[0].nodes[0].configuration.params.hueMin, 170);
+  assert.equal(state.nodes.groups[0].nodes[1].configuration.source.params.alphaCut, 4);
   assert.equal(applyLiveRenderPatches(state, [
-    createLiveRenderPatch("component-a", "chain.0.typo", 1),
+    createComponentRenderPatch("component-a", "item-a", "typo", 1),
   ]).applied, false);
 });
 
@@ -2867,17 +2914,17 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
   renderer.componentProgramRuntime.rebuildLookups();
   const program = renderer.componentProgramRuntime.programs.get(component.id);
   const originalPlan = program.plan;
-  assert.strictEqual(program.plan.operations[0].configuration, component.chain[0]);
-  assert.notStrictEqual(program.plan.operations[0].configuration, persistedGroup.nodes[0].configuration);
+  assert.strictEqual(program.plan.operations[0].configuration, persistedGroup.nodes[0].configuration);
+  assert.notStrictEqual(program.plan.operations[0].configuration, component.chain[0]);
 
   const result = renderer.livePatchRuntime.applyLive([
-    createLiveRenderPatch(component.id, "chain.0.source.params.scale", 3),
+    createComponentRenderPatch(component.id, "source-a", "source.params.scale", 3),
   ]);
 
   assert.equal(result.applied, true);
   assert.deepEqual(result.configurationTargets, [{
     componentId: component.id,
-    itemIds: ["source-a"],
+    nodeIds: ["source-a"],
   }]);
   assert.strictEqual(program.plan, originalPlan, "a parameter scrub does not recompile the plan");
   assert.equal(program.plan.operations[0].configuration.source.params.scale, 3);
@@ -2899,7 +2946,7 @@ test("revisioned slider patches update the compiled visual plan without rebuildi
       height: 360,
     });
   const placementResult = renderer.livePatchRuntime.applyLive([
-    createLiveRenderPatch(component.id, "chain.0.transform.x", 0.75),
+    createComponentRenderPatch(component.id, "source-a", "transform.x", 0.75),
   ]);
   const afterPlacementSignature =
     renderer.componentRenderRuntime.stableSignature(component, {
@@ -2962,9 +3009,9 @@ test("Live model-media patches reach retained LOD and material value nodes witho
   const originalPlan = program.plan;
 
   const result = renderer.livePatchRuntime.applyLive([
-    createLiveRenderPatch(component.id, "chain.0.source.params.geometryDetail", 2.25, "model-source"),
-    createLiveRenderPatch(component.id, "chain.0.source.params.renderMode", "points", "model-source"),
-    createLiveRenderPatch(component.id, "chain.0.source.params.surfaceColor", "#eb000000", "model-source"),
+    createComponentRenderPatch(component.id, "model-source", "source.params.geometryDetail", 2.25),
+    createComponentRenderPatch(component.id, "model-source", "source.params.renderMode", "points"),
+    createComponentRenderPatch(component.id, "model-source", "source.params.surfaceColor", "#eb000000"),
   ]);
 
   assert.equal(result.applied, true);
@@ -3041,7 +3088,7 @@ test("Live render patches retain inactive Component state without breaking trans
   assert.equal(renderer.componentProgramRuntime.programs.has(componentB.id), true);
 
   const result = renderer.livePatchRuntime.applyLive([
-    createLiveRenderPatch(componentA.id, "chain.0.source.params.scale", 4),
+    createComponentRenderPatch(componentA.id, "source-a", "source.params.scale", 4),
   ]);
 
   assert.equal(
@@ -3050,7 +3097,8 @@ test("Live render patches retain inactive Component state without breaking trans
     "an inactive Component edit is valid retained state even without a compiled target",
   );
   assert.equal(
-    componentA.chain[0].source.params.scale,
+    renderer.state.nodes.groups.find((group) => group.componentId === componentA.id)
+      .nodes[0].configuration.source.params.scale,
     4,
     "the receiver retains the authored value for compilation when the Component becomes active",
   );
@@ -3064,7 +3112,12 @@ test("Live render patches retain inactive Component state without breaking trans
 test("Live numeric patches preserve target truth while the renderer interpolates display values", () => {
   const renderer = new OutputRenderer({ mode: "output" });
   renderer.state = {
-    components: [{ id: "component-a", chain: [{ params: { amount: 0 } }] }],
+    components: [{ id: "component-a" }],
+    nodes: { groups: [{
+      generatedBy: "vj1-component-compiler",
+      componentId: "component-a",
+      nodes: [{ id: "item-a", configuration: { params: { amount: 0 } } }],
+    }] },
     frames: [],
     surfaces: [],
     ui: { live: { paramFadeDuration: 1 } },
@@ -3072,9 +3125,9 @@ test("Live numeric patches preserve target truth while the renderer interpolates
   renderer.componentProgramRuntime.rebuildLookups();
 
   const result = renderer.livePatchRuntime.applyLive([
-    createLiveRenderPatch("component-a", "chain.0.params.amount", 1),
+    createComponentRenderPatch("component-a", "item-a", "params.amount", 1),
   ], 100);
-  const params = renderer.state.components[0].chain[0].params;
+  const params = renderer.state.nodes.groups[0].nodes[0].configuration.params;
   assert.equal(result.applied, true);
   assert.equal(params.amount, 1, "the commanded target remains canonical between frames");
 
@@ -3084,7 +3137,7 @@ test("Live numeric patches preserve target truth while the renderer interpolates
   assert.equal(params.amount, 1, "render-only interpolation must restore user truth");
 
   renderer.livePatchRuntime.applyLive([
-    createLiveRenderPatch("component-a", "chain.0.params.amount", 0),
+    createComponentRenderPatch("component-a", "item-a", "params.amount", 0),
   ], 600);
   renderer.livePatchRuntime.applyFrame(1100);
   assert.equal(params.amount, 0.25, "retargeting continues from the currently displayed value");
@@ -3103,14 +3156,14 @@ test("Structural resolution patches bypass param fading in both directions", () 
   renderer.componentProgramRuntime.rebuildLookups();
 
   renderer.livePatchRuntime.applyLive([
-    createLiveRenderPatch("component-a", "resolutionScale", 0.5),
+    createComponentRenderPatch("component-a", "", "resolutionScale", 0.5),
   ], 100);
   renderer.livePatchRuntime.applyFrame(600);
   assert.equal(renderer.state.components[0].resolutionScale, 0.5);
   assert.equal(renderer.livePatchRuntime.fades.size, 0);
 
   renderer.livePatchRuntime.applyLive([
-    createLiveRenderPatch("component-a", "resolutionScale", 2),
+    createComponentRenderPatch("component-a", "", "resolutionScale", 2),
   ], 700);
   renderer.livePatchRuntime.applyFrame(800);
   assert.equal(renderer.state.components[0].resolutionScale, 2);
@@ -3245,14 +3298,13 @@ test("media prepared for an incoming Scene is reserved until activation or cance
 });
 
 test("camera failures are reported once and retried on a bounded clock", async () => {
-  const previousSetup = globalThis.setupWebcamera;
   const previousMillis = globalThis.millis;
   const previousError = console.error;
   let now = 100;
   let attempts = 0;
   const errors = [];
   globalThis.millis = () => now;
-  globalThis.setupWebcamera = () => {
+  const cameraFactory = () => {
     attempts++;
     return Promise.reject(new Error("permission denied"));
   };
@@ -3260,6 +3312,7 @@ test("camera failures are reported once and retried on a bounded clock", async (
   try {
     const runtime = new OutputMediaRuntime({
       getRenderSettings: () => ({ frameWidth: 640, frameHeight: 480 }),
+      cameraFactory,
     });
     runtime.acquireCameraInput();
     await Promise.resolve();
@@ -3275,8 +3328,6 @@ test("camera failures are reported once and retried on a bounded clock", async (
     assert.equal(attempts, 2, "the same camera configuration remains recoverable");
     assert.equal(errors.filter(([label]) => label === "[VJ1_CAMERA_CAPTURE_FAILED]").length, 1);
   } finally {
-    if (previousSetup === undefined) delete globalThis.setupWebcamera;
-    else globalThis.setupWebcamera = previousSetup;
     if (previousMillis === undefined) delete globalThis.millis;
     else globalThis.millis = previousMillis;
     console.error = previousError;
@@ -3284,16 +3335,16 @@ test("camera failures are reported once and retried on a bounded clock", async (
 });
 
 test("camera capture is shared by active consumers and released after demand ends", async () => {
-  const previousSetup = globalThis.setupWebcamera;
   let setupCount = 0;
   let removeCount = 0;
-  globalThis.setupWebcamera = async () => {
+  const cameraFactory = async () => {
     setupCount++;
     return { width: 640, height: 480, remove() { removeCount++; } };
   };
   const runtime = new OutputMediaRuntime({
     getRenderSettings: () => ({ frameWidth: 640, frameHeight: 480 }),
     cameraIdleGraceMs: 5,
+    cameraFactory,
   });
   try {
     runtime.beginFrame();
@@ -3317,8 +3368,6 @@ test("camera capture is shared by active consumers and released after demand end
     assert.equal(removeCount, 1, "the last consumer disappearing closes capture after the grace period");
   } finally {
     runtime.dispose();
-    if (previousSetup === undefined) delete globalThis.setupWebcamera;
-    else globalThis.setupWebcamera = previousSetup;
   }
 });
 

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ScreenCaptureService } from "../js/output/screen-capture-service.js";
+import { ScreenCaptureService } from "../js/libraries/device-engine/index.js";
 
 test("multiple screen captures remain session-owned and independently addressable", async () => {
   const previousNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");

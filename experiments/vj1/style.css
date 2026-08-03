@@ -5497,3 +5497,10 @@ button.text-list-main:hover {
     display: grid;
   }
 }
+@font-face {
+  font-family: "Material Symbols Rounded";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("vendor/material-symbols/material-symbols-rounded-v365.ttf") format("truetype");
+}

@@ -1,6 +1,5 @@
 import { MAX_PIXEL_DENSITY, normalizeRenderSettings, RESOLUTION_CEILING_PRESETS } from "../domain/render-settings.js";
 import { esc, formatRangeValue, icon } from "./template-utils.js";
-import { screenCaptureStatus } from "../output/screen-capture-service.js";
 import { normalizeMidiInputSettings } from "../libraries/control-engine/midi-input-profile/index.js";
 import {
   DMX_CHANNEL_ROLES,
@@ -10,12 +9,11 @@ import {
   normalizeDmxDeviceSettings,
 } from "../libraries/dmx-engine/index.js";
 
-export function settingsModalTemplate(state, activeTab = "outputs", midiStatus = {}, dmxStatus = {}) {
+export function settingsModalTemplate(state, activeTab = "outputs", midiStatus = {}, dmxStatus = {}, sharedInputs = []) {
   activeTab = normalizeSettingsTab(activeTab);
   const render = normalizeRenderSettings(state.render || {});
   const camera = render.camera;
   const screen = render.screenCapture;
-  const sharedInputs = screenCaptureStatus().inputs;
   return `
     <div class="modal-backdrop"></div>
     <section class="modal-panel settings-modal" data-settings-modal role="dialog" aria-modal="true" aria-label="Project settings">

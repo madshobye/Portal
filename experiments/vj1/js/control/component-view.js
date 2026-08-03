@@ -18,6 +18,7 @@ import { parameterAnimationViewTemplate } from "./animation-view.js";
 import { dmxProbeComponentForState } from "../libraries/dmx-engine/index.js";
 import {
   componentLayerProjection,
+  componentParameterAddressForPath,
   selectedComponentLayer,
 } from "../domain/component-layer-projection.js";
 
@@ -720,7 +721,6 @@ function pathForComponent(state, component) {
 
 function componentParamIsSignificant(component, state, path) {
   if (!component) return false;
-  const base = `${pathForComponent(state, component)}.`;
-  const relativePath = String(path || "").startsWith(base) ? String(path).slice(base.length) : String(path || "");
-  return (component.significantParams || []).includes(relativePath);
+  const address = componentParameterAddressForPath(state, component, path);
+  return !!address && (component.significantParams || []).includes(address);
 }

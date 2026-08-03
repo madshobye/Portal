@@ -807,11 +807,10 @@ function createLiveEndpointState(state, overrides = {}) {
   };
 }
 
-// Component Groups are the executable visual authority. Live diffs use the
-// compact Component-shaped address space exposed by the abstract UI, so a
-// transition endpoint must project those values into both the UI Component
-// lens and the matching graph configurations. Updating only `component.chain`
-// makes a freshly compiled transition endpoint fall back to authored values.
+// Component Groups are the executable visual authority. Live diffs address
+// their node configurations by stable node identity, exactly like retained
+// render patches. A transition endpoint therefore materializes the same graph
+// values used by the current frame without rebuilding an index-based chain.
 function materializeLiveComponentGraphOverrides(nodes = {}, overrides = {}) {
   if (!Array.isArray(nodes?.groups) || !Object.keys(overrides || {}).length) {
     return nodes;
@@ -821,9 +820,9 @@ function materializeLiveComponentGraphOverrides(nodes = {}, overrides = {}) {
     const override = overrides?.[String(group?.componentId || "")];
     if (
       group?.generatedBy !== "vj1-component-compiler" ||
-      !Array.isArray(override?.chain)
+      !override?.nodes || typeof override.nodes !== "object"
     ) return group;
-    const projected = materializeLiveGraphChain(group.nodes || [], override.chain);
+    const projected = materializeLiveGraphNodeOverrides(group.nodes || [], override.nodes);
     if (projected === group.nodes) return group;
     changed = true;
     return { ...group, nodes: projected };
@@ -831,8 +830,7 @@ function materializeLiveComponentGraphOverrides(nodes = {}, overrides = {}) {
   return changed ? { ...nodes, groups } : nodes;
 }
 
-function materializeLiveGraphChain(nodes = [], chainOverrides = []) {
-  let overrideIndex = 0;
+function materializeLiveGraphNodeOverrides(nodes = [], nodeOverrides = {}) {
   let changed = false;
   const projected = nodes.map((node) => {
     if (
@@ -840,7 +838,7 @@ function materializeLiveGraphChain(nodes = [], chainOverrides = []) {
       node?.auxiliaryFor ||
       !["source", "effect", "group"].includes(node?.role)
     ) return node;
-    const override = chainOverrides[overrideIndex++] || null;
+    const override = nodeOverrides[String(node.id || "")] || null;
     let next = node;
     if (override && typeof override === "object" && node.configuration) {
       const configuration = mergeComponentChainItemOverride(
@@ -854,10 +852,7 @@ function materializeLiveGraphChain(nodes = [], chainOverrides = []) {
       };
     }
     if (node.role === "group" && Array.isArray(node.nodes)) {
-      const children = materializeLiveGraphChain(
-        node.nodes,
-        Array.isArray(override?.chain) ? override.chain : [],
-      );
+      const children = materializeLiveGraphNodeOverrides(node.nodes, nodeOverrides);
       if (children !== node.nodes) next = { ...next, nodes: children };
     }
     if (next !== node) changed = true;
@@ -922,11 +917,7 @@ function createLiveEndpointComponent(component = {}, override = {}) {
     transform: override.transform && typeof override.transform === "object"
       ? normalizeTransform({ ...(component.transform || {}), ...override.transform })
       : normalizeTransform(component.transform),
-    chain: (component.chain || []).map((item, index) =>
-      materializeLiveEndpointChainItem(
-        mergeComponentChainItemOverride(item, override.chain?.[index] || {})
-      )
-    ),
+    chain: (component.chain || []).map(materializeLiveEndpointChainItem),
   };
 }
 
@@ -1043,9 +1034,10 @@ export function createLiveComponentView(component = {}, state = createInitialSta
     transform: override.transform && typeof override.transform === "object"
       ? normalizeTransform({ ...(component.transform || {}), ...override.transform })
       : normalizeTransform(component.transform),
-    chain: component.chain.map((item, index) =>
-      mergeComponentChainItemOverride(item, override.chain?.[index] || {})
-    ),
+    // The chain is a disposable execution projection only. Node-level Live
+    // values are exposed through liveComponentLayerProjection and never
+    // written back into this compatibility-shaped view.
+    chain: component.chain,
   };
 }
 
@@ -1145,11 +1137,36 @@ function normalizeLiveComponentOverrides(overrides = {}, state = {}) {
       ...(Array.isArray(override.chain)
         ? { chain: override.chain.map((item, index) => normalizeLiveChainItemOverride(item, component?.chain?.[index])) }
         : {}),
+      ...(override.nodes && typeof override.nodes === "object" && !Array.isArray(override.nodes)
+        ? { nodes: normalizeLiveNodeOverrides(override.nodes, state, id) }
+        : {}),
       ...(override.animation && typeof override.animation === "object"
         ? { animation: normalizeLiveAnimationOverrides(override.animation) }
         : {}),
     }];
   }));
+}
+
+function normalizeLiveNodeOverrides(overrides = {}, state = {}, componentId = "") {
+  const group = state.nodes?.groups?.find((candidate) =>
+    candidate?.generatedBy === "vj1-component-compiler" &&
+    String(candidate.componentId || "") === String(componentId || "")
+  );
+  return Object.fromEntries(Object.entries(overrides || {}).flatMap(([nodeId, override]) => {
+    if (!nodeId || !override || typeof override !== "object" || Array.isArray(override)) return [];
+    const authored = findComponentGraphConfiguration(group?.nodes, nodeId);
+    const normalized = normalizeLiveChainItemOverride(override, authored || {});
+    return Object.keys(normalized).length ? [[String(nodeId), normalized]] : [];
+  }));
+}
+
+function findComponentGraphConfiguration(nodes = [], nodeId = "") {
+  for (const node of nodes || []) {
+    if (String(node.id || "") === String(nodeId || "")) return node.configuration || null;
+    const nested = findComponentGraphConfiguration(node.nodes || [], nodeId);
+    if (nested) return nested;
+  }
+  return null;
 }
 
 function normalizeLiveAnimationOverrides(animation = {}) {

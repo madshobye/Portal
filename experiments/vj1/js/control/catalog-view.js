@@ -1,5 +1,6 @@
 import { esc, icon } from "./template-utils.js";
 import { catalogMarkerMeta, sortCatalogItems } from "../domain/catalog-marker.js";
+import { componentLayerProjection } from "../domain/component-layer-projection.js";
 
 export function componentFilterTemplate(
   placeholder = "Filter components",
@@ -28,27 +29,28 @@ export function componentCatalogToolsTemplate(scope, activeMode = "recent", plac
   `;
 }
 
-export function componentCatalogSearchText(component = {}) {
+export function componentCatalogSearchText(component = {}, state = {}) {
   const terms = [];
   const append = (value) => {
     const text = String(value || "").trim();
     if (text) terms.push(text);
   };
-  const visitChain = (chain = []) => {
-    for (const item of chain || []) {
+  const visitLayers = (layers = []) => {
+    for (const layer of layers) {
+      const item = layer.item;
       append(item?.name);
       append(item?.componentId);
       append(item?.source?.mediaId);
       append(item?.source?.componentId);
       append(item?.source?.generatorId);
       append(item?.source?.params?.mediaId);
-      if (item?.kind === "group") visitChain(item.chain);
+      visitLayers(layer.children);
     }
   };
 
   append(component.name);
   append(component.id);
-  visitChain(component.chain);
+  visitLayers(componentLayerProjection(state, component));
   return terms.join(" ").toLowerCase();
 }
 

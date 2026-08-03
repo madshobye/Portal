@@ -3,6 +3,26 @@ import assert from "node:assert/strict";
 
 import { chainPasteTarget, clipboardPayloadForTarget, copyComponentAsScene, pasteClipboardPayload } from "../js/domain/clipboard.js";
 import { createSceneComponent, createComponentGroup, createComponentLayer, createDefaultComponent, createDefaultSurface, createInitialState, createMappingFromState } from "../js/domain/models.js";
+import { createVj1NodePackage } from "../js/app-node-package.js";
+import { componentLayerProjection } from "../js/domain/component-layer-projection.js";
+
+const appNodePackage = createVj1NodePackage();
+
+function prepareState(state) {
+  const prepared = appNodePackage.prepareProjectState(state);
+  for (const key of Object.keys(state)) delete state[key];
+  Object.assign(state, prepared);
+  return state;
+}
+
+function projectedChain(state, componentId) {
+  const component = state.components.find((candidate) => candidate.id === componentId);
+  const item = (layer) => ({
+    ...layer.item,
+    ...(layer.item.kind === "group" ? { chain: layer.children.map(item) } : {}),
+  });
+  return componentLayerProjection(state, component).map(item);
+}
 
 test("Component list paste creates an independent copy with fresh nested ids", () => {
   const state = createInitialState();
@@ -11,6 +31,7 @@ test("Component list paste creates an independent copy with fresh nested ids", (
   group.chain.push(createComponentLayer(1, { type: "generator", generatorId: "noise" }));
   component.chain = [group];
   state.components = [component];
+  prepareState(state);
   const payload = clipboardPayloadForTarget(state, { kind: "component-list", itemId: component.id });
 
   const result = pasteClipboardPayload(state, payload, { kind: "component-list" });
@@ -35,12 +56,13 @@ test("a Component converts to an independent Scene copy in the shared Scene coor
   group.chain.push(createComponentLayer(1, { type: "generator", generatorId: "noise" }));
   component.chain = [group];
   state.components = [component];
+  prepareState(state);
 
   const result = copyComponentAsScene(state, component.id);
   const scene = state.components.find((item) => item.id === result.id);
 
   assert.equal(result.converted, true);
-  assert.equal(state.components[0], component);
+  assert.equal(state.components[0].id, component.id);
   assert.equal(scene.type, "scene");
   assert.equal(scene.name, "Portrait Scene");
   assert.equal(Object.hasOwn(scene.scene, "width"), false);
@@ -59,6 +81,7 @@ test("copied Components become references when pasted into a Canvas", () => {
   const component = createDefaultComponent(0);
   const canvas = createSceneComponent(0);
   state.components = [component, canvas];
+  prepareState(state);
 
   const result = pasteClipboardPayload(
     state,
@@ -67,9 +90,10 @@ test("copied Components become references when pasted into a Canvas", () => {
   );
 
   assert.equal(result.pasted, true);
-  assert.equal(canvas.chain[0].source.type, "component");
-  assert.equal(canvas.chain[0].source.componentId, component.id);
-  assert.ok(canvas.chain[0].source.placement.scale > 0);
+  const placement = projectedChain(state, canvas.id)[0];
+  assert.equal(placement.source.type, "component");
+  assert.equal(placement.source.componentId, component.id);
+  assert.ok(placement.source.placement.scale > 0);
 });
 
 test("pasted elements also start disabled when their Canvas has a connected Live output", () => {
@@ -85,6 +109,7 @@ test("pasted elements also start disabled when their Canvas has a connected Live
   state.ui.live.selectedSceneId = canvas.id;
   state.metrics.clients = 1;
   state.metrics.outputs = { "output-main": 1 };
+  prepareState(state);
 
   const result = pasteClipboardPayload(
     state,
@@ -93,8 +118,9 @@ test("pasted elements also start disabled when their Canvas has a connected Live
   );
 
   assert.equal(result.pasted, true);
-  assert.equal(canvas.chain[0].source.componentId, component.id);
-  assert.equal(canvas.chain[0].enabled, false);
+  const placement = projectedChain(state, canvas.id)[0];
+  assert.equal(placement.source.componentId, component.id);
+  assert.equal(placement.enabled, false);
 });
 
 test("pasting a Component onto a Scene list row targets that Scene chain", () => {
@@ -102,6 +128,7 @@ test("pasting a Component onto a Scene list row targets that Scene chain", () =>
   const component = createDefaultComponent(0);
   const canvas = createSceneComponent(0);
   state.components = [component, canvas];
+  prepareState(state);
 
   const result = pasteClipboardPayload(
     state,
@@ -110,7 +137,7 @@ test("pasting a Component onto a Scene list row targets that Scene chain", () =>
   );
 
   assert.equal(result.pasted, true);
-  assert.equal(canvas.chain[0].source.componentId, component.id);
+  assert.equal(projectedChain(state, canvas.id)[0].source.componentId, component.id);
 });
 
 test("chain paste inserts after an element or inside the selected Group", () => {
@@ -120,6 +147,7 @@ test("chain paste inserts after an element or inside the selected Group", () => 
   const group = createComponentGroup(0);
   component.chain.push(group);
   state.components = [component];
+  prepareState(state);
   const copied = { kind: "chain-item", value: createComponentLayer(1, { type: "generator", generatorId: "gradient" }) };
 
   const after = pasteClipboardPayload(state, copied, { kind: "chain", componentId: component.id, itemId: first.id });
@@ -127,9 +155,10 @@ test("chain paste inserts after an element or inside the selected Group", () => 
 
   assert.equal(after.pasted, true);
   assert.equal(inside.pasted, true);
-  assert.equal(component.chain[1].source.generatorId, "gradient");
-  assert.equal(group.chain.length, 1);
-  assert.notEqual(component.chain[1].id, group.chain[0].id);
+  const chain = projectedChain(state, component.id);
+  assert.equal(chain[1].source.generatorId, "gradient");
+  assert.equal(chain[2].chain.length, 1);
+  assert.notEqual(chain[1].id, chain[2].chain[0].id);
   assert.deepEqual(chainPasteTarget(state, component.id, group.id), { kind: "group", componentId: component.id, itemId: group.id });
 });
 
@@ -140,6 +169,7 @@ test("a Canvas element copied into a Component remains a chain element", () => {
   const canvasElement = createComponentLayer(1, { type: "generator", generatorId: "gradient" });
   canvas.chain = [canvasElement];
   state.components = [component, canvas];
+  prepareState(state);
   const payload = clipboardPayloadForTarget(state, {
     kind: "chain-item",
     componentId: canvas.id,
@@ -155,8 +185,9 @@ test("a Canvas element copied into a Component remains a chain element", () => {
   assert.equal(result.pasted, true);
   assert.equal(result.kind, "chain-item");
   assert.equal(state.components.length, 2);
-  assert.equal(component.chain.at(-1).source.generatorId, "gradient");
-  assert.notEqual(component.chain.at(-1).id, canvasElement.id);
+  const pasted = projectedChain(state, component.id).at(-1);
+  assert.equal(pasted.source.generatorId, "gradient");
+  assert.notEqual(pasted.id, canvasElement.id);
 });
 
 test("Mappings and mapped surfaces duplicate only into their matching lists", () => {
@@ -186,14 +217,15 @@ test("pasted media becomes a source only for chain destinations", () => {
   const state = createInitialState();
   const component = createDefaultComponent(0);
   state.components = [component];
+  prepareState(state);
 
   const library = pasteClipboardPayload(state, { kind: "media", value: { id: "media/image.png" } }, { kind: "media-library" });
   const chain = pasteClipboardPayload(state, { kind: "media", value: { id: "media/image.png" } }, { kind: "chain", componentId: component.id });
 
   assert.equal(library.pasted, false);
-  assert.equal(component.chain.length, 2);
+  assert.equal(projectedChain(state, component.id).length, 2);
   assert.equal(chain.pasted, true);
-  assert.deepEqual(component.chain[1].source, {
+  assert.deepEqual(projectedChain(state, component.id)[1].source, {
     type: "generator",
     generatorId: "mediaImage",
     params: { mediaId: "media/image.png" },
@@ -205,8 +237,8 @@ test("pasted media becomes a source only for chain destinations", () => {
     { kind: "component-list", itemId: component.id }
   );
   assert.equal(listTarget.pasted, true);
-  assert.equal(component.chain[2].source.generatorId, "mediaImage");
-  assert.equal(component.chain[2].source.params.mediaId, "media/second.png");
+  assert.equal(projectedChain(state, component.id)[2].source.generatorId, "mediaImage");
+  assert.equal(projectedChain(state, component.id)[2].source.params.mediaId, "media/second.png");
 });
 
 test("clipboard import canonicalizes legacy direct media recursively", () => {
@@ -217,6 +249,7 @@ test("clipboard import canonicalizes legacy direct media recursively", () => {
     { id: "media/clip.bin", type: "video" },
     { id: "media/head.bin", type: "model" },
   ];
+  prepareState(state);
   const group = createComponentGroup(0);
   group.chain = [
     createComponentLayer(0, {
@@ -250,7 +283,7 @@ test("clipboard import canonicalizes legacy direct media recursively", () => {
     { kind: "chain-item", value: group },
     { kind: "chain", componentId: component.id },
   );
-  const pasted = component.chain.at(-1);
+  const pasted = projectedChain(state, component.id).at(-1);
 
   assert.equal(result.pasted, true);
   assert.equal(pasted.chain[0].source.type, "generator");
@@ -277,6 +310,7 @@ test("clipboard import canonicalizes legacy Camera and Black recursively", () =>
   const state = createInitialState();
   const component = createDefaultComponent(0);
   state.components = [component];
+  prepareState(state);
   const group = createComponentGroup(0);
   group.chain = [
     createComponentLayer(0, {
@@ -295,7 +329,7 @@ test("clipboard import canonicalizes legacy Camera and Black recursively", () =>
     { kind: "chain-item", value: group },
     { kind: "chain", componentId: component.id },
   );
-  const pasted = component.chain.at(-1);
+  const pasted = projectedChain(state, component.id).at(-1);
 
   assert.equal(result.pasted, true);
   assert.equal(pasted.chain[0].source.type, "generator");

@@ -1257,7 +1257,7 @@ test("visual compiler rejects coordinate and alpha mismatches before the frame l
   ), /VISUAL_CONTRACT_ALPHA_MISMATCH/);
 });
 
-test("visual render operations bind to runtime Component configuration by identity", () => {
+test("visual render operations bind to authoritative graph configuration by identity", () => {
   const sourceNode = renderNode("source", "source");
   const effectNode = renderNode("active", "effect");
   const runtimeSource = {
@@ -1282,10 +1282,10 @@ test("visual render operations bind to runtime Component configuration by identi
     ],
   }, { id: "runtime-identity", chain: [runtimeSource, runtimeEffect] });
 
-  assert.strictEqual(plan.operations[0].configuration, runtimeSource);
-  assert.strictEqual(plan.operations[1].configuration, runtimeEffect);
+  assert.strictEqual(plan.operations[0].configuration, sourceNode.configuration);
+  assert.strictEqual(plan.operations[1].configuration, effectNode.configuration);
   runtimeEffect.params.amount = 0.8;
-  assert.equal(plan.operations[1].configuration.params.amount, 0.8);
+  assert.notEqual(plan.operations[1].configuration.params.amount, 0.8);
 });
 
 test("native node processes compile into the direct visual operation", () => {

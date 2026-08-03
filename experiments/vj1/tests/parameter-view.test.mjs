@@ -89,7 +89,7 @@ test("ISF booleans use the shared toggle button instead of a checkbox", () => {
     { id: "freeze", label: "Freeze", type: "boolean", isfUniformType: "bool", defaultValue: false },
     "chain.2.params.freeze",
     false,
-    'data-live-component-id="component-7" data-live-item-id="item-freeze" data-live-update'
+    'data-live-component-id="component-7" data-live-node-id="item-freeze" data-live-update'
   );
 
   assert.match(persistent, /class="param-toggle-button is-enabled"/);
@@ -99,7 +99,7 @@ test("ISF booleans use the shared toggle button instead of a checkbox", () => {
   assert.doesNotMatch(persistent, /type="checkbox"/);
   assert.match(live, /class="param-toggle-button"/);
   assert.match(live, /data-live-component-id="component-7"/);
-  assert.match(live, /data-live-item-id="item-freeze"/);
+  assert.match(live, /data-live-node-id="item-freeze"/);
   assert.match(live, /data-live-toggle="chain\.2\.params\.freeze"/);
   assert.match(live, /data-toggle-value="false"/);
   assert.doesNotMatch(live, /type="checkbox"/);
