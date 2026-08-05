@@ -1,6 +1,6 @@
 # VJ1 Architecture Guide
 
-Snapshot date: 2026-08-03
+Snapshot date: 2026-08-05
 
 VJ1 is a build-free browser VJ and projection-mapping application in
 `experiments/vj1`. It targets current Chrome and WebGL2. p5 provides the browser
@@ -23,12 +23,16 @@ in the documents listed at the end.
 
 - Prefer a small reusable abstraction to feature-specific branches. Do not add
   a workaround merely to make one example pass.
+- Feature scope is subordinate to architecture. Defer, reduce, or drop behavior
+  that cannot fit the established node, Component, service, or render contracts
+  without substantial special-case code. More behavior is not progress when it
+  weakens the reusable system.
 - Slow down when the cause is uncertain. Instrument, profile, and isolate the
   failing authority before changing code. It is acceptable to stop rather than
   weaken the architecture.
 - Preserve established product behavior unless a design change has been
   discussed explicitly.
-- Authored project state is the only user truth. Compiled plans, compatibility
+- Authored project state is the only user truth. Compiled plans, execution/UI
   projections, controls, thumbnails, caches, and runtime resources are derived.
 - Derived state must be correct before first execution. A later movement,
   refresh, or unrelated edit must never be required to repair it.
@@ -36,6 +40,10 @@ in the documents listed at the end.
   wakes composition, and resource readiness wakes only its consumers.
 - Do not silently fail or silently select a weaker path. Errors and meaningful
   fallbacks emit tagged console diagnostics with the cause and chosen behavior.
+- Distinguish an unchanged command from a rejected command. A semantic no-op is
+  expected and stays quiet; a rejected event, patch, protocol message, resource
+  activation, or compiled synchronization emits a structured diagnostic at the
+  boundary that rejected it.
 - Support the intended modern Chrome/WebGL2/File System Access/Web Serial
   environment. Do not burden the hot path with broad legacy-browser fallbacks.
 - Migrate old project data at load time. Never reintroduce retired project
@@ -50,6 +58,12 @@ copies, readbacks, uploads, contexts, and full-frame passes. Prefer shaders,
 typed arrays, workers, retained targets, bounded algorithms, and measured
 specialized kernels. Diagnose control DOM, compilation, decoding, CPU render,
 GPU render, and presentation cadence as separate systems.
+
+p5 is the browser canvas, media-wrapper, and interaction host, not the preferred
+frame-critical drawing backend. Text, curves, repeated geometry, effects, and
+pixel-intensive visuals use retained shaders, SDF techniques, cached
+rasterization, or explicit optimized kernels. A p5 drawing path is acceptable
+only when it is bounded, measured, and declared by the owning node or compiler.
 
 ## Product model and authority
 
@@ -115,6 +129,15 @@ sequences, or a small declared native kernel. Editor activation must state
 whether an edit is live, requires recompile/restart, is read-only, or is
 unsupported. A displayed graph must describe what executes.
 
+The generated Component Group is the sole editable authority for visual order,
+nesting, configuration, and stable node identity. Component and Live layer UIs
+are read-only projections of that Group and write back through `nodeId` plus a
+configuration-relative path. `component.chain` may exist only as a disposable
+execution projection produced from the graph; no active control, diff, patch,
+compiler decision, or renderer address may use its positional indices. Older
+positional addresses are converted once by project migration and are rejected
+by the active runtime afterward.
+
 There is no universal scheduled graph interpreter in the render loop. Ordinary
 control/data graphs run when invoked. Visual Groups compile before rendering to
 allocation-stable direct programs. Public controls bind to the child parameter
@@ -125,6 +148,15 @@ lowerings with tests or metrics and an ordinary typed contract around them.
 Project-global transports such as DMX, MIDI, OSC, capture, and audio analysis
 are services, not hidden Component state. Nodes expose typed values/events to
 those services. A service has one resource owner, one lifecycle, and one cadence.
+
+The Application graph is both compiled bootstrap topology and indexed runtime
+dataflow, but it is not a universal graph scheduler. Dependency edges compile
+once into service construction order and injected capabilities. Dataflow edges
+compile once into direct event routes between registered ports. Emitting a
+runtime event follows that index without traversing the graph, and rendering
+never evaluates the Application graph per frame. The graph remains an honest
+description of infrastructure ownership and runtime communication while
+specialized services retain their appropriate execution models.
 
 ## Render and resolution contract
 
@@ -149,7 +181,10 @@ Hard invariants:
 2. **The presentation canvas begins demand calculation.** A source renders only
    the pixels its downstream output can consume. `cover`, `contain`, and
    `stretch` use one shared fit implementation. Cover matches one destination
-   dimension exactly and crops the other.
+   dimension exactly and crops the other. Media preserves its intrinsic
+   proportions throughout import, demand, placement, caching, and rendering;
+   `cover` or `contain` is the default, and stretching is always an explicit
+   authored choice.
 3. **ROI is an allocation window, not a coordinate system.** Cropping an ROI
    must equal cropping the full render. ROI cannot redefine aspect, typography,
    mesh framing, object bounds, shader coordinates, or animation math.
@@ -280,6 +315,11 @@ may contain subfolders, but UI labels default to the current filename rather
 than exposing the complete path. Resource identity remains stable and separate
 from its display label.
 
+The media system derives and retains representations sized for actual output
+demand. Users select content and authored quality intent; they do not normally
+manage intermediate resolutions or caches. Derived renditions are disposable
+runtime resources and never replace or modify the authoritative source.
+
 The host owns one decoder per media identity and its playback lifecycle; graphs
 own selection, trim, speed, fit, mirroring, and conversion. Multiple consumers
 of one video share retained decoding, while distinct videos keep independent
@@ -330,12 +370,37 @@ presentation, metrics, and disposal. Capabilities communicate through injected
 contracts; do not restore forwarding methods, duplicate maps, source-name
 dispatch, or alternate registries.
 
+Source rendering keeps three explicit responsibilities: the coordinator selects
+the compiled backend and retained render process; `SourceMediaResourceRuntime`
+owns media discovery, readiness, acquisition, and resource identity; and
+`SourcePlacementRuntime` owns demand rectangles, content transforms, placement,
+and drawing into the requested target. Backend-specific execution remains behind
+declared compiler metadata or a registered native renderer rather than growing
+source-name branches in the coordinator.
+
+Preview and standalone Output are presentation hosts around the same renderer,
+not separate rendering implementations. Their shared host lifecycle owns setup
+claiming, resize observation, deferred resize delivery, and disposal. A host may
+add transport or editor interaction, but wake/suspend, readiness, patch,
+transition, projection, and rendering semantics stay in shared runtimes.
+
 Preview activation is scoped. Navigation retains programs; structural changes
 recompile only reachable ownership scopes; parameters, transforms, boundaries,
 animation fields, and Live overrides cross as compact retained patches. A patch
 accepted by Preview remains authoritative through pointer release and deferred
 DOM reconciliation. Direct manipulation may keep an optimistic local overlay
 only for its active pointer transaction.
+
+Render patches have one stable address: target kind, Component ID, optional
+graph node ID, and a path relative to that node's configuration. Compound UI
+controls translate at the input boundary into canonical fields—for example,
+Boundary scale writes aspect-preserving Boundary width and height patches rather
+than inventing a persisted `boundary.scale` field. Preview and Output apply the
+same patch runtime and compiled-program synchronization. A rejected patch emits
+one deduplicated `VJ1_RENDER_PATCH_REJECTED` warning per semantic address with
+host identity, reason, patch identity, and Output transport revision when one
+exists. Rejection is never inferred from a routine state update returning
+unchanged.
 
 Autosave snapshots immutable authored truth before asynchronous serialization.
 Runtime/UI events do not autosave. Complete state transport is reserved for
@@ -392,13 +457,17 @@ Important references:
 - Project model/routing: `js/domain/models.js`, `project-migrations.js`,
   `live-projection-program.js`, `scene-routing.js`.
 - Compilation: `js/libraries/composition-engine/shared/`.
+- Application topology/dataflow:
+  `js/libraries/composition-engine/application-program/index.js`.
 - Render contracts: `js/libraries/render-engine/` and
   `ARCHITECTURE_CLEANUP.md`.
 - Node platform: `js/libraries/node-engine/` and `NODE_ARCHITECTURE.md`.
 - Visuals/libraries: `js/libraries/visual-nodes/`, `visual-library/`, and
   `visual-library/ISF-WEBGL2-PROFILE.md`.
 - 3D: `js/libraries/mesh-engine/` and `terrain-engine/`.
-- Runtime: `js/output/output-renderer.js` plus the focused runtimes beside it.
+- Runtime: `js/output/output-renderer.js`, `presentation-host-lifecycle.js`,
+  `live-render-patch-runtime.js`, and the focused runtimes beside them.
+- Device services: `js/libraries/device-engine/`.
 - Persistence/transport: `js/services/project-serializer.js`,
   `project-folder-service.js`, and `output-bridge-service.js`.
 - Editor/UI: `js/control/`, `style.css`.

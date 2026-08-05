@@ -1,93 +1,63 @@
-# VJ1 Node Platform — First Version
+# VJ1 Node Platform Contract
 
-VJ1 is moving toward a node-first architecture. A node is an executable,
-versioned software component with typed inlets, outlets, parameters, editable
-parts, runtime policy, and presentation metadata. Nodes do not require a graph
-scheduler: application code and group programs can invoke the same node
-instances directly.
+This document defines the technical contract of the VJ1 node platform. It is a
+focused companion to `codex.md`, which owns project-wide architecture, product
+authority, performance principles, and working practices. This document owns
+node definitions, instances, ports, Groups, execution models, artifacts,
+packages, forks, and node-facing editor behavior.
 
-The implementation lives in `js/libraries/`. Every reusable library has a
-public `index.js`; every substantial executable node or group has its own
-directory and `index.js`. Node packages may use p5, browser
-APIs, and other external libraries already available to the application. The
-important boundary is internal: node implementations must not become wrappers
-that delegate their core behavior back into the existing VJ1 output runtime,
-services, or application state.
+If the documents disagree, `codex.md` is the broader authority and this contract
+must be brought into alignment. Implementation-specific formats remain owned by
+the modules under `js/libraries/node-engine`; saved projects are migrated at load
+time rather than supported through parallel runtime models.
 
-## Layers
+## Purpose and boundary
 
-### Node platform
+A node is an executable, versioned capability with typed inlets, outlets,
+parameters, editable parts, runtime policy, and presentation metadata. Nodes are
+the reusable technical units beneath Components, Scenes, controls, generators,
+effects, inputs, and infrastructure services.
 
-- `node-types.js` owns the extensible value-type registry and structural types.
-- `node-definition.js` owns versioned manifests, smart port declarations, and
-  the version-aware node registry.
-- `node-runtime.js` owns direct execution, packets, automatic numeric-range
-  mapping, smoothing, inlet throttling, node throttling, and output validation.
-- `node-group.js` owns expandable group manifests and code-owned group programs.
-- `node-graph-program.js` owns deterministic call-driven execution for
-  low-frequency control, data, and utility graphs.
-- `node-compiler.js` selects compiler backends. Visual groups compile to
-  opaque allocation-stable programs rather than generic packet traversal.
-- `node-artifact.js` projects nodes into product concepts such as components,
-  controls, effects, and internal utilities.
-- `node-editor.js` maps editable node parts to editor panels.
-
-### Capability libraries
-
-Capability implementations belong in explicit library folders. They keep their
-substantial algorithmic code in the node module. They may use external
-libraries—including p5—when useful, while avoiding dependencies on existing
-VJ-specific implementations. The initial `core.image.resize` node contains its
-typed-array bilinear resampling algorithm directly and emits a composite image
-frame.
+A node owns its semantic behavior. It must not be a decorative wrapper that
+dispatches by source name into hidden application code or a second registry.
+Substantial reusable algorithms belong to their capability library or node-owned
+implementation. A compiler may lower a node to a shader, direct function,
+retained typed-value step, shared framebuffer sequence, or declared native
+kernel without changing the node's public contract.
 
 The dependency direction is:
 
 ```text
-Node platform → generic runtime and schemas
-Libraries    → node engine + external libraries
-Application  → public library entry points + render hosts + product views
+node platform -> generic types, schemas, runtime, and compiler contracts
+libraries     -> node platform + external browser/GPU libraries
+application   -> public library entry points + product views + render hosts
 ```
 
-External libraries are not required to be rewritten. Internal VJ algorithms
-should move into their owning nodes rather than being called through thin node
-wrappers.
+Every reusable library exposes a public `index.js`. Substantial executable nodes
+and Groups live in their own directories. Node modules may use browser APIs and
+external libraries, but may not reach through incidental UI or Output imports to
+acquire application-global services.
 
-## Compatibility and performance invariants
+## Platform modules
 
-Node migration must preserve the current product model and interaction design.
-Component, Canvas, Scene, Live, mapping, catalog, inspector, and output behavior
-remain unchanged as product concepts while their persisted programs are node
-groups. `component.chain` is an in-memory UI compatibility projection of the
-persisted Component group, not a second saved authority.
-The technical graph may be expandable without forcing users into one enormous
-generic graph viewport.
+- `node-types.js` owns extensible value types and structural type validation.
+- `node-definition.js` owns normalized versioned definitions, smart ports, and
+  the version-aware registry.
+- `node-runtime.js` owns direct execution, packets, range mapping, smoothing,
+  throttling, and output validation.
+- `node-group.js` owns expandable Group definitions and code-owned programs.
+- `node-graph-program.js` owns deterministic call-driven control, data, and
+  utility graph execution.
+- `node-compiler.js` selects declared compiler backends.
+- `node-artifact.js` maps technical definitions into product concepts.
+- `node-editor.js` exposes editable parts and creates project-local forks.
+- `node-project.js` owns the serializable node-project shape.
+- `node-package.js` owns package manifests, dependency validation, import,
+  export, version selection, fork upgrades, and migrations.
 
-The live renderer must remain at least as smooth as the current implementation:
+## Definitions and instances
 
-- Do not allocate node definitions, instances, ports, packets, or group plans
-  inside the frame loop.
-- Code-owned groups compile to direct calls; editor metadata is not traversed
-  while rendering.
-- Existing caches, fused shader paths, workers, typed arrays, resource reuse,
-  and specialized GPU paths remain in place until replacements are measured.
-- Render-host bridges belong outside node packs and must not copy large
-  media or mesh values unnecessarily.
-- A specialized conditional is acceptable when it preserves established UX or
-  a measured fast path. Mark it with an `intentional allocation-stable fast path`
-  comment and cover it with a focused test or metric.
-- Do not expose internal utility/control nodes as Components merely because
-  they are graph nodes; artifact capabilities continue to control each view.
-
-### Product layer
-
-The VJ1 application selects node packs, registers artifacts, and chooses the
-views in which they appear. A slider can therefore be a first-class control
-node while remaining absent from the visual-component canvas.
-
-## Node definitions and instances
-
-A definition identifies a reusable node implementation:
+A definition identifies one reusable implementation:
 
 ```text
 id + version + formatVersion
@@ -97,97 +67,140 @@ execution policy
 editable parts
 capabilities + presentation
 migrations
-process implementation
+process or compiler contract
 ```
 
-An instance identifies one configured occurrence of that definition. Projects
-should eventually pin the definition version used by every persisted instance.
-Editing a shared definition should create a new version or a project-local
-fork rather than silently changing existing projects.
+An instance identifies one configured occurrence of a definition. Persisted
+instances and artifact implementations carry exact node identity and version.
+Runtime callbacks, browser resources, compiled programs, and host services are
+never serialized.
 
-## Smart ports
+Definitions are immutable identities. Editing a built-in definition creates a
+project-local fork pinned to its exact base definition; it never mutates the
+built-in package. Import and upgrade validate the base version and apply explicit
+migrations. Missing, incompatible, ambiguous, or modified dependencies fail
+closed with a structured diagnostic.
 
-Ports declare value type, expected/allowed/display ranges, scaling mode,
-smoothing, rate policy, editor hints, and descriptive metadata. When a packet
-moves from an outlet with range `10..20` into an inlet with range `0..1`, the
-node runtime builds the numeric mapping automatically.
+## Typed ports and values
 
-Rate overflow currently supports `latest`, `drop`, `queue`, and `sample` policy
-declarations. The call-driven runtime can receive packets and flush eligible
-work without owning a graph scheduler.
+Ports declare value type and may declare expected, allowed, and display ranges,
+scaling mode, smoothing, rate policy, editor hints, and descriptive metadata.
+Connections are accepted by type compatibility rather than concrete node names.
 
-## Groups
+When compatible numeric ranges differ, the runtime constructs the declared
+mapping at connection preparation. Rate overflow supports `latest`, `drop`,
+`queue`, and `sample`. These policies are prepared outside frame-critical
+execution; metadata is not rediscovered for every packet.
 
-A group is both a node definition and an inspectable internal graph. A
-code-owned `program` may execute child nodes explicitly. Editable utility and
-control groups without such a program execute through the deterministic
-call-driven graph program. Visual groups instead declare a compiler backend;
-the compiler may fuse or specialize the graph and returns one opaque direct
-program before rendering begins.
+Large media, mesh, scene, texture, and resource values retain stable identity
+and explicit ownership. Host bridges pass references or bounded snapshots and
+must not copy large values merely to cross a node boundary.
 
-## Artifacts and views
+## Groups and execution models
 
-Execution identity and product identity are intentionally separate:
+A Group is both a node definition and an inspectable internal graph. Its public
+ports are the only external contract; internal nodes and connections describe
+how that contract is fulfilled.
+
+VJ1 deliberately has no universal scheduled graph interpreter:
+
+- control, data, and utility graphs run through deterministic call-driven
+  programs when invoked;
+- code-owned Groups may invoke prepared child nodes directly;
+- visual Component Groups compile before rendering to retained,
+  allocation-stable programs;
+- the Application graph compiles service dependencies into bootstrap order and
+  dataflow edges into indexed direct event routes;
+- specialized native lowering is allowed only when declared by the owning node,
+  surrounded by an ordinary typed contract, and covered by a focused test or
+  metric.
+
+Editor metadata, definitions, ports, packets, and graph topology are not
+allocated or traversed inside the render loop. A displayed graph must describe
+the program that executes even when the compiler fuses or specializes it.
+
+## Component graph authority
+
+The generated Component Group is the sole editable authority for visual order,
+nesting, stable node identity, and configuration. The Component and Live layer
+interfaces are projections of this graph and write through `nodeId` plus a path
+relative to that node's configuration.
+
+`component.chain` is only a disposable execution projection materialized from
+the authoritative Group. Active UI controls, Live diffs, render patches,
+compiler decisions, and renderer synchronization never address it by array
+index. Positional legacy addresses are accepted only by load-time migration and
+are rejected by the active node and patch runtimes.
+
+Public controls bind to the child parameter or unconnected inlet that owns the
+behavior. A public control cannot override an inlet already driven by the graph.
+Generated controls and significant-parameter views remain derived projections;
+they do not become another parameter authority.
+
+## Artifacts and product views
+
+Execution identity and product identity are separate:
 
 ```text
-Node definition → executable technical capability
-Artifact        → component, control, effect, scene, input, or utility
-View            → filtered projection of artifacts and node instances
+Node definition -> executable technical capability
+Artifact        -> Component, control, effect, Scene, input, or utility
+View            -> filtered projection of artifacts and instances
 ```
 
-Catalog membership and placement use artifact types and capability metadata,
-not checks against concrete node names. This allows component, control, scene,
-and expanded graph views to show different projections of the same system.
+The application composition root selects packages, registers definitions and
+artifacts, and chooses where those artifacts appear. Catalog membership,
+placement, editor panels, and visibility use artifact types and capability
+metadata rather than checks against concrete node names.
 
-## Implemented application composition
+Internal utility nodes do not become Components merely because they exist in a
+graph. Conversely, one definition may support several product projections when
+its declared capabilities make those projections honest.
 
-`app-node-package.js` is the control application's composition root. It selects
-the packs, registers their definitions and artifacts, and projects current
-Component, Canvas, Scene, and Live concepts into separate views. Node projects
-persist pinned definition versions, instances, groups, artifacts, editable
-forks, and migrations without serializing runtime callbacks.
+The Nodes workspace exposes registered definitions, typed ports, editable
+parts, and expandable topology. Shader and JavaScript edits materialize a
+project-local fork and compile before activation. Editing never inserts generic
+node machinery into the frame loop.
 
-The first-version capability libraries are divided as follows:
+## Services and host ownership
 
-- image and mesh nodes own resizing, STL/OBJ parsing, mesh resolution, WebGL
-  preparation/rendering, thumbnails, and recursive parse/prepare/convert groups;
-- visual nodes materialize generator/effect shader source as editable node
-  parts, with documented native fast paths for specialized generators;
-- control, timing, mapping, and state packs own interactive values, clocks,
-  transformations, smoothing/rate semantics, and command classification;
-- media, storage, synchronization, cache, and diagnostics packs own resource
-  lifecycle, serialized writes, live-patch coalescing, retained render results,
-  and operational reporting;
-- composition owns surface demand and render-request planning while the output
-  adapter keeps the compiled planning closure outside the frame loop.
+Project-global facilities such as MIDI, DMX, OSC, capture, audio analysis,
+storage, diagnostics, synchronization, and media lifecycle are explicit
+services. Nodes exchange typed values or events with them through injected
+contracts. They do not acquire ownership through incidental Control, Preview,
+or Output imports.
 
-Generators and effects own their metadata, parameters, runtime policy, and
-shader/native binding in individual folders under `visual-nodes/generators`
-and `visual-nodes/effects`. The visual library catalog only indexes those
-node-owned modules; there are no parallel source or shader manifests. Product
-views, metrics, scheduling, output, and the application composition root all
-consume executable node components through the visual library's public entry
-point. Specialized native nodes keep allocation-stable direct renderers
-where inserting generic runtime machinery would add frame-time work. These are
-node-owned implementations, not a second execution registry. The control
-application builds the editable node package; output and preview branches
-import node-owned algorithms directly and never construct the package, node
-instances, packets, or a scheduler.
+Each resource has one lifecycle owner. Preview and Output may host the same
+compiled node program, but they share node semantics, patch addressing,
+readiness, and disposal contracts. Render-host bridges remain outside node packs.
 
-There is intentionally no universal scheduled graph executor. Control, data,
-and utility graphs run when application code invokes them. Component visual
-graphs compile to the established direct renderer, preserving shader fusion,
-shared framebuffer targets, retained caches, specialized model/terrain paths,
-and allocation stability. A visual node boundary may therefore contain a
-specialized compiled renderer rather than forcing extra ping-pong buffers.
+## Performance and correctness invariants
 
-## Product-facing Node View
+- Compile graph topology, bindings, ranges, execution policy, and resource
+  dependencies before the frame loop.
+- Retain definitions, instances, programs, shaders, targets, typed arrays, and
+  resource handles across evaluations.
+- Do not introduce framebuffer passes, uploads, readbacks, or large-value copies
+  merely to preserve a generic node abstraction.
+- Preserve compiler-approved fused shaders, shared private linear framebuffer
+  sequences, workers, caches, and specialized GPU paths until a replacement is
+  measured.
+- Disabled and unreachable nodes perform no render work.
+- Nodes declare time, feedback, capture, input, and other dirty dependencies so
+  stable graphs can sleep.
+- A node publishes only complete valid outputs. During asynchronous replacement,
+  consumers retain the last valid result until the new result is ready.
+- Rejected definitions, connections, packets, migrations, compilations, and
+  activations emit structured diagnostics at the rejecting boundary. Ordinary
+  unchanged execution remains quiet.
 
-The control application exposes a Nodes workspace in the primary view switch.
-Its library rail lists every registered definition, its central structure view
-shows typed ports, implementation parts, and expandable group topology, and its
-inspector exposes parameters and editable JavaScript/shader parts. Saving an
-edit creates a project-local node fork; it does not mutate the built-in library
-or add editor work to the live render loop. Shader forks are compiled by the
-visual backend. Executable JavaScript process parts compile once when
-materialized, while edited utility group graphs use the call-driven program.
+## Primary references
+
+- Node platform: `js/libraries/node-engine/`.
+- Application package/composition root: `js/app-node-package.js`.
+- Component and visual compilation:
+  `js/libraries/composition-engine/shared/`.
+- Application bootstrap and dataflow:
+  `js/libraries/composition-engine/application-program/index.js`.
+- Node-owned visual capabilities: `js/libraries/visual-nodes/`.
+- Project migration: `js/domain/project-migrations.js`.
+- Project-wide architecture and verification: `codex.md`.
